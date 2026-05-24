@@ -93,7 +93,7 @@ PRIMARY := $(firstword $(BACKEND_LIST))
 # TORCH_DTYPE/MLX_DTYPE/TAPE_DTYPE to F32 ONLY IF the user hasn't
 # already specified them on the command line (`?=` semantics
 # inlined since this is `:=` parse-time). User-side override:
-# `TORCH_DTYPE=F64 make test-hf-llama-roundtrip` keeps F64 (e.g.
+# `TORCH_DTYPE=F64 make test-e2e-hf-llama-roundtrip` keeps F64 (e.g.
 # for numerical bisection vs the F64 oracle path).
 # Every HF model target — Llama / BitNet need F32 for memory
 # (1.24B / 2B params at F64 don't fit on a 16 GB VM); BERT-tiny /
@@ -106,15 +106,15 @@ HF_GOALS := example-hf-bert-inference \
                   example-hf-bitnet-inference \
                   example-hf-gpt2-inference \
                   example-hf-llama-inference \
-                  test-hf-bert-roundtrip \
-                  test-hf-bitnet-roundtrip \
-                  test-hf-gpt2-roundtrip \
-                  test-hf-llama-roundtrip \
-                  test-hf-llama-generate-roundtrip \
-                  test-transformers-oracle \
-                  test-transformers-oracle-gpt2 \
-                  test-transformers-oracle-llama \
-                  test-transformers-oracle-llama-generate
+                  test-e2e-hf-bert-roundtrip \
+                  test-e2e-hf-bitnet-roundtrip \
+                  test-e2e-hf-gpt2-roundtrip \
+                  test-e2e-hf-llama-roundtrip \
+                  test-e2e-hf-llama-generate-roundtrip \
+                  test-e2e-transformers-oracle-bert \
+                  test-e2e-transformers-oracle-gpt2 \
+                  test-e2e-transformers-oracle-llama \
+                  test-e2e-transformers-oracle-llama-generate
 ifneq ($(filter $(HF_GOALS),$(MAKECMDGOALS)),)
   # `?=` not used here — Make's `?=` treats an exported-empty env var
   # ("" from the shell) as already-set and skips the default. The HF
@@ -1090,6 +1090,34 @@ test-integration: \
 		test-integration-checkpoint-resume \
 		test-integration-jupyter-cellparser
 
+# E2E test layer — see docs/develop/testing-taxonomy.md.
+#
+# Canonical aggregator: every e2e-layer leaf (example smoke matrix
+# across backend lanes, HF cross-language roundtrips, oracle gates,
+# jupyter notebook execution). Run locally when you touched an example
+# or training-loop module. ~15 min on tape; oracle/HF steps download
+# HF model weights on first run and need HF_TOKEN for the gated models.
+# Adding a new e2e-layer test means adding it to this list; the CI
+# workflow picks it up via `make test-e2e`.
+#
+# test-e2e-cuda is opportunistic (Colab/manual; not in this aggregator).
+# test-e2e-notebooks needs jupyter-install (heavy); kept out of the
+# default chain — invoke it explicitly when adding new notebooks.
+test-e2e: \
+		test-e2e-examples \
+		test-e2e-hf-bert-roundtrip \
+		test-e2e-hf-gpt2-roundtrip \
+		test-e2e-hf-bitnet-roundtrip \
+		test-e2e-hf-llama-roundtrip \
+		test-e2e-hf-llama-generate-roundtrip \
+		test-e2e-transformers-oracle-bert \
+		test-e2e-transformers-oracle-gpt2 \
+		test-e2e-transformers-oracle-llama \
+		test-e2e-transformers-oracle-llama-generate \
+		test-e2e-rope-oracle \
+		test-e2e-pytorch-ref \
+		test-e2e-jupyter
+
 # Idris-side unit suite against the active backend. Buckets that
 # touch the C surface (GradMode, ManagedHandle, Tensor lifecycle)
 # resolve through `{d=TestDevice}` which the Makefile-generated
@@ -1202,7 +1230,7 @@ example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-12
 # Cross-language correctness gate for HfBert: regenerates the Python
 # oracle via save_oracle.py, then runs the Idris example and compares
 # stdout against the oracle within F32 tolerance.
-test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
+test-e2e-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
@@ -1285,7 +1313,7 @@ example-hf-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-
 # The argmax-match assertion catches the meaningful regression class
 # (the model picking a different next token) without burdening the
 # gate with the per-element noise floor.
-test-hf-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
+test-e2e-hf-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/save_oracle_bitnet.py
 	idris2 $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
@@ -1297,7 +1325,7 @@ test-hf-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/
 		../../models/bitnet-2b-4t-oracle.safetensors \
 		1.0 --argmax-match
 
-test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
+test-e2e-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
@@ -1318,7 +1346,7 @@ test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # is catching macro regressions (broken forward, broken param load,
 # bad RoPE), not pinning numerics to BF16-noise-floor precision.
 # Tighten if measurements show consistent tighter alignment.
-test-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
+test-e2e-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
@@ -1337,7 +1365,7 @@ test-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config
 # --dump-tokens mode for the same prompt + budget, and asserts the
 # resulting token-ID sequences match element-wise. Catches
 # generation-path drift the single-forward
-# `test-hf-llama-roundtrip` can't see.
+# `test-e2e-hf-llama-roundtrip` can't see.
 #
 # Budget bumped 2026-06-04 from 4 to 8 after the KV cache landed
 # (commits `b5443135` ... `3b87291f`): with cached decode each step
@@ -1348,7 +1376,7 @@ test-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config
 # `BACKEND=torch TORCH_DEVICE=cpu` for CI or
 # `BACKEND=torch TORCH_DEVICE=mps` / `BACKEND=mlx MLX_DEVICE=gpu`
 # for paired-lane dev verification.
-test-hf-llama-generate-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
+test-e2e-hf-llama-generate-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
@@ -1361,9 +1389,9 @@ test-hf-llama-generate-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-
 		--token-sequence
 
 # Manual oracle-regen entry point (pytest harness pairs with
-# `test-hf-llama-generate-roundtrip` above). Useful when bumping
+# `test-e2e-hf-llama-generate-roundtrip` above). Useful when bumping
 # the budget after KV cache lands.
-test-transformers-oracle-llama-generate:
+test-e2e-transformers-oracle-llama-generate:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
 
@@ -1806,7 +1834,7 @@ ref-hf-llama:
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/time_inference_llama.py
 
-test-ref ref-test:
+test-e2e-pytorch-ref:
 	cd packages/pytorch && uv run pytest torch_ref/correctness/ -v
 
 ref-lint:
@@ -1824,8 +1852,8 @@ ref-typecheck:
 # This target only runs the generator + asserts the fixture is
 # well-formed (shape, dtype, finite, nontrivial). The cross-language
 # Idris-vs-Python comparison gate lands in Phase 6 as
-# test-hf-bert-roundtrip.
-test-transformers-oracle:
+# test-e2e-hf-bert-roundtrip.
+test-e2e-transformers-oracle-bert:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 
@@ -1833,25 +1861,25 @@ test-transformers-oracle:
 # cos/sin tables). Pinned by Test.RoPE in the idris-ml unit suite;
 # this target lets you regenerate the oracle if the upstream Llama-3
 # rope_scaling formula changes.
-test-rope-oracle:
+test-e2e-rope-oracle:
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/save_rope_oracle.py
 
-# Same shape as test-transformers-oracle, paired with HfGpt2.idr:
+# Same shape as test-e2e-transformers-oracle-bert, paired with HfGpt2.idr:
 # generates `models/tiny-gpt2-oracle.safetensors` from
 # `distilgpt2`'s last-hidden-state for [15496, 995] and
 # asserts the fixture is well-formed. The cross-language gate lands
-# as test-hf-gpt2-roundtrip alongside the Idris example.
-test-transformers-oracle-gpt2:
+# as test-e2e-hf-gpt2-roundtrip alongside the Idris example.
+test-e2e-transformers-oracle-gpt2:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 
 # Same shape, paired with HfLlama.idr: generates
 # `models/llama-3.2-1b-oracle.safetensors` from `meta-llama/Llama-3.2-1B`'s
 # last-hidden-state for [9906] ("Hello") and asserts the fixture is
-# well-formed. The cross-language gate lands as test-hf-llama-roundtrip
+# well-formed. The cross-language gate lands as test-e2e-hf-llama-roundtrip
 # alongside the Idris example.
-test-transformers-oracle-llama:
+test-e2e-transformers-oracle-llama:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama.py -v
 
@@ -1865,7 +1893,7 @@ ref-convergence-recall:
 	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
 
 # CUDA test (run on Colab or Linux with CUDA GPU)
-test-cuda:
+test-e2e-cuda:
 	bash scripts/test_cuda_colab.sh
 
 # Jupyter kernel (venv in packages/jupyter/.venv)
@@ -1898,7 +1926,7 @@ jupyter-lab: jupyter-install
 	$(JUPYTER_VENV)/bin/jupyter lab --notebook-dir=packages/jupyter/notebooks
 
 # Jupyter kernel tests (requires backend + idris2)
-test-jupyter: backend check $(JUPYTER_VENV)/bin/activate
+test-e2e-jupyter: backend check $(JUPYTER_VENV)/bin/activate
 	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
 	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/ -v
 
@@ -1908,7 +1936,7 @@ test-integration-jupyter-cellparser: $(JUPYTER_VENV)/bin/activate
 	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
 
 # Run all notebooks headless to check for API breakage
-test-notebooks: jupyter-install
+test-e2e-notebooks: jupyter-install
 	@fail=0; \
 	for nb in packages/jupyter/notebooks/tutorials/*.ipynb packages/jupyter/notebooks/models/*.ipynb; do \
 		echo "--- $$nb ---"; \
@@ -1982,7 +2010,7 @@ FAIL_FAST ?=
 # (e.g. while debugging the multi-backend hop). Folds away once
 # the demo has lived through a few stable CI runs.
 PRECISION_DEMO_READY ?= 1
-test-examples:
+test-e2e-examples:
 	@fail=0; skip=""; \
 	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
 	elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_PREFIX="gtimeout $(EXAMPLE_TIMEOUT)"; \
@@ -2118,7 +2146,7 @@ test-examples:
 	if [ $$fail -ne 0 ]; then echo "Some integration tests FAILED"; exit 1; fi; \
 	echo "All integration tests passed."
 
-all-backends: test-examples
+all-backends: test-e2e-examples
 
 # Run every example to convergence at full default epochs, single seed=42,
 # tape backend, with tight thresholds from test-examples-convergence.expect.
@@ -2130,7 +2158,7 @@ all-backends: test-examples
 CONVERGENCE_TIMEOUT ?= 14400
 CONVERGENCE_EXPECT := test-examples-convergence.expect
 
-test-examples-convergence:
+test-convergence:
 	@echo "WARNING: full-convergence runs take several hours on tape."
 	@echo "         Press Ctrl-C in the next 5s to abort." && sleep 5
 	@fail=0; \
@@ -2186,26 +2214,26 @@ test-all:
 		echo "--- test-unit-backend [$$b] ---"; \
 		$(MAKE) BACKEND=$$b test-unit-backend 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
 	done
-	@echo "=== Integration tests (examples on all backends) ==="
-	$(MAKE) test-examples
+	@echo "=== E2E tests (examples on all backends) ==="
+	$(MAKE) test-e2e-examples
 	@echo ""
 	@if command -v uv >/dev/null 2>&1 && [ -f packages/pytorch/pyproject.toml ]; then \
 		echo "=== PyTorch reference tests ==="; \
-		$(MAKE) test-ref; \
+		$(MAKE) test-e2e-pytorch-ref; \
 	else \
 		echo "=== PyTorch reference tests SKIPPED (uv not found) ==="; \
 	fi
 	@echo ""
 	@if command -v pytest >/dev/null 2>&1 && [ -f packages/jupyter/pyproject.toml ]; then \
 		echo "=== Jupyter kernel tests ==="; \
-		$(MAKE) test-jupyter; \
+		$(MAKE) test-e2e-jupyter; \
 	else \
 		echo "=== Jupyter kernel tests SKIPPED (pytest or jupyter not found) ==="; \
 	fi
 	@echo ""
 	@if [ -d packages/jupyter/.venv ] && $(JUPYTER_VENV)/bin/jupyter --version >/dev/null 2>&1; then \
 		echo "=== Notebook execution tests ==="; \
-		$(MAKE) test-notebooks; \
+		$(MAKE) test-e2e-notebooks; \
 	else \
 		echo "=== Notebook execution tests SKIPPED (jupyter not installed) ==="; \
 	fi
@@ -2232,7 +2260,13 @@ all: check-all test-all
         test-integration-typegate-gradmode-aliasing test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast test-integration-checkpoint-resume \
         test-integration-jupyter-cellparser \
-        test-examples test-examples-convergence \
+        test-e2e test-e2e-examples test-e2e-pytorch-ref test-e2e-jupyter test-e2e-notebooks test-e2e-cuda \
+        test-e2e-hf-bert-roundtrip test-e2e-hf-gpt2-roundtrip test-e2e-hf-bitnet-roundtrip \
+        test-e2e-hf-llama-roundtrip test-e2e-hf-llama-generate-roundtrip \
+        test-e2e-transformers-oracle-bert test-e2e-transformers-oracle-gpt2 \
+        test-e2e-transformers-oracle-llama test-e2e-transformers-oracle-llama-generate \
+        test-e2e-rope-oracle \
+        test-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm example-gru \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
@@ -2245,9 +2279,9 @@ all: check-all test-all
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
         ref-transformer ref-hf-bert ref-hf-gpt2 ref-hf-llama \
-        bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
+        bench-py bench-compare bench-ops bench-ops-py bench-ops-compare ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
-        jupyter-install jupyter-lab test-jupyter test-notebooks
+        jupyter-install jupyter-lab
 
 
 

@@ -199,7 +199,7 @@ jobs:
         # oracle is shape [128] F32 finite + non-trivial. Ubuntu-only:
         # ref-setup runs only there in this matrix.
         if: matrix.os == 'ubuntu-latest'
-        run: make test-transformers-oracle
+        run: make test-e2e-transformers-oracle-bert
 
       - name: Run HfGpt2 oracle generator + pytest (Ubuntu)
         # Same shape as the HfBert oracle gate but for sshleifer/tiny-gpt2.
@@ -208,7 +208,7 @@ jobs:
         # is intentionally degenerate at hidden=2 — exercises the
         # architectural pieces without burning CI disk). Ubuntu-only.
         if: matrix.os == 'ubuntu-latest'
-        run: make test-transformers-oracle-gpt2
+        run: make test-e2e-transformers-oracle-gpt2
 
       - name: Run HfBert end-to-end roundtrip (Ubuntu)
         # The cross-language correctness gate: regenerates the Python
@@ -219,7 +219,7 @@ jobs:
         # Currently passes at 4.1e-4 locally on tape. Ubuntu-only:
         # depends on the uv venv set up by ref-setup.
         if: matrix.os == 'ubuntu-latest'
-        run: make test-hf-bert-roundtrip
+        run: make test-e2e-hf-bert-roundtrip
 
       - name: Run HfGpt2 end-to-end roundtrip (Ubuntu)
         # Same gate shape as HfBert but for GPT-2: regenerate the Python
@@ -228,7 +228,7 @@ jobs:
         # state matches within max-abs-diff 1e-3. Currently passes at
         # ~1e-6 locally on tape. Ubuntu-only: depends on the uv venv.
         if: matrix.os == 'ubuntu-latest'
-        run: make test-hf-gpt2-roundtrip
+        run: make test-e2e-hf-gpt2-roundtrip
 
       - name: Run HfBitNet end-to-end roundtrip (Ubuntu, torch)
         # Cross-language gate: regenerate the Python oracle from
@@ -239,7 +239,7 @@ jobs:
         # runner (see Low-priority TODO "Tape F64 large-LM OOM"). BitNet
         # is not license-gated, so no HF_TOKEN handling needed.
         if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-hf-bitnet-roundtrip
+        run: make BACKEND=torch test-e2e-hf-bitnet-roundtrip
 
       - name: Run HfLlama end-to-end roundtrip (Ubuntu, torch, HF_TOKEN-gated)
         # Cross-language gate for Llama 3.2 1B. Regenerates the Python
@@ -256,11 +256,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && env.HF_TOKEN != ''
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: make BACKEND=torch test-hf-llama-roundtrip
+        run: make BACKEND=torch test-e2e-hf-llama-roundtrip
 
       - name: Run HfLlama multi-step generation roundtrip (Ubuntu, torch, HF_TOKEN-gated)
         # Cross-language gate for Llama 3.2 1B's *generation* path.
-        # The companion `test-hf-llama-roundtrip` step above tests a
+        # The companion `test-e2e-hf-llama-roundtrip` step above tests a
         # single forward on one fixed token; this step exercises the
         # full greedy-decode loop: tokenize "The capital of France
         # is", generate 4 tokens via `genLoop` (no KV cache yet —
@@ -277,7 +277,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && env.HF_TOKEN != ''
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: make BACKEND=torch test-hf-llama-generate-roundtrip
+        run: make BACKEND=torch test-e2e-hf-llama-generate-roundtrip
 
       - name: Verify GradMode gate (NoGrad loss rejected at compile)
         # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
@@ -390,7 +390,7 @@ jobs:
         # ntm-copy / ntm-associative-recall / dnc-recall / mountain-car-cont
         # are fixed by the generation-scoped free (see
         # docs/develop/tensor-lifecycle.md). The whole matrix runs.
-        run: make test-examples EXAMPLE_TIMEOUT=900
+        run: make test-e2e-examples EXAMPLE_TIMEOUT=900
 
       - name: Checkpoint resume smoke test
         # Trains gpt 10 epochs to a checkpoint dir, resumes to 20, and
