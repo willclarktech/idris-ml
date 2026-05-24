@@ -16,18 +16,22 @@
 |||                        per line. Comparator in
 |||                        scripts/compare_inference.py.
 |||
-|||   (default)            Demo: just runs the dump-logits forward and
-|||                        prints the top-5 token IDs. No greedy decode
-|||                        loop in v1 — that lands once the dump-mode
-|||                        roundtrip is green.
+|||   (default)            Greedy decode demo. Tokenize the prompt
+|||                        (default "The capital of France is"),
+|||                        generate `--num-tokens` next tokens by
+|||                        repeated argmax (no KV cache — re-runs the
+|||                        full forward on the growing sequence each
+|||                        step), detokenize, print the resulting
+|||                        text. Each forward at seq=N+k is ~3-15s
+|||                        depending on backend/device; keep N small
+|||                        for a quick demo.
 |||
 ||| Pre-requisites:
 |||   - models/microsoft/bitnet-b1.58-2B-4T/model.safetensors
 |||     (1.18 GB, fetch via `bash packages/idris-transformers/scripts/
 |||      hf-download.sh microsoft/bitnet-b1.58-2B-4T` — not gated).
-|||   - The example targets torch-mps (F32) or mlx-gpu (F32) — tape's
-|||     F64 lingua franca makes embed_tokens 1.3 GB; not yet validated
-|||     end-to-end on tape due to ~10 GB working-set.
+|||   - models/microsoft/bitnet-b1.58-2B-4T/tokenizer.json (default
+|||     mode only — dump-logits mode doesn't need a tokenizer).
 module Example.HfBitNetInference
 
 import Data.Fin
@@ -45,6 +49,7 @@ import Device
 import HfBitNet
 import Layer.RoPE
 import Tensor
+import Tokenizer
 import Util
 
 
@@ -79,8 +84,10 @@ KvOut = NumKvHeads * HeadDim    -- = 640
 Intermediate : Nat
 Intermediate = 6912
 
--- The model's max_position is 4096, but the dump-mode gate only needs
--- seq=2. Cap at 32 to keep the cos/sin tables tiny.
+-- The model's max_position is 4096. Default demo runs prompt~7 +
+-- 5 generated = 12 tokens, well under 32. Cap small so the cos/sin
+-- tables stay tiny (32 × 64 = 2K floats per table). Users wanting
+-- longer continuations would bump this.
 MaxPos : Nat
 MaxPos = 32
 
@@ -112,8 +119,12 @@ mkIds xs =
   in tinput1d {n} raw
 
 
+toExistVect : (xs : List a) -> (n : Nat ** Vect n a)
+toExistVect xs = (length xs ** fromList xs)
+
+
 ----------------------------------------------------------------------
--- Stdout dump of [vocab]-shape row, one float per line
+-- Stdout dump of [vocab]-shape row, one float per line (dump-logits gate)
 ----------------------------------------------------------------------
 
 printRow : Int -> Int -> AnyPtr -> IO ()
@@ -124,6 +135,123 @@ printRow end i p =
       let v = primItem1d {d=ExampleDevice} p i
       putStrLn (show v)
       printRow end (i + 1) p
+
+
+----------------------------------------------------------------------
+-- Greedy generation
+----------------------------------------------------------------------
+
+argmaxRow : (vocab : Nat) -> AnyPtr -> IO Nat
+argmaxRow vocab p = go (cast {to=Int} vocab) 0 0 (-1.0e300)
+  where
+    go : Int -> Int -> Int -> Double -> IO Nat
+    go end i bestI bestV =
+      if i >= end
+        then pure (cast {to=Nat} bestI)
+        else let v = primItem1d {d=ExampleDevice} p i
+             in if v > bestV
+                  then go end (i + 1) i v
+                  else go end (i + 1) bestI bestV
+
+
+genOneStep : BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
+                              ExampleDevice ExampleDType WithGrad
+          -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+          -> List (Fin VocabSize)
+          -> IO (Maybe (Fin VocabSize))
+genOneStep model tables toksList = do
+  let idsList = map (cast {to=Double} . finToNat) toksList
+  case toExistVect idsList of
+    (curLen ** idDoubles) =>
+      -- Each forward materialises a [out, in]-float dequant of the
+      -- ternary weights per BitLinear (210 per layer-set). With
+      -- autograd on, libtorch holds those for backward — 5 generation
+      -- steps accumulate enough to OOM-kill the process on 16 GB.
+      -- Plain withNoGrad here (not Keep): the step's result is a
+      -- Maybe (Fin VocabSize), no Tensor needs to survive the
+      -- bracket exit.
+      withNoGrad {d=ExampleDevice} $ do
+        let inputIds = mkIds idDoubles
+        logits <- hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
+                                    {seq          = curLen}
+                                    {vocab        = VocabSize}
+                                    {hidden       = Hidden}
+                                    {numLayers    = NumLayers}
+                                    {numHeads     = NumHeads}
+                                    {numKvHeads   = NumKvHeads}
+                                    {headDim      = HeadDim}
+                                    {intermediate = Intermediate}
+                                    {maxPos       = MaxPos}
+                                    RmsNormEps model tables inputIds
+        lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
+        nextN   <- argmaxRow VocabSize lastRow.tensorPtr
+        pure (natToFin nextN VocabSize)
+
+
+genLoop : BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
+                           ExampleDevice ExampleDType WithGrad
+       -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+       -> List (Fin VocabSize)
+       -> (remaining : Nat)
+       -> IO (List (Fin VocabSize))
+genLoop _     _      tokens Z     = pure tokens
+genLoop model tables tokens (S k) = do
+  mNext <- genOneStep model tables tokens
+  case mNext of
+    Nothing => do
+      putStrLn "  (argmax produced out-of-range token; stopping)"
+      pure tokens
+    Just next => do
+      resetForEval {d=ExampleDevice}
+      genLoop model tables (tokens ++ [next]) k
+
+
+----------------------------------------------------------------------
+-- --prompt + --num-tokens argv parsing
+----------------------------------------------------------------------
+
+extractPrompt : List String -> String
+extractPrompt args = go args
+  where
+    go : List String -> String
+    go ("--prompt" :: p :: _) = p
+    go (_ :: rest)            = go rest
+    go []                     = "The capital of France is"
+
+extractNumTokens : List String -> Nat
+extractNumTokens args = go args
+  where
+    go : List String -> Nat
+    go ("--num-tokens" :: n :: _) =
+      fromMaybe 5 (parsePositive {a=Nat} n)
+    go (_ :: rest)                = go rest
+    go []                         = 5
+
+
+----------------------------------------------------------------------
+-- Default mode: greedy generation demo
+----------------------------------------------------------------------
+
+runGenerate : Tokenizer VocabSize
+           -> BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
+                               ExampleDevice ExampleDType WithGrad
+           -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+           -> (prompt : String) -> (numTokens : Nat) -> IO ()
+runGenerate tok model tables prompt numTokens = do
+  Right (promptLen ** promptIds) <- tokenize tok prompt
+    | Left err => putStrLn ("ERR: tokenize: " ++ show err)
+  putStrLn ""
+  putStrLn "BitNet b1.58 2B-4T greedy generation"
+  putStrLn "===================================="
+  putStrLn ""
+  putStrLn ("Prompt:    " ++ prompt)
+  putStrLn ("Tokens in: " ++ show promptLen ++ ", generating: " ++ show numTokens)
+  putStrLn ""
+  let promptList = toList promptIds
+  finalList <- genLoop model tables promptList numTokens
+  Right text <- detokenize tok (fromList finalList)
+    | Left err => putStrLn ("ERR: detokenize: " ++ show err)
+  putStrLn ("Output:    " ++ text)
 
 
 ----------------------------------------------------------------------
@@ -140,7 +268,28 @@ main : IO ()
 main = do
   args <- getArgs
   let dumpLogits = elem "--dump-logits" args
+  let prompt     = extractPrompt args
+  let numTokens  = extractNumTokens args
   t0 <- clockTime Monotonic
+
+  -- Probe the tokenizer up-front so a missing tokenizer fails fast,
+  -- before the ~8s param load. dump-logits mode skips this since
+  -- the gate uses a hardcoded prompt.
+  tokR <- mkTokenizer ModelRepo VocabSize
+  case tokR of
+    Left err =>
+      if not dumpLogits
+        then do
+          putStrLn ("ERR: mkTokenizer failed: " ++ show err)
+          putStrLn ("     Likely missing tokenizer files at models/" ++ ModelRepo ++ "/")
+          putStrLn ("     Run: bash packages/idris-transformers/scripts/hf-download.sh "
+                    ++ ModelRepo)
+          exitFailure
+        else
+          putStrLn ("WARN: mkTokenizer failed (continuing — dump-logits doesn't need it): "
+                    ++ show err)
+    Right _ => pure ()
+  stageStamp "tokenizer probe ok" t0
 
   putStrLn ("[stage] hfBitnetModel — constructing 542-param state ("
             ++ "embed/norms/scales + ternary placeholders)...")
@@ -182,50 +331,36 @@ main = do
                                   RopeBase bitnetRopeScaling
   stageStamp "buildLlamaRoPETables ok" t0
 
-  -- Fixed two-token prompt: [9906, 1917] = "Hello world" under Llama-3
-  -- BPE (verified by save_oracle_bitnet.py's tokenizer drift assertion).
-  -- The oracle dumps `model(input_ids).logits[0, -1, :]` for this exact
-  -- input; we run the same forward and dump the same vector.
-  let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
-  putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
-  -- withNoGradKeep: every BitLinear layer materialises a dequantised
-  -- float copy of its int8 weight ([out, in]) at call time. With
-  -- autograd on, libtorch keeps each of those for backward — 30
-  -- layers × ~278 MB per layer = ~8 GB of dead intermediates on top
-  -- of the params, which busts MPS's 18 GB watermark. NoGrad drops
-  -- each cast tensor as soon as the matmul returns. Keep is needed
-  -- because the resulting `logits` tensor was created inside the
-  -- bracket and must survive the exit-drain.
-  logits <- withNoGradKeep {d=ExampleDevice} $
-    hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
-                      {seq          = 2}
-                      {vocab        = VocabSize}
-                      {hidden       = Hidden}
-                      {numLayers    = NumLayers}
-                      {numHeads     = NumHeads}
-                      {numKvHeads   = NumKvHeads}
-                      {headDim      = HeadDim}
-                      {intermediate = Intermediate}
-                      {maxPos       = MaxPos}
-                      RmsNormEps loaded tables inputIds
-  stageStamp "hfBitnetForwardLm ok" t0
-
-  -- Last-position row = logits[1, :] — the position-1 prediction the
-  -- oracle saved.
-  lastRow <- trowSelect logits 1
   if dumpLogits
     then do
+      -- CI gate path: fixed two-token prompt [9906, 1917] = "Hello world"
+      -- under Llama-3 BPE. Forward once, dump all 128256 last-position
+      -- logits one per line so compare_inference.py can read them back.
+      let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
+      putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
+      logits <- withNoGradKeep {d=ExampleDevice} $
+        hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
+                          {seq          = 2}
+                          {vocab        = VocabSize}
+                          {hidden       = Hidden}
+                          {numLayers    = NumLayers}
+                          {numHeads     = NumHeads}
+                          {numKvHeads   = NumKvHeads}
+                          {headDim      = HeadDim}
+                          {intermediate = Intermediate}
+                          {maxPos       = MaxPos}
+                          RmsNormEps loaded tables inputIds
+      stageStamp "hfBitnetForwardLm ok" t0
+      lastRow <- trowSelect logits 1
       printRow (cast {to=Int} VocabSize) 0 lastRow.tensorPtr
       stageStamp "dump-logits done" t0
       pure ()
     else do
-      putStrLn ""
-      putStrLn "BitNet b1.58 2B-4T forward demo"
-      putStrLn "================================"
-      putStrLn ""
-      putStrLn ("Prompt token IDs: [9906, 1917]")
-      putStrLn ("Logits at position 1 — first 5 values:")
-      let n5 = the Int 5
-      printRow n5 0 lastRow.tensorPtr
-      stageStamp "demo done" t0
-      pure ()
+      case tokR of
+        Left _ => exitFailure
+        Right tokVal => do
+          putStrLn ("[stage] runGenerate — greedy decode loop (" ++
+                    show numTokens ++ " tokens)...")
+          runGenerate tokVal loaded tables prompt numTokens
+          stageStamp "runGenerate done" t0
+          pure ()
