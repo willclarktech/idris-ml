@@ -29,7 +29,7 @@ usage: $0 <example-key> <backend> [example-args...]
 example-keys: ntm-copy, ntm-recall, dnc-copy, dnc-recall, supervised,
               rnn, lstm, gru, transformer, gpt, matmul-bench, mnist, seq-classify,
               reinforce, dqn, mountain-car, mountain-car-cont, a2c,
-              ppo, sac
+              ppo, sac, hf-bert, hf-gpt2, hf-llama, hf-llama-generate, hf-bitnet
 backends:     tape, mlx, torch
 EOF
   exit 2
@@ -68,6 +68,12 @@ case "$EXAMPLE_KEY" in
   hf-bert)             TGT=example-hf-bert-inference;          AVAR=_HF_NOARGS ;;
   hf-gpt2)             TGT=example-hf-gpt2-inference;          AVAR=_HF_NOARGS ;;
   hf-llama)            TGT=example-hf-llama-inference;         AVAR=_HF_NOARGS ;;
+  # Same example as hf-llama, but with the --dump-tokens / multi-step
+  # generation gate path exercised. Distinguished from `hf-llama` so
+  # the perf-log entry carries the gate's wall-clock separately from
+  # the user-facing-demo wall-clock (they decode for different default
+  # budgets; the gate is fixed at --num-tokens 4 in the Makefile).
+  hf-llama-generate)   TGT=test-hf-llama-generate-roundtrip;   AVAR=_HF_NOARGS ;;
   hf-bitnet)           TGT=example-hf-bitnet-inference;        AVAR=_HF_NOARGS ;;
   *) echo "unknown example-key: $EXAMPLE_KEY" >&2; exit 2 ;;
 esac

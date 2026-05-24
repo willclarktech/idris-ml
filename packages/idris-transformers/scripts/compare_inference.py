@@ -3,15 +3,29 @@
 
 Usage:
     python compare_inference.py <idris_stdout_file> <oracle.safetensors> [tol] [--argmax-match]
+    python compare_inference.py <idris_stdout_file> <oracle.safetensors> --token-sequence
 
-Optional `--argmax-match` adds a stricter check: argmax(idris) must
-equal argmax(oracle). Useful for LM-style gates where the absolute
-tolerance is loose (BF16 + many-layer accumulation noise) but the
-top-1 prediction is what semantically matters.
+Float modes (default):
+- Idris dumps one float per line. Compare element-wise against the
+  oracle's `output` key, asserting max-abs-diff < tol.
+- Optional `--argmax-match` adds a stricter check: argmax(idris) must
+  equal argmax(oracle). Useful for LM-style gates where the absolute
+  tolerance is loose (BF16 + many-layer accumulation noise) but the
+  top-1 prediction is what semantically matters.
+
+Sequence mode (`--token-sequence`):
+- Idris dumps one *integer token id* per line. Compare element-wise
+  against the oracle's `token_ids` key (int64 tensor), asserting
+  exact equality. No tolerance — tokens are discrete.
+- Used by `test-hf-llama-generate-roundtrip` (and any future
+  multi-token generation gate) to catch drift accumulating across
+  greedy decode steps that single-forward gates can't see.
 
 Exit codes:
-    0  max-abs-diff < tol (and argmax matches if --argmax-match) — passing
-    1  shape, value, or argmax mismatch — failing
+    0  comparison passes — float-mode max-abs-diff < tol (and argmax
+       matches if --argmax-match), or sequence-mode element-wise
+       integer equality
+    1  shape, value, argmax, or sequence-element mismatch
 """
 
 from __future__ import annotations
@@ -22,8 +36,88 @@ from pathlib import Path
 from safetensors.torch import load_file
 
 
+def _read_lines_filtered(path: Path) -> list[str]:
+    """Idris stdout is one value per line plus stage/diagnostic lines
+    that must be filtered out: `[stage] ...`, `[perf] ...` (added by
+    perf-run.sh op-count probes), and the human-facing banner lines
+    emitted by the example wrappers."""
+    out: list[str] = []
+    with path.open() as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            stripped = line.lstrip()
+            if stripped.startswith("[stage]"):
+                continue
+            if stripped.startswith("[perf]"):
+                continue
+            out.append(line)
+    return out
+
+
+def _run_token_sequence(stdout_path: Path, oracle_path: Path) -> None:
+    """Sequence-mode comparator. Reads Nat per line from Idris stdout;
+    asserts element-wise equality against the oracle's `token_ids`
+    int64 tensor."""
+    raw_lines = _read_lines_filtered(stdout_path)
+    # Idris dumps token IDs as Nats. Anything that isn't a parseable
+    # int is a wrapping-text line the filter didn't catch — fail loudly
+    # rather than silently dropping it (mid-run drift gives garbage on
+    # one line and the comparator would otherwise hide the failure).
+    idris_ids: list[int] = []
+    for line in raw_lines:
+        try:
+            idris_ids.append(int(line))
+        except ValueError:
+            print(
+                f"FAIL: unparseable line in {stdout_path}: {line!r}\n"
+                f"  Expected one integer token id per line. "
+                f"Diagnostic lines should be prefixed `[stage]` / `[perf]`.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    tensors = load_file(str(oracle_path))
+    if "token_ids" not in tensors:
+        print(
+            f"FAIL: oracle {oracle_path} missing 'token_ids' key; "
+            f"keys: {list(tensors)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    oracle_ids = tensors["token_ids"].tolist()
+
+    n_idris = len(idris_ids)
+    n_oracle = len(oracle_ids)
+    if n_idris != n_oracle:
+        print(
+            f"FAIL: length mismatch (idris={n_idris}, oracle={n_oracle})\n"
+            f"  idris  ids: {idris_ids}\n"
+            f"  oracle ids: {oracle_ids}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    for i, (a, b) in enumerate(zip(idris_ids, oracle_ids)):
+        if a != b:
+            print(
+                f"FAIL: token sequence mismatch at position {i}: "
+                f"idris={a} oracle={b}",
+                file=sys.stderr,
+            )
+            print(f"  idris  ids: {idris_ids}", file=sys.stderr)
+            print(f"  oracle ids: {oracle_ids}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"PASS: token sequence matches ({n_idris} tokens)")
+    print(f"  ids: {idris_ids}")
+
+
 def main() -> None:
     args = sys.argv[1:]
+    token_sequence = "--token-sequence" in args
+    args = [a for a in args if a != "--token-sequence"]
     check_argmax = "--argmax-match" in args
     args = [a for a in args if a != "--argmax-match"]
     if len(args) < 2:
@@ -31,17 +125,21 @@ def main() -> None:
         sys.exit(2)
     stdout_path = Path(args[0])
     oracle_path = Path(args[1])
+
+    if token_sequence:
+        if check_argmax:
+            print(
+                "FAIL: --token-sequence and --argmax-match are mutually exclusive",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        _run_token_sequence(stdout_path, oracle_path)
+        return
+
     tol = float(args[2]) if len(args) > 2 else 1e-2
 
-    # Idris dumped one float per line to stdout. Filter out `[stage] ...`
-    # diagnostic lines (added by stageStamp in the HF inference examples
-    # for perf-log JSONL parsing) — they are non-numeric.
-    with stdout_path.open() as f:
-        idris_vals = [
-            float(line.strip())
-            for line in f
-            if line.strip() and not line.lstrip().startswith("[stage]")
-        ]
+    raw_lines = _read_lines_filtered(stdout_path)
+    idris_vals = [float(line) for line in raw_lines]
 
     oracle_tensor = load_file(str(oracle_path))["output"]
     oracle_vals = oracle_tensor.tolist()

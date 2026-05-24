@@ -1238,6 +1238,42 @@ test-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config
 		../../models/llama-3.2-1b-oracle.safetensors \
 		1.0
 
+# Multi-step generation gate for HfLlama. Regenerates the Python
+# oracle by greedy-decoding 4 tokens from `model.generate(do_sample=
+# False, use_cache=True)` on the same prompt the user-facing demo
+# uses ("The capital of France is"), runs the Idris example in
+# --dump-tokens mode for the same prompt + budget, and asserts the
+# resulting token-ID sequences match element-wise. Catches
+# generation-path drift the single-forward
+# `test-hf-llama-roundtrip` can't see.
+#
+# Budget is 4 tokens to keep the CI torch-cpu wall-clock manageable
+# pre-KV-cache (each step re-forwards on the growing sequence).
+# Bump to 8+ after the KV cache lands.
+#
+# Tape lane (F64) doesn't fit in 16 GB; build with
+# `BACKEND=torch TORCH_DEVICE=cpu` for CI or
+# `BACKEND=torch TORCH_DEVICE=mps` / `BACKEND=mlx MLX_DEVICE=gpu`
+# for paired-lane dev verification.
+test-hf-llama-generate-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
+	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
+	./$(BUILD)/exec/hf-llama-inference --dump-tokens --num-tokens 4 > $(BUILD)/hf-llama-tokens-out.txt
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/compare_inference.py \
+		../../$(BUILD)/hf-llama-tokens-out.txt \
+		../../models/llama-3.2-1b-generate-oracle.safetensors \
+		--token-sequence
+
+# Manual oracle-regen entry point (pytest harness pairs with
+# `test-hf-llama-generate-roundtrip` above). Useful when bumping
+# the budget after KV cache lands.
+test-transformers-oracle-llama-generate:
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
+
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) $(BUILD)/exec/rnn_app/

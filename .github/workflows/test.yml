@@ -258,6 +258,27 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: make BACKEND=torch test-hf-llama-roundtrip
 
+      - name: Run HfLlama multi-step generation roundtrip (Ubuntu, torch, HF_TOKEN-gated)
+        # Cross-language gate for Llama 3.2 1B's *generation* path.
+        # The companion `test-hf-llama-roundtrip` step above tests a
+        # single forward on one fixed token; this step exercises the
+        # full greedy-decode loop: tokenize "The capital of France
+        # is", generate 4 tokens via `genLoop` (no KV cache yet —
+        # bumps to 8+ once KV cache lands), assert the resulting
+        # token-ID sequence matches HF `model.generate(do_sample=
+        # False, use_cache=True)` element-wise. Catches drift in
+        # tokenization, every layer of the forward, argmax, and the
+        # per-step glue that the single-forward gate can't see.
+        #
+        # Same HF_TOKEN gating + BACKEND=torch as the sibling step.
+        # Currently more expensive than the single-forward gate (4
+        # forwards on growing sequences); the KV cache landing will
+        # collapse it back to ~constant per step.
+        if: matrix.os == 'ubuntu-latest' && env.HF_TOKEN != ''
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: make BACKEND=torch test-hf-llama-generate-roundtrip
+
       - name: Verify GradMode gate (NoGrad loss rejected at compile)
         # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
         # WithGrad -> Double` still rejects a `NoGrad` loss. If this step

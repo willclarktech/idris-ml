@@ -9,13 +9,25 @@
 ||| widens to F32 (mlx-gpu / torch-mps) or F64 (tape — but won't fit
 ||| in 16 GB).
 |||
-||| Two modes:
+||| Three modes:
 |||
 |||   --dump-final-hidden     CI gate. Fixed prompt [a few tokens].
 |||                           Forward once. Print the last-position
 |||                           hidden state to stdout, one float per
 |||                           line. Comparator in
 |||                           scripts/compare_inference.py.
+|||
+|||   --dump-tokens           CI gate (multi-step). Tokenize the
+|||                           prompt (matches the default mode's path),
+|||                           greedy-decode --num-tokens, print each
+|||                           token id (Nat) one per line. Oracle is
+|||                           `save_oracle_llama_generate.py` running
+|||                           HF's `model.generate(do_sample=False,
+|||                           use_cache=True)` on the same prompt;
+|||                           comparator asserts exact sequence
+|||                           match. Catches generation-path drift
+|||                           that the single-forward
+|||                           --dump-final-hidden gate can't see.
 |||
 |||   (default)               User-facing demo. Reads --prompt (default
 |||                           "The capital of France is") and
@@ -226,6 +238,40 @@ runGenerate tok model tables prompt numTokens = do
 
 
 ----------------------------------------------------------------------
+-- --dump-tokens mode (multi-step generation CI gate)
+----------------------------------------------------------------------
+
+||| Greedy decode the same prompt the user-facing demo uses, then
+||| dump every output token id (prompt + generated) one Nat per line
+||| to stdout. The Python oracle (`save_oracle_llama_generate.py`)
+||| runs HF `model.generate(do_sample=False, use_cache=True)` on the
+||| same prompt and saves the resulting full id sequence under
+||| key `"token_ids"`; the comparator
+||| (`compare_inference.py --token-sequence`) asserts exact match.
+|||
+||| Banner / status text is suppressed (the comparator parses one
+||| integer per line + filters `[stage]` / `[perf]` diagnostic
+||| lines). `genLoop`'s `[perf] step N: K ops` lines are filtered;
+||| no other text is emitted on success. On argmax-out-of-range
+||| (unreachable in practice) `genLoop` emits a human-facing diag
+||| line that would FAIL the comparator — that's the correct
+||| failure mode.
+runDumpTokens : Tokenizer VocabSize
+             -> LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
+                                ExampleDevice ExampleDType WithGrad
+             -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+             -> (prompt : String) -> (numTokens : Nat) -> IO ()
+runDumpTokens tok model tables prompt numTokens = do
+  Right (_ ** promptIds) <- tokenize tok prompt
+    | Left err => do
+        putStrLn ("ERR: tokenize: " ++ show err)
+        exitFailure
+  let promptList = toList promptIds
+  finalList <- genLoop model tables promptList numTokens
+  traverse_ (putStrLn . show . finToNat) finalList
+
+
+----------------------------------------------------------------------
 -- main
 ----------------------------------------------------------------------
 
@@ -233,6 +279,7 @@ main : IO ()
 main = do
   args <- getArgs
   let dumpHidden = elem "--dump-final-hidden" args
+  let dumpTokens = elem "--dump-tokens" args
   t0 <- clockTime Monotonic
 
   -- Probe the tokenizer up-front (~1s subprocess call) BEFORE the
@@ -240,7 +287,8 @@ main = do
   -- tokenizer files aren't downloaded yet, fail in seconds instead
   -- of after 30+ seconds of model setup. The dump-hidden mode
   -- doesn't strictly need a tokenizer but probing in both branches
-  -- keeps the failure semantics uniform.
+  -- keeps the failure semantics uniform. dump-tokens mode DOES need
+  -- it (tokenization is part of the gate).
   tokR <- mkTokenizer ModelRepo VocabSize
   case tokR of
     Left err =>
@@ -306,20 +354,35 @@ main = do
       Left err  => do
         putStrLn ("ERR: mkTokenizer (post-probe inconsistency): " ++ show err)
         exitFailure
-      Right tok => do
-        putStrLn "[stage] runGenerate — greedy decode loop..."
-        runGenerate tok model tables (extractPrompt "The capital of France is" args) (extractNumTokens 8 args)
-        stageStamp "runGenerate done" t0
-        -- Explicit pre-exit cleanup. Forces the backend's per-tensor
-        -- destructor cascade (libtorch CPUAllocator releases on torch-
-        -- cpu, mlx::array refcount drops on mlx-cpu) to run inside main
-        -- where the cost is timed + bounded, rather than during the
-        -- post-main C/OS teardown (where it took 20+ min on torch-cpu
-        -- BF16 Llama). See TODO #394.
-        _ <- drainManagedHandles
-        forceMajorGc
-        _ <- drainManagedHandles
-        stageStamp "drain + GC done" t0
-        releaseAllPersistent {d=ExampleDevice}
-        stageStamp "releaseAllPersistent done" t0
-        pure ()
+      Right tok =>
+        if dumpTokens
+          then do
+            putStrLn "[stage] runDumpTokens — greedy decode + dump token ids..."
+            runDumpTokens tok model tables
+                          (extractPrompt "The capital of France is" args)
+                          (extractNumTokens 4 args)
+            stageStamp "runDumpTokens done" t0
+            _ <- drainManagedHandles
+            forceMajorGc
+            _ <- drainManagedHandles
+            stageStamp "drain + GC done" t0
+            releaseAllPersistent {d=ExampleDevice}
+            stageStamp "releaseAllPersistent done" t0
+            pure ()
+          else do
+            putStrLn "[stage] runGenerate — greedy decode loop..."
+            runGenerate tok model tables (extractPrompt "The capital of France is" args) (extractNumTokens 8 args)
+            stageStamp "runGenerate done" t0
+            -- Explicit pre-exit cleanup. Forces the backend's per-tensor
+            -- destructor cascade (libtorch CPUAllocator releases on torch-
+            -- cpu, mlx::array refcount drops on mlx-cpu) to run inside main
+            -- where the cost is timed + bounded, rather than during the
+            -- post-main C/OS teardown (where it took 20+ min on torch-cpu
+            -- BF16 Llama). See TODO #394.
+            _ <- drainManagedHandles
+            forceMajorGc
+            _ <- drainManagedHandles
+            stageStamp "drain + GC done" t0
+            releaseAllPersistent {d=ExampleDevice}
+            stageStamp "releaseAllPersistent done" t0
+            pure ()
