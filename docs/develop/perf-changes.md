@@ -48,6 +48,39 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-03 — Fused RMSNorm on all 3 backends (#399 / #4 Fusion 1)
+
+**Plan**: Fusion 1 of the fused-op catalogue plan — replace HfCommon.applyRmsNorm2dRaw's per-row 8-primitive chain (narrow / mul / sum / mul_scalar / add_scalar / sqrt / div / mul + cat) with a single `primRmsNorm2d` typeclass method on `UserDeviceTraining`. Same shape as the prior SDPA + all-heads RoPE fusions: one fused C primitive per backend, no architectural change to autograd or Tensor.
+
+**Motivation**: Llama-3.2-1B has 33 RMSNorm sites per forward (2 per layer × 16 + 1 final). At `seqLen=N`, each call previously emitted ~9N primitives (narrow + 7-op math + cat); fused → 1. For the cross-language gate's seqLen=4 prompt that's a ~1.1K-op drop on top of the existing post-SDPA/RoPE 2,634 ops/step.
+
+**Change**: `tensor_rms_norm_2d(input, weight, eps)` added to `backend.h`, manifest, and the 3 rename headers. Per-backend implementations:
+- **torch** (`backend_torch/nn/norm/rms_norm.cpp`): `at::mean(at::pow(x, 2), -1, true) -> at::rsqrt(+eps) * x * weight`. Autograd flows automatically over the libtorch primitives — no explicit VJP.
+- **mlx** (`backend_mlx/nn/norm/rms_norm.cpp`): `mlx::core::fast::rms_norm` — mlx-lm's canonical fused kernel; lazy graph node + replay closure via `MLX_REGISTER_REPLAY`.
+- **tape** (`backend_tape/nn/norm/rms_norm_2d.c`): hand-rolled F32/F64 forward + backward closure with cached `x_hat[m*n]` + `rstd[m]` in `RmsNormMeta`. Backward registered via `TAPE_REGISTER_OP(OP_RMS_NORM_2D)`.
+
+Idris-side: `primRmsNorm2d : AnyPtr -> AnyPtr -> Double -> AnyPtr` on `UserDeviceTraining`; per-device instance in each `Device/{Mlx,Tape,Torch}.idr`. `HfCommon.applyRmsNorm2dRaw` body collapses from a recursive `rmsNorm2dFoldRows` over an `rmsNorm2dProcessRow` to a single call. HfLlama + HfBitNet adapters (both wrap the helper) unchanged.
+
+**Impact** (Llama-3.2-1B F32, 8 greedy tokens, prompt='The capital of France is'):
+
+| backend / config | cross-language gate | max-abs-diff vs HF Python oracle (tol 1.0) |
+|---|---|---:|
+| **mlx-gpu** F32 | PASS | **1.20e-04** |
+| **torch-mps** F32 | PASS | **4.96e-05** |
+
+C-level: criterion suite 213/213 tape, 203/203 torch, 205/205 mlx (after adding 4 new `test_rms_norm.c` cases: unit weight, per-row independence, per-column weighting, decomposed-chain agreement vs host-side oracle).
+
+**Outcome**: landed. HfCommon's role narrows from "structural wrapper around a chain" to "thin wrapper around a single FFI call" — the chain it used to contain is preserved as `primRmsNorm2d`'s no-op fallback ON EACH backend (each backend implements the math; there's no Idris-side chain fallback). The op-count and wall measurements per-backend land in `perf-log.jsonl` on the followups to this commit.
+
+**TDD discipline** (per `feedback_tdd_default`): test file authored first, RED observed at link time (`call to undeclared function 'tensor_rms_norm_2d'`), then backend impl + Idris wiring turned it GREEN. RED-before-commit recorded in commit body.
+
+**Out of scope** (follow-up):
+- Backward gradcheck test for the tape RMSNorm closure (forward correctness only this commit; backward derivation cross-checked analytically vs the decomposed chain). File a paired-oracle test in the tape T29 block to lock the F32 backward.
+- Multi-backend per-op cost asymmetry: the prior 2026-05-30 all-heads RoPE entry documented that torch-mps's rank-3 broadcast costs ~10 ms/op vs ~2 ms/op rank-2. RMSNorm fusion stays rank-2, so doesn't trigger that path; the asymmetry row is unchanged.
+
+**Cross-references**: commit `629c23c` (this fusion); commits `6850366` (SDPA) and `c09d374` (all-heads RoPE) for the prior fusions in the same #399 catalogue; `scripts/lifecycle/ffi_manifest.py` (manifest entry); `feedback_pytorch_precedent_test.md` (PyTorch ships `nn.RMSNorm` — precedent test passes); `packages/idris-transformers/src/HfCommon.idr` (the call-site collapse).
+
+
 ### 2026-06-03 — Retroactive entry: Chez FFI symbol cache shipped 2026-05-27 (TODO row closes)
 
 **Status**: retroactive paper-trail for commit `f9d7212` (2026-05-27 19:22:40 BST). The fix landed but its narrative entry never made it into perf-changes.md, so the corresponding TODO row stayed open — re-verified during the #1 follow-up sweep and closed via this entry.
