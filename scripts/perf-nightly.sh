@@ -82,7 +82,9 @@ AXIS_C_WORKLOADS=(
 extract_marker() {
   local stdout_path="$1"
   local val
-  val=$(grep -E '^PERF_MS_PER_EP=' "$stdout_path" | tail -1 | sed 's/^PERF_MS_PER_EP=//')
+  # `|| true` so an absent marker yields empty without tripping
+  # pipefail+set -e. Downstream filters empties.
+  val=$({ grep -E '^PERF_MS_PER_EP=' "$stdout_path" || true; } | tail -1 | sed 's/^PERF_MS_PER_EP=//')
   if [ -z "$val" ]; then
     echo ""
   else
@@ -96,12 +98,15 @@ extract_marker() {
 # Both sides (Idris + paired PyTorch ref) emit the same pair.
 extract_axis_d_tokens() {
   local stdout_path="$1"
-  grep -E '^PERF_GENERATE_TOKENS=' "$stdout_path" | tail -1 \
+  # `|| true` so an absent marker (workload crashed pre-emit) yields an
+  # empty string instead of tripping pipefail+set -e and killing the
+  # whole script. The python emit block downstream filters empties.
+  { grep -E '^PERF_GENERATE_TOKENS=' "$stdout_path" || true; } | tail -1 \
     | sed 's/^PERF_GENERATE_TOKENS=//'
 }
 extract_axis_d_wall() {
   local stdout_path="$1"
-  grep -E '^PERF_GENERATE_WALL_MS=' "$stdout_path" | tail -1 \
+  { grep -E '^PERF_GENERATE_WALL_MS=' "$stdout_path" || true; } | tail -1 \
     | sed 's/^PERF_GENERATE_WALL_MS=//'
 }
 
