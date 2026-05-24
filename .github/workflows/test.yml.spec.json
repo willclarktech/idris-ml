@@ -161,8 +161,8 @@
       ]
     },
     {
-      "name": "Run Tier-1 perf benches + render BENCHMARKS.md",
-      "run": "make test-perf-fast && make test-integration-lint-benchmarks",
+      "name": "Run Tier-1 perf benches + render BENCHMARKS.md + perf-regression gate",
+      "run": "make test-perf-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression",
       "comment": [
         "Axis A op-kernel benches (matmul / softmax / SDPA / embedding /",
         "RMSNorm) on tape vs PyTorch. Appends kind=\"op_bench\" entries to",

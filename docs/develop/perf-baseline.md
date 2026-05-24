@@ -5,6 +5,15 @@
 > `docs/develop/reference-alignment.md` for the alignment policy that
 > bounds problem-shrink decisions.
 
+> **Hand-maintained snapshot** of full-convergence cells below. The
+> structured per-cell regression contract is the median-of-last-5
+> from `docs/develop/perf-log.jsonl`, computed by
+> `scripts/check-perf-regression.py`. Markdown table here is a
+> human-readable summary at the last full sweep; the gate operates on
+> the JSONL log, not this file. See `BENCHMARKS.md` for the live
+> renderer view (Axes A / B / C / D), and `docs/develop/perf-log.md`
+> for the JSONL schema.
+
 ## Current state — 2026-06-04 full sweep (post narrow-fix `59a37ab0`)
 
 Full `scripts/perf-sweep.sh` across 16 examples × 5 cells = 80 measurements.

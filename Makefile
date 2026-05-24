@@ -1095,6 +1095,7 @@ test-integration: \
 		test-integration-lint-hf-llama-inference \
 		test-integration-lint-ci-workflow \
 		test-integration-lint-benchmarks \
+		test-integration-lint-perf-regression \
 		test-integration-typegate-gradmode \
 		test-integration-typegate-gradmode-aliasing \
 		test-integration-typegate-lossy-cast \
@@ -1795,6 +1796,14 @@ test-perf-full:
 # CI preflight: BENCHMARKS.md must agree with perf-log.jsonl.
 test-integration-lint-benchmarks:
 	python3 scripts/render-benchmarks.py --check
+
+# CI preflight: perf-regression advisory gate. Reads perf-log.jsonl,
+# computes a median-of-last-5 baseline per (axis, label, runtime),
+# classifies the latest as OK / WARN (>15%) / FAIL (>40%) vs that
+# baseline. Always exits 0 today (Phase 5a — advisory); a later
+# commit will flip the FAIL threshold to exit 1.
+test-integration-lint-perf-regression:
+	python3 scripts/check-perf-regression.py
 
 bench-ops-compare:
 	@for b in tape mlx torch; do \
