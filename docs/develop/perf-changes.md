@@ -48,6 +48,56 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-03 — 2D embedding wrap on all 3 backends (#399 / #4 Fusion 3) — 1b1a200
+
+**Plan**: Fusion 3 of the fused-op catalogue plan — drop the
+unnecessary flatten + `primReshape2d` pair at every transformer
+input layer. `torch::embedding` and `mx::take` both return
+`[n, embedDim]` natively; the legacy `tensor_embedding` flattened
+to 1D so the FFI consumer saw a flat buffer, then every caller
+called `primReshape2d` to reshape back to 2D. Two ops where one
+would do.
+
+**Motivation**: Plan predicted ~1 op/forward saved. Embedding
+runs once per forward (the LM-head matmul uses the same weight
+tensor but doesn't go through `tensor_embedding`). The verification
+landed exactly on prediction.
+
+**Change**: New `tensor_embedding_2d` primitive on all 3 backends.
+torch: drops the trailing `.reshape({-1})`. mlx: drops `mx::flatten`
+and registers a new `OP_EMBEDDING_2D` replay closure. tape: shares
+the gather + grad-scatter path via a `embedding_impl` helper, with
+the variants differing only in the output shape array passed to
+`make_tensor*`. Idris side: `primEmbedding2d` on `UserDeviceNN`
+with 3 backend instances; five caller sites rewired (HfLlama,
+HfBert, HfGpt2, HfBitNet, Layer/Transformer single+batch).
+
+**Impact** (torch-mps HfLlama-3.2-1B, default generate config):
+
+| metric | post-SwiGLU baseline (911b6b1) | post-embedding-2d (1b1a200) | delta |
+|---|---|---|---|
+| ops/step | 902 | 901 | **-1/step (exact match to prediction)** |
+| wall (runGenerate) | 455 s | 327 s | -28% (within VM noise floor; ignore) |
+| mlx-gpu wall (runGenerate) | 38 s | 23 s | -39% (within VM noise floor; ignore) |
+| mlx-gpu max-abs-diff vs HF | 1.20e-04 | 1.20e-04 | bit-identical |
+| torch-mps max-abs-diff vs HF | 4.96e-05 | 4.96e-05 | bit-identical |
+
+Op-count drop is the load-bearing metric (it's deterministic and
+matches the prediction exactly). The wall deltas exceed the ±15-20%
+VM noise floor in both directions across SwiGLU/embedding-2d
+adjacent trials, so they aren't reliable single-trial evidence
+either way.
+
+**Outcome**: landed (1b1a200). Closes the explicitly-planned #4
+Fusion 3. Backward path is shape-agnostic on tape (walks indices,
+writes to weight's grad buffer) and inherited by libtorch/mlx
+autograd over `embedding` / `take` respectively.
+
+**Cross-references**: `perf-log.jsonl` 2026-06-03 entries for
+hf-llama mlx-gpu + torch-mps at commit `6a4608f+dirty`.
+
+----
+
 ### 2026-06-03 — Fused SwiGLU on all 3 backends (#399 / #4 Fusion 2)
 
 **Plan**: Fusion 2 of the fused-op catalogue plan — collapse HfLlama.applyMlp's `tsilu g; tmul sg u` pair into a single `primSwiGlu2d` typeclass method on `UserDeviceTraining`. Same shape as Fusion 1 (RMSNorm): one fused C primitive per backend, no architectural change to autograd or Tensor. SwiGLU is HfLlama-specific — BitNet's MLP uses relu² + ffn_sub_norm instead of silu, so the fusion intentionally doesn't land there.
