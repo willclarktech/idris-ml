@@ -168,13 +168,19 @@ Python on the same hardware.
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| hf-bert-inference | 454.9401 | 0.9267 | 490.91× | 25 | `e5a79082+dirty` |
+| hf-bert-inference | 466.5932 | 0.9541 | 489.03× | 25 | `2383c719` |
 
 ### hf-gpt2-inference
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| hf-gpt2-inference | 511.6798 | 14.2383 | 35.94× | 8 | `e5a79082+dirty` |
+| hf-gpt2-inference | 608.8837 | 16.9123 | 36.00× | 8 | `2383c719` |
+
+### hf-llama-generate-inference
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| hf-llama-generate-inference | 47750.0709 | — | — | 8 | `2383c719` |
 
 ---
 
