@@ -8,6 +8,7 @@ package idris-ml-tests
 sourcedir = "src"
 
 depends = contrib
+        , hedgehog
         , idris-ml
         , idris-test
 

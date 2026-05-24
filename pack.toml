@@ -1,0 +1,75 @@
+# pack.toml — project-level pack config (idris-ml workspace).
+#
+# Registers the workspace's local Idris-2 packages so `pack install`
+# / `pack build` / `pack run` can resolve them by name. Pack's own
+# user-level config lives at ~/.config/pack/pack.toml; this file is
+# project-level and is consulted whenever pack runs with this repo
+# in scope.
+#
+# Hedgehog and other external Idris-2 deps come from the curated
+# pack collection (pinned via pack's user config). Run `pack install
+# hedgehog` to install it the first time; subsequent invocations
+# pick it up from ~/.local/state/pack/install/<idris2-commit>/...
+#
+# Why pack at all: Test.Golden and Hedgehog are not in the nix-built
+# Idris-2 contrib (the nix derivation strips the Test/ subdir).
+# `pack install` is the canonical way to get them on Idris-2.
+
+# Local packages — declared once at the top level so pack sees them
+# from any working directory inside the repo. The path is relative
+# to this pack.toml; ipkg paths are relative to the package's path.
+
+[custom.all.idris-ml]
+type = "local"
+path = "packages/idris-ml"
+ipkg = "idris-ml.ipkg"
+
+[custom.all.idris-ml-tests]
+type = "local"
+path = "packages/idris-ml"
+ipkg = "idris-ml-tests.ipkg"
+
+[custom.all.idris-ml-tests-multi]
+type = "local"
+path = "packages/idris-ml"
+ipkg = "idris-ml-tests-multi.ipkg"
+
+[custom.all.idris-gym]
+type = "local"
+path = "packages/idris-gym"
+ipkg = "idris-gym.ipkg"
+
+[custom.all.idris-gym-tests]
+type = "local"
+path = "packages/idris-gym"
+ipkg = "idris-gym-tests.ipkg"
+
+[custom.all.idris-gym-bench]
+type = "local"
+path = "packages/idris-gym"
+ipkg = "idris-gym-bench.ipkg"
+
+[custom.all.idris-transformers]
+type = "local"
+path = "packages/idris-transformers"
+ipkg = "idris-transformers.ipkg"
+
+[custom.all.idris-transformers-tests]
+type = "local"
+path = "packages/idris-transformers"
+ipkg = "idris-transformers-tests.ipkg"
+
+[custom.all.idris-ml-examples]
+type = "local"
+path = "packages/idris-ml-examples"
+ipkg = "idris-ml-examples.ipkg"
+
+[custom.all.idris-ml-examples-tests]
+type = "local"
+path = "packages/idris-ml-examples"
+ipkg = "idris-ml-examples-tests.ipkg"
+
+[custom.all.idris-test]
+type = "local"
+path = "packages/idris-test"
+ipkg = "idris-test.ipkg"
