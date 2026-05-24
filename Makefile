@@ -382,7 +382,9 @@ BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(PRIMARY).h
 # via the per-TU rule below; the dylib link picks them all up
 # directly (tape has no monolithic backend_tape.{c,cpp} TU).
 BACKEND_TAPE_HEADERS := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.h' 2>/dev/null)
-BACKEND_TAPE_SRCS    := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.c' 2>/dev/null)
+# Exclude colocated test_*.c — they ride the Criterion test build (see
+# CRITERION_BACKEND_TEST_SRCS below), not the dylib build.
+BACKEND_TAPE_SRCS    := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.c' ! -name 'test_*.c' 2>/dev/null)
 BACKEND_TAPE_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_tape/%.c,$(BUILD)/backend_tape/%.o,$(BACKEND_TAPE_SRCS))
 
 # backend_torch/** and backend_mlx/** modular sources. Each .cpp compiles
@@ -838,7 +840,19 @@ CRITERION_FLAGS ?=
 #    (framework smoke, NTM integration tests, mlx-compile, training-loop
 #    oracle ladder, param registry, clip-grad-norm, optimizers).
 TEST_C_DIR := packages/idris-test-c
-CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/test/common -name '*.c' 2>/dev/null) \
+# Discover Criterion suites. Tests are colocated alongside source under
+# backend_{tape,torch,mlx}/<subsystem>/test_<topic>.c (one test file per
+# kernel pair lives next to the tape source — it tests the public
+# `tensor_<op>` FFI so it covers all backends regardless of physical
+# location). Backend-specific tests gate themselves with `#ifdef
+# BACKEND_<NAME>`. Cross-cutting infra (integration tests, oracle
+# ladder, framework smoke) lives in $(TEST_C_DIR)/src/. The temporary
+# $(BACKENDS_DIR)/test/{common,tape,mlx}/ tree is fading out as Phase 3b
+# moves complete.
+CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/backend_tape -name 'test_*.c' 2>/dev/null) \
+                               $(shell find $(BACKENDS_DIR)/backend_torch -name 'test_*.c' 2>/dev/null) \
+                               $(shell find $(BACKENDS_DIR)/backend_mlx -name 'test_*.c' 2>/dev/null) \
+                               $(shell find $(BACKENDS_DIR)/test/common -name '*.c' 2>/dev/null) \
                                $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null) \
                                $(shell find $(TEST_C_DIR)/src -name '*.c' -not -name 'test_ntm_*' -not -name 'test_mlx_compile.c' -not -name 'test_criterion_smoke.c' 2>/dev/null)
 CRITERION_TEST_SRCS := $(TEST_C_DIR)/src/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
