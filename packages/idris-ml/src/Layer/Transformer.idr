@@ -202,7 +202,15 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
       normedFinal' = primLayerNorm2d {d} hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
       outT = primMm {d} normedFinal' (primTranspose2d {d} vpW)
-      outFlatPtr = primNarrow {d} outT 0 0 (sI * vI)
+      -- Flatten [seqLen, vocab] → [seqLen * vocab]. Was
+      -- `primNarrow outT 0 0 (sI * vI)` which relied on the
+      -- pre-bd61bef8 (2026-05-26) "flatten-then-slice" narrow bug
+      -- (start=0 length=88 on an 11-row tensor only worked
+      -- because narrow accidentally flattened first). Now narrow
+      -- correctly errors with `start (0) + length (88) exceeds
+      -- dimension size (11)`. Same fix as Example/Transformer.idr's
+      -- catCELossVar — flatten via primReshape1d, not narrow.
+      outFlatPtr = primReshape1d {d} outT (sI * vI)
   in MkTensor outFlatPtr Nothing
 
 
