@@ -411,13 +411,19 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hs
 
 /* Tape F64 path. Same decode-inline inner loop as `tensor_bitlinear_fwd`
    but with the activation quantization + RMSNorm + scalar weight_scale
-   fused in. The math (per HF transformers' `BitLinear.forward`):
+   fused in. The math (per HF transformers' `AutoBitLinear.forward`,
+   integrations/bitnet.py:299-312):
 
      if use_rms_norm: x = x * rsqrt(mean(x^2) + eps) * rms_norm_w
      in_scale = 127 / max(|x|, 1e-5)
      x_q[k] = round(x[k] * in_scale).clamp(-128, 127)
-     y[j] = (sum_k W_ternary[j, k] * x_q[k]) / (in_scale * w_scale)
+     y[j] = (sum_k W_ternary[j, k] * x_q[k]) * w_scale / in_scale
             + bias[j] if bias else 0
+
+   The `* w_scale / in_scale` factor matches HF's `output * weight_scale`
+   on the ActQuant-dequantized input (act_quant_dequant(x) ≈ x_q /
+   in_scale). The earlier `/ (in_scale * w_scale)` formulation divided
+   by w_scale instead of multiplying — wrong by w_scale² per BitLinear.
 
    Output y is F64. */
 static TensorHandle tensor_bitlinear_fwd_hf_quant_tape_f64(
@@ -464,8 +470,9 @@ static TensorHandle tensor_bitlinear_fwd_hf_quant_tape_f64(
     }
     free(xn);
 
-    /* Matmul with ternary W (decode inline), then dequant + bias */
-    double inv_scale = 1.0 / (in_scale * w_scale);
+    /* Matmul with ternary W (decode inline), then dequant + bias.
+       Apply `* w_scale / in_scale` (matches HF AutoBitLinear). */
+    double rescale = w_scale / in_scale;
     int out_shape[1] = {o};
     double* out_data = arena_alloc((size_t)o * sizeof(double));
     for (int j = 0; j < o; j++) {
@@ -475,7 +482,7 @@ static TensorHandle tensor_bitlinear_fwd_hf_quant_tape_f64(
             int8_t v = decode_slot(row, k);
             if (v != 0) sum += (double)v * xq[k];
         }
-        double y = sum * inv_scale;
+        double y = sum * rescale;
         if (bias_data) y += bias_data[j];
         out_data[j] = y;
     }
@@ -525,7 +532,7 @@ static TensorHandle tensor_bitlinear_fwd_hf_quant_tape_f32(
         xq[k] = v;
     }
     free(xn);
-    float inv_scale = 1.0f / (in_scale_f * (float)w_scale);
+    float rescale = (float)w_scale / in_scale_f;
     int out_shape[1] = {o};
     float* out_data = arena_alloc((size_t)o * sizeof(float));
     for (int j = 0; j < o; j++) {
@@ -535,7 +542,7 @@ static TensorHandle tensor_bitlinear_fwd_hf_quant_tape_f32(
             int8_t v = decode_slot(row, k);
             if (v != 0) sum += (float)v * xq[k];
         }
-        float y = sum * inv_scale;
+        float y = sum * rescale;
         if (bias_data) y += bias_data[j];
         out_data[j] = y;
     }

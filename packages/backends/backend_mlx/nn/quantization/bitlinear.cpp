@@ -136,12 +136,15 @@ extern "C" TensorHandle tensor_bitlinear_fwd_hf_quant_mlx_streamed(
     auto x_q = mx::clip(mx::round(mx::multiply(x, in_scale)),
         mx::astype(mx::array(-128.0f), dtype),
         mx::astype(mx::array( 127.0f), dtype));
-    /* Matmul + dequant */
+    /* Matmul + dequant. Apply w_scale as a MULTIPLY (matching HF
+       transformers' AutoBitLinear.forward: `F.linear(act_quant_dequant(x),
+       w_ternary) * w_scale`). The earlier divide-by-(in_scale * w_scale)
+       form effectively divided by w_scale instead of multiplying,
+       producing outputs ~w_scale² too small per BitLinear. */
     auto W_dequant = mx::astype(W->data, dtype);
     auto y_q = mx::matmul(W_dequant, x_q);                    /* [o] */
     auto w_scale_t = mx::astype(mx::array((float)w_scale), dtype);
-    auto combined = mx::multiply(in_scale, w_scale_t);
-    auto y = mx::divide(y_q, combined);
+    auto y = mx::divide(mx::multiply(y_q, w_scale_t), in_scale);
     if (bias) {
         y = mx::add(y, bias->data);
     }

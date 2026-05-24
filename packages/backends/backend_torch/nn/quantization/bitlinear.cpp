@@ -124,9 +124,17 @@ extern "C" TensorHandle tensor_bitlinear_fwd_hf_quant(
     auto in_scale = 127.0 / xabs_max;
     auto x_q = at::clamp(at::round(x * in_scale), -128.0, 127.0);
     /* Matmul + dequant. W.to(dtype) lifts int8 -> float dequant.
-       in_scale is a [] (scalar) tensor; combined scale broadcasts. */
+       in_scale is a [] (scalar) tensor; we apply w_scale as a multiply
+       (matching HF transformers AutoBitLinear.forward, which does
+       `output = F.linear(act_quant_dequant(x), w_ternary) * w_scale`).
+       Net math: y ≈ (W_ternary @ x) * w_scale (i.e. the effective
+       full-precision weight is w_scale * W_ternary). The earlier
+       formulation `y_q / (in_scale * w_scale)` divided by w_scale
+       instead of multiplying, producing outputs ~w_scale² too small
+       per BitLinear and compounding multiplicatively across 30
+       decoder blocks. */
     auto y_q = at::matmul(W.to(dtype), x_q);                  /* [o] */
-    auto y = y_q / (in_scale * w_scale);
+    auto y = y_q * w_scale / in_scale;
     if (has_bias) {
         y = y + *to_tensor(hbias);
     }
