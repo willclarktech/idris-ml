@@ -1170,6 +1170,20 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/con
 	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
 	./$(BUILD)/exec/hf-llama-inference
 
+# Fast feedback loop for HfLlamaInference: type-check only (`--check`),
+# skip Scheme codegen + linking. Turns around in tens of seconds vs the
+# multi-minute `example-hf-llama-inference` build. Useful when iterating
+# on the typed surface (signatures, implicit-resolution, totality)
+# without caring about an executable binary yet.
+#
+# Same install dep as the full build so dependent libraries (idris-ml,
+# idris-transformers) are present; the difference is that the example
+# file itself is `--check`ed rather than `-o`'d.
+check-example-hf-llama-inference: install
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 -p contrib -p idris-ml -p idris-gym -p idris-transformers \
+		--build-dir $(BUILD)/check-hf-llama-inference --source-dir $(EXAMPLE_SRC) \
+		--check $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+
 # Build + run Example/HfBitNetInference. Fetches microsoft/bitnet-b1.58-2B-4T
 # once via the pattern rule (1.18 GB, not gated). Default mode runs the
 # fixed-prompt forward and prints the top 5 logits; `--dump-logits` mode

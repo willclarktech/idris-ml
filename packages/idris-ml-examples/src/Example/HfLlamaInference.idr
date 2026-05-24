@@ -311,12 +311,18 @@ runGenerate useCache tok model tables prompt numTokens = do
            (if useCache then " (KV cache ON)" else " (KV cache OFF)"))
   putStrLn ""
   let promptList = toList promptIds
-  finalList <- case useCache of
-    True  => genLoopCached model tables promptList numTokens
-    False => genLoop       model tables promptList numTokens
-  Right text <- detokenize tok (fromList finalList)
-    | Left err => putStrLn ("ERR: detokenize: " ++ show err)
-  putStrLn ("Output:    " ++ text)
+  -- Per-branch dump (see runDumpTokens for the matching pattern + why).
+  case useCache of
+    True => do
+      finalList <- genLoopCached model tables promptList numTokens
+      Right text <- detokenize tok (fromList finalList)
+        | Left err => putStrLn ("ERR: detokenize: " ++ show err)
+      putStrLn ("Output:    " ++ text)
+    False => do
+      finalList <- genLoop       model tables promptList numTokens
+      Right text <- detokenize tok (fromList finalList)
+        | Left err => putStrLn ("ERR: detokenize: " ++ show err)
+      putStrLn ("Output:    " ++ text)
 
 
 ----------------------------------------------------------------------
@@ -350,10 +356,18 @@ runDumpTokens useCache tok model tables prompt numTokens = do
         putStrLn ("ERR: tokenize: " ++ show err)
         exitFailure
   let promptList = toList promptIds
-  finalList <- case useCache of
-    True  => genLoopCached model tables promptList numTokens
-    False => genLoop       model tables promptList numTokens
-  traverse_ (putStrLn . show . finToNat) finalList
+  -- Split per-branch fully (run + dump inside each) instead of binding
+  -- `finalList` across the branches. Idris's elaborator gives up on
+  -- inferring the bound type through the case scrutinee otherwise
+  -- (`Foldable ?t` on the downstream traverse_, both at if-then-else
+  -- and case-of formulations). Explicit per-branch `do` avoids it.
+  case useCache of
+    True => do
+      finalList <- genLoopCached model tables promptList numTokens
+      traverse_ (putStrLn . show . finToNat) finalList
+    False => do
+      finalList <- genLoop       model tables promptList numTokens
+      traverse_ (putStrLn . show . finToNat) finalList
 
 
 ----------------------------------------------------------------------
