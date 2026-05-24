@@ -1253,7 +1253,7 @@ test-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config
 		1.0
 
 # Multi-step generation gate for HfLlama. Regenerates the Python
-# oracle by greedy-decoding 4 tokens from `model.generate(do_sample=
+# oracle by greedy-decoding 8 tokens from `model.generate(do_sample=
 # False, use_cache=True)` on the same prompt the user-facing demo
 # uses ("The capital of France is"), runs the Idris example in
 # --dump-tokens mode for the same prompt + budget, and asserts the
@@ -1261,9 +1261,10 @@ test-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config
 # generation-path drift the single-forward
 # `test-hf-llama-roundtrip` can't see.
 #
-# Budget is 4 tokens to keep the CI torch-cpu wall-clock manageable
-# pre-KV-cache (each step re-forwards on the growing sequence).
-# Bump to 8+ after the KV cache lands.
+# Budget bumped 2026-06-04 from 4 to 8 after the KV cache landed
+# (commits `b5443135` ... `3b87291f`): with cached decode each step
+# is constant-cost in Q/K/V projection (vs the no-cache path's
+# growing prefix), so 8 tokens is cheap.
 #
 # Tape lane (F64) doesn't fit in 16 GB; build with
 # `BACKEND=torch TORCH_DEVICE=cpu` for CI or
@@ -1274,7 +1275,7 @@ test-hf-llama-generate-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-
 		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
-	./$(BUILD)/exec/hf-llama-inference --dump-tokens --num-tokens 4 > $(BUILD)/hf-llama-tokens-out.txt
+	./$(BUILD)/exec/hf-llama-inference --dump-tokens --num-tokens 8 > $(BUILD)/hf-llama-tokens-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../$(BUILD)/hf-llama-tokens-out.txt \

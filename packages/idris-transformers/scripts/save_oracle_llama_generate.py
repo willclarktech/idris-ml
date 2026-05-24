@@ -66,10 +66,10 @@ MODEL_ID = "meta-llama/Llama-3.2-1B"
 # extra args.
 PROMPT = "The capital of France is"
 
-# Budget. CI lane (torch-cpu, 14 GB Ubuntu runner) handles ~4 token
-# steps in reasonable time. Bump to 8+ in the post-KV-cache Phase D
-# perf landing.
-NUM_NEW_TOKENS = 4
+# Budget. Bumped 2026-06-04 from 4 to 8 after the KV cache landed —
+# with cached decode each step is constant-cost in Q/K/V projections
+# (vs the no-cache path's growing prefix), so 8 tokens is cheap.
+NUM_NEW_TOKENS = 8
 
 
 def main() -> None:

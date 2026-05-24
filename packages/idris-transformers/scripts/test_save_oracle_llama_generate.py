@@ -35,7 +35,7 @@ ORACLE = (
 )
 VOCAB_SIZE = 128256
 EXPECTED_PROMPT = "The capital of France is"
-NUM_NEW_TOKENS = 4
+NUM_NEW_TOKENS = 8
 
 
 @pytest.fixture(scope="module")
