@@ -259,5 +259,15 @@ main = do
         Left err  => do
           putStrLn ("ERR: mkTokenizer: " ++ show err)
           exitFailure
-        Right tok =>
-          runGenerate tok model (extractPrompt "The quick brown fox" args) (extractNumTokens 8 args)
+        Right tok => do
+          let numTokens = extractNumTokens 8 args
+          benchT0 <- clockTime Monotonic
+          runGenerate tok model (extractPrompt "The quick brown fox" args) numTokens
+          benchT1 <- clockTime Monotonic
+          let benchMs =
+                let s  = cast {to=Double} (seconds benchT1 - seconds benchT0)
+                    ns = cast {to=Double} (nanoseconds benchT1 - nanoseconds benchT0)
+                in s * 1000.0 + ns / 1000000.0
+          putStrLn ""
+          putStrLn ("PERF_GENERATE_TOKENS=" ++ show numTokens)
+          putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)

@@ -2,10 +2,14 @@ name: perf-nightly
 
 # Tier 2 perf cadence (see docs/develop/testing-taxonomy.md). Runs the
 # `test-perf-nightly` aggregator end-to-end on Ubuntu and uploads the
-# refreshed perf-log.jsonl + BENCHMARKS.md as artifacts. Today this is
-# Axis A (op kernels) only; Axes B/C/D will fold in as their benches
-# land. The same job is `workflow_dispatch`-able so ad-hoc nightlies
-# can be triggered from the Actions UI.
+# refreshed perf-log.jsonl + BENCHMARKS.md as artifacts. Today covers
+# Axes A (op kernels), B (single-layer fwd+bwd), C (e2e training), and
+# the BERT + GPT-2 cells of Axis D (HF inference). The Llama-generate
+# cell of Axis D needs torch-mps F32 (Apple Silicon) — it's not
+# available on this Ubuntu runner so it lands on a developer's local
+# perf-nightly.sh run, not this CI workflow. The same job is
+# `workflow_dispatch`-able so ad-hoc nightlies can be triggered from
+# the Actions UI.
 
 on:
   schedule:
@@ -24,7 +28,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y chezscheme python3-pip
-          pip3 install --user torch numpy
+          # transformers is needed for Axis D BERT + GPT-2 (Idris-side
+          # tokenize subprocess + PyTorch ref). The Llama-generate cell
+          # of Axis D is locally-gated (torch-mps) and naturally skips
+          # on this runner since no MPS is available.
+          pip3 install --user torch numpy transformers
 
       - name: Install idris2
         run: |

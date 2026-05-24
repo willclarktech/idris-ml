@@ -407,8 +407,18 @@ main = do
             pure ()
           else do
             putStrLn "[stage] runGenerate — greedy decode loop..."
-            runGenerate tok model tables (extractPrompt "The capital of France is" args) (extractNumTokens 8 args)
+            let numTokens = extractNumTokens 8 args
+            benchT0 <- clockTime Monotonic
+            runGenerate tok model tables (extractPrompt "The capital of France is" args) numTokens
+            benchT1 <- clockTime Monotonic
             stageStamp "runGenerate done" t0
+            let benchMs =
+                  let s  = cast {to=Double} (seconds benchT1 - seconds benchT0)
+                      ns = cast {to=Double} (nanoseconds benchT1 - nanoseconds benchT0)
+                  in s * 1000.0 + ns / 1000000.0
+            putStrLn ""
+            putStrLn ("PERF_GENERATE_TOKENS=" ++ show numTokens)
+            putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)
             -- Explicit pre-exit cleanup. Forces the backend's per-tensor
             -- destructor cascade (libtorch CPUAllocator releases on torch-
             -- cpu, mlx::array refcount drops on mlx-cpu) to run inside main

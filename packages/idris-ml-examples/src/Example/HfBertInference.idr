@@ -280,6 +280,21 @@ main = do
           -- literal in each string is tokenized to BERT's mask token
           -- id 103 (by AutoTokenizer); runMaskDemo searches for it to
           -- locate the position to score.
+          benchT0 <- clockTime Monotonic
           runMaskDemo tok model "paris is the capital of [MASK] ."
           runMaskDemo tok model "i went to the [MASK] to buy bread ."
           runMaskDemo tok model "the man worked as a [MASK] ."
+          benchT1 <- clockTime Monotonic
+          -- Axis D perf marker: token count = 25 (wordpiece-aware:
+          -- 8 + 8 + 9 across the three sentences including [CLS]/[SEP]
+          -- as tokenized by bert-tiny's WordPiece). Wall is the sum
+          -- across all three demos including tokenize + forward +
+          -- decode subprocess hops; that's the user-observable inference
+          -- cost so it's the right number to report.
+          let benchMs =
+                let s  = cast {to=Double} (seconds benchT1 - seconds benchT0)
+                    ns = cast {to=Double} (nanoseconds benchT1 - nanoseconds benchT0)
+                in s * 1000.0 + ns / 1000000.0
+          putStrLn ""
+          putStrLn ("PERF_GENERATE_TOKENS=25")
+          putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)
