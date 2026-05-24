@@ -10,7 +10,7 @@ from torch_ref.models.seq_classify import SeqClassifyCNN, evaluate, train_epoch
 def test_loss_decreases() -> None:
     torch.manual_seed(42)
     random.seed(42)
-    model = SeqClassifyCNN().double()
+    model = SeqClassifyCNN().float()  # F32 (2026-06-04 dtype flip)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     losses = []
@@ -24,7 +24,7 @@ def test_loss_decreases() -> None:
 def test_accuracy_above_chance() -> None:
     torch.manual_seed(42)
     random.seed(42)
-    model = SeqClassifyCNN().double()
+    model = SeqClassifyCNN().float()  # F32 (2026-06-04 dtype flip)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     for _ in range(300):

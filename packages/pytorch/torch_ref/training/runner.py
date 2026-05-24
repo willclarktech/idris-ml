@@ -25,20 +25,29 @@ _PEAK_MB = 0
 # epoch; each script's main() can also call it directly when
 # constructing tensors before the training loop starts.
 #
-# Dtype is auto-selected from device: torch.float64 for cpu/cuda,
-# torch.float32 for mps (libtorch's MPS backend rejects float64 at
-# tensor construction with `Cannot convert a MPS Tensor to float64
-# dtype`, so we silently downcast). This mirrors idris-ml's
-# `(MlxDev MGpu) F32` only / `MlxDev MCpu` F32+F64 design.
+# Dtype is F32 across all devices (flipped 2026-06-04 from F64 to
+# match idris-ml's `BuildConfig` flip; see `docs/develop/perf-changes.md`).
+# Previously: F64 on cpu/cuda, F32 on mps (libtorch's MPS backend
+# rejects F64). Now F32 everywhere — matches modern ML practice +
+# the on-disk reference weights of every shipped HF adapter (BF16 →
+# F32 at load), uses half the memory, runs ~2× faster on CPU via
+# better SIMD. Override per-call via explicit `dtype=torch.float64`
+# in tensor constructors if a workload genuinely needs F64
+# (BitNet/BitLinear bit-level fixtures and the np.float64 env-state
+# pins still use F64 deliberately — see the per-file comments).
 _DEVICE: str = "cpu"
-_DTYPE: torch.dtype = torch.float64
+_DTYPE: torch.dtype = torch.float32
 
 
 def _dtype_for_device(d: str) -> torch.dtype:
-    """Default dtype per device: F32 on MPS (libtorch rejects F64),
-    F64 elsewhere (refs' historical default for numerical parity with
-    idris-ml's F64 default)."""
-    return torch.float32 if d == "mps" else torch.float64
+    """Default dtype is F32 across all devices (flipped 2026-06-04
+    to match idris-ml's BuildConfig flip). MPS still needs F32
+    structurally (libtorch rejects F64 on MPS at tensor
+    construction); cpu/cuda now also default to F32. Returns the
+    same value regardless of device — kept as a function for API
+    stability (callers in models/ pass the active device through)."""
+    _ = d  # device no longer affects the default; kept for API stability
+    return torch.float32
 
 
 def set_device(d: str) -> None:

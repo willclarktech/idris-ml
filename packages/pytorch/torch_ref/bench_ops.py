@@ -21,8 +21,8 @@ def wall_ms() -> float:
 
 
 def bench_matmul(m: int, n: int, k: int, iters: int) -> None:
-    a = torch.randn(m, n, dtype=torch.float64)
-    b = torch.randn(n, k, dtype=torch.float64)
+    a = torch.randn(m, n, dtype=torch.float32)
+    b = torch.randn(n, k, dtype=torch.float32)
 
     # warmup
     for _ in range(10):
@@ -40,8 +40,8 @@ def bench_matmul(m: int, n: int, k: int, iters: int) -> None:
 
 
 def bench_matvec(m: int, n: int, iters: int) -> None:
-    mat = torch.randn(m, n, dtype=torch.float64)
-    vec = torch.randn(n, dtype=torch.float64)
+    mat = torch.randn(m, n, dtype=torch.float32)
+    vec = torch.randn(n, dtype=torch.float32)
 
     for _ in range(10):
         _ = mat @ vec
@@ -58,8 +58,8 @@ def bench_matvec(m: int, n: int, iters: int) -> None:
 
 
 def bench_elementwise(n: int, iters: int) -> None:
-    a = torch.randn(n, dtype=torch.float64)
-    b = torch.randn(n, dtype=torch.float64)
+    a = torch.randn(n, dtype=torch.float32)
+    b = torch.randn(n, dtype=torch.float32)
 
     for _ in range(10):
         c = a + b
@@ -78,7 +78,7 @@ def bench_elementwise(n: int, iters: int) -> None:
 
 
 def bench_softmax(n: int, iters: int) -> None:
-    a = torch.randn(n, dtype=torch.float64)
+    a = torch.randn(n, dtype=torch.float32)
 
     for _ in range(10):
         _ = F.softmax(a, dim=0)
@@ -96,9 +96,9 @@ def bench_softmax(n: int, iters: int) -> None:
 
 def bench_conv2d(in_c: int, out_c: int, h: int, w: int, kh: int, kw: int, iters: int) -> None:
     # PyTorch conv2d expects [N, C, H, W] input
-    x = torch.randn(1, in_c, h, w, dtype=torch.float64)
-    weight = torch.randn(out_c, in_c, kh, kw, dtype=torch.float64)
-    bias = torch.randn(out_c, dtype=torch.float64)
+    x = torch.randn(1, in_c, h, w, dtype=torch.float32)
+    weight = torch.randn(out_c, in_c, kh, kw, dtype=torch.float32)
+    bias = torch.randn(out_c, dtype=torch.float32)
 
     for _ in range(2):
         _ = F.conv2d(x, weight, bias)
@@ -115,13 +115,13 @@ def bench_conv2d(in_c: int, out_c: int, h: int, w: int, kh: int, kw: int, iters:
 
 
 def bench_train_step(input_dim: int, output_dim: int, iters: int) -> None:
-    w = torch.randn(output_dim, input_dim, dtype=torch.float64, requires_grad=True)
-    b = torch.zeros(output_dim, dtype=torch.float64, requires_grad=True)
+    w = torch.randn(output_dim, input_dim, dtype=torch.float32, requires_grad=True)
+    b = torch.zeros(output_dim, dtype=torch.float32, requires_grad=True)
     opt = torch.optim.SGD([w, b], lr=0.01)
 
     # warmup
     for _ in range(5):
-        x = torch.randn(input_dim, dtype=torch.float64)
+        x = torch.randn(input_dim, dtype=torch.float32)
         y = w @ x + b
         loss = y.sum()
         opt.zero_grad()
@@ -130,7 +130,7 @@ def bench_train_step(input_dim: int, output_dim: int, iters: int) -> None:
 
     t0 = wall_ms()
     for _ in range(iters):
-        x = torch.randn(input_dim, dtype=torch.float64)
+        x = torch.randn(input_dim, dtype=torch.float32)
         y = w @ x + b
         loss = y.sum()
         opt.zero_grad()
