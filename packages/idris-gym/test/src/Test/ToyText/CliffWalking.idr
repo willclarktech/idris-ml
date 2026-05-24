@@ -1,6 +1,6 @@
 module Test.ToyText.CliffWalking
 
-import Harness
+import Test.Harness
 import Gym.Env
 import Gym.ToyText.CliffWalking
 

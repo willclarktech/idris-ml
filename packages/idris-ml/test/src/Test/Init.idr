@@ -1,7 +1,7 @@
 module Test.Init
 
 import System.Random
-import Harness
+import Test.Harness
 import Init
 
 

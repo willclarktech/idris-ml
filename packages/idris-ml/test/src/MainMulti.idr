@@ -15,7 +15,7 @@
 ||| cross-backend hop.
 module MainMulti
 
-import Harness
+import Test.Harness
 import Test.Array
 import Test.GradMode
 import Test.Math

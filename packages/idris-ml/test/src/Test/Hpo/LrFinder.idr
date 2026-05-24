@@ -3,7 +3,7 @@ module Test.Hpo.LrFinder
 import Data.List
 import Data.Vect
 
-import Harness
+import Test.Harness
 import Hpo.LrFinder
 
 

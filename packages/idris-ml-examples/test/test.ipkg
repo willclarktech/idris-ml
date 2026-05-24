@@ -5,9 +5,9 @@ sourcedir = "src"
 depends = contrib
         , idris-ml
         , idris-ml-examples
+        , idris-test
 
-modules = Harness
-        , Main
+modules = Main
         , Test.Generate
         , Test.Reinforce
 

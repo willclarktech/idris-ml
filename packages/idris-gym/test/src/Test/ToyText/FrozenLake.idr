@@ -1,6 +1,6 @@
 module Test.ToyText.FrozenLake
 
-import Harness
+import Test.Harness
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.FrozenLake

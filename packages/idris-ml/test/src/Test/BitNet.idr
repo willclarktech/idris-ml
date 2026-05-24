@@ -2,7 +2,7 @@ module Test.BitNet
 
 import Data.Vect
 
-import Harness
+import Test.Harness
 import Device
 import Tensor
 import Array

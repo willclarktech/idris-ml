@@ -23,7 +23,7 @@ module Test.MultiDeviceRegistry
 
 import Data.Vect
 
-import Harness
+import Test.Harness
 import Device
 import Tensor
 

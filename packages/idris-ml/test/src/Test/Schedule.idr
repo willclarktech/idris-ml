@@ -1,6 +1,6 @@
 module Test.Schedule
 
-import Harness
+import Test.Harness
 import Schedule
 
 

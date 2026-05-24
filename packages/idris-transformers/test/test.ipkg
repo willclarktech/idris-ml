@@ -5,9 +5,9 @@ sourcedir = "src"
 depends = contrib
         , idris-ml
         , idris-transformers
+        , idris-test
 
-modules = Harness
-        , Main
+modules = Main
         , Test.HfBert
         , Test.HfBitNet
         , Test.HfGpt2

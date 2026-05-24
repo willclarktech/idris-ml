@@ -1,6 +1,6 @@
 module Main
 
-import Harness
+import Test.Harness
 import Test.Rng
 import Test.Space
 import Test.Wrapper

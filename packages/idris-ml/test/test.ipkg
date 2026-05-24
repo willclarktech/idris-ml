@@ -4,9 +4,9 @@ sourcedir = "src"
 
 depends = contrib
         , idris-ml
+        , idris-test
 
-modules = Harness
-        , Main
+modules = Main
         , TestConfig
         , Test.Array
         , Test.BitLinear

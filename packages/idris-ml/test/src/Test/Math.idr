@@ -4,7 +4,7 @@ import Data.Fin
 import Data.Vect
 
 import Floating
-import Harness
+import Test.Harness
 import Math
 import Array
 

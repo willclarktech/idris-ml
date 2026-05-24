@@ -1,6 +1,6 @@
 module Test.RL.Gae
 
-import Harness
+import Test.Harness
 import RL.Gae
 
 

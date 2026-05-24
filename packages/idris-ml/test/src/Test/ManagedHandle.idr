@@ -1,6 +1,6 @@
 module Test.ManagedHandle
 
-import Harness
+import Test.Harness
 import Device
 import Tensor
 import TestConfig

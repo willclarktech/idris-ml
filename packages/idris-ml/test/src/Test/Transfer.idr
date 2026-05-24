@@ -17,7 +17,7 @@ module Test.Transfer
 import Data.List
 import Data.Vect
 
-import Harness
+import Test.Harness
 import Device
 import Tensor
 

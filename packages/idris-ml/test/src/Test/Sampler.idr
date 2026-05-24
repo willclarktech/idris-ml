@@ -1,7 +1,7 @@
 module Test.Sampler
 
 import System.Random
-import Harness
+import Test.Harness
 import Sampler
 
 

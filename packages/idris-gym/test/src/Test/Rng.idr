@@ -1,6 +1,6 @@
 module Test.Rng
 
-import Harness
+import Test.Harness
 import Gym.Rng
 
 

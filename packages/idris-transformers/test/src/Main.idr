@@ -1,6 +1,6 @@
 module Main
 
-import Harness
+import Test.Harness
 import Test.HfBert
 import Test.HfBitNet
 import Test.HfGpt2

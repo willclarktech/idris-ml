@@ -2,7 +2,7 @@ module Test.RoPE
 
 import Data.Vect
 
-import Harness
+import Test.Harness
 import Layer.RoPE
 
 

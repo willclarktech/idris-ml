@@ -988,8 +988,13 @@ install-notebook: install-core
 install-examples: install-core install-gym install-transformers $(BUILDCONFIG_IDR)
 	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-examples --install idris-ml-examples.ipkg >/dev/null
 
+# Install the shared test harness (Test.Harness) used by every package's
+# test/ suite. Pure-Idris, no backend dep — installs against base only.
+install-test-harness:
+	@cd packages/idris-test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-test --install idris-test.ipkg >/dev/null
+
 # Install all Idris packages locally
-install: install-core install-gym install-transformers install-notebook install-examples $(BUILD)/.library-cache-stamp
+install: install-core install-gym install-transformers install-notebook install-examples install-test-harness $(BUILD)/.library-cache-stamp
 
 # Idris build (type-check core library)
 check: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
@@ -1075,7 +1080,7 @@ test: test-idris test-backend-criterion test-safetensors
 # resolve through `{d=TestDevice}` which the Makefile-generated
 # `TestConfig.idr` pins to the active backend.
 test-idris: install $(TESTCONFIG_IDR)
-	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test $(TEST_SRC)/Main.idr
+	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -p idris-test -o test $(TEST_SRC)/Main.idr
 	cp $(LIB) $(BUILD)/exec/test_app/
 	./$(BUILD)/exec/test
 
@@ -1108,12 +1113,12 @@ test-multi:
 # / $(LIB) / $(TESTCONFIG_IDR) all resolve in the multi-link set's tree,
 # not the outer make's BACKEND context.
 _test-multi-build: $(TESTCONFIG_IDR)
-	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test-multi $(TEST_SRC)/MainMulti.idr
+	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -p idris-test -o test-multi $(TEST_SRC)/MainMulti.idr
 	cp $(LIB) $(BUILD)/exec/test-multi_app/
 	./$(BUILD)/exec/test-multi
 
 # Idris tests for idris-gym package (pure Idris, no backend required)
-test-gym: install-gym
+test-gym: install-gym install-test-harness
 	cd packages/idris-gym/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-gym --build test.ipkg
 	$(STDBUF) ./$(BUILD)/test-idris-gym/exec/idris-gym-test
 
@@ -1123,7 +1128,7 @@ test-gym: install-gym
 # exactly. The dylib gets copied alongside the test executable so the
 # FFI registry calls land on the active backend's symbols (mirrors
 # the test-idris recipe).
-test-transformers: install-transformers
+test-transformers: install-transformers install-test-harness
 	cd packages/idris-transformers/test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-transformers --build test.ipkg
 	cp $(LIB) $(BUILD)/test-idris-transformers/exec/idris-transformers-test_app/
 	$(STDBUF) ./$(BUILD)/test-idris-transformers/exec/idris-transformers-test
@@ -1139,7 +1144,7 @@ bench-gym: install-gym
 	$(STDBUF) ./$(BUILD)/bench-idris-gym/exec/idris-gym-bench $(BENCH_ARGS)
 
 # Unit tests for idris-ml-examples (runs moved Test.Generate)
-test-examples-unit: install-examples
+test-examples-unit: install-examples install-test-harness
 	cd packages/idris-ml-examples/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-ml-examples --build test.ipkg
 	cp $(LIB) $(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test_app/
 	$(STDBUF) ./$(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test

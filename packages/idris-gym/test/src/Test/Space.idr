@@ -1,7 +1,7 @@
 module Test.Space
 
 import Data.Vect
-import Harness
+import Test.Harness
 import Gym.Space
 
 

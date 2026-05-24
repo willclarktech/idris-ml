@@ -1,6 +1,6 @@
 module Main
 
-import Harness
+import Test.Harness
 import Test.Generate
 import Test.Reinforce
 

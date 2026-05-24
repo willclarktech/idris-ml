@@ -22,7 +22,7 @@ import Data.String
 import Data.Vect
 
 import HfBitNet
-import Harness
+import Test.Harness
 
 import Device
 import Device.Core

@@ -1,0 +1,7 @@
+package idris-test
+
+sourcedir = "src"
+
+depends = base
+
+modules = Test.Harness

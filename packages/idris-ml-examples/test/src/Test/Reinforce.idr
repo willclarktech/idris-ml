@@ -5,7 +5,7 @@ import Data.Vect
 import System
 
 import Compat.Random
-import Harness
+import Test.Harness
 
 import Example.Reinforce
 import Device

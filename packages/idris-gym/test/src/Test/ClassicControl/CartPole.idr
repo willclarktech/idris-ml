@@ -1,7 +1,7 @@
 module Test.ClassicControl.CartPole
 
 import Data.Vect
-import Harness
+import Test.Harness
 import Gym.Env
 import Gym.ClassicControl.CartPole
 

@@ -16,7 +16,7 @@ import Array
 import Device
 import Device.Core
 import Device.Tape
-import Harness
+import Test.Harness
 import KVCache
 import Tensor
 

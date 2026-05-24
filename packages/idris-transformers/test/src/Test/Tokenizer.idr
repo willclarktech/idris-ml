@@ -17,7 +17,7 @@ import Data.Vect
 import Data.Fin
 
 import Tokenizer
-import Harness
+import Test.Harness
 
 
 ----------------------------------------------------------------------

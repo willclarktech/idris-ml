@@ -3,7 +3,7 @@ module Test.RL.ReplayBuffer
 import Data.Vect
 import Data.List
 
-import Harness
+import Test.Harness
 import Compat.Random
 import RL.ReplayBuffer
 

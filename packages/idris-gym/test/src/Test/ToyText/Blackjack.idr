@@ -1,7 +1,7 @@
 module Test.ToyText.Blackjack
 
 import Data.Vect
-import Harness
+import Test.Harness
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.Blackjack

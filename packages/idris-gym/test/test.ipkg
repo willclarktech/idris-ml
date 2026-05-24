@@ -4,9 +4,9 @@ sourcedir = "src"
 
 depends = contrib
         , idris-gym
+        , idris-test
 
-modules = Harness
-        , Main
+modules = Main
         , Test.Rng
         , Test.Space
         , Test.Wrapper

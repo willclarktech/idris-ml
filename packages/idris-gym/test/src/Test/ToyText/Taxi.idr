@@ -1,6 +1,6 @@
 module Test.ToyText.Taxi
 
-import Harness
+import Test.Harness
 import Gym.Env
 import Gym.ToyText.Taxi
 

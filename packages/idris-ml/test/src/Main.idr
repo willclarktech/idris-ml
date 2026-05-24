@@ -1,6 +1,6 @@
 module Main
 
-import Harness
+import Test.Harness
 import Test.Array
 import Test.GradMode
 import Test.GradScaler

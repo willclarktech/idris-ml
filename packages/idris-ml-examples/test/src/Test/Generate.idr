@@ -5,7 +5,7 @@ import Data.Vect
 
 import DataPoint
 import Generate
-import Harness
+import Test.Harness
 import Array
 
 

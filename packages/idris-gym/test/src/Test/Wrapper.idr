@@ -1,7 +1,7 @@
 module Test.Wrapper
 
 import Data.Vect
-import Harness
+import Test.Harness
 import Gym.Env
 import Gym.Space
 import Gym.Wrapper
