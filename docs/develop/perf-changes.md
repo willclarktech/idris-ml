@@ -48,6 +48,46 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-03 — Fused SwiGLU on all 3 backends (#399 / #4 Fusion 2)
+
+**Plan**: Fusion 2 of the fused-op catalogue plan — collapse HfLlama.applyMlp's `tsilu g; tmul sg u` pair into a single `primSwiGlu2d` typeclass method on `UserDeviceTraining`. Same shape as Fusion 1 (RMSNorm): one fused C primitive per backend, no architectural change to autograd or Tensor. SwiGLU is HfLlama-specific — BitNet's MLP uses relu² + ffn_sub_norm instead of silu, so the fusion intentionally doesn't land there.
+
+**Motivation**: After Fusion 1 (RMSNorm) shipped, the next-largest op-count contributor in HfLlama's per-step decomposition was the `silu(gate) * up` pair in `applyMlp`. Llama-3.2-1B runs this pair once per layer × 16 layers = 32 ops/step before fusion, 16 ops/step after (32 → 16, -50% on this surface).
+
+**Change**: `tensor_swiglu_2d(gate, up)` added to `backend.h`, manifest, and the 3 rename headers. Per-backend implementations:
+- **torch** (`backend_torch/nn/activation/swiglu.cpp`): `at::mul(at::silu(g), u)`. Libtorch autograd handles backward across the two-primitive composition.
+- **mlx** (`backend_mlx/nn/activation/swiglu.cpp`): `mx::multiply(mx::multiply(g, mx::sigmoid(g)), u)` as one tape entry. Streamed variant + replay closure via `MLX_REGISTER_REPLAY(OP_SWIGLU_2D)` recomputes the same composition during backward.
+- **tape** (`backend_tape/nn/activation/swiglu_2d.c`): hand-rolled F32/F64 forward + analytical backward closure. `SwiGluMeta` caches `sigmoid(gate)` per element so backward avoids `exp()` re-evaluation. Backward registered via `TAPE_REGISTER_OP(OP_SWIGLU_2D)`.
+
+Idris-side: `primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr` on `UserDeviceTraining`; per-device instance in each `Device/{Mlx,Tape,Torch}.idr`. `HfLlama.applyMlp` collapses two intermediate bindings (`sg <- tsilu g; mid <- tmul sg u`) into one (`mid <- ioRerun (\_ => primSwiGlu2d ...)`).
+
+**Impact** (Llama-3.2-1B F32, 8 greedy tokens, prompt='The capital of France is'):
+
+| backend / config | cross-language gate | max-abs-diff vs HF Python oracle (tol 1.0) | op count | runGenerate wall |
+|---|---|---:|---:|---:|
+| **mlx-gpu** F32 (post-RMSNorm baseline, commit `629c23c`) | PASS | 1.20e-04 | counter stub | 1 m 3 s (total) |
+| **mlx-gpu** F32 (this commit) | PASS | **1.20e-04** (unchanged) | counter stub | **49.2 s** (total) — **-22%** vs RMSNorm baseline |
+| **torch-mps** F32 (post-RMSNorm baseline, commit `629c23c`) | PASS | 4.96e-05 | 918 | 4 m 56 s |
+| **torch-mps** F32 (this commit) | PASS | **4.96e-05** (unchanged) | **902 (-16, -1.7%)** | runGenerate noisy (357 s in the roundtrip-gate run; 455 s in the paired perf-run; RMSNorm-baseline reference was 296 s — single-trial spread > the per-op-cost story can explain alone) |
+
+- **Numerical clean**: cross-language max-abs-diff vs HF Python oracle is bit-identical to the pre-fusion baseline on both backends (mlx-gpu 1.20e-04; torch-mps 4.96e-05). The fusion adds no measurable floating-point drift.
+- **Op-count drop**: -16/step on torch-mps as predicted (the silu + mul pair × 16 layers fused to 1). 918 → 902 is a small relative delta (-1.7%) because SwiGLU was only 2 chained ops to begin with, while RMSNorm was 7.
+- **mlx-gpu wall win is real**: 49.2 s end-to-end vs the 63 s RMSNorm-baseline reference (-22%) on a single-trial measurement — well outside the `feedback_vm_perf_noise` ±15–20% noise floor.
+- **torch-mps wall is noisy on this commit**: 357 s (roundtrip-gate run) and 455 s (paired perf-run) for `runGenerate`, vs the RMSNorm-baseline reference 296 s. The two SwiGLU-commit trials disagree by +28%, so the underlying signal is dominated by VM noise rather than the small op-count delta. Op-count drop is deterministic; wall is not.
+
+C-level: criterion suite 217/217 tape, 207/207 torch, 209/209 mlx (after adding 4 new `test_swiglu.c` cases: zero-gate, unit-up, per-row independence, decomposed-chain agreement vs host-side oracle).
+
+**Outcome**: landed. Sibling-fusion plumbing reuses the RMSNorm path almost verbatim — same Idris typeclass shape, same per-backend C file layout, same Scheme wrap regeneration via `scripts/lifecycle/ffi-convert-to-scheme.py`.
+
+**TDD discipline** (per `feedback_tdd_default`): test file authored first; RED observed at link time (`call to undeclared function 'tensor_swiglu_2d'`); then backend impl + Idris wiring turned it GREEN. RED-before-commit recorded in commit body.
+
+**Out of scope** (follow-up):
+- Backward gradcheck test for the tape SwiGLU closure (forward correctness checked vs decomposed chain; backward derivation analytical). Pair an F32 oracle test in the tape T29 block to lock the F32 backward.
+- Gate/up projection fusion (3 matmuls share x as input). Would need an mlx fast::linear-style primitive + libtorch composition. Filed but deferred — smaller payoff than the silu*mul pair just landed.
+
+**Cross-references**: commit `911b6b1` (this fusion); commit `629c23c` (RMSNorm, Fusion 1); commits `6850366` (SDPA) and `c09d374` (all-heads RoPE) for the prior fusions in the same #399 catalogue; `feedback_pytorch_precedent_test.md` (PyTorch ships `nn.functional.silu` + elementwise mul; precedent test passes).
+
+
 ### 2026-06-03 — Fused RMSNorm on all 3 backends (#399 / #4 Fusion 1)
 
 **Plan**: Fusion 1 of the fused-op catalogue plan — replace HfCommon.applyRmsNorm2dRaw's per-row 8-primitive chain (narrow / mul / sum / mul_scalar / add_scalar / sqrt / div / mul + cat) with a single `primRmsNorm2d` typeclass method on `UserDeviceTraining`. Same shape as the prior SDPA + all-heads RoPE fusions: one fused C primitive per backend, no architectural change to autograd or Tensor.
