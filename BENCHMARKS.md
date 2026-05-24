@@ -160,7 +160,21 @@ NTM-class / RL). One entry per distinct compute pattern.
 
 ## Axis D — End-to-end HF inference (vs HF transformers)
 
-_No entries yet — Axis D benches not yet wired up._
+Per-token wall-clock on HuggingFace inference workloads (encoder
+fwd / decoder fwd / cached-decode generation) vs HF transformers
+Python on the same hardware.
+
+### hf-bert-inference
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| hf-bert-inference | 454.9401 | 0.9267 | 490.91× | 25 | `e5a79082+dirty` |
+
+### hf-gpt2-inference
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| hf-gpt2-inference | 511.6798 | 14.2383 | 35.94× | 8 | `e5a79082+dirty` |
 
 ---
 
