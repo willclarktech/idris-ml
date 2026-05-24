@@ -3,6 +3,36 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+Testing rationalization epic (commits `b8f8850c` .. `d7287779`, ~7 commits across two sessions). Closes High-priority TODO row "Rationalize the testing approach across all packages" — what was a 30+ Make-target organic-growth surface gets one canonical aggregator per taxonomy layer, one shared test harness instead of four duplicates, generated CI workflow with a drift-detection gate, and the first principled perf-benchmark axis (op kernels) with an external-facing `BENCHMARKS.md` comparison artifact.
+
+**Six phases**:
+
+**1. Testing taxonomy doc** (`b8f8850c`) — `docs/develop/testing-taxonomy.md` defines the five test layers (unit / integration / e2e / convergence / perf) + the per-layer canonical aggregator rule + the perf-layer's four coverage axes (A op-kernel / B single-layer fwd+bwd / C e2e training / D HF inference) modeled on MLPerf / TorchBench / DeepBench. The doc IS the contract subsequent phases land against; `docs/develop/testing.md` pruned its pyramid section to point at the new taxonomy.
+
+**2. Shared harness consolidation** (`98b693ac`) — extracted the four literal duplicates of `Test.Harness` (`packages/{idris-ml,idris-transformers,idris-gym,idris-ml-examples}/test/src/Harness.idr`) into one shared `packages/idris-test/` package. The four test packages now depend on `idris-test`; 41 test source files migrated from `import Harness` to `import Test.Harness` via sed. No deprecation alias — no users → no backcompat. JUnit-XML + filter env extensions deferred to a Hedgehog-shaped follow-up row.
+
+**3. Makefile rename (four atomic commits)** — every existing `test-*` / `bench-*` / `coverage-*` target renamed to taxonomy-aware names in a per-layer sequence: unit-layer (`6988934e`), integration-layer (`1bde9401`), e2e + convergence-layer (`e3f71bfc`), coverage-layer (`7a9907ca`). New aggregators `test-unit` / `test-integration` / `test-e2e` / `test-coverage` chain their leaves. No deprecation aliases; in-repo callsites updated atomically per commit (Makefile internal `$(MAKE)`, `.PHONY` listings, `.github/workflows/test.yml`, `HF_GOALS` variable, `all-backends`). Each commit independently green; pre-existing failures (BitLinear, Test.Reinforce, paired-defaults) verified via `git stash` and documented as orthogonal.
+
+**4. CI workflow generation** (`a893e94f`) — the test-invocation block of `.github/workflows/test.yml` now generates from `.github/workflows/test.yml.spec.json` (25 invocation objects) via `scripts/gen-ci-workflow.py`. Setup boilerplate (Chez install, idris2 build, MLX/torch install, artifact upload) stays hand-written; only the steps between `# >>> GENERATED FROM test.yml.spec.json >>>` / `# <<< END GENERATED <<<` markers are emitted from the spec. `make test-integration-lint-ci-workflow` runs `--check` mode as a CI preflight gate so a hand-edit to test.yml that diverges from the spec fails CI immediately. Adding a new gate becomes: append to spec, run script, commit both.
+
+**5A. Op-kernel benches** (`0e21ddc6`) — first principled perf axis (A): SDPA (mini-Llama GQA, seq=64/128, causal/non-causal), embedding gather (vocab=32k/8k), fused RMSNorm (h=512/2048) added to `packages/backends/bench_ops.c` and its PyTorch ref `packages/pytorch/torch_ref/bench_ops.py`. Two collateral fixes the work surfaced: (a) `bench_ops` linker failure since the unified-name C alias machinery was retired — fixed by splicing `rename_$(PRIMARY).h` via `-include` so the C preprocessor rewrites each call site to the primary's suffixed name; (b) latent conv2d crash post-train_step (filed as Medium row). Sample idris-vs-torch ratios on Axis A: SDPA 2.3-3.5×, embedding 6-7×, rmsnorm 1.2-3.8×.
+
+**5B. Perf wire-up + BENCHMARKS.md auto-gen** (`d7287779`) — `scripts/perf-fast.sh` (Tier 1 driver), `scripts/render-benchmarks.py` (`perf-log.jsonl` → `BENCHMARKS.md` per (axis, label, runtime) tuple), `BENCHMARKS.md` (repo-front-page-visible auto-generated comparison artifact), `Makefile` `test-perf-fast` / `test-perf-nightly` / `test-perf-full` aggregators + `test-integration-lint-benchmarks` preflight, `.github/workflows/perf-nightly.yml` (07:17 UTC daily + workflow_dispatch). New `kind: "op_bench"` schema documented in `perf-log.md`. The renderer already keys on `axis` so Axes B/C/D land automatically as their benches wire in (placeholder rows today).
+
+**Phase 6 follow-up rows filed** (this entry): Axes B/C/D landing, Hedgehog integration, Test.Golden integration, C-side test_*.c consolidation, perf-regression CI gate with hard thresholds, conv2d post-train_step bench crash. All under Medium Priority — none load-bearing for the canonical aggregators or the framework; pick up at the natural cadence as workloads expose them.
+
+**Commits in this work** (chronological):
+- `b8f8850c` docs(testing): taxonomy doc + pyramid prune
+- `98b693ac` refactor(idris-test): consolidate 4 Harness.idr → 1 shared package
+- `6988934e` refactor(make): rename unit-layer targets to test-unit-*
+- `1bde9401` refactor(make): rename integration-layer targets to test-integration-*
+- `e3f71bfc` refactor(make): rename e2e + convergence targets to test-e2e-* / test-convergence
+- `7a9907ca` refactor(make): rename coverage targets to test-coverage-*
+- `a893e94f` feat(ci): generate workflow test-invocation block from JSON spec
+- `0e21ddc6` feat(bench): add Axis A op-kernel benches (SDPA, embedding, RMSNorm)
+- `d7287779` feat(perf): wire test-perf-{fast,nightly,full} + BENCHMARKS.md auto-gen
+
+
 Full 2026-06-04 session — KV cache + dtype narrowing + perf baseline refresh (commits `b5443135` .. `59a37ab0`, ~30 commits across one day). Captures the work that started as "ship the HfLlama KV cache" and grew naturally into adjacent cleanup (memory pressure, dtype default policy, latent regression hunt) once each unblock surfaced the next. **Five threads**, ordered by when they landed:
 
 **1. KV cache** (`b5443135` ... `49872b4b`) — see the long-form entry directly below this one. Five phases (regression gate first, then KVCache module, then cache-aware forward, then example wiring, then docs); end-to-end verified GREEN on all three backends at F32; the SDPA asymmetric-Q/KV bug in PyTorch's math impl surfaced + fixed inline.
