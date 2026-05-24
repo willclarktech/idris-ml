@@ -1217,6 +1217,27 @@ test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 		../../models/distilgpt2-oracle.safetensors \
 		1e-3
 
+# Cross-language correctness gate for HfLlama: regenerate the Python
+# oracle from meta-llama/Llama-3.2-1B (gated by HF_TOKEN + license),
+# run the Idris example in --dump-final-hidden mode, compare stdout
+# against the oracle's last-position hidden state. Tolerance is 1.0
+# max-abs-diff — Llama 3.2 1B is 16 layers × hidden=2048 with on-disk
+# BF16 cast to F32, so per-element drift accumulates; the gate's job
+# is catching macro regressions (broken forward, broken param load,
+# bad RoPE), not pinning numerics to BF16-noise-floor precision.
+# Tighten if measurements show consistent tighter alignment.
+test-hf-llama-roundtrip: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle_llama.py -v
+	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
+	./$(BUILD)/exec/hf-llama-inference --dump-final-hidden > $(BUILD)/hf-llama-idris-out.txt
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/compare_inference.py \
+		../../$(BUILD)/hf-llama-idris-out.txt \
+		../../models/llama-3.2-1b-oracle.safetensors \
+		1.0
+
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) $(BUILD)/exec/rnn_app/
@@ -1695,6 +1716,15 @@ test-rope-oracle:
 test-transformers-oracle-gpt2:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
+
+# Same shape, paired with HfLlama.idr: generates
+# `models/llama-3.2-1b-oracle.safetensors` from `meta-llama/Llama-3.2-1B`'s
+# last-hidden-state for [9906] ("Hello") and asserts the fixture is
+# well-formed. The cross-language gate lands as test-hf-llama-roundtrip
+# alongside the Idris example.
+test-transformers-oracle-llama:
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle_llama.py -v
 
 ref-convergence:
 	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task both
