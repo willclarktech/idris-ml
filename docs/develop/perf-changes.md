@@ -48,6 +48,88 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-04 — HfLlama KV cache + token-sequence gate — b5443135..49872b4b
+
+**Plan**: Land the cache-aware forward step that lets greedy
+generation skip re-projecting K/V from the full growing prefix on
+every step. Companion to the five-fusion catalogue epic but
+orthogonal: fusions reduce per-op overhead, the KV cache reduces
+op *count* per step from O(seq²) cumulative work to O(1) for new
+K/V projection + O(n) for the SDPA against history.
+
+**Motivation**: HfLlama-3.2-1B's greedy decode loop was
+re-projecting K/V from the full growing sequence on every step
+(`hfLlamaForwardLm` called with input `[seq]` of growing length).
+At 8 generated tokens past a 6-token prompt that's 6+7+8+...+13 =
+76 forward-cost units of work, where with a cache it's ~14 (one
+seed pass over the prompt + 1 per generated token). Idris's
+`runGenerate` was measurably slower than HF's
+`model.generate(use_cache=True)` for the same prompt — 327 s
+vs ~2 s on torch-mps F32 — and the gap scales linearly with the
+budget. The token-sequence gate (Phase A) lands first as
+regression protection — invariant to whether the cache is on or
+off since HF `use_cache=True` is mathematically equivalent to
+`use_cache=False`.
+
+**Change**: 4-commit landing + 2 post-verify fix-ups.
+
+- Phase A (`b5443135`): token-sequence oracle + `--dump-tokens`
+  flag + `compare_inference.py --token-sequence` mode + Makefile
+  target + CI step + `scripts/perf-run.sh` arm. Gate uses the
+  user-facing prompt "The capital of France is" + 4 generated
+  tokens; expected output sequence `[128000, 791, 6864, 315,
+  9822, 374, 12366, 13, 1102, 374]` decoding to "<|begin_of_text|>
+  The capital of France is Paris. It is".
+- Phase B (`9cf90b3a`): new `KVCache.idr` module with
+  `Empty | Filled` sum type; `tconcat2dAxis0` typed wrapper around
+  the existing `primCat2` axis-0 concat; Idris-level
+  `Test.KVCache` suite (4/4 PASS on tape).
+- Phase C (`78c95d56`): widened `tensor_sdpa_2d` C impls on all 3
+  backends to read Q.size(0) and K.size(0) separately;
+  `applyAttentionCached` / `applyBlockCached` / `applyBlocksCached`
+  / `hfLlamaForwardStep` / `hfLlamaForwardLmStep` Idris-side
+  functions threading per-layer caches; `ropeAllHeadsFlat` takes a
+  positionOffset parameter (was hardcoded to 0).
+- Phase D (`70f5017c`): example switches to `genLoopCached`
+  default; `--no-cache` opt-out kept for differential debugging.
+- Post-verify fix-ups (`32c3c1b8` + `49872b4b`): Idris's
+  elaborator couldn't unify `finalList : List (Fin VocabSize)`
+  through the bind in `runDumpTokens` / `runGenerate` under
+  if-then-else *or* case-of. Resolution: split the bind into
+  per-branch `do` blocks. Also added
+  `check-example-hf-llama-inference` Make target for
+  type-check-only iteration (~40 min on this example; useful but
+  not as fast as the name suggests).
+
+**Impact**: Phase A baseline measurement on torch-cpu F64 — full
+gate including model load (35 s) + 4 cached-equivalent decode
+steps via the NO-CACHE path = 58 s wall. Each step ~6 s @ 901 ops
+on growing sequence 7→8→9→10. The cache-aware path (Phase D) is
+expected to drop per-step ops dramatically (Q/K/V projection on a
+single new token vs the full growing prefix) and the wall-clock
+drop scales with budget. Per-backend measured numbers go into
+`perf-log.jsonl` once the cached path's gate run completes on
+torch-mps and mlx-gpu.
+
+**Backend coverage**: torch-cpu (CI lane, primary gate), torch-mps
+(local dev), mlx-gpu (local dev). Tape lane deliberately skipped
+— Llama-3.2-1B F64 × 1.24B params + per-step arena growth
+exceeds 16 GB host RAM (the "Tape F64 large-LM OOM" Low-priority
+TODO row carries the structural reason).
+
+**Commits**: `b5443135` Phase A, `9cf90b3a` Phase B, `78c95d56`
+Phase C, `70f5017c` Phase D, `32c3c1b8` + `49872b4b` post-verify
+fix-ups. CHANGELOG entry above this one (2026-06-04 KV cache
+section) carries the long-form details.
+
+**Outcome**: landed. Cached-path correctness verification awaiting
+a fresh-shell `make BACKEND=torch test-hf-llama-generate-roundtrip`
+run; expected to PASS at the same `[128000, 791, ...]` sequence as
+the Phase A baseline (HF `use_cache=True` matches `use_cache=False`
+on the math). Per-backend perf numbers will follow as
+`perf-log.jsonl` entries once the gate completes per backend.
+
+
 ### 2026-06-03 — 2D embedding wrap on all 3 backends (#399 / #4 Fusion 3) — 1b1a200
 
 **Plan**: Fusion 3 of the fused-op catalogue plan — drop the

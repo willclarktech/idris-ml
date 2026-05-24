@@ -519,6 +519,41 @@ Eight of nine RL envs in `torch_ref/models/*.py` migrated from hand-rolled physi
 
 Reset-state pinning is achieved via `env.unwrapped.state = np.array(..., dtype=np.float64)` after each `env.reset()`. Using `float64` is load-bearing — CartPole specifically loses ~5% convergence (95.0 vs 100.0 in the test_a2c.test_converges threshold) if the pin uses float32, because the env's internal Euler step then runs in float32. Pinning with float64 keeps internal physics at the same precision as the pre-migration Python-float hand-roll.
 
+## Alignment Changes (2026-06-04) — HfLlama generate-side parity (KV cache landing)
+
+`Example/HfLlamaInference.idr` greedy-decode path switched from the
+re-feed-full-prefix `genLoop` to a cache-aware `genLoopCached` (Phase
+D of the KV-cache work, commit `70f5017c`). The PyTorch-side oracle
+for the token-sequence gate
+(`scripts/save_oracle_llama_generate.py`) uses
+`model.generate(do_sample=False, use_cache=True, temperature=1.0)`
+with `pad_token_id = config.eos_token_id`. Paired-side settings:
+
+| Setting | Idris (`genLoopCached`) | HF oracle |
+|---|---|---|
+| Sampling | Greedy (`argmaxRow` over last logits row) | `do_sample=False` |
+| KV cache | Functional concat (`Empty / Filled` sum type) | `use_cache=True` (HF default) |
+| Prompt | "The capital of France is" (Tokenizer subprocess, `add_special_tokens=True`) | Same prompt, `tokenizer.encode(text, add_special_tokens=True)` |
+| BOS token | Prepended by tokenizer (Llama-3 id 128000) | Prepended by tokenizer |
+| Budget | `--num-tokens 4` default in Makefile gate | `NUM_NEW_TOKENS = 4` |
+| Position offset for RoPE | `cacheLen cache` (cumulative pre-current-step) | HF internal `cache_position` |
+| Causal mask under asymmetric Q.seq/KV.seq | `is_causal=True`, lower-right alignment per torch/mlx | Same — `use_cache=True` triggers asymmetric SDPA internally |
+
+`use_cache=True` is mathematically equivalent to `use_cache=False`
+for greedy decode (same forward math, same argmax), so the oracle's
+token sequence is invariant to the HF cache flag. This is what lets
+the same token-sequence gate verify both the no-cache Idris path
+(Phase A baseline at `b5443135`) and the cached Idris path (Phase D
+at `70f5017c` + `49872b4b`).
+
+**Documented storage-shape divergence (not a paired-side
+mismatch)**: HF stores per-layer KV cache as rank-4 `[batch,
+n_kv_heads, seq, head_dim]`; idris-ml stores it as flat 2D `[seq,
+n_kv_heads * head_dim]` to match the existing `applyAttention`'s K/V
+projection output layout and skip a reshape at the SDPA call site.
+Both are byte-equivalent under column-major-to-row-major view of the
+same backing storage; the forward semantics are identical.
+
 ## Status
 
 All known discrepancies resolved (model-side); two backend-side
