@@ -67,6 +67,7 @@ enum {
     OP_SOFTPLUS,      /* log(1 + exp(x)), backward = sigmoid(x) */
     OP_TILE_2D,       /* [m,n] -> [m*rep0, n*rep1]; reps in scalar_arg via 2 int fields */
     OP_CAST_DTYPE,    /* dtype cast — locally linear; identity grad flow back to source */
+    OP_RMS_NORM_2D,   /* row-wise RMS normalization on [m,n] (HF LlamaRMSNorm) */
     OP_COUNT          /* sentinel — must be last */
 };
 
@@ -108,6 +109,16 @@ typedef struct {
     double* rstd;      /* reciprocal std devs [m] */
     int m, n;
 } LayerNormMeta;
+
+/* RmsNormMeta: row-wise RMSNorm (no centering, no bias). Caches the
+   normalized values (x * rstd) and rstd per row for the backward pass.
+   See nn/norm/rms_norm_2d.c. */
+typedef struct {
+    Tensor* weight;    /* scale parameter [n] */
+    double* x_hat;     /* normalized values x[i,j] * rstd[i] [m*n] */
+    double* rstd;      /* reciprocal RMS per row [m] */
+    int m, n;
+} RmsNormMeta;
 
 /* GruCellMeta: layout shared with nn/recurrent/gru_cell.c.
    Kept here because tape_reset in tape.c frees zG/rG/nG. */

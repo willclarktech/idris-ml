@@ -65,6 +65,7 @@
 #define param_zero_all_grads param_zero_all_grads_tape
 #define param_zero_all_grads_return param_zero_all_grads_return_tape
 #define polyak_blend polyak_blend_tape
+#define safetensors_read_raw_bytes safetensors_read_raw_bytes_tape
 #define tensor_abs tensor_abs_tape
 #define tensor_absmean_per_row_2d tensor_absmean_per_row_2d_tape
 #define tensor_add tensor_add_tape
@@ -219,6 +220,7 @@
 #define tensor_reshape_3d tensor_reshape_3d_tape
 #define tensor_reshape_4d tensor_reshape_4d_tape
 #define tensor_retain_handle tensor_retain_handle_tape
+#define tensor_rms_norm_2d tensor_rms_norm_2d_tape
 #define tensor_round tensor_round_tape
 #define tensor_scatter_add tensor_scatter_add_tape
 #define tensor_sdpa_2d tensor_sdpa_2d_tape

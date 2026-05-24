@@ -65,6 +65,7 @@
 #define param_zero_all_grads param_zero_all_grads_torch
 #define param_zero_all_grads_return param_zero_all_grads_return_torch
 #define polyak_blend polyak_blend_torch
+#define safetensors_read_raw_bytes safetensors_read_raw_bytes_torch
 #define tensor_abs tensor_abs_torch
 #define tensor_absmean_per_row_2d tensor_absmean_per_row_2d_torch
 #define tensor_add tensor_add_torch
@@ -219,6 +220,7 @@
 #define tensor_reshape_3d tensor_reshape_3d_torch
 #define tensor_reshape_4d tensor_reshape_4d_torch
 #define tensor_retain_handle tensor_retain_handle_torch
+#define tensor_rms_norm_2d tensor_rms_norm_2d_torch
 #define tensor_round tensor_round_torch
 #define tensor_scatter_add tensor_scatter_add_torch
 #define tensor_sdpa_2d tensor_sdpa_2d_torch

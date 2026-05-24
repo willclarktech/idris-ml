@@ -158,6 +158,14 @@ void tape_reset(void) {
             meta->x_hat = NULL;
             meta->rstd = NULL;
         }
+        /* Free OP_RMS_NORM_2D heap arrays */
+        if (e->op == OP_RMS_NORM_2D && e->op_meta) {
+            RmsNormMeta* meta = (RmsNormMeta*)e->op_meta;
+            free(meta->x_hat);
+            free(meta->rstd);
+            meta->x_hat = NULL;
+            meta->rstd = NULL;
+        }
         /* Free OP_GRU_CELL gate arrays. `prev` is a Tensor* owned by
            the caller (typically a per-sequence state handle); we don't
            own it. */

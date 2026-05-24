@@ -66,6 +66,7 @@ enum {
     OP_TILE_2D,       /* [m,n] -> [m*rep0, n*rep1]; meta stores (rep0, rep1) */
     OP_CAST_DTYPE,    /* mx::astype to target dtype; scalar_arg encodes target:
                          0.0 = mx::float32, 1.0 = mx::float64, 2.0 = mx::bfloat16. */
+    OP_RMS_NORM_2D,   /* row-wise RMS normalization (HF LlamaRMSNorm); meta carries weight pool idx + eps */
     OP_COUNT          /* sentinel — must be last; sizes the replay dispatch table */
 };
 
@@ -74,6 +75,11 @@ enum {
 struct LayerNormReplayMeta {
     int gamma_pool_idx;
     int bias_pool_idx;
+    double eps;
+};
+
+struct RmsNormReplayMeta {
+    int weight_pool_idx;
     double eps;
 };
 

@@ -619,6 +619,16 @@ TensorHandle tensor_sdpa_2d(TensorHandle q, TensorHandle k, TensorHandle v,
                             int numHeads, int numKvHeads, int headDim,
                             int isCausal);
 
+/* Fused row-wise RMSNorm (HF LlamaRMSNorm formula).
+ *   input  [seqLen, hidden]
+ *   weight [hidden]
+ *   eps    scalar
+ * Per row i: rstd_i = 1 / sqrt(mean(input[i, :]^2) + eps)
+ *            out[i, j] = input[i, j] * rstd_i * weight[j]
+ * Replaces the per-row 7-primitive chain (narrow / mul / sum /
+ * mul_scalar / add_scalar / sqrt / div / mul) with one FFI call. */
+TensorHandle tensor_rms_norm_2d(TensorHandle input, TensorHandle weight, double eps);
+
 /* ---------- Portable FFI helpers (for RefC compatibility) ---------- */
 
 /* These wrap void-returning functions to return an argument for value threading.

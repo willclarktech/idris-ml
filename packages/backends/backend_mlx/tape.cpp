@@ -84,6 +84,10 @@ void tape_reset() {
             delete (LayerNormReplayMeta*)e.meta;
             e.meta = nullptr;
         }
+        if (e.op == OP_RMS_NORM_2D && e.meta) {
+            delete (RmsNormReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
         if (e.op == OP_GRU_CELL && e.meta) {
             delete (GruCellReplayMeta*)e.meta;
             e.meta = nullptr;

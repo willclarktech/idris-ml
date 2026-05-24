@@ -487,6 +487,17 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
             -> Int                 -- isCausal (0/1)
             -> AnyPtr
 
+  ||| Fused row-wise RMSNorm (HF LlamaRMSNorm formula).
+  ||| input  : [seqLen, hidden]
+  ||| weight : [hidden]
+  ||| eps    : scalar
+  ||| Per row i: rstd_i = 1 / sqrt(mean(input[i, :]^2) + eps);
+  |||            out[i, j] = input[i, j] * rstd_i * weight[j].
+  ||| Replaces the per-row 7-primitive chain (narrow / mul / sum /
+  ||| mul_scalar / add_scalar / sqrt / div / mul) in
+  ||| `HfCommon.applyRmsNorm2dRaw` with one FFI call.
+  primRmsNorm2d : AnyPtr -> AnyPtr -> Double -> AnyPtr
+
   -- dtype-streamed creation -----------------------------------------
   -- Each takes a trailing (streamTag, dtypeTag) pair; the backend's
   -- wrapper branches on dtypeTag (0=f32, 1=f64) to pick the right
