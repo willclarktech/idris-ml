@@ -49,6 +49,56 @@ The pattern is enforced *by convention* — the linter
 `test-integration-lint-make-naming` (filed in Phase 6) is the
 mechanical enforcement path.
 
+## Test file layout — hybrid colocation
+
+Test files live as close to the source they exercise as Criterion and
+Idris-2's module-to-file constraint allow. **The `packages/<pkg>/test/`
+tree is gone.** Two rules cover where a new test belongs:
+
+### C side (Criterion suites + standalone main()s)
+
+| Test kind | Lives at |
+|---|---|
+| Per-op unit test (cross-backend FFI) | `packages/backends/backend_tape/<subsystem>/test_<op>.c` (next to the tape source — `find` glob picks it up regardless of which backend is primary) |
+| Backend-specific test (touches internals) | `packages/backends/backend_<b>/<subsystem>/test_<topic>.c` with `#ifdef BACKEND_<NAME>` gating the body |
+| Cross-cutting integration / oracle / framework infra | `packages/idris-test-c/src/` (peer package; cross-cutting "shared infra is a package, not just a directory") |
+| 1:1 with a source file (`safetensors.c` ↔ `test_safetensors.c`) | next to the source — `packages/backends/test_safetensors.c` |
+
+Discovery is the Makefile's `find` glob (`CRITERION_BACKEND_TEST_SRCS`)
+which walks `backend_{tape,torch,mlx}/` for `test_*.c`. The dylib
+build's source glob excludes `test_*.c` via `! -name 'test_*.c'` so
+test files don't get compiled into `libidrisml.dylib`.
+
+Include paths: tests use bare `#include "backend.h"` and `#include
+"test_helpers.h"`; the Makefile passes
+`-Ipackages/backends -Ipackages/idris-test-c/include` to resolve.
+
+### Idris side (per-package Test.* subtree under same sourcedir)
+
+Each Idris package has TWO `.ipkg` files at the package root pointing
+at the same `src/` sourcedir:
+
+| File | Modules | Purpose |
+|---|---|---|
+| `packages/<pkg>/<pkg>.ipkg` | `<library modules>` (excludes `Test.*`) | What `pack install` publishes; what library consumers depend on |
+| `packages/<pkg>/<pkg>-tests.ipkg` | `Test.Main`, `Test.<Topic>`, …      | What `make test-unit-<pkg>` builds |
+
+Test files live at `packages/<pkg>/src/Test/<Topic>.idr` declaring
+`module Test.<Topic>`. The entry point is `Test.Main` at
+`src/Test/Main.idr`. idris-ml's generated `Test.Config` (build-time
+device/dtype pinning) lives at `src/Test/Config.idr`; the template
+lives next to it as `Config.idr.in`.
+
+**Why this layout** (vs the more common pack-db convention of a
+separate `test/` directory): puts each test next to the module it
+tests — one directory hop, no parallel tree to navigate. Idris-2's
+module-path-mirrors-file-path rule blocks literal adjacency (you
+can't have `Tensor.idr` and `Test.Tensor.idr` in the same directory
+since `Test.Tensor` *must* live at `Test/Tensor.idr` per the
+dot-namespace convention), so this is the closest pattern Idris-2
+permits. Documented separately in
+[`testing.md`](testing.md#dual-ipkg-pattern).
+
 ## Perf layer — coverage axes
 
 The perf layer is structured around four axes that decompose
