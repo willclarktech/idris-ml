@@ -55,6 +55,7 @@ import Data.Vect
 
 import Compat.Random
 import Device
+import HfCommon
 import Init
 import Layer.RoPE
 import Sampler
@@ -365,49 +366,19 @@ hfLlamaModel pfx = do
 
 %default partial
 
-||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Loops over
-||| rows because tape's `primSumDim` is a stub (full-reduction); the
-||| 1D RmsNorm formula composes cleanly per-row. Each row pays ~7
-||| primitive calls; for 16 layers × 2 RmsNorms × seq=8 prompt =
-||| 256 row passes, well under a second of overhead on tape.
+||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Thin wrapper
+||| around `HfCommon.applyRmsNorm2dRaw` that pattern-matches the
+||| `LlamaRmsNorm` wrapper. The body lives in `HfCommon.idr` so
+||| HfBitNet (and any future adapter using the same per-row fold)
+||| shares the implementation.
 applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
                  LlamaRmsNorm hidden d dt g ->
                  Tensor [seqLen, hidden] d dt g ->
                  IO (Tensor [seqLen, hidden] d dt g)
-applyRmsNorm2d {seqLen} {hidden} eps (MkLlamaRmsNorm weight) input = ioRerun (\_ =>
-  let hI = cast {to=Int} hidden
-      hD = cast {to=Double} hidden
-      inPtr = input.tensorPtr
-      wPtr  = weight.tensorPtr
-      -- Per-row: select row → normalise → emit row. Concat all the
-      -- rows along axis=0. To keep the loop straight we'd want a
-      -- `narrow axis=0` style helper; the existing `primNarrow` on
-      -- axis 0 returns a `[1, hidden]` shared-storage view (cheap).
-      processRow : Int -> AnyPtr
-      processRow r =
-        let row    = primNarrow {d} inPtr 0 r 1                -- [1, hidden]
-            sq     = primMul {d} row row
-            tot    = primSum {d} sq
-            mean   = primMulScalar {d} tot (1.0 / hD)
-            meanEps = primAddScalar {d} mean eps
-            rms    = primSqrt {d} meanEps
-            normed = primDiv {d} row rms
-            scaled = primMul {d} normed wPtr                   -- broadcasts [hidden]
-        in scaled
-      -- Walk rows, accumulating via primConcat2dAxis0. Materialise
-      -- row 0 first; fold the rest in. concat2dAxis0 takes two
-      -- [seqA, hidden] / [seqB, hidden] -> [seqA+seqB, hidden].
-      foldRows : Int -> AnyPtr -> AnyPtr
-      foldRows i acc =
-        if i >= cast {to=Int} seqLen
-          then acc
-          else foldRows (i + 1) (primCat2 {d} acc (processRow i))
-      out = if seqLen == 0
-              then inPtr  -- impossible at well-typed call sites
-              else foldRows 1 (processRow 0)
-  in MkTensor out Nothing)
+applyRmsNorm2d eps (MkLlamaRmsNorm weight) input =
+  applyRmsNorm2dRaw eps weight input
 
 
 ||| Bias-free Linear forward on `[seqLen, in] -> [seqLen, out]`.

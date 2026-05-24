@@ -63,6 +63,7 @@ import Data.Vect
 import Checkpoint
 import Compat.Random
 import Device
+import HfCommon
 import Init
 import Layer.RoPE
 import Sampler
@@ -487,45 +488,11 @@ bitnetRopeScaling : LlamaRopeScaling
 bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
 
 
-||| One row of `applyRmsNorm2d`. Lifted to top-level so its body
-||| elaborates once at module compile, not per call site of the
-||| outer `applyRmsNorm2d` (which is called O(numLayers × 4) times
-||| inside the recursive `applyBlocks` chain).
-private
-rmsNorm2dProcessRow : {0 d : Device} -> UserDeviceLinear d =>
-                      (inPtr : AnyPtr) -> (wPtr : AnyPtr) ->
-                      (hD : Double) -> (eps : Double) ->
-                      (r : Int) -> AnyPtr
-rmsNorm2dProcessRow inPtr wPtr hD eps r =
-  let row     = primNarrow {d} inPtr 0 r 1
-      sq      = primMul {d} row row
-      tot     = primSum {d} sq
-      mean    = primMulScalar {d} tot (1.0 / hD)
-      meanEps = primAddScalar {d} mean eps
-      rms     = primSqrt {d} meanEps
-      normed  = primDiv {d} row rms
-      scaled  = primMul {d} normed wPtr
-  in scaled
-
-||| Row-folding helper for `applyRmsNorm2d`. Lifted to top-level
-||| (see `rmsNorm2dProcessRow`).
-private
-rmsNorm2dFoldRows : {0 d : Device} -> UserDeviceLinear d =>
-                    (inPtr : AnyPtr) -> (wPtr : AnyPtr) ->
-                    (hD : Double) -> (eps : Double) ->
-                    (seqLenI : Int) -> (r : Int) -> (acc : AnyPtr) -> AnyPtr
-rmsNorm2dFoldRows inPtr wPtr hD eps seqLenI r acc =
-  if r >= seqLenI
-    then acc
-    else rmsNorm2dFoldRows {d} inPtr wPtr hD eps seqLenI (r + 1)
-           (primCat2 {d} acc (rmsNorm2dProcessRow {d} inPtr wPtr hD eps r))
-
-||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Same row-loop
-||| structure as HfLlama's `applyRmsNorm2d` — `primSumDim` is a stub on
-||| tape, so we fold over rows with `primCat2`. For BitNet 2B at seq=8
-||| / hidden=2560, ~16 RmsNorms/layer × 30 layers × 8 rows = 3840 row
-||| ops total. Acceptable for the correctness gate; a fused 2D RMSNorm
-||| C primitive is the natural perf follow-up.
+||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Thin wrapper
+||| around `HfCommon.applyRmsNorm2dRaw` that pattern-matches the
+||| `BitNetRmsNorm` wrapper. The body (per-row fold over `primNarrow`
+||| / `primMul` / `primSum` / scale) lives in `HfCommon.idr` and is
+||| shared with HfLlama.
 export
 applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
                  {seqLen, hidden : Nat} ->
@@ -533,16 +500,8 @@ applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
                  BitNetRmsNorm hidden d dt g ->
                  Tensor [seqLen, hidden] d dt g ->
                  IO (Tensor [seqLen, hidden] d dt g)
-applyRmsNorm2d {seqLen} {hidden} eps (MkBitNetRmsNorm weight) input = ioRerun (\_ =>
-  let hD       = cast {to=Double} hidden
-      inPtr    = input.tensorPtr
-      wPtr     = weight.tensorPtr
-      seqLenI  = cast {to=Int} seqLen
-      out      = if seqLen == 0
-                   then inPtr
-                   else rmsNorm2dFoldRows {d} inPtr wPtr hD eps seqLenI 1
-                          (rmsNorm2dProcessRow {d} inPtr wPtr hD eps 0)
-  in MkTensor out Nothing)
+applyRmsNorm2d eps (MkBitNetRmsNorm weight) input =
+  applyRmsNorm2dRaw eps weight input
 
 
 ||| 2D wrapper around the 1D `tBitlinearFwdHfQuant`. Walks `seqLen`
