@@ -1753,6 +1753,19 @@ bench-ops: $(BUILD)/bench_ops
 bench-ops-py:
 	cd packages/pytorch && uv run python -m torch_ref.bench_ops
 
+# Axis B — Idris-level single-layer fwd+bwd microbench. Counterpart to
+# bench-ops (Axis A, C-kernel) one rung up: measures the FFI + tape wrap
+# + autograd graph cost at the layer-composition level. Output line
+# format matches Axis A so scripts/perf-fast.sh parses both with one
+# regex; the entries get `axis="B"` tagged before emission to perf-log.
+bench-layers: install
+	idris2 $(IDRIS_FLAGS) -o layers-bench $(EXAMPLE_SRC)/Example/LayersBench.idr
+	cp $(LIB) $(BUILD)/exec/layers-bench_app/
+	$(STDBUF) ./$(BUILD)/exec/layers-bench $(LAYERS_BENCH_ARGS)
+
+bench-layers-py:
+	cd packages/pytorch && uv run python -m torch_ref.bench_layers
+
 # Compare all available backends vs PyTorch.
 # Each iteration rebuilds libidrisml.dylib with only one backend as
 # primary (BACKEND=$$b → single-element list), then copies it to a
@@ -2332,7 +2345,8 @@ all: check-all test-all
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
         ref-transformer ref-hf-bert ref-hf-gpt2 ref-hf-llama \
-        bench-py bench-compare bench-ops bench-ops-py bench-ops-compare ref-lint \
+        bench-py bench-compare bench-ops bench-ops-py bench-ops-compare \
+        bench-layers bench-layers-py ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
         jupyter-install jupyter-lab
 

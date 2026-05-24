@@ -18,6 +18,7 @@ modules = BuildConfig
         , Example.Gpt
         , Example.Gru
         , Example.HfInferenceHelper
+        , Example.LayersBench
         , Example.Lstm
         , Example.MatmulBench
         , Example.Mnist

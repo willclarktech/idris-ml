@@ -68,19 +68,32 @@ def select_op_bench_latest(entries):
     return latest
 
 
-def render_axis_a_table(latest):
-    """One row per (label) — pairs the tape entry with the pytorch entry."""
-    labels_by_section = defaultdict(list)
-    for (axis, label, runtime), entry in latest.items():
-        if axis != "A":
-            continue
-        section = entry.get("section", "")
-        if label not in [l for s, l in labels_by_section[section]] if False else True:
-            pass
+AXIS_BLURBS = {
+    "A": ("Wall-clock per iteration on the C backend (tape) vs the same\n"
+          "kernel in PyTorch on the same hardware. Both measured in-process\n"
+          "after a warmup. Lower ratios are better; ≈1.0 means parity."),
+    "B": ("Wall-clock per layer-scope fwd+bwd+step on idris-ml's typed-layer\n"
+          "API (tape backend, F64) vs an equivalent PyTorch reference at the\n"
+          "same shape. Captures FFI + tape wrap + autograd graph overhead\n"
+          "that Axis A's pure C-kernel timings don't see."),
+    "C": ("Wall-clock per epoch on a representative end-to-end training\n"
+          "workload per training mode (supervised / RNN / transformer /\n"
+          "NTM-class / RL). One entry per distinct compute pattern."),
+    "D": ("Per-token wall-clock on HuggingFace inference workloads (encoder\n"
+          "fwd / decoder fwd / cached-decode generation) vs HF transformers\n"
+          "Python on the same hardware."),
+}
+
+
+def render_axis_table(latest, axis):
+    """One row per (label) — pairs the tape entry with the pytorch entry.
+
+    Works for any axis; entries are filtered by `e.get("axis") == axis`.
+    Grouped by `section` field (header line in bench output)."""
     pairs = defaultdict(dict)
     sections_for_label = {}
-    for (axis, label, runtime), entry in latest.items():
-        if axis != "A":
+    for (eaxis, label, runtime), entry in latest.items():
+        if eaxis != axis:
             continue
         pairs[label][runtime] = entry
         sections_for_label[label] = entry.get("section", "")
@@ -89,18 +102,17 @@ def render_axis_a_table(latest):
         sections[sections_for_label[label]].append((label, runtimes))
 
     out = []
-    out.append(f"## {AXIS_TITLES['A']}")
+    out.append(f"## {AXIS_TITLES[axis]}")
     out.append("")
-    out.append("Wall-clock per iteration on the C backend (tape) vs the same")
-    out.append("kernel in PyTorch on the same hardware. Both measured in-process")
-    out.append("after a warmup. Lower ratios are better; ≈1.0 means parity.")
+    out.append(AXIS_BLURBS[axis])
     out.append("")
     for section in sorted(sections.keys()):
         rows = sections[section]
         if not rows:
             continue
-        out.append(f"### {section}")
-        out.append("")
+        if section:
+            out.append(f"### {section}")
+            out.append("")
         out.append("| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |")
         out.append("|---|---:|---:|---:|---:|---|")
         for label, runtimes in sorted(rows):
@@ -150,11 +162,8 @@ def render():
     parts.append("")
 
     for axis in AXIS_ORDER:
-        if axis == "A":
-            if axis in axes_present:
-                parts.append(render_axis_a_table(latest))
-            else:
-                parts.append(render_placeholder_axis(axis))
+        if axis in axes_present:
+            parts.append(render_axis_table(latest, axis))
         else:
             parts.append(render_placeholder_axis(axis))
 

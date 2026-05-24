@@ -21,73 +21,82 @@ after a warmup. Lower ratios are better; ≈1.0 means parity.
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| conv2d 16x12x12->32 k=5x5 | — | 0.0620 | — | 10 | `0e21ddc6+dirty` |
-| conv2d 1x28x28->16 k=5x5 | — | 0.0508 | — | 10 | `0e21ddc6+dirty` |
+| conv2d 16x12x12->32 k=5x5 | 0.7319 | 0.0356 | 20.56× | 10 | `efaa5371+dirty` |
+| conv2d 1x28x28->16 k=5x5 | 0.2264 | 0.0433 | 5.23× | 10 | `efaa5371+dirty` |
 
 ### Element-wise (add + mul)
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| add+mul 1000 | 0.0053 | 0.0012 | 4.50× | 1000 | `0e21ddc6+dirty` |
-| add+mul 10000 | 0.0345 | 0.0054 | 6.41× | 500 | `0e21ddc6+dirty` |
-| add+mul 100000 | 0.3594 | 0.0767 | 4.68× | 100 | `0e21ddc6+dirty` |
+| add+mul 1000 | 0.0036 | 0.0026 | 1.37× | 1000 | `efaa5371+dirty` |
+| add+mul 10000 | 0.0407 | 0.0065 | 6.27× | 500 | `efaa5371+dirty` |
+| add+mul 100000 | 0.3877 | 0.1715 | 2.26× | 100 | `efaa5371+dirty` |
 
 ### Embedding gather
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| embedding vocab=32000 d=128 n=128 | 0.1110 | 0.0032 | 35.03× | 200 | `0e21ddc6+dirty` |
-| embedding vocab=8000 d=256 n=64 | 0.1755 | 0.0036 | 49.12× | 500 | `0e21ddc6+dirty` |
+| embedding vocab=32000 d=128 n=128 | 0.0729 | 0.0040 | 18.02× | 200 | `efaa5371+dirty` |
+| embedding vocab=8000 d=256 n=64 | 0.0564 | 0.0041 | 13.87× | 500 | `efaa5371+dirty` |
 
 ### Matrix multiply
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| matmul 1024x1024x1024 | 8.6063 | 5.6458 | 1.52× | 10 | `0e21ddc6+dirty` |
-| matmul 256x256x256 | 0.2421 | 0.0916 | 2.64× | 100 | `0e21ddc6+dirty` |
-| matmul 64x64x64 | 0.0170 | 0.0029 | 5.97× | 500 | `0e21ddc6+dirty` |
+| matmul 1024x1024x1024 | 9.2927 | 5.8446 | 1.59× | 10 | `efaa5371+dirty` |
+| matmul 256x256x256 | 0.2240 | 0.0940 | 2.38× | 100 | `efaa5371+dirty` |
+| matmul 64x64x64 | 0.0142 | 0.0030 | 4.73× | 500 | `efaa5371+dirty` |
 
 ### Matrix-vector multiply
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| matvec 1024x1024 | 0.0257 | 0.0247 | 1.04× | 200 | `0e21ddc6+dirty` |
-| matvec 256x256 | 0.0028 | 0.0025 | 1.11× | 1000 | `0e21ddc6+dirty` |
+| matvec 1024x1024 | 0.0274 | 0.0296 | 0.93× | 200 | `efaa5371+dirty` |
+| matvec 256x256 | 0.0032 | 0.0022 | 1.47× | 1000 | `efaa5371+dirty` |
 
 ### RMSNorm fused
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| rmsnorm seq=128 h=2048 | 2.6253 | 0.1696 | 15.48× | 100 | `0e21ddc6+dirty` |
-| rmsnorm seq=128 h=512 | 0.6934 | 0.1695 | 4.09× | 500 | `0e21ddc6+dirty` |
+| rmsnorm seq=128 h=2048 | 1.8912 | 0.1475 | 12.82× | 100 | `efaa5371+dirty` |
+| rmsnorm seq=128 h=512 | 0.2442 | 0.1019 | 2.40× | 500 | `efaa5371+dirty` |
 
 ### Scaled-dot-product attention
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| sdpa seq=128 H=8 Hkv=4 d=64 | 2.9309 | 0.4658 | 6.29× | 50 | `0e21ddc6+dirty` |
-| sdpa seq=128 H=8 Hkv=4 d=64 causal | 8.2843 | 0.5508 | 15.04× | 50 | `0e21ddc6+dirty` |
-| sdpa seq=64 H=8 Hkv=4 d=64 | 0.8798 | 0.2210 | 3.98× | 100 | `0e21ddc6+dirty` |
+| sdpa seq=128 H=8 Hkv=4 d=64 | 1.7672 | 0.5795 | 3.05× | 50 | `efaa5371+dirty` |
+| sdpa seq=128 H=8 Hkv=4 d=64 causal | 1.8483 | 0.5772 | 3.20× | 50 | `efaa5371+dirty` |
+| sdpa seq=64 H=8 Hkv=4 d=64 | 0.5288 | 0.2909 | 1.82× | 100 | `efaa5371+dirty` |
 
 ### Softmax
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| softmax 10000 | 0.0650 | 0.0252 | 2.58× | 100 | `0e21ddc6+dirty` |
-| softmax 1024 | 0.0063 | 0.0028 | 2.24× | 500 | `0e21ddc6+dirty` |
-| softmax 256 | 0.0016 | 0.0010 | 1.53× | 1000 | `0e21ddc6+dirty` |
+| softmax 10000 | 0.0485 | 0.0397 | 1.22× | 100 | `efaa5371+dirty` |
+| softmax 1024 | 0.0054 | 0.0032 | 1.68× | 500 | `efaa5371+dirty` |
+| softmax 256 | 0.0013 | 0.0011 | 1.17× | 1000 | `efaa5371+dirty` |
 
 ### Training step (linear fwd+bwd+step)
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| train_step 1024->1024 | 0.6834 | 0.3658 | 1.87× | 10 | `0e21ddc6+dirty` |
-| train_step 256->256 | 0.0677 | 0.1217 | 0.56× | 100 | `0e21ddc6+dirty` |
-| train_step 64->64 | 0.0053 | 0.0366 | 0.15× | 200 | `0e21ddc6+dirty` |
+| train_step 1024->1024 | 1.0431 | 0.6516 | 1.60× | 10 | `efaa5371+dirty` |
+| train_step 256->256 | 0.0771 | 0.1343 | 0.57× | 100 | `efaa5371+dirty` |
+| train_step 64->64 | 0.0070 | 0.0374 | 0.19× | 200 | `efaa5371+dirty` |
 
 ## Axis B — Single-layer forward + backward (vs PyTorch)
 
-_No entries yet — Axis B benches not yet wired up._
+Wall-clock per layer-scope fwd+bwd+step on idris-ml's typed-layer
+API (tape backend, F64) vs an equivalent PyTorch reference at the
+same shape. Captures FFI + tape wrap + autograd graph overhead
+that Axis A's pure C-kernel timings don't see.
+
+### Linear
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| linear bs=32 i=512 o=512 | 0.5482 | 0.3063 | 1.79× | 100 | `efaa5371+dirty` |
 
 ## Axis C — End-to-end training (vs PyTorch)
 
