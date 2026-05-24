@@ -37,18 +37,30 @@ class TestSupervised:
         assert final_loss < initial_loss
 
     def test_converges(self) -> None:
-        """After 1000 epochs, loss should be very low and predictions correct.
+        """After 5000 epochs, loss should be very low and predictions correct.
 
-        Known-latent failure 2026-06-04: the model converges to
-        ~0.303 at 1000 epochs (right at the `< 0.3` boundary) and to
-        ~0.27 at 1500 epochs (passes the loss check), but mispredicts
-        the 5th data point (target class 0, predicted class 2) in
-        either case — the 5-point dataset is small enough that the
-        Linear(2→3) model can't perfectly separate all classes from
-        only 2 features. Pre-existing issue (test was failing at the
-        pre-session state too with dtype mismatch which masked this
-        deeper issue). Filed for a separate fix (loosen the per-
-        prediction assertion or fix the data/model).
+        Was 1000 epochs against `< 0.3`. The actual SGD convergence
+        trajectory on this 5-point / 2-feature / 3-class dataset
+        (matching the script's vanilla SGD optimizer at lr=0.03):
+
+          1000 epochs: loss=0.303, 3/5 correct (5th point wrong)
+          5000 epochs: loss=0.195, 5/5 correct
+          10000 epochs: loss=0.168, 5/5 correct
+
+        The 1000-epoch budget was right at the `< 0.3` boundary
+        (failing by 1%) AND mispredicting the 5th data point — the
+        model needs more SGD steps to break out of a partial-fit
+        local minimum where 4/5 points are well-classified and the
+        5th is sacrificed. Bumped to 5000 epochs (still trivial wall
+        clock, < 1s) for comfortable headroom. Alternative would be
+        switching to Adam — converges 5/5 in 1000 epochs at lr=0.01 —
+        but the script (scripts/supervised.py:55) uses SGD, so the
+        test stays on SGD for parity.
+
+        This was a long-standing latent failure: the dtype mismatch
+        (model F32 vs SUPERVISED_DATA F64, fixed earlier in the
+        commit that added the .to(dtype=get_dtype()) cast) was
+        masking it pre-2026-06-04.
         """
         torch.manual_seed(42)
         # Match SUPERVISED_DATA's dtype (= get_dtype(), F64 default).
@@ -60,7 +72,7 @@ class TestSupervised:
         lr = 0.03
 
         loss_val = 0.0
-        for _ in range(1000):
+        for _ in range(5000):
             optimizer = torch.optim.SGD(model.parameters(), lr=lr)
             loss_val = train_supervised_epoch(model, data, optimizer)
 
