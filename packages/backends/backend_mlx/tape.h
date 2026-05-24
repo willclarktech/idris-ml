@@ -67,6 +67,7 @@ enum {
     OP_CAST_DTYPE,    /* mx::astype to target dtype; scalar_arg encodes target:
                          0.0 = mx::float32, 1.0 = mx::float64, 2.0 = mx::bfloat16. */
     OP_RMS_NORM_2D,   /* row-wise RMS normalization (HF LlamaRMSNorm); meta carries weight pool idx + eps */
+    OP_SWIGLU_2D,     /* silu(gate) * up; gate -> arg1, up -> arg2 */
     OP_COUNT          /* sentinel — must be last; sizes the replay dispatch table */
 };
 

@@ -242,6 +242,7 @@
 #define tensor_subtract_scalar_inplace tensor_subtract_scalar_inplace_torch
 #define tensor_sum tensor_sum_torch
 #define tensor_sum_dim tensor_sum_dim_torch
+#define tensor_swiglu_2d tensor_swiglu_2d_torch
 #define tensor_tanh tensor_tanh_torch
 #define tensor_ternary_quant_with_scale_2d tensor_ternary_quant_with_scale_2d_torch
 #define tensor_tile_2d tensor_tile_2d_torch

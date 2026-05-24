@@ -498,6 +498,13 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| `HfCommon.applyRmsNorm2dRaw` with one FFI call.
   primRmsNorm2d : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
+  ||| Fused SwiGLU activation core: silu(gate) * up. Both inputs share
+  ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
+  ||| Replaces the tsilu + tmul pair in HfLlama.applyMlp with one FFI
+  ||| call. The decomposed chain emits two tape entries; this op emits
+  ||| one (tape) or composes into a smaller subgraph (torch / mlx).
+  primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
+
   -- dtype-streamed creation -----------------------------------------
   -- Each takes a trailing (streamTag, dtypeTag) pair; the backend's
   -- wrapper branches on dtypeTag (0=f32, 1=f64) to pick the right

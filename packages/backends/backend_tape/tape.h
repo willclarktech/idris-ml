@@ -68,6 +68,7 @@ enum {
     OP_TILE_2D,       /* [m,n] -> [m*rep0, n*rep1]; reps in scalar_arg via 2 int fields */
     OP_CAST_DTYPE,    /* dtype cast — locally linear; identity grad flow back to source */
     OP_RMS_NORM_2D,   /* row-wise RMS normalization on [m,n] (HF LlamaRMSNorm) */
+    OP_SWIGLU_2D,     /* silu(gate) * up on [m,n]; gate -> arg1, up -> arg2 */
     OP_COUNT          /* sentinel — must be last */
 };
 
@@ -119,6 +120,13 @@ typedef struct {
     double* rstd;      /* reciprocal RMS per row [m] */
     int m, n;
 } RmsNormMeta;
+
+/* SwiGluMeta: caches sigmoid(gate) per element so backward avoids
+   re-evaluating exp(). Used by nn/activation/swiglu_2d.c. */
+typedef struct {
+    double* sig_g;     /* sigmoid(gate[i,j]) [m*n] */
+    int m, n;
+} SwiGluMeta;
 
 /* GruCellMeta: layout shared with nn/recurrent/gru_cell.c.
    Kept here because tape_reset in tape.c frees zG/rG/nG. */

@@ -166,6 +166,12 @@ void tape_reset(void) {
             meta->x_hat = NULL;
             meta->rstd = NULL;
         }
+        /* Free OP_SWIGLU_2D heap arrays */
+        if (e->op == OP_SWIGLU_2D && e->op_meta) {
+            SwiGluMeta* meta = (SwiGluMeta*)e->op_meta;
+            free(meta->sig_g);
+            meta->sig_g = NULL;
+        }
         /* Free OP_GRU_CELL gate arrays. `prev` is a Tensor* owned by
            the caller (typically a per-sequence state handle); we don't
            own it. */

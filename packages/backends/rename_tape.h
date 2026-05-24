@@ -242,6 +242,7 @@
 #define tensor_subtract_scalar_inplace tensor_subtract_scalar_inplace_tape
 #define tensor_sum tensor_sum_tape
 #define tensor_sum_dim tensor_sum_dim_tape
+#define tensor_swiglu_2d tensor_swiglu_2d_tape
 #define tensor_tanh tensor_tanh_tape
 #define tensor_ternary_quant_with_scale_2d tensor_ternary_quant_with_scale_2d_tape
 #define tensor_tile_2d tensor_tile_2d_tape

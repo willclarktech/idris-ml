@@ -126,6 +126,7 @@ MANIFEST = {
     "tensor_mm":                        (("T", "T"), "T"),
     "tensor_sdpa_2d":                   (("T", "T", "T", "i", "i", "i", "i"), "T"),
     "tensor_rms_norm_2d":               (("T", "T", "d"), "T"),
+    "tensor_swiglu_2d":                 (("T", "T"), "T"),
     "tensor_bmm":                       (("T", "T"), "T"),
     "tensor_bmm_3x3":                   (("T", "T"), "T"),
     "tensor_batch":                     (("R", "i"), "T"),

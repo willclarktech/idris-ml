@@ -486,8 +486,9 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
   applyLinear2d attn.oProj ctxT
 
 
-||| SwiGLU MLP on `[seq, hidden]`. Composes three bias-free linears
-||| and tsilu element-wise.
+||| SwiGLU MLP on `[seq, hidden]`. Three bias-free linears plus a
+||| fused `primSwiGlu2d` (silu(gate) * up) middle stage — collapses the
+||| previous `tsilu` + `tmul` pair into one FFI call per block.
 applyMlp : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
            LlamaMlpState hidden intermediate d dt g ->
            Tensor [seqLen, hidden] d dt g ->
@@ -495,8 +496,9 @@ applyMlp : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
 applyMlp mlp x = do
   g <- applyLinear2d mlp.gateProj x       -- [seq, intermediate]
   u <- applyLinear2d mlp.upProj   x       -- [seq, intermediate]
-  sg <- tsilu g                           -- [seq, intermediate]
-  mid <- tmul sg u                        -- [seq, intermediate]
+  mid <- ioRerun (\_ =>
+           let out = primSwiGlu2d {d} g.tensorPtr u.tensorPtr
+           in MkTensor out Nothing)        -- [seq, intermediate]
   applyLinear2d mlp.downProj mid
 
 

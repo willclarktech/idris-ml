@@ -242,6 +242,7 @@
 #define tensor_subtract_scalar_inplace tensor_subtract_scalar_inplace_mlx
 #define tensor_sum tensor_sum_mlx
 #define tensor_sum_dim tensor_sum_dim_mlx
+#define tensor_swiglu_2d tensor_swiglu_2d_mlx
 #define tensor_tanh tensor_tanh_mlx
 #define tensor_ternary_quant_with_scale_2d tensor_ternary_quant_with_scale_2d_mlx
 #define tensor_tile_2d tensor_tile_2d_mlx

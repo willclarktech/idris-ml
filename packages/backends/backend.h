@@ -629,6 +629,11 @@ TensorHandle tensor_sdpa_2d(TensorHandle q, TensorHandle k, TensorHandle v,
  * mul_scalar / add_scalar / sqrt / div / mul) with one FFI call. */
 TensorHandle tensor_rms_norm_2d(TensorHandle input, TensorHandle weight, double eps);
 
+/* Fused SwiGLU activation core: silu(gate) * up. Both inputs share
+ * shape [M, N]; output is [M, N]. Replaces the tsilu + tmul pair in
+ * HfLlama.applyMlp with one FFI call. */
+TensorHandle tensor_swiglu_2d(TensorHandle gate, TensorHandle up);
+
 /* ---------- Portable FFI helpers (for RefC compatibility) ---------- */
 
 /* These wrap void-returning functions to return an argument for value threading.
