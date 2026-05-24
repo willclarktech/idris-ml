@@ -1733,14 +1733,18 @@ bench-py:
 bench-compare: example-bench
 	cd packages/pytorch && uv run python -m torch_ref.compare
 
-# Build bench_ops linked against the active backend
+# Build bench_ops linked against the active backend.
+# bench_ops.c calls unsuffixed names (tensor_create, tensor_mm, ...); the
+# dylib only exports `_<backend>` suffixed symbols since the unified-name
+# alias machinery was retired. Splice in rename_$(PRIMARY).h so the C
+# preprocessor rewrites every call site to the primary's suffixed name.
 $(BUILD)/bench_ops: $(BACKENDS_DIR)/bench_ops.c backend | $(BUILD)
-	cc -o $(BUILD)/bench_ops $(BACKENDS_DIR)/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
+	cc -o $(BUILD)/bench_ops $(BACKENDS_DIR)/bench_ops.c -include $(BACKENDS_DIR)/rename_$(PRIMARY).h -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
 
 # Build bench_ops for a specific backend (e.g., make bench-ops-build-tape)
 bench-ops-build-%: $(BACKENDS_DIR)/bench_ops.c | $(BUILD)
 	@$(MAKE) --no-print-directory BACKEND=$* backend 2>/dev/null
-	cc -o $(BUILD)/bench_ops_$* $(BACKENDS_DIR)/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
+	cc -o $(BUILD)/bench_ops_$* $(BACKENDS_DIR)/bench_ops.c -include $(BACKENDS_DIR)/rename_$*.h -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
 
 bench-ops: $(BUILD)/bench_ops
 	./$(BUILD)/bench_ops
