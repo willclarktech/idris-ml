@@ -92,13 +92,23 @@ catCELossVar predV targetV = ioRerun (\_ =>
       sI = cast {to=Int} SeqLen
       skip = cast {to=Int} InputLen
       revLen = sI - skip
+      -- Narrow at axis 0 with ROW indices: rows `skip..skip+revLen-1`
+      -- of the [seqLen, vocab] reshape. The pre-bd61bef8 (2026-05-26)
+      -- mlx/torch `primNarrow` flattened the tensor and treated start
+      -- + length as 1D element counts — so `primNarrow logitsFull 0
+      -- (skip * vsI) (revLen * vsI)` accidentally did the right thing
+      -- (skip=5, vsI=8, revLen=6 → flat slice 40..87 = rows 5..10 of
+      -- the [11, 8]). When bd61bef8 fixed `tensor_narrow` to honor
+      -- the axis arg properly, this loss silently broke: row-axis
+      -- narrow with start=40 length=48 on an 11-row tensor returns
+      -- an empty array, then the downstream `primReshape2d ... revLen
+      -- vsI` aborts with "Cannot reshape array of size 0 into shape
+      -- (6, 8)". Fix: row indices instead of flat indices.
       logitsFull = primReshape2d {d=ExampleDevice} predV.tensorPtr sI vsI
       targetFull = primReshape2d {d=ExampleDevice} targetV.tensorPtr sI vsI
-      logits = primNarrow {d=ExampleDevice} logitsFull 0 (skip * vsI) (revLen * vsI)
-      logitsR = primReshape2d {d=ExampleDevice} logits revLen vsI
+      logitsR = primNarrow {d=ExampleDevice} logitsFull 0 skip revLen
       logProbs = primLogSoftmax2d {d=ExampleDevice} logitsR
-      tgts = primNarrow {d=ExampleDevice} targetFull 0 (skip * vsI) (revLen * vsI)
-      tgtsR = primReshape2d {d=ExampleDevice} tgts revLen vsI
+      tgtsR = primNarrow {d=ExampleDevice} targetFull 0 skip revLen
       product = primMul {d=ExampleDevice} logProbs tgtsR
       totalSum = primSum {d=ExampleDevice} product
       loss = primMulScalar {d=ExampleDevice} (primNeg {d=ExampleDevice} totalSum) (1.0 / cast {to=Double} revLen)
