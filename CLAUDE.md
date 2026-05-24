@@ -131,12 +131,14 @@ The library is **fully polymorphic in dt** — every interface method, smart con
 
 Examples don't hardcode device or dtype. They reference `ExampleDevice` / `ExampleDType` from `packages/idris-ml-examples/src/BuildConfig.idr` — a Makefile-generated source file (template at `BuildConfig.idr.in`, version-controlled). The generator reads `BACKEND` + `MLX_DEVICE` + `TORCH_DEVICE` at build time and picks the right `(ExampleDevice, ExampleDType)` cell:
 
-  - `BACKEND=tape`                       → `TapeDev`, `F64`
-  - `BACKEND=torch TORCH_DEVICE=cpu`      → `TorchDev TCpu`, `F64`
-  - `BACKEND=torch TORCH_DEVICE=mps`      → `TorchDev TMps`, `F32`
-  - `BACKEND=torch TORCH_DEVICE=cuda`     → `TorchDev (TCuda 0)`, `F64`
-  - `BACKEND=mlx MLX_DEVICE=cpu`          → `MlxDev MCpu`, `F64`
-  - `BACKEND=mlx MLX_DEVICE=gpu`          → `MlxDev MGpu`, `F32`
+  - `BACKEND=tape`                       → `TapeDev`, `F32`
+  - `BACKEND=torch TORCH_DEVICE=cpu`      → `TorchDev TCpu`, `F32`
+  - `BACKEND=torch TORCH_DEVICE=mps`      → `TorchDev TMps`, `F32` (Metal-forced)
+  - `BACKEND=torch TORCH_DEVICE=cuda`     → `TorchDev (TCuda 0)`, `F32`
+  - `BACKEND=mlx MLX_DEVICE=cpu`          → `MlxDev MCpu`, `F32`
+  - `BACKEND=mlx MLX_DEVICE=gpu`          → `MlxDev MGpu`, `F32` (Metal-forced)
+
+All cells default to F32 as of 2026-06-04 — matches modern ML practice + the on-disk reference weights of every shipped HF adapter (BF16 cast to F32 at load), halves memory, ~2× faster on CPU via better SIMD. Override via `TORCH_DTYPE` / `MLX_DTYPE` / `TAPE_DTYPE` env var for workloads that genuinely need F64 (training-side gradient-drift bisection vs the torch_ref/ F64 baseline, numerically-sensitive convergence comparisons).
 
 Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked into `BuildConfig.idr`. Switching modes is just a different `make install` — no source edits. (Same trick generates the per-build `Linked` instances in `HwConfig.idr`.)
 

@@ -599,12 +599,12 @@ $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
 		mlx/gpu/*)    DEVICE="MlxDev MGpu";       DTYPE="F32" ;; \
-		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F64" ;; \
+		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F32" ;; \
 		torch/*/mps)  DEVICE="TorchDev TMps";     DTYPE="F32" ;; \
-		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F64" ;; \
-		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F64" ;; \
-		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
-		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
+		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F32" ;; \
+		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F32" ;; \
+		tape/*/*)     DEVICE="TapeDev";           DTYPE="F32" ;; \
+		*)            DEVICE="TapeDev";           DTYPE="F32" ;; \
 	esac; \
 	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
 	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \

@@ -6,17 +6,23 @@
 |||
 ||| Selection matrix (PRIMARY × hw-device env → ExampleDevice, ExampleDType):
 |||
-|||   tape, *                     → TapeDev,              F64
-|||   torch, TORCH_DEVICE=cpu      → TorchDev TCpu,        F64
-|||   torch, TORCH_DEVICE=mps      → TorchDev TMps,        F32
-|||   torch, TORCH_DEVICE=cuda     → TorchDev (TCuda 0),   F64
-|||   mlx, MLX_DEVICE=cpu          → MlxDev MCpu,          F64
-|||   mlx, MLX_DEVICE=gpu          → MlxDev MGpu,          F32
+|||   tape, *                     → TapeDev,              F32
+|||   torch, TORCH_DEVICE=cpu      → TorchDev TCpu,        F32
+|||   torch, TORCH_DEVICE=mps      → TorchDev TMps,        F32   (Metal-forced)
+|||   torch, TORCH_DEVICE=cuda     → TorchDev (TCuda 0),   F32
+|||   mlx, MLX_DEVICE=cpu          → MlxDev MCpu,          F32
+|||   mlx, MLX_DEVICE=gpu          → MlxDev MGpu,          F32   (Metal-forced)
 |||
-||| TMps + F64 deliberately doesn't exist — libtorch rejects F64 at
-||| MPS tensor construction. mlx GPU is F32-only too (Metal dropped
-||| F64 support in mlx 0.31). All other cells stay F64 for parity
-||| with the historical references.
+||| All cells default to F32 (flipped 2026-06-04 from the historical
+||| F64 default). Rationale: F32 matches modern ML practice + the
+||| on-disk reference weights of every shipped HF adapter (BF16 cast
+||| to F32 at load), uses half the memory, and runs ~2× faster on
+||| CPU via better SIMD. The TMps + MlxGpu cells were already F32-
+||| forced because libtorch / mlx Metal lack F64 support. Override
+||| via `TORCH_DTYPE` / `MLX_DTYPE` / `TAPE_DTYPE` for the small
+||| number of workloads that genuinely need F64 (training-side
+||| gradient-drift bisection vs the torch_ref/ F64 baseline; some
+||| numerically-sensitive convergence comparisons).
 |||
 ||| Idris-2 cannot drive type-level selection from a runtime env var —
 ||| types are fixed at elaboration time, before `main`. The generated
