@@ -828,18 +828,18 @@ CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/test/common -name '*
                                $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null)
 CRITERION_TEST_SRCS := $(BACKENDS_DIR)/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
 
-test-backend-criterion: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
+test-unit-backend: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 	./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
-test-backend-criterion-tape:
-	$(MAKE) BACKEND=tape test-backend-criterion
+test-unit-backend-tape:
+	$(MAKE) BACKEND=tape test-unit-backend
 
-test-backend-criterion-mlx:
-	$(MAKE) BACKEND=mlx test-backend-criterion
+test-unit-backend-mlx:
+	$(MAKE) BACKEND=mlx test-unit-backend
 
-test-backend-criterion-torch:
-	$(MAKE) BACKEND=torch test-backend-criterion
+test-unit-backend-torch:
+	$(MAKE) BACKEND=torch test-unit-backend
 
 # Coverage build. Recompiles backend + test binary with
 # `-fprofile-instr-generate -fcoverage-mapping` into build-cov/ (separate
@@ -879,7 +879,7 @@ coverage-backend:
 
 # Build-only the criterion suite with coverage flags so the
 # coverage-backend recipe can set LLVM_PROFILE_FILE before running.
-# Matches the test-backend-criterion build recipe — link the full
+# Matches the test-unit-backend build recipe — link the full
 # discovered suite, not just the smoke shell.
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
 	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
@@ -904,20 +904,20 @@ coverage-gap-probe:
 	@bash scripts/coverage-gap-probe.sh $(BUILD)
 
 # Specialized C test suites
-test-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
+test-unit-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_safetensors -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_safetensors.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_safetensors
 
-test-ntm-grad: $(BACKENDS_DIR)/test_ntm_grad.c backend | $(BUILD)
+test-unit-ntm-grad: $(BACKENDS_DIR)/test_ntm_grad.c backend | $(BUILD)
 	cc -o $(BUILD)/test_ntm_grad $(BACKENDS_DIR)/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_grad
 
-test-ntm-timestep: $(BACKENDS_DIR)/test_ntm_timestep.c backend | $(BUILD)
+test-unit-ntm-timestep: $(BACKENDS_DIR)/test_ntm_timestep.c backend | $(BUILD)
 	cc -o $(BUILD)/test_ntm_timestep $(BACKENDS_DIR)/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_timestep
 
-# Job 3 Phase B — mx::compile integration tests. MLX-only.
-test-mlx-compile: $(BACKENDS_DIR)/test_mlx_compile.c
+# mx::compile integration tests. MLX-only.
+test-unit-mlx-compile: $(BACKENDS_DIR)/test_mlx_compile.c
 	$(MAKE) BACKEND=mlx backend
 	cc -o $(BUILD)/test_mlx_compile $(BACKENDS_DIR)/test_mlx_compile.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_mlx_compile
@@ -1061,25 +1061,20 @@ check-examples: install
 	done
 	@echo "All examples type-check."
 
-# Idris tests
-# `make test` (default target for the active backend) runs the fast
-# cross-test bundle: Idris unit tests + per-op Criterion C suite +
-# safetensors round-trip. Anything that takes more than a few seconds
-# per backend belongs in `test-all` instead (examples sweep,
-# multi-backend, jupyter, torch_ref, etc.).
+# Unit test layer — see docs/develop/testing-taxonomy.md.
 #
-# CI lanes have the same shape — each backend matrix lane runs
-# `make BACKEND=<b> test-backend-criterion` + `make BACKEND=<b> test`
-# (this umbrella). The Criterion suite under `packages/backends/test/`
-# replaced the legacy monolithic `test_backend.c` harness; see the
-# CHANGELOG entry for the migration.
-test: test-idris test-backend-criterion test-safetensors
+# Canonical aggregator: every unit-layer leaf, across active backend.
+# Run locally pre-commit: `make test-unit` (~2 min on tape). Adding
+# a new unit-layer test means adding the target name to this list;
+# the CI workflow consumes `make test-unit` (post-Phase-4) and so
+# auto-includes any new leaf without a workflow edit.
+test-unit: test-unit-idris-ml test-unit-backend test-unit-safetensors test-unit-ntm-grad test-unit-ntm-timestep
 
 # Idris-side unit suite against the active backend. Buckets that
 # touch the C surface (GradMode, ManagedHandle, Tensor lifecycle)
 # resolve through `{d=TestDevice}` which the Makefile-generated
 # `TestConfig.idr` pins to the active backend.
-test-idris: install $(TESTCONFIG_IDR)
+test-unit-idris-ml: install $(TESTCONFIG_IDR)
 	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -p idris-test -o test $(TEST_SRC)/Main.idr
 	cp $(LIB) $(BUILD)/exec/test_app/
 	./$(BUILD)/exec/test
@@ -1098,27 +1093,23 @@ test-idris: install $(TESTCONFIG_IDR)
 # that backend's primary (the same single-backend dylib `make
 # BACKEND=<b> install` would produce) — so Criterion validates the
 # *single-backend* lane for each one, not the multi-link dylib.
-# That's the regression bar we actually want here: the multi-link
-# dylib is exercised by Test.Transfer above; the Criterion suites
-# exercise the same op-level behaviour each lane would ship to
-# users.
-test-multi:
+test-unit-multi-backend:
 	$(MAKE) BACKEND=torch,tape,mlx install
-	$(MAKE) BACKEND=torch,tape,mlx _test-multi-build
-	$(MAKE) BACKEND=tape test-backend-criterion
-	$(MAKE) BACKEND=torch test-backend-criterion
-	$(MAKE) BACKEND=mlx test-backend-criterion
+	$(MAKE) BACKEND=torch,tape,mlx _test-unit-multi-backend-build
+	$(MAKE) BACKEND=tape test-unit-backend
+	$(MAKE) BACKEND=torch test-unit-backend
+	$(MAKE) BACKEND=mlx test-unit-backend
 
-# Sub-target invoked by test-multi under BACKEND=torch,tape,mlx so $(BUILD)
-# / $(LIB) / $(TESTCONFIG_IDR) all resolve in the multi-link set's tree,
-# not the outer make's BACKEND context.
-_test-multi-build: $(TESTCONFIG_IDR)
+# Sub-target invoked by test-unit-multi-backend under BACKEND=torch,tape,mlx
+# so $(BUILD) / $(LIB) / $(TESTCONFIG_IDR) all resolve in the multi-link
+# set's tree, not the outer make's BACKEND context.
+_test-unit-multi-backend-build: $(TESTCONFIG_IDR)
 	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -p idris-test -o test-multi $(TEST_SRC)/MainMulti.idr
 	cp $(LIB) $(BUILD)/exec/test-multi_app/
 	./$(BUILD)/exec/test-multi
 
 # Idris tests for idris-gym package (pure Idris, no backend required)
-test-gym: install-gym install-test-harness
+test-unit-gym: install-gym install-test-harness
 	cd packages/idris-gym/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-gym --build test.ipkg
 	$(STDBUF) ./$(BUILD)/test-idris-gym/exec/idris-gym-test
 
@@ -1127,8 +1118,8 @@ test-gym: install-gym install-test-harness
 # HfBert and asserts the C-side param registry matches the catalogue
 # exactly. The dylib gets copied alongside the test executable so the
 # FFI registry calls land on the active backend's symbols (mirrors
-# the test-idris recipe).
-test-transformers: install-transformers install-test-harness
+# the test-unit-idris-ml recipe).
+test-unit-idris-transformers: install-transformers install-test-harness
 	cd packages/idris-transformers/test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-transformers --build test.ipkg
 	cp $(LIB) $(BUILD)/test-idris-transformers/exec/idris-transformers-test_app/
 	$(STDBUF) ./$(BUILD)/test-idris-transformers/exec/idris-transformers-test
@@ -1144,7 +1135,7 @@ bench-gym: install-gym
 	$(STDBUF) ./$(BUILD)/bench-idris-gym/exec/idris-gym-bench $(BENCH_ARGS)
 
 # Unit tests for idris-ml-examples (runs moved Test.Generate)
-test-examples-unit: install-examples install-test-harness
+test-unit-examples: install-examples install-test-harness
 	cd packages/idris-ml-examples/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-ml-examples --build test.ipkg
 	cp $(LIB) $(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test_app/
 	$(STDBUF) ./$(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test
@@ -2155,28 +2146,26 @@ test-examples-convergence:
 	if [ $$fail -ne 0 ]; then echo "Some convergence runs FAILED"; exit 1; fi; \
 	echo "All convergence runs passed."
 
-# Run everything: Idris unit tests, C backend tests, specialized tests,
-# integration tests, PyTorch reference tests (if available)
+# Run everything: unit + gym + examples-unit + multi-backend criterion +
+# specialized + e2e examples + PyTorch ref + jupyter. Multi-hour aggregate;
+# not a CI gate. Subsequent phases will collapse this into per-layer
+# aggregators (test-unit / test-integration / test-e2e) — for now it
+# chains the layer aggregators directly.
 test-all:
-	@echo "=== Fast cross-test bundle (Idris + Criterion + safetensors) ==="
-	$(MAKE) test
+	@echo "=== Unit layer (Idris + Criterion + safetensors + NTM unit) ==="
+	$(MAKE) test-unit
 	@echo ""
 	@echo "=== Gym unit tests ==="
-	$(MAKE) test-gym
+	$(MAKE) test-unit-gym
 	@echo ""
 	@echo "=== Examples unit tests ==="
-	$(MAKE) test-examples-unit
+	$(MAKE) test-unit-examples
 	@echo ""
-	@echo "=== C backend tests ==="
+	@echo "=== C backend tests (all available backends) ==="
 	@for b in tape mlx torch; do \
-		echo "--- test-backend-criterion [$$b] ---"; \
-		$(MAKE) BACKEND=$$b test-backend-criterion 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
+		echo "--- test-unit-backend [$$b] ---"; \
+		$(MAKE) BACKEND=$$b test-unit-backend 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
 	done
-	@echo "=== Specialized C tests ==="
-	$(MAKE) BACKEND=tape test-safetensors
-	$(MAKE) BACKEND=tape test-ntm-grad
-	$(MAKE) BACKEND=tape test-ntm-timestep
-	@echo ""
 	@echo "=== Integration tests (examples on all backends) ==="
 	$(MAKE) test-examples
 	@echo ""
@@ -2213,9 +2202,10 @@ check-all: check check-gym check-notebook check-examples
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
-.PHONY: all check-all all-backends test test-gym test-examples-unit test-all dataset-mnist dataset-tinyshakespeare \
-        test-backend-criterion test-backend-criterion-tape test-backend-criterion-mlx test-backend-criterion-torch \
-        test-safetensors test-ntm-grad test-ntm-timestep \
+.PHONY: all check-all all-backends test-unit test-unit-idris-ml test-unit-idris-transformers \
+        test-unit-gym test-unit-examples test-unit-multi-backend test-all dataset-mnist dataset-tinyshakespeare \
+        test-unit-backend test-unit-backend-tape test-unit-backend-mlx test-unit-backend-torch \
+        test-unit-safetensors test-unit-ntm-grad test-unit-ntm-timestep test-unit-mlx-compile \
         test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm example-gru \

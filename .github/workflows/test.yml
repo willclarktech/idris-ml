@@ -189,7 +189,7 @@ jobs:
         # the test executable, then runs it. No backend dependency at this
         # stage — the package wiring is the gate; HfBert model tests land
         # alongside HfBert.idr in a later commit.
-        run: make test-transformers
+        run: make test-unit-idris-transformers
 
       - name: Run HfBert oracle generator + pytest (Ubuntu)
         # Drives packages/idris-transformers/scripts/save_oracle.py through
@@ -323,7 +323,7 @@ jobs:
         run: make coverage-gap-probe
 
       - name: Run Criterion suite (tape)
-        run: make BACKEND=tape test-backend-criterion
+        run: make BACKEND=tape test-unit-backend
 
       - name: Run Idris unit suite (tape)
         # Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite
@@ -331,11 +331,11 @@ jobs:
         # surface (GradMode, ManagedHandle) use `{d=TestDevice}` which the
         # Makefile-generated `TestConfig.idr` resolves to TapeDev here, so
         # FFI calls land on tape-suffixed C symbols.
-        run: make BACKEND=tape test
+        run: make BACKEND=tape test-unit-idris-ml
 
       - name: Run Criterion suite (torch, Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-backend-criterion
+        run: make BACKEND=torch test-unit-backend
 
       - name: Run Idris unit suite (torch, Ubuntu)
         # Same suite as the tape lane but with TestDevice = TorchDev TCpu.
@@ -343,18 +343,18 @@ jobs:
         # (broken torch Scheme wrapper, drift in `UserDeviceTransfer`
         # instances, etc.).
         if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test
+        run: make BACKEND=torch test-unit-idris-ml
 
       - name: Run Criterion suite (mlx, macOS)
         if: matrix.os == 'macos-latest'
-        run: make BACKEND=mlx test-backend-criterion
+        run: make BACKEND=mlx test-unit-backend
 
       - name: Run Idris unit suite (mlx, macOS)
         # Same suite as tape/torch but with TestDevice = MlxDev MCpu.
         # Catches mlx Scheme-wrapper drift, lazy-eval / handle-lifetime
         # regressions in the test-managed-handle suite under Metal.
         if: matrix.os == 'macos-latest'
-        run: make BACKEND=mlx test
+        run: make BACKEND=mlx test-unit-idris-ml
 
       - name: Run multi-backend Idris suite (macOS)
         # Adds Test.Transfer (cross-backend `toDevice` smoke) +
@@ -363,19 +363,19 @@ jobs:
         # so all three sets of C symbols are linked — only feasible on
         # the macOS lane (Ubuntu has no mlx).
         if: matrix.os == 'macos-latest'
-        run: make test-multi
+        run: make test-unit-multi-backend
 
       - name: Run safetensors round-trip (tape)
         # F32/F64 param + optimizer-state round-trip; runs on every OS.
         # Re-installs the tape dylib so subsequent steps that expect
         # tape symbols (test-examples default lane) see them.
-        run: make BACKEND=tape test-safetensors
+        run: make BACKEND=tape test-unit-safetensors
 
       - name: Run safetensors round-trip (torch, Ubuntu)
         # Adds the bf16/f16/i32 byte-level round-trip (those dtypes exist
         # only on torch). Gated to the libtorch lane.
         if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-safetensors
+        run: make BACKEND=torch test-unit-safetensors
 
       - name: Run typed index-op round-trip (torch, Ubuntu)
         # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
