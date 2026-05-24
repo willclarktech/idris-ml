@@ -403,9 +403,8 @@ applyEmbedLookup : {0 d : Device} -> UserDeviceTraining d =>
 applyEmbedLookup {seqLen} {hidden} (MkLlamaEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI = cast {to=Int} hidden
-      flat = primEmbedding {d} w.tensorPtr tokens.tensorPtr sI hI
-      twoD = primReshape2d {d} flat sI hI
-  in MkTensor twoD Nothing)
+      out = primEmbedding2d {d} w.tensorPtr tokens.tensorPtr sI hI
+  in MkTensor out Nothing)
 
 
 -- Build the strict-upper-triangle causal mask (1.0 above diagonal,

@@ -601,9 +601,8 @@ applyEmbedLookup : {0 d : Device} -> UserDeviceTraining d =>
 applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI = cast {to=Int} hidden
-      flat = primEmbedding {d} w.tensorPtr tokens.tensorPtr sI hI
-      twoD = primReshape2d {d} flat sI hI
-  in MkTensor twoD Nothing)
+      out = primEmbedding2d {d} w.tensorPtr tokens.tensorPtr sI hI
+  in MkTensor out Nothing)
 
 
 -- All-heads RoPE helper — same shape as HfLlama's `ropeAllHeadsFlat`.

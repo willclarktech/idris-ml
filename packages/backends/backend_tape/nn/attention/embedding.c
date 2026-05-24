@@ -13,11 +13,9 @@
 #include "../../training/autograd/op_dispatch.h"
 #include "../../../backend.h"
 
-TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
-    Tensor* weight = (Tensor*)hweight;
-    Tensor* indices = (Tensor*)hindices;
+static Tensor* embedding_impl(Tensor* weight, Tensor* indices, int n, int embedDim,
+                              int* out_shape, int out_rank) {
     int out_numel = n * embedDim;
-    int out_shape[] = {out_numel};
     int* idx_copy = malloc(n * sizeof(int));
     Tensor* r;
     if (weight->dtype_tag == DT_F32) {
@@ -27,7 +25,7 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
             idx_copy[i] = idx;
             memcpy(out + i * embedDim, ((float*)weight->data) + idx * embedDim, embedDim * sizeof(float));
         }
-        r = make_tensor_arena_f32(out, out_numel, out_shape, 1, weight->requires_grad);
+        r = make_tensor_arena_f32(out, out_numel, out_shape, out_rank, weight->requires_grad);
     } else {
         double* out = calloc(out_numel, sizeof(double));
         for (int i = 0; i < n; i++) {
@@ -35,7 +33,7 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
             idx_copy[i] = idx;
             memcpy(out + i * embedDim, ((double*)weight->data) + idx * embedDim, embedDim * sizeof(double));
         }
-        r = make_tensor(out, out_shape, 1, weight->requires_grad);
+        r = make_tensor(out, out_shape, out_rank, weight->requires_grad);
         free(out);
     }
     if (r->requires_grad) {
@@ -49,6 +47,25 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
         free(idx_copy);
     }
     return r;
+}
+
+TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
+    Tensor* weight = (Tensor*)hweight;
+    Tensor* indices = (Tensor*)hindices;
+    int out_shape[] = {n * embedDim};
+    return embedding_impl(weight, indices, n, embedDim, out_shape, 1);
+}
+
+/* 2D-returning variant: same gather + grad path as tensor_embedding,
+ * but the output tensor carries shape [n, embedDim] rather than the
+ * flattened [n * embedDim]. The backward closure (tape_backward_embedding)
+ * is shape-agnostic — it walks indices and writes to weight's row-major
+ * grad buffer, identical for both forward shapes. */
+TensorHandle tensor_embedding_2d(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
+    Tensor* weight = (Tensor*)hweight;
+    Tensor* indices = (Tensor*)hindices;
+    int out_shape[] = {n, embedDim};
+    return embedding_impl(weight, indices, n, embedDim, out_shape, 2);
 }
 
 static void tape_backward_embedding(TapeEntry* e) {

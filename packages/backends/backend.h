@@ -730,6 +730,13 @@ TensorHandle tensor_cross_attention(TensorHandle Q, TensorHandle K, TensorHandle
    Returns [n * embedDim] (flat). Backward: scatter_add grads to weight rows. */
 TensorHandle tensor_embedding(TensorHandle weight, TensorHandle indices, int n, int embedDim);
 
+/* Embedding lookup returning the natural [n, embedDim] shape.
+   torch::embedding / mx::take both produce 2D natively; this variant
+   skips the flatten + Idris-side primReshape2d that the legacy flat
+   path requires. Saves 1 op_count per forward pass at every
+   transformer adapter's input layer. */
+TensorHandle tensor_embedding_2d(TensorHandle weight, TensorHandle indices, int n, int embedDim);
+
 /* ---------- Gather / Scatter ---------- */
 
 /* Gather: out[i] = input[index[i]] along dim 0 (1D index into 1D input) */

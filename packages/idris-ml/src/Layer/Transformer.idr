@@ -196,8 +196,7 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
       hdI = cast {to=Int} headDim
-      embFlat = primEmbedding {d} embedW.tensorPtr tokens.tensorPtr sI dI
-      embedded = primReshape2d {d} embFlat sI dI
+      embedded = primEmbedding2d {d} embedW.tensorPtr tokens.tensorPtr sI dI
       h0 = primAdd {d} embedded peCached.tensorPtr
       hN = foldBlocks blocks h0 maskCached.tensorPtr sI hdI
       normedFinal' = primLayerNorm2d {d} hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
@@ -306,8 +305,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
       flatTokens = primReshape1d {d} tokens.tensorPtr bsI
-      embFlat = primEmbedding {d} embedW.tensorPtr flatTokens bsI dI
-      embedded = primReshape2d {d} embFlat bsI dI
+      embedded = primEmbedding2d {d} embedW.tensorPtr flatTokens bsI dI
       -- Tile cached PE [seqLen, dModel] vertically `b` times to get
       -- [b*seqLen, dModel], then add directly to the flat embedded. One
       -- fused op per backend (`mx::tile` / `at::tile` / manual memcpy)

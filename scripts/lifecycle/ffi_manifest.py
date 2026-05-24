@@ -191,6 +191,7 @@ MANIFEST = {
 
     # Embedding / gather / scatter / sort / scan
     "tensor_embedding":                 (("T", "T", "i", "i"), "T"),
+    "tensor_embedding_2d":              (("T", "T", "i", "i"), "T"),
     "tensor_gather":                    (("T", "T", "i"), "T"),
     "tensor_scatter_add":               (("T", "T", "i"), "T"),
     "tensor_argsort":                   (("T", "i", "i"), "T"),

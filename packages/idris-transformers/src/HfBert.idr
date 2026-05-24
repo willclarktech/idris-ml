@@ -470,9 +470,8 @@ hfBertModel pfx = do
 bertLnEps : Double
 bertLnEps = 1.0e-12
 
--- Embedding lookup returning [seqLen, dim]. Wraps primEmbedding +
--- primReshape2d in the same way Layer/Transformer.idr does its token
--- lookup.
+-- Embedding lookup returning [seqLen, dim]. Wraps primEmbedding2d
+-- directly so we get the natural 2D output in one op.
 applyEmbedLookup2d : {0 d : Device} -> UserDeviceTraining d
                   => {seqLen, vocab, dim : Nat}
                   -> BertEmbedding vocab dim d dt g
@@ -481,9 +480,8 @@ applyEmbedLookup2d : {0 d : Device} -> UserDeviceTraining d
 applyEmbedLookup2d {seqLen} {dim} (MkBertEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       dI = cast {to=Int} dim
-      flat = primEmbedding {d} w.tensorPtr tokens.tensorPtr sI dI
-      twoD = primReshape2d {d} flat sI dI
-  in MkTensor twoD Nothing)
+      out = primEmbedding2d {d} w.tensorPtr tokens.tensorPtr sI dI
+  in MkTensor out Nothing)
 
 -- 2D LayerNorm: applies γ and β along the last dim of a [seq, hidden]
 -- tensor. Wraps primLayerNorm2d.

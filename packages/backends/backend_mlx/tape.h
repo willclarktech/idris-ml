@@ -68,6 +68,7 @@ enum {
                          0.0 = mx::float32, 1.0 = mx::float64, 2.0 = mx::bfloat16. */
     OP_RMS_NORM_2D,   /* row-wise RMS normalization (HF LlamaRMSNorm); meta carries weight pool idx + eps */
     OP_SWIGLU_2D,     /* silu(gate) * up; gate -> arg1, up -> arg2 */
+    OP_EMBEDDING_2D,  /* embedding returning [n, embedDim] (no flatten) */
     OP_COUNT          /* sentinel — must be last; sizes the replay dispatch table */
 };
 

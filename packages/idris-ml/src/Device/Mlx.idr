@@ -356,6 +356,8 @@ prim__batchNormMlxStreamed : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> I
 prim__dropoutMlxStreamed : AnyPtr -> Double -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_embedding_mlx_streamed\" (void* void* int int int) void*) (vector-ref a0 2) (vector-ref a1 2) a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__embeddingMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_embedding_2d_mlx_streamed\" (void* void* int int int) void*) (vector-ref a0 2) (vector-ref a1 2) a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__embedding2dMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_cosine_similarity_mlx_streamed\" (void* void* int int) void*) (vector-ref a0 2) (vector-ref a1 2) a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__cosineSimilarityMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (let ((raw_r ((foreign-procedure \"tensor_cross_attention_mlx_streamed\" (void* void* void* void* double int) void*) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) (vector-ref a3 2) a4 a5))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
@@ -389,6 +391,7 @@ public export
   primBatchNorm a b c d e f g h i j = prim__batchNormMlxStreamed a b c d e f g h i j (streamTag s)
   primDropout a b c d = prim__dropoutMlxStreamed a b c d (streamTag s)
   primEmbedding a b c d = prim__embeddingMlxStreamed a b c d (streamTag s)
+  primEmbedding2d a b c d = prim__embedding2dMlxStreamed a b c d (streamTag s)
   primCosineSimilarity a b c = prim__cosineSimilarityMlxStreamed a b c (streamTag s)
   primCrossAttention a b c d e = prim__crossAttentionMlxStreamed a b c d e (streamTag s)
   primBceWithLogits a b = prim__bceWithLogitsMlxStreamed a b (streamTag s)

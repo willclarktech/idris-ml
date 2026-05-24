@@ -510,9 +510,8 @@ applyEmbedLookup2d : {0 d : Device} -> UserDeviceTraining d =>
 applyEmbedLookup2d {seqLen} {hidden} (MkGpt2Embedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI = cast {to=Int} hidden
-      flat = primEmbedding {d} w.tensorPtr tokens.tensorPtr sI hI
-      twoD = primReshape2d {d} flat sI hI
-  in MkTensor twoD Nothing)
+      out = primEmbedding2d {d} w.tensorPtr tokens.tensorPtr sI hI
+  in MkTensor out Nothing)
 
 
 ----------------------------------------------------------------------

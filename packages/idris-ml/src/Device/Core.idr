@@ -274,6 +274,7 @@ interface UserDeviceLinear d => UserDeviceNN (0 d : Device) where
 
   -- Embedding / similarity / attention -------------------------------
   primEmbedding      : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primEmbedding2d    : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
   primCosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
   primCrossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
