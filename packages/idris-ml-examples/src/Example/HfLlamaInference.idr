@@ -311,9 +311,9 @@ runGenerate useCache tok model tables prompt numTokens = do
            (if useCache then " (KV cache ON)" else " (KV cache OFF)"))
   putStrLn ""
   let promptList = toList promptIds
-  finalList <- if useCache
-                  then genLoopCached model tables promptList numTokens
-                  else genLoop       model tables promptList numTokens
+  finalList <- case useCache of
+    True  => genLoopCached model tables promptList numTokens
+    False => genLoop       model tables promptList numTokens
   Right text <- detokenize tok (fromList finalList)
     | Left err => putStrLn ("ERR: detokenize: " ++ show err)
   putStrLn ("Output:    " ++ text)
@@ -350,9 +350,9 @@ runDumpTokens useCache tok model tables prompt numTokens = do
         putStrLn ("ERR: tokenize: " ++ show err)
         exitFailure
   let promptList = toList promptIds
-  finalList <- if useCache
-                  then genLoopCached model tables promptList numTokens
-                  else genLoop       model tables promptList numTokens
+  finalList <- case useCache of
+    True  => genLoopCached model tables promptList numTokens
+    False => genLoop       model tables promptList numTokens
   traverse_ (putStrLn . show . finToNat) finalList
 
 
