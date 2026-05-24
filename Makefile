@@ -1181,9 +1181,7 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/con
 example-hf-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-bitnet-inference_app/
-	./$(BUILD)/exec/hf-bitnet-inference --dump-logits \
-	  | (cd packages/pytorch && uv run python \
-	       ../idris-transformers/scripts/show_next_token_bitnet.py)
+	./$(BUILD)/exec/hf-bitnet-inference
 
 # Cross-language correctness gate for HfBitNet: regenerate the Python
 # oracle from microsoft/bitnet-b1.58-2B-4T, run the Idris example
