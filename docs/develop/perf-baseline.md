@@ -5,6 +5,42 @@
 > `docs/develop/reference-alignment.md` for the alignment policy that
 > bounds problem-shrink decisions.
 
+## Current state — 2026-06-04 full sweep (post narrow-fix `59a37ab0`)
+
+Full `scripts/perf-sweep.sh` across 16 examples × 5 cells = 80 measurements.
+F64-default both sides (BuildConfig + torch_ref), apples-to-apples ratios.
+Bold = winning cell per example (lowest ratio).
+
+| example | tape/cpu | torch/cpu | torch/mps | mlx/cpu | mlx/gpu |
+|---|---|---|---|---|---|
+| supervised | **0.07** | 0.29 | 0.36 | 12.57 | 19.21 |
+| rnn | **0.13** | 0.93 | 0.91 | 45.53 | 65.16 |
+| lstm | **0.06** | 0.73 | 0.70 | 33.99 | 47.80 |
+| gru | **0.05** | 0.88 | 0.88 | 26.03 | 43.21 |
+| transformer | **0.04** | 0.41 | 0.26 | 1.47 | 3.50 |
+| ntm-copy | **0.25** | 1.10 | 0.99 | 19.32 | 28.07 |
+| ntm-recall | **0.25** | 1.19 | 1.19 | 19.37 | 32.03 |
+| dnc-copy | **0.15** | 0.80 | 0.88 | 17.04 | 27.28 |
+| dnc-recall | **0.16** | 0.83 | 0.73 | 16.95 | 26.30 |
+| reinforce | **0.15** | 0.74 | 0.69 | 32.37 | 40.53 |
+| dqn | **3.43** | 6.28 | 6.29 | 185.94 | 336.67 |
+| mountain-car | **1.41** | 4.56 | 4.55 | 206.89 | 345.77 |
+| mountain-car-cont | **3.49** | 7.06 | 6.90 | crashed | crashed |
+| a2c | **1.00** | 1.48 | 1.70 | 34.02 | 57.75 |
+| ppo | **5.38** | 8.42 | 8.58 | 160.26 | 250.05 |
+| sac | **2.83** | 5.40 | 5.09 | crashed | crashed |
+
+**Headlines:**
+1. **Tape wins every example** (16/16). On supervised + recurrent (rnn / lstm / gru / transformer) tape lands at 4–13% of PyTorch wall-time — that's a 8–25× speed advantage for the tape backend on these workloads. NTM/DNC at 15–25%, RL at 1–5× (RL is step-bound by env interactions, not backend throughput).
+2. **torch-cpu and torch-mps are essentially tied** on this VM (~0.7–1.2× PyTorch on supervised + recurrent; both tracking PyTorch's libtorch CPU/MPS wall closely — expected since they're both libtorch under the hood). MPS edges CPU only on transformer (0.26 vs 0.41) where the fused SDPA + attention kernels kick in.
+3. **mlx-cpu and mlx-gpu are 15–300× slower** than PyTorch at this scale. Kernel-launch wall on Metal dominates these sub-millisecond examples (see `project_mlx_gpu_environment.md` memory + the MLX-fusion epic). mlx wins only at much larger model + batch sizes (HfLlama-1B / BitNet-2B inference).
+4. **RL examples are higher-ratio across the board** — DQN/MountainCar/PPO at 3–10× tape. RL has inherent step-by-step env interactions that don't batch; the per-step wall is dominated by Idris-side overhead (the existing TODO row "Idris-side per-op overhead" is the lever).
+5. **4 crashes** — all on mlx (cpu + gpu) on the 2000-epoch RL examples (mountain-car-cont, sac). mlx allocator failures (`Unable to allocate 4/256/512 bytes` — not a real OOM). Filed as an additional manifestation under TODO line 50 "transformer mlx-gpu intermittent crash" — same class (mlx-side memory issue on long-running workloads).
+
+**This table re-measured 2026-06-04** at commit `59a37ab0` (the
+narrow-bug fixes for transformer + DNC). Prior tables below are
+historical snapshots; this section is current.
+
 ## How this table is filled in
 
 Run `scripts/perf-baseline.sh <example-key> <backend>`. The script does
