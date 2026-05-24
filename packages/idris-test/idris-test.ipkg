@@ -11,3 +11,4 @@ depends = base
 
 modules = Test.Harness
         , Test.Property
+        , Test.Property.Golden

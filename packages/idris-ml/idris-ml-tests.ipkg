@@ -25,6 +25,7 @@ modules = Test.Main
         , Test.ManagedHandle
         , Test.Math
         , Test.MixedLayerLike
+        , Test.Properties.GoldenDemo
         , Test.Properties.Softmax
         , Test.RmsNorm
         , Test.RoPE
