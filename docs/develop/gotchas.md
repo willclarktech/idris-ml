@@ -1107,6 +1107,44 @@ row's `ratio` looks impossibly good for an mlx-gpu cell, check
 
 ## Torch Backend (backend_torch.cpp)
 
+### `at::scaled_dot_product_attention(is_causal=True)` math-impl doesn't honour lower-right alignment under asymmetric Q/KV
+
+PyTorch docs promise that under `is_causal=True` with asymmetric
+`q_seq != kv_seq`, the mask aligns to the lower-right corner of the
+`[q_seq, kv_seq]` grid — query position `i` sees K positions
+`[0 .. kv_seq - q_seq + i]`. That's exactly the cache-aware decode
+semantics (Q is a single new token, KV is the cached history + the
+new token's KV).
+
+The optimized impls (flash, memory-efficient) honour this. The
+**math impl does not** — it applies `.tril(diagonal=0)` to a
+`[q_seq, kv_seq]` mask with no offset, collapsing the visible
+region to just `j=0` for any `q_seq < kv_seq`. Torch-cpu F64 uses
+the math impl by default, so cache-aware decode on torch-cpu F64
+produces wrong tokens from the first decode step onward.
+
+Symptom observed 2026-06-04 on `test-hf-llama-generate-roundtrip`:
+seed step (symmetric Q.seq == KV.seq) matches HF oracle exactly,
+first decode step (Q.seq=1, KV.seq=7) diverges at position 7
+producing token 7461 instead of oracle's 13. Subsequent tokens
+degenerate (the model losing context because Q[6] was only
+attending to K[0]).
+
+**Fix**: in `tensor_sdpa_2d`, when `(isCausal && q_seq != kv_seq)`,
+build an explicit `[q_seq, kv_seq]` additive mask (-inf above the
+lower-right diagonal, 0 at and below) and pass via `attn_mask`;
+disable `is_causal` so the kernel doesn't double-mask. Symmetric
+case (prefill / training) keeps `is_causal=True` and the optimized
+kernel selection. See `packages/backends/backend_torch/nn/attention/scaled_dot_product_attention.cpp`
+and commit `93f9108b`.
+
+Same fix applied defensively to mlx (`mx::fast::scaled_dot_product_attention`
+makes the same lower-right promise; newer kernels probably honour
+it but older installs may not). Tape's `build_causal_mask` was
+already constructed with the right offset from the cache-aware
+work's initial Phase C.
+
+
 ### View tensors must be persistent
 
 `tensor_view_2d`/`tensor_view_1d` must use `from_tensor_persistent()`, not `from_tensor()`. Views are created once at `nameLayer` time and referenced by scalar Variables for the lifetime of the model. If tracked as intermediates, `free_intermediates()` frees them after the first epoch, causing crash in `refreshValue` → `prim__item` on stale pointers.

@@ -122,12 +122,27 @@ Phase C, `70f5017c` Phase D, `32c3c1b8` + `49872b4b` post-verify
 fix-ups. CHANGELOG entry above this one (2026-06-04 KV cache
 section) carries the long-form details.
 
-**Outcome**: landed. Cached-path correctness verification awaiting
-a fresh-shell `make BACKEND=torch test-hf-llama-generate-roundtrip`
-run; expected to PASS at the same `[128000, 791, ...]` sequence as
-the Phase A baseline (HF `use_cache=True` matches `use_cache=False`
-on the math). Per-backend perf numbers will follow as
-`perf-log.jsonl` entries once the gate completes per backend.
+**Outcome**: landed + verified GREEN on torch-cpu F64 in a fresh
+shell (`make BACKEND=torch test-hf-llama-generate-roundtrip` —
+`PASS: token sequence matches (10 tokens) ids: [128000, 791, 6864,
+315, 9822, 374, 12366, 13, 1102, 374]`, 74 s end-to-end including
+pytest + idris2 build + dylib relink + decode). The verification
+surfaced a downstream PyTorch quirk: `at::scaled_dot_product_attention`
+with `is_causal=True` and asymmetric `q_seq != kv_seq` does NOT do
+lower-right alignment on the math impl path (torch-cpu F64 default),
+despite the docs — `.tril(diagonal=0)` is applied without offset,
+collapsing visible positions to just `j=0`. Fixed in commit
+`93f9108b` by constructing an explicit `[q_seq, kv_seq]` additive
+mask in the SDPA wrapper for the asymmetric-causal case and passing
+via `attn_mask` instead of `is_causal=True`. The symmetric path
+(prefill / training) keeps the optimized `is_causal` route — no
+behaviour change there. Same fix applied defensively to mlx (same
+documented promise, possibly same impl gap on older builds); tape
+was already lower-right aligned from Phase C. See `docs/develop/gotchas.md`
+"Torch Backend → `at::scaled_dot_product_attention(is_causal=True)`
+math-impl doesn't honour lower-right alignment under asymmetric
+Q/KV" entry for the long-form. Per-backend perf numbers on
+torch-mps + mlx-gpu pending a fresh dev-shell run.
 
 
 ### 2026-06-03 — 2D embedding wrap on all 3 backends (#399 / #4 Fusion 3) — 1b1a200
