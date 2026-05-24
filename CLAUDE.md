@@ -268,6 +268,26 @@ Four files, each with a distinct role. Don't conflate them; updating the wrong o
 
 **Ad-hoc local exploration**: `make example-profile` → `make bench-compare` (same batch, currently 16) → `bash scripts/sweep.sh` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data. `bench-compare` is convenient for eyeballing but does *not* log to `perf-log.jsonl` — pair it with a `perf-run.sh` measurement if you're keeping the result.
 
+**Heavy-command convention — always wrap with caffeinate + nice + capped parallelism.** Any command that takes more than ~1 minute on this codebase (Idris elaboration of a real example, full backend rebuild, perf sweeps, multi-example test runs) is "heavy" and competes for CPU + holds the laptop awake. Wrap *every* such invocation:
+
+```bash
+caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make …
+```
+
+- **`caffeinate -i`** (macOS) prevents idle sleep — without it, a closed lid or display sleep suspends/kills the build mid-run. Observed 2026-06-03/04 multiple times: harness-spawned builds stranded with no exit code after the laptop slept.
+- **`nice -n 19`** is the lowest CPU priority. Foreground apps preempt the build; the build still progresses, just slower. Without it, Chez elaboration peaks at 17-23 GB and saturates cores, making the host VM unresponsive (the user can't browse / edit / run tests in parallel).
+- **`MAKEFLAGS="-j2"`** caps the parallel C++ compile to 2 cores. The Idris elaboration phase is single-threaded so `-j` doesn't help it; capping the C++ side stops the parallel-link phase from pegging all cores.
+
+The wrapper `scripts/perf-run-quiet.sh` bakes all three in for perf measurements (`scripts/perf-run-quiet.sh hf-llama-generate torch` etc.); use it as the default for any `perf-run`-style invocation. For gates / Make targets that aren't wrapped via perf-run, inline the trio:
+
+```bash
+caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make BACKEND=torch test-hf-llama-roundtrip
+caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make BACKEND=mlx test-transformers
+caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make test-examples
+```
+
+Exceptions (~rare): `make install` / `make backend` of a hot tree (already-cached), short `make probe-foo` debug targets, anything that finishes in seconds. When in doubt, wrap — the overhead of `nice` + `caffeinate` is negligible on a fast command, and the cost of forgetting on a slow one is a slow host + a stranded build.
+
 ## Conventions
 
 - **Indentation**: 2 spaces for `.idr` files (see `.editorconfig`)
