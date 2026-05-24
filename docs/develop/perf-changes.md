@@ -48,6 +48,121 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-04 — Full 16×5 perf-baseline refresh + latent narrow regression hunt — 59a37ab0
+
+**Plan**: Run the full `scripts/perf-sweep.sh` matrix (16 examples ×
+5 cells = 80 measurements) at the dtype-narrowed default (BuildConfig
+F64 everywhere, F32 only for HF-heavy goals — see this file's earlier
+2026-06-04 entry for the narrowing decision) to land a current
+apples-to-apples baseline in `docs/develop/perf-baseline.md`. Side
+effect: the sweep is the canonical broad-coverage gate for regressions
+across the cross-backend surface, so anything that's been silently
+broken since the last full sweep would surface.
+
+**Motivation**: A perf baseline that lets us tell "is this commit
+faster/slower than yesterday" requires apples-to-apples numbers across
+the whole matrix; the prior `perf-baseline.md` snapshots dated 2026-
+05-09 / 2026-05-19 were stale across multiple PyTorch-ref alignment
++ KV-cache + fused-op landings. The 2026-06-04 session's KV cache
+work added the gates this baseline now protects, so capturing the
+current-state table is the natural session-end deliverable.
+
+**Change**: Two waves shipped in the same session, gated on each
+other:
+
+1. **Latent-regression hunt** (commits `de8e503c` + `5b26b1d7` +
+   `59a37ab0`) — the first sweep run crashed on `transformer × every
+   non-tape backend` and `dnc-copy × tape`. Three independent latent
+   bugs surfaced + fixed:
+
+   - `Layer/Transformer.idr:205` flattened a `[seqLen, vocab]` mm
+     output via `primNarrow ... 0 0 (sI * vI)`. Worked accidentally
+     pre-commit `bd61bef8` (2026-05-26) when `primNarrow` flattened
+     before slicing; post-fix it errors with `start (0) + length
+     (88) exceeds dimension size (11)`. Same-shape error class as
+     `Example/Transformer.idr`'s `catCELossVar` narrow (also using
+     flat-element-count indices on a 2D tensor). Both fixes: use
+     `primReshape1d` for flatten + row-indexed narrow for row slice
+     instead of conflating the two. Latent ~10 days.
+   - Tape `tensor_unsqueeze` only handled rank-1 input (rank-N
+     fell through to `tensor_clone` — preserving rank instead of
+     adding the axis). Broke DNC's `primCat2 (primUnsqueeze
+     onesScalar 0) slicedT` chain with `rank mismatch (a->rank=0,
+     b->rank=1)`. Fix: rewrite to construct the new-shape vector
+     correctly for any source rank, validate `dim` in `[0..rank]`.
+     Latent ~6 weeks.
+
+2. **Re-baseline** (commit `d0c1d801` for the docs landing) — full
+   sweep ran end-to-end after the fixes; 76 clean cells + 4 mlx-RL
+   long-run allocator crashes (documented under existing TODO row
+   50 as an additional manifestation of the mlx-tape-accumulation
+   bug class). Current-state table now sits at the top of
+   `docs/develop/perf-baseline.md`; historical snapshots
+   untouched below.
+
+**Impact**:
+
+The 76-cell table (full data in `docs/develop/perf-baseline.md`'s
+top section + `perf-log.jsonl`):
+
+- **Tape wins every example** (16/16). On the supervised + recurrent
+  cluster (rnn / lstm / gru / transformer), tape lands at **4–13% of
+  PyTorch wall-time** — an 8–25× speed advantage. NTM/DNC at 15–25%
+  of PyTorch; RL examples at 1–5× (RL is step-bound by env
+  interactions, not backend throughput).
+- **torch-cpu vs torch-mps** is essentially tied on this VM
+  (~0.7–1.2× PyTorch on supervised + recurrent). Both tracking
+  libtorch's wall closely — expected since they're both libtorch
+  under the hood. MPS edges CPU only on transformer (0.26 vs 0.41)
+  where the fused SDPA + attention kernels kick in.
+- **mlx-cpu vs mlx-gpu** are 15–300× slower than PyTorch at this
+  scale. Kernel-launch wall on Metal dominates these sub-millisecond
+  examples (see `project_mlx_gpu_environment.md` + the MLX-fusion
+  epic). mlx wins only at much larger model + batch sizes
+  (HfLlama-1B / BitNet-2B inference).
+- **RL examples are higher-ratio across the board** — DQN /
+  MountainCar / MountainCar-Cont / PPO all at 3-10× tape. RL has
+  inherent step-by-step env interactions that don't batch; the
+  per-step wall is dominated by Idris-side overhead. The existing
+  TODO row "Idris-side per-op overhead" is the lever for that
+  cluster.
+- **4 crashes** — all on mlx (cpu + gpu) on the 2000-epoch RL
+  examples (mountain-car-cont + sac). mlx allocator failures
+  (`Unable to allocate 4/256/512 bytes` — not real OOM on a 16 GB
+  VM). Same class as the existing `mlx_sweep_generation` row's
+  freed-ArrayDesc poison; long-run-accumulation symptom. Filed
+  under TODO row 50 as an additional manifestation rather than a
+  new row.
+
+**Effect of the narrow fixes specifically on the previously-crashed
+cells** (cells that emitted `crashed` in the pre-fix sweep run now
+emit per-epoch ms):
+
+| cell | pre-fix | post-fix (ratio) |
+|---|---|---|
+| transformer × tape | `idris_ms=0.0` (silent crash) | 0.04 |
+| transformer × torch-cpu | Chez SIGABRT | 0.41 |
+| transformer × torch-mps | Chez SIGABRT | 0.26 |
+| transformer × mlx-cpu | mlx reshape exception | 1.47 |
+| transformer × mlx-gpu | mlx reshape exception | 3.50 |
+| dnc-copy × tape | `tensor_cat2: rank mismatch` | 0.15 |
+
+**Backend coverage**: tape (CPU), torch-cpu, torch-mps, mlx-cpu,
+mlx-gpu. All 5 cells exercised on all 16 examples. Tape is the
+default lane.
+
+**Commits**: `de8e503c` `catCELossVar` row-indices; `5b26b1d7` tape
+`tensor_unsqueeze` rank-N; `59a37ab0` `Layer.Transformer` flatten
+via `primReshape1d`; `d0c1d801` perf-baseline + CHANGELOG docs.
+
+**Outcome**: landed. New baseline is the apples-to-apples reference
+for any future commit that touches the cross-backend surface — diff
+against this table to detect regressions, against the per-cell entries
+in `perf-log.jsonl` to compare specific cell wall-clock. mlx-RL
+long-budget allocator failure stays filed under TODO row 50; not
+blocking any current workload.
+
+
 ### 2026-06-04 — BuildConfig default flipped F64 → F32 + three-backend HfLlama cache gate verified — c01cd56b
 
 **Plan**: Two changes shipped same day, in sequence.
