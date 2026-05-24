@@ -1094,6 +1094,7 @@ test-integration: \
 		test-integration-lint-paired-defaults \
 		test-integration-lint-hf-llama-inference \
 		test-integration-lint-ci-workflow \
+		test-integration-lint-benchmarks \
 		test-integration-typegate-gradmode \
 		test-integration-typegate-gradmode-aliasing \
 		test-integration-typegate-lossy-cast \
@@ -1758,6 +1759,30 @@ bench-ops-py:
 # backend-named filename for the bench_ops binary to link against.
 # Under multi-link this is a real rebuild per backend, but bench_ops is
 # operator-level so we want isolated per-backend timings anyway.
+####################################################################
+# Principled perf benchmark suite (testing-taxonomy Axis A / B / C / D).
+# Three cadence tiers:
+#   test-perf-fast    — Tier 1, CI, <= 5 min (Axis A op kernels today).
+#   test-perf-nightly — Tier 2, nightly, <= 20 min (will fold in B/C/D).
+#   test-perf-full    — Tier 3, manual / pre-tag (the 80-cell sweep).
+# All three append to docs/develop/perf-log.jsonl and regenerate
+# BENCHMARKS.md via scripts/render-benchmarks.py. Framework details:
+# docs/develop/testing-taxonomy.md (Axis A/B/C/D + selection rule).
+####################################################################
+
+test-perf-fast:
+	bash scripts/perf-fast.sh
+
+test-perf-nightly: test-perf-fast
+	@echo "test-perf-nightly: Axes B/C/D not yet wired up — see TODO.md"
+
+test-perf-full:
+	bash scripts/perf-sweep.sh
+
+# CI preflight: BENCHMARKS.md must agree with perf-log.jsonl.
+test-integration-lint-benchmarks:
+	python3 scripts/render-benchmarks.py --check
+
 bench-ops-compare:
 	@for b in tape mlx torch; do \
 		$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null || continue; \
@@ -2281,6 +2306,7 @@ all: check-all test-all
         test-integration test-integration-lint-rename-headers test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects test-integration-lint-paired-defaults \
         test-integration-lint-hf-llama-inference test-integration-lint-ci-workflow \
+        test-integration-lint-benchmarks test-perf-fast test-perf-nightly test-perf-full \
         test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast test-integration-checkpoint-resume \

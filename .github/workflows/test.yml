@@ -314,6 +314,17 @@ jobs:
         # I32 to F64 + U8 to F32 positive cases in Test.Lossless.
         run: make test-integration-typegate-int-overflow-cast
 
+      - name: Run Tier-1 perf benches + render BENCHMARKS.md
+        # Axis A op-kernel benches (matmul / softmax / SDPA / embedding /
+        # RMSNorm) on tape vs PyTorch. Appends kind="op_bench" entries to
+        # perf-log.jsonl and regenerates BENCHMARKS.md. The follow-up
+        # lint asserts BENCHMARKS.md is in sync with the log — catches a
+        # hand-edit of BENCHMARKS.md that drifts from the JSONL truth.
+        # Framework + selection rule: docs/develop/testing-taxonomy.md
+        # (Axis A/B/C/D coverage). Tier 1 cadence: every PR (target
+        # wall <= 5 min).
+        run: make test-perf-fast && make test-integration-lint-benchmarks
+
       - name: Run coverage gap probe (advisory)
         # C backend FFI tests per available backend, via the Criterion
         # harness under `packages/backends/test/`. Per-OS: tape everywhere,

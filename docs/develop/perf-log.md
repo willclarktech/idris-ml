@@ -22,7 +22,7 @@ Every entry has these fields:
 |---|---|---|
 | `ts` | string | ISO-8601 UTC timestamp (`2026-05-09T15:14:00Z`) |
 | `date` | string | ISO date (`2026-05-09`) |
-| `kind` | string | `"run"` (perf-run.sh) or `"baseline"` (perf-baseline.sh) |
+| `kind` | string | `"run"` (perf-run.sh) / `"baseline"` (perf-baseline.sh) / `"op_bench"` (perf-fast.sh) |
 | `example` | string | `ntm-copy`, `dnc-recall`, `a2c`, etc. |
 | `backend` | string | `tape`, `mlx`, or `torch` |
 | `device` | string | `cpu`, `gpu`, `mps`, `cuda`. For `mlx` reflects `MLX_DEVICE`; for `torch` reflects `TORCH_DEVICE` (added 2026-05-28; entries before that date with `backend=torch` can be assumed `cpu`); for `tape` always `cpu`. Added 2026-05-11 — entries before that date can be assumed `cpu`. |
@@ -43,6 +43,26 @@ Every entry has these fields:
 | `stats` | object? | `{total_epochs, ms_per_epoch, wall}` from "Completed in …" line |
 | `result` | object? | parsed `RESULT` line, e.g. `{epochs, acc_short, acc_full, seed}` |
 | `stages` | array? | List of `{label, elapsed_s}` entries parsed from `[stage] [hh:mm:ss] <label>` lines. Used by the HF inference examples (`hf-bert`, `hf-gpt2`, `hf-llama`) to capture per-phase wall (state construction vs load vs RoPE-table vs decode) rather than a single training-loop ms/epoch. `elapsed_s` is cumulative since process start (not delta); the caller computes per-stage deltas if wanted. Added 2026-05-28. |
+
+**`kind: "op_bench"`** entries (emitted by `scripts/perf-fast.sh`, the
+testing-taxonomy Tier-1 driver — see `docs/develop/testing-taxonomy.md`)
+also have:
+
+| field | type | notes |
+|---|---|---|
+| `axis` | string | `"A"` (op kernels). Reserved: `"B"` single-layer, `"C"` e2e train, `"D"` HF inference. |
+| `section` | string | section heading from `bench_ops` stdout (e.g. `"Matrix multiply"`, `"Scaled-dot-product attention"`). Used by `render-benchmarks.py` to group rows. |
+| `label` | string | per-workload label (e.g. `"matmul 256x256x256"`, `"sdpa seq=128 H=8 Hkv=4 d=64 causal"`). Unique within `(axis, runtime)`. |
+| `runtime` | string | `"tape"` (idris-ml C backend) or `"pytorch"` (reference). |
+| `wall_ms` | float | total wall-clock for the inner timing loop in ms. |
+| `iters` | int | inner-loop iteration count. |
+| `ms_per_iter` | float | `wall_ms / iters`. |
+
+These entries don't carry `backend` / `device` / `mlx_compile` /
+`torch_dtype` (the `runtime` field subsumes the backend dimension —
+PyTorch ref is always on the host CPU, and the idris side is always
+on tape today). When Axes B/C/D land, they'll add a `backend` field
+for the idris-side measurement to mirror the `kind: "run"` schema.
 
 **`kind: "baseline"`** entries also have:
 

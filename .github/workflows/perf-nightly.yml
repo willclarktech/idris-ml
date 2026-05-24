@@ -1,0 +1,51 @@
+name: perf-nightly
+
+# Tier 2 perf cadence (see docs/develop/testing-taxonomy.md). Runs the
+# `test-perf-nightly` aggregator end-to-end on Ubuntu and uploads the
+# refreshed perf-log.jsonl + BENCHMARKS.md as artifacts. Today this is
+# Axis A (op kernels) only; Axes B/C/D will fold in as their benches
+# land. The same job is `workflow_dispatch`-able so ad-hoc nightlies
+# can be triggered from the Actions UI.
+
+on:
+  schedule:
+    - cron: '17 7 * * *'      # 07:17 UTC every day (off-peak)
+  workflow_dispatch:
+
+jobs:
+  perf-nightly:
+    name: perf-nightly (tape)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install chez + pip deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chezscheme python3-pip
+          pip3 install --user torch numpy
+
+      - name: Install idris2
+        run: |
+          # Match the install path used by .github/workflows/test.yml.
+          git clone --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
+          cd /tmp/Idris2 && make bootstrap SCHEME=chezscheme && sudo make install
+
+      - name: Build tape backend
+        run: env BACKEND=tape make backend
+
+      - name: Run test-perf-nightly
+        run: make test-perf-nightly
+
+      - name: Upload perf-log.jsonl
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-log
+          path: docs/develop/perf-log.jsonl
+
+      - name: Upload BENCHMARKS.md
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks-md
+          path: BENCHMARKS.md

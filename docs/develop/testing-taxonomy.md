@@ -75,6 +75,18 @@ sweep; it does *not* regenerate the doc (it covers the same axes
 but across all backends, producing the deeper apples-to-apples
 table elsewhere in `docs/develop/perf-baseline.md`).
 
+**Current implementation status**: Axis A is landed
+(`scripts/perf-fast.sh` drives `make bench-ops` + `make bench-ops-py`,
+parses output, appends `kind: "op_bench"` entries to
+`perf-log.jsonl`, regenerates `BENCHMARKS.md` via
+`scripts/render-benchmarks.py`). Today's Axis A panel covers
+matmul, matvec, elementwise, softmax, conv2d (PyTorch-only —
+disabled on tape pending fix), train-step, SDPA (GQA),
+embedding gather, RMSNorm. Axes B/C/D are placeholders; the
+renderer emits an "No entries yet" stub per missing axis. The
+selection rule + the planned B/C/D inventories are tracked in
+the relevant `TODO.md` rows.
+
 ## Current → new target rename table
 
 Every existing target gets renamed in one wave (Phase 3 + Phase 4
