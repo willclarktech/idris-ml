@@ -1,12 +1,16 @@
-package idris-gym-test
+package idris-gym-tests
 
+-- Tests ipkg pointed at the same sourcedir as the library ipkg. The
+-- library's `modules = ...` list excludes Test.* so consumers only
+-- see library modules; this tests ipkg builds the Test.* tree.
+-- See docs/develop/testing.md ("colocated-tests dual-ipkg pattern").
 sourcedir = "src"
 
 depends = contrib
         , idris-gym
         , idris-test
 
-modules = Main
+modules = Test.Main
         , Test.Rng
         , Test.Space
         , Test.Wrapper
@@ -21,5 +25,6 @@ modules = Main
         , Test.ToyText.FrozenLake
         , Test.ToyText.Blackjack
 
-main = Main
+main = Test.Main
+
 executable = idris-gym-test

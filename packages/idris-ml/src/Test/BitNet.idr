@@ -9,7 +9,7 @@ import Array
 import Layer
 import Layer.BitLinear
 import Layer.RmsNorm
-import TestConfig
+import Test.Config
 
 
 ----------------------------------------------------------------------

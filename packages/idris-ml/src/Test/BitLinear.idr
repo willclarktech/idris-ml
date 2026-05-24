@@ -8,7 +8,7 @@ import Tensor
 import Array
 import Layer
 import Layer.BitLinear
-import TestConfig
+import Test.Config
 
 
 ----------------------------------------------------------------------

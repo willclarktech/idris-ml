@@ -1,4 +1,4 @@
-module Main
+module Test.Main
 
 import Test.Harness
 import Test.Array

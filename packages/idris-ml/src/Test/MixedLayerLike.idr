@@ -11,7 +11,7 @@ import DataPoint
 import GradScaler
 import Layer
 import Layer.MixedCore
-import TestConfig
+import Test.Config
 
 
 -- ---------------------------------------------------------------

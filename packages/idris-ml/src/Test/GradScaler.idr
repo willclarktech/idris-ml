@@ -6,7 +6,7 @@ import Test.Harness
 import Device
 import Tensor
 import GradScaler
-import TestConfig
+import Test.Config
 
 
 -- A3 of #410: GradScaler state-machine. Verifies that the growth /

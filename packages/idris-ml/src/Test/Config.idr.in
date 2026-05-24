@@ -28,7 +28,7 @@
 ||| types are fixed at elaboration. The generated `TestConfig.idr` is
 ||| in `.gitignore`. Do not edit the generated file directly; edit
 ||| this `.in` template instead.
-module TestConfig
+module Test.Config
 
 import public Device
 import public Device.Tape

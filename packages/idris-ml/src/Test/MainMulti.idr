@@ -13,7 +13,7 @@
 ||| safe) and excludes Transfer — running this multi-backend Main on
 ||| a single-backend dylib crashes at FFI resolution on the first
 ||| cross-backend hop.
-module MainMulti
+module Test.MainMulti
 
 import Test.Harness
 import Test.Array

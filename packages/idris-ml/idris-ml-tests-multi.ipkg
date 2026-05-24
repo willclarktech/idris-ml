@@ -1,0 +1,20 @@
+package idris-ml-tests-multi
+
+-- Multi-backend test ipkg. Adds Test.Transfer + Test.MultiDeviceRegistry
+-- to the base unit-test set. Driven from `test-unit-multi-backend`
+-- under BACKEND=torch,tape,mlx so all three backends' C symbols are
+-- linked into one dylib; Test.Transfer references all three by name.
+sourcedir = "src"
+
+depends = contrib
+        , idris-ml
+        , idris-test
+
+modules = Test.MainMulti
+        , Test.Config
+        , Test.Transfer
+        , Test.MultiDeviceRegistry
+
+main = Test.MainMulti
+
+executable = test-multi

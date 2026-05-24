@@ -7,7 +7,7 @@ import Device
 import Tensor
 import Array
 import Layer.RmsNorm
-import TestConfig
+import Test.Config
 
 
 -- Tolerance for the forward-value check. The composed formulation

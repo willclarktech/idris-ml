@@ -7,7 +7,7 @@ import Device
 import Tensor
 import Array
 import Layer.SwiGLU
-import TestConfig
+import Test.Config
 
 
 -- Tolerance for the value-pinning test against the all-ones weight

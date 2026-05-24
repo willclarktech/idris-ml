@@ -18,7 +18,7 @@
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NEG_FILE="$REPO_ROOT/packages/idris-ml/test/neg/IntOverflowToFloatRejected.idr"
+NEG_FILE="$REPO_ROOT/packages/idris-ml/src/Test/neg/IntOverflowToFloatRejected.idr"
 IDRIS_LOCAL="${IDRIS2_LOCAL:-$REPO_ROOT/.idris2}"
 
 if [ ! -f "$NEG_FILE" ]; then

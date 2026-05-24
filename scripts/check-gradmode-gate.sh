@@ -10,7 +10,7 @@
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NEG_FILE="$REPO_ROOT/packages/idris-ml/test/neg/GateRejectsNoGrad.idr"
+NEG_FILE="$REPO_ROOT/packages/idris-ml/src/Test/neg/GateRejectsNoGrad.idr"
 # IDRIS2_LOCAL is provided by the Makefile invoking this script. The
 # multi-build-key refactor moved the installed-package prefix from
 # `$REPO_ROOT/.idris2` to `$REPO_ROOT/build/<BUILD_KEY>/idris2-prefix`,

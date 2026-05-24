@@ -1,0 +1,21 @@
+package idris-ml-examples-tests
+
+-- Tests ipkg pointed at the same sourcedir as the library ipkg. The
+-- library's `modules = ...` list excludes Test.* so `pack install`
+-- (and other consumers) only see library modules; this tests ipkg
+-- exclusively builds the Test.* tree. See docs/develop/testing.md
+-- ("colocated-tests dual-ipkg pattern").
+sourcedir = "src"
+
+depends = contrib
+        , idris-ml
+        , idris-ml-examples
+        , idris-test
+
+modules = Test.Main
+        , Test.Generate
+        , Test.Reinforce
+
+main = Test.Main
+
+executable = idris-ml-examples-test

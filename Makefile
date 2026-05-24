@@ -187,7 +187,7 @@ STDBUF := $(shell stdbuf -oL true >/dev/null 2>&1 && echo "stdbuf -oL")
 CORE_SRC := packages/idris-ml/src
 GYM_SRC := packages/idris-gym/src
 EXAMPLE_SRC := packages/idris-ml-examples/src
-TEST_SRC := packages/idris-ml/test/src
+TEST_SRC := packages/idris-ml/src
 BACKENDS_DIR := packages/backends
 
 # Local package install prefix (writable, avoids polluting system Idris2).
@@ -631,10 +631,11 @@ HWDEVICES_IN  := packages/idris-ml/src/HwDevices.idr.in
 
 # Generated `TestDevice` / `TestDType` for the Idris unit test suite. Same
 # template trick as BuildConfig (one cell, sed-substituted from the active
-# PRIMARY × hw-device envs); lives in the test sourcedir because the test
-# ipkg can't import idris-ml-examples' BuildConfig. Keyed on the same tuple.
-TESTCONFIG_IDR := packages/idris-ml/test/src/TestConfig.idr
-TESTCONFIG_IN  := packages/idris-ml/test/src/TestConfig.idr.in
+# PRIMARY × hw-device envs); lives in the test sourcedir (now colocated
+# under src/Test/ alongside the rest of the test files — dual-ipkg pattern,
+# see docs/develop/testing.md). Keyed on the same tuple.
+TESTCONFIG_IDR := packages/idris-ml/src/Test/Config.idr
+TESTCONFIG_IN  := packages/idris-ml/src/Test/Config.idr.in
 
 # Always-touch the stamp so it's at least as fresh as the current `make`
 # invocation, even when content matches. Without the trailing touch, a
@@ -1168,8 +1169,8 @@ test-coverage: test-coverage-gap-probe test-coverage-backend
 # touch the C surface (GradMode, ManagedHandle, Tensor lifecycle)
 # resolve through `{d=TestDevice}` which the Makefile-generated
 # `TestConfig.idr` pins to the active backend.
-test-unit-idris-ml: install $(TESTCONFIG_IDR)
-	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -p idris-test -o test $(TEST_SRC)/Main.idr
+test-unit-idris-ml: install $(TESTCONFIG_IDR) install-test-harness
+	cd packages/idris-ml && idris2 --build-dir $(CURDIR)/$(BUILD) --build idris-ml-tests.ipkg
 	cp $(LIB) $(BUILD)/exec/test_app/
 	./$(BUILD)/exec/test
 
@@ -1197,14 +1198,16 @@ test-unit-multi-backend:
 # Sub-target invoked by test-unit-multi-backend under BACKEND=torch,tape,mlx
 # so $(BUILD) / $(LIB) / $(TESTCONFIG_IDR) all resolve in the multi-link
 # set's tree, not the outer make's BACKEND context.
-_test-unit-multi-backend-build: $(TESTCONFIG_IDR)
-	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -p idris-test -o test-multi $(TEST_SRC)/MainMulti.idr
+_test-unit-multi-backend-build: $(TESTCONFIG_IDR) install-test-harness
+	cd packages/idris-ml && idris2 --build-dir $(CURDIR)/$(BUILD) --build idris-ml-tests-multi.ipkg
 	cp $(LIB) $(BUILD)/exec/test-multi_app/
 	./$(BUILD)/exec/test-multi
 
-# Idris tests for idris-gym package (pure Idris, no backend required)
+# Idris tests for idris-gym package (pure Idris, no backend required).
+# Tests ipkg shares sourcedir with the library ipkg (colocated under
+# src/Test/), driven from the package root.
 test-unit-gym: install-gym install-test-harness
-	cd packages/idris-gym/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-gym --build test.ipkg
+	cd packages/idris-gym && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-gym --build idris-gym-tests.ipkg
 	$(STDBUF) ./$(BUILD)/test-idris-gym/exec/idris-gym-test
 
 # Idris tests for idris-transformers package. Pure-Idris suite for
@@ -1214,7 +1217,7 @@ test-unit-gym: install-gym install-test-harness
 # FFI registry calls land on the active backend's symbols (mirrors
 # the test-unit-idris-ml recipe).
 test-unit-idris-transformers: install-transformers install-test-harness
-	cd packages/idris-transformers/test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-transformers --build test.ipkg
+	cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-transformers --build idris-transformers-tests.ipkg
 	cp $(LIB) $(BUILD)/test-idris-transformers/exec/idris-transformers-test_app/
 	$(STDBUF) ./$(BUILD)/test-idris-transformers/exec/idris-transformers-test
 
@@ -1225,12 +1228,14 @@ test-unit-idris-transformers: install-transformers install-test-harness
 # Pass bench names (rng, blackjack, pendulum, acrobot, taxi, cliffwalking)
 # to run a subset, e.g. `make bench-gym BENCH_ARGS=rng`. Default runs all.
 bench-gym: install-gym
-	cd packages/idris-gym/test && idris2 --build-dir $(CURDIR)/$(BUILD)/bench-idris-gym --build bench.ipkg
+	cd packages/idris-gym && idris2 --build-dir $(CURDIR)/$(BUILD)/bench-idris-gym --build idris-gym-bench.ipkg
 	$(STDBUF) ./$(BUILD)/bench-idris-gym/exec/idris-gym-bench $(BENCH_ARGS)
 
-# Unit tests for idris-ml-examples (runs moved Test.Generate)
+# Unit tests for idris-ml-examples (runs moved Test.Generate).
+# Tests ipkg shares sourcedir with the library ipkg (colocated under
+# src/Test/), so we drive from the package root rather than test/.
 test-unit-examples: install-examples install-test-harness
-	cd packages/idris-ml-examples/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-ml-examples --build test.ipkg
+	cd packages/idris-ml-examples && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-ml-examples --build idris-ml-examples-tests.ipkg
 	cp $(LIB) $(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test_app/
 	$(STDBUF) ./$(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test
 

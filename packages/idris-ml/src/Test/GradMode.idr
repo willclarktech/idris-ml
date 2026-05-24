@@ -6,7 +6,7 @@ import Test.Harness
 import Device
 import Tensor
 import Layer
-import TestConfig
+import Test.Config
 
 
 -- weakenGrad round-trip: build a tensor with requires_grad=1, flip

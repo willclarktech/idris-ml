@@ -1,0 +1,16 @@
+package idris-gym-bench
+
+-- Microbench ipkg for idris-gym hot paths (RNG, Blackjack obs, env
+-- step+observe). Pure Idris, no backend dependency. Shares sourcedir
+-- with the library; the library ipkg's `modules =` list excludes
+-- `Bench` so consumers only see library modules.
+sourcedir = "src"
+
+depends = contrib
+        , idris-gym
+
+modules = Bench
+
+main = Bench
+
+executable = idris-gym-bench
