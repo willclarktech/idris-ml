@@ -17,8 +17,8 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../../backend.h"
-#include "../test_helpers.h"
+#include "backend.h"
+#include "test_helpers.h"
 
 /* clip_grad_norm test tolerance.
  *

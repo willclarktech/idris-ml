@@ -27,8 +27,8 @@
 #include <criterion/criterion.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../../backend.h"
-#include "../../../shared/training/port.h"
+#include "backend.h"
+#include "shared/training/port.h"
 
 extern void param_clear(void);
 

@@ -19,7 +19,7 @@
 
 #include <criterion/criterion.h>
 #include "../../../backend.h"
-#include "../test_helpers.h"
+#include "test_helpers.h"
 
 Test(conv_conv1d_circular, forward_and_backward) {
     param_clear();

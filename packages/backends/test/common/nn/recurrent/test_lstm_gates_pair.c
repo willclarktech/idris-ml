@@ -19,7 +19,7 @@
 #include <criterion/criterion.h>
 #include <math.h>
 #include "../../../../backend.h"
-#include "../../test_helpers.h"
+#include "test_helpers.h"
 
 Test(nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
     param_clear();

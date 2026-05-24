@@ -15,8 +15,8 @@
  * then to keep the legacy-deletion commit small.
  */
 #include <criterion/criterion.h>
-#include "../../backend.h"
-#include "../../shared_utils.h"
+#include "backend.h"
+#include "shared_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -4,7 +4,7 @@
 #include <criterion/criterion.h>
 #include <math.h>
 #include "../../../../backend.h"
-#include "../../test_helpers.h"
+#include "test_helpers.h"
 
 Test(core_elementwise_sigmoid, forward_backward) {
     param_clear();

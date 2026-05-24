@@ -9,7 +9,7 @@
 
 #include <criterion/criterion.h>
 #include "../../../backend.h"
-#include "../test_helpers.h"
+#include "test_helpers.h"
 
 Test(conv_avg_pool2d, forward_and_backward) {
     param_clear();

@@ -37,7 +37,7 @@
 #include <criterion/criterion.h>
 #include <stdint.h>
 #include "../../../../backend.h"
-#include "../../test_helpers.h"
+#include "test_helpers.h"
 
 Test(nn_quantization_bitlinear_fwd, fixture_matches_oracle) {
     /* Packed ternary weight: 3 rows, 4 cols, 1 byte/row. */

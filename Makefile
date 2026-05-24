@@ -827,19 +827,25 @@ CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERIO
 # CRITERION_FLAGS are prepended so they take precedence if duplicated.
 CRITERION_FLAGS ?=
 
-# Discover Criterion suites. Two locations:
+# Discover Criterion suites. Three locations:
 #  - packages/backends/test/common/  — backend-agnostic per-op tests
-#    (forward + backward correctness via the public backend.h FFI;
-#    runs against any backend's dylib).
+#    colocated next to their source (forward + backward correctness via
+#    the public backend.h FFI; runs against any backend's dylib).
 #  - packages/backends/test/<primary>/  — backend-specific tests that
 #    touch internals (e.g. tape's OP_* dispatch table) or assert
 #    port-struct slot populations specific to that backend's adapter.
+#  - packages/idris-test-c/src/  — cross-cutting test infra package
+#    (framework smoke, NTM integration tests, mlx-compile, training-loop
+#    oracle ladder, param registry, clip-grad-norm, optimizers).
+TEST_C_DIR := packages/idris-test-c
 CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/test/common -name '*.c' 2>/dev/null) \
-                               $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null)
-CRITERION_TEST_SRCS := $(BACKENDS_DIR)/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
+                               $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null) \
+                               $(shell find $(TEST_C_DIR)/src -name '*.c' -not -name 'test_ntm_*' -not -name 'test_mlx_compile.c' -not -name 'test_criterion_smoke.c' 2>/dev/null)
+CRITERION_TEST_SRCS := $(TEST_C_DIR)/src/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
+TEST_C_INCLUDES := -I$(BACKENDS_DIR) -I$(TEST_C_DIR)/include
 
 test-unit-backend: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
-	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 	./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
 test-unit-backend-tape:
@@ -892,7 +898,7 @@ test-coverage-backend:
 # Matches the test-unit-backend build recipe — link the full
 # discovered suite, not just the smoke shell.
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
-	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 
 $(COV_BUILD):
 	mkdir -p $@
@@ -913,23 +919,27 @@ test-coverage-backend-torch:
 test-coverage-gap-probe:
 	@bash scripts/coverage-gap-probe.sh $(BUILD)
 
-# Specialized C test suites
+# Specialized C test suites. test_safetensors.c stays at packages/backends/
+# root (1:1 colocated with safetensors.c). The NTM + mlx-compile tests
+# live under packages/idris-test-c/src/ (cross-cutting integration; no
+# 1:1 source pair). All four are standalone main()s (NOT Criterion) so
+# they get their own recipes rather than folding into test-unit-backend.
 test-unit-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_safetensors -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_safetensors.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_safetensors
 
-test-unit-ntm-grad: $(BACKENDS_DIR)/test_ntm_grad.c backend | $(BUILD)
-	cc -o $(BUILD)/test_ntm_grad $(BACKENDS_DIR)/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+test-unit-ntm-grad: $(TEST_C_DIR)/src/test_ntm_grad.c $(BACKEND_RENAME_H) backend | $(BUILD)
+	cc -o $(BUILD)/test_ntm_grad -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(TEST_C_DIR)/src/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_grad
 
-test-unit-ntm-timestep: $(BACKENDS_DIR)/test_ntm_timestep.c backend | $(BUILD)
-	cc -o $(BUILD)/test_ntm_timestep $(BACKENDS_DIR)/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+test-unit-ntm-timestep: $(TEST_C_DIR)/src/test_ntm_timestep.c $(BACKEND_RENAME_H) backend | $(BUILD)
+	cc -o $(BUILD)/test_ntm_timestep -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(TEST_C_DIR)/src/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_timestep
 
 # mx::compile integration tests. MLX-only.
-test-unit-mlx-compile: $(BACKENDS_DIR)/test_mlx_compile.c
+test-unit-mlx-compile: $(TEST_C_DIR)/src/test_mlx_compile.c
 	$(MAKE) BACKEND=mlx backend
-	cc -o $(BUILD)/test_mlx_compile $(BACKENDS_DIR)/test_mlx_compile.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	cc -o $(BUILD)/test_mlx_compile -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(TEST_C_DIR)/src/test_mlx_compile.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_mlx_compile
 
 # #402 rank-3 broadcast microbenchmark. Links directly against libtorch

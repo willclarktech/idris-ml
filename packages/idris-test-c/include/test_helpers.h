@@ -26,7 +26,7 @@
 #ifndef BACKENDS_TEST_HELPERS_H
 #define BACKENDS_TEST_HELPERS_H
 
-#include "../../backend.h"
+#include "backend.h"
 
 #if defined(BACKEND_MLX)
 /* mlx defaults to F32 storage; tolerance bar set to where summed

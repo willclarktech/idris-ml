@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../../../../backend.h"
-#include "../../test_helpers.h"
+#include "test_helpers.h"
 
 /* tape and mlx both add 1e-8 to each norm to dodge div-by-zero; libtorch
  * uses its default eps of 1e-8 too. That bias propagates to ~1e-8 in

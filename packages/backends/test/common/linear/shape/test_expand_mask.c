@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../../../../backend.h"
-#include "../../test_helpers.h"
+#include "test_helpers.h"
 
 static double* heap_copy(const double* src, int n) {
     double* buf = (double*)malloc(n * sizeof(double));

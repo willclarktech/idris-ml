@@ -8,8 +8,8 @@
 
 #include <criterion/criterion.h>
 #include <stdlib.h>
-#include "../../../backend.h"
-#include "../test_helpers.h"
+#include "backend.h"
+#include "test_helpers.h"
 
 /* Helper: heap copy of a small double[] for use with param creators. */
 static double* heap_copy(const double* src, int n) {

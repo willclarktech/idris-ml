@@ -14,7 +14,7 @@
 #include <criterion/criterion.h>
 #include <math.h>
 #include "../../../../backend.h"
-#include "../../test_helpers.h"
+#include "test_helpers.h"
 
 static double gelu_ref(double x) {
     double c = 0.7978845608028654;

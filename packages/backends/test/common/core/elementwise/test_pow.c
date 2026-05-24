@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include <math.h>
 #include "../../../../backend.h"
-#include "../../test_helpers.h"
+#include "test_helpers.h"
 
 Test(core_elementwise_pow, forward_scalar) {
     TensorHandle a = tensor_create_scalar(2.0, 0);
