@@ -267,6 +267,44 @@ These are *upstream* of testing and aren't renamed:
   `check-transformers` — per-package type-checks.
 - `check-all` — aggregate type-check.
 
+## `.expect` vs `Test.Property.Golden` — when to use which
+
+Both harnesses live side-by-side. They have different semantics; pick by what
+the test is asserting, not by which framework is newer.
+
+| Question | Pick |
+|---|---|
+| Numerical metric with a tolerance? (`loss < 5.0`, `accuracy >= 0.05`) | **`.expect`** — threshold-based RESULT-line check via `scripts/check-result.sh`. NaN-safe. |
+| Byte-deterministic output across runs + machines? (boolean state, schema dump, CLI help) | **`Test.Property.Golden`** — verbatim equality. `GOLDEN_UPDATE=1` to re-baseline. |
+| Wall-clock or RSS in the output? | **`.expect`** presence-only (no threshold), or skip from RESULT entirely. **Never `Golden`** — flakes on machine drift. |
+| Boolean or categorical state? (`overall=ok`, `status=converged`) | **`Test.Property.Golden`** if integration cost is low. **`.expect`** with `key == value` operator if the test target is already running under the example harness. |
+| Pure-Idris invariant (sum-to-one, round-trip)? | Neither — use **`Test.Property`** (Hedgehog) for property-based generation. |
+
+### Why we didn't migrate `example-precision-demo` to Golden
+
+`test-examples.expect` includes `example-precision-demo overall == ok` —
+the cleanest "byte-deterministic categorical state" fixture in the codebase.
+Migration to `Test.Property.Golden` looked attractive but doesn't pay off
+in practice:
+
+1. `Example.PrecisionDemo.main` requires the multi-backend build
+   (`BACKEND=tape,torch,mlx`) — Part 3 hops Tape → Torch → Mlx → Tape. The
+   per-backend `test-unit-examples` CI lane can't load the example's
+   `main` since two of three backend symbol sets aren't linked. Wiring
+   Golden into `test-unit-multi-backend` works but breaks the "one
+   adjacent test per example" colocation expectation.
+2. The example writes to stdout directly (via `putStrLn`); `Test.Property.Golden`'s
+   `checkGolden : String -> String -> IO String -> IO Bool` wants an `IO String`
+   action. Either refactor the example to return its rendered output (invasive
+   for one fixture) or capture stdout via `popen` (heavier than the test's value).
+3. The current `.expect` line catches the failure mode the row cares about
+   ("did all 3 parts pass"). Golden would additionally pin the exact F32-cast
+   readback numbers — strictly more information, but the current row gives no
+   evidence that line was the wrong layer.
+
+So the migration was filed against the wrong fixture. The decision tree above
+is what stays; the row closes without code change.
+
 ## CI workflow consumption
 
 `.github/workflows/test.yml` is generated from a spec
