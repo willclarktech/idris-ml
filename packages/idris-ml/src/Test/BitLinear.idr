@@ -386,10 +386,14 @@ bitlinearFwdHfQuantConsistency = do
   b <- mkVec    (the (Vect 3 Double) [0.1, -0.2, 0.3])
 
   -- Composed path: tActivationQuantInt8 + tBitlinearFwd with
-  -- per-row scale = 1 / (in_scale * w_scale) broadcast to [o].
+  -- per-row scale = w_scale / in_scale broadcast to [o]. Ternary W stores ±1;
+  -- the logical weight is w_scale * W[j]. With xq ≈ x * in_scale, the dot
+  -- product W[j]·xq ≈ in_scale * W[j]·x, so to recover y[j] = w_scale * W[j]·x
+  -- we rescale by (w_scale / in_scale). Matches the fused C kernel's
+  -- `rescale = w_scale / in_scale` (tensor_bitlinear_fwd_hf_quant_tape_f64).
   let weightScale = 0.5
   (xq, inScale) <- tActivationQuantInt8 x
-  let perRowScale = 1.0 / (inScale * weightScale)
+  let perRowScale = weightScale / inScale
   s <- mkVecNoGrad (the (Vect 3 Double) [perRowScale, perRowScale, perRowScale])
   -- xq is NoGrad; weakenGrad? Actually tBitlinearFwd wants matching grad mode on x and bias.
   -- xq : Tensor [4] d dt NoGrad; bias : WithGrad. Promote bias to NoGrad to match.

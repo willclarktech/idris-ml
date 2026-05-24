@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+Test.BitLinear composed-path scale formula fix (2026-06-05). Closes the "Test.BitLinear fused-y vs composed-y discrepancy on tape" row. The "fused y[N] matches composed" block failed on tape (F64) with `expected=3.6275 actual=0.9818` (ratio 3.7×). Root cause: the test setup at `packages/idris-ml/src/Test/BitLinear.idr:392` wrote `perRowScale = 1.0 / (inScale * weightScale)`, but the correct rescale for ternary `W` with per-token activation quant is `weightScale / inScale`. Math: ternary `W` stores ±1; the logical weight is `wScale × W[j]`. With `xq ≈ x × inScale`, the dot product `W[j]·xq ≈ inScale × W[j]·x`, so to recover `y[j] = wScale × W[j]·x` we rescale by `wScale / inScale`. With `wScale=0.5, inScale=63.5`: the wrong formula gives `1/31.75`, the right one gives `1/127` — factor of 4 = ratio matches. Both the composed `tensor_bitlinear_fwd_tape_f64` kernel and the fused `tensor_bitlinear_fwd_hf_quant_tape_f64` kernel are mathematically correct; the test alone was wrong. Multi-line comment block above the formula now documents the derivation so future readers don't rediscover the bug.
+
+
 Test.Reinforce IO-unwrap fix (2026-06-05). Closes the "Test.Reinforce:93 pre-existing type error blocks `test-unit-examples`" row. Both `testParityN1` (line 67) and `testParityN2` (line 92) tried to use `Data.Vect.head` / `Data.Vect.index` directly on the result of `rolloutEpBatched : ... -> IO (Vect n (List StepRec))` — left from the era before `rolloutEpBatched` was lifted into `IO`. Refactored both to bind via `<-` before the indexing. The drift slipped past CI because `test-unit-examples` is not in `.github/workflows/test.yml.spec.json` yet (filed as the paired "Wire `test-unit-examples` into CI" follow-up — landed in the same push).
 
 
