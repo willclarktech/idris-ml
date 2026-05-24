@@ -48,6 +48,35 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-05 — perf-regression CI gate flipped to hard-fail — d7df2676..HEAD
+
+**Motivation**: the advisory gate (`d7df2676`) shipped exits-0-always
+so the threshold logic could run on real CI traffic without blocking
+merges; the originally-planned ~2-week soak before flipping to
+hard-fail is intentionally collapsed. With no users on this repo
+there's no merge-velocity cost to gating now, and on the live
+`perf-log.jsonl` every cell is INSUFFICIENT-HISTORY today (2–3
+samples per cell, the gate skips them), so the change is effectively
+a no-op until cells accumulate ≥6 samples — at which point the gate
+starts having teeth without any further code change.
+
+**Change**: one-line edit in `scripts/check-perf-regression.py` —
+the final `return 0` becomes `return 1 if counts["FAIL"] > 0 else 0`.
+Docstring updated. No escape-hatch env var (no users → no
+backwards-compat ceremony, per `feedback_no_backcompat`).
+
+**Impact**: no measurement change. Verified via the synthetic fixture
+used at gate-landing time: `test_op +10% → OK`, `test_warn +20% →
+WARN`, `test_fail +50% → FAIL`. Pre-fix `test_fail` exit was 0
+(advisory); post-fix exit is 1 (CI red). Live `make
+test-integration-lint-perf-regression` against today's
+`perf-log.jsonl` exits 0 (all cells INSUFFICIENT-HISTORY).
+
+**Outcome**: landed. Closes the "Promote perf-regression CI gate
+from advisory to hard-fail" row in TODO.md.
+
+----
+
 ### 2026-06-04 — Full 16×5 perf-baseline refresh + latent narrow regression hunt — 59a37ab0
 
 **Plan**: Run the full `scripts/perf-sweep.sh` matrix (16 examples ×

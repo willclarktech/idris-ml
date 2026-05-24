@@ -15,13 +15,11 @@ Cells with fewer than N+1 samples are reported as INSUFFICIENT-HISTORY.
 Faster-than-baseline current entries are always OK (no warn/fail for
 performance improvements).
 
-Prints a Markdown verdict table to stdout.
-
-Phase 5a (this commit) — exit code is always 0; the table is advisory.
-Phase 5b will promote the WARN threshold to a printed warning while
-keeping exit 0, and the FAIL threshold to exit 1 (CI red). Thresholds
-were calibrated against three perf-changes.md noise-floor entries from
-2026-06-03 and the existing `feedback_vm_perf_noise.md` memory.
+Prints a Markdown verdict table to stdout. Exits 1 if any cell is
+FAIL; otherwise exits 0 (OK / WARN / INSUFFICIENT-HISTORY are all
+green). Thresholds were calibrated against three perf-changes.md
+noise-floor entries from 2026-06-03 and the existing
+`feedback_vm_perf_noise.md` memory.
 
 Usage:
     python3 scripts/check-perf-regression.py
@@ -174,10 +172,7 @@ def main() -> int:
               f"| {r['verdict']} | `{r['commit']}` |")
     print()
 
-    # Phase 5a: advisory only. Exit 0 always so the gate runs as a
-    # warm-up in CI without blocking merges. Phase 5b (a separate
-    # commit, ~2 weeks later) flips FAIL to exit 1.
-    return 0
+    return 1 if counts["FAIL"] > 0 else 0
 
 
 if __name__ == "__main__":
