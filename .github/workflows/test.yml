@@ -320,7 +320,7 @@ jobs:
         # Exit code is advisory today (0 even on gaps); coverage-policy.md
         # flips this to gating once W3+W4 close. See
         # docs/develop/coverage-policy.md for the three-axis target.
-        run: make coverage-gap-probe
+        run: make test-coverage-gap-probe
 
       - name: Run Criterion suite (tape)
         run: make BACKEND=tape test-unit-backend
@@ -489,11 +489,11 @@ jobs:
           make ref-setup
 
       - name: Run coverage build
-        # `make coverage-backend-<b>` recompiles the dylib + test binaries
+        # `make test-coverage-backend-<b>` recompiles the dylib + test binaries
         # with -fprofile-instr-generate -fcoverage-mapping, executes them
         # under LLVM_PROFILE_FILE, merges via llvm-profdata, and emits
         # the HTML report under build-cov/html-<b>/.
-        run: make BACKEND=${{ matrix.backend }} coverage-backend
+        run: make BACKEND=${{ matrix.backend }} test-coverage-backend
 
       - name: Upload coverage HTML
         if: always()

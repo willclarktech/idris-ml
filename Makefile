@@ -2,7 +2,7 @@ UNAME := $(shell uname)
 BACKEND ?= tape
 
 # CPU core count for parallel builds. Used by recursive $(MAKE) calls
-# (notably coverage-backend) that need to force -j even when the outer
+# (notably test-coverage-backend) that need to force -j even when the outer
 # make was invoked without -j. macOS: hw.ncpu; Linux: nproc; fallback 4.
 NPROC ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 
@@ -858,7 +858,7 @@ COV_BUILD := build-cov
 COV_CFLAGS := -fprofile-instr-generate -fcoverage-mapping -O0 -g
 COV_LDFLAGS := -fprofile-instr-generate
 
-coverage-backend:
+test-coverage-backend:
 	$(MAKE) -j$(NPROC) BUILD=$(COV_BUILD) \
 	  EXTRA_CFLAGS="$(COV_CFLAGS)" \
 	  EXTRA_LDFLAGS="$(COV_LDFLAGS)" \
@@ -878,7 +878,7 @@ coverage-backend:
 	@echo "Coverage HTML: file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
 
 # Build-only the criterion suite with coverage flags so the
-# coverage-backend recipe can set LLVM_PROFILE_FILE before running.
+# test-coverage-backend recipe can set LLVM_PROFILE_FILE before running.
 # Matches the test-unit-backend build recipe — link the full
 # discovered suite, not just the smoke shell.
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
@@ -887,20 +887,20 @@ $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(
 $(COV_BUILD):
 	mkdir -p $@
 
-coverage-backend-tape:
-	$(MAKE) BACKEND=tape coverage-backend
+test-coverage-backend-tape:
+	$(MAKE) BACKEND=tape test-coverage-backend
 
-coverage-backend-mlx:
-	$(MAKE) BACKEND=mlx coverage-backend
+test-coverage-backend-mlx:
+	$(MAKE) BACKEND=mlx test-coverage-backend
 
-coverage-backend-torch:
-	$(MAKE) BACKEND=torch coverage-backend
+test-coverage-backend-torch:
+	$(MAKE) BACKEND=torch test-coverage-backend
 
 # Static coverage gap probe — no build required. Emits CSV reports of
 # OP_* tags + extern "C" symbols vs test-file mentions. Output land in
 # $(BUILD)/coverage-gap-{ops,symbols}.csv. Advisory exit; gating flip
 # tracked under W3+W4 in coverage-policy.md.
-coverage-gap-probe:
+test-coverage-gap-probe:
 	@bash scripts/coverage-gap-probe.sh $(BUILD)
 
 # Specialized C test suites
@@ -1117,6 +1117,15 @@ test-e2e: \
 		test-e2e-rope-oracle \
 		test-e2e-pytorch-ref \
 		test-e2e-jupyter
+
+# Coverage test layer — see docs/develop/testing-taxonomy.md.
+#
+# Canonical aggregator: the three-axis target (symbol coverage +
+# OP_* backward coverage + F32 paired oracle) per docs/develop/coverage-policy.md.
+# Advisory-only — the line-% LLVM reports are report-only; the
+# three-axis policy gates contribution. Adding a new coverage probe
+# means adding the target to this list.
+test-coverage: test-coverage-gap-probe test-coverage-backend
 
 # Idris-side unit suite against the active backend. Buckets that
 # touch the C surface (GradMode, ManagedHandle, Tensor lifecycle)
@@ -2260,6 +2269,8 @@ all: check-all test-all
         test-integration-typegate-gradmode-aliasing test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast test-integration-checkpoint-resume \
         test-integration-jupyter-cellparser \
+        test-coverage test-coverage-backend test-coverage-backend-tape test-coverage-backend-mlx \
+        test-coverage-backend-torch test-coverage-gap-probe \
         test-e2e test-e2e-examples test-e2e-pytorch-ref test-e2e-jupyter test-e2e-notebooks test-e2e-cuda \
         test-e2e-hf-bert-roundtrip test-e2e-hf-gpt2-roundtrip test-e2e-hf-bitnet-roundtrip \
         test-e2e-hf-llama-roundtrip test-e2e-hf-llama-generate-roundtrip \
