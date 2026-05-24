@@ -230,6 +230,34 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make test-hf-gpt2-roundtrip
 
+      - name: Run HfBitNet end-to-end roundtrip (Ubuntu, torch)
+        # Cross-language gate: regenerate the Python oracle from
+        # microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference
+        # binary --dump-logits, assert argmax on the vocab-128256 logit
+        # row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch
+        # because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu
+        # runner (see Low-priority TODO "Tape F64 large-LM OOM"). BitNet
+        # is not license-gated, so no HF_TOKEN handling needed.
+        if: matrix.os == 'ubuntu-latest'
+        run: make BACKEND=torch test-hf-bitnet-roundtrip
+
+      - name: Run HfLlama end-to-end roundtrip (Ubuntu, torch, HF_TOKEN-gated)
+        # Cross-language gate for Llama 3.2 1B. Regenerates the Python
+        # oracle from meta-llama/Llama-3.2-1B (license-gated), runs the
+        # Idris HfLlamaInference binary --dump-final-hidden, asserts the
+        # 2048-dim last-position hidden state matches the oracle within
+        # max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps
+        # and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu
+        # lane carries the same Idris-side numerics through libtorch CPU.
+        # Step skips cleanly when HF_TOKEN is unset in repo/org secrets
+        # (forks without the token won't see a failing step). BACKEND=torch
+        # because tape F64 doesn't fit (~10 GB params + arena vs ~14 GB
+        # runner RAM); see Low-priority TODO "Tape F64 large-LM OOM".
+        if: matrix.os == 'ubuntu-latest' && env.HF_TOKEN != ''
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: make BACKEND=torch test-hf-llama-roundtrip
+
       - name: Verify GradMode gate (NoGrad loss rejected at compile)
         # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
         # WithGrad -> Double` still rejects a `NoGrad` loss. If this step
