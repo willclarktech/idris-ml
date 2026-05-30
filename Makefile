@@ -139,7 +139,7 @@ ifneq ($(filter $(HF_GOALS),$(MAKECMDGOALS)),)
   endif
 endif
 
-BUILD_KEY := $(subst $(comma),-,$(strip $(BACKEND)))-mlx$(MLX_DEVICE)-torch$(TORCH_DEVICE)$(if $(TORCH_DTYPE),-tdt$(TORCH_DTYPE),)$(if $(MLX_DTYPE),-mdt$(MLX_DTYPE),)$(if $(TAPE_DTYPE),-tpdt$(TAPE_DTYPE),)
+BUILD_KEY := $(subst $(comma),-,$(strip $(BACKEND)))-mlx$(MLX_DEVICE)-torch$(TORCH_DEVICE)$(if $(TORCH_DTYPE),-tdt$(TORCH_DTYPE),)$(if $(MLX_DTYPE),-mdt$(MLX_DTYPE),)$(if $(TAPE_DTYPE),-tpdt$(TAPE_DTYPE),)$(if $(ASAN),-asan,)
 BUILD := build/$(BUILD_KEY)
 
 # Per-backend default seed for examples. Some examples (notably NTM-copy and
@@ -871,6 +871,36 @@ test-unit-c-mlx:
 
 test-unit-c-torch:
 	$(MAKE) BACKEND=torch test-unit-c
+
+# AddressSanitizer + UndefinedBehaviorSanitizer pass over the C test
+# suite. Builds the backend + criterion binary together with
+# `-fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g` and
+# links the same sanitizer runtimes, into a distinct `BUILD_KEY=...
+# -asan/` tree (via the ASAN axis in BUILD_KEY) so the warm tree
+# stays clean. Per-backend variants below; the aggregate runs only
+# the lanes whose backend is available locally (mlx wants macOS,
+# torch wants libtorch installed).
+#
+# First runs may surface latent UB sites — file each finding bucket
+# as a follow-up TODO row; fix the cheap ones inline. The CI lane
+# starts with `continue-on-error: true` until the first cleanup
+# commits land, then promotes to hard-fail.
+ASAN_CFLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g
+ASAN_LDFLAGS := -fsanitize=address,undefined
+
+test-unit-c-asan-tape:
+	$(MAKE) ASAN=1 EXTRA_CFLAGS='$(ASAN_CFLAGS)' EXTRA_LDFLAGS='$(ASAN_LDFLAGS)' BACKEND=tape test-unit-c
+
+test-unit-c-asan-mlx:
+	$(MAKE) ASAN=1 EXTRA_CFLAGS='$(ASAN_CFLAGS)' EXTRA_LDFLAGS='$(ASAN_LDFLAGS)' BACKEND=mlx test-unit-c
+
+test-unit-c-asan-torch:
+	$(MAKE) ASAN=1 EXTRA_CFLAGS='$(ASAN_CFLAGS)' EXTRA_LDFLAGS='$(ASAN_LDFLAGS)' BACKEND=torch test-unit-c
+
+# Default aggregate: runs only tape (the always-available backend).
+# CI matrix entries invoke the per-backend variants directly so each
+# runner sees only its own lane.
+test-unit-c-asan: test-unit-c-asan-tape
 
 # Coverage build. Recompiles backend + test binary with
 # `-fprofile-instr-generate -fcoverage-mapping` into build-cov/ (separate

@@ -199,6 +199,29 @@
       "run": "make BACKEND=tape test-unit-c"
     },
     {
+      "name": "Run Criterion suite under ASan + UBSan (tape, Ubuntu)",
+      "run": "make test-unit-c-asan-tape",
+      "os": "ubuntu",
+      "continue-on-error": true,
+      "comment": [
+        "AddressSanitizer + UndefinedBehaviorSanitizer pass over the",
+        "C tape backend + Criterion suite. The Makefile target sets",
+        "EXTRA_CFLAGS='-fsanitize=address,undefined ...' on top of the",
+        "stock -O2 build and lands the artifacts in a distinct",
+        "`build/<key>-asan/` tree (via the ASAN axis in BUILD_KEY)",
+        "so the warm tree stays clean.",
+        "",
+        "First runs may surface latent UB sites — `continue-on-error:",
+        "true` keeps this advisory until the first cleanup commits",
+        "land; promote to hard-fail by dropping that line. mlx + torch",
+        "lanes are deferred (mlx-Metal + asan interactions are messy;",
+        "libtorch + asan is supported but slow to set up).",
+        "",
+        "Ubuntu-only because asan on macOS requires a separate",
+        "instrumented runtime and clang invocation."
+      ]
+    },
+    {
       "name": "Run Idris unit suite (tape)",
       "run": "make BACKEND=tape test-unit-idris-ml",
       "comment": [

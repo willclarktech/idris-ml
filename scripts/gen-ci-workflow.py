@@ -62,6 +62,10 @@ def render_invocation(inv: dict) -> list[str]:
         for k, v in env.items():
             lines.append(f"{STEP_INDENT}    {k}: {v}")
 
+    # continue-on-error (advisory step that shouldn't block the matrix).
+    if inv.get("continue-on-error"):
+        lines.append(f"{STEP_INDENT}  continue-on-error: true")
+
     # run line.
     lines.append(f"{STEP_INDENT}  run: {inv['run']}")
     return lines
