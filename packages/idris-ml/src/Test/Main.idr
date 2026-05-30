@@ -18,6 +18,8 @@ import Test.BitNet
 import Test.MixedLayerLike
 import Test.Properties.GoldenDemo as Props.GoldenDemo
 import Test.Properties.Reshape as Props.Reshape
+import Test.Properties.RmsNorm as Props.RmsNorm
+import Test.Properties.RoPE as Props.RoPE
 import Test.Properties.Softmax as Props.Softmax
 import Test.RmsNorm
 import Test.RoPE
@@ -49,7 +51,8 @@ main = runAll
   , ("BitLinear",       Test.BitLinear.tests)
   , ("BitNet",          Test.BitNet.tests)
   , ("MixedLayerLike",  Test.MixedLayerLike.tests)
-  , ("Properties",      Props.Softmax.tests ++ Props.Reshape.tests ++ Props.GoldenDemo.tests)
+  , ("Properties",      Props.Softmax.tests ++ Props.Reshape.tests ++ Props.GoldenDemo.tests
+                                            ++ Props.RmsNorm.tests ++ Props.RoPE.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
   , ("RoPE",            Test.RoPE.tests)
   , ("SwiGLU",          Test.SwiGLU.tests)

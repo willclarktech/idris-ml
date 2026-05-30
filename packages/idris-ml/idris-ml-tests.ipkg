@@ -27,6 +27,8 @@ modules = Test.Main
         , Test.MixedLayerLike
         , Test.Properties.GoldenDemo
         , Test.Properties.Reshape
+        , Test.Properties.RmsNorm
+        , Test.Properties.RoPE
         , Test.Properties.Softmax
         , Test.RmsNorm
         , Test.RoPE
