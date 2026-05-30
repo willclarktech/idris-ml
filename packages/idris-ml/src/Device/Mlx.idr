@@ -689,8 +689,19 @@ Compatible (MlxDev MGpu) BF16 where
 public export
 Compatible (MlxDev MGpu) F16 where
 
+-- I32 instances enabled so `check-examples` (elaborate-only) admits
+-- `Example.DTypeSerialize` on mlx. The C-side dispatch
+-- (`tensor_create_1d_streamed` in `backend_mlx/training/dtype_dispatch.cpp`)
+-- handles F32/F64/BF16/F16 only — calling these at runtime currently
+-- traps via `mlx_dtype_unsupported`. Wiring the C-side I32 path is
+-- tracked as its own TODO row.
+public export
+Compatible (MlxDev MCpu) I32 where
+public export
+Compatible (MlxDev MGpu) I32 where
+
 -- DELIBERATELY NO `Compatible (MlxDev MGpu) F64` instance — Metal
--- has no fp64. (Int* + bool stay unwired on both streams.)
+-- has no fp64. (Other Int* + bool stay unwired on both streams.)
 
 -- Sub-byte quantization dtypes (#411 BitNet b1.58). CPU stream only —
 -- mlx's Metal sub-byte support requires custom kernels that arrive in
