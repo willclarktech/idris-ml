@@ -7,6 +7,7 @@ import System
 import Compat.Random
 import Test.Harness
 
+import BuildConfig
 import Example.Reinforce
 import Device
 import Gym.ClassicControl.CartPole
@@ -26,7 +27,7 @@ testMaxSteps = 20
 ||| paths. Initialization reads from C-side RNG state, so we build it
 ||| ONCE per test and reuse the same Network for sequential and batched
 ||| rollouts.
-mkModel : IO (Network 4 [16, 16] 2 CPU F64 WithGrad)
+mkModel : IO (Network 4 [16, 16] 2 ExampleDevice ExampleDType WithGrad)
 mkModel = do
   srand 12345  -- deterministic init for parity reproducibility
   ll1 <- linearLayerAny {i=4} {o=16} "test_ll1"
@@ -64,9 +65,7 @@ testParityN1 = do
       states : Vect 1 CPState = [initState]
       rss : Vect 1 (List Double) = [rs]
 
-      seqSteps : List StepRec
-      seqSteps = rolloutEp model initState rs testMaxSteps []
-
+  seqSteps <- rolloutEp model initState rs testMaxSteps []
   batchSteps <- rolloutEpBatched model states rss testMaxSteps
   let seqReward = sumRewards seqSteps
       batchReward = sumRewards (head batchSteps)
@@ -84,9 +83,8 @@ testParityN2 = do
       states : Vect 2 CPState = [initState, initState]
       rss : Vect 2 (List Double) = [rs1, rs2]
 
-      seq1 = rolloutEp model initState rs1 testMaxSteps []
-      seq2 = rolloutEp model initState rs2 testMaxSteps []
-
+  seq1 <- rolloutEp model initState rs1 testMaxSteps []
+  seq2 <- rolloutEp model initState rs2 testMaxSteps []
   batch <- rolloutEpBatched model states rss testMaxSteps
   let batch1 = index 0 batch
       batch2 = index 1 batch
