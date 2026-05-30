@@ -348,3 +348,94 @@ applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOf
       concat2    = primConcat2dAxis1 {d} firstOut2 secondOut2  -- [seq*nH, headDim]
       result     = primReshape3d {d} concat2 seqI numHI headDI
   in MkTensor result Nothing)
+
+
+----------------------------------------------------------------------
+-- applyRopeInverse — inverse rotation
+----------------------------------------------------------------------
+--
+-- Llama-style RoPE rotates each `(q[i], q[i + d/2])` pair by angle
+-- `θ = m · inv_freq[i]`. The forward rotation matrix is
+--
+--   [ cos  -sin ]
+--   [ sin   cos ]
+--
+-- Its inverse — rotation by `-θ` — flips the sign of `sin`:
+--
+--   q[i]       = q'[i]       * cos[m, i] + q'[i + d/2] * sin[m, i]
+--   q[i + d/2] = q'[i + d/2] * cos[m, i] - q'[i]       * sin[m, i]
+--
+-- i.e. `applyRopeInverse cos sin (applyRope cos sin x) ≡ x` up to
+-- F64 rounding. Provided so round-trip / commutativity properties
+-- can be expressed without FFI-driven Hedgehog generators.
+
+||| Inverse of `applyRope` — rotates each `[seq, headDim]` pair by
+||| `-θ` so that round-tripping returns the input within F64 ULP.
+||| Caller's responsibility: same `seq + positionOffset <= maxPos`
+||| bound as `applyRope`.
+public export
+applyRopeInverse : {0 d : Device} -> UserDeviceTraining d =>
+                   {seq, headDim, maxPos : Nat} ->
+                   RoPETables maxPos headDim d dt g ->
+                   (positionOffset : Nat) ->
+                   Tensor [seq, headDim] d dt g ->
+                   IO (Tensor [seq, headDim] d dt g)
+applyRopeInverse {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
+  let halfDimI = cast {to=Int} (div headDim 2)
+      seqI     = cast {to=Int} seq
+      offsetI  = cast {to=Int} positionOffset
+      inPtr    = input.tensorPtr
+      cosPtr   = cosT.tensorPtr
+      sinPtr   = sinT.tensorPtr
+      firstHalf  = primNarrow {d} inPtr 1 0        halfDimI
+      secondHalf = primNarrow {d} inPtr 1 halfDimI halfDimI
+      cosSlice = primNarrow {d} cosPtr 0 offsetI seqI
+      sinSlice = primNarrow {d} sinPtr 0 offsetI seqI
+      -- Inverse rotation: sign-flipped relative to `applyRope`.
+      firstCos  = primMul {d} firstHalf  cosSlice
+      secondSin = primMul {d} secondHalf sinSlice
+      firstOut  = primAdd {d} firstCos secondSin       -- forward: primSub
+      secondCos = primMul {d} secondHalf cosSlice
+      firstSin  = primMul {d} firstHalf  sinSlice
+      secondOut = primSub {d} secondCos firstSin       -- forward: primAdd
+      result    = primConcat2dAxis1 {d} firstOut secondOut
+  in MkTensor result Nothing)
+
+||| All-heads variant of `applyRopeInverse`. Same inverse rotation,
+||| lifted across `[seq, numHeads, headDim]` via cos/sin broadcast on
+||| the head axis.
+public export
+applyRopeInverseAllHeads : {0 d : Device} -> UserDeviceTraining d =>
+                           {seq, numHeads, headDim, maxPos : Nat} ->
+                           RoPETables maxPos headDim d dt g ->
+                           (positionOffset : Nat) ->
+                           Tensor [seq, numHeads, headDim] d dt g ->
+                           IO (Tensor [seq, numHeads, headDim] d dt g)
+applyRopeInverseAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
+  let halfDimI = cast {to=Int} (div headDim 2)
+      seqI     = cast {to=Int} seq
+      numHI    = cast {to=Int} numHeads
+      headDI   = cast {to=Int} headDim
+      offsetI  = cast {to=Int} positionOffset
+      inPtr    = input.tensorPtr
+      cosPtr   = cosT.tensorPtr
+      sinPtr   = sinT.tensorPtr
+      firstHalf  = primNarrow {d} inPtr 2 0        halfDimI
+      secondHalf = primNarrow {d} inPtr 2 halfDimI halfDimI
+      cosSlice2  = primNarrow {d} cosPtr 0 offsetI seqI
+      sinSlice2  = primNarrow {d} sinPtr 0 offsetI seqI
+      cosSlice   = primReshape3d {d} cosSlice2 seqI 1 halfDimI
+      sinSlice   = primReshape3d {d} sinSlice2 seqI 1 halfDimI
+      -- Inverse rotation: sign-flipped relative to `applyRopeAllHeads`.
+      firstCos   = primMul {d} firstHalf  cosSlice
+      secondSin  = primMul {d} secondHalf sinSlice
+      firstOut   = primAdd {d} firstCos secondSin      -- forward: primSub
+      secondCos  = primMul {d} secondHalf cosSlice
+      firstSin   = primMul {d} firstHalf  sinSlice
+      secondOut  = primSub {d} secondCos firstSin      -- forward: primAdd
+      flat       = seqI * numHI
+      firstOut2  = primReshape2d {d} firstOut  flat halfDimI
+      secondOut2 = primReshape2d {d} secondOut flat halfDimI
+      concat2    = primConcat2dAxis1 {d} firstOut2 secondOut2
+      result     = primReshape3d {d} concat2 seqI numHI headDI
+  in MkTensor result Nothing)
