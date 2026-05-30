@@ -1,0 +1,399 @@
+/* SafeTensors serialization round-trip — Criterion port.
+ *
+ * Carried over from the previous standalone main() program at
+ * packages/backends/test_safetensors.c. The 4 logical groups
+ * (basic round-trip, optimizer state, raw bytes reader,
+ * inference-dtype + i64-exact under BACKEND_TORCH) are now
+ * Test() cases under the `safetensors` suite, folding into
+ * the unified `test-unit-backend` Criterion run via the
+ * CRITERION_BACKEND_TEST_SRCS auto-discovery glob.
+ *
+ * Each Test() forks a fresh process — param_clear() at entry
+ * is defensive (the global registry is reset by the fork) but
+ * also matches the original main()'s setup.
+ */
+#include <criterion/criterion.h>
+#include "backend.h"
+#include "shared_utils.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <math.h>
+
+#define ASSERT_NEAR(msg, got, expected, tol) do { \
+    double _an_got = (got); \
+    double _an_exp = (expected); \
+    cr_assert_float_eq(_an_got, _an_exp, (tol), \
+        "%s: got %.6f expected %.6f", msg, _an_got, _an_exp); \
+} while (0)
+
+#define ASSERT_TRUE(msg, cond) \
+    cr_assert((cond), "%s", msg)
+
+#define ASSERT_I64_EQ(msg, got, expected) do { \
+    int64_t _aieq_got = (got); \
+    int64_t _aieq_exp = (expected); \
+    cr_assert_eq(_aieq_got, _aieq_exp, \
+        "%s: got %lld expected %lld", msg, \
+        (long long)_aieq_got, (long long)_aieq_exp); \
+} while (0)
+
+
+Test(safetensors, round_trip_basic) {
+    param_clear();
+
+    /* Create a 2D param [2, 3] */
+    double w_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    double* w_buf = tensor_alloc_doubles(6);
+    for (int i = 0; i < 6; i++) w_buf[i] = w_data[i];
+    TensorHandle w = tensor_create_param_2d_f64(2, 3, w_buf);
+    param_register("weights", w);
+
+    /* Create a 1D param [2] */
+    double b_data[] = {10.0, 20.0};
+    double* b_buf = tensor_alloc_doubles(2);
+    for (int i = 0; i < 2; i++) b_buf[i] = b_data[i];
+    TensorHandle b = tensor_create_param_1d_f64(2, b_buf);
+    param_register("biases", b);
+
+    ASSERT_TRUE("param_count == 2", param_count() == 2);
+
+    /* Verify initial values */
+    {
+        double* buf = (double*)malloc(6 * sizeof(double));
+        tensor_to_doubles(param_tensor(0), buf);
+        ASSERT_NEAR("initial w[0]", buf[0], 1.0, 1e-15);
+        ASSERT_NEAR("initial w[5]", buf[5], 6.0, 1e-15);
+        free(buf);
+    }
+
+    /* Save */
+    const char* path = "/tmp/idrisml_test.safetensors";
+    int rc = param_save(path);
+    ASSERT_TRUE("param_save returns 0", rc == 0);
+
+    /* Check file */
+    FILE* f = fopen(path, "rb");
+    ASSERT_TRUE("file exists", f != NULL);
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fclose(f);
+        ASSERT_TRUE("file size > 8", sz > 8);
+    }
+
+    /* Corrupt param data to zeros */
+    double zeros6[6] = {0};
+    param_load_data(0, zeros6, 6);
+    double zeros2[2] = {0};
+    param_load_data(1, zeros2, 2);
+    {
+        double* buf = (double*)malloc(6 * sizeof(double));
+        tensor_to_doubles(param_tensor(0), buf);
+        ASSERT_NEAR("corrupted w[0]", buf[0], 0.0, 1e-15);
+        ASSERT_NEAR("corrupted w[5]", buf[5], 0.0, 1e-15);
+        free(buf);
+    }
+
+    /* Load back */
+    rc = param_load(path);
+    ASSERT_TRUE("param_load returns 0", rc == 0);
+
+    /* Verify restored values */
+    {
+        double* buf = (double*)malloc(6 * sizeof(double));
+        tensor_to_doubles(param_tensor(0), buf);
+        for (int i = 0; i < 6; i++) {
+            char msg[64];
+            snprintf(msg, sizeof(msg), "restored w[%d]", i);
+            ASSERT_NEAR(msg, buf[i], w_data[i], 1e-15);
+        }
+        free(buf);
+    }
+    {
+        double* buf = (double*)malloc(2 * sizeof(double));
+        tensor_to_doubles(param_tensor(1), buf);
+        ASSERT_NEAR("restored b[0]", buf[0], b_data[0], 1e-15);
+        ASSERT_NEAR("restored b[1]", buf[1], b_data[1], 1e-15);
+        free(buf);
+    }
+
+    remove(path);
+    param_clear();
+}
+
+
+Test(safetensors, optimizer_state_round_trip) {
+    param_clear();
+
+    /* Re-create the [2, 3] + [2] param pair the round-trip exercise uses. */
+    double w_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    double* w_buf = tensor_alloc_doubles(6);
+    for (int i = 0; i < 6; i++) w_buf[i] = w_data[i];
+    TensorHandle w = tensor_create_param_2d_f64(2, 3, w_buf);
+    param_register("weights", w);
+
+    double b_data[] = {10.0, 20.0};
+    double* b_buf = tensor_alloc_doubles(2);
+    for (int i = 0; i < 2; i++) b_buf[i] = b_data[i];
+    TensorHandle b = tensor_create_param_1d_f64(2, b_buf);
+    param_register("biases", b);
+
+    /* Create an Adam optimizer and run a few steps to populate buffers */
+    OptimizerHandle opt = optimizer_create_adam(0.001, 0.9, 0.999, 1e-8);
+
+    {
+        /* sum(w*w) — sum-of-squares, portable across backends (torch's
+           tensor_dot requires 1-D, and param 0 is 2-D [2,3]). */
+        TensorHandle loss = tensor_sum(tensor_mul(param_tensor(0), param_tensor(0)));
+        tensor_backward(loss);
+        optimizer_step(opt);
+
+        loss = tensor_sum(tensor_mul(param_tensor(0), param_tensor(0)));
+        tensor_backward(loss);
+        optimizer_step(opt);
+    }
+
+    /* Read back optimizer state */
+    double meta[9];
+    optimizer_get_meta(opt, meta);
+    ASSERT_NEAR("opt type", meta[0], 2.0, 1e-15);   /* Adam=2 */
+    ASSERT_NEAR("opt lr", meta[1], 0.001, 1e-15);
+    ASSERT_NEAR("opt step", meta[8], 2.0, 1e-15);    /* 2 steps */
+
+    double m_buf[6], v_buf[6];
+    optimizer_get_m(opt, 0, m_buf);
+    optimizer_get_v(opt, 0, v_buf);
+    ASSERT_TRUE("m[0] != 0 (populated)", m_buf[0] != 0.0);
+    ASSERT_TRUE("v[0] != 0 (populated)", v_buf[0] != 0.0);
+
+    /* Save optimizer state */
+    const char* opt_path = "/tmp/idrisml_test.optimizer.safetensors";
+    int orc = optimizer_save(opt, opt_path);
+    ASSERT_TRUE("optimizer_save returns 0", orc == 0);
+
+    /* Create a fresh optimizer and load state */
+    OptimizerHandle opt2 = optimizer_create_adam(0.1, 0.5, 0.5, 0.1); /* different params */
+    orc = optimizer_load(opt2, opt_path);
+    ASSERT_TRUE("optimizer_load returns 0", orc == 0);
+
+    /* Verify restored meta */
+    double meta2[9];
+    optimizer_get_meta(opt2, meta2);
+    ASSERT_NEAR("restored opt type", meta2[0], 2.0, 1e-15);
+    ASSERT_NEAR("restored opt lr", meta2[1], 0.001, 1e-15);
+    ASSERT_NEAR("restored opt step", meta2[8], 2.0, 1e-15);
+
+    /* Verify restored buffers */
+    double m_buf2[6], v_buf2[6];
+    optimizer_get_m(opt2, 0, m_buf2);
+    optimizer_get_v(opt2, 0, v_buf2);
+    for (int i = 0; i < 6; i++) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "restored opt m[%d]", i);
+        ASSERT_NEAR(msg, m_buf2[i], m_buf[i], 1e-15);
+        snprintf(msg, sizeof(msg), "restored opt v[%d]", i);
+        ASSERT_NEAR(msg, v_buf2[i], v_buf[i], 1e-15);
+    }
+
+    remove(opt_path);
+    optimizer_free(opt);
+    optimizer_free(opt2);
+    param_clear();
+}
+
+
+/* Raw on-disk bytes reader — used by HfBitNet's packed-uint8 ternary
+ * load (no dtype interpretation, the caller knows the layout). The
+ * test saves a 1D F64 tensor, then asks for the raw bytes back and
+ * verifies byte-exact equality with the original doubles' memory
+ * representation. */
+Test(safetensors, raw_bytes_reader) {
+    param_clear();
+
+    /* Distinct double values whose 8-byte little-endian encodings
+       are unique — catches off-by-one offset bugs. */
+    double src[] = { 1.0, -2.0, 0.5, 3.14159265358979, -0.0 };
+    int n = (int)(sizeof(src) / sizeof(src[0]));
+    size_t byte_len = (size_t)n * sizeof(double);
+
+    double* buf = tensor_alloc_doubles(n);
+    for (int i = 0; i < n; i++) buf[i] = src[i];
+    TensorHandle t = tensor_create_param_1d_f64(n, buf);
+    param_register("raw_test_tensor", t);
+    param_register("other_tensor",
+        tensor_create_param_1d_f64(2, tensor_alloc_doubles(2)));
+
+    const char* path = "/tmp/idrisml_raw_bytes.safetensors";
+    ASSERT_TRUE("raw: param_save returns 0", param_save(path) == 0);
+
+    /* Happy path — read into a sufficient buffer. */
+    uint8_t out[256] = {0xCC};  /* sentinel — must overwrite first byte_len */
+    int64_t got = safetensors_read_raw_bytes(path, "raw_test_tensor",
+                                              out, sizeof(out));
+    ASSERT_I64_EQ("raw: returned byte count", got, (int64_t)byte_len);
+    /* Round-trip: bytes match the source doubles' memory. */
+    int bytes_match = (memcmp(out, src, byte_len) == 0);
+    ASSERT_TRUE("raw: bytes byte-exact match source", bytes_match);
+
+    /* Reading the second tensor must work too (offset isn't 0). */
+    uint8_t out2[64] = {0xCC};
+    int64_t got2 = safetensors_read_raw_bytes(path, "other_tensor",
+                                               out2, sizeof(out2));
+    ASSERT_I64_EQ("raw: second-tensor byte count", got2,
+                  (int64_t)(2 * sizeof(double)));
+
+    /* Negative — missing key returns negative. */
+    int64_t miss = safetensors_read_raw_bytes(path, "nope_no_such_key",
+                                               out, sizeof(out));
+    ASSERT_TRUE("raw: missing key returns negative", miss < 0);
+
+    /* Negative — out_cap too small returns negative. */
+    int64_t small = safetensors_read_raw_bytes(path, "raw_test_tensor",
+                                                out, byte_len - 1);
+    ASSERT_TRUE("raw: out_cap too small returns negative", small < 0);
+
+    /* Negative — bogus file path. */
+    int64_t bogus = safetensors_read_raw_bytes("/tmp/no-such-file-zzz.st",
+                                                "raw_test_tensor",
+                                                out, sizeof(out));
+    ASSERT_TRUE("raw: missing file returns negative", bogus < 0);
+
+    remove(path);
+    param_clear();
+}
+
+
+#ifdef BACKEND_TORCH
+/* Inference-dtype create via the unified dtag-dispatch symbol (dtags from
+   the Idris RuntimeDType: F32=0, F64=1, BF16=2, F16=3, I8=4, I16=5, I32=6,
+   I64=7, U8=8, Bool=9). The per-dtype create symbols were retired in the
+   Phase 1 unification (commit 4b77f9a). */
+
+/* Save -> zero -> load round-trip for one inference dtype. `data` holds
+   values that are exactly representable in the dtype, so the restored
+   values must match bit-for-bit (the create call already quantized). */
+static void dtype_roundtrip(const char* label, const char* expect_dtype,
+                            TensorHandle h, double* data, int n) {
+    char msg[80];
+    param_clear();
+    param_register(label, h);
+
+    snprintf(msg, sizeof(msg), "%s: on-disk dtype is %s", label, expect_dtype);
+    ASSERT_TRUE(msg, strcmp(tensor_dtype_name(param_tensor(0)), expect_dtype) == 0);
+
+    const char* path = "/tmp/idrisml_test_dtype.safetensors";
+    snprintf(msg, sizeof(msg), "%s: param_save returns 0", label);
+    ASSERT_TRUE(msg, param_save(path) == 0);
+
+    double* zeros = (double*)calloc(n, sizeof(double));
+    param_load_data(0, zeros, n);
+    free(zeros);
+
+    snprintf(msg, sizeof(msg), "%s: param_load returns 0", label);
+    ASSERT_TRUE(msg, param_load(path) == 0);
+
+    double* got = (double*)malloc(n * sizeof(double));
+    tensor_to_doubles(param_tensor(0), got);
+    for (int i = 0; i < n; i++) {
+        snprintf(msg, sizeof(msg), "%s: restored [%d]", label, i);
+        ASSERT_NEAR(msg, got[i], data[i], 1e-9);
+    }
+    free(got);
+    remove(path);
+    param_clear();
+}
+
+Test(safetensors, inference_dtype_round_trip) {
+    /* Exactly representable in bf16/f16/i32: small ints + simple binary
+       fractions (1.5 = 1.1b, 256 = 2^8, -0.5 = -2^-1). */
+    double fdata[] = {1.0, -2.0, 1.5, 256.0, -0.5, 0.0};
+    int    fn = 6;
+    double idata[] = {1.0, -2.0, 3.0, 1000.0, -42.0, 0.0};
+    int    in = 6;
+
+    double* b1 = tensor_alloc_doubles(fn);
+    for (int i = 0; i < fn; i++) b1[i] = fdata[i];
+    dtype_roundtrip("w_bf16", "BF16", tensor_create_1d_streamed(fn, b1, 0, 0, 17), fdata, fn);
+
+    double* b2 = tensor_alloc_doubles(fn);
+    for (int i = 0; i < fn; i++) b2[i] = fdata[i];
+    dtype_roundtrip("w_f16", "F16", tensor_create_1d_streamed(fn, b2, 0, 0, 13), fdata, fn);
+
+    double* b3 = tensor_alloc_doubles(in);
+    for (int i = 0; i < in; i++) b3[i] = idata[i];
+    dtype_roundtrip("w_i32", "I32", tensor_create_1d_streamed(in, b3, 0, 0, 10), idata, in);
+}
+
+/* >2^53 I64 round-trip — exact-i64 path test. The lingua-franca double
+   path used by save/load before this row was closed rounded any int64
+   magnitude above 2^53. The byte-level extractor + loader bypass the
+   double pivot so every i64 bit pattern survives the file write/read
+   round-trip. Test seeds via `param_load_data_int64` (byte-exact),
+   saves, zeros via the same loader, loads, reads back via
+   `tensor_to_int64`. */
+Test(safetensors, i64_exact_round_trip) {
+    /* Mix of small + >2^53 values. 2^53 = 0x20000000000000.
+       0x4000000000000001 = 2^62 + 1 — needs all 63 mantissa+exponent
+       bits to round-trip; falls strictly outside double's 53-bit
+       precision. */
+    int64_t big_pos = (int64_t)0x4000000000000001LL;     /* 2^62 + 1 */
+    int64_t big_neg = -((int64_t)0x4000000000000001LL);  /* -(2^62 + 1) */
+    int64_t mid     = ((int64_t)1 << 53) + 1;            /* 2^53 + 1 */
+    int64_t mid_neg = -(((int64_t)1 << 53) + 1);
+    int64_t seed_i64[] = { big_pos, big_neg, mid, mid_neg,
+                           0LL, 1LL, -1LL, 42LL };
+    int n = 8;
+
+    param_clear();
+
+    /* Bootstrap an I64 tensor via the streamed creator (dtag=7); the
+       values from the double buffer are placeholders — we overwrite
+       byte-exact via param_load_data_int64 below. */
+    double* placeholder = tensor_alloc_doubles(n);
+    for (int i = 0; i < n; i++) placeholder[i] = 0.0;
+    TensorHandle h = tensor_create_1d_streamed(n, placeholder, 0, 0, /*dtag=I64*/7);
+    param_register("w_i64_big", h);
+
+    ASSERT_TRUE("w_i64_big: on-disk dtype is I64",
+                strcmp(tensor_dtype_name(param_tensor(0)), "I64") == 0);
+
+    /* Seed byte-exact via the new loader. */
+    param_load_data_int64(0, seed_i64, n);
+
+    /* Sanity: the extractor reads back the same bits. */
+    int64_t pre[8];
+    tensor_to_int64(param_tensor(0), pre);
+    for (int i = 0; i < n; i++) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "w_i64_big: pre-save [%d]", i);
+        ASSERT_I64_EQ(msg, pre[i], seed_i64[i]);
+    }
+
+    /* Round-trip through file. */
+    const char* path = "/tmp/idrisml_test_i64_exact.safetensors";
+    ASSERT_TRUE("w_i64_big: param_save returns 0", param_save(path) == 0);
+
+    /* Zero via the same loader (also exercises param_load_data_int64). */
+    int64_t zeros[8] = {0};
+    param_load_data_int64(0, zeros, n);
+    int64_t after_zero[8];
+    tensor_to_int64(param_tensor(0), after_zero);
+    ASSERT_I64_EQ("w_i64_big: zeroed pre-load", after_zero[0], 0LL);
+
+    ASSERT_TRUE("w_i64_big: param_load returns 0", param_load(path) == 0);
+
+    /* The headline assertion: every value survives bit-exactly. */
+    int64_t got[8];
+    tensor_to_int64(param_tensor(0), got);
+    for (int i = 0; i < n; i++) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "w_i64_big: restored [%d]", i);
+        ASSERT_I64_EQ(msg, got[i], seed_i64[i]);
+    }
+
+    remove(path);
+    param_clear();
+}
+#endif /* BACKEND_TORCH */

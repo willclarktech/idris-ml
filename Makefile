@@ -934,15 +934,12 @@ test-coverage-backend-torch:
 test-coverage-gap-probe:
 	@bash scripts/coverage-gap-probe.sh $(BUILD)
 
-# Specialized C test suites. test_safetensors.c stays at packages/backends/
-# root (1:1 colocated with safetensors.c). The NTM + mlx-compile tests
-# live under packages/idris-test-c/src/ (cross-cutting integration; no
-# 1:1 source pair). All four are standalone main()s (NOT Criterion) so
-# they get their own recipes rather than folding into test-unit-backend.
-test-unit-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
-	cc -o $(BUILD)/test_safetensors -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_safetensors.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
-	./$(BUILD)/test_safetensors
-
+# Specialized C test suites. The NTM + mlx-compile tests live under
+# packages/idris-test-c/src/ (cross-cutting integration; no 1:1 source
+# pair). They're standalone main()s (NOT Criterion) so they get their
+# own recipes rather than folding into test-unit-backend.
+# (test_safetensors.c was converted to Criterion under Test(safetensors, ...)
+# and folded into the auto-discovered suite.)
 test-unit-ntm-grad: $(TEST_C_DIR)/src/test_ntm_grad.c $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_ntm_grad -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(TEST_C_DIR)/src/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_grad
@@ -1110,7 +1107,7 @@ check-examples: install
 # a new unit-layer test means adding the target name to this list;
 # the CI workflow consumes `make test-unit` (post-Phase-4) and so
 # auto-includes any new leaf without a workflow edit.
-test-unit: test-unit-idris-ml test-unit-backend test-unit-safetensors test-unit-ntm-grad test-unit-ntm-timestep
+test-unit: test-unit-idris-ml test-unit-backend test-unit-ntm-grad test-unit-ntm-timestep
 
 # Integration test layer — see docs/develop/testing-taxonomy.md.
 #
@@ -2367,7 +2364,7 @@ all: check-all test-all
 .PHONY: all check-all all-backends test-unit test-unit-idris-ml test-unit-idris-transformers \
         test-unit-gym test-unit-examples test-unit-multi-backend test-all dataset-mnist dataset-tinyshakespeare \
         test-unit-backend test-unit-backend-tape test-unit-backend-mlx test-unit-backend-torch \
-        test-unit-safetensors test-unit-ntm-grad test-unit-ntm-timestep test-unit-mlx-compile \
+        test-unit-ntm-grad test-unit-ntm-timestep test-unit-mlx-compile \
         test-integration test-integration-lint-rename-headers test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects test-integration-lint-paired-defaults \
         test-integration-lint-hf-llama-inference test-integration-lint-ci-workflow \
