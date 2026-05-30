@@ -1050,6 +1050,75 @@ check: check-idris
 test-integration-lint-paired-defaults:
 	@python3 scripts/check-paired-defaults.py
 
+# Lint the Python surface (packages/pytorch + scripts/): ruff check
+# (style + bugprone + import-order), ruff format --check (formatting
+# drift), and vulture (dead code at min-confidence 80%; the threshold
+# lives in packages/pytorch/pyproject.toml [tool.vulture]). Runs
+# inside the packages/pytorch uv venv so the dev deps resolve.
+# Uses `uv run --no-sync` so a stale venv on the lint preflight (which
+# only syncs --only-group dev to skip the heavy torch deps) doesn't
+# re-fetch the project deps; the CI workflow primes the venv up front.
+#
+# `lint-` is the fourth top-level verb in the codebase, alongside
+# check (compile) / test (behave) / bench (perf). Linting is
+# discrete from testing — it's static analysis, doesn't exercise
+# behaviour, doesn't need a backend.
+lint-py:
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check . && uv run --no-sync --quiet ruff format --check . && uv run --no-sync --quiet vulture
+	@echo "lint-py OK (ruff check + format + vulture)"
+
+# Lint the C / C++ backend surface: cppcheck (unused functions +
+# bug-class warnings, fast) + clang-tidy (dead-store + bugprone +
+# misc-unused, slower because libtorch + mlx headers parse on every
+# .cpp). Conservative check sets live in `.clang-tidy` and the
+# inline cppcheck flags; widening lands as cleanup commits.
+#
+# Detects tool availability — if cppcheck / clang-tidy aren't on
+# PATH locally (e.g. a dev box without `brew install cppcheck llvm`)
+# the target prints a useful hint and exits 0 so it doesn't block
+# pre-commit. The CI lane unconditionally apt-installs the tools,
+# so the gate fires there.
+#
+# `lint-c-tape` is the fast subset (tape only, ~5s) for local
+# pre-commit use. `lint-c` runs the full sweep including the C++
+# backends (slow — libtorch headers).
+lint-c: lint-c-tape lint-c-torch lint-c-mlx
+	@echo "lint-c OK (cppcheck + clang-tidy across all 3 backends)"
+
+lint-c-tape:
+	@if command -v cppcheck >/dev/null 2>&1; then \
+		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape packages/backends/backend_tape/ || exit 1; \
+	else \
+		echo "lint-c-tape: cppcheck not installed (install via 'brew install cppcheck' or 'apt-get install cppcheck'); skipping"; \
+	fi
+	@if command -v clang-tidy >/dev/null 2>&1; then \
+		clang-tidy --quiet $(BACKEND_TAPE_SRCS) -- $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
+	else \
+		echo "lint-c-tape: clang-tidy not installed (install via 'brew install llvm' or 'apt-get install clang-tidy'); skipping"; \
+	fi
+
+lint-c-torch:
+	@if command -v cppcheck >/dev/null 2>&1; then \
+		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_torch packages/backends/backend_torch/ || exit 1; \
+	else \
+		echo "lint-c-torch: cppcheck not installed; skipping"; \
+	fi
+	@echo "lint-c-torch: clang-tidy on libtorch C++ skipped by default (libtorch headers ~30s/TU); enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch'"
+	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
+		clang-tidy --quiet $(BACKEND_TORCH_SRCS) -- $(torch_CFLAGS) -include $(BACKENDS_DIR)/rename_torch.h || exit 1; \
+	fi
+
+lint-c-mlx:
+	@if command -v cppcheck >/dev/null 2>&1; then \
+		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_mlx packages/backends/backend_mlx/ || exit 1; \
+	else \
+		echo "lint-c-mlx: cppcheck not installed; skipping"; \
+	fi
+	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx'"
+	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
+		clang-tidy --quiet $(BACKEND_MLX_SRCS) -- $(mlx_CFLAGS) -include $(BACKENDS_DIR)/rename_mlx.h || exit 1; \
+	fi
+
 # Verify the GradMode gate is intact: a NoGrad loss must NOT type-check
 # as input to nativeTrainStep. Inverts the idris2 exit code (success =
 # compile failed) and matches on the WithGrad/NoGrad error message.

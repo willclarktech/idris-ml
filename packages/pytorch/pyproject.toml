@@ -32,6 +32,7 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.9",
     "pyright>=1.1",
+    "vulture>=2.16",
 ]
 
 [tool.ruff]
@@ -48,3 +49,12 @@ quote-style = "double"
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
+
+[tool.vulture]
+# 80% strikes the right balance: 60% (default) flags too many false
+# positives on dataclass fields / argparse callbacks / interface
+# stubs (anything looked up by name rather than reference); 90%+
+# would miss real dead code with one off-the-beaten-path call site.
+min_confidence = 80
+exclude = [".venv/", "build/"]
+paths = ["torch_ref", "../../scripts"]

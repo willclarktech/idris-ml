@@ -1,0 +1,30 @@
+# Conservative clang-tidy config for the C / C++ backend sources.
+#
+# Why "conservative": clang-tidy ships dozens of checks; turning them
+# all on at once would produce hundreds of low-signal findings on a
+# codebase that has never run the tool. Start with a narrow set that
+# catches real bug classes (unused symbols, dead stores, unintended
+# returns), prove the gate green, then widen as cleanup commits land.
+#
+# To expand: add a check, run `make c-lint` locally, decide whether
+# the new findings are real (fix in source) or noisy (ignore via a
+# negated entry like `-readability-isolate-declaration`).
+#
+# Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
+
+Checks: >
+  -*,
+  bugprone-unused-return-value,
+  bugprone-suspicious-include,
+  bugprone-suspicious-string-compare,
+  clang-analyzer-deadcode.DeadStores,
+  misc-unused-parameters,
+  misc-unused-using-decls,
+  misc-redundant-expression,
+  readability-redundant-control-flow
+
+# Don't enforce naming or style rules — those would touch every line.
+# Keep this list aligned with the "real bug class" intent above.
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'packages/backends/.*\.h$'
+FormatStyle: file

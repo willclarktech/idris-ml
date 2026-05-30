@@ -49,7 +49,39 @@ jobs:
         # without updating .github/workflows/test.yml.spec.json. Spec
         # is the single source of truth; add a gate by appending to
         # the spec and regenerating, not by editing the workflow.
-        run: make test-integration-lint-ci-workflow
+        run: make lint-ci-workflow
+      - name: Install uv + lint-only Python deps
+        # `--only-group dev --no-install-project` installs ruff + vulture
+        # + their transitive deps WITHOUT pulling in torch / transformers
+        # / gymnasium / mlx (the main `[project]` deps). Cold-cache cost
+        # ~5s; the heavier matrix jobs re-sync the full venv via
+        # `make ref-setup`. Adds ~10s wall to the preflight; gates the
+        # ~220 min-unit matrix on Python-side lint drift before it runs.
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          cd packages/pytorch && $HOME/.local/bin/uv sync --quiet --only-group dev --no-install-project
+      - name: Lint Python surface (ruff + vulture)
+        # Runs `make py-lint` which exercises ruff check + ruff format
+        # --check + vulture (min-confidence 80% per pyproject.toml).
+        # Use --no-sync so the partially-synced venv from the previous
+        # step isn't filled with the heavy main deps.
+        run: make lint-py
+      - name: Install C-lint tools (cppcheck + clang-tidy)
+        # apt-installs cppcheck + clang-tidy on the Ubuntu preflight
+        # runner. ~10s on a warm cache. Local devs install via
+        # `brew install cppcheck llvm` or the equivalent nix derivation.
+        # The Make target gracefully skips when the tools aren't on
+        # PATH so it doesn't block pre-commit runs locally.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cppcheck clang-tidy
+      - name: Lint C / C++ backend surface (cppcheck + clang-tidy)
+        # Runs `make c-lint`: cppcheck on all 3 backends + clang-tidy
+        # on tape (tape uses only libc + BLAS headers; no libtorch /
+        # mlx setup needed at preflight time). Full clang-tidy across
+        # the C++ backends is gated behind `C_LINT_FULL_CLANG_TIDY=1`
+        # and lands in the heavy matrix jobs (libtorch headers are
+        # ~30s per TU). Conservative check set in `.clang-tidy`.
+        run: make lint-c
 
   test-examples:
     name: test-examples (${{ matrix.os }})
