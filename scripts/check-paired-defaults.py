@@ -202,19 +202,28 @@ def parse_idris(path: Path) -> dict[str, FlagInfo]:
     """
     text = path.read_text()
 
-    # 1. Record fields. Field lines must be indented (Idris record-block
-    # convention); we stop at the first non-indented line so we don't slurp
-    # the next top-level binding (e.g. `defaultConfig : Config`).
-    record_match = re.search(
-        r"record\s+Config\s+where\s*\n[ \t]+constructor\s+MkConfig\s*\n((?:[ \t]+[a-zA-Z][a-zA-Z0-9_]*\s*:\s*[^\n]+\n)+)",
+    # 1. Record fields. Walk the record body line-by-line starting from the
+    # `constructor MkConfig` line. Accumulate field names from indented
+    # `<ident> : <type>` lines; skip indented `|||` docstring lines and blank
+    # lines (which Idris allows between fields). Stop at the first non-indented
+    # line so we don't slurp the next top-level binding.
+    record_header = re.search(
+        r"record\s+Config\s+where\s*\n[ \t]+constructor\s+MkConfig\s*\n",
         text,
     )
-    if not record_match:
+    if not record_header:
         raise ValueError(f"{path}: could not find `record Config where ... constructor MkConfig`")
-    fields_block = record_match.group(1)
     fields: list[str] = []
-    for line in fields_block.splitlines():
-        m = re.match(r"[ \t]+([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*", line)
+    body_start = record_header.end()
+    for line in text[body_start:].splitlines():
+        if not line.strip():
+            continue  # blank — keep scanning
+        if not line[0].isspace():
+            break  # next top-level binding — end of record body
+        stripped = line.lstrip()
+        if stripped.startswith("|||") or stripped.startswith("--"):
+            continue  # docstring / line comment between fields
+        m = re.match(r"([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*", stripped)
         if m:
             fields.append(m.group(1))
 

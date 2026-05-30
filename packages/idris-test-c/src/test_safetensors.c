@@ -266,10 +266,12 @@ Test(safetensors, raw_bytes_reader) {
 
 
 #ifdef BACKEND_TORCH
-/* Inference-dtype create via the unified dtag-dispatch symbol (dtags from
-   the Idris RuntimeDType: F32=0, F64=1, BF16=2, F16=3, I8=4, I16=5, I32=6,
-   I64=7, U8=8, Bool=9). The per-dtype create symbols were retired in the
-   Phase 1 unification (commit 4b77f9a). */
+/* Inference-dtype create via the unified dtag-dispatch symbol.
+   Canonical kind-major dtag layout (see backend_torch/training/dtype_dispatch.cpp
+   `st_for_dtag`):
+     1=Bool, 4=U8, 8=I8, 9=I16, 10=I32, 11=I64,
+     13=F16, 14=F32, 15=F64, 17=BF16
+   The per-dtype create symbols were retired in the Phase 1 unification. */
 
 /* Save -> zero -> load round-trip for one inference dtype. `data` holds
    values that are exactly representable in the dtype, so the restored
@@ -353,7 +355,7 @@ Test(safetensors, i64_exact_round_trip) {
        byte-exact via param_load_data_int64 below. */
     double* placeholder = tensor_alloc_doubles(n);
     for (int i = 0; i < n; i++) placeholder[i] = 0.0;
-    TensorHandle h = tensor_create_1d_streamed(n, placeholder, 0, 0, /*dtag=I64*/7);
+    TensorHandle h = tensor_create_1d_streamed(n, placeholder, 0, 0, /*dtag=I64*/11);
     param_register("w_i64_big", h);
 
     ASSERT_TRUE("w_i64_big: on-disk dtype is I64",
