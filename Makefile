@@ -1184,9 +1184,6 @@ check-examples: install
 			Transfer|MlxStreamDemo) \
 				echo "Skipping Example.$$mod (cross-backend: names non-linked devices, so it only compiles under a multi-backend BACKEND — checked via its own target)"; \
 				continue ;; \
-			DTypeSerialize) \
-				echo "Skipping Example.$$mod (torch-only: constructs bf16/f16/i32, no Compatible instance on tape/mlx — checked via example-dtype-serialize)"; \
-				continue ;; \
 			IndexOps) \
 				echo "Skipping Example.$$mod (torch-only: targsort returns I64, no Compatible instance on tape/mlx — checked via example-index-ops)"; \
 				continue ;; \
@@ -1952,10 +1949,21 @@ test-integration-lint-benchmarks:
 # CI preflight: perf-regression advisory gate. Reads perf-log.jsonl,
 # computes a median-of-last-5 baseline per (axis, label, runtime),
 # classifies the latest as OK / WARN (>15%) / FAIL (>40%) vs that
-# baseline. Always exits 0 today (Phase 5a — advisory); a later
-# commit will flip the FAIL threshold to exit 1.
+# baseline. Always exits 0 today (advisory); a later commit will
+# flip the FAIL threshold to exit 1.
 test-integration-lint-perf-regression:
 	python3 scripts/check-perf-regression.py
+
+# Companion `--mode run` gate over kind="run" example-perf entries.
+# Groups by (example, backend, args), medians the last 10 runs,
+# fails (exit 1) when the latest is > 100% slower than that
+# baseline AND PERF_GATE=1 is set. Without PERF_GATE the script
+# always exits 0 — informational only — so a noisy initial
+# rollout doesn't break CI. Once the noise profile is calibrated,
+# the CI step (or a follow-up commit) sets PERF_GATE=1 to promote
+# to hard-fail.
+lint-perf-run:
+	python3 scripts/check-perf-regression.py --mode run
 
 bench-ops-compare:
 	@for b in tape mlx torch; do \
