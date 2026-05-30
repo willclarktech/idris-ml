@@ -1,8 +1,17 @@
 /* Test a single NTM timestep: LSTM → FC → addressing → output.
-   Mirrors the Idris NTM applyVar scalar fallback path.
-   Goal: find where NaN enters when combining LSTM + addressing. */
-
+ * Mirrors the Idris NTM applyVar scalar fallback path.
+ * Goal: find where NaN enters when combining LSTM + addressing.
+ *
+ * Single integration Test() — the file is 200+ lines of sequential
+ * LSTM+FC+addressing+backward setup. Decomposing into multiple Test()
+ * cases would force replicating the 130-line scalar-param allocation
+ * chain (LSTM iw/rw/bias + h0/c0 + read FC weights + memory + addressing
+ * weights). Criterion forks per Test(), so the cross-test global
+ * registry isn't an issue — each fork starts fresh.
+ */
+#include <criterion/criterion.h>
 #include "backend.h"
+#include "shared_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,8 +36,8 @@ static void create_scalar_params(const char* prefix, int count, double init,
 
 /* Helper: stack scalar handles into a 1D tensor */
 static TensorHandle stack_scalars(TensorHandle* handles, int n) {
-    TensorHandle* arr = tensor_ptr_array_alloc(n);
-    for (int i = 0; i < n; i++) tensor_ptr_array_set(arr, i, handles[i]);
+    void** arr = tensor_ptr_array_alloc(n);
+    for (int i = 0; i < n; i++) tensor_ptr_array_set_return(arr, i, handles[i]);
     return tensor_stack_from_array(arr, n, 0);
 }
 
@@ -48,12 +57,9 @@ static int count_nan_grads(void) {
     return nan_count;
 }
 
-int main(void) {
+Test(ntm_timestep, lstm_addressing_backward_no_nans) {
     param_clear();
     srand(42);
-
-    printf("=== NTM Single Timestep Test ===\n");
-    printf("N=%d M=%d H=%d INP=%d\n\n", N, M, H, INP);
 
     /* --- Create all parameters --- */
 
@@ -92,14 +98,12 @@ int main(void) {
     create_scalar_params("rout", M, 0.0, read_out);
 
     int total_params = param_count();
-    printf("Total params: %d\n", total_params);
 
     /* --- Input (not a param) --- */
     TensorHandle* input = calloc(INP, sizeof(TensorHandle));
     for (int i = 0; i < INP; i++) input[i] = tensor_create_scalar(i < 4 ? 1.0 : 0.0, 0);
 
     /* === LSTM Forward === */
-    printf("\n--- LSTM Forward ---\n");
 
     /* Concatenate readOutput ++ input → [M+INP] */
     int lstm_inp_size = M + INP;
@@ -122,24 +126,12 @@ int main(void) {
 
     /* LSTM gates via pair */
     TensorPair* gates = tensor_lstm_gates_pair(combined, c_t, H);
-    TensorHandle new_h = tensor_pair_first(gates);
     TensorHandle new_c = tensor_pair_second(gates);
-    printf("hidden[0] = %f, cell[0] = %f\n",
-           tensor_item(tensor_select(new_h, 0, 0)),
-           tensor_item(tensor_select(new_c, 0, 0)));
 
     /* === Read FC: cell → readParams === */
-    printf("\n--- Read FC Forward ---\n");
     TensorHandle rfc_wt = reshape_2d(stack_scalars(rfc_w, rfc_size), read_param_w, H);
     TensorHandle rfc_bt = stack_scalars(rfc_b, read_param_w);
     TensorHandle read_params = tensor_add(tensor_mv(rfc_wt, new_c), rfc_bt);
-    printf("read_params[0] = %f\n", tensor_item(tensor_select(read_params, 0, 0)));
-
-    /* Parse read head params */
-    /* key [M], shift [3], beta [1], g [1], gamma [1] */
-    /* For simplicity: just extract as scalar selects */
-    TensorHandle key_t = stack_scalars(NULL, 0);  /* need to select M elements */
-    /* Actually, let's use tensor_select to get individual elements from read_params */
 
     /* Parse read params: key[M], shift[3], beta, g, gamma */
     /* Select elements from read_params to form addressing inputs */
@@ -159,9 +151,6 @@ int main(void) {
 
     TensorHandle gamma_raw = tensor_select(read_params, 0, M + 5);
     TensorHandle gamma_v = tensor_add_scalar(tensor_log(tensor_add_scalar(tensor_exp(gamma_raw), 1.0)), 1.0);
-
-    printf("\nbeta=%f g=%f gamma=%f\n",
-           tensor_item(beta_sp), tensor_item(g_v), tensor_item(gamma_v));
 
     /* Run addressing chain */
     TensorHandle mem_t = reshape_2d(stack_scalars(mem, N * M), N, M);
@@ -183,37 +172,20 @@ int main(void) {
     TensorHandle read_result = tensor_matmul(focused, mem_t);
 
     TensorHandle loss = tensor_sum(read_result);
-    printf("\nloss = %f, rg=%d\n", tensor_item(loss), tensor_requires_grad(loss));
 
     free(key_elems); free(shift_elems);
 
     /* === Backward === */
-    printf("\n--- Backward ---\n");
     tensor_backward(loss);
 
     int nan_grads = count_nan_grads();
-    printf("NaN gradients: %d / %d\n", nan_grads, total_params);
-
-    if (nan_grads > 0) {
-        /* Find first NaN param */
-        for (int i = 0; i < param_count(); i++) {
-            double g = param_grad_item(i);
-            if (g != g) {
-                printf("First NaN: param[%d] = '%s'\n", i, param_name(i));
-                break;
-            }
-        }
-    }
-
-    if (nan_grads == 0) {
-        printf("\nSUCCESS: All gradients finite through LSTM + FC!\n");
-    } else {
-        printf("\nFAILED: %d NaN gradients\n", nan_grads);
-    }
 
     /* Cleanup */
     free(lstm_iw); free(lstm_rw); free(lstm_b); free(lstm_h0); free(lstm_c0);
     free(rfc_w); free(rfc_b); free(mem); free(read_addr); free(read_out);
     free(input); free(lstm_inp);
-    return nan_grads > 0 ? 1 : 0;
+
+    cr_assert_eq(nan_grads, 0,
+        "NTM timestep (LSTM + FC + addressing) produced %d NaN gradients out of %d params",
+        nan_grads, total_params);
 }
