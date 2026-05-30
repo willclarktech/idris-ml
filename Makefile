@@ -1053,7 +1053,18 @@ install: install-core install-gym install-transformers install-notebook install-
 
 # Type-check the idris-ml core library only. Fastest single-package
 # gate. The `check` aggregator below is the daily-driver default.
-check-idris-ml: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
+#
+# Depends on install-core (not raw backend) so that under `make -j`,
+# check-idris-ml is serialized AFTER install-core. Both share the
+# `$(BUILD)/ttc-idris-ml` directory; running them in parallel would
+# race on the TTC cache. install-core elaborates idris-ml in --install
+# mode and writes the TTC files; the --build invocation below is then
+# a fast TTC-hit no-op. The downstream win: check-gym, check-transformers,
+# and check-notebook run concurrently with this step once install-core
+# completes, dropping `make -j4 check` wall-clock to ~slowest-single-
+# package elaboration. install-core is a write to IDRIS2_LOCAL/, which
+# is already a per-checkout prefix — harmless side effect.
+check-idris-ml: install-core
 	cd packages/idris-ml && idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --build idris-ml.ipkg
 
 # Type-check gym package
