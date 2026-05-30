@@ -1415,7 +1415,7 @@ tparam4dConst {a} {b} {c} {e} pid value = ioRerun (\_ =>
 ||| backends without a seedable init-RNG.
 export
 tsetInitSeed : {0 d : Device} -> UserDeviceTraining d => Bits64 -> IO ()
-tsetInitSeed seed = ioRerun (\_ => primSetInitSeedStreamed {d} seed (deviceStreamTag {d}))
+tsetInitSeed seed = primIO (primSetInitSeedStreamed {d} seed (deviceStreamTag {d}))
 
 ||| Register an already-constructed tensor (any dtype, grad or not) in the
 ||| param registry under `paramId`, so checkpointing (`saveModel`) includes

@@ -538,7 +538,7 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   primCreateParam4dConstStreamed  : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
   -- Seed the backend's init RNG (torch::manual_seed equivalent). No-op
   -- on backends without a seedable init-RNG.
-  primSetInitSeedStreamed : Bits64 -> Int -> ()
+  primSetInitSeedStreamed : Bits64 -> Int -> PrimIO ()
 
 
 ----------------------------------------------------------------------
