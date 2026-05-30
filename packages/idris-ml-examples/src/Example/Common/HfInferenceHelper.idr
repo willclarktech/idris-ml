@@ -15,7 +15,7 @@
 ||| All values use the `ExampleDevice` / `ExampleDType` pair from
 ||| `BuildConfig` so the helpers pick up the per-build target lane
 ||| automatically (e.g. F32 on torch-mps / mlx-gpu, F64 on tape).
-module Example.HfInferenceHelper
+module Example.Common.HfInferenceHelper
 
 import Data.String
 import Data.Vect

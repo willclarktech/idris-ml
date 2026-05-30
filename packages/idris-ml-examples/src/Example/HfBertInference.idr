@@ -35,7 +35,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
-import Example.HfInferenceHelper
+import Example.Common.HfInferenceHelper
 import HfBert
 import Tensor
 import Tokenizer

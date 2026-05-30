@@ -1091,9 +1091,6 @@ check-examples: install
 			IndexOps) \
 				echo "Skipping Example.$$mod (torch-only: targsort returns I64, no Compatible instance on tape/mlx — checked via example-index-ops)"; \
 				continue ;; \
-			HfInferenceHelper) \
-				echo "Skipping Example.$$mod (shared helper module — no main; imported by HfLlamaInference / HfBitNetInference)"; \
-				continue ;; \
 		esac; \
 		slug=$$(echo "$$mod" | tr 'A-Z' 'a-z'); \
 		echo "Building Example.$$mod..."; \

@@ -66,7 +66,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
-import Example.HfInferenceHelper
+import Example.Common.HfInferenceHelper
 import HfLlama
 import KVCache
 import Layer.RoPE

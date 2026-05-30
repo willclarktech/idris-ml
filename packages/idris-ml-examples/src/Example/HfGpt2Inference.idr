@@ -47,7 +47,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
-import Example.HfInferenceHelper
+import Example.Common.HfInferenceHelper
 import HfGpt2
 import Tensor
 import Util

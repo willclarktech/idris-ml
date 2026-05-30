@@ -46,7 +46,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
-import Example.HfInferenceHelper
+import Example.Common.HfInferenceHelper
 import HfBitNet
 import Layer.RoPE
 import Tensor
@@ -137,7 +137,7 @@ iterateBlocksDumping (b :: bs) tables x idx dumpFn = do
 
 
 ----------------------------------------------------------------------
--- Greedy generation (helpers live in Example.HfInferenceHelper)
+-- Greedy generation (helpers live in Example.Common.HfInferenceHelper)
 ----------------------------------------------------------------------
 
 genOneStep : BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
