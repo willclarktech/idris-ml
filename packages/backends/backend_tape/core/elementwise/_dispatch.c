@@ -17,7 +17,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
+#endif
 #include "../../arena.h"
 #include "../../tape.h"
 #include "../../tensor.h"
