@@ -46,3 +46,13 @@ TestDevice = @DEVICE@
 public export
 TestDType : DType
 TestDType = @DTYPE@
+
+||| Lowercase name of the primary backend ("tape" / "torch" / "mlx"),
+||| as seen at TestConfig generation time. Value-level mirror of the
+||| Type-level `TestDevice` selection above. Tests that need to gate
+||| at runtime — e.g. F32-vs-F64 paired-oracle tests that only make
+||| sense when both dtypes are admissible on the active device — read
+||| this string to decide whether to run or skip.
+public export
+TestPrimaryBackend : String
+TestPrimaryBackend = "@PRIMARY@"

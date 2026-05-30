@@ -684,7 +684,7 @@ $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
 	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
 	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
-	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@.tmp; \
+	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[TestConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) TORCH_DTYPE=$(TORCH_DTYPE) MLX_DTYPE=$(MLX_DTYPE) TAPE_DTYPE=$(TAPE_DTYPE) → $$(awk -F' = ' '/^TestDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
 

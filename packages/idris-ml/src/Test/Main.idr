@@ -16,6 +16,7 @@ import Test.ManagedHandle
 import Test.BitLinear
 import Test.BitNet
 import Test.MixedLayerLike
+import Test.Properties.F32GradParity as Props.F32GradParity
 import Test.Properties.GoldenDemo as Props.GoldenDemo
 import Test.Properties.Reshape as Props.Reshape
 import Test.Properties.RmsNorm as Props.RmsNorm
@@ -52,7 +53,8 @@ main = runAll
   , ("BitNet",          Test.BitNet.tests)
   , ("MixedLayerLike",  Test.MixedLayerLike.tests)
   , ("Properties",      Props.Softmax.tests ++ Props.Reshape.tests ++ Props.GoldenDemo.tests
-                                            ++ Props.RmsNorm.tests ++ Props.RoPE.tests)
+                                            ++ Props.RmsNorm.tests ++ Props.RoPE.tests
+                                            ++ Props.F32GradParity.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
   , ("RoPE",            Test.RoPE.tests)
   , ("SwiGLU",          Test.SwiGLU.tests)

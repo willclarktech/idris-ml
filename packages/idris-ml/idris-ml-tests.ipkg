@@ -25,6 +25,7 @@ modules = Test.Main
         , Test.ManagedHandle
         , Test.Math
         , Test.MixedLayerLike
+        , Test.Properties.F32GradParity
         , Test.Properties.GoldenDemo
         , Test.Properties.Reshape
         , Test.Properties.RmsNorm
