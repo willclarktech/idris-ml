@@ -150,7 +150,7 @@ class LinearGRUCell(nn.Module):
         hh = self.weight_hh @ self._h + self.bias_hh
         o = self.hidden_size
         z = torch.sigmoid(ih[0:o] + hh[0:o])
-        r = torch.sigmoid(ih[o:2 * o] + hh[o:2 * o])
+        r = torch.sigmoid(ih[o : 2 * o] + hh[o : 2 * o])
         n = torch.tanh(ih[2 * o : 3 * o] + r * hh[2 * o : 3 * o])
         self._h = (1.0 - z) * n + z * self._h
         return self.output_proj(self._h)

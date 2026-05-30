@@ -12,7 +12,12 @@ from torch_ref.models.gpt import (
 )
 
 GPT_KWARGS = dict(
-    seed=42, seq_len=32, d_model=32, num_heads=4, num_blocks=1, batch_size=16,
+    seed=42,
+    seq_len=32,
+    d_model=32,
+    num_heads=4,
+    num_blocks=1,
+    batch_size=16,
 )
 
 
@@ -22,9 +27,7 @@ class TestGpt:
         _, history = train_gpt(epochs=200, **GPT_KWARGS)
         early_avg = sum(history[:50]) / 50
         late_avg = sum(history[-50:]) / 50
-        assert late_avg < early_avg, (
-            f"Expected loss to decrease: {early_avg:.3f} -> {late_avg:.3f}"
-        )
+        assert late_avg < early_avg, f"Expected loss to decrease: {early_avg:.3f} -> {late_avg:.3f}"
 
     def test_generates_text(self) -> None:
         """Trained model should generate non-trivial text."""

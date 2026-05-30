@@ -20,8 +20,7 @@ from torch_ref.training.runner import format_result, set_device
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--epochs", type=int, default=30000,
-                        help="number of env steps")
+    parser.add_argument("--epochs", type=int, default=30000, help="number of env steps")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--alpha", type=float, default=0.2)
@@ -30,7 +29,8 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=1000)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument(
-        "--lr-find", action="store_true",
+        "--lr-find",
+        action="store_true",
         help="Stub for API consistency; SAC's per-step + warmup don't fit lr_find.",
     )
     parser.add_argument(
@@ -60,9 +60,15 @@ def main() -> None:
 
     t_start = time.monotonic()
     actor, _history = train_sac(
-        total_steps=args.epochs, buffer_capacity=args.buffer, batch_size=args.batch,
-        lr=args.lr, gamma=args.gamma, alpha=args.alpha,
-        warmup_steps=args.warmup, tau=args.tau, seed=args.seed,
+        total_steps=args.epochs,
+        buffer_capacity=args.buffer,
+        batch_size=args.batch,
+        lr=args.lr,
+        gamma=args.gamma,
+        alpha=args.alpha,
+        warmup_steps=args.warmup,
+        tau=args.tau,
+        seed=args.seed,
     )
     elapsed = time.monotonic() - t_start
     ms_per_ep = elapsed / args.epochs * 1000
@@ -73,11 +79,15 @@ def main() -> None:
     avg = evaluate(actor, n_episodes=20)
     print(f"Eval (20 episodes, greedy): avg_return={avg:.1f}")
     print()
-    print(format_result([
-        ("avg_return", f"{avg:.1f}"),
-        ("epochs", str(args.epochs)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("avg_return", f"{avg:.1f}"),
+                ("epochs", str(args.epochs)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

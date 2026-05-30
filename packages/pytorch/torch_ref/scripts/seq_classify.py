@@ -70,10 +70,7 @@ def main() -> None:
         if epoch == 1 or epoch % 100 == 0 or epoch == args.epochs:
             accuracy = evaluate(model)
             elapsed = time.time() - t0
-            print(
-                f"  [{elapsed:07.2f}s] {epoch}"
-                f"\tloss={loss:.6f}\taccuracy={accuracy * 100:.1f}%"
-            )
+            print(f"  [{elapsed:07.2f}s] {epoch}\tloss={loss:.6f}\taccuracy={accuracy * 100:.1f}%")
         # Patience-based early stopping (matches Idris patienceConfig)
         if loss < best_loss - 0.001:
             best_loss = loss
@@ -90,11 +87,15 @@ def main() -> None:
     accuracy = evaluate(model, 500)
     elapsed = time.time() - t0
     print(f"\nFinal accuracy (500 samples): {accuracy * 100:.1f}% ({elapsed:.1f}s)")
-    print(format_result([
-        ("accuracy", f"{accuracy:.4f}"),
-        ("epochs", str(epochs_done)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("accuracy", f"{accuracy:.4f}"),
+                ("epochs", str(epochs_done)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

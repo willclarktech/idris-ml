@@ -180,9 +180,7 @@ def lr_find(
             min_smoothed = corrected
         points.append((lr, corrected))
 
-        print(
-            f"  iter\t{i}\tlr\t{lr}\tloss\t{loss}\tsmoothed\t{corrected}"
-        )
+        print(f"  iter\t{i}\tlr\t{lr}\tloss\t{loss}\tsmoothed\t{corrected}")
 
         if i > 0 and has_diverged(config.diverge_factor, min_smoothed, corrected):
             print(

@@ -98,7 +98,7 @@ CORPUS_INDICES = encode_corpus(CORPUS)
 
 @dataclass
 class Vocabulary:
-    chars: list[str]                   # ordered: chars[i] is the char at id i
+    chars: list[str]  # ordered: chars[i] is the char at id i
     char_to_idx: dict[str, int]
 
     @property
@@ -152,9 +152,7 @@ def load_tinyshakespeare(
     return text, vocab, indices
 
 
-def train_val_split(
-    indices: list[int], val_frac: float = 0.1
-) -> tuple[list[int], list[int]]:
+def train_val_split(indices: list[int], val_frac: float = 0.1) -> tuple[list[int], list[int]]:
     """Deterministic train/val split — last val_frac of corpus is held out."""
     n_val = int(len(indices) * val_frac)
     n_train = len(indices) - n_val

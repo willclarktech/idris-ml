@@ -43,8 +43,8 @@ class MnistCNN(nn.Module):
         # x: [B, 1, 28, 28]
         x = F.max_pool2d(F.relu(self.conv1(x)), 2)  # [B, 16, 12, 12]
         x = F.max_pool2d(F.relu(self.conv2(x)), 2)  # [B, 32, 4, 4]
-        x = self.drop(x.view(x.size(0), -1))         # [B, 512]
-        return F.log_softmax(self.fc(x), dim=1)      # [B, 10]
+        x = self.drop(x.view(x.size(0), -1))  # [B, 512]
+        return F.log_softmax(self.fc(x), dim=1)  # [B, 10]
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +70,8 @@ def get_mnist_loaders(
     test = datasets.MNIST(data_dir, train=False, transform=transform)
     if train_count > 0 and train_count < len(train):
         train = torch.utils.data.Subset(train, range(train_count))
-    train_loader = torch.utils.data.DataLoader(
-        train, batch_size=batch_size, shuffle=True
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test, batch_size=batch_size, shuffle=False
-    )
+    train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(test, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader
 
 

@@ -30,8 +30,7 @@ from torch_ref.training.runner import format_elapsed, format_result, mem_suffix,
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--epochs", type=int, default=1000,
-                        help="number of episodes")
+    parser.add_argument("--epochs", type=int, default=1000, help="number of episodes")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--batch", type=int, default=64)
@@ -77,10 +76,20 @@ def main() -> None:
 
     def epoch_fn() -> float:
         new_step, ep_return = dqn_episode(
-            env, q, target, optimizer, buffer, step_count[0],
-            args.batch, args.gamma, args.target_sync,
-            args.eps_start, args.eps_end, args.eps_decay,
-            args.shaping, rng,
+            env,
+            q,
+            target,
+            optimizer,
+            buffer,
+            step_count[0],
+            args.batch,
+            args.gamma,
+            args.target_sync,
+            args.eps_start,
+            args.eps_end,
+            args.eps_decay,
+            args.shaping,
+            rng,
         )
         step_count[0] = new_step
         return -ep_return
@@ -114,11 +123,15 @@ def main() -> None:
     avg = evaluate(q)
     print(f"Eval (30 episodes, greedy): avg_return={avg:.1f}")
     print()
-    print(format_result([
-        ("avg_return", f"{avg:.1f}"),
-        ("epochs", str(args.epochs)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("avg_return", f"{avg:.1f}"),
+                ("epochs", str(args.epochs)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

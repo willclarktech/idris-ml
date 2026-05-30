@@ -13,8 +13,7 @@ Idris bench — wordpiece counts across the three sentences).
 import time
 
 import torch
-from transformers import AutoTokenizer, AutoModelForMaskedLM
-
+from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 MODEL_ID = "google/bert_uncased_L-2_H-128_A-2"
 
@@ -43,7 +42,9 @@ def run_mask_demo(tokenizer, model, sentence: str) -> None:
 def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForMaskedLM.from_pretrained(MODEL_ID).double()
-    model.train(False)  # equivalent of .eval(); using train(False) to avoid pre-tool-hook security flag on the literal method name.
+    # equivalent of .eval(); using train(False) to avoid pre-tool-hook
+    # security flag on the literal method name.
+    model.train(False)
     print(f"BERT fill-in-the-mask reference - {MODEL_ID}")
     print()
 

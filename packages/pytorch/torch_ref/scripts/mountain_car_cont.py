@@ -34,8 +34,7 @@ from torch_ref.training.runner import format_elapsed, format_result, mem_suffix,
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--epochs", type=int, default=30000,
-                        help="number of env steps")
+    parser.add_argument("--epochs", type=int, default=30000, help="number of env steps")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--alpha", type=float, default=0.2)
@@ -45,7 +44,8 @@ def main() -> None:
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--shaping", type=float, default=10.0)
     parser.add_argument(
-        "--lr-find", action="store_true",
+        "--lr-find",
+        action="store_true",
         help="Stub for API consistency; SAC's per-step + warmup don't fit lr_find.",
     )
     parser.add_argument(
@@ -115,9 +115,19 @@ def main() -> None:
             obs_np = reset_to_center(env)
         if len(buffer) >= max(args.batch, args.warmup):
             sac_update(
-                actor, q1, q2, q1_target, q2_target,
-                actor_opt, q1_opt, q2_opt, buffer, args.batch,
-                args.gamma, args.alpha, rng,
+                actor,
+                q1,
+                q2,
+                q1_target,
+                q2_target,
+                actor_opt,
+                q1_opt,
+                q2_opt,
+                buffer,
+                args.batch,
+                args.gamma,
+                args.alpha,
+                rng,
             )
             polyak_update(q1_target, q1, args.tau)
             polyak_update(q2_target, q2, args.tau)
@@ -127,7 +137,7 @@ def main() -> None:
             print(
                 f"  {format_elapsed(t_start)} {step + 1}\tloss={-last_ep:.6f}"
                 f"{mem_suffix()}\treturn={last_ep:.1f}"
-                f"\trecent_20={sum(recent)/len(recent):.1f}"
+                f"\trecent_20={sum(recent) / len(recent):.1f}"
             )
 
     elapsed = time.monotonic() - t_start
@@ -139,11 +149,15 @@ def main() -> None:
     avg = evaluate(actor)
     print(f"Eval (20 episodes, greedy): avg_return={avg:.1f}")
     print()
-    print(format_result([
-        ("avg_return", f"{avg:.1f}"),
-        ("epochs", str(args.epochs)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("avg_return", f"{avg:.1f}"),
+                ("epochs", str(args.epochs)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

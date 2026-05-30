@@ -35,8 +35,7 @@ def _make_supervised_data() -> list[tuple[Tensor, Tensor]]:
         ([2.9, -1.4], [1.0, 0.0, 0.0]),
     ]
     return [
-        (torch.tensor(x, device=device, dtype=dtype),
-         torch.tensor(y, device=device, dtype=dtype))
+        (torch.tensor(x, device=device, dtype=dtype), torch.tensor(y, device=device, dtype=dtype))
         for x, y in raw
     ]
 

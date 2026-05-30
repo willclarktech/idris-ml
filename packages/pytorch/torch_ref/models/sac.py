@@ -67,9 +67,7 @@ class Actor(nn.Module):
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         h = F.relu(self.fc2(F.relu(self.fc1(x))))
         mean = self.mean_head(h).squeeze(-1)
-        log_std = torch.clamp(
-            self.log_std.squeeze(0) + torch.zeros_like(mean), min=-5.0, max=2.0
-        )
+        log_std = torch.clamp(self.log_std.squeeze(0) + torch.zeros_like(mean), min=-5.0, max=2.0)
         return mean, log_std
 
     def sample(self, x: Tensor, rng: random.Random | None = None) -> tuple[Tensor, Tensor]:
@@ -147,10 +145,19 @@ class ReplayBuffer:
 
 
 def sac_update(
-    actor: Actor, q1: QNet, q2: QNet, q1_target: QNet, q2_target: QNet,
-    actor_opt: torch.optim.Optimizer, q1_opt: torch.optim.Optimizer,
-    q2_opt: torch.optim.Optimizer, buffer: ReplayBuffer, batch_size: int,
-    gamma: float, alpha: float, rng: random.Random,
+    actor: Actor,
+    q1: QNet,
+    q2: QNet,
+    q1_target: QNet,
+    q2_target: QNet,
+    actor_opt: torch.optim.Optimizer,
+    q1_opt: torch.optim.Optimizer,
+    q2_opt: torch.optim.Optimizer,
+    buffer: ReplayBuffer,
+    batch_size: int,
+    gamma: float,
+    alpha: float,
+    rng: random.Random,
 ) -> float:
     obs, actions, rewards, next_obs, dones = buffer.sample(batch_size, rng)
     with torch.no_grad():
@@ -193,10 +200,16 @@ def polyak_update(target: nn.Module, online: nn.Module, tau: float) -> None:
 
 
 def train_sac(
-    total_steps: int = 30000, buffer_capacity: int = 100000, batch_size: int = 64,
-    lr: float = 3e-4, gamma: float = 0.99, alpha: float = 0.2,
-    warmup_steps: int = 1000, tau: float = 0.005,
-    seed: int = 42, log_every: int = 2000,
+    total_steps: int = 30000,
+    buffer_capacity: int = 100000,
+    batch_size: int = 64,
+    lr: float = 3e-4,
+    gamma: float = 0.99,
+    alpha: float = 0.2,
+    warmup_steps: int = 1000,
+    tau: float = 0.005,
+    seed: int = 42,
+    log_every: int = 2000,
 ) -> tuple[Actor, list[float]]:
     """Polyak soft update τ=0.005 every step, matching the Idris port which
     calls `polyakBlend` after each gradient step."""
@@ -240,8 +253,19 @@ def train_sac(
             obs_np = _reset_to_pi(env)
         if len(buffer) >= max(batch_size, warmup_steps):
             sac_update(
-                actor, q1, q2, q1_target, q2_target,
-                actor_opt, q1_opt, q2_opt, buffer, batch_size, gamma, alpha, rng,
+                actor,
+                q1,
+                q2,
+                q1_target,
+                q2_target,
+                actor_opt,
+                q1_opt,
+                q2_opt,
+                buffer,
+                batch_size,
+                gamma,
+                alpha,
+                rng,
             )
             # Polyak soft update every step (matches Idris).
             polyak_update(q1_target, q1, tau)
@@ -252,7 +276,7 @@ def train_sac(
             print(
                 f"  {format_elapsed(t_start)} {step + 1}\tloss={-last_ep:.6f}"
                 f"{mem_suffix()}\treturn={last_ep:.1f}"
-                f"\trecent_20={sum(recent)/len(recent):.1f}"
+                f"\trecent_20={sum(recent) / len(recent):.1f}"
             )
     return actor, history
 

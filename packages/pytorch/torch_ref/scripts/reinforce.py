@@ -68,12 +68,14 @@ def main() -> None:
     env = make_cartpole_env(args.seed)
 
     if args.lr_find:
+
         def epoch_fn() -> float:
             # `reinforce_epoch` returns (mean episodic return, policy loss).
             # `lr_find` wants a "lower is better" scalar; the Idris example
             # reports `negate avg_return` to runTraining, so we match.
             avg_ret, _ = reinforce_epoch(env, policy, optimizer, args.batch, args.gamma)
             return -avg_ret
+
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
         print()
         print("Done — re-run without --lr-find at the recommended LR.")
@@ -103,11 +105,15 @@ def main() -> None:
     print(f"  avg_return={avg_return:.1f}")
 
     print()
-    print(format_result([
-        ("avg_return", f"{avg_return:.1f}"),
-        ("epochs", str(args.epochs)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("avg_return", f"{avg_return:.1f}"),
+                ("epochs", str(args.epochs)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -51,10 +51,10 @@ BATCH_SIZE = 32
 
 # nanoGPT optimizer/schedule defaults (train_shakespeare_char.py).
 BETA1 = 0.9
-BETA2 = 0.99            # default torch is 0.999; nanoGPT uses 0.99 for char-LM
-WEIGHT_DECAY = 0.1      # default 0.01; nanoGPT uses 0.1
+BETA2 = 0.99  # default torch is 0.999; nanoGPT uses 0.99 for char-LM
+WEIGHT_DECAY = 0.1  # default 0.01; nanoGPT uses 0.1
 GRAD_CLIP = 1.0
-MIN_LR_FACTOR = 0.1     # min_lr = base_lr * MIN_LR_FACTOR
+MIN_LR_FACTOR = 0.1  # min_lr = base_lr * MIN_LR_FACTOR
 
 
 def cosine_lr(epoch: int, base_lr: float, max_epochs: int) -> float:
@@ -74,12 +74,15 @@ def cosine_lr(epoch: int, base_lr: float, max_epochs: int) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--corpus", choices=["tinyshakespeare", "embedded"],
-                        default="embedded")
+    parser.add_argument("--corpus", choices=["tinyshakespeare", "embedded"], default="embedded")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--patience", type=int, default=0,
-                        help="0 disables patience; rely on cosine LR for annealing")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=0,
+        help="0 disables patience; rely on cosine LR for annealing",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--lr-find",
@@ -144,6 +147,7 @@ def main() -> None:
         def lr_find_epoch_fn() -> float:
             data = generate_gpt_data(train_indices, BATCH_SIZE, SEQ_LEN, vocab_size)
             return train_gpt_epoch(model, data, optimizer)
+
         lr_find(LrFindConfig(num_iters=100), lr_find_epoch_fn, optimizer)
         print()
         print("Done — re-run without --lr-find at the recommended LR.")
@@ -167,7 +171,11 @@ def main() -> None:
     def metrics_fn() -> list[tuple[str, str]]:
         # Periodic val_bpc for progress logging
         val_bpc = evaluate_bpc(
-            model, val_indices, SEQ_LEN, n_samples=20, vocab_size=vocab_size,
+            model,
+            val_indices,
+            SEQ_LEN,
+            n_samples=20,
+            vocab_size=vocab_size,
         )
         cur_lr = cosine_lr(epoch_counter["i"], args.lr, args.epochs)
         return [("val_bpc", f"{val_bpc:.3f}"), ("lr", f"{cur_lr:.5f}")]
@@ -185,10 +193,18 @@ def main() -> None:
     # Final eval — held-out val_bpc on a larger sample
     print()
     val_bpc = evaluate_bpc(
-        model, val_indices, SEQ_LEN, n_samples=50, vocab_size=vocab_size,
+        model,
+        val_indices,
+        SEQ_LEN,
+        n_samples=50,
+        vocab_size=vocab_size,
     )
     train_bpc = evaluate_bpc(
-        model, train_indices, SEQ_LEN, n_samples=50, vocab_size=vocab_size,
+        model,
+        train_indices,
+        SEQ_LEN,
+        n_samples=50,
+        vocab_size=vocab_size,
     )
     print(f"Final val_bpc: {val_bpc:.3f}  (train_bpc: {train_bpc:.3f})")
     print()

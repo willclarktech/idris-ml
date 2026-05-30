@@ -23,9 +23,12 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--patience", type=int, default=3,
-                        help="Paired with Idris Mnist.idr Patience early-stop "
-                             "(default 3, threshold 0.001)")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=3,
+        help="Paired with Idris Mnist.idr Patience early-stop (default 3, threshold 0.001)",
+    )
     parser.add_argument(
         "--lr-find",
         action="store_true",
@@ -51,17 +54,14 @@ def main() -> None:
 
     print("=== MNIST: Convolutional Neural Network ===")
     print(
-        f"Config: lr={args.lr} epochs={args.epochs}"
-        f" batch_size={args.batch_size} seed={args.seed}"
+        f"Config: lr={args.lr} epochs={args.epochs} batch_size={args.batch_size} seed={args.seed}"
     )
     print(
         "Architecture: Conv2d(1->16,k=5) -> ReLU -> Pool(2)"
         " -> Conv2d(16->32,k=5) -> ReLU -> Pool(2) -> Linear(512->10)"
     )
 
-    train_loader, test_loader = get_mnist_loaders(
-        args.batch_size, train_count=args.train_count
-    )
+    train_loader, test_loader = get_mnist_loaders(args.batch_size, train_count=args.train_count)
     model = MnistCNN().to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -119,11 +119,15 @@ def main() -> None:
     test_loss, accuracy = evaluate(model, test_loader)
     elapsed = time.time() - t0
     print(f"\nFinal: test_loss={test_loss:.6f} accuracy={accuracy * 100:.1f}% ({elapsed:.1f}s)")
-    print(format_result([
-        ("accuracy", f"{accuracy:.4f}"),
-        ("epochs", str(epochs_done)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("accuracy", f"{accuracy:.4f}"),
+                ("epochs", str(epochs_done)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

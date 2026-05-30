@@ -44,8 +44,7 @@ from torch_ref.training.runner import (
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--epochs", type=int, default=100,
-                        help="number of PPO rollouts")
+    parser.add_argument("--epochs", type=int, default=100, help="number of PPO rollouts")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--lambda", dest="lam", type=float, default=0.95)
@@ -92,12 +91,17 @@ def main() -> None:
     def epoch_fn() -> float:
         """One PPO rollout + update. Returns -avg_ep_return (matches Idris)."""
         obs_l, act_l, lp_l, rew_l, val_l, done_l, new_obs, ep_rets = collect_rollout(
-            actor, critic, env, obs_state[0], args.rollout, args.max_ep_len, rng,
+            actor,
+            critic,
+            env,
+            obs_state[0],
+            args.rollout,
+            args.max_ep_len,
+            rng,
         )
         with torch.no_grad():
             bootstrap = (
-                0.0 if (done_l and done_l[-1])
-                else float(critic(obs_tensor(new_obs)).item())
+                0.0 if (done_l and done_l[-1]) else float(critic(obs_tensor(new_obs)).item())
             )
         advs, rets = gae(rew_l, val_l, done_l, bootstrap, args.gamma, args.lam)
         obs_t = torch.stack(obs_l)
@@ -107,8 +111,20 @@ def main() -> None:
         ret_t = torch.tensor(rets, dtype=get_dtype(), device=args.device)
         adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
         ppo_update(
-            actor, critic, actor_opt, critic_opt, obs_t, act_t, lp_t, adv_t, ret_t,
-            args.clip_eps, args.entropy, args.k_epochs, args.batch_size, rng,
+            actor,
+            critic,
+            actor_opt,
+            critic_opt,
+            obs_t,
+            act_t,
+            lp_t,
+            adv_t,
+            ret_t,
+            args.clip_eps,
+            args.entropy,
+            args.k_epochs,
+            args.batch_size,
+            rng,
         )
         obs_state[0] = new_obs
 
@@ -121,6 +137,7 @@ def main() -> None:
         class _BothOpts:
             def __init__(self, a: torch.optim.Optimizer, c: torch.optim.Optimizer) -> None:
                 self.param_groups = a.param_groups + c.param_groups
+
         lr_find(LrFindConfig(num_iters=30), epoch_fn, _BothOpts(actor_opt, critic_opt))
         print()
         print("Done — re-run without --lr-find at the recommended LR.")
@@ -152,11 +169,15 @@ def main() -> None:
     print(f"  avg_return={avg_return:.1f}")
 
     print()
-    print(format_result([
-        ("avg_return", f"{avg_return:.1f}"),
-        ("epochs", str(args.epochs)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("avg_return", f"{avg_return:.1f}"),
+                ("epochs", str(args.epochs)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

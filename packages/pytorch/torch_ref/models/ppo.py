@@ -98,8 +98,12 @@ def sample_action(actor: Actor, obs: Tensor, rng: random.Random) -> tuple[int, f
 
 
 def gae(
-    rewards: list[float], values: list[float], dones: list[bool], bootstrap: float,
-    gamma: float, lam: float,
+    rewards: list[float],
+    values: list[float],
+    dones: list[bool],
+    bootstrap: float,
+    gamma: float,
+    lam: float,
 ) -> tuple[list[float], list[float]]:
     advantages: list[float] = []
     a_next = 0.0
@@ -117,11 +121,22 @@ def gae(
 
 
 def collect_rollout(
-    actor: Actor, critic: Critic, env: gym.Env, obs_np: np.ndarray,
-    n_steps: int, max_ep_len: int, rng: random.Random,
+    actor: Actor,
+    critic: Critic,
+    env: gym.Env,
+    obs_np: np.ndarray,
+    n_steps: int,
+    max_ep_len: int,
+    rng: random.Random,
 ) -> tuple[
-    list[Tensor], list[int], list[float], list[float], list[float], list[bool],
-    np.ndarray, list[float],
+    list[Tensor],
+    list[int],
+    list[float],
+    list[float],
+    list[float],
+    list[bool],
+    np.ndarray,
+    list[float],
 ]:
     obs_list: list[Tensor] = []
     act_list: list[int] = []
@@ -161,10 +176,20 @@ def collect_rollout(
 
 
 def ppo_update(
-    actor: Actor, critic: Critic, actor_opt: torch.optim.Optimizer,
-    critic_opt: torch.optim.Optimizer, obs: Tensor, actions: Tensor,
-    old_log_probs: Tensor, advantages: Tensor, returns: Tensor, clip_eps: float,
-    entropy_coef: float, k_epochs: int, batch_size: int, rng: random.Random,
+    actor: Actor,
+    critic: Critic,
+    actor_opt: torch.optim.Optimizer,
+    critic_opt: torch.optim.Optimizer,
+    obs: Tensor,
+    actions: Tensor,
+    old_log_probs: Tensor,
+    advantages: Tensor,
+    returns: Tensor,
+    clip_eps: float,
+    entropy_coef: float,
+    k_epochs: int,
+    batch_size: int,
+    rng: random.Random,
 ) -> None:
     n = obs.shape[0]
     indices = list(range(n))
@@ -199,10 +224,18 @@ def ppo_update(
 
 
 def train_ppo(
-    total_rollouts: int = 100, rollout_steps: int = 1024, lr: float = 3e-4,
-    gamma: float = 0.99, lam: float = 0.95, clip_eps: float = 0.2,
-    entropy_coef: float = 0.01, k_epochs: int = 10, batch_size: int = 64,
-    max_ep_len: int = MAX_STEPS, seed: int = 42, log_every: int = 10,
+    total_rollouts: int = 100,
+    rollout_steps: int = 1024,
+    lr: float = 3e-4,
+    gamma: float = 0.99,
+    lam: float = 0.95,
+    clip_eps: float = 0.2,
+    entropy_coef: float = 0.01,
+    k_epochs: int = 10,
+    batch_size: int = 64,
+    max_ep_len: int = MAX_STEPS,
+    seed: int = 42,
+    log_every: int = 10,
 ) -> tuple[Actor, list[float]]:
     torch.manual_seed(seed)
     rng = random.Random(seed)
@@ -216,13 +249,16 @@ def train_ppo(
     t_start = time.monotonic()
     for r in range(total_rollouts):
         obs_l, act_l, lp_l, rew_l, val_l, done_l, obs_np, ep_rets = collect_rollout(
-            actor, critic, env, obs_np, rollout_steps, max_ep_len, rng,
+            actor,
+            critic,
+            env,
+            obs_np,
+            rollout_steps,
+            max_ep_len,
+            rng,
         )
         with torch.no_grad():
-            bootstrap = (
-                0.0 if (done_l and done_l[-1])
-                else float(critic(obs_tensor(obs_np)).item())
-            )
+            bootstrap = 0.0 if (done_l and done_l[-1]) else float(critic(obs_tensor(obs_np)).item())
         advs, rets = gae(rew_l, val_l, done_l, bootstrap, gamma, lam)
         device, dtype = get_device(), get_dtype()
         obs_t = torch.stack(obs_l)
@@ -232,8 +268,20 @@ def train_ppo(
         ret_t = torch.tensor(rets, dtype=dtype, device=device)
         adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
         ppo_update(
-            actor, critic, actor_opt, critic_opt, obs_t, act_t, lp_t, adv_t, ret_t,
-            clip_eps, entropy_coef, k_epochs, batch_size, rng,
+            actor,
+            critic,
+            actor_opt,
+            critic_opt,
+            obs_t,
+            act_t,
+            lp_t,
+            adv_t,
+            ret_t,
+            clip_eps,
+            entropy_coef,
+            k_epochs,
+            batch_size,
+            rng,
         )
         history.extend(ep_rets)
         if (r + 1) % log_every == 0:
@@ -242,7 +290,7 @@ def train_ppo(
             print(
                 f"  {format_elapsed(t_start)} {r + 1}\tloss={-last_ep:.6f}"
                 f"{mem_suffix()}\treturn={last_ep:.1f}"
-                f"\trecent_50={sum(recent)/len(recent):.1f}"
+                f"\trecent_50={sum(recent) / len(recent):.1f}"
             )
     return actor, history
 

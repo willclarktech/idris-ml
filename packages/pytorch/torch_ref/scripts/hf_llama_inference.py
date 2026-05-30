@@ -18,8 +18,7 @@ import os
 import time
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID = "meta-llama/Llama-3.2-1B"
 PROMPT = "The capital of France is"

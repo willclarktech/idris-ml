@@ -39,8 +39,7 @@ from torch_ref.training.runner import (
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=7e-4)
-    parser.add_argument("--epochs", type=int, default=5000,
-                        help="number of A2C updates")
+    parser.add_argument("--epochs", type=int, default=5000, help="number of A2C updates")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--lambda", dest="lam", type=float, default=0.95)
@@ -73,7 +72,8 @@ def main() -> None:
     actor = Actor().to(args.device)
     critic = Critic().to(args.device)
     optimizer = torch.optim.Adam(
-        list(actor.parameters()) + list(critic.parameters()), lr=args.lr,
+        list(actor.parameters()) + list(critic.parameters()),
+        lr=args.lr,
     )
     print()
 
@@ -89,15 +89,25 @@ def main() -> None:
         )
         with torch.no_grad():
             bootstrap_v = critic(obs_tensor(new_obs))
-            bootstrap = (
-                0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
-            )
+            bootstrap = 0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
         advantages, returns = compute_advantages(
-            rewards, values, dones, bootstrap, args.gamma, args.lam,
+            rewards,
+            values,
+            dones,
+            bootstrap,
+            args.gamma,
+            args.lam,
         )
         a2c_update(
-            actor, critic, optimizer, obs, actions, advantages, returns,
-            args.entropy, args.value_coef,
+            actor,
+            critic,
+            optimizer,
+            obs,
+            actions,
+            advantages,
+            returns,
+            args.entropy,
+            args.value_coef,
         )
 
         ep_returns: list[float] = []
@@ -146,11 +156,15 @@ def main() -> None:
     print(f"  avg_return={avg_return:.1f}")
 
     print()
-    print(format_result([
-        ("avg_return", f"{avg_return:.1f}"),
-        ("epochs", str(args.epochs)),
-        ("seed", str(args.seed)),
-    ]))
+    print(
+        format_result(
+            [
+                ("avg_return", f"{avg_return:.1f}"),
+                ("epochs", str(args.epochs)),
+                ("seed", str(args.seed)),
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":

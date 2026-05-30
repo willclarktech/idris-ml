@@ -99,9 +99,7 @@ def train_mc(
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-1000:]) / min(len(history), 1000)
             win_rate = sum(1 for r in history[-1000:] if r > 0) / min(len(history), 1000)
-            print(
-                f"  epoch {epoch + 1:6d}  mean_reward={recent:+.3f}  win_rate={win_rate:.3f}"
-            )
+            print(f"  epoch {epoch + 1:6d}  mean_reward={recent:+.3f}  win_rate={win_rate:.3f}")
     return q, history
 
 

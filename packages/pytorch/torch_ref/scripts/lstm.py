@@ -60,8 +60,10 @@ def main() -> None:
         sys.exit(0)
 
     config = TrainConfig(
-        total_epochs=args.epochs, log_every=100,
-        patience=args.patience, device=args.device,
+        total_epochs=args.epochs,
+        log_every=100,
+        patience=args.patience,
+        device=args.device,
     )
     epochs_done, final_loss = run_training(epoch_fn, config)
 

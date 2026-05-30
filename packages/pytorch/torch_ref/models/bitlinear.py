@@ -48,9 +48,9 @@ def absmean_ternary_quant(weight: Tensor) -> tuple[Tensor, Tensor]:
     scale = weight.abs().mean(dim=1)  # [o]
     safe_scale = scale.clamp(min=1e-12).unsqueeze(1)  # [o, 1], no /0
     ternary_float = torch.round(weight / safe_scale).clamp(-1, 1)
-    ternary_float = torch.where(scale.unsqueeze(1) > 0,
-                                ternary_float,
-                                torch.zeros_like(ternary_float))
+    ternary_float = torch.where(
+        scale.unsqueeze(1) > 0, ternary_float, torch.zeros_like(ternary_float)
+    )
     return ternary_float.to(torch.int8), scale
 
 
@@ -108,9 +108,9 @@ def bitlinear_forward(
 # nonzero input + bias. Computed values below in F64 for cross-
 # backend determinism.
 FIXTURE_W_TERNARY: list[list[int]] = [
-    [1, 0, -1, 1],   # row 0
-    [-1, 1, 1, 0],   # row 1
-    [0, -1, 0, 1],   # row 2
+    [1, 0, -1, 1],  # row 0
+    [-1, 1, 1, 0],  # row 1
+    [0, -1, 0, 1],  # row 2
 ]
 FIXTURE_W_SCALE: list[float] = [0.5, 0.25, 0.75]
 FIXTURE_X: list[float] = [1.0, 2.0, -0.5, 0.25]

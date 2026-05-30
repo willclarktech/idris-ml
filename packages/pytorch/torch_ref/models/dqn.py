@@ -47,9 +47,7 @@ class QNetwork(nn.Module):
 
 class ReplayBuffer:
     def __init__(self, capacity: int) -> None:
-        self.buf: deque[tuple[list[float], int, float, list[float], bool]] = deque(
-            maxlen=capacity
-        )
+        self.buf: deque[tuple[list[float], int, float, list[float], bool]] = deque(maxlen=capacity)
 
     def push(
         self,
@@ -61,9 +59,7 @@ class ReplayBuffer:
     ) -> None:
         self.buf.append((obs, action, reward, next_obs, done))
 
-    def sample(
-        self, n: int, rng: random.Random
-    ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    def sample(self, n: int, rng: random.Random) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         batch = rng.sample(self.buf, n)
         device, dtype = get_device(), get_dtype()
         obs = torch.tensor([b[0] for b in batch], dtype=dtype, device=device)
@@ -175,8 +171,16 @@ def train_dqn(
     t_start = time.monotonic()
     for ep in range(episodes):
         step_count, ep_return = dqn_episode(
-            env, q, target, optimizer, buffer, step_count,
-            batch_size, gamma, target_sync_every, rng,
+            env,
+            q,
+            target,
+            optimizer,
+            buffer,
+            step_count,
+            batch_size,
+            gamma,
+            target_sync_every,
+            rng,
         )
         history.append(ep_return)
         if (ep + 1) % log_every == 0:

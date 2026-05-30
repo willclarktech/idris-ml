@@ -12,8 +12,7 @@ default the Idris example uses).
 import time
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID = "distilgpt2"
 PROMPT = "The quick brown fox"

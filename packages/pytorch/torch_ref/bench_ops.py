@@ -116,7 +116,10 @@ def bench_attention_sdpa(
     elapsed = wall_ms() - t0
 
     suffix = " causal" if is_causal else ""
-    print(f"sdpa seq={seq} H={num_heads} Hkv={num_kv_heads} d={head_dim}{suffix}:\t{elapsed:.3f} ms  ({iters} iters)")
+    print(
+        f"sdpa seq={seq} H={num_heads} Hkv={num_kv_heads} d={head_dim}{suffix}:"
+        f"\t{elapsed:.3f} ms  ({iters} iters)"
+    )
 
 
 # --- Embedding gather (Axis A) ---

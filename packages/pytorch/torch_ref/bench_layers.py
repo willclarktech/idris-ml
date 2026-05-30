@@ -225,16 +225,16 @@ def main() -> None:
     bench_lstm_cell(hidden=256, iters=100, warmup=10)
     print()
     print("--- Conv2dBlock ---")
-    bench_conv2d_block(in_c=3, out_c=16, h=16, w=16, kh=3, kw=3,
-                       batch=8, iters=100, warmup=10)
+    bench_conv2d_block(in_c=3, out_c=16, h=16, w=16, kh=3, kw=3, batch=8, iters=100, warmup=10)
     print()
     # NTM has no canonical PyTorch reference (the Idris-side bench
     # mirrors the model architecture in `packages/pytorch/torch_ref/ntm/`
     # but that's not designed for op-level perf comparison). Axis B's
     # NTM entry intentionally shows "—" for the pytorch column.
     print("--- TransformerBlock ---")
-    bench_transformer_block(seq_len=16, d_model=64, n_heads=4, vocab_size=32,
-                            batch=2, iters=50, warmup=5)
+    bench_transformer_block(
+        seq_len=16, d_model=64, n_heads=4, vocab_size=32, batch=2, iters=50, warmup=5
+    )
     print()
     print("=== Done ===")
 

@@ -28,9 +28,9 @@ import numpy as np
 
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
-NUM_STATES = 500   # 5 rows * 5 cols * 5 pass * 4 dest
-NUM_ACTIONS = 6    # 0=down, 1=up, 2=right, 3=left, 4=pickup, 5=dropoff
-MAX_STEPS = 200    # gymnasium Taxi-v4 default TimeLimit
+NUM_STATES = 500  # 5 rows * 5 cols * 5 pass * 4 dest
+NUM_ACTIONS = 6  # 0=down, 1=up, 2=right, 3=left, 4=pickup, 5=dropoff
+MAX_STEPS = 200  # gymnasium Taxi-v4 default TimeLimit
 
 START_TAXI_ROW = 2
 START_TAXI_COL = 2

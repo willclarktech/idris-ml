@@ -63,7 +63,11 @@ class Critic(nn.Module):
 
 
 def collect_rollout(
-    actor: Actor, critic: Critic, env: gym.Env, obs_np: np.ndarray, rollout_len: int,
+    actor: Actor,
+    critic: Critic,
+    env: gym.Env,
+    obs_np: np.ndarray,
+    rollout_len: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, np.ndarray]:
     """Single-env sequential rollout of exactly `rollout_len` steps with
     auto-reset on done. Matches Idris exactly."""
@@ -103,8 +107,12 @@ def collect_rollout(
 
 
 def compute_advantages(
-    rewards: Tensor, values: Tensor, dones: Tensor, bootstrap: float,
-    gamma: float, lam: float,
+    rewards: Tensor,
+    values: Tensor,
+    dones: Tensor,
+    bootstrap: float,
+    gamma: float,
+    lam: float,
 ) -> tuple[Tensor, Tensor]:
     """GAE, single-env, inputs [T]. Returns (advantages[T], returns[T])."""
     t_len = rewards.shape[0]
@@ -122,9 +130,15 @@ def compute_advantages(
 
 
 def a2c_update(
-    actor: Actor, critic: Critic, optimizer: torch.optim.Optimizer,
-    obs: Tensor, actions: Tensor, advantages: Tensor, returns: Tensor,
-    entropy_coef: float, value_coef: float,
+    actor: Actor,
+    critic: Critic,
+    optimizer: torch.optim.Optimizer,
+    obs: Tensor,
+    actions: Tensor,
+    advantages: Tensor,
+    returns: Tensor,
+    entropy_coef: float,
+    value_coef: float,
 ) -> float:
     logits = actor(obs)
     values = critic(obs)
@@ -138,16 +152,23 @@ def a2c_update(
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_norm_(
-        list(actor.parameters()) + list(critic.parameters()), 0.5,
+        list(actor.parameters()) + list(critic.parameters()),
+        0.5,
     )
     optimizer.step()
     return float(loss.item())
 
 
 def train_a2c(
-    total_updates: int = 5000, rollout_len: int = 10, lr: float = 7e-4,
-    gamma: float = 0.99, lam: float = 0.95, entropy_coef: float = 0.01,
-    value_coef: float = 0.5, seed: int = 42, log_every: int = 500,
+    total_updates: int = 5000,
+    rollout_len: int = 10,
+    lr: float = 7e-4,
+    gamma: float = 0.99,
+    lam: float = 0.95,
+    entropy_coef: float = 0.01,
+    value_coef: float = 0.5,
+    seed: int = 42,
+    log_every: int = 500,
 ) -> tuple[Actor, Critic, list[float]]:
     """Hyperparameters match Idris `Example.A2c.defaultConfig`:
     lr=7e-4, entropy=0.01, rollout=10, gamma=0.99, lam=0.95."""
@@ -155,7 +176,8 @@ def train_a2c(
     actor = Actor().to(get_device())
     critic = Critic().to(get_device())
     optimizer = torch.optim.Adam(
-        list(actor.parameters()) + list(critic.parameters()), lr=lr,
+        list(actor.parameters()) + list(critic.parameters()),
+        lr=lr,
     )
     env = make_cartpole_env(seed)
     env.reset()
@@ -172,8 +194,15 @@ def train_a2c(
             bootstrap = 0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
         advantages, returns = compute_advantages(rewards, values, dones, bootstrap, gamma, lam)
         a2c_update(
-            actor, critic, optimizer, obs, actions, advantages, returns,
-            entropy_coef, value_coef,
+            actor,
+            critic,
+            optimizer,
+            obs,
+            actions,
+            advantages,
+            returns,
+            entropy_coef,
+            value_coef,
         )
         for t in range(rollout_len):
             ep_return += float(rewards[t].item())
@@ -186,7 +215,7 @@ def train_a2c(
             print(
                 f"  {format_elapsed(t_start)} {update + 1}\tloss={-last_ep:.6f}"
                 f"{mem_suffix()}\treturn={last_ep:.1f}"
-                f"\trecent_50={sum(recent)/len(recent):.1f}"
+                f"\trecent_50={sum(recent) / len(recent):.1f}"
             )
     return actor, critic, history
 
