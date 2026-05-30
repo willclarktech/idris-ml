@@ -343,7 +343,7 @@ jobs:
         run: make test-coverage-gap-probe
 
       - name: Run Criterion suite (tape)
-        run: make BACKEND=tape test-unit-backend
+        run: make BACKEND=tape test-unit-c
 
       - name: Run Idris unit suite (tape)
         # Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite
@@ -355,7 +355,7 @@ jobs:
 
       - name: Run Criterion suite (torch, Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-unit-backend
+        run: make BACKEND=torch test-unit-c
 
       - name: Run Idris unit suite (torch, Ubuntu)
         # Same suite as the tape lane but with TestDevice = TorchDev TCpu.
@@ -367,7 +367,7 @@ jobs:
 
       - name: Run Criterion suite (mlx, macOS)
         if: matrix.os == 'macos-latest'
-        run: make BACKEND=mlx test-unit-backend
+        run: make BACKEND=mlx test-unit-c
 
       - name: Run Idris unit suite (mlx, macOS)
         # Same suite as tape/torch but with TestDevice = MlxDev MCpu.

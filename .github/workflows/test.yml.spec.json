@@ -196,7 +196,7 @@
     },
     {
       "name": "Run Criterion suite (tape)",
-      "run": "make BACKEND=tape test-unit-backend"
+      "run": "make BACKEND=tape test-unit-c"
     },
     {
       "name": "Run Idris unit suite (tape)",
@@ -211,7 +211,7 @@
     },
     {
       "name": "Run Criterion suite (torch, Ubuntu)",
-      "run": "make BACKEND=torch test-unit-backend",
+      "run": "make BACKEND=torch test-unit-c",
       "os": "ubuntu"
     },
     {
@@ -227,7 +227,7 @@
     },
     {
       "name": "Run Criterion suite (mlx, macOS)",
-      "run": "make BACKEND=mlx test-unit-backend",
+      "run": "make BACKEND=mlx test-unit-c",
       "os": "macos"
     },
     {

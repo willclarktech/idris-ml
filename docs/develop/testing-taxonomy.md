@@ -7,25 +7,75 @@ naming (`test` partial-aggregator, `test-all` everything-and-the-
 kitchen-sink, `bench-*` / `check-*` / `coverage-*` siblings with no
 shared rules) is replaced.
 
-## The five test layers + one preflight + one release tier
+## Three verbs, three tiers, a few aggregators
 
-A contributor working pre-commit runs **one** aggregator per layer:
+Three top-level verbs map to genuinely distinct questions:
 
-| Tier | Aggregator | Wall (tape) | What lives here |
-|---|---|---|---|
-| **preflight** | `check-all` | ~30s | Pure type-checks of every package. Not a test layer; upstream of testing. ("Does it compile?") |
-| **unit** | `test-unit` | ~2 min | Idris pure-logic + C-side ops + safetensors round-trip. No example training. |
-| **integration** | `test-integration` | ~5 min | Negative-type gates, linters, multi-module integration probes that don't run a full training loop. |
-| **e2e** | `test-e2e` | ~15 min | Every example × every available backend at 3–10 epochs; HF roundtrips; jupyter execution. The "does the user-facing program work end-to-end" layer. |
-| **perf (Tier 1)** | `test-perf-fast` | ≤5 min | Op-kernel (Axis A) + single-layer fwd+bwd (Axis B), tape only. Auto-regenerates `BENCHMARKS.md`. |
-| **perf (Tier 2)** | `test-perf-nightly` | ≤20 min | Tier 1 + e2e training (Axis C) + HF inference (Axis D), tape only. Scheduled nightly. |
-| **perf (Tier 3)** | `test-perf-full` | hours | The full 80-cell sweep (every example × every backend). Manual / pre-tag. Wraps `scripts/perf-sweep.sh`. |
-| **coverage** | `test-coverage` | ~10 min | Three-axis target (symbol + OP_* backward + F32 oracle). Advisory only — see [coverage-policy.md](coverage-policy.md). |
-| **convergence** | `test-convergence` | hours | Every example to full default epochs, single seed=42, tape only. Release validation, not run on PRs. |
+| Verb | Question | Reads code? | Runs code? | Writes perf-log.jsonl? |
+|---|---|---|---|---|
+| `check` | does it compile? | yes | no | no |
+| `test` | does it behave? | yes | yes | no |
+| `bench` | how fast? | yes | yes | **yes** |
 
-`make test-unit` is the local pre-commit default. `make
-test-integration` adds another ~5 min if you touched a type-level
-guarantee. CI runs unit + integration + e2e (+ perf-fast at Tier 1).
+Each verb's bare form (`check`, `test`, `bench`) is the daily-driver
+default — the fast, sensible tier. Suffixes scale up (`-all`,
+`-full`) or down (`-fast`). The bare verb is always an alias for the
+default tier of that verb; explicit tiered names exist alongside.
+
+### `check` family — type-check only, no code execution
+
+| Target | Scope | Wall (warm) |
+|---|---|---|
+| `check` (= `check-idris`) | all Idris-side library packages — core + gym + transformers + notebook | minutes |
+| `check-idris-ml` | just the core library | shortest |
+| `check-{gym,transformers,notebook}` | per-package | shortest |
+| `check-examples` | build every example as an executable | tens of minutes (cold) |
+| `check-all` | `check` + `check-examples` | tens of minutes (cold) |
+
+C type-checking isn't separately exposed — the C compile step IS the
+type-check, and `make backend` already runs it incrementally with
+cached object files. Most cold rebuilds of `check-all` take 20-60 min
+because of `check-examples`; warm rebuilds (TTC + object cache present)
+are much faster.
+
+### `test` family — execute test code, no perf measurement
+
+| Target | Scope | Wall (warm) |
+|---|---|---|
+| `test` (= `test-unit`) | all unit suites — Idris + C | a few minutes |
+| `test-unit-idris` | Idris-side unit suites across packages (core, gym, transformers, examples) | a few minutes |
+| `test-unit-c` | Criterion C-side suite | a minute |
+| `test-unit-{idris-ml,gym,idris-transformers,examples}` | per-package | shortest |
+| `test-unit-c-{tape,mlx,torch}` | C suite with that backend forced | a minute each |
+| `test-unit-multi-backend` | cross-backend Idris suite (requires BACKEND=tape,torch,mlx) | a few minutes |
+| `test-integration` | negative-type gates, linters, multi-module probes | ~5 min |
+| `test-e2e` | every example × every available backend at 3–10 epochs; HF roundtrips; jupyter | tens of minutes |
+| `test-convergence` | every example to full default epochs, single seed=42 | hours |
+| `test-coverage` | three-axis coverage report (symbol + OP_* backward + F32 oracle) | ~10 min |
+| `test-all` | unit + integration + e2e (NOT convergence — too long) | tens of minutes |
+
+`make test` is the local pre-commit default. `make test-integration`
+adds another few minutes if you touched a type-level guarantee. CI
+runs unit + integration + e2e per-backend.
+
+### `bench` family — perf measurement, writes `perf-log.jsonl`
+
+| Target | Scope | Wall (warm) |
+|---|---|---|
+| `bench` (= `bench-fast`) | Tier 1: Axis A (op kernels) + Axis B (single-layer fwd+bwd), tape only | ≤5 min |
+| `bench-nightly` | Tier 2: Tier 1 + Axis C (e2e training) + Axis D (HF inference), tape only | ≤20 min |
+| `bench-full` | Tier 3: the cross-backend sweep (every example × every backend) | hours |
+
+All three append to `docs/develop/perf-log.jsonl` and regenerate
+`BENCHMARKS.md` via `scripts/render-benchmarks.py`. The verb axis is
+load-bearing: `bench` writes a perf-log entry, `test` doesn't.
+
+> **Wall-clock note**: numbers above are rough hardware-aware guidance,
+> not guarantees. This is a dependently-typed project; Idris-2
+> elaboration dominates and the cost is non-linear in module count +
+> implicit-arg width. On a slower box or with `nice -n 19`, multiply
+> by 2-3×. The only honest measurement is `time make <target>` on the
+> box you care about.
 
 ## Per-layer leaf naming convention
 
@@ -34,14 +84,14 @@ Every leaf is named `test-{layer}-{topic}` (or
 backend). Examples:
 
 - `test-unit-idris-ml` — Idris unit tests for the core package.
-- `test-unit-backend-tape` — Criterion C tests for the tape backend.
+- `test-unit-c-tape` — Criterion C tests for the tape backend.
 - `test-integration-typegate-gradmode` — negative-type-check gate
   for the GradMode aliasing rule.
 - `test-integration-lint-paired-defaults` — drift detector for
   Idris ↔ PyTorch default hyperparameters.
 - `test-e2e-hf-llama-roundtrip` — cross-language HfLlama correctness
   gate.
-- `test-perf-rank3-broadcast` — single op-microbench under perf.
+- `bench-rank3-broadcast` — single op-microbench under perf.
 - `test-coverage-backend-mlx` — LLVM coverage report for the mlx
   backend.
 
@@ -120,7 +170,7 @@ the RNN cell path), only one earns a slot.
 
 Tier 1 + Tier 2 auto-regenerate `BENCHMARKS.md` at the repo root —
 the external-facing artifact answering "how does idris-ml compare
-to PyTorch / JAX?" Tier 3 (`test-perf-full`) is the existing full
+to PyTorch / JAX?" Tier 3 (`bench-full`) is the existing full
 sweep; it does *not* regenerate the doc (it covers the same axes
 but across all backends, producing the deeper apples-to-apples
 table elsewhere in `docs/develop/perf-baseline.md`).
@@ -155,10 +205,10 @@ renamed. In-repo callsites (`scripts/*.sh`, in-Makefile invocations,
 | `test-gym` | `test-unit-gym` |
 | `test-transformers` | `test-unit-idris-transformers` |
 | `test-examples-unit` | `test-unit-examples` |
-| `test-backend-criterion` | `test-unit-backend` |
-| `test-backend-criterion-tape` | `test-unit-backend-tape` |
-| `test-backend-criterion-mlx` | `test-unit-backend-mlx` |
-| `test-backend-criterion-torch` | `test-unit-backend-torch` |
+| `test-backend-criterion` | `test-unit-c` |
+| `test-backend-criterion-tape` | `test-unit-c-tape` |
+| `test-backend-criterion-mlx` | `test-unit-c-mlx` |
+| `test-backend-criterion-torch` | `test-unit-c-torch` |
 | `test-safetensors` | `test-unit-safetensors` |
 | `test-ntm-grad` | `test-unit-ntm-grad` |
 | `test-ntm-timestep` | `test-unit-ntm-timestep` |
@@ -211,26 +261,24 @@ preflight, not behaviour gates.)
 | `test-ref` / `ref-test` | `test-e2e-pytorch-ref` (drop `ref-test` alias) |
 | *(new)* | `test-e2e` — aggregator |
 
-### Perf layer (replaces all `bench-*` targets)
+### Perf layer (`bench-*` tier aggregators + axis drivers)
 
-Phase 5 designs the perf benchmark suite from scratch around the
-four axes (Axis A op kernel, Axis B layer composition, Axis C e2e
-training, Axis D e2e inference). The existing `bench-*` targets
-fold into the new structure rather than being renamed 1:1.
+The perf benchmark suite is structured around the four axes (Axis A
+op kernel, Axis B layer composition, Axis C e2e training, Axis D e2e
+inference). Three cadence tiers + a handful of axis drivers:
 
-| Old | New |
+| Target | What |
 |---|---|
-| `bench-ops` | `test-perf-ops` (Axis A driver; per-op breakdown) |
-| `bench-ops-py` | *deleted* — merged into `test-perf-ops` (the Python ref runs in-process) |
-| `bench-ops-compare` | *deleted* — merged into `test-perf-ops` |
-| `bench-rank3-broadcast` | `test-perf-microbench-rank3-broadcast` |
-| `bench-rank3-broadcast-wrapped` | `test-perf-microbench-rank3-broadcast-wrapped` |
-| `bench-py` | *deleted* — folded into `test-perf-nightly` Axis C driver |
-| `bench-compare` | *deleted* — folded into `test-perf-nightly` |
-| `bench-gym` | `test-perf-gym` |
-| *(new, Phase 5)* | `test-perf-fast` — Axis A + B, ≤5 min |
-| *(new, Phase 5)* | `test-perf-nightly` — A + B + C + D, ≤20 min |
-| *(new, Phase 5)* | `test-perf-full` — wraps `scripts/perf-sweep.sh` |
+| `bench` (= `bench-fast`) | Tier 1: Axes A + B, tape only, ≤5 min |
+| `bench-nightly` | Tier 2: Axes A + B + C + D, tape only, ≤20 min |
+| `bench-full` | Tier 3: cross-backend sweep, hours, wraps `scripts/perf-sweep.sh` |
+| `bench-ops` | Axis A driver (Idris-side op-level wall-clock) |
+| `bench-ops-py` | Axis A driver (PyTorch reference) |
+| `bench-ops-compare` | Idris-vs-PyTorch op comparison |
+| `bench-layers` / `bench-layers-py` | Axis B driver pair |
+| `bench-rank3-broadcast` / `-wrapped` | Microbench microbench for the rank-3 broadcast op |
+| `bench-gym` | Gym package microbench |
+| `bench-compare` / `bench-py` | Legacy convenience targets — prefer the Axis-specific drivers above |
 
 ### Coverage layer (5 entries)
 
@@ -319,11 +367,14 @@ diverges from the regenerated output.
 
 | Situation | Command |
 |---|---|
-| Before opening a PR | `make check-all && make test-unit` (~3 min) |
+| Inner-loop edit to one package | `make check-<package>` (shortest) |
+| Before opening a PR | `make check && make test` |
 | Touched a type-level guarantee | also `make test-integration` |
-| Touched an example or training-loop module | also `make test-e2e` (~15 min) |
-| Investigating a perf regression | `make test-perf-fast` (Tier 1, fast) → `make test-perf-nightly` (Tier 2, deeper) |
-| Pre-release validation | `make test-convergence` (hours) + `make test-perf-full` (hours) |
+| Touched an example or training-loop module | also `make test-e2e` |
+| Touched any C kernel | also `make test-unit-c-{tape,mlx,torch}` for the backends you touched |
+| Touched an example you want to compile-test | `make check-examples` (or just `make check-all`) |
+| Investigating a perf regression | `make bench` (Tier 1) → `make bench-nightly` (Tier 2) |
+| Pre-release validation | `make test-convergence` + `make bench-full` |
 | Iterating on one example | `make example-<name>` |
 
 ## Why this is the contract
@@ -342,7 +393,7 @@ single rule above:
   four duplicate `Harness.idr` copies to `packages/idris-test`.
 - "Coverage + perf are siblings to tests but live in their own
   naming worlds" — now they sit *in* the test layer cake under
-  `test-coverage-*` and `test-perf-*`.
+  `test-coverage-*` and `bench-*`.
 
 The taxonomy is the contract; if a change wants to add a target
 that doesn't fit, the right move is to update *this doc* first to

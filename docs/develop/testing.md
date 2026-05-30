@@ -26,17 +26,24 @@ Renames follow the rename table in
 [testing-taxonomy.md](testing-taxonomy.md). What each layer
 catches:
 
-| Aggregator | Wall (tape) | What it catches | What it doesn't |
+| Aggregator | Wall (warm) | What it catches | What it doesn't |
 |---|---|---|---|
-| `check-all` | ~30s | Type errors, missing imports, syntax | Runtime bugs |
-| `test-unit` | ~2 min | Idris-side math/tensor/layer/NTM/RL primitive correctness + C-level op correctness + safetensors round-trip | Anything that requires training a model |
+| `check` | minutes (Idris elaboration of 4 lib packages) | Type errors, missing imports, syntax — Idris library packages only | C-side errors (those come out at `make backend` link time); example-level type errors (those need `check-examples`) |
+| `check-all` | 20-60 min cold | `check` + every example executable builds | Runtime bugs |
+| `test` (`= test-unit`) | a few minutes | Idris-side correctness across packages + C-level op correctness + safetensors round-trip | Anything that requires training a model |
 | `test-integration` | ~5 min | Negative-type gates (`test-integration-typegate-*`), lint drift (`test-integration-lint-*`), checkpoint resume, jupyter cell parser, NTM grad/timestep | Full example training |
-| `test-e2e` | ~15 min | Example smoke matrix × 5 backend lanes, HF-roundtrip gates, transformer / oracle gates, jupyter notebook execution | Multi-seed sensitivity (single seed=42 only); strict convergence quality |
-| `test-perf-fast` | ≤5 min | Op-kernel + single-layer fwd+bwd regressions vs PyTorch | E2E training perf, HF inference perf |
-| `test-perf-nightly` | ≤20 min | Tier 1 + e2e training perf + HF inference perf, tape only | Cross-backend perf |
-| `test-perf-full` | hours | Cross-backend perf — every example × every backend | Correctness (perf signal only) |
+| `test-e2e` | tens of minutes | Example smoke matrix × 5 backend lanes, HF-roundtrip gates, transformer / oracle gates, jupyter notebook execution | Multi-seed sensitivity (single seed=42 only); strict convergence quality |
+| `bench` (`= bench-fast`) | ≤5 min | Op-kernel + single-layer fwd+bwd regressions vs PyTorch | E2E training perf, HF inference perf |
+| `bench-nightly` | ≤20 min | Tier 1 + e2e training perf + HF inference perf, tape only | Cross-backend perf |
+| `bench-full` | hours | Cross-backend perf — every example × every backend | Correctness (perf signal only) |
 | `test-coverage` | ~10 min | Three-axis target (symbol + OP_* backward + F32 oracle) | Convergence; advisory only |
 | `test-convergence` | hours | "Model trains in the wrong direction"; optimizer-step bugs that drop convergence rate | Multi-seed sensitivity (single seed=42 only); cross-backend (tape only) |
+
+> Wall-clock numbers above are rough hardware-aware guidance, not
+> guarantees. Idris-2 elaboration cost dominates and is non-linear in
+> module count + implicit-arg width; on a slower box or under
+> `nice -n 19`, multiply by 2-3×. `time make <target>` on your box is
+> the only honest answer.
 
 ## Two thresholds, two files
 
@@ -56,7 +63,7 @@ parses both files. Default expect file is `test-examples.expect`.
 ## What we explicitly don't test automatically
 
 - **MLX or torch convergence** — `test-convergence` is tape-only.
-  Backend correctness is covered by `test-unit-backend-{mlx,torch}`
+  Backend correctness is covered by `test-unit-c-{mlx,torch}`
   and the smoke gate; we don't try to verify each example converges
   identically on each backend. (Different backends have different
   numerical precision and op timing, so single-seed convergence
@@ -66,7 +73,7 @@ parses both files. Default expect file is `test-examples.expect`.
   *making convergence claims in PR descriptions / docs*, not as a
   CI gate. If a multi-seed regression shows up in the wild, run
   the per-example target manually with several seeds.
-- **PyTorch parity per example** — `test-perf-nightly` Axis C
+- **PyTorch parity per example** — `bench-nightly` Axis C
   exists for the representative panel; we don't enforce parity on
   every example automatically. Drift between Idris and PyTorch is
   captured in `docs/develop/reference-alignment.md`.
@@ -111,14 +118,15 @@ triaged fast):
 
 | Situation | Command |
 |---|---|
-| Before opening a PR | `make check-all && make test-unit` |
+| Before opening a PR | `make check && make test` |
 | PR touched a type-level guarantee | also `make test-integration` |
 | PR touched an example or training-loop module | also `make test-e2e` |
-| Before merging a PR that touches a backend | `make test-unit-backend-{tape,mlx,torch}` for the backends you touched |
-| When you suspect a math/primitive regression | `make test-unit` |
+| PR touched any example you want compile-tested | also `make check-examples` (long) |
+| Before merging a PR that touches a backend | `make test-unit-c-{tape,mlx,torch}` for the backends you touched |
+| When you suspect a math/primitive regression | `make test` |
 | Iterating on one example | `make example-<name>` |
-| Pre-release validation | `make test-convergence` (hours) + `make test-perf-full` (hours) |
-| Comparing Idris to PyTorch | `make test-perf-nightly` (then read `BENCHMARKS.md`) |
+| Pre-release validation | `make test-convergence` + `make bench-full` (both hours) |
+| Comparing Idris to PyTorch | `make bench-nightly` (then read `BENCHMARKS.md`) |
 | Investigating a flaky training run | re-run the example with several `--seed` values manually |
 
 ## Threshold philosophy in one paragraph

@@ -44,7 +44,7 @@ Include paths: the build adds `-Ipackages/backends` and
 ## Run targets
 
 ```
-make test-unit-backend                  # Criterion suite (all common + colocated)
+make test-unit-c                  # Criterion suite (all common + colocated)
 make test-unit-safetensors              # standalone main() — safetensors loader
 make test-unit-ntm-grad                 # standalone main() — NTM backward
 make test-unit-ntm-timestep             # standalone main() — NTM forward

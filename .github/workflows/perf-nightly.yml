@@ -1,7 +1,7 @@
 name: perf-nightly
 
 # Tier 2 perf cadence (see docs/develop/testing-taxonomy.md). Runs the
-# `test-perf-nightly` aggregator end-to-end on Ubuntu and uploads the
+# `bench-nightly` aggregator end-to-end on Ubuntu and uploads the
 # refreshed perf-log.jsonl + BENCHMARKS.md as artifacts. Today covers
 # Axes A (op kernels), B (single-layer fwd+bwd), C (e2e training), and
 # the BERT + GPT-2 cells of Axis D (HF inference). The Llama-generate
@@ -43,8 +43,8 @@ jobs:
       - name: Build tape backend
         run: env BACKEND=tape make backend
 
-      - name: Run test-perf-nightly
-        run: make test-perf-nightly
+      - name: Run bench-nightly
+        run: make bench-nightly
 
       - name: Upload perf-log.jsonl
         uses: actions/upload-artifact@v4

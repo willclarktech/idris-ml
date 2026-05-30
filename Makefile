@@ -859,18 +859,18 @@ CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/backend_tape -name '
 CRITERION_TEST_SRCS := $(TEST_C_DIR)/src/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
 TEST_C_INCLUDES := -I$(BACKENDS_DIR) -I$(TEST_C_DIR)/include
 
-test-unit-backend: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
+test-unit-c: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 	./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
-test-unit-backend-tape:
-	$(MAKE) BACKEND=tape test-unit-backend
+test-unit-c-tape:
+	$(MAKE) BACKEND=tape test-unit-c
 
-test-unit-backend-mlx:
-	$(MAKE) BACKEND=mlx test-unit-backend
+test-unit-c-mlx:
+	$(MAKE) BACKEND=mlx test-unit-c
 
-test-unit-backend-torch:
-	$(MAKE) BACKEND=torch test-unit-backend
+test-unit-c-torch:
+	$(MAKE) BACKEND=torch test-unit-c
 
 # Coverage build. Recompiles backend + test binary with
 # `-fprofile-instr-generate -fcoverage-mapping` into build-cov/ (separate
@@ -910,7 +910,7 @@ test-coverage-backend:
 
 # Build-only the criterion suite with coverage flags so the
 # test-coverage-backend recipe can set LLVM_PROFILE_FILE before running.
-# Matches the test-unit-backend build recipe — link the full
+# Matches the test-unit-c build recipe — link the full
 # discovered suite, not just the smoke shell.
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
 	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
@@ -937,7 +937,7 @@ test-coverage-gap-probe:
 # Specialized C test suites. The NTM + mlx-compile tests live under
 # packages/idris-test-c/src/ (cross-cutting integration; no 1:1 source
 # pair). They're standalone main()s (NOT Criterion) so they get their
-# own recipes rather than folding into test-unit-backend.
+# own recipes rather than folding into test-unit-c.
 # (test_safetensors.c was converted to Criterion under Test(safetensors, ...)
 # and folded into the auto-discovered suite.)
 # #402 rank-3 broadcast microbenchmark. Links directly against libtorch
@@ -1021,8 +1021,9 @@ install-test-harness:
 # any tests ipkg references it.
 install: install-core install-gym install-transformers install-notebook install-examples $(BUILD)/.library-cache-stamp
 
-# Idris build (type-check core library)
-check: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
+# Type-check the idris-ml core library only. Fastest single-package
+# gate. The `check` aggregator below is the daily-driver default.
+check-idris-ml: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
 	cd packages/idris-ml && idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --build idris-ml.ipkg
 
 # Type-check gym package
@@ -1032,6 +1033,17 @@ check-gym:
 # Type-check idris-transformers package (depends on idris-ml being installed).
 check-transformers: install-core
 	cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-transformers --build idris-transformers.ipkg
+
+# Default `check` aggregator — type-check every Idris-side library
+# package (core + gym + transformers + notebook). Does NOT build
+# example executables; for that, run `check-examples` (~20-60 min)
+# or `check-all` (libs + examples). C is built via `make backend` —
+# there's no `check-c` because the C compile step IS the type-check.
+# Wall-clock on a warm tree is a few minutes; cold is longer.
+check-idris: check-idris-ml check-gym check-transformers check-notebook
+
+# Daily-driver alias — same scope as `check-idris`.
+check: check-idris
 
 # Verify Idris example defaults match the paired torch_ref/scripts/*.py defaults.
 # Catches the "I changed Idris's default but forgot the matching ref" drift class.
@@ -1088,12 +1100,22 @@ check-examples: install
 
 # Unit test layer — see docs/develop/testing-taxonomy.md.
 #
-# Canonical aggregator: every unit-layer leaf, across active backend.
-# Run locally pre-commit: `make test-unit` (~2 min on tape). Adding
-# a new unit-layer test means adding the target name to this list;
-# the CI workflow consumes `make test-unit` (post-Phase-4) and so
-# auto-includes any new leaf without a workflow edit.
-test-unit: test-unit-idris-ml test-unit-backend
+# Canonical aggregator: every unit-layer leaf across the active
+# backend. Split by language: `test-unit-idris` covers every
+# Idris-side package suite, `test-unit-c` is the Criterion C suite.
+# `test-unit-multi-backend` is intentionally NOT here — it forces
+# BACKEND=tape,torch,mlx which isn't always feasible on the active
+# build set. Wall-clock on a warm tape build: ~3-5 min.
+# Run locally pre-commit: `make test` (alias of `test-unit`).
+test-unit: test-unit-idris test-unit-c
+
+# All Idris-side unit suites (across packages).
+test-unit-idris: test-unit-idris-ml test-unit-gym test-unit-idris-transformers test-unit-examples
+
+# Default `test` aggregator — alias for the unit-test layer (the
+# fast tier that's safe to run pre-commit). For broader gates use
+# `test-integration`, `test-e2e`, or `test-all`.
+test: test-unit
 
 # Integration test layer — see docs/develop/testing-taxonomy.md.
 #
@@ -1188,9 +1210,9 @@ test-unit-idris-ml: backend $(TESTCONFIG_IDR) $(HWCONFIG_IDR) $(HWDEVICES_IDR)
 test-unit-multi-backend:
 	$(MAKE) BACKEND=torch,tape,mlx install
 	$(MAKE) BACKEND=torch,tape,mlx _test-unit-multi-backend-build
-	$(MAKE) BACKEND=tape test-unit-backend
-	$(MAKE) BACKEND=torch test-unit-backend
-	$(MAKE) BACKEND=mlx test-unit-backend
+	$(MAKE) BACKEND=tape test-unit-c
+	$(MAKE) BACKEND=torch test-unit-c
+	$(MAKE) BACKEND=mlx test-unit-c
 
 # Sub-target invoked by test-unit-multi-backend under BACKEND=torch,tape,mlx
 # so $(LIB) / $(TESTCONFIG_IDR) all resolve in the multi-link
@@ -1802,22 +1824,27 @@ bench-layers-py:
 ####################################################################
 # Principled perf benchmark suite (testing-taxonomy Axis A / B / C / D).
 # Three cadence tiers:
-#   test-perf-fast    — Tier 1, CI, <= 5 min (Axis A op kernels today).
-#   test-perf-nightly — Tier 2, nightly, <= 20 min (will fold in B/C/D).
-#   test-perf-full    — Tier 3, manual / pre-tag (the 80-cell sweep).
+#   bench-fast    — Tier 1, CI, <= 5 min (Axis A + B).
+#   bench-nightly — Tier 2, scheduled, <= 20 min (Axes A + B + C + D).
+#   bench-full    — Tier 3, manual / pre-tag (the cross-backend sweep).
+# `bench` aliases `bench-fast` (the daily-driver default).
 # All three append to docs/develop/perf-log.jsonl and regenerate
 # BENCHMARKS.md via scripts/render-benchmarks.py. Framework details:
 # docs/develop/testing-taxonomy.md (Axis A/B/C/D + selection rule).
 ####################################################################
 
-test-perf-fast:
+bench-fast:
 	bash scripts/perf-fast.sh
 
-test-perf-nightly:
+bench-nightly:
 	bash scripts/perf-nightly.sh
 
-test-perf-full:
+bench-full:
 	bash scripts/perf-sweep.sh
+
+# Default `bench` aggregator — alias for the fast tier. For deeper
+# perf coverage use `bench-nightly` or `bench-full`.
+bench: bench-fast
 
 # CI preflight: BENCHMARKS.md must agree with perf-log.jsonl.
 test-integration-lint-benchmarks:
@@ -2297,20 +2324,17 @@ test-convergence:
 # aggregators (test-unit / test-integration / test-e2e) — for now it
 # chains the layer aggregators directly.
 test-all:
-	@echo "=== Unit layer (Idris + Criterion + safetensors + NTM unit) ==="
+	@echo "=== Unit layer (Idris core + gym + transformers + examples + Criterion + NTM unit) ==="
 	$(MAKE) test-unit
-	@echo ""
-	@echo "=== Gym unit tests ==="
-	$(MAKE) test-unit-gym
-	@echo ""
-	@echo "=== Examples unit tests ==="
-	$(MAKE) test-unit-examples
 	@echo ""
 	@echo "=== C backend tests (all available backends) ==="
 	@for b in tape mlx torch; do \
-		echo "--- test-unit-backend [$$b] ---"; \
-		$(MAKE) BACKEND=$$b test-unit-backend 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
+		echo "--- test-unit-c [$$b] ---"; \
+		$(MAKE) BACKEND=$$b test-unit-c 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
 	done
+	@echo "=== Integration layer ==="
+	$(MAKE) test-integration
+	@echo ""
 	@echo "=== E2E tests (examples on all backends) ==="
 	$(MAKE) test-e2e-examples
 	@echo ""
@@ -2341,19 +2365,25 @@ test-all:
 check-notebook: install-core
 	cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --build idris-ml-notebook.ipkg
 
-# Build backend + type-check all packages (default target)
-check-all: check check-gym check-notebook check-examples
+# Build backend + type-check all packages + build every example
+# executable. The exhaustive "everything compiles" gate; dominated by
+# `check-examples` wall-clock (~20-60 min cold; warm is faster).
+# For a quicker preflight that skips the per-example elaboration, use
+# `check` (libraries only, a few minutes).
+check-all: check check-examples
 
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
-.PHONY: all check-all all-backends test-unit test-unit-idris-ml test-unit-idris-transformers \
+.PHONY: all check check-libs check-idris-ml check-gym check-transformers check-notebook check-examples check-all \
+        test test-unit test-unit-idris-ml test-unit-idris-transformers \
         test-unit-gym test-unit-examples test-unit-multi-backend test-all dataset-mnist dataset-tinyshakespeare \
-        test-unit-backend test-unit-backend-tape test-unit-backend-mlx test-unit-backend-torch \
+        test-unit-c test-unit-c-tape test-unit-c-mlx test-unit-c-torch \
         test-integration test-integration-lint-rename-headers test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects test-integration-lint-paired-defaults \
         test-integration-lint-hf-llama-inference test-integration-lint-ci-workflow \
-        test-integration-lint-benchmarks test-perf-fast test-perf-nightly test-perf-full \
+        test-integration-lint-benchmarks bench bench-fast bench-nightly bench-full \
+        all-backends \
         test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast test-integration-checkpoint-resume \
