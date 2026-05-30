@@ -153,6 +153,21 @@ When introducing a new `OP_FOO` to either tape or mlx:
    storage path, also add a rung in the T29 ladder
    (`test_legacy_backend.c`). Skip-flag commit shape per the
    plan-doc's W5 section.
+7. **Property-based test consideration**: ask whether `OP_FOO`
+   has an invariant worth property-testing — round-trip,
+   sum-to-one, norm-bounded, F32-vs-F64 oracle parity, idempotence,
+   monotonicity. If yes, add a `prop_*` to
+   `packages/idris-ml/src/Test/Properties/<Op>.idr` (see
+   `Test/Properties/Softmax.idr` for a pure-Identity sum-to-one
+   property and `Test/Properties/Reshape.idr` for a numel-preserved
+   reshape invariant). If the invariant needs FFI-driven generators
+   (i.e. the property body must construct real tensors via
+   `tparam*` smart constructors), it's a `PropertyT IO ()` property
+   — use the `checkPropertyIO` shim in
+   `packages/idris-test/src/Test/Property.idr`. Not landing a
+   property is fine; not *considering* one is the gap this checklist
+   closes. The Axis 4 view above governs which kinds of properties
+   land in the codebase.
 
 ## Contributor checklist — when you add a new FFI symbol
 
