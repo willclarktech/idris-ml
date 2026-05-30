@@ -855,7 +855,7 @@ CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/backend_tape -name '
                                $(shell find $(BACKENDS_DIR)/backend_mlx -name 'test_*.c' 2>/dev/null) \
                                $(shell find $(BACKENDS_DIR)/test/common -name '*.c' 2>/dev/null) \
                                $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null) \
-                               $(shell find $(TEST_C_DIR)/src -name '*.c' -not -name 'test_ntm_*' -not -name 'test_criterion_smoke.c' 2>/dev/null)
+                               $(shell find $(TEST_C_DIR)/src -name '*.c' -not -name 'test_ntm_timestep.c' -not -name 'test_criterion_smoke.c' 2>/dev/null)
 CRITERION_TEST_SRCS := $(TEST_C_DIR)/src/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
 TEST_C_INCLUDES := -I$(BACKENDS_DIR) -I$(TEST_C_DIR)/include
 
@@ -940,10 +940,6 @@ test-coverage-gap-probe:
 # own recipes rather than folding into test-unit-backend.
 # (test_safetensors.c was converted to Criterion under Test(safetensors, ...)
 # and folded into the auto-discovered suite.)
-test-unit-ntm-grad: $(TEST_C_DIR)/src/test_ntm_grad.c $(BACKEND_RENAME_H) backend | $(BUILD)
-	cc -o $(BUILD)/test_ntm_grad -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(TEST_C_DIR)/src/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
-	./$(BUILD)/test_ntm_grad
-
 test-unit-ntm-timestep: $(TEST_C_DIR)/src/test_ntm_timestep.c $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_ntm_timestep -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(TEST_C_DIR)/src/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_timestep
@@ -1101,7 +1097,7 @@ check-examples: install
 # a new unit-layer test means adding the target name to this list;
 # the CI workflow consumes `make test-unit` (post-Phase-4) and so
 # auto-includes any new leaf without a workflow edit.
-test-unit: test-unit-idris-ml test-unit-backend test-unit-ntm-grad test-unit-ntm-timestep
+test-unit: test-unit-idris-ml test-unit-backend test-unit-ntm-timestep
 
 # Integration test layer — see docs/develop/testing-taxonomy.md.
 #
@@ -2358,7 +2354,7 @@ all: check-all test-all
 .PHONY: all check-all all-backends test-unit test-unit-idris-ml test-unit-idris-transformers \
         test-unit-gym test-unit-examples test-unit-multi-backend test-all dataset-mnist dataset-tinyshakespeare \
         test-unit-backend test-unit-backend-tape test-unit-backend-mlx test-unit-backend-torch \
-        test-unit-ntm-grad test-unit-ntm-timestep \
+        test-unit-ntm-timestep \
         test-integration test-integration-lint-rename-headers test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects test-integration-lint-paired-defaults \
         test-integration-lint-hf-llama-inference test-integration-lint-ci-workflow \
