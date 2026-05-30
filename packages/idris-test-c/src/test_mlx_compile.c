@@ -1,65 +1,60 @@
-/* Test suite for the mx::compile integration in the MLX backend.
-   Job 3 Phase B — TDD driver.
+/* Test suite for the mx::compile integration in the MLX backend —
+ * Criterion port.
+ *
+ * Carried over from the previous standalone main() program. The 7 helper
+ * functions become 7 Test() cases under the `mlx_compile` suite. Each
+ * Test() forks a fresh process, so cross-test env-var leakage is
+ * automatically contained — but every case still leads with the
+ * appropriate setenv/unsetenv to make state-resets explicit, matching
+ * the original helper bodies.
+ *
+ * The whole file is wrapped in #ifdef BACKEND_MLX. tensor_mlx_compile_*
+ * symbols are mlx-only (no-op stubs on tape/torch); gating at the
+ * preprocessor level matches the original Make-recipe-only gate.
+ */
+#ifdef BACKEND_MLX
 
-   Build only when BACKEND=mlx (the probes are no-ops in tape/torch).
-   Run: make test-mlx-compile */
-
+#include <criterion/criterion.h>
 #include "backend.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-static int failures = 0;
-
 #define ASSERT_EQ(msg, got, expected) do { \
-    long _g = (long)(got), _e = (long)(expected); \
-    if (_g != _e) { \
-        printf("FAIL: %s: got %ld, expected %ld\n", msg, _g, _e); \
-        failures++; \
-    } else { \
-        printf("ok: %s = %ld\n", msg, _g); \
-    } \
-} while(0)
+    long _aeq_g = (long)(got); \
+    long _aeq_e = (long)(expected); \
+    cr_assert_eq(_aeq_g, _aeq_e, \
+        "%s: got %ld expected %ld", msg, _aeq_g, _aeq_e); \
+} while (0)
 
 #define ASSERT_NEAR(msg, got, expected, tol) do { \
-    double _g = (got), _e = (expected); \
-    if (fabs(_g - _e) > (tol)) { \
-        printf("FAIL: %s: got %.6f, expected %.6f (tol %.6e)\n", msg, _g, _e, (double)(tol)); \
-        failures++; \
-    } else { \
-        printf("ok: %s = %.6f\n", msg, _g); \
-    } \
-} while(0)
+    double _an_g = (got); \
+    double _an_e = (expected); \
+    cr_assert_float_eq(_an_g, _an_e, (tol), \
+        "%s: got %.6f expected %.6f (tol %.6e)", msg, _an_g, _an_e, (double)(tol)); \
+} while (0)
 
-#define ASSERT_TRUE(msg, cond) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        failures++; \
-    } else { \
-        printf("ok: %s\n", msg); \
-    } \
-} while(0)
+#define ASSERT_TRUE(msg, cond) \
+    cr_assert((cond), "%s", msg)
+
 
 /* ================================================================
    Stage 1: env var infrastructure
    ================================================================ */
 
-static void test_compile_disabled_by_default(void) {
-    printf("\n--- compile env: disabled by default ---\n");
+Test(mlx_compile, disabled_by_default) {
     unsetenv("MLX_COMPILE");
     ASSERT_EQ("MLX_COMPILE unset -> disabled", tensor_mlx_compile_enabled(), 0);
 }
 
-static void test_compile_enabled_via_env(void) {
-    printf("\n--- compile env: MLX_COMPILE=1 enables ---\n");
+Test(mlx_compile, enabled_via_env) {
     setenv("MLX_COMPILE", "1", 1);
     ASSERT_EQ("MLX_COMPILE=1 -> enabled", tensor_mlx_compile_enabled(), 1);
     unsetenv("MLX_COMPILE");
 }
 
-static void test_compile_explicit_disable(void) {
-    printf("\n--- compile env: MLX_COMPILE=0 disables ---\n");
+Test(mlx_compile, explicit_disable) {
     setenv("MLX_COMPILE", "0", 1);
     ASSERT_EQ("MLX_COMPILE=0 -> disabled", tensor_mlx_compile_enabled(), 0);
     unsetenv("MLX_COMPILE");
@@ -78,8 +73,7 @@ static void test_compile_explicit_disable(void) {
    lands in Stage 3.
    ================================================================ */
 
-static void test_compile_not_invoked_when_disabled(void) {
-    printf("\n--- compile NOT invoked when disabled ---\n");
+Test(mlx_compile, not_invoked_when_disabled) {
     unsetenv("MLX_COMPILE");
     tensor_mlx_compile_reset_stats();
     param_clear();
@@ -98,8 +92,7 @@ static void test_compile_not_invoked_when_disabled(void) {
     param_clear();
 }
 
-static void test_compile_invoked_when_enabled(void) {
-    printf("\n--- compile invoked when enabled ---\n");
+Test(mlx_compile, invoked_when_enabled) {
     setenv("MLX_COMPILE", "1", 1);
     tensor_mlx_compile_reset_stats();
     param_clear();
@@ -158,9 +151,7 @@ static void run_simple_backward(double w_val, double x_val, double b_val,
     param_clear();
 }
 
-static void test_compile_grad_parity_simple(void) {
-    printf("\n--- compile vs eager gradient parity (simple) ---\n");
-
+Test(mlx_compile, grad_parity_simple) {
     double w = 0.7, x = 1.3, b = -0.2;
 
     /* Eager (MLX_COMPILE=0) baseline */
@@ -189,9 +180,7 @@ static void test_compile_grad_parity_simple(void) {
    This is the case that would silently break if the compile branch
    were to bake constants into the graph at trace time and reuse them
    across calls with different input values. */
-static void test_compile_grad_parity_with_changing_constants(void) {
-    printf("\n--- compile vs eager parity across changing constants ---\n");
-
+Test(mlx_compile, grad_parity_with_changing_constants) {
     /* Two backward passes with different input x values; both modes
        should produce the same gradients for each run, and the second
        run must use the new x (not the first run's x cached into a
@@ -219,30 +208,4 @@ static void test_compile_grad_parity_with_changing_constants(void) {
     unsetenv("MLX_COMPILE");
 }
 
-/* ================================================================
-   main
-   ================================================================ */
-
-int main(void) {
-    setbuf(stdout, NULL);
-
-    /* Stage 1: env var infrastructure */
-    test_compile_disabled_by_default();
-    test_compile_enabled_via_env();
-    test_compile_explicit_disable();
-
-    /* Stage 2: compile-path probe + branch */
-    test_compile_not_invoked_when_disabled();
-    test_compile_invoked_when_enabled();
-
-    /* Stage 3: gradient parity */
-    test_compile_grad_parity_simple();
-    test_compile_grad_parity_with_changing_constants();
-
-    if (failures > 0) {
-        printf("\n=== %d FAILURES ===\n", failures);
-        return 1;
-    }
-    printf("\n=== all tests passed ===\n");
-    return 0;
-}
+#endif /* BACKEND_MLX */
