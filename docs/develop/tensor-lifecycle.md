@@ -387,7 +387,7 @@ The wrapped-handle ABI was the third design attempted; the previous
 two foundered on the same compiler-elision contract. Each attempt
 left commits and a learning that's worth not re-discovering.
 
-### Attempt 1: state-only refcount (commit `8ffd48b`)
+### Attempt 1: state-only refcount (commit `0c0cfe5`)
 
 Surgical refcount for per-sequence transient state Tensors only —
 the ones produced by `Layer/Ntm.idr` and `Layer/Dnc.idr`'s
@@ -450,17 +450,17 @@ is the value's only Idris-level identity. No parallel shadow
 field. No conditional wrapping based on `is_state`.
 
 Rolled out in phases:
-- P0' (commit `e47975a`): 4 FFIs converted, unit tests green
-- P1' (commit `0ec6a99`): mechanical sweep across all 5 wrap-handle
+- P0' (commit `c1f4d6b`): 4 FFIs converted, unit tests green
+- P1' (commit `860c82a`): mechanical sweep across all 5 wrap-handle
   files (~600 FFIs total — Tensor.idr + Device.idr +
   Device/{Mlx,Tape,Torch}.idr)
-- P3'-a (commit `78bc19b`): retire `prim__wrapHandle` /
+- P3'-a (commit `4a38a5f`): retire `prim__wrapHandle` /
   `prim__unwrapHandle` / `managedShadow` field / smart-constructor
   function — the wrap doing all the work means the parallel layer
   was redundant
-- P4' (commit `9664726`): structural linter +
+- P4' (commit `c3460ce`): structural linter +
   `scripts/lifecycle/ffi_manifest.py` as single source of truth
-- P5' (commit `7fc29c7`): perf baselines (within VM noise of
+- P5' (commit `b63dc06`): perf baselines (within VM noise of
   pre-sweep) + drain-cadence tuning declined (memory bounded at
   ~49MB on the originally-failing mlx examples without mid-block
   drain)

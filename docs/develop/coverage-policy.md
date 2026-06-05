@@ -181,9 +181,9 @@ by the common-test pattern at lower cost:
   that backend's CI lane fails; the other lanes stay green; you immediately
   know which backend disagrees.
 - This is how `test_gelu.c` caught torch using exact GELU instead of the
-  tanh approximation (commit `6251dc2`), how `test_transpose_last2.c` caught
+  tanh approximation (commit `b23a090`), how `test_transpose_last2.c` caught
   mlx's `tensor_to_doubles` reading non-contiguous views in storage order
-  (commit `d2a5d25`), and how `test_clip_grad_norm.c` captured torch's
+  (commit `5d5fc36`), and how `test_clip_grad_norm.c` captured torch's
   ~9e-8 post-clip precision drift (sentinel for TODO row 76).
 - The dedicated W6 harness would add infrastructure cost (multi-link build
   variant, suffixed-FFI symbol declarations, cross-link `-DBACKEND_*` gating

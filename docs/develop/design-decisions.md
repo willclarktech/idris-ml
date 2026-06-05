@@ -6,7 +6,7 @@ See [ntm.md](ntm.md) for NTM-specific design decisions (head parameters, memory 
 > Many sections below describe V1's `Variable d` (shape-erased) and the
 > machinery that supported it: per-element packing, `autoName`,
 > `applyDeltas`, `toDoubleNetwork`, the V1 13-method `LayerLike`. As of
-> the Path C migration (commits `fa7ed54` … `0dc8d70`), the autograd
+> the Path C migration (commits `2cb8af8` … `fe16ce2`), the autograd
 > value is `Tensor (dims : Vect rank Nat) (0 d : Device)` with shape on
 > the value, the structural Vect-of-Vect type was renamed to `Array`,
 > and most V1 scaffolding is gone (`autoName` / `nameLayer` /
@@ -120,7 +120,7 @@ PyTorch's silent footgun: a loss tensor that came from inside `with torch.no_gra
 
 **Scope**: ~35 files touched, ~930 lines. Two CI gates (`check-gradmode-gate`, `check-gradmode-aliasing`) lock the design against regression.
 
-**Perf impact** (measured `9b1cdb8` → `05a976a` on this VM):
+**Perf impact** (measured `8bccdb4` → `c55ca06` on this VM):
 - Clean idris-ml build: 6.25s → 7.85s (+25%, +1.6s absolute).
 - Clean examples build: 21.78s → 24.41s (+12%, +2.6s absolute). The extra unification work from the 4th type parameter explains it; still small in absolute terms.
 - Runtime: supervised / rnn / lstm wall-clock all within ±6% of pre-refactor — within the documented VM noise floor. Bit-identical loss values. No measurable runtime regression.
@@ -780,15 +780,15 @@ Best-of-4 delta +0.42s (+5.7%), well under the 20% threshold; outliers >10s refl
 1. **`-D` flag macros**: `cc -Dtensor_add=tensor_add_tape -c …` → `_tensor_add_tape` in the resulting `.o`. Linker accepts both renamed `.o`s into one `.dylib`; both symbols exported, no collision.
 2. **`-include rename_<backend>.h` header**: a per-backend header full of `#define tensor_add tensor_add_tape` lines, prepended via `-include`. Same outcome; preferable for 200+ symbols since the rename surface lives in a checked-in file, not a multi-kilobyte compile line.
 
-Adopted #2 (commit `98f17cf`). `scripts/gen-rename-headers.py` parses `backend.h` and emits `packages/backends/rename_{tape,torch,mlx}.h` with `#define <sym> <sym>_<backend>` lines for all 206 exported functions; `make rename-headers` regenerates, `make check-rename-headers` gates CI drift. Returns broadened from an initial 195 to 206 once we noticed `TensorPair*`, `OptimizerHandle`, `int*` return types missing.
+Adopted #2 (commit `06750e5`). `scripts/gen-rename-headers.py` parses `backend.h` and emits `packages/backends/rename_{tape,torch,mlx}.h` with `#define <sym> <sym>_<backend>` lines for all 206 exported functions; `make rename-headers` regenerates, `make check-rename-headers` gates CI drift. Returns broadened from an initial 195 to 206 once we noticed `TensorPair*`, `OptimizerHandle`, `int*` return types missing.
 
-**Unified-name aliases kept existing Idris `%foreign` working** (commit `9e20307`) — **now removed (the per-instance migration, 2026-05-20)**. After the rename, the dylib exports only suffixed names (`_tensor_add_tape`). Idris `%foreign "C:tensor_add,libidrisml"` declarations would fail to resolve, so the original land aliased each suffixed primary-backend symbol back to its unified name at link time (macOS `-Wl,-alias_list,<file>`; Linux `-Wl,--defsym=<unified>=<suffixed>`). This was always a transitional shim: it routed *every* unified-name FFI to the *primary* backend, so in a multi-link build a non-primary device's ops/registry/no-grad-scope silently hit the primary's symbols.
+**Unified-name aliases kept existing Idris `%foreign` working** (commit `e67fe15`) — **now removed (the per-instance migration, 2026-05-20)**. After the rename, the dylib exports only suffixed names (`_tensor_add_tape`). Idris `%foreign "C:tensor_add,libidrisml"` declarations would fail to resolve, so the original land aliased each suffixed primary-backend symbol back to its unified name at link time (macOS `-Wl,-alias_list,<file>`; Linux `-Wl,--defsym=<unified>=<suffixed>`). This was always a transitional shim: it routed *every* unified-name FFI to the *primary* backend, so in a multi-link build a non-primary device's ops/registry/no-grad-scope silently hit the primary's symbols.
 
 The shim has been retired. Every Tensor-touching `%foreign` now lives in a `UserDevice*` instance method bound to the suffixed name directly, dispatched by the type-level `d`: arithmetic/lifecycle/reductions/shape in `UserDeviceCore`/`Linear`/`NN`/`Conv`; autograd, the param registry (`primParamRegister`/`primParamCount`/…), optimizer creation + `native_train_step`, SafeTensors I/O, profiling, `backend_name` (→ `backendTag`), `withNoGrad`, `polyak_blend`, `mnist_get_image`, `one_hot`, and the dtype-streamed create path (`primCreate*Streamed`, branching on a `RuntimeDType.dtypeTag` of 0=f32/1=f64) all dispatch per-`d`. A repo-wide scan finds zero unified-name references to per-backend-renamed C symbols, so `BACKEND_ALIAS_FILE` / `BACKEND_ALIAS_FLAGS` and the `aliases_<p>.macos.list` rule were deleted from the Makefile.
 
 This fixed a latent multi-device correctness bug: the param registry is a per-TU `static` in each backend, and the old unified-name `param_register_return` (hardcoded wrap tag `"primary"`) registered every param into the primary's registry regardless of device. The acceptance test `Test.MultiDeviceRegistry` (run under `make test-multi`, BACKEND=torch,tape,mlx) registers a `(TorchDev TCpu)` param and asserts torch's `param_count` grows by one while tape's is unchanged — and the mirror — proving the registries are now independent.
 
-**`BACKEND` as a comma-separated list + symlink retired** (commit `93e96f2`). Makefile refactored to use per-backend property tables (`<b>_SRC` / `<b>_CC` / `<b>_CFLAGS` / `<b>_LDFLAGS_<UNAME>`) plus an `$(eval $(call …))` loop that emits one compile rule per listed backend. Final link uses `c++` if any C++ backend is in the list, else `cc`, with the union of per-backend `LDFLAGS` for the platform. `.backend-stamp` FORCE rule re-links when `BACKEND` changes value (the dylib filename is no longer `BACKEND`-parameterised).
+**`BACKEND` as a comma-separated list + symlink retired** (commit `bb3254a`). Makefile refactored to use per-backend property tables (`<b>_SRC` / `<b>_CC` / `<b>_CFLAGS` / `<b>_LDFLAGS_<UNAME>`) plus an `$(eval $(call …))` loop that emits one compile rule per listed backend. Final link uses `c++` if any C++ backend is in the list, else `cc`, with the union of per-backend `LDFLAGS` for the platform. `.backend-stamp` FORCE rule re-links when `BACKEND` changes value (the dylib filename is no longer `BACKEND`-parameterised).
 
 The pre-rollout worry about libtorch + mlx internal-symbol collisions (flagged when scoping the multi-link refactor) **did not materialise on macOS**. `BACKEND=tape,torch,mlx make backend` linked cleanly, no warnings. The 601 KB `libidrisml.dylib` exports `_tensor_add_tape`, `_tensor_add_torch`, `_tensor_add_mlx` (and same for every other op). (Before the alias-machinery removal it also exported the unaliased `_tensor_add` pointing at the primary; that unified export is now gone — every reference is suffixed.) `example-supervised` produces bit-identical loss output across single-backend, dual-link, triple-link, and primary-switched (`tape,torch,mlx` vs `torch,tape,mlx`) configurations.
 
@@ -807,7 +807,7 @@ Verified `BACKEND` combinations on macOS (Apple Silicon, libtorch 2.x via uv ven
 - `bench-ops-compare` rebuilds the whole dylib per iteration (one backend at a time) to copy it to `libidrisml_<b>.dylib`. Slightly slower than the old per-backend-variant build but isolates per-backend operator timing correctly.
 - The dylib filename is unconditionally `libidrisml.{so,dylib}`, so example apps always link against whichever primary the current build has. Switching primary requires `make BACKEND=<new> backend && make example-<name>`.
 
-**test-examples smoke matrix after the multi-link land** (commit `1cab7f8`-ish): 74 of 76 example × backend combinations pass cleanly. Every tape and every torch example passes; both failures are on mlx and pre-existing — `mlx:example-dnc-copy` and `mlx:example-dnc-recall` crash with `[scatter] Cannot calculate VJP with respect to indices` at `--epochs 5 --max-len 3 --batch 1 --seed 99`. Verified pre-existing by checking out the pre-rename Makefile (`ee19b03`) and rebuilding the mlx dylib — same crash reproduces. The TODO row "Re-enable 4 mlx examples on macOS CI" already tracks this class of mlx DNC issues. Convergence-config runs of these examples DID pass historically (`perf-log.jsonl` shows `dnc-copy mlx` exit-0 at `--epochs 3500`+ on commits `798c4ac` / `ede8b6b` / `94700e5`), so the smoke-config bug is a narrower mlx flakiness that the long-run config doesn't trip.
+**test-examples smoke matrix after the multi-link land** (commit `714785a`-ish): 74 of 76 example × backend combinations pass cleanly. Every tape and every torch example passes; both failures are on mlx and pre-existing — `mlx:example-dnc-copy` and `mlx:example-dnc-recall` crash with `[scatter] Cannot calculate VJP with respect to indices` at `--epochs 5 --max-len 3 --batch 1 --seed 99`. Verified pre-existing by checking out the pre-rename Makefile (`6b8c554`) and rebuilding the mlx dylib — same crash reproduces. The TODO row "Re-enable 4 mlx examples on macOS CI" already tracks this class of mlx DNC issues. Convergence-config runs of these examples DID pass historically (`perf-log.jsonl` shows `dnc-copy mlx` exit-0 at `--epochs 3500`+ on commits `88a966a` / `34d8659` / `263d546`), so the smoke-config bug is a narrower mlx flakiness that the long-run config doesn't trip.
 
 ### Open `d` parameter: why `Device = Type` instead of a real sub-type (2026-05-13)
 
@@ -1056,7 +1056,7 @@ create/cast FFI dispatch entry in `CHANGELOG.md`.
 grow-as-needed integer tag (`F32=0, F64=1, BF16=2, F16=3, I8=4, I16=5,
 I32=6, I64=7, U8=8, Bool=9`) which mixed lingua-franca demand with
 insertion order and silently meant F32 when a `dtag` was zero-initialized
-(the b2d6c7d mnist incident). New layout reserves `0` as invalid (any
+(the d4255db mnist incident). New layout reserves `0` as invalid (any
 backend's `default:` arm aborts loudly), groups by kind family with 4
 lanes for {8, 16, 32, 64}-bit variants, and leaves sub-byte families
 (24-31) open for future quantization dtypes:
@@ -1171,7 +1171,7 @@ The Chez vector IS the Tensor's Idris-level identity. The `Tensor` record's `ten
 
 1. **`prim__wrapHandle` in `MkTensor`** — the dormant Phase 2.2 design. Failed on codegen elision (see above).
 2. **Per-FFI `RetainGuard` (C++ RAII on the C side)** — explored in a session. Failed because a guard's retain-then-release cycle frees Tensors that had refcount=0 entering the FFI, breaking the caller's raw-pointer alias.
-3. **Wrapped-handle ABI** *(chosen)* — the wrap is the value. Verified end-to-end across all 5 wrap-handle files (~600 FFIs) in commit `0ec6a99`, with the `Test.ManagedHandle` unit tests (drain reclaims 50 dropped wraps after forced major GC) green on tape + mlx. Phase 3'-a (commit `78bc19b`) retired the `prim__wrapHandle` / `prim__unwrapHandle` / `managedShadow` / smart-constructor layer once the FFI's Scheme glue was doing all the work. Phase 4' (commit `9664726`) added a structural linter (`make check-ffi-wrap-template`) with CI gating.
+3. **Wrapped-handle ABI** *(chosen)* — the wrap is the value. Verified end-to-end across all 5 wrap-handle files (~600 FFIs) in commit `860c82a`, with the `Test.ManagedHandle` unit tests (drain reclaims 50 dropped wraps after forced major GC) green on tape + mlx. Phase 3'-a (commit `4a38a5f`) retired the `prim__wrapHandle` / `prim__unwrapHandle` / `managedShadow` / smart-constructor layer once the FFI's Scheme glue was doing all the work. Phase 4' (commit `c3460ce`) added a structural linter (`make check-ffi-wrap-template`) with CI gating.
 
 **Revisit triggers**: a future Idris-Chez codegen change that enables actual GC interruption of foreign calls would invalidate property #1 and require re-thinking. If Chez ever exposes a clean way for Idris to inject true module-init code, the per-primitive lib-load fallback could be retired. If the per-FFI allocation cost shows up materially in perf measurement, consider stack-allocating the vector for short-lived intermediates (Chez doesn't expose this, but a future ABI change could).
 
@@ -1208,7 +1208,7 @@ Both gates preserve the open-`d` property: a BYO backend self-declares `Linked M
 
 ### HF-aligned modules store fused tensors fused (never split-at-load) (2026-05-26)
 
-CONVENTIONS rule 2 said "storage shapes match HF on disk". The HfGpt2 worked example pinned what that means in practice for the trickiest case: HuggingFace's GPT-2 stores its Q/K/V projections as one fused `[hidden, 3*hidden]` weight per layer (the `c_attn` `Conv1D` blob), and idris-transformers mirrors this — there's no `splitFusedQkv` step at load time, no separate Q / K / V Idris-level records. The `Gpt2AttentionState` record holds one `Gpt2Conv1D hidden (3*hidden)` field, registered as `transformer.h.{i}.attn.c_attn.weight`. The Q/K/V split happens at forward time as three `primNarrow ... 1 ...` views (zero-copy on tape, fast on torch + mlx after the `bd61bef` axis-arg fix). The multi-head split per Q/K/V is then a second nested narrow inside the per-head loop.
+CONVENTIONS rule 2 said "storage shapes match HF on disk". The HfGpt2 worked example pinned what that means in practice for the trickiest case: HuggingFace's GPT-2 stores its Q/K/V projections as one fused `[hidden, 3*hidden]` weight per layer (the `c_attn` `Conv1D` blob), and idris-transformers mirrors this — there's no `splitFusedQkv` step at load time, no separate Q / K / V Idris-level records. The `Gpt2AttentionState` record holds one `Gpt2Conv1D hidden (3*hidden)` field, registered as `transformer.h.{i}.attn.c_attn.weight`. The Q/K/V split happens at forward time as three `primNarrow ... 1 ...` views (zero-copy on tape, fast on torch + mlx after the `69a0597` axis-arg fix). The multi-head split per Q/K/V is then a second nested narrow inside the per-head loop.
 
 Two consequences worth naming:
 - **The module is the rename adapter.** A `loadModel "model.safetensors"` is plain string-matching against the param registry. If on-disk has `attn.c_attn.weight` and the module registered the same name with the same shape, the bytes land in the right place with no transformation. No `param_load_with_remap`, no shape-split machinery in core.
@@ -1365,7 +1365,7 @@ again — the deliberate exclusion at `Device/Torch.idr` lines 618-625
 (comment: "MPS reduced-precision support is version-dependent and
 untestable in this VM") was stale; the VM has libtorch with BF16-MPS
 kernels for the relevant op set. Instance restored in commit
-`ab5386a`.
+`80a18db`.
 
 **Measured outcome**: Llama-3.2-1B inference on torch-mps, 8 greedy
 tokens, after the P1 `.contiguous()` removal:

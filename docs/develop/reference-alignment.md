@@ -230,7 +230,7 @@ Third B6 ticket — fills the Taxi env coverage gap. Tabular Q-learning on the d
 
 ### MountainCar example added (B6, 2026-04-30)
 
-Fourth B6 ticket — fills the MountainCar env coverage gap. DQN with velocity-magnitude reward shaping; mirrors the CartPole DQN architecture (MLP `2 → 64 → 64 → 3`, 3 actions). Required prerequisite was the batched-forward DQN refactor (commit `c7fe136`); without that the per-epoch cost was ~4 s on tape (200-step episodes × 64-batch per-sample forward), making multi-seed validation infeasible.
+Fourth B6 ticket — fills the MountainCar env coverage gap. DQN with velocity-magnitude reward shaping; mirrors the CartPole DQN architecture (MLP `2 → 64 → 64 → 3`, 3 actions). Required prerequisite was the batched-forward DQN refactor (commit `3c24cd3`); without that the per-epoch cost was ~4 s on tape (200-step episodes × 64-batch per-sample forward), making multi-seed validation infeasible.
 
 **Configuration alignment**: Idris `Example.MountainCar` and PyTorch `torch_ref/models/mountain_car.py` use identical defaults: `lr=1e-3 gamma=0.99 batch=64 buffer=50000 target_sync=200 eps_start=1.0 eps_end=0.05 eps_decay=50000 shaping=10.0 epochs=500 seed=42`. Both implement the same Gymnasium-aligned MountainCar physics (constants from `Gym.ClassicControl.MountainCar` and Gymnasium's `mountain_car.py`) and the same shaping rule (`r_shaped = r_raw + 10 * |v_next|`).
 
@@ -339,7 +339,7 @@ Verified post-fix at full default epochs:
 
 ### MNIST epoch semantics — Idris/PyTorch alignment (resolved)
 
-Previously, 1 Idris MNIST "epoch" = 1 mini-batch step (`mkIndexedLoader` yields one batch per call; `runTraining`/`epochNativeTensorPre` consumed one batch per epoch). PyTorch's `train_epoch` iterates **all batches** of the 60K training set per epoch. So 100 Idris epochs ≈ 100 batches, while 100 PyTorch epochs ≈ 187,500 batches — same word, ~1875× compute gap. Earlier alignment work (commit `be5121e8`) had reduced Idris MNIST epochs from 2000 → 100 on the assumption that the tokens were semantically identical, dropping accuracy 0.92 → 0.599 and breaking the convergence gate; reverted in `c94a4df` to 2000 single-batch epochs as a stopgap.
+Previously, 1 Idris MNIST "epoch" = 1 mini-batch step (`mkIndexedLoader` yields one batch per call; `runTraining`/`epochNativeTensorPre` consumed one batch per epoch). PyTorch's `train_epoch` iterates **all batches** of the 60K training set per epoch. So 100 Idris epochs ≈ 100 batches, while 100 PyTorch epochs ≈ 187,500 batches — same word, ~1875× compute gap. Earlier alignment work (commit `0c6b1e72`) had reduced Idris MNIST epochs from 2000 → 100 on the assumption that the tokens were semantically identical, dropping accuracy 0.92 → 0.599 and breaking the convergence gate; reverted in `7433ab4` to 2000 single-batch epochs as a stopgap.
 
 **Refactored**: `Example/Mnist.idr` now uses `runTrainingIO` with `dataSrc=pure ()` and an inline `trainOneFullPass` helper that fetches `batchesPerEpoch = trainCount / BatchSize ≈ 937` mini-batches per logical epoch — matching PyTorch's full-pass semantics. Loss returned is the mean per-batch loss across the full pass (mirrors PyTorch's `total_loss / count`).
 
@@ -410,7 +410,7 @@ Applied uniformly to all four NTM/DNC examples (NtmCopy, NtmAssociativeRecall, D
 
 Fixed a real algorithmic regression in Idris's NTM (and parallel gaps in DNC). At fully aligned config (batch=1, seed=42, matched `WindowedPercentile` ES on both sides), pre-fix Idris reached only acc_full=82% at 27,700 epochs while PyTorch ref hit 100% at 4,600. Bit-for-bit bisection (Idris-on-tape vs Idris-on-torch matched to within 1 ULP at epoch 200) confirmed the gap was in Idris's shared model code, not a backend bug.
 
-Five fixes brought Idris into algorithmic alignment with the ref (commits `dbd8ebf` and `8b...`):
+Five fixes brought Idris into algorithmic alignment with the ref (commits `ad62186` and `8b...`):
 
 | Fix | Was | Now (matches PyTorch) |
 |---|---|---|
@@ -479,7 +479,7 @@ their backward rules are audited.
 
 ## Alignment Changes (2026-05-19) — SAC torch_ref migrated to gymnasium Pendulum-v1
 
-PyTorch SAC reference now uses `gym.make("Pendulum-v1")` instead of the hand-rolled `PendulumState` / `pendulum_step` (which had been imported from `ppo.py` and broke when PPO switched env to Acrobot in `0fe6998`). The migration also heals SAC's import error and is the first step of the broader `gymnasium`-adoption work in `torch_ref/` (TODO Medium row, sweep across all 11 RL examples).
+PyTorch SAC reference now uses `gym.make("Pendulum-v1")` instead of the hand-rolled `PendulumState` / `pendulum_step` (which had been imported from `ppo.py` and broke when PPO switched env to Acrobot in `8b0992e`). The migration also heals SAC's import error and is the first step of the broader `gymnasium`-adoption work in `torch_ref/` (TODO Medium row, sweep across all 11 RL examples).
 
 **Documented divergence — reset state**: canonical Gymnasium Pendulum-v1 randomizes the initial state within `theta ∈ [-π, π], theta_dot ∈ [-1, 1]`; idris-gym `Gym.ClassicControl.Pendulum.reset` is deterministic `MkP Pi 0.0` (hangs-down, worst-case inverted). The torch_ref Pendulum loop pins `env.unwrapped.state = [π, 0.0]` after each reset to mirror the Idris init. Threading a seedable RNG through `Env.reset` to randomize idris-gym is a follow-up (touches the `Env` interface — out of scope for this row).
 
@@ -523,7 +523,7 @@ Reset-state pinning is achieved via `env.unwrapped.state = np.array(..., dtype=n
 
 `Example/HfLlamaInference.idr` greedy-decode path switched from the
 re-feed-full-prefix `genLoop` to a cache-aware `genLoopCached` (Phase
-D of the KV-cache work, commit `70f5017c`). The PyTorch-side oracle
+D of the KV-cache work, commit `dd3aca25`). The PyTorch-side oracle
 for the token-sequence gate
 (`scripts/save_oracle_llama_generate.py`) uses
 `model.generate(do_sample=False, use_cache=True, temperature=1.0)`
@@ -543,8 +543,8 @@ with `pad_token_id = config.eos_token_id`. Paired-side settings:
 for greedy decode (same forward math, same argmax), so the oracle's
 token sequence is invariant to the HF cache flag. This is what lets
 the same token-sequence gate verify both the no-cache Idris path
-(Phase A baseline at `b5443135`) and the cached Idris path (Phase D
-at `70f5017c` + `49872b4b`).
+(Phase A baseline at `c1f7489d`) and the cached Idris path (Phase D
+at `dd3aca25` + `f2663ff2`).
 
 **Documented storage-shape divergence (not a paired-side
 mismatch)**: HF stores per-layer KV cache as rank-4 `[batch,

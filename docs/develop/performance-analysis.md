@@ -242,7 +242,7 @@ which would reduce tape from 1.5M to ~15K entries.
 
 ## 5. Forward-Pass Sub-Phase Profile
 
-### Baseline (2026-03-04, commit 937b4d2)
+### Baseline (2026-03-04, commit e54b47d)
 
 Profiler: `src/Example/Profile.idr` (N=128 M=20 H=100, Batch=16, seqLen=1-20)
 
@@ -282,7 +282,7 @@ Root cause: `prim__appendOutputConst`/`prim__appendOutputConstOff` use per-eleme
 Scheme `foreign-set!` loops (3 writes/element × 1.29M elements = ~3.87M FFI calls).
 `prim__appendShadowConst` already uses efficient C bulk `tape_set_shadow_tags`.
 
-### After C-bulk ConstOps (2026-03-04, commit 6efc2ae)
+### After C-bulk ConstOps (2026-03-04, commit 1e60445)
 
 Replaced per-element Scheme loops with C `tape_bulk_set_const`/`tape_bulk_set_const_off`
 (memset tags + memcpy values). Pid writes skipped (default "" from make-vector init).
@@ -311,7 +311,7 @@ the per-element cost was lower than estimated. The remaining forward pass time i
 dominated by Scheme Variable record allocation and `ensureOnTape`/`packVec` loops,
 not by ConstOp tape writes.
 
-### After C-bulk delta application (2026-03-04, commit f8d0b4f)
+### After C-bulk delta application (2026-03-04, commit c75a7ed)
 
 Applied optimizer deltas directly to WeightBuf/NtmMemBuf C arrays via `buf_apply_deltas`,
 bypassing the Scheme `emap (applyDeltasDense ...)` + `syncNetworkBuffers` traversals
@@ -619,7 +619,7 @@ performance while keeping the clean architecture:
 2. **MLX backend**: Create `backend_mlx.c` for Apple Metal GPU via mlx-c.
 3. **Build-time selection**: `make backend BACKEND=torch|tape|mlx`
 
-Pre-migration commit tagged as `legacy-c-backend` (18a11e2) for reference.
+Pre-migration commit tagged as `legacy-c-backend` (b20b955) for reference.
 
 ### After tensor-level path + fused ops (2026-04-02)
 

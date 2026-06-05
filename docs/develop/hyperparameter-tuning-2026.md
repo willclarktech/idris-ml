@@ -453,7 +453,7 @@ Both backends produce a fallback recommendation (rec at or below `lrMin=1e-7`); 
 
 ### Ppo (Acrobot, Adam) — added 2026-04-30 (session 5)
 
-PPO was originally on Pendulum at B3 ("ship-as-is, recommendation = policy-collapse LR"); B3-fixes (`36dbd5f`) swapped to Acrobot with categorical policy and re-validated convergence (5/5 PyTorch, 5/6 Idris) but did not re-run lr_find. This entry closes that gap.
+PPO was originally on Pendulum at B3 ("ship-as-is, recommendation = policy-collapse LR"); B3-fixes (`4b1ae1c`) swapped to Acrobot with categorical policy and re-validated convergence (5/5 PyTorch, 5/6 Idris) but did not re-run lr_find. This entry closes that gap.
 
 Config-before: `lr=3e-4`, `epochs=100`, `rollout=1024`, `K=10`, `batch=64`, `gamma=0.99`, `lambda=0.95`, `clip=0.2`, `entropy=0.01`. Architecture: 6 → 64 → 64 → 3 (actor) + 6 → 64 → 64 → 1 (critic), separate, tanh activations.
 

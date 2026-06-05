@@ -45,14 +45,14 @@ V1 had two related problems:
 
 The migration shipped over five logical commits:
 
-1. **Path C steps 1–4** (commits `0dc8d70` and ancestors): every example migrated
+1. **Path C steps 1–4** (commits `fe16ce2` and ancestors): every example migrated
    to V2 (Variable→shape-indexed surface), V1 deleted, V2→no-suffix rename done.
-2. **Phase 1** (`ff855a3`): structural `Tensor` → `Array`. Pure identifier swap.
-3. **Phase 2** (`1409e17`): `Variable` → `Tensor`. Pure identifier swap.
-4. **Phase 3** (`e39fb55`): re-add `Layer.idr` re-export hub. `import Layer` works again.
-5. **Phase 4** (`869acb1`): port `Curriculum.idr` to V2. Multi-stage trainer back.
-6. **Phase 5** (`2061b30`): re-add `toDevice` for explicit CPU↔CUDA↔MPS bridging.
-7. **Tracer** (`c489a75`): `forwardVarTraced` debug walker.
+2. **Phase 1** (`cf57b90`): structural `Tensor` → `Array`. Pure identifier swap.
+3. **Phase 2** (`3d734d6`): `Variable` → `Tensor`. Pure identifier swap.
+4. **Phase 3** (`cd3aba5`): re-add `Layer.idr` re-export hub. `import Layer` works again.
+5. **Phase 4** (`7854244`): port `Curriculum.idr` to V2. Multi-stage trainer back.
+6. **Phase 5** (`4519909`): re-add `toDevice` for explicit CPU↔CUDA↔MPS bridging.
+7. **Tracer** (`01a4150`): `forwardVarTraced` debug walker.
 
 ## What was preserved
 

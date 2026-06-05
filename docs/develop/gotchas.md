@@ -178,7 +178,7 @@ Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated on
 
 ### `PrimIO Bits64` FFI returns corrupt state in tight loops — use `PrimIO Int`
 
-The `primPerfOpCount` FFI (introduced commit `26a0d56` for the #393 op-submission counter) originally declared `PrimIO Bits64`. The C side returns `long`, which is `int64_t` on macOS — fits both `Bits64` and `Int`. Calling the typeclass-routed `perfOpCount {d=ExampleDevice}` in a tight loop (once per decode step in HfLlama's `genLoop`) reliably crashed tape F32 inference with `Exception: invalid memory reference` / `Illegal instruction: 4` after ~8 iterations (#401). Switching the FFI declaration to `PrimIO Int` (and the `Tensor.idr` wrapper to `IO Int`) eliminated the crash — same C function, same workload, full 13-step decode. The exact failure mode of Idris-2's chez codegen for `unsigned-64` returns in a typeclass-dispatched `PrimIO` is unresolved (the other documented hypotheses — typeclass dispatch, FFI marshalling — weren't independently isolated), but the working code uses `Int`. Lesson: for FFI counters / sizes / handle indices returning values that fit in `Int64`, default to `PrimIO Int` not `PrimIO Bits64`. Reserve `Bits64` for cases where the unsigned semantics genuinely matter and the call frequency is low.
+The `primPerfOpCount` FFI (introduced commit `e9763d0` for the #393 op-submission counter) originally declared `PrimIO Bits64`. The C side returns `long`, which is `int64_t` on macOS — fits both `Bits64` and `Int`. Calling the typeclass-routed `perfOpCount {d=ExampleDevice}` in a tight loop (once per decode step in HfLlama's `genLoop`) reliably crashed tape F32 inference with `Exception: invalid memory reference` / `Illegal instruction: 4` after ~8 iterations (#401). Switching the FFI declaration to `PrimIO Int` (and the `Tensor.idr` wrapper to `IO Int`) eliminated the crash — same C function, same workload, full 13-step decode. The exact failure mode of Idris-2's chez codegen for `unsigned-64` returns in a typeclass-dispatched `PrimIO` is unresolved (the other documented hypotheses — typeclass dispatch, FFI marshalling — weren't independently isolated), but the working code uses `Int`. Lesson: for FFI counters / sizes / handle indices returning values that fit in `Int64`, default to `PrimIO Int` not `PrimIO Bits64`. Reserve `Bits64` for cases where the unsigned semantics genuinely matter and the call frequency is low.
 
 ### Wrapped-handle ABI — new Tensor FFIs must use the wrap-on-return template
 
@@ -240,7 +240,7 @@ makeVec4 (a, b, c, d) = do
 
 If a function with hidden FFI side effects has a *pure* type, the FFI calls fire during strict argument evaluation — *before* `pure` constructs its IO action, and therefore *before* `noGradBegin` runs. The bracket was effectively a no-op on the eval path.
 
-The library fix (commit `8a32a86`'s parent and earlier): every Tensor-handle-touching smart constructor + every `applyVar` / `forwardVar` is now `IO`-typed. FFI bodies fire when the IO action is sequenced via `<-`, which happens *inside* the bracket. The helper `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` defers a pure body to IO without using the prelude's private `MkIO` constructor; `Lazy a` was rejected because it memoizes (we need re-evaluation per call).
+The library fix (commit `73a5cdc`'s parent and earlier): every Tensor-handle-touching smart constructor + every `applyVar` / `forwardVar` is now `IO`-typed. FFI bodies fire when the IO action is sequenced via `<-`, which happens *inside* the bracket. The helper `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` defers a pure body to IO without using the prelude's private `MkIO` constructor; `Lazy a` was rejected because it memoizes (we need re-evaluation per call).
 
 **Sibling trap — `bulkToTensor`-style returns AnyPtr, not Tensor.** `bulkToTensor` is a pre-tensor *staging* helper (it builds the host buffer, fills it, and hands the raw AnyPtr back to the caller for wrapping). Its return type is `AnyPtr`, not `IO AnyPtr`, so the IO-typed-smart-constructor rule doesn't catch it. When multiple let-bound `bulkToTensor` calls feed sibling fields of a tuple/record/argument list, Idris/Chez can reorder or interleave their FFI side effects so one Tensor ends up wrapping a partially-initialised arena slot (kernel sees `rank=0` or `shape=NULL` for a tensor that should be rank-1; the C oracle test, which constructs scalar/x/bias directly with no Idris-side wrapping, is fine — the reorder only happens when Idris evaluates the chain). Fix at the call site: `raw <- ioRerun (\_ => bulkToTensor xs)` per tensor, then thread the AnyPtr into `MkTensor` / `tinput1d`. Bound in `Test.BitLinear`'s `mkVec` / `mkVecNoGrad`; the same pattern is the right shape for any future helper that returns a `bulkToTensor`-style raw AnyPtr. Caught while wiring `tBitlinearFwd`'s Idris-side oracle test (commit `10a535b`).
 
@@ -252,7 +252,7 @@ The `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` helper that 
 
 Inference programs that complete with hundreds of MB of live tensor handles hit a 14-22 minute post-main C-side cleanup tail on the CPU lanes (torch-cpu, mlx-cpu). The work is libtorch's per-`at::Tensor` destructor cascade (`~at::Tensor → ~Storage → CPUAllocator-free`) walking the ~146 params + ~600 forward intermediates accumulated across an 8-token no-cache greedy decode. The GPU lanes (`torch-mps`, `mlx-gpu`) don't show this — MTLBuffer release is async.
 
-Fix: call `releaseAllPersistent {d=ExampleDevice}` after `runGenerate` and before `pure ()`. On torch this `free_intermediates()` + walks `param_registry_arr` deleting each `at::Tensor*`; cascade runs inside `main` where it's timed + bounded. Measured on HfLlama-1.2B BF16 torch-cpu (commit `81e3caa`): **wall 23m22s → 1m21s**.
+Fix: call `releaseAllPersistent {d=ExampleDevice}` after `runGenerate` and before `pure ()`. On torch this `free_intermediates()` + walks `param_registry_arr` deleting each `at::Tensor*`; cascade runs inside `main` where it's timed + bounded. Measured on HfLlama-1.2B BF16 torch-cpu (commit `84cd1b5`): **wall 23m22s → 1m21s**.
 
 Pair with `drainManagedHandles + forceMajorGc` immediately before (the standard `withNoGrad` cleanup pair) so any guardian-tracked wraps from the run are popped before the explicit release. mlx-cpu's `releaseAllPersistent` is a no-op today — `mlx_sweep_generation` is static-scoped in `autograd.cpp` and the simpler `param_clear + mx::clear_cache` regressed the mlx-cpu wall; exposing the sweep + walking `all_tensors` is the proper fix and a deferred follow-up.
 
@@ -532,7 +532,7 @@ Implication: don't read a single-seed under-budget run as a backend bug. Compare
 
 ### NTM tape backward uses Apple Accelerate BLAS — seed=42 trajectory shifted
 
-After commit `9311eff` (2026-05-11), `OP_MM` / `OP_BMM` / `OP_MV` /
+After commit `3ba8f31` (2026-05-11), `OP_MM` / `OP_BMM` / `OP_MV` /
 `OP_LINEAR` / `OP_LINEAR_2D` backward kernels dispatch to
 `cblas_dgemm` / `dgemv` / `dger` on Apple. The forward kernels
 already used BLAS; the backward switch closes a long-standing
@@ -540,7 +540,7 @@ performance gap for matmul-heavy backwards (transformer, DNC).
 
 `dgemm`/`dger` reduce in a different floating-point order than the
 hand-rolled triple loops they replaced, so per-step gradients
-differ by ~1 ULP from the pre-`9311eff` tape. NTM-Copy's
+differ by ~1 ULP from the pre-`3ba8f31` tape. NTM-Copy's
 seed-sensitivity is acute enough that this flips seed=42 onto a
 slower-converging branch: tape ntm-copy goes from ~4400 ep to
 ~7000 ep (acc_full=1.0 either way); ntm-recall from ~8500 ep /
@@ -550,7 +550,7 @@ length-generalization gates.
 
 Implication: if you're chasing best-case NTM-Copy convergence
 runtime, try multiple seeds — the BLAS reduction order may favour
-a different seed than seed=42 did pre-`9311eff`. For most
+a different seed than seed=42 did pre-`3ba8f31`. For most
 workloads (transformer, DNC, supervised/RNN family) the BLAS path
 is a clean win and not a tradeoff at all.
 
@@ -800,7 +800,7 @@ Tensor op meta structs store `out_tape_start = idx + 1` (first output gradient i
 
 `applyDeltasAndSyncLayer`/`applyDeltasAndSyncNetwork` in Layer.idr apply optimizer deltas directly to WeightBuf/NtmMemBuf C arrays via `buf_apply_deltas(vals, pid_ids, count, deltas)`. Each buffer stores a parallel `int *pid_ids` array (populated during `nameParams`). This bypasses the Scheme `emap (applyDeltasDense ...)` + `syncNetworkBuffers` traversals (~63K Variable operations). WeightBuf pid_ids stored in Scheme 6-vector slot [4]; NtmMemBuf pid_ids stored in C struct field. Cache generations are reset to force tape re-registration next epoch. **Important**: Variable.value fields are NOT updated — call `readFromBuffersNetwork` before `toDoubleNetwork` to sync C buffer values back into Variable records for evaluation.
 
-### Multi-axis `primNarrow` on torch + mlx was a silent shape lie (fixed in `bd61bef`)
+### Multi-axis `primNarrow` on torch + mlx was a silent shape lie (fixed in `69a0597`)
 
 `tensor_narrow(handle, dim, start, len)` is supposed to slice along axis `dim`. From the dawn of multi-backend support through 2026-05-26, the torch and mlx kernels did `(void)dim;` and then `flatten().narrow(0, start, len)` — they ignored `dim` and flattened the input before slicing axis 0. A `primNarrow ... 1 ...` on a `[seq, hidden]` tensor that was supposed to return `[seq, len]` instead returned a rank-1 `[len]`, with values from the FIRST row only. Tape always handled rank-2 axis-1 correctly. The bug hid behind BERT's 1e-3 cross-language tolerance: HfBert.idr's per-head Q/K/V split runs `primNarrow ... 1 ...`, but the BERT roundtrip gate ran only on tape (the default backend) and the multi-head numerics happened to land within tolerance even when wrong on torch/mlx. Pinned by `linear_shape_narrow::axis1_correctness_rank2` (forward) + `axis1_backward_scatters_columns` (backward gradient scatter) in the common-backend Criterion suite — they pin a `[3, 6]` tensor, narrow axis=1 start=2 length=3, and assert both rank-2 shape and the exact middle columns. Tape had a real implementation in `backend_tape/linear/shape/narrow.c` since the C tape landed; torch + mlx fixes route through `at::Tensor::narrow(dim, start, len)` (torch) and a multi-axis `mx::slice` start/stop bound builder + shape-comparison `dim` recovery at replay time (mlx).
 
@@ -814,7 +814,7 @@ HuggingFace's GPT-2 wraps its linear projections in `transformers.pytorch_utils.
 
 ### Fused QKV (`c_attn.weight`) split via axis=1 narrow at forward, not stored split
 
-GPT-2's `attn.c_attn.weight` is one `Tensor [hidden, 3*hidden]` storing Q‖K‖V concatenated along axis=1. HfGpt2's `applySelfAttn` materialises the post-projection `[seq, 3*hidden]` blob, then takes three `primNarrow ... 1 ...` views (`q = narrow blob 1 0 hidden`, `k = narrow blob 1 hidden hidden`, `v = narrow blob 1 (2*hidden) hidden`) — each a `[seq, hidden]` view. The per-head split is a second nested narrow inside the multi-head loop. Both axes=1 narrows exercise the `bd61bef` fix; without it torch/mlx would produce wrong-rank tensors and silent garbage attention. Storage matches HF; the splitting work happens at forward.
+GPT-2's `attn.c_attn.weight` is one `Tensor [hidden, 3*hidden]` storing Q‖K‖V concatenated along axis=1. HfGpt2's `applySelfAttn` materialises the post-projection `[seq, 3*hidden]` blob, then takes three `primNarrow ... 1 ...` views (`q = narrow blob 1 0 hidden`, `k = narrow blob 1 hidden hidden`, `v = narrow blob 1 (2*hidden) hidden`) — each a `[seq, hidden]` view. The per-head split is a second nested narrow inside the multi-head loop. Both axes=1 narrows exercise the `69a0597` fix; without it torch/mlx would produce wrong-rank tensors and silent garbage attention. Storage matches HF; the splitting work happens at forward.
 
 ### transformers 5.9.0 BitNet CPU-load leaves weights as U8 (the ternary view-cast workaround)
 
@@ -831,7 +831,7 @@ The Idris-side `Compatible d dt` typeclass admits storage on a backend (e.g. `Co
 - **`BitLinear`** (line 124-208, the older one): `output = F.linear(input_quant.to(dtype), w_quant); output = output / (input_scale * weight_scale)`. The dequant DIVIDES by `weight_scale` on int8-quantised inputs.
 - **`AutoBitLinear`** (line 257-312, the newer one): `output = F.linear(ActQuant.apply(input), weight); output = output * self.weight_scale`. The dequant MULTIPLIES by `weight_scale` on ActQuant-dequantised inputs.
 
-The two formulas give different results — they differ by a factor of `weight_scale²` per BitLinear call. The model `microsoft/bitnet-b1.58-2B-4T` uses `AutoBitLinear` (verifiable via `type(mod).__name__ == "AutoBitLinear"` after load). Our C-side `tensor_bitlinear_fwd_hf_quant` initially matched the older `BitLinear`'s divide-by-w_scale algebra — fine in isolation but wrong against the on-disk weights, which are scaled assuming the `AutoBitLinear` interpretation. Pre-fix: idris-side logits had ~0.22× the oracle magnitude and `runGenerate("The capital of France is")` decoded as `" the, the, the"` instead of `" Paris"`. Post-fix (commit `8e0fefd`, three-line edit per backend kernel): logits Pearson 0.9988, top-5 indices match exactly, argmax matches, output decodes `" Paris."`. When porting a new HF quantization-aware model, ALWAYS check which BitLinear class the model uses (`type(mod).__name__`) before transcribing the forward — the class name disambiguates the algebra.
+The two formulas give different results — they differ by a factor of `weight_scale²` per BitLinear call. The model `microsoft/bitnet-b1.58-2B-4T` uses `AutoBitLinear` (verifiable via `type(mod).__name__ == "AutoBitLinear"` after load). Our C-side `tensor_bitlinear_fwd_hf_quant` initially matched the older `BitLinear`'s divide-by-w_scale algebra — fine in isolation but wrong against the on-disk weights, which are scaled assuming the `AutoBitLinear` interpretation. Pre-fix: idris-side logits had ~0.22× the oracle magnitude and `runGenerate("The capital of France is")` decoded as `" the, the, the"` instead of `" Paris"`. Post-fix (commit `491b98c`, three-line edit per backend kernel): logits Pearson 0.9988, top-5 indices match exactly, argmax matches, output decodes `" Paris."`. When porting a new HF quantization-aware model, ALWAYS check which BitLinear class the model uses (`type(mod).__name__`) before transcribing the forward — the class name disambiguates the algebra.
 
 ### Roundtrip-gate tolerance for BF16-storage LMs: per-element noise vs argmax-match
 
@@ -839,7 +839,7 @@ The HF transformers `microsoft/bitnet-b1.58-2B-4T` model stores all weights in B
 
 ### Tied embeddings (`tie_word_embeddings=true`) — the LM head is NOT on disk
 
-Several modern LMs (Llama-3.2, BitNet b1.58, Pythia, …) ship with `tie_word_embeddings=true` in `config.json` — the embedding tensor IS the LM-head projection matrix, and there is no separate `lm_head.weight` in the safetensors file. Naively expecting the LM head as a separate param ends in either a missing-key error (if you `param_load` it) or silent garbage output (if your adapter has a parallel `BitNetLmHead` record initialised to zeros). The `af57f06` BitNet fix shows the pattern: drop the LM-head record + field + param-name; let `hfBitnetForwardLm` project against `model.embedTokens.weight` directly. When wiring a new HF adapter, always `grep '"lm_head"'` against the actual `model.safetensors.index.json` (or the file's JSON header) — the `config.py` defaults can lie, and the on-disk shape catalogue is the source of truth.
+Several modern LMs (Llama-3.2, BitNet b1.58, Pythia, …) ship with `tie_word_embeddings=true` in `config.json` — the embedding tensor IS the LM-head projection matrix, and there is no separate `lm_head.weight` in the safetensors file. Naively expecting the LM head as a separate param ends in either a missing-key error (if you `param_load` it) or silent garbage output (if your adapter has a parallel `BitNetLmHead` record initialised to zeros). The `3f9ea6e` BitNet fix shows the pattern: drop the LM-head record + field + param-name; let `hfBitnetForwardLm` project against `model.embedTokens.weight` directly. When wiring a new HF adapter, always `grep '"lm_head"'` against the actual `model.safetensors.index.json` (or the file's JSON header) — the `config.py` defaults can lie, and the on-disk shape catalogue is the source of truth.
 
 ### Every torch backend tensor creator must honour `g_torch_target_device`
 
@@ -855,11 +855,11 @@ The `withNoGradKeep` story above was about MPS's 18 GB watermark. On torch-cpu (
 
 ### `applyBitLinearHf2d` row-loop lambdas — lift to top-level when surrounding function has heavy constraints
 
-`applyBitLinearHf2d` originally had two `let`-bound functions (`processRow` + `foldRows`) inside its `ioRerun` body. They closed over the constraint-rich outer scope (`UserDeviceLinear d` + `UserDeviceQuant d` + `Compatible d dt` + the `BitLinearHf i o d dt g` record), so every reference inside the lambda body re-instantiated those constraints. At BitNet 2B-4T's 210 call sites of `applyBitLinearHf2d` (and 480 sites of `applyRmsNorm2d` with the same pattern), that's a lot of constraint-resolution work — and was a meaningful contributor to the 26-min elaboration of `Example/HfBitNetInference.idr`. The refactor (`e3a3add`) lifts each row-loop pair to top-level helpers taking all dependencies as plain `AnyPtr` / `Int` / `Double` args. The helpers elaborate ONCE at module compile, not per call site. Effect: torch-cpu example rebuild dropped from ~26 min to ~22 min (modest but real). Two traps when doing this kind of lift: (i) **picking the right interface for the constraint** — `primNarrow` / `primCat2` / `primReshape*` / `primSum` are on `UserDeviceLinear`, not `UserDeviceCore` (interface hierarchy at `Device/Core.idr:107-336`); the first attempt got it wrong and Idris emitted `Can't find an implementation for UserDeviceLinear d` on every `prim*` call site. (ii) **threading the erased `{0 d : Device}` through recursive calls** — even though `d` is erased, the recursive call body needs an explicit `{d}` so the elaborator's instance search has a name to bind. Without it: `Can't find an implementation for UserDeviceLinear ?d` at the recursive call site.
+`applyBitLinearHf2d` originally had two `let`-bound functions (`processRow` + `foldRows`) inside its `ioRerun` body. They closed over the constraint-rich outer scope (`UserDeviceLinear d` + `UserDeviceQuant d` + `Compatible d dt` + the `BitLinearHf i o d dt g` record), so every reference inside the lambda body re-instantiated those constraints. At BitNet 2B-4T's 210 call sites of `applyBitLinearHf2d` (and 480 sites of `applyRmsNorm2d` with the same pattern), that's a lot of constraint-resolution work — and was a meaningful contributor to the 26-min elaboration of `Example/HfBitNetInference.idr`. The refactor (`3b23ffa`) lifts each row-loop pair to top-level helpers taking all dependencies as plain `AnyPtr` / `Int` / `Double` args. The helpers elaborate ONCE at module compile, not per call site. Effect: torch-cpu example rebuild dropped from ~26 min to ~22 min (modest but real). Two traps when doing this kind of lift: (i) **picking the right interface for the constraint** — `primNarrow` / `primCat2` / `primReshape*` / `primSum` are on `UserDeviceLinear`, not `UserDeviceCore` (interface hierarchy at `Device/Core.idr:107-336`); the first attempt got it wrong and Idris emitted `Can't find an implementation for UserDeviceLinear d` on every `prim*` call site. (ii) **threading the erased `{0 d : Device}` through recursive calls** — even though `d` is erased, the recursive call body needs an explicit `{d}` so the elaborator's instance search has a name to bind. Without it: `Can't find an implementation for UserDeviceLinear ?d` at the recursive call site.
 
 ### `Example/HfBitNetInference.idr` elaboration takes 22-26 min on torch-cpu
 
-Cold (or near-cold) builds of `Example/HfBitNetInference.idr` take **22 minutes** post-`e3a3add` refactor; **26 minutes** pre-refactor. The Llama-equivalent (`Example/HfLlamaInference.idr` with the same `genOneStep` / `genLoop` / `runGenerate` pattern) takes 5-7 min on the same machine. The 3-4× gap reflects BitNet's heavier elaboration surface: (a) one extra typeclass constraint (`UserDeviceQuant d`) per `hfBitnetForwardLm` call site; (b) `BitLinearHf.weightT : Tensor [o, i] d Ternary NoGrad` triggering `LosslessTo Ternary dt` / `UpcastableTo Ternary dt` resolution at every BitLinear use (210 sites for the 2B-4T config); (c) the `applyBitLinearHf2d` body being 25+ lines with multiple FFI calls vs Llama's 2-line `applyLinear2d`. Idris emits zero output during the elaboration — silently appearing to hang. Two earlier attempts to add `genOneStep` / `genLoop` / `runGenerate` to the example were killed at the 45-min and 29-min marks under the assumption that the silence was a true hang; the third attempt (commit `e155deb`) was left to run and completed in 22-26 min. Lesson: if a future BitNet-style adapter takes >15 min in `idris2` with no output, give it up to 45 min before assuming a real bug. The `genOneStep` / `genLoop` / `runGenerate` pattern works; it's just slow to elaborate. A potential bigger win is captured on the `idris-transformers` adapter DRY-up TODO row (share the inference scaffolding so it elaborates once, not per adapter).
+Cold (or near-cold) builds of `Example/HfBitNetInference.idr` take **22 minutes** post-`3b23ffa` refactor; **26 minutes** pre-refactor. The Llama-equivalent (`Example/HfLlamaInference.idr` with the same `genOneStep` / `genLoop` / `runGenerate` pattern) takes 5-7 min on the same machine. The 3-4× gap reflects BitNet's heavier elaboration surface: (a) one extra typeclass constraint (`UserDeviceQuant d`) per `hfBitnetForwardLm` call site; (b) `BitLinearHf.weightT : Tensor [o, i] d Ternary NoGrad` triggering `LosslessTo Ternary dt` / `UpcastableTo Ternary dt` resolution at every BitLinear use (210 sites for the 2B-4T config); (c) the `applyBitLinearHf2d` body being 25+ lines with multiple FFI calls vs Llama's 2-line `applyLinear2d`. Idris emits zero output during the elaboration — silently appearing to hang. Two earlier attempts to add `genOneStep` / `genLoop` / `runGenerate` to the example were killed at the 45-min and 29-min marks under the assumption that the silence was a true hang; the third attempt (commit `2ae8e15`) was left to run and completed in 22-26 min. Lesson: if a future BitNet-style adapter takes >15 min in `idris2` with no output, give it up to 45 min before assuming a real bug. The `genOneStep` / `genLoop` / `runGenerate` pattern works; it's just slow to elaborate. A potential bigger win is captured on the `idris-transformers` adapter DRY-up TODO row (share the inference scaffolding so it elaborates once, not per adapter).
 
 ## C Tape Backend (backend_tape.c)
 
@@ -1118,7 +1118,7 @@ shouldn't hit this, but in a VM the watchdog is shorter than the
 typical mlx kernel needs for these workloads.
 
 The footprint downstream: silent perf-script anomalies. Once mlx-gpu
-binaries abort, `scripts/perf-sweep.sh` (post-commit `c89ff85`)
+binaries abort, `scripts/perf-sweep.sh` (post-commit `7faca59`)
 correctly marks the cell as `crashed`; earlier versions silently
 billed the time-to-abort as the per-epoch measurement. If a perf-log
 row's `ratio` looks impossibly good for an mlx-gpu cell, check
@@ -1155,7 +1155,7 @@ lower-right diagonal, 0 at and below) and pass via `attn_mask`;
 disable `is_causal` so the kernel doesn't double-mask. Symmetric
 case (prefill / training) keeps `is_causal=True` and the optimized
 kernel selection. See `packages/backends/backend_torch/nn/attention/scaled_dot_product_attention.cpp`
-and commit `93f9108b`.
+and commit `5a55c930`.
 
 Same fix applied defensively to mlx (`mx::fast::scaled_dot_product_attention`
 makes the same lower-right promise; newer kernels probably honour
@@ -1265,7 +1265,7 @@ fine (libtorch's view-on-view chains compose without copies).
 Audit pattern: any `.contiguous()` *not* immediately followed by `.cpu()`
 + `.data_ptr<T>()` is suspicious. Three sites bit us — `narrow.cpp:11`,
 `expand_mask.cpp:8`, `core/lifecycle/batch.cpp` (`tensor_unbatch`) — all
-removed in commit `51df3cb`, dropping torch-mps Llama wall 11:45 → 8:43
+removed in commit `c6fc7d8`, dropping torch-mps Llama wall 11:45 → 8:43
 (~26%). The stale comments at those sites said "make safe for FFI
 consumers"; verified no FFI consumer downstream read the masks/views.
 
@@ -1285,7 +1285,7 @@ tensors on MPS. The Llama forward then crashed with
 `Expected all tensors to be on the same device, but found at least two
 devices, mps:0 and cpu!` on the first state-vs-param op.
 
-Fix (commit `ab5386a`): `make_state_persistent` helper mirroring
+Fix (commit `80a18db`): `make_state_persistent` helper mirroring
 `make_param_leaf` (atomic cast + device migrate, sans `requires_grad_`)
 + `cast_and_migrate` for create-1d/2d siblings. Every `default:` arm now
 goes through the helper. Audit pattern: any `tensor_cast_dtype_*` or

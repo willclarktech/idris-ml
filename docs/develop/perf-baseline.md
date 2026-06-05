@@ -14,7 +14,7 @@
 > renderer view (Axes A / B / C / D), and `docs/develop/perf-log.md`
 > for the JSONL schema.
 
-## Current state — 2026-06-04 full sweep (post narrow-fix `59a37ab0`)
+## Current state — 2026-06-04 full sweep (post narrow-fix `4c7aa76f`)
 
 Full `scripts/perf-sweep.sh` across 16 examples × 5 cells = 80 measurements.
 F64-default both sides (BuildConfig + torch_ref), apples-to-apples ratios.
@@ -46,7 +46,7 @@ Bold = winning cell per example (lowest ratio).
 4. **RL examples are higher-ratio across the board** — DQN/MountainCar/PPO at 3–10× tape. RL has inherent step-by-step env interactions that don't batch; the per-step wall is dominated by Idris-side overhead (the existing TODO row "Idris-side per-op overhead" is the lever).
 5. **4 crashes** — all on mlx (cpu + gpu) on the 2000-epoch RL examples (mountain-car-cont, sac). mlx allocator failures (`Unable to allocate 4/256/512 bytes` — not a real OOM). Filed as an additional manifestation under TODO line 50 "transformer mlx-gpu intermittent crash" — same class (mlx-side memory issue on long-running workloads).
 
-**This table re-measured 2026-06-04** at commit `59a37ab0` (the
+**This table re-measured 2026-06-04** at commit `4c7aa76f` (the
 narrow-bug fixes for transformer + DNC). Prior tables below are
 historical snapshots; this section is current.
 
@@ -78,7 +78,7 @@ matching cells need to be re-measured paired-side.
 These have target accuracy thresholds in
 `test-examples-convergence.expect`; full convergence runtime matters.
 
-> **Latest full sweep 2026-05-25 @ `7633a54`** — post 5-sibling
+> **Latest full sweep 2026-05-25 @ `42dff57`** — post 5-sibling
 > dtype-blind creator retire + torch-mps streamed-path migration +
 > transformer mlx-gpu crash re-measurement. Six examples × five cells
 > (tape / torch-cpu / torch-mps / mlx-cpu / mlx-gpu). Methodology:
@@ -97,20 +97,20 @@ These have target accuracy thresholds in
 > **Tape**: dominates every cell — 0.04-0.33× PyTorch. **Torch-cpu /
 > torch-mps**: now competitive on every cell incl. NTM (ntm-copy /
 > ntm-recall torch-mps were `crashed` in the 2026-05-19 sweep; the
-> streamed-path migration fix in `8507e50` + `c7cfd5b` made them
+> streamed-path migration fix in `0b4ee52` + `5ccbf7c` made them
 > first-class). **mlx-cpu**: 17-45× PyTorch on small-net training
 > (per-FFI overhead + per-op Metal Performance Shaders dispatch cost
 > dominating sub-ms kernels). **mlx-gpu**: 25-67× PyTorch — kernel-
 > launch wall persists. **transformer mlx-gpu now produces a number
 > (3.11×) where the 2026-05-25 @ `54c8dba` snapshot had `crashed`** —
-> the eval-grad-before-sweep fix in `e3959a1` brought the rate down
+> the eval-grad-before-sweep fix in `140bd14` brought the rate down
 > enough that a single 200-epoch run completes most of the time. The
 > residual ~1% rate is still tracked in TODO row 42. mlx remains the
 > right backend for the matmul-bench compute-bound regime (4.3 TFLOPS
 > at N=4096); these training-loop cells live in the opposite regime
 > where its overhead dominates.
 
-Latest cross-backend sweep: 2026-05-09 @ commit `6f7792a` (post DNC
+Latest cross-backend sweep: 2026-05-09 @ commit `ca43667` (post DNC
 mask + retention + linkTrans fixes, torch free_intermediates
 simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 <backend>` at `--seed 42`.
@@ -130,7 +130,7 @@ simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 > `Example/GptLarge` retired same day; was never structurally able to
 > show GPU > CPU at dModel=256.
 
-> **Full sweep 2026-05-17 @ commit `b894fbb`** (post IO refactor +
+> **Full sweep 2026-05-17 @ commit `87063be`** (post IO refactor +
 > per-sequence withNoGrad, see `perf-changes.md` 2026-05-17 entry).
 > Six examples × four cells (tape / torch / mlx-cpu / mlx-gpu) via
 > `scripts/perf-sweep.sh`. mlx-gpu added as a first-class cell.
@@ -164,7 +164,7 @@ simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 > mlx-gpu hits **4.3 TFLOPS at N=4096, 13.5× the CPU backends**. The
 > per-FFI wrapping is invisible at this scale.
 
-> **Partial re-measurement 2026-05-15 @ commit `db20f12`** (post
+> **Partial re-measurement 2026-05-15 @ commit `4d350d9`** (post
 > Transformer PE-caching fix + `prim__tile2d` rewrite, see
 > `perf-changes.md`). The transformer row is now stale across all
 > backends. Fresh numbers from `scripts/perf-baseline.sh`:

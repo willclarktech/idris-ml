@@ -2,7 +2,7 @@
 
 > **Note:** V1 internals referenced below (`forwardVarTensor`, `applyVarTensor`, scalar Variable tape) are pre-Path-C names. The Phase-1 perf numbers still hold post-migration; the names map to V2 as `forwardVar` / `applyVar` / `Tensor [...] d`. See [path-c-migration.md](path-c-migration.md).
 
-## Phase 1 result (2026-05-02, commits `cf03748` + cellState fix)
+## Phase 1 result (2026-05-02, commits `683aba6` + cellState fix)
 
 **All three backends got large speedups; torch/mlx (which had worst FFI
 overhead before) got the biggest wins:**
@@ -44,7 +44,7 @@ ripple effects through DNC.
 
 Tape dnc-copy projected convergence wall-clock: ~13 h → ~1.7 h
 (46K epochs × 130 ms). The 18 h CONVERGENCE_TIMEOUT bump committed in
-`aa8896a` is no longer needed.
+`fc9a170` is no longer needed.
 
 ---
 
@@ -139,7 +139,7 @@ even more headroom (their FFI overhead drops proportional to the call
 count reduction); estimated 4-6× win there.
 
 If the projection holds, **the 18h CONVERGENCE_TIMEOUT bump committed
-in `aa8896a` becomes unnecessary** and can be reverted to the original
+in `fc9a170` becomes unnecessary** and can be reverted to the original
 4 h or tightened further.
 
 ## Phase 1 implementation notes (research, pre-commit)

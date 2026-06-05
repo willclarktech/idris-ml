@@ -222,7 +222,7 @@ Two pieces deserve attention:
   `withNoGrad`. **UNSAFE in training** — clobbers any in-flight
   param grads.
 - **`[perf] step N: K ops`** is the per-forward op-submission counter
-  from TODO #393's diagnostic (commit `26a0d56`). On torch it counts
+  from TODO #393's diagnostic (commit `e9763d0`). On torch it counts
   every `from_tensor()` wrap (one per graph node); on tape + mlx
   it's a no-op stub returning 0. Surfaced through perf-run.sh
   alongside `[stage]` lines. Used to confirm the torch-mps

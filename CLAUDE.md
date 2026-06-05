@@ -236,7 +236,7 @@ Commit at each step. PyTorch is the correctness oracle.
 - **Idris unit tests** (`packages/idris-ml/test`, `make test`) — typed-surface, smart-constructor, training-loop work.
 - **`.expect` example outputs** (`make test-examples`) — user-visible example behaviour. Author the fixed expected stdout first; the example is RED until step 2 writes it (gated by a `<EXAMPLE>_READY` Makefile var for the skip-flag shape).
 
-**No "linked = green"**. The Phase 1 (unified FFI dispatch) slip — entry-point commits 1.1–1.4 shipped with only compile/link coverage; the behavioural test (`600ae11`) followed days later — is the failure mode this section exists to prevent.
+**No "linked = green"**. The Phase 1 (unified FFI dispatch) slip — entry-point commits 1.1–1.4 shipped with only compile/link coverage; the behavioural test (`db1e4fb`) followed days later — is the failure mode this section exists to prevent.
 
 **Coverage policy** — what "covered" means for the three backends, the principled-exclusion list, and the contributor checklist for adding new ops live in [`docs/develop/coverage-policy.md`](docs/develop/coverage-policy.md). Run `make coverage-gap-probe` to see current OP_* and FFI-symbol gaps. The three-axis target (symbol coverage + OP_* backward coverage + F32 paired oracle) is the yardstick; C-line % is advisory only.
 
@@ -296,7 +296,7 @@ Exceptions (~rare): `make install` / `make backend` of a hot tree (already-cache
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`. ~50 char subject, imperative present tense. One logical change per commit. No ads/branding in messages or PRs.
 - **Section dividers**: `----------------------------------------------------------------------` with titles, Layer.idr style
 - **Documentation**: Update CLAUDE.md, `docs/develop/design-decisions.md`, and `TODO.md` when adding features, changing architecture, or making design decisions. `TODO.md` holds the open backlog only; when a row is finished, move its closure entry to `CHANGELOG.md` (most-recent-first) rather than into a Done section in `TODO.md`.
-- **No ephemeral plan labels in committed docs**: don't reference "Phase 2.1b" / "Job 4 Phase B" / "Step 3" etc. in committed prose (design-decisions, gotchas, CLAUDE.md, in-code comments). Those labels live in the working plan file and are meaningless six months later. Anchor to the *commit* hash (`9e20307`), a *date* (`2026-05-13`), or the *feature name* ("the multi-link refactor", "the rename + alias machinery") instead. Plan labels are fine in commit messages and conversation — that's their natural lifetime.
+- **No ephemeral plan labels in committed docs**: don't reference "Phase 2.1b" / "Job 4 Phase B" / "Step 3" etc. in committed prose (design-decisions, gotchas, CLAUDE.md, in-code comments). Those labels live in the working plan file and are meaningless six months later. Anchor to the *commit* hash (`e67fe15`), a *date* (`2026-05-13`), or the *feature name* ("the multi-link refactor", "the rename + alias machinery") instead. Plan labels are fine in commit messages and conversation — that's their natural lifetime.
 
 ## Gotchas
 

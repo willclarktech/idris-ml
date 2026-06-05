@@ -467,7 +467,7 @@ must say this explicitly.
 
 ## Lessons learned
 
-Documented after the dt-parameter refactor landed (commit `02dc04b`).
+Documented after the dt-parameter refactor landed (commit `28f36d3`).
 
 ### The polymorphic-vs-concrete-slot mismatch
 
@@ -628,7 +628,7 @@ dtype dispatch (via this tag) without a 2-D typeclass.
 
 The tag uses a **kind-major layout** (closed 2026-05-23, replaced
 the original grow-as-needed `F32=0, F64=1, BF16=2, ...` scheme that
-caused the b2d6c7d zero-init footgun):
+caused the d4255db zero-init footgun):
 
 ```
 0   invalid (zero-init traps loudly at every backend's default arm)

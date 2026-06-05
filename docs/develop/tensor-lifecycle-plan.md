@@ -1,6 +1,6 @@
 # Tensor lifecycle: wrapped-handle FFI ABI
 
-Plan for the next iteration of the tensor-lifecycle refactor on mlx, building on the state-only refcount work in commit `8ffd48b` and the failed wrap-everywhere + per-FFI-RetainGuard experiment (see `tensor-lifecycle.md`).
+Plan for the next iteration of the tensor-lifecycle refactor on mlx, building on the state-only refcount work in commit `0c0cfe5` and the failed wrap-everywhere + per-FFI-RetainGuard experiment (see `tensor-lifecycle.md`).
 
 ## Goal
 
@@ -10,7 +10,7 @@ The three mlx failures (`ntm-copy`, `ntm-associative-recall`, `mountain-car-cont
 
 ## Why the previous experiments failed
 
-**`is_state`-only refcount (commit `8ffd48b`)** correctly handles per-sequence state Tensors but doesn't fix intermediate accumulation, which is what kills the failing examples.
+**`is_state`-only refcount (commit `0c0cfe5`)** correctly handles per-sequence state Tensors but doesn't fix intermediate accumulation, which is what kills the failing examples.
 
 **Wrap-everywhere refcount via `prim__wrapHandle`** failed because Idris-Chez codegen does live-range analysis on let-bound records. When the only use of a `MkTensor` record is `.tensorPtr` extraction, the compiler can elide the record (and therefore the guardian shadow that held its retain). The raw pointer survives, the shadow doesn't, drain frees the Tensor while the raw pointer is still in use.
 
@@ -132,11 +132,11 @@ The plan's original Phase 1' scope ("convert ~10 hot FFIs") proved insufficient:
 
 **Phase 1' follow-ups — status update (2026-05-16):**
 
-- `example-rnn` hang at epochs 11-14: **resolved**. 24+ trials (3 runs × 4 epoch counts × 2 backends) all complete with deterministic losses; full `make test-examples` matrix shows rnn passing on all 3 backends. The fix landed implicitly in either Phase 3'-a (commit `78bc19b`, removed the `managedShadow` field → Tensor record went 3 fields → 2 fields, shifting Chez GC timing) or Phase 4' canonicalization (commit `9664726`, normalized 3 stale Phase 0' FFI bodies that used named arg vars + a spurious `idris-libidrisml-loaded` lazy-init). The plan note's hypothesis ("GC-timing / drain-cadence interaction") is consistent with either explanation; bisecting would be expensive (build-cache invalidation) and the resolution is durable across stress tests.
+- `example-rnn` hang at epochs 11-14: **resolved**. 24+ trials (3 runs × 4 epoch counts × 2 backends) all complete with deterministic losses; full `make test-examples` matrix shows rnn passing on all 3 backends. The fix landed implicitly in either Phase 3'-a (commit `4a38a5f`, removed the `managedShadow` field → Tensor record went 3 fields → 2 fields, shifting Chez GC timing) or Phase 4' canonicalization (commit `c3460ce`, normalized 3 stale Phase 0' FFI bodies that used named arg vars + a spurious `idris-libidrisml-loaded` lazy-init). The plan note's hypothesis ("GC-timing / drain-cadence interaction") is consistent with either explanation; bisecting would be expensive (build-cache invalidation) and the resolution is durable across stress tests.
 
-- Post-main mlx `Exception: invalid memory reference`: still fires on some mlx examples after training completes, manifesting as `make test-examples` "crashed (rc=2)" entries for the 4 CI-skipped mlx targets (`ntm-copy`, `ntm-associative-recall`, `dnc-recall`, `mountain-car-cont`) plus occasionally on `a2c`, `ppo`, `dnc-copy`. Pre-existing C++ static-destructor issue (commit `9d15635`); the wrapped-handle ABI did not clear it and is unlikely to without changes to mlx's own teardown order on Apple VMs.
+- Post-main mlx `Exception: invalid memory reference`: still fires on some mlx examples after training completes, manifesting as `make test-examples` "crashed (rc=2)" entries for the 4 CI-skipped mlx targets (`ntm-copy`, `ntm-associative-recall`, `dnc-recall`, `mountain-car-cont`) plus occasionally on `a2c`, `ppo`, `dnc-copy`. Pre-existing C++ static-destructor issue (commit `2df9442`); the wrapped-handle ABI did not clear it and is unlikely to without changes to mlx's own teardown order on Apple VMs.
 
-- `make test-examples` matrix sweep: completed on commit `506d82b`. 71/79 ok; 8 fail. The 8 break down: 4 are CI-skipped pre-existing (mlx destructor), 3 are likely the same post-main destructor reaching examples not yet in the skip list, 1 is `ppo:tape` mid-run UAF (separate issue — also reports `backend=mlx` in its banner despite being the tape iteration, suggesting test-examples loop is also susceptible to dylib cross-contamination on this VM).
+- `make test-examples` matrix sweep: completed on commit `d12b3bb`. 71/79 ok; 8 fail. The 8 break down: 4 are CI-skipped pre-existing (mlx destructor), 3 are likely the same post-main destructor reaching examples not yet in the skip list, 1 is `ppo:tape` mid-run UAF (separate issue — also reports `backend=mlx` in its banner despite being the tape iteration, suggesting test-examples loop is also susceptible to dylib cross-contamination on this VM).
 
 ### Phase 1' — Hot-path validation + perf baseline
 
@@ -204,7 +204,7 @@ The plan's *full* P3'-b (retire `is_state` gate, remove the tape_reset sweep, re
 **Verification of P3'-b-min:**
 - `make BACKEND=tape test` + `make BACKEND=mlx test`: 25/25 unit tests green (including `Test.ManagedHandle`).
 - `make check-ffi-wrap-template`: clean (604 FFI decls, 2 fewer than before).
-- `make test-examples`: 72/79 ok, 7 fail — same 7 mlx failures as commit `506d82b` plus `ppo:tape` *now passes* (was failing on `506d82b`).
+- `make test-examples`: 72/79 ok, 7 fail — same 7 mlx failures as commit `d12b3bb` plus `ppo:tape` *now passes* (was failing on `d12b3bb`).
 
 Side effect: ppo:tape went FAIL → PASS. Suggests the previous `ppo:tape` UAF (task #89) was related to the duplicate state-creation paths in some indirect way (e.g. a tape-iteration build state interacting with managed-state symbol resolution). Worth re-examining #89 in light of this.
 
@@ -248,7 +248,7 @@ pre/post canonicalization on supervised:tape.
 **Perf measurement (the measure half).** Baselines on `lstm:tape/mlx`,
 `transformer:mlx`, `dnc-copy:mlx/tape` show the wrapped-handle ABI is
 within the VM noise floor (~15-20% per the saved feedback memory) vs
-the pre-sweep `db20f12+dirty` baseline. `transformer:mlx` improved
+the pre-sweep `4d350d9+dirty` baseline. `transformer:mlx` improved
 slightly (37.09 → 31.63 ms/ep, -15%) which we treat as noise per the
 same threshold. No example showed a measurable regression. The
 mlx-CPU-stream kernel-launch wall (~30-140 ms/ep depending on op
@@ -279,7 +279,7 @@ firing earlier than usual. Separate ticket.
 ### Phase 6' — Documentation — DONE
 
 - New consolidated reference: `docs/develop/tensor-lifecycle.md`. Structure: The model → The wrapped-handle ABI → The drain mechanism → Discipline for new FFIs → Appendix (history of attempts 1-4). Replaces the old `tensor-lifecycle-spike.md`, which is deleted (content preserved in the appendix + commit history that the appendix points at).
-- `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" — already in place from Phase 1' (commit `30671d4`); Phase 6' refreshed the drain-mechanism paragraph (Phase 5' deferred the mid-block trampoline) and the per-FFI-churn paragraph (~600 FFIs not ~165; converter + CI linter in place).
+- `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" — already in place from Phase 1' (commit `218c4de`); Phase 6' refreshed the drain-mechanism paragraph (Phase 5' deferred the mid-block trampoline) and the per-FFI-churn paragraph (~600 FFIs not ~165; converter + CI linter in place).
 - `docs/develop/gotchas.md` "Wrapped-handle ABI" — refreshed to point at `ffi_manifest.py` as the manifest source of truth, link to the converter + linter, and drop "once landed" language now that both are in CI.
 - `CLAUDE.md` Architecture section — updated `Tensor` signature to current state (open `d : Device` kind alias, `g : GradMode` parameter), added a dedicated "Tensor lifecycle (wrapped-handle ABI)" paragraph linking to the new reference.
 - Cross-references from the deleted spike doc updated in: `packages/backends/backend.h`, `packages/idris-ml/test/src/Test/ManagedHandle.idr`, `packages/idris-ml/src/Layer/Ntm.idr`, `packages/idris-ml/src/Layer/Dnc.idr`.

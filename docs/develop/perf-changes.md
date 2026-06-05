@@ -48,9 +48,9 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
-### 2026-06-05 — perf-regression CI gate flipped to hard-fail — d7df2676..HEAD
+### 2026-06-05 — perf-regression CI gate flipped to hard-fail — 7ca9155c..HEAD
 
-**Motivation**: the advisory gate (`d7df2676`) shipped exits-0-always
+**Motivation**: the advisory gate (`7ca9155c`) shipped exits-0-always
 so the threshold logic could run on real CI traffic without blocking
 merges; the originally-planned ~2-week soak before flipping to
 hard-fail is intentionally collapsed. With no users on this repo
@@ -77,7 +77,7 @@ from advisory to hard-fail" row in TODO.md.
 
 ----
 
-### 2026-06-04 — Full 16×5 perf-baseline refresh + latent narrow regression hunt — 59a37ab0
+### 2026-06-04 — Full 16×5 perf-baseline refresh + latent narrow regression hunt — 4c7aa76f
 
 **Plan**: Run the full `scripts/perf-sweep.sh` matrix (16 examples ×
 5 cells = 80 measurements) at the dtype-narrowed default (BuildConfig
@@ -99,14 +99,14 @@ current-state table is the natural session-end deliverable.
 **Change**: Two waves shipped in the same session, gated on each
 other:
 
-1. **Latent-regression hunt** (commits `de8e503c` + `5b26b1d7` +
-   `59a37ab0`) — the first sweep run crashed on `transformer × every
+1. **Latent-regression hunt** (commits `6742356e` + `c7d47c8c` +
+   `4c7aa76f`) — the first sweep run crashed on `transformer × every
    non-tape backend` and `dnc-copy × tape`. Three independent latent
    bugs surfaced + fixed:
 
    - `Layer/Transformer.idr:205` flattened a `[seqLen, vocab]` mm
      output via `primNarrow ... 0 0 (sI * vI)`. Worked accidentally
-     pre-commit `bd61bef8` (2026-05-26) when `primNarrow` flattened
+     pre-commit `69a05976` (2026-05-26) when `primNarrow` flattened
      before slicing; post-fix it errors with `start (0) + length
      (88) exceeds dimension size (11)`. Same-shape error class as
      `Example/Transformer.idr`'s `catCELossVar` narrow (also using
@@ -121,7 +121,7 @@ other:
      correctly for any source rank, validate `dim` in `[0..rank]`.
      Latent ~6 weeks.
 
-2. **Re-baseline** (commit `d0c1d801` for the docs landing) — full
+2. **Re-baseline** (commit `9d79b882` for the docs landing) — full
    sweep ran end-to-end after the fixes; 76 clean cells + 4 mlx-RL
    long-run allocator crashes (documented under existing TODO row
    50 as an additional manifestation of the mlx-tape-accumulation
@@ -180,9 +180,9 @@ emit per-epoch ms):
 mlx-gpu. All 5 cells exercised on all 16 examples. Tape is the
 default lane.
 
-**Commits**: `de8e503c` `catCELossVar` row-indices; `5b26b1d7` tape
-`tensor_unsqueeze` rank-N; `59a37ab0` `Layer.Transformer` flatten
-via `primReshape1d`; `d0c1d801` perf-baseline + CHANGELOG docs.
+**Commits**: `6742356e` `catCELossVar` row-indices; `c7d47c8c` tape
+`tensor_unsqueeze` rank-N; `4c7aa76f` `Layer.Transformer` flatten
+via `primReshape1d`; `9d79b882` perf-baseline + CHANGELOG docs.
 
 **Outcome**: landed. New baseline is the apples-to-apples reference
 for any future commit that touches the cross-backend surface — diff
@@ -192,7 +192,7 @@ long-budget allocator failure stays filed under TODO row 50; not
 blocking any current workload.
 
 
-### 2026-06-04 — BuildConfig default flipped F64 → F32 + three-backend HfLlama cache gate verified — c01cd56b
+### 2026-06-04 — BuildConfig default flipped F64 → F32 + three-backend HfLlama cache gate verified — 2c7d371f
 
 **Plan**: Two changes shipped same day, in sequence.
 
@@ -201,8 +201,8 @@ blocking any current workload.
    `TestConfig` stays F64 (unit tests value-pin against F64
    oracles at tolerances down to 1e-12 which F32 can't satisfy —
    separate follow-up).
-2. Verify the KV-cache token-sequence gate (commit `b5443135` ..
-   `3b87291f`) GREEN on all three backends at F32: torch-cpu,
+2. Verify the KV-cache token-sequence gate (commit `c1f7489d` ..
+   `676830b9`) GREEN on all three backends at F32: torch-cpu,
    torch-mps, mlx-gpu.
 
 **Motivation**: F64 default was historical, not a design decision.
@@ -217,12 +217,12 @@ process together pushed system memory past the swap line.
 **Change**: `Makefile`'s `BUILDCONFIG_IDR` recipe — all default
 cells set DTYPE="F32"; `BuildConfig.idr.in` + `TestConfig.idr.in`
 docstrings updated; `CLAUDE.md` matrix updated; `HfLlamaInference.idr`
-comment updated. Commit `c01cd56b`.
+comment updated. Commit `2c7d371f`.
 
 **Side fix shipped during verification** (mlx-gpu side, commit
-unstaged-then-reverted at `93f9108b`):
+unstaged-then-reverted at `5a55c930`):
 
-In Phase C (commit `78c95d56`) I'd added a defensive explicit-
+In Phase C (commit `04e1396c`) I'd added a defensive explicit-
 mask path to the mlx SDPA wrapper to handle asymmetric Q/KV under
 `is_causal=True` — same risk class as the torch math-impl bug
 fixed two commits earlier. Building against the pinned mlx
@@ -275,8 +275,8 @@ later sessions):
   measurements.
 
 **Commits**:
-- `c01cd56b` BuildConfig flip + docstring/CLAUDE.md updates.
-- `9be7469a` (interim) Medium TODO row for elaboration-memory
+- `2c7d371f` BuildConfig flip + docstring/CLAUDE.md updates.
+- `1b268fed` (interim) Medium TODO row for elaboration-memory
   reduction (the related Chez 17-23 GB peak symptom — separate
   problem from F32, dtype is phantom-type-only).
 - mlx defensive-fix revert (this commit) — only torch had the
@@ -284,7 +284,7 @@ later sessions):
   to honour the docs in the pinned version.
 
 
-### 2026-06-04 — HfLlama KV cache + token-sequence gate — b5443135..49872b4b
+### 2026-06-04 — HfLlama KV cache + token-sequence gate — c1f7489d..f2663ff2
 
 **Plan**: Land the cache-aware forward step that lets greedy
 generation skip re-projecting K/V from the full growing prefix on
@@ -309,26 +309,26 @@ off since HF `use_cache=True` is mathematically equivalent to
 
 **Change**: 4-commit landing + 2 post-verify fix-ups.
 
-- Phase A (`b5443135`): token-sequence oracle + `--dump-tokens`
+- Phase A (`c1f7489d`): token-sequence oracle + `--dump-tokens`
   flag + `compare_inference.py --token-sequence` mode + Makefile
   target + CI step + `scripts/perf-run.sh` arm. Gate uses the
   user-facing prompt "The capital of France is" + 4 generated
   tokens; expected output sequence `[128000, 791, 6864, 315,
   9822, 374, 12366, 13, 1102, 374]` decoding to "<|begin_of_text|>
   The capital of France is Paris. It is".
-- Phase B (`9cf90b3a`): new `KVCache.idr` module with
+- Phase B (`c7b52183`): new `KVCache.idr` module with
   `Empty | Filled` sum type; `tconcat2dAxis0` typed wrapper around
   the existing `primCat2` axis-0 concat; Idris-level
   `Test.KVCache` suite (4/4 PASS on tape).
-- Phase C (`78c95d56`): widened `tensor_sdpa_2d` C impls on all 3
+- Phase C (`04e1396c`): widened `tensor_sdpa_2d` C impls on all 3
   backends to read Q.size(0) and K.size(0) separately;
   `applyAttentionCached` / `applyBlockCached` / `applyBlocksCached`
   / `hfLlamaForwardStep` / `hfLlamaForwardLmStep` Idris-side
   functions threading per-layer caches; `ropeAllHeadsFlat` takes a
   positionOffset parameter (was hardcoded to 0).
-- Phase D (`70f5017c`): example switches to `genLoopCached`
+- Phase D (`dd3aca25`): example switches to `genLoopCached`
   default; `--no-cache` opt-out kept for differential debugging.
-- Post-verify fix-ups (`32c3c1b8` + `49872b4b`): Idris's
+- Post-verify fix-ups (`abcab827` + `f2663ff2`): Idris's
   elaborator couldn't unify `finalList : List (Fin VocabSize)`
   through the bind in `runDumpTokens` / `runGenerate` under
   if-then-else *or* case-of. Resolution: split the bind into
@@ -353,8 +353,8 @@ torch-mps and mlx-gpu.
 exceeds 16 GB host RAM (the "Tape F64 large-LM OOM" Low-priority
 TODO row carries the structural reason).
 
-**Commits**: `b5443135` Phase A, `9cf90b3a` Phase B, `78c95d56`
-Phase C, `70f5017c` Phase D, `32c3c1b8` + `49872b4b` post-verify
+**Commits**: `c1f7489d` Phase A, `c7b52183` Phase B, `04e1396c`
+Phase C, `dd3aca25` Phase D, `abcab827` + `f2663ff2` post-verify
 fix-ups. CHANGELOG entry above this one (2026-06-04 KV cache
 section) carries the long-form details.
 
@@ -368,7 +368,7 @@ with `is_causal=True` and asymmetric `q_seq != kv_seq` does NOT do
 lower-right alignment on the math impl path (torch-cpu F64 default),
 despite the docs — `.tril(diagonal=0)` is applied without offset,
 collapsing visible positions to just `j=0`. Fixed in commit
-`93f9108b` by constructing an explicit `[q_seq, kv_seq]` additive
+`5a55c930` by constructing an explicit `[q_seq, kv_seq]` additive
 mask in the SDPA wrapper for the asymmetric-causal case and passing
 via `attn_mask` instead of `is_causal=True`. The symmetric path
 (prefill / training) keeps the optimized `is_causal` route — no
@@ -381,7 +381,7 @@ Q/KV" entry for the long-form. Per-backend perf numbers on
 torch-mps + mlx-gpu pending a fresh dev-shell run.
 
 
-### 2026-06-03 — 2D embedding wrap on all 3 backends (#399 / #4 Fusion 3) — 1b1a200
+### 2026-06-03 — 2D embedding wrap on all 3 backends (#399 / #4 Fusion 3) — ca6f9ab
 
 **Plan**: Fusion 3 of the fused-op catalogue plan — drop the
 unnecessary flatten + `primReshape2d` pair at every transformer
@@ -407,7 +407,7 @@ HfBert, HfGpt2, HfBitNet, Layer/Transformer single+batch).
 
 **Impact** (torch-mps HfLlama-3.2-1B, default generate config):
 
-| metric | post-SwiGLU baseline (911b6b1) | post-embedding-2d (1b1a200) | delta |
+| metric | post-SwiGLU baseline (24517c8) | post-embedding-2d (ca6f9ab) | delta |
 |---|---|---|---|
 | ops/step | 902 | 901 | **-1/step (exact match to prediction)** |
 | wall (runGenerate) | 455 s | 327 s | -28% (within VM noise floor; ignore) |
@@ -421,13 +421,13 @@ VM noise floor in both directions across SwiGLU/embedding-2d
 adjacent trials, so they aren't reliable single-trial evidence
 either way.
 
-**Outcome**: landed (1b1a200). Closes the explicitly-planned #4
+**Outcome**: landed (ca6f9ab). Closes the explicitly-planned #4
 Fusion 3. Backward path is shape-agnostic on tape (walks indices,
 writes to weight's grad buffer) and inherited by libtorch/mlx
 autograd over `embedding` / `take` respectively.
 
 **Cross-references**: `perf-log.jsonl` 2026-06-03 entries for
-hf-llama mlx-gpu + torch-mps at commit `6a4608f+dirty`.
+hf-llama mlx-gpu + torch-mps at commit `bd2787e+dirty`.
 
 ----
 
@@ -448,9 +448,9 @@ Idris-side: `primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr` on `UserDeviceTraining`;
 
 | backend / config | cross-language gate | max-abs-diff vs HF Python oracle (tol 1.0) | op count | runGenerate wall |
 |---|---|---:|---:|---:|
-| **mlx-gpu** F32 (post-RMSNorm baseline, commit `629c23c`) | PASS | 1.20e-04 | counter stub | 1 m 3 s (total) |
+| **mlx-gpu** F32 (post-RMSNorm baseline, commit `416c011`) | PASS | 1.20e-04 | counter stub | 1 m 3 s (total) |
 | **mlx-gpu** F32 (this commit) | PASS | **1.20e-04** (unchanged) | counter stub | **49.2 s** (total) — **-22%** vs RMSNorm baseline |
-| **torch-mps** F32 (post-RMSNorm baseline, commit `629c23c`) | PASS | 4.96e-05 | 918 | 4 m 56 s |
+| **torch-mps** F32 (post-RMSNorm baseline, commit `416c011`) | PASS | 4.96e-05 | 918 | 4 m 56 s |
 | **torch-mps** F32 (this commit) | PASS | **4.96e-05** (unchanged) | **902 (-16, -1.7%)** | runGenerate noisy (357 s in the roundtrip-gate run; 455 s in the paired perf-run; RMSNorm-baseline reference was 296 s — single-trial spread > the per-op-cost story can explain alone) |
 
 - **Numerical clean**: cross-language max-abs-diff vs HF Python oracle is bit-identical to the pre-fusion baseline on both backends (mlx-gpu 1.20e-04; torch-mps 4.96e-05). The fusion adds no measurable floating-point drift.
@@ -468,7 +468,7 @@ C-level: criterion suite 217/217 tape, 207/207 torch, 209/209 mlx (after adding 
 - Backward gradcheck test for the tape SwiGLU closure (forward correctness checked vs decomposed chain; backward derivation analytical). Pair an F32 oracle test in the tape T29 block to lock the F32 backward.
 - Gate/up projection fusion (3 matmuls share x as input). Would need an mlx fast::linear-style primitive + libtorch composition. Filed but deferred — smaller payoff than the silu*mul pair just landed.
 
-**Cross-references**: commit `911b6b1` (this fusion); commit `629c23c` (RMSNorm, Fusion 1); commits `6850366` (SDPA) and `c09d374` (all-heads RoPE) for the prior fusions in the same #399 catalogue; `feedback_pytorch_precedent_test.md` (PyTorch ships `nn.functional.silu` + elementwise mul; precedent test passes).
+**Cross-references**: commit `24517c8` (this fusion); commit `416c011` (RMSNorm, Fusion 1); commits `6850366` (SDPA) and `c09d374` (all-heads RoPE) for the prior fusions in the same #399 catalogue; `feedback_pytorch_precedent_test.md` (PyTorch ships `nn.functional.silu` + elementwise mul; precedent test passes).
 
 
 ### 2026-06-03 — Fused RMSNorm on all 3 backends (#399 / #4 Fusion 1)
@@ -508,18 +508,18 @@ C-level: criterion suite 213/213 tape, 203/203 torch, 205/205 mlx (after adding 
 - Backward gradcheck test for the tape RMSNorm closure (forward correctness only this commit; backward derivation cross-checked analytically vs the decomposed chain). File a paired-oracle test in the tape T29 block to lock the F32 backward.
 - Multi-backend per-op cost asymmetry: the prior 2026-05-30 all-heads RoPE entry documented that torch-mps's rank-3 broadcast costs ~10 ms/op vs ~2 ms/op rank-2. RMSNorm fusion stays rank-2, so doesn't trigger that path; the asymmetry row is unchanged.
 
-**Cross-references**: commit `629c23c` (this fusion); commits `6850366` (SDPA) and `c09d374` (all-heads RoPE) for the prior fusions in the same #399 catalogue; `scripts/lifecycle/ffi_manifest.py` (manifest entry); `feedback_pytorch_precedent_test.md` (PyTorch ships `nn.RMSNorm` — precedent test passes); `packages/idris-transformers/src/HfCommon.idr` (the call-site collapse).
+**Cross-references**: commit `416c011` (this fusion); commits `6850366` (SDPA) and `c09d374` (all-heads RoPE) for the prior fusions in the same #399 catalogue; `scripts/lifecycle/ffi_manifest.py` (manifest entry); `feedback_pytorch_precedent_test.md` (PyTorch ships `nn.RMSNorm` — precedent test passes); `packages/idris-transformers/src/HfCommon.idr` (the call-site collapse).
 
 
 ### 2026-06-03 — Retroactive entry: Chez FFI symbol cache shipped 2026-05-27 (TODO row closes)
 
-**Status**: retroactive paper-trail for commit `f9d7212` (2026-05-27 19:22:40 BST). The fix landed but its narrative entry never made it into perf-changes.md, so the corresponding TODO row stayed open — re-verified during the #1 follow-up sweep and closed via this entry.
+**Status**: retroactive paper-trail for commit `2385e3f` (2026-05-27 19:22:40 BST). The fix landed but its narrative entry never made it into perf-changes.md, so the corresponding TODO row stayed open — re-verified during the #1 follow-up sweep and closed via this entry.
 
 **Symptom (pre-fix)**: sample profile of HfLlamaInference at ~44 min into a torch-mps F32 decode (`/tmp/scheme_2026-05-27_180602_BTJW.sample.txt`, 18:06:02 BST) showed 100% of CPU time in `S_foreign_entry → lookup → dyld4::Loader::hasExportedSymbol`, recursively walking every loaded library for each tensor-touching FFI call. With libtorch contributing thousands of symbols on top of libidrisml, each `%foreign "scheme:..."` call was effectively paying a full dyld symbol-table walk.
 
 **Root cause**: `%foreign "scheme:EXPR"` wraps EXPR inside `(lambda (farg-0) (EXPR farg-0))`. The lambda body is re-evaluated on every call. The generated Scheme wrappers put the `(foreign-procedure "C-name" ...)` constructor inside the lambda body, so each call constructed a fresh `foreign-procedure` object — and that object's first use triggers dlsym to resolve the C symbol.
 
-**Fix (commit `f9d7212`)**: each `%foreign` now lazy-caches its `foreign-procedure` value at first call via Chez `top-level-bound?` + `set-top-level-value!`, stashed under `idris-ffi-<c-symbol>`. First call still pays one dlsym; subsequent calls pay only a top-level-value lookup. Same idiom the codebase already uses for `idris-tensor-guardian`, extended from one shared symbol to 245 per-FFI symbols across `Device/Mlx.idr` (24), `Device/Tape.idr` (111), `Device/Torch.idr` (110). The lint (`check-ffi-wrap-template`) was unchanged — its structural invariants tolerate the new lazy-init blocks. Mlx `_streamed` variants stay on the old form (out of scope until a workload needs them).
+**Fix (commit `2385e3f`)**: each `%foreign` now lazy-caches its `foreign-procedure` value at first call via Chez `top-level-bound?` + `set-top-level-value!`, stashed under `idris-ffi-<c-symbol>`. First call still pays one dlsym; subsequent calls pay only a top-level-value lookup. Same idiom the codebase already uses for `idris-tensor-guardian`, extended from one shared symbol to 245 per-FFI symbols across `Device/Mlx.idr` (24), `Device/Tape.idr` (111), `Device/Torch.idr` (110). The lint (`check-ffi-wrap-template`) was unchanged — its structural invariants tolerate the new lazy-init blocks. Mlx `_streamed` variants stay on the old form (out of scope until a workload needs them).
 
 **Verification at commit (recorded in the commit body)**:
 - `example-supervised BACKEND=tape` produces bit-identical loss (1.356680328199114 / seed=42 / 5 epochs).
@@ -534,7 +534,7 @@ The wall improvement is the combined effect of (a) this FFI cache landing, (b) t
 
 **TODO row closes** (was "Cache Chez FFI symbol lookups across calls", High priority). Closure entry moved to `CHANGELOG.md`. The follow-on Phase 2 (pre-bind at module-load rather than first-call lazy-init) was preserved as a TODO sub-row but is unblocked from the headline #1 work — it's now an unprioritised optimisation, not a fix-the-bottleneck row.
 
-**Cross-references**: commit `f9d7212`; `scripts/lifecycle/ffi_manifest.py` (the `cache_var(c_symbol)` helper); `scripts/lifecycle/ffi-convert-to-scheme.py` (the regenerator that rewrites existing `scheme:` declarations on template change); `feedback_typeclass_zero_arg_method_eval.md` (the related "%foreign body re-evaluated per call" gotcha that motivated lifting the cache outside the lambda); the Medium-priority "Idris-side per-op overhead" row (now the dominant bottleneck, since FFI dispatch isn't).
+**Cross-references**: commit `2385e3f`; `scripts/lifecycle/ffi_manifest.py` (the `cache_var(c_symbol)` helper); `scripts/lifecycle/ffi-convert-to-scheme.py` (the regenerator that rewrites existing `scheme:` declarations on template change); `feedback_typeclass_zero_arg_method_eval.md` (the related "%foreign body re-evaluated per call" gotcha that motivated lifting the cache outside the lambda); the Medium-priority "Idris-side per-op overhead" row (now the dominant bottleneck, since FFI dispatch isn't).
 
 
 ### 2026-06-01 — Supervised mixed-precision parity, structural proof on tape (#410 F4)
@@ -713,7 +713,7 @@ The clean follow-up is to file a new row "torch-mps HfLlama wall gap" with these
 
 ### 2026-05-31 — Tape F32 HfLlama mid-decode crash fixed by `PrimIO Int` (#401)
 
-**Plan**: unblock tape F32 HfLlama inference, which has crashed mid-decode (~step 8) since commit `26a0d56` introduced the `primPerfOpCount : PrimIO Bits64` FFI for the #393 op-submission counter. Three hypotheses on file (TODO #401): (1) `PrimIO Bits64` shape, (2) typeclass dispatch, (3) Chez `unsigned-64` marshalling. Test cheapest first.
+**Plan**: unblock tape F32 HfLlama inference, which has crashed mid-decode (~step 8) since commit `e9763d0` introduced the `primPerfOpCount : PrimIO Bits64` FFI for the #393 op-submission counter. Three hypotheses on file (TODO #401): (1) `PrimIO Bits64` shape, (2) typeclass dispatch, (3) Chez `unsigned-64` marshalling. Test cheapest first.
 
 **Motivation**: with the perf-op-count diagnostic disabled on tape (the existing workaround), tape F32 lost the per-step op-count reporting that's the main signal for verifying op-count changes (e.g. #399's SDPA + all-heads RoPE landings). Restoring it unlocks the diagnostic on all 3 backends.
 
@@ -723,7 +723,7 @@ The clean follow-up is to file a new row "torch-mps HfLlama wall gap" with these
 
 | backend / config | runGenerate wall | decode steps reached |
 |---|---:|---:|
-| tape F32 baseline (pre-fix, `26a0d56+`) | crashed @ step 8 | 3 of 8 |
+| tape F32 baseline (pre-fix, `e9763d0+`) | crashed @ step 8 | 3 of 8 |
 | tape F32 + `PrimIO Int` fix (this commit) | **1m 00s** | **8 of 8** ✅ |
 
 All 8 `[perf] step N: 0 ops` lines now print (op counter is a stub on tape — returns 0 always; the diagnostic value is the *call surviving* across decode iterations).
@@ -732,7 +732,7 @@ All 8 `[perf] step N: 0 ops` lines now print (op counter is a stub on tape — r
 
 **Outcome**: landed. `#401` closed. Unblocks tape F32 as a first-class lane for the #399/#402 op-count investigations.
 
-**Cross-references**: TODO #401; `docs/develop/gotchas.md` "PrimIO Bits64 FFI returns corrupt state in tight loops"; commit `26a0d56` (introduced the bug); fix commit (this commit).
+**Cross-references**: TODO #401; `docs/develop/gotchas.md` "PrimIO Bits64 FFI returns corrupt state in tight loops"; commit `e9763d0` (introduced the bug); fix commit (this commit).
 
 
 ### 2026-05-30 — All-heads RoPE: mlx-gpu 45.5s → 16s (2.8×); torch-mps op count -86%, wall flat (#399 follow-up)
@@ -782,14 +782,14 @@ All 8 `[perf] step N: 0 ops` lines now print (op counter is a stub on tape — r
 
 | | op count step 6 | op count step 13 | runGenerate wall |
 |---|---:|---:|---:|
-| baseline (commit `26a0d56+dirty`) | 18,410 | 20,489 | 5m 07s |
+| baseline (commit `e9763d0+dirty`) | 18,410 | 20,489 | 5m 07s |
 | +SDPA (commit `6850366`) | **10,346 (-44%)** | **12,425 (-39%)** | 5m 15s (within VM noise) |
 
 The op-count drop is real and deterministic. The wall is unchanged because the per-head RoPE accumulator's `primConcat2dAxis1` calls (62 per layer × 16 layers = ~1,000 per forward) add ~15 s of MTLCommandBuffer overhead per 8-token decode — roughly the same amount we saved on attention-math submissions. Net zero on wall.
 
 **Outcome**: SDPA infrastructure landed across all 3 backends. The wall win requires also killing the `buildRopedHeads` concat loop — either by all-heads RoPE in Idris (PyTorch's approach, rejected earlier but the rejection may have been VM noise — needs cleaner re-measurement) or by a fused per-head-RoPE FFI primitive. **Next experiment**: retry all-heads RoPE on top of SDPA with multiple controlled measurements; hypothesis is that op-count × per-op cost ≈ wall, so the deterministic ~58% op-count drop should translate to a 30-50% wall drop if the per-op cost stays near baseline.
 
-**Cross-references**: commit `6850366` (SDPA), `26a0d56` (per-op counter from #393), `perf-log.jsonl` 2026-05-30 entries, `docs/develop/gotchas.md` "FFI manifest entry required for wrap-on-return".
+**Cross-references**: commit `6850366` (SDPA), `e9763d0` (per-op counter from #393), `perf-log.jsonl` 2026-05-30 entries, `docs/develop/gotchas.md` "FFI manifest entry required for wrap-on-return".
 
 
 ### 2026-05-29 — PyTorch Python on torch-mps Llama: a ~150× gap, not a structural ceiling (#399 sizing)
@@ -804,13 +804,13 @@ The op-count drop is real and deterministic. The wall is unchanged because the p
 
 | | runGenerate wall | per-forward avg |
 |---|---:|---:|
-| idris-ml torch-mps F32 (commit `26a0d56+dirty`) | 5 m 07 s | ~38 s/forward |
+| idris-ml torch-mps F32 (commit `e9763d0+dirty`) | 5 m 07 s | ~38 s/forward |
 | PyTorch Python `use_cache=False` (apples-to-Idris) | **2 s** | ~0.25 s/forward |
 | PyTorch Python `use_cache=True` (real user pattern) | **3 s** | ~0.4 s/forward |
 
 **idris-ml is ~150× slower than PyTorch Python on the same libtorch + same MPS device, same workload, same model.** This refutes the "we're at PyTorch parity on a libtorch structural ceiling" reading. The ~19,400 ops/forward is *our* count — PyTorch's Llama implementation doesn't have 19,400 ops per forward, it has maybe 1–2 orders of magnitude fewer because it aggressively fuses (likely `F.scaled_dot_product_attention` via MPSGraph, `F.rms_norm`, fused embedding lookup, etc.).
 
-**Outcome**: #399's scope refactors from XL "deferred-op tape (architectural)" to L "match PyTorch's fused-op catalogue on torch backend". The fix is op-level: identify which of our composite smart-constructor chains decompose into many `from_tensor` wraps when PyTorch lands a single fused op, then expose those fused ops as FFI primitives in `backend_torch/`. Prime suspect is attention (`at::scaled_dot_product_attention` exists in libtorch and uses MPSGraph internally on MPS); RMSNorm and the SwiGLU MLP gate are runners-up. Per-forward op count is the right proxy metric — the existing `tensor_perf_op_count` counter (commit `26a0d56`) already tracks this without further instrumentation; we just need to compare counts pre/post each fused-op landing.
+**Outcome**: #399's scope refactors from XL "deferred-op tape (architectural)" to L "match PyTorch's fused-op catalogue on torch backend". The fix is op-level: identify which of our composite smart-constructor chains decompose into many `from_tensor` wraps when PyTorch lands a single fused op, then expose those fused ops as FFI primitives in `backend_torch/`. Prime suspect is attention (`at::scaled_dot_product_attention` exists in libtorch and uses MPSGraph internally on MPS); RMSNorm and the SwiGLU MLP gate are runners-up. Per-forward op count is the right proxy metric — the existing `tensor_perf_op_count` counter (commit `e9763d0`) already tracks this without further instrumentation; we just need to compare counts pre/post each fused-op landing.
 
 **Cross-references**: `perf-log-ref.jsonl` entries 2026-05-29 (the two PyTorch measurements); `time_inference_llama.py` is the canonical head-to-head script; the #393 closure's "structural ceiling" claim is now superseded by this finding (the per-op submission overhead is real, but our op count is 30–100× higher than PyTorch's — the ceiling we measured was our own decomposition, not libtorch's).
 
@@ -822,12 +822,12 @@ The op-count drop is real and deterministic. The wall is unchanged because the p
 **Motivation**: torch-mps was 4.5–21× slower than the other lanes on HF inference (hf-bert 1:27 vs 16–19 s; hf-gpt2 4:35 vs 13–17 s; hf-llama 6:42 vs 46 s). Hypothesis: libtorch's MPS path submits each primitive op as its own MTLCommandBuffer, ~10K ops × ~0.5–1 ms = tens of seconds dispatch wall. Wanted numbers, not speculation, before committing to a structural fix.
 
 **Change**:
-- **Phase B1 (commit `e41a011`)**: `backend_torch/nn/attention/embedding.cpp:18` — guarded `indices.to(kLong + weight.device())` on the identity case (when indices already match) so the common path skips the no-op submission.
-- **Phase B2 (commit `26a0d56`)**: per-forward op counter in `backend_torch/training/profiling.cpp` bumped at every `from_tensor()` call in `intermediates.cpp` (single choke point every op-result tensor passes through). New `perfReset` + `perfOpCount` on `UserDeviceTraining` (no-op stubs on tape + mlx). `HfLlamaInference.idr`'s `genLoop` brackets each forward with reset/read and prints `[perf] step N: K ops`. `scripts/perf-run.sh` surfaces those lines alongside `[stage]` lines.
+- **Phase B1 (commit `b572fc5`)**: `backend_torch/nn/attention/embedding.cpp:18` — guarded `indices.to(kLong + weight.device())` on the identity case (when indices already match) so the common path skips the no-op submission.
+- **Phase B2 (commit `e9763d0`)**: per-forward op counter in `backend_torch/training/profiling.cpp` bumped at every `from_tensor()` call in `intermediates.cpp` (single choke point every op-result tensor passes through). New `perfReset` + `perfOpCount` on `UserDeviceTraining` (no-op stubs on tape + mlx). `HfLlamaInference.idr`'s `genLoop` brackets each forward with reset/read and prints `[perf] step N: K ops`. `scripts/perf-run.sh` surfaces those lines alongside `[stage]` lines.
 
 **Impact**:
 
-Forward wall on torch-mps (Phase B1, vs prior `062adbb` baselines):
+Forward wall on torch-mps (Phase B1, vs prior `36fde48` baselines):
 
 | example | before | after | delta |
 |---|---:|---:|---:|
@@ -910,7 +910,7 @@ The 50% wall-time target in the W2 plan is met with margin (144s ≪ 268s).
 - W2 plan in `/Users/admin/.claude/plans/modular-petting-minsky.md`.
 - `feedback_perf_compare_after_changes.md` — perf change recorded per the rule.
 
-### 2026-05-19 — RL sweep post-gymnasium-migration + two-point timing breakdown — `0e2ecdc`
+### 2026-05-19 — RL sweep post-gymnasium-migration + two-point timing breakdown — `09af662`
 
 **Plan job**: cross-cutting (after gymnasium-migration sweep)
 
@@ -918,7 +918,7 @@ The 50% wall-time target in the W2 plan is met with margin (144s ≪ 268s).
 
 **Change**: ran `scripts/perf-sweep.sh --examples reinforce,a2c,dqn,mountain-car,mountain-car-cont,ppo,sac --cells tape,torch,mlx-cpu,mlx-gpu --seed 42`. Sweep ran ~9h wall-clock; killed during sac mlx-gpu (the only cell not reported).
 
-**Impact** (all ms/epoch, commit `0e2ecdc`):
+**Impact** (all ms/epoch, commit `09af662`):
 
 | example | tape | torch | mlx-cpu | mlx-gpu | py-ref |
 |---|---:|---:|---:|---:|---:|
@@ -937,7 +937,7 @@ The 50% wall-time target in the W2 plan is met with margin (144s ≪ 268s).
 3. **Wall-clock cost** of running all 4 cells × 7 deep-RL examples is ~9h because mlx-cpu/gpu dominate. For routine post-change gating on RL changes, restrict to `tape,torch` cells (drops total to ~30 min on this hardware).
 
 **Cross-references**:
-- `docs/develop/perf-log.jsonl` 22 entries appended (lines tagged `commit 0e2ecdc`).
+- `docs/develop/perf-log.jsonl` 22 entries appended (lines tagged `commit 09af662`).
 - Existing Medium TODO row "Idris-side per-op overhead (cross-backend wall bottleneck)" — this sweep is fresh confirmation on RL workloads.
 - New gotcha for perf-baseline.sh / perf-sweep.sh: needs a long-fixed-N mode for short-converging examples.
 
@@ -1118,7 +1118,7 @@ should record kernel-internal time so attribution stops lying.
 - `perf-log.jsonl` 2026-05-14 entries tagged `[diagnostic]`
 - `Example.GptLarge` first commits — the workload that surfaced this
 
-### 2026-05-09 — DNC `dncZeroDiag` mask precompute — `20f4dab`
+### 2026-05-09 — DNC `dncZeroDiag` mask precompute — `d452eef`
 
 **Plan job**: cross-cutting (helps Job 1 + Job 2a + Job 2b
 together; the mask is a per-step constant rebuild, so reducing
@@ -1157,7 +1157,7 @@ Both DNC examples moved from Bucket D (>10×) into Bucket A/B.
 dnc-copy/dnc-recall on each backend; `perf-baseline.md`
 "NTM/DNC current-state" subtable updated with new ms/epoch.
 
-### 2026-05-09 — DNC `dncRetention` scalar 1.0 reuse — `b209ab1`
+### 2026-05-09 — DNC `dncRetention` scalar 1.0 reuse — `7116102`
 
 **Plan job**: cross-cutting (small; same family as the mask fix).
 
@@ -1242,7 +1242,7 @@ doesn't fire. The DNC mask precompute (above) DID work because it
 saved hundreds of `prim__setDouble` calls in a loop, which CSE can't
 fold across the loop.
 
-### 2026-05-09 — `withNoGrad` + a2c rollout — `452eb7e`
+### 2026-05-09 — `withNoGrad` + a2c rollout — `b02860e`
 
 **Plan job**: Job 1 (torch wrapper overhead) + Job 2a (tape).
 
@@ -1290,7 +1290,7 @@ expect `withNoGrad` to exist, just like PyTorch users expect
 `torch.no_grad()`. Future opportunity: also wrap `bootstrapV` and
 the eval phase, plus other examples' eval paths.
 
-### 2026-05-09 — Align Layer.Rnn with `nn.RNNCell` — `f402354`
+### 2026-05-09 — Align Layer.Rnn with `nn.RNNCell` — `10fe116`
 
 **Plan job**: Job 1 / Job 2a (both — the layer change benefits all
 backends), with paired-side update.
@@ -1339,7 +1339,7 @@ do I use an RNN cell in Idris-ml". Same shape applies to lstm/gru
 example alignment if/when we revisit them — they already use the
 nn.LSTM/GRU shape, but worth a paired-side audit.
 
-### 2026-05-09 — Align Layer.Lstm and Layer.Gru with `nn.LSTMCell` / `nn.GRUCell` — `2c34ec1`
+### 2026-05-09 — Align Layer.Lstm and Layer.Gru with `nn.LSTMCell` / `nn.GRUCell` — `352239f`
 
 **Plan job**: Job 1 + Job 2a (cross-cutting; all backends benefit).
 
@@ -1387,7 +1387,7 @@ that library users expect. Backend cell APIs (`tgruCell`,
 `tlstmGatesPair`) are also closer to standard ML library
 conventions.
 
-### 2026-05-09 — DNC `dncReadHeads` link-transpose hoist — `eaab884`
+### 2026-05-09 — DNC `dncReadHeads` link-transpose hoist — `a960058`
 
 **Plan job**: cross-cutting (mostly tape/torch).
 
@@ -1400,7 +1400,7 @@ in `applyDnc` and thread it into `dncReadHeads` as an extra
 argument. Removes R-1 redundant FFI calls per timestep on a
 head-invariant value.
 
-**Impact** (3 samples each, post `b209ab1`):
+**Impact** (3 samples each, post `7116102`):
 
 | Example    | Backend | Before  | After   | Note         |
 |------------|---------|--------:|--------:|--------------|
@@ -1415,7 +1415,7 @@ ms/epoch) but visible on dnc-recall.
 
 **Outcome**: landed.
 
-### 2026-05-09 — `withNoGrad` for RL rollouts + a2c bootstrap — `6e39337`
+### 2026-05-09 — `withNoGrad` for RL rollouts + a2c bootstrap — `d378900`
 
 **Plan job**: Job 1 (torch) + Job 2a (tape).
 
@@ -1529,7 +1529,7 @@ matches its pre-broadcast best (perf-baseline).
 
 ----
 
-### 2026-05-11 — Tape: BLAS-accelerate matmul backward kernels — `9311eff`
+### 2026-05-11 — Tape: BLAS-accelerate matmul backward kernels — `3ba8f31`
 
 **Plan job**: Job 2b (phase A, stretch)
 
@@ -1554,7 +1554,7 @@ Each BLAS path is gated on `__APPLE__`; the portable scalar
 fallback is preserved.
 
 **Closing sweep** (full 9 examples × 3 backends, see
-`perf-log.jsonl` commit `9311eff+dirty`):
+`perf-log.jsonl` commit `3ba8f31+dirty`):
 
 | Example | Job 2a (naive) | Job 2b (BLAS) | Δ wall | quality Δ |
 |---|---|---|---|---|
@@ -1590,8 +1590,8 @@ unconditional BLAS path despite the NTM regression. Rationale:
    seed-sensitive part of the benchmark.
 
 A threshold-dispatch variant (route to naive below
-`m·n·k = 5000`) was tried (commit `1518381`, reverted in
-`3128ad5`); even the act of wrapping the naive path in
+`m·n·k = 5000`) was tried (commit `1fc56da`, reverted in
+`b3b5de5`); even the act of wrapping the naive path in
 `if (use_blas) {...} else { naive }` shifts compiler codegen
 enough to drift gradients ULP-wise. The variant also fared worse
 than all-BLAS on dnc-recall in our run (k4 0.96 → 0.82).
@@ -1603,7 +1603,7 @@ trade. Job 2b phase A closed.
 
 ----
 
-### 2026-05-11 — Batched Conv2D / MaxPool2D + MNIST → epochVarTensorBatch — `a5f9368`
+### 2026-05-11 — Batched Conv2D / MaxPool2D + MNIST → epochVarTensorBatch — `6b155af`
 
 **Plan job**: Job 1 (reopened — Conv2D wrapper audit)
 
@@ -1662,7 +1662,7 @@ im2col follow-up below closes the second half.
 
 ----
 
-### 2026-05-11 — Tape Conv2D: im2col + cblas_dgemm forward + backward — `67f4b42`
+### 2026-05-11 — Tape Conv2D: im2col + cblas_dgemm forward + backward — `f9c8eaf`
 
 **Plan job**: Job 1 (reopened — tape Conv2D follow-up)
 
@@ -1714,7 +1714,7 @@ PyTorch ref on MNIST: torch 1.68×, mlx 2.08×, tape 1.62×.
 
 **Outcome**: landed. Job 1 reopened-phase-A fully closed.
 
-### 2026-05-11 — mlx scalar-allocation hot-path audit (Job 3 Phase A) — `ede8b6b`
+### 2026-05-11 — mlx scalar-allocation hot-path audit (Job 3 Phase A) — `34d8659`
 
 **Plan job**: Job 3 Phase A (mlx-only, no tape/torch impact).
 
@@ -1729,33 +1729,33 @@ mlx-projects survey).
 
 **Changes** (6 atomic commits, in order of est. impact):
 
-1. **Hoist optimizer-state scalars** (`07e6991`). `optimizer_step`'s
+1. **Hoist optimizer-state scalars** (`6f5d845`). `optimizer_step`'s
    per-param loop was allocating `mx::array()` for `alpha`,
    `1-alpha`, `beta1`, `1-beta1`, `beta2`, `1-beta2`, `eps`,
    `momentum`, and both Adam bias-correction terms once per param
    per step. None depend on which param. Hoisted to once-per-step.
 2. **Cache F32_ZERO/F32_ONE/F32_HALF in forward hot paths**
-   (`62d8a77`). Added `kF32_ZERO/ONE/HALF()` Meyers' singletons;
+   (`232b2e9`). Added `kF32_ZERO/ONE/HALF()` Meyers' singletons;
    applied to `tensor_softplus`, `tensor_gelu`, `tensor_dropout`,
    `tensor_gru_cell`. GELU's structural coefficients
    (0.7978…, 0.044715, 3) became function-local statics inside
    `tensor_gelu` (same lifetime story).
-3. **Cache F32_ZERO for null-arg fallbacks in vjp replay** (`5b7309b`).
+3. **Cache F32_ZERO for null-arg fallbacks in vjp replay** (`c46017b`).
    `tensor_backward`'s closure was constructing `mx::array(0.0f)`
    per fallback per tape entry per backward (2 per entry for
    unary ops). Routed both fallbacks through `kF32_ZERO()`.
-4. **Cache GELU/SOFTPLUS replay coefficients** (`9d9434e`).
+4. **Cache GELU/SOFTPLUS replay coefficients** (`8672f65`).
    `OP_GELU` and `OP_SOFTPLUS` cases inside the replay lambda were
    re-allocating their constants per backward. Lifted to
    function-local statics; common 0/0.5/1 routed through the
    `kF32_*()` accessors so forward and replay share the same
    underlying arrays.
-5. **Cache vjp pool placeholder** (`2652ae0`). `std::vector<mx::array>
+5. **Cache vjp pool placeholder** (`b77f157`). `std::vector<mx::array>
    pool(N, mx::array(0.0f))` per backward. Routed the placeholder
    through `kF32_ZERO()` — vector's N slots are then refcounted
    shallow copies of a shared array, not copies of a freshly-
    allocated one.
-6. **Cache masked-fill -1e9 sentinel in vjp replay** (`ede8b6b`).
+6. **Cache masked-fill -1e9 sentinel in vjp replay** (`34d8659`).
    `OP_MASKED_FILL` case allocated `mx::array(-1e9, float32)`
    fresh per backward. Lifted to a function-local static.
 
@@ -1774,7 +1774,7 @@ header in `backend_mlx.cpp`):
 
 **Impact — all 6 commits in** (mlx closing sweep, seed=99, NTM/DNC
 at `--epochs 30000 --es-threshold 0.01`, vs pre-Phase-A baseline at
-`798c4ac+dirty`):
+`88a966a+dirty`):
 
 | Cell | pre ms/ep | post ms/ep | delta | convergence |
 |---|---:|---:|---:|---|
@@ -1843,7 +1843,7 @@ Phase A complete. Five-minute total wall on the perf-changes side;
 the heavy lift was the closing sweep, which validated convergence
 correctness.
 
-### 2026-05-11 — mlx GPU (Metal) exploration — discovered universal regression — `94700e5`
+### 2026-05-11 — mlx GPU (Metal) exploration — discovered universal regression — `263d546`
 
 **Plan job**: Job 3 Phase A side-quest. The question was: are the mlx
 numbers we've been measuring this whole project actually CPU stream,
@@ -2802,12 +2802,12 @@ showcase — the matmul bench is the smallest version of that story.
 - `/tmp/bench_matmul.c` is the raw C version of the same bench (no
   Idris involvement) that established the crossover points
 
-### 2026-05-16 — Wrapped-handle ABI sweep — perf-neutral on hot examples — `9664726`
+### 2026-05-16 — Wrapped-handle ABI sweep — perf-neutral on hot examples — `c3460ce`
 
 **Plan job**: tensor-lifecycle Phase 5' (perf measurement half).
 
 **Motivation**: validate the cost of the Phase 1' wrapped-handle ABI
-sweep (commit `0ec6a99`), which converted ~600 Tensor-touching FFIs
+sweep (commit `860c82a`), which converted ~600 Tensor-touching FFIs
 from `%foreign "C:..."` to `%foreign "scheme:..."` wrap-on-return
 templates. Each FFI now does one extra `vector-ref` per Tensor arg
 + one Chez vector allocation + one guardian-register + one
@@ -2818,10 +2818,10 @@ is below the VM-noise floor on the hot examples.
 characterization of the post-sweep state.
 
 **Impact**: two-point ms/epoch via `scripts/perf-baseline.sh`,
-compared to the pre-sweep baseline rows from `db20f12+dirty`
+compared to the pre-sweep baseline rows from `4d350d9+dirty`
 (2026-05-15):
 
-| example   | backend | pre-sweep (db20f12) | post-sweep (9664726) | delta | notes |
+| example   | backend | pre-sweep (4d350d9) | post-sweep (c3460ce) | delta | notes |
 |-----------|---------|-------------:|--------------:|------:|-------|
 | transformer | tape | 6.4 ms/ep | n/a (build-dominated) | — | tape per-epoch < build noise floor |
 | transformer | mlx  | 37.09 ms/ep | 31.63 ms/ep | -15% | within VM noise; trending favorable not regressive |
@@ -2837,7 +2837,7 @@ hot examples. The mlx CPU-stream kernel-launch wall (per
 **Conclusion**: the cost-per-FFI overhead is below the VM noise
 floor on every example measured.
 
-**Outcome**: landed (the sweep itself is `0ec6a99` and prior, not a
+**Outcome**: landed (the sweep itself is `860c82a` and prior, not a
 new change).
 
 **Drain cadence tuning — declined for now.** The plan's Phase 5'-b
@@ -2859,17 +2859,17 @@ longer load-bearing; deferred behind the cadence-tuning task until
 a workload actually needs it. The cleaner Phase 5' deliverable is
 "the original motivation is gone."
 
-**Resolved (commit `e337512`)**: both the ntm-copy:mlx ~450-epoch UAF and the ppo:tape mid-run UAF are gone. The IO refactor (`forwardVar` / `applyVar` / Tensor smart constructors all `IO`-typed) made `withNoGrad` actually bracket eval-during-training, which means eval forwards no longer append to the live training tape and can't leave stale handles for the next epoch to dereference. Verification: ntm-copy:mlx 500 epochs ran clean (`epochs=500 acc_short=0.6350`); ppo:tape ran to completion (`epochs=100 avg_return=-78.0`). Tasks #88 and #89 closed.
+**Resolved (commit `f21a817`)**: both the ntm-copy:mlx ~450-epoch UAF and the ppo:tape mid-run UAF are gone. The IO refactor (`forwardVar` / `applyVar` / Tensor smart constructors all `IO`-typed) made `withNoGrad` actually bracket eval-during-training, which means eval forwards no longer append to the live training tape and can't leave stale handles for the next epoch to dereference. Verification: ntm-copy:mlx 500 epochs ran clean (`epochs=500 acc_short=0.6350`); ppo:tape ran to completion (`epochs=100 avg_return=-78.0`). Tasks #88 and #89 closed.
 
 **Cross-references**:
 - `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-16
-  with commit `9664726+dirty`
+  with commit `c3460ce+dirty`
 - `tensor-lifecycle-plan.md` Phase 5' status
 - saved memory `feedback_vm_perf_noise.md` (15-20% delta = noise floor)
 
 ----
 
-### 2026-05-17 — IO refactor trade-off: per-FFI overhead on mlx small ops, mlx-GPU compute-regime intact — `b894fbb`
+### 2026-05-17 — IO refactor trade-off: per-FFI overhead on mlx small ops, mlx-GPU compute-regime intact — `87063be`
 
 **Motivation**: The IO refactor (every Tensor-touching smart constructor + `applyVar` + `forwardVar` returns `IO`) was load-bearing for correctness — `withNoGrad (pure expensiveFFI)` was a no-op under strict argument evaluation, so eval-during-training was running with autograd on and leaking handles into the next training epoch's tape. Closes the original three failing-on-mlx examples (`ntm-copy`, `ntm-associative-recall`, `mountain-car-cont`) plus the ntm-copy:mlx ~450-epoch UAF (#88) and ppo:tape mid-run UAF (#89). The question this entry answers: what did we pay in raw training-time perf?
 
@@ -2901,7 +2901,7 @@ mlx-gpu wins decisively above N≈2048: **4.3 TFLOPS at N=4096, 13.5× the CPU b
 **Outcome**: landed. Trade-off accepted. The IO refactor delivers correctness (eval truly skips autograd graph, no_grad bracket actually brackets) for a 5× small-op-mlx training regression; tape (the convergence-class backend) is unaffected, torch improves on every cell, and mlx-gpu's compute-regime advantage is intact. The regression only matters where mlx is least useful anyway (tiny ops, no GPU advantage). A follow-up to streamline `ioRerun`'s closure+IORes shape could recover some of the mlx-cpu small-op regression if needed — tracked under the high-priority "side-effect-bearing non-IO audit" TODO row, since the audit and the optimisation are the same investigation.
 
 **Cross-references**:
-- `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-17 with commit `f018df5+dirty` (small-op sweep) and `b894fbb` (matmul-bench)
+- `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-17 with commit `d9dc316+dirty` (small-op sweep) and `87063be` (matmul-bench)
 - `scripts/perf-sweep.sh` — the new top-level sweep with cached PyTorch + mlx-cpu/mlx-gpu cells
 - `docs/develop/gotchas.md` — "Side-effect-bearing pure functions" entry
 - `CLAUDE.md` — `forwardVar`/IO-typed surfaces, per-sequence `withNoGrad` rule
@@ -2955,17 +2955,17 @@ Deltas are within VM noise (`feedback_vm_perf_noise`: ±15-20%), but the directi
 - `scripts/lifecycle/check-non-io-side-effects.py` — the new lint
 - TODO row 7 closed; row 16 (per-op Idris overhead) remains as the relevant follow-up for mlx-cpu small-op recovery
 
-### 2026-05-17 — Precision-type-parameter rollout — perf-neutral — `a875549`
+### 2026-05-17 — Precision-type-parameter rollout — perf-neutral — `663c2cd`
 
-**Plan job**: validation pass for the precision/dtype landing (commits `55bd35e` through `a875549` — DType.Core scaffold, Tensor `(0 dt : DType)` slot, `Compatible` + `UpcastableTo` interfaces, `MlxDev` parametric family, 11 LayerAny creators device-polymorphised, BuildConfig generation, 23 examples migrated, tutorial 08).
+**Plan job**: validation pass for the precision/dtype landing (commits `cf3edde` through `663c2cd` — DType.Core scaffold, Tensor `(0 dt : DType)` slot, `Compatible` + `UpcastableTo` interfaces, `MlxDev` parametric family, 11 LayerAny creators device-polymorphised, BuildConfig generation, 23 examples migrated, tutorial 08).
 
 **Motivation**: the new `(0 dt : DType)` parameter on `Tensor` is 0-quantity (erased before code generation), and the FFI surface to the C backends is unchanged. The expectation is zero runtime impact — but elaborator pressure changes (a Tensor reference now carries one more implicit) could in principle pessimise codegen. Worth verifying before declaring the rollout done.
 
-**Change**: ran `scripts/perf-sweep.sh` at HEAD `a875549` — 6 examples × 4 cells (tape, torch, mlx-cpu, mlx-gpu), seed=42, identical to the `b894fbb` sweep on 2026-05-17.
+**Change**: ran `scripts/perf-sweep.sh` at HEAD `663c2cd` — 6 examples × 4 cells (tape, torch, mlx-cpu, mlx-gpu), seed=42, identical to the `87063be` sweep on 2026-05-17.
 
 **Impact**: zero or favourable across every cell.
 
-| Example | Cell        | b894fbb ms | a875549 ms | Δ |
+| Example | Cell        | 87063be ms | 663c2cd ms | Δ |
 |---|---|---:|---:|---:|
 | rnn | tape | 0.34 | (sub-ms) | noise floor |
 | rnn | torch | 1.36 | 1.65 | +21% (1-ms scale) |
@@ -2992,13 +2992,13 @@ Deltas are within VM noise (`feedback_vm_perf_noise`: ±15-20%), but the directi
 | ntm-recall | mlx-cpu | 285.5 | 244.6 | −14% |
 | ntm-recall | mlx-gpu | 360.9 | 367.2 | +2% |
 
-The PyTorch references on the same machine also came in 2–22% faster than during the `b894fbb` sweep (rnn 1.75 → 1.37, ntm-recall 13.13 → 11.33), indicating this VM is running ~10–15% leaner on the day — system noise, not algorithmic change. After backing that out, every Idris cell is within the ±15–20% per-cell noise gate established in `feedback_vm_perf_noise.md`. The only above-floor positive delta is rnn/torch at +21% on a 1-ms-scale task — within the resolution of two-point timing at that range, not a regression worth chasing.
+The PyTorch references on the same machine also came in 2–22% faster than during the `87063be` sweep (rnn 1.75 → 1.37, ntm-recall 13.13 → 11.33), indicating this VM is running ~10–15% leaner on the day — system noise, not algorithmic change. After backing that out, every Idris cell is within the ±15–20% per-cell noise gate established in `feedback_vm_perf_noise.md`. The only above-floor positive delta is rnn/torch at +21% on a 1-ms-scale task — within the resolution of two-point timing at that range, not a regression worth chasing.
 
-The ntm-copy/torch row shows a 25.10 → 1.37 collapse that is far too large to be VM drift. Working hypothesis: the `b894fbb` 25.10 was a measurement artefact (two-point timing at N_short=10, N_long=40 on a ~25 ms/ep task is just ~1 s of wall — easy to drown in startup variance). The new 1.37 is also at the noise floor of that two-point regime. Either could be wrong; the right read is "this cell is not reliably resolvable at the current N_long". Not a precision-work signal in either direction.
+The ntm-copy/torch row shows a 25.10 → 1.37 collapse that is far too large to be VM drift. Working hypothesis: the `87063be` 25.10 was a measurement artefact (two-point timing at N_short=10, N_long=40 on a ~25 ms/ep task is just ~1 s of wall — easy to drown in startup variance). The new 1.37 is also at the noise floor of that two-point regime. Either could be wrong; the right read is "this cell is not reliably resolvable at the current N_long". Not a precision-work signal in either direction.
 
-Follow-up: also ran the matmul-bench compute-bound suite (the canonical "mlx GPU > CPU" demo, separate code path — pure forward matmul, no autograd, no FFI hot loop), 3 sizes × 4 cells, iters=5, identical to the `abc3552` 2026-05-17 sweep:
+Follow-up: also ran the matmul-bench compute-bound suite (the canonical "mlx GPU > CPU" demo, separate code path — pure forward matmul, no autograd, no FFI hot loop), 3 sizes × 4 cells, iters=5, identical to the `77099a2` 2026-05-17 sweep:
 
-| N | tape GFLOPS abc3552 → now | torch abc3552 → now | mlx-cpu abc3552 → now | mlx-gpu abc3552 → now |
+| N | tape GFLOPS 77099a2 → now | torch 77099a2 → now | mlx-cpu 77099a2 → now | mlx-gpu 77099a2 → now |
 |---:|---:|---:|---:|---:|
 | 1024 | 305 → 307 | 365 → 346 | 1054 → 1091 | 682 → 649 |
 | 2048 | 339 → 335 | 329 → 353 | 1319 → 1264 | 2993 → 2719 |
@@ -3010,10 +3010,10 @@ All 12 cells within ±10%, including the headline mlx-gpu 4.3-TFLOPS @ N=4096 �
 
 **Cross-references**:
 - TODO "Investigate precision type parameter" — closed; see `docs/develop/dtype-parameter.md` for the design memo and lessons learned
-- sweep raw output: `/tmp/perf-sweep-a875549.log` (training), `/tmp/matmul-bench-a875549.log` (matmul-bench)
-- JSONL entries appended to `docs/develop/perf-log.jsonl` (training: kind=baseline, commit=a875549; matmul-bench: kind=matmul-bench, commit=dbc39cc)
+- sweep raw output: `/tmp/perf-sweep-663c2cd.log` (training), `/tmp/matmul-bench-663c2cd.log` (matmul-bench)
+- JSONL entries appended to `docs/develop/perf-log.jsonl` (training: kind=baseline, commit=663c2cd; matmul-bench: kind=matmul-bench, commit=2c0c6db)
 
-### 2026-05-18 — Torch SGD / RMSprop / AdamW: multi-tensor step via `at::_foreach_*` — `7f48251`
+### 2026-05-18 — Torch SGD / RMSprop / AdamW: multi-tensor step via `at::_foreach_*` — `d30a47c`
 
 **Plan job**: finish the torch foreach optimizer family started by the
 2026-05-14 Adam landing (`adam_step_foreach`). SGD, RMSprop, and AdamW
@@ -3112,7 +3112,7 @@ but the trajectory is sound. Closes the high-priority TODO row.
 
 ----
 
-### 2026-05-18 — L59+L60 typeclass cascade + stream-aware RuntimeDType — perf-neutral — `814bea4`
+### 2026-05-18 — L59+L60 typeclass cascade + stream-aware RuntimeDType — perf-neutral — `3d0a728`
 
 **Motivation**: close per-call MLX stream selection so the type-level
 device tag `d` strictly determines the stream every op fires on. L59
@@ -3134,7 +3134,7 @@ inheriting `default_stream_tag()` (the env var). On tape/torch the
 new `_streamed` wrappers ignore the stream_tag and call the existing
 unstreamed function — pure pass-through.
 
-**Impact** (bench-compare, tape primary, commit `814bea4`):
+**Impact** (bench-compare, tape primary, commit `3d0a728`):
 
 | Workload                       | Idris ms | PyTorch ms | Ratio | Idris RSS | PyTorch RSS |
 |--------------------------------|---------:|-----------:|------:|----------:|------------:|
@@ -3156,7 +3156,7 @@ be refreshed.
 - Single failure: `example-gpt [mlx-gpu]` flake at ~20% — "Exception:
   invalid memory reference" during the *second* `Generation (seed=...)`
   call. Confirmed pre-existing (1/5 same failure rate on commit
-  `300db03`, immediately before the L60 closure). Filed as Low TODO
+  `2156acc`, immediately before the L60 closure). Filed as Low TODO
   row: "Flaky example-gpt [mlx-gpu] — invalid memory ref during 2nd
   generation". Probably a Tensor refcount issue in the generation
   code path, independent of L60.
@@ -3222,16 +3222,16 @@ perf-sweep run that exercises all examples × all cells.
 
 **Motivation**: First fully clean post-Phase-6 sweep. Captures the
 runtime impact of: (1) the Phase 6 per-op file split for torch + mlx
-(`a7fbf7c`-era); (2) the four `bug | S` fixes that landed
-2026-05-25 (`83d87c9` mlx conv1d_circular forward, `831c6f7` mlx
-softplus backward replay, `5d4f58e` mlx avg_pool2d backward replay,
-`6578b81` tape tensor_view chain heap-allocation); (3) cJSON
-vendoring (structural; `d58db8c`); (4) the mlx backward per-op
-file-ownership refactor `ff2672e`/`02eb2b5`/`c509701` (60-case
+(`ce64759`-era); (2) the four `bug | S` fixes that landed
+2026-05-25 (`8312995` mlx conv1d_circular forward, `46e57ad` mlx
+softplus backward replay, `555ffd9` mlx avg_pool2d backward replay,
+`01cb7c5` tape tensor_view chain heap-allocation); (3) cJSON
+vendoring (structural; `bf7a188`); (4) the mlx backward per-op
+file-ownership refactor `af44a95`/`19e402f`/`46ac3bb` (60-case
 switch lifted into 54 per-op `.cpp` files via a dispatch table);
-(5) the harness `|| true` fix `eff8737` that surfaces real make
+(5) the harness `|| true` fix `f0be99c` that surfaces real make
 failures instead of running stale binaries; (6) the transformer
-`primCreate1d` → `dtCreate1d` migration `f7354bd` that unblocked
+`primCreate1d` → `dtCreate1d` migration `dde90db` that unblocked
 the mlx cells.
 
 **Change**: ran `scripts/perf-sweep.sh` with defaults — 6 examples
@@ -3241,9 +3241,9 @@ launched into an idle VM. The harness now records `crashed` cells
 truthfully (the morning sweep had silently substituted stale
 binaries on lstm/mlx after a transient build failure mid-sweep).
 
-**Impact** (idris ms/epoch, current vs 461ad12 baseline 2026-05-24):
+**Impact** (idris ms/epoch, current vs 97f849e baseline 2026-05-24):
 
-| example     | cell      | 461ad12 | 54c8dba | delta  |
+| example     | cell      | 97f849e | 54c8dba | delta  |
 |-------------|-----------|--------:|--------:|-------:|
 | rnn         | tape      | 0.37    | 0.38    | +3%    |
 | rnn         | torch-cpu | 1.72    | 1.78    | +3%    |
@@ -3268,7 +3268,7 @@ mlx backward per-op split moved a 60-arm switch through a
 function-pointer table; the indirection adds one indirect call per
 tape entry and is invisible at the resolution we measure.
 
-New cells the 461ad12 baseline didn't cover (transformer / ntm-copy
+New cells the 97f849e baseline didn't cover (transformer / ntm-copy
 / ntm-recall):
 
 | example     | cell      | idris ms | py ms  | ratio  |
@@ -3291,7 +3291,7 @@ New cells the 461ad12 baseline didn't cover (transformer / ntm-copy
 
 \* transformer/mlx-gpu at 200 epochs aborts with `exit=255 Exception:
 invalid memory reference. Some debugging context lost`. Different
-crash from the F64-on-Metal one fixed in `f7354bd` (single epoch +
+crash from the F64-on-Metal one fixed in `dde90db` (single epoch +
 this test session's earlier transformer mlx-gpu run completed
 cleanly with `sort_acc=3/6`). Accumulation-related — likely a tape
 or buffer-cache pile-up under 200 epochs of Metal-stream work, in
@@ -3306,22 +3306,22 @@ current snapshot.
 - `perf-baseline.md` — refreshed with the 54c8dba sweep block.
 - TODO row "transformer mlx-gpu 200-epoch invalid memory reference"
   added 2026-05-25.
-- Previous full sweep: 2026-05-24 @ `461ad12` (pre-Phase-6
-  closeout). The morning 2026-05-25 sweep @ `6578b81` is
+- Previous full sweep: 2026-05-24 @ `97f849e` (pre-Phase-6
+  closeout). The morning 2026-05-25 sweep @ `01cb7c5` is
   documented but invalidated by harness silent-failure +
   concurrent-editing contention; the harness fix landed in
-  `eff8737` and the contention notes live in the
+  `f0be99c` and the contention notes live in the
   `feedback_vm_perf_noise` policy.
 
-### 2026-05-25 — Post-multi-link refactor sweep — `7633a54`
+### 2026-05-25 — Post-multi-link refactor sweep — `42dff57`
 
 **Plan job**: cross-cutting (post-Phase-6 verification gate)
 
 **Motivation**: Validate that the multi-link refactor +
-`primCreate1d` retire (`f7a690b`) + 5-sibling dtype-blind creator
-retire (`f29ae47`) + torch-mps streamed-path migration (`8507e50`)
-+ tensor_one_hot migration (`c7cfd5b`) + MPS device indexing fix
-(`d1beb7c`) didn't introduce per-backend wallclock regressions.
+`primCreate1d` retire (`a1627d1`) + 5-sibling dtype-blind creator
+retire (`34ca459`) + torch-mps streamed-path migration (`0b4ee52`)
++ tensor_one_hot migration (`5ccbf7c`) + MPS device indexing fix
+(`9c593ab`) didn't introduce per-backend wallclock regressions.
 Also confirm the transformer mlx-gpu cell's `crashed` marker from
 the prior snapshot has cleared.
 
@@ -3368,7 +3368,7 @@ All deltas are within ±10% (the `feedback_vm_perf_noise` floor for
 single-run sweeps); no genuine regression on any cell. The notable
 visible change is **transformer / mlx-gpu producing a number where
 the prior snapshot recorded `crashed`** — the eval-grad-before-sweep
-mitigation in `e3959a1` brought the crash rate low enough (~1%
+mitigation in `140bd14` brought the crash rate low enough (~1%
 measured at 600 runs) that the single 200-epoch sweep completes
 most of the time. The residual rate is tracked in TODO row 42.
 
@@ -3379,13 +3379,13 @@ in the cached one-run-per-example PyTorch baseline.
 **Outcome**: landed (no regressions; the refactor is perf-clean).
 
 **Cross-references**: 30 new entries in `perf-log.jsonl`
-(`kind=baseline`, commit `7633a54`), `perf-baseline.md` table
+(`kind=baseline`, commit `42dff57`), `perf-baseline.md` table
 refreshed, no `TODO.md` impact.
 
-### 2026-05-28 — fused-init "going forward" baseline across all 5 lanes — `41a649c`
+### 2026-05-28 — fused-init "going forward" baseline across all 5 lanes — `2bbe67b`
 
-**Motivation**: the fused-init epic landed across torch (`b38e71c`),
-mlx (`87ad1ac`), and tape (today's P4 commit). Per-backend
+**Motivation**: the fused-init epic landed across torch (`56b06f4`),
+mlx (`b6fc6e1`), and tape (today's P4 commit). Per-backend
 construction-time impact was unmeasured for mlx + tape on small
 models because BERT/GPT-2/Llama inference examples lacked stage
 timers (only Llama's example emitted `[stage] …` lines). Added stage
@@ -3395,13 +3395,13 @@ this session; this entry is the first across-the-board baseline.
 **Change**: ran `scripts/perf-run.sh hf-bert <backend>` and
 `scripts/perf-run.sh hf-gpt2 <backend>` on five lanes — `tape`,
 `torch/cpu`, `torch/mps`, `mlx/cpu`, `mlx/gpu` — all at commit
-`41a649c` ("feat(examples): stage timers in HF BERT/GPT-2 inference").
+`2bbe67b` ("feat(examples): stage timers in HF BERT/GPT-2 inference").
 Each entry logs the construction-stage time (`hfBertForMaskedLm ok`,
 `hfGpt2Model ok`) and the safetensors-load-stage time
 (`loadModelAllowCast ok`) into the JSONL `stages` field, with the
 full wall-clock recorded in `wall_ms`.
 
-**Impact** (HEAD `41a649c`, fused init enabled on all backends):
+**Impact** (HEAD `2bbe67b`, fused init enabled on all backends):
 
 | Backend / device  | hf-bert wall | construct | load   | hf-gpt2 wall | construct | load   |
 |-------------------|-------------:|----------:|-------:|-------------:|----------:|-------:|
@@ -3417,9 +3417,9 @@ the 16 GB VM):
 
 | Backend / device         | hfLlamaModel | load   | RoPE | runGenerate (8 tok) | commit          |
 |--------------------------|-------------:|-------:|-----:|--------------------:|-----------------|
-| torch / mps F32          |        28 s  | 65 s   | 0 s  |              388 s  | `51df3cb+dirty` |
-| torch / mps BF16         |        18 s  | 28 s   | 0 s  |              340 s  | `e5c4bba+dirty` |
-| mlx / gpu F32            |         2 s  | 14 s   | 0 s  |               37 s  | `e5c4bba`       |
+| torch / mps F32          |        28 s  | 65 s   | 0 s  |              388 s  | `c6fc7d8+dirty` |
+| torch / mps BF16         |        18 s  | 28 s   | 0 s  |              340 s  | `36ff209+dirty` |
+| mlx / gpu F32            |         2 s  | 14 s   | 0 s  |               37 s  | `36ff209`       |
 
 **Headline finding**: fused-init construction is **sub-2-seconds on
 all backends across BERT/GPT-2** — the kernel is bandwidth-bound and
@@ -3459,7 +3459,7 @@ which #393 tracks as the torch-mps per-op MPSGraph cost). No
 follow-up rows from this baseline.
 
 **Cross-references**: 10 new entries in `perf-log.jsonl` (5 lanes
-× 2 examples, all at commit `41a649c`), `perf-baseline.md` not
+× 2 examples, all at commit `2bbe67b`), `perf-baseline.md` not
 refreshed (this baseline is HF inference only, separate from the
 training-example sweep that drives the baseline table).
 
@@ -3635,11 +3635,11 @@ enablement"); `Device/Mlx.idr:643-668` (5 Compatible instances);
 motivated this row).
 
 
-### 2026-06-02 — first hf-bitnet measurements: torch-mps F32, mlx-gpu F32, PyTorch CPU BF16 — `50b3107` + `time_inference_bitnet.py`
+### 2026-06-02 — first hf-bitnet measurements: torch-mps F32, mlx-gpu F32, PyTorch CPU BF16 — `2901741` + `time_inference_bitnet.py`
 
 **Motivation**: With the HfBitNet end-to-end pipeline shipped
-(`83d719f`..`fe9c067`) and the torch-mps device-mismatch + autograd-
-watermark bugs fixed (`50b3107`), the example finally runs to
+(`8784f38`..`5b048a9`) and the torch-mps device-mismatch + autograd-
+watermark bugs fixed (`2901741`), the example finally runs to
 completion on all three backends we care about. First time we have
 a concrete idris-vs-PyTorch perf comparison for a 2B-param ternary-
 weight LLM. Single-forward at seq=2 on the fixed two-token prompt
@@ -3651,8 +3651,8 @@ the `[stage] [hh:mm:ss]` log lines):
 
 | Config | Total wall | Model load | Forward | Notes |
 |---|---:|---:|---:|---|
-| Idris torch-mps F32 | 30 s | 12 s | 10 s | `50b3107`, perf-run.sh entry |
-| Idris mlx-gpu F32 | 12m 3s | 12 s | 8 s | `50b3107`, perf-run.sh entry; wall dominated by cold-lane idris2 elaboration |
+| Idris torch-mps F32 | 30 s | 12 s | 10 s | `2901741`, perf-run.sh entry |
+| Idris mlx-gpu F32 | 12m 3s | 12 s | 8 s | `2901741`, perf-run.sh entry; wall dominated by cold-lane idris2 elaboration |
 | PyTorch CPU BF16 (cold) | 18 s | 12 s | 6.0 s | first forward; counts MPS/CPU first-touch alloc |
 | PyTorch CPU BF16 (warm) | — | — | 0.2 s | second forward; steady state |
 
@@ -3691,15 +3691,15 @@ percent in either direction. Re-measure after #411's numerical
 follow-up lands.
 
 **perf-log entries**:
-- `2026-06-02T10:46:09Z` torch-mps F32 (`31308b9+dirty`), forward 22 s — pre-`50b3107`-fix path, included the now-rebuilt dylib copy in the wall
-- `2026-06-02T11:05:53Z` mlx-gpu F32 (`50b3107`), forward 20 s — wall dominated by 11 min of cold-lane Idris2 elaboration on first run
+- `2026-06-02T10:46:09Z` torch-mps F32 (`cc5e192+dirty`), forward 22 s — pre-`2901741`-fix path, included the now-rebuilt dylib copy in the wall
+- `2026-06-02T11:05:53Z` mlx-gpu F32 (`2901741`), forward 20 s — wall dominated by 11 min of cold-lane Idris2 elaboration on first run
 
-(The two earlier `exit=2` entries at 09:45 / 09:46 — pre-`50b3107`
+(The two earlier `exit=2` entries at 09:45 / 09:46 — pre-`2901741`
 device-mismatch crashes — are preserved per the append-only
 convention but should not be treated as valid measurements.)
 
 **Cross-references**: `CHANGELOG.md` 2026-06-02 BitNet entry
-(HfBitNet end-to-end pipeline); commit `50b3107` (the device-move
+(HfBitNet end-to-end pipeline); commit `2901741` (the device-move
 + withNoGradKeep fixes that made the runs valid);
 `packages/idris-transformers/scripts/time_inference_bitnet.py`
 (the PyTorch ref timing harness); `docs/develop/gotchas.md` new
@@ -3708,7 +3708,7 @@ entries ("Every torch backend tensor creator must honour
 parameter-rich layers must `withNoGrad` on MPS").
 
 
-### 2026-06-02 — HfBitNet numerical match: tensor_bitlinear_fwd_hf_quant divided by w_scale, should multiply — `8e0fefd`
+### 2026-06-02 — HfBitNet numerical match: tensor_bitlinear_fwd_hf_quant divided by w_scale, should multiply — `491b98c`
 
 **Motivation**: the runGenerate output for the canonical prompt
 `"The capital of France is"` decoded as `" the, the, the"` rather
@@ -3773,7 +3773,7 @@ wall in perf-log). The +4s is the extra multiply-by-w_scale per
 BitLinear call (210 calls × 5 forwards = 1050 ops). Negligible.
 
 **perf-log entries**:
-- `2026-06-02T<latest>` torch-cpu, commit `8e0fefd+dirty`, exit 0,
+- `2026-06-02T<latest>` torch-cpu, commit `491b98c+dirty`, exit 0,
   runGenerate 51s.
 
 **Cross-references**: `CHANGELOG.md` 2026-06-02 numerical-match
