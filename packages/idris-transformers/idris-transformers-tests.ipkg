@@ -16,6 +16,7 @@ modules = Test.Main
         , Test.HfBertAttentionMask
         , Test.HfBertForClassification
         , Test.HfBitNet
+        , Test.HfDataset
         , Test.HfGpt2
         , Test.HfLlama
         , Test.KVCache

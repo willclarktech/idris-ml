@@ -2402,6 +2402,13 @@ clean-models:
 	# Legacy location (pre-2026-05-27 refactor); remove if leftover.
 	rm -rf packages/idris-transformers/models/
 
+# Downloaded + tokenized HF datasets (under data/hf-datasets/). Same
+# rationale as clean-models — slow to re-download, so kept out of
+# plain `clean`. Hand-curated test fixtures
+# (packages/idris-transformers/test-fixtures/) stay untouched.
+clean-datasets:
+	rm -rf data/hf-datasets/
+
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).

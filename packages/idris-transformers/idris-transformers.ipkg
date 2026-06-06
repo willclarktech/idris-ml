@@ -9,6 +9,7 @@ modules = HfBert
         , HfBertForClassification
         , HfBitNet
         , HfCommon
+        , HfDataset
         , HfGpt2
         , HfLlama
         , IdrisTransformers
