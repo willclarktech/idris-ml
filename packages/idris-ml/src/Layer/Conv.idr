@@ -2,7 +2,7 @@ module Layer.Conv
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -46,7 +46,7 @@ public export
 data Conv2DState :
   (inC : Nat) -> (outC : Nat) -> (h : Nat) -> (w : Nat) ->
   (kH : Nat) -> (kW : Nat) -> (padH : Nat) -> (padW : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkConv2D :
     Tensor [outC, inC, kH, kW] d dt g ->                       -- kernel
@@ -59,7 +59,7 @@ data Conv2DState :
 %default partial
 
 export
-applyConv2D : {0 d : Device} -> UserDeviceTraining d => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+applyConv2D : {0 d : Executor} -> UserExecutorTraining d => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 Conv2DState inC outC h w kH kW padH padW
                               (inC * (h * w))
                               (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -83,7 +83,7 @@ applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
 -- the batched primitive, then flatten back. One conv2d call per batched
 -- forward (vs B single-sample calls in `applyConv2D`).
 export
-applyConv2DBatched : {0 d : Device} -> UserDeviceTraining d => {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
+applyConv2DBatched : {0 d : Executor} -> UserExecutorTraining d => {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
                        Conv2DState inC outC h w kH kW padH padW
                                      (inC * (h * w))
                                      (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -107,7 +107,7 @@ applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
 
 ||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
-conv2dLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv2DState inC outC h w kH kW padH padW
                                   (inC * (h * w))
@@ -141,7 +141,7 @@ public export
     pure (MkConv2D (retypeGrad k) (retypeGrad b))
 
 export
-conv2dLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -158,7 +158,7 @@ conv2dLayerAny pid =
 public export
 data Conv1DState :
   (inC : Nat) -> (outC : Nat) -> (len : Nat) -> (kL : Nat) -> (pad : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkConv1D :
     Tensor [outC, inC, kL] d dt g ->
@@ -169,7 +169,7 @@ data Conv1DState :
                   d dt g
 
 export
-applyConv1D : {0 d : Device} -> UserDeviceTraining d => {inC, outC, len, kL, pad : Nat} ->
+applyConv1D : {0 d : Executor} -> UserExecutorTraining d => {inC, outC, len, kL, pad : Nat} ->
                 Conv1DState inC outC len kL pad
                               (inC * len)
                               (outC * ConvOutDim len kL pad) d dt g ->
@@ -184,7 +184,7 @@ applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
   in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 export
-conv1dLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv1DState inC outC len kL pad
                                   (inC * len)
@@ -216,7 +216,7 @@ public export
     pure (MkConv1D (retypeGrad k) (retypeGrad b))
 
 export
-conv1dLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) d dt WithGrad)
 conv1dLayerAny pid =
@@ -232,7 +232,7 @@ public export
 data MaxPool2DState :
   (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
   (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkMaxPool2D :
     MaxPool2DState c inH inW poolH poolW strH strW
@@ -241,7 +241,7 @@ data MaxPool2DState :
                      d dt g
 
 export
-applyMaxPool2D : {0 d : Device} -> UserDeviceTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+applyMaxPool2D : {0 d : Executor} -> UserExecutorTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    MaxPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
@@ -261,7 +261,7 @@ applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
 -- Batched: input [b, c * inH * inW], reshape to [b, c, inH, inW], pool,
 -- flatten back to [b, c * outH * outW].
 export
-applyMaxPool2DBatched : {0 d : Device} -> UserDeviceTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Nat} ->
+applyMaxPool2DBatched : {0 d : Executor} -> UserExecutorTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Nat} ->
                           MaxPool2DState c inH inW poolH poolW strH strW
                                            (c * (inH * inW))
                                            (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
@@ -304,7 +304,7 @@ public export
 data AvgPool2DState :
   (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
   (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkAvgPool2D :
     AvgPool2DState c inH inW poolH poolW strH strW
@@ -313,7 +313,7 @@ data AvgPool2DState :
                      d dt g
 
 export
-applyAvgPool2D : {0 d : Device} -> UserDeviceTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+applyAvgPool2D : {0 d : Executor} -> UserExecutorTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AvgPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
@@ -356,7 +356,7 @@ avgPool2dLayer =
 public export
 data MaxPool1DState :
   (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkMaxPool1D :
     MaxPool1DState c len poolK str
@@ -364,7 +364,7 @@ data MaxPool1DState :
                      (c * PoolOutDim len poolK str) d dt g
 
 export
-applyMaxPool1D : {0 d : Device} -> UserDeviceTraining d => {c, len, poolK, str : Nat} ->
+applyMaxPool1D : {0 d : Executor} -> UserExecutorTraining d => {c, len, poolK, str : Nat} ->
                    MaxPool1DState c len poolK str
                                     (c * len) (c * PoolOutDim len poolK str) d dt g ->
                    TVec (c * len) d dt g ->
@@ -395,7 +395,7 @@ maxPool1dLayer =
 public export
 data AvgPool1DState :
   (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkAvgPool1D :
     AvgPool1DState c len poolK str
@@ -403,7 +403,7 @@ data AvgPool1DState :
                      (c * PoolOutDim len poolK str) d dt g
 
 export
-applyAvgPool1D : {0 d : Device} -> UserDeviceTraining d => {c, len, poolK, str : Nat} ->
+applyAvgPool1D : {0 d : Executor} -> UserExecutorTraining d => {c, len, poolK, str : Nat} ->
                    AvgPool1DState c len poolK str
                                     (c * len) (c * PoolOutDim len poolK str) d dt g ->
                    TVec (c * len) d dt g ->

@@ -2,7 +2,7 @@ module Layer.Rnn
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -29,7 +29,7 @@ import Tensor
 -- though shape arithmetic isn't needed here (no `4 *`).
 
 public export
-record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record RnnState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkRnn
   iwT : TMat o i d dt g         -- W_ih [o, i]
   rwT : TMat o o d dt g         -- W_hh [o, o]
@@ -46,7 +46,7 @@ record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMod
 %default partial
 
 export
-applyRnn : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
+applyRnn : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
              RnnState i o d dt g ->
              TVec i d dt g ->
              IO (RnnState i o d dt g, TVec o d dt g)
@@ -66,7 +66,7 @@ applyRnn {o} st input = do
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build an `RnnState i o TapeDev` with Xavier-uniform weights, zero
+||| Build an `RnnState i o TapeExecutor` with Xavier-uniform weights, zero
 ||| biases, and the given activation function. State starts as
 ||| Nothing; first `applyRnn` call zero-initialises it. Params
 ||| register under `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`,
@@ -75,7 +75,7 @@ applyRnn {o} st input = do
 ||| Common activations: `ttanh` (default for `nn.RNN`), `trelu`,
 ||| `id` for a linear-recurrence variant.
 export
-rnnLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} ->
+rnnLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} ->
              (paramPrefix : String) ->
              (activation : {0 g' : GradMode} -> TVec o d dt g' -> IO (TVec o d dt g')) ->
              IO (RnnState i o d dt WithGrad)
@@ -98,7 +98,7 @@ rnnLayer paramPrefix activation = do
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetRnnState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> RnnState i o d dt g -> RnnState i o d dt g
+resetRnnState : {o : Nat} -> {0 d : Executor} -> {0 g : GradMode} -> RnnState i o d dt g -> RnnState i o d dt g
 resetRnnState st = { prevOutT := Nothing } st
 
 
@@ -140,6 +140,6 @@ LayerLike RnnState where
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+rnnLayerAny : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
               {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

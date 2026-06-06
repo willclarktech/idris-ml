@@ -25,7 +25,7 @@ import Test.Property
 import Test.Config
 import Test.Harness as Harness
 
-import Device
+import Executor
 import Tensor
 import Array
 import Layer.RmsNorm
@@ -45,12 +45,12 @@ readVec n p = go (cast {to=Int} n) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=TestDevice} p i
+        else let v = primItem1d {d=TestExecutor} p i
              in go end (i + 1) (v :: acc)
 
-mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestDevice TestDType WithGrad
+mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkInput xs =
-  let raw = bulkToTensor {d=TestDevice} {dt=TestDType}
+  let raw = bulkToTensor {d=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -71,7 +71,7 @@ prop_rmsnorm_output_bounded_body xs =
   if isDegenerate xs
     then pure True  -- input fails the eps << mean(x²) precondition
     else do
-      rms <- rmsNormLayer {d=TestDevice} {dt=TestDType} {n=NN} "rms_prop_test"
+      rms <- rmsNormLayer {d=TestExecutor} {dt=TestDType} {n=NN} "rms_prop_test"
       (_, out) <- applyRmsNormEps 1.0e-5 rms (mkInput xs)
       vals <- readVec NN out.tensorPtr
       let actualNorm   = l2Norm vals

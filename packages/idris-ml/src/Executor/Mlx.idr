@@ -1,11 +1,11 @@
-||| `MlxDev` — `UserDeviceCore` instance for the mlx backend.
+||| `MlxExecutor` — `UserExecutorCore` instance for the mlx backend.
 |||
 ||| Forwards to the mlx-suffixed C symbols emitted under Phase 1's
 ||| `rename_mlx.h` (e.g. `tensor_add_mlx`). Only resolvable at runtime
 ||| if the build's BACKEND list includes `mlx` (Apple-only).
-module Device.Mlx
+module Executor.Mlx
 
-import Device.Core
+import Executor.Core
 import DType.Core
 
 
@@ -13,7 +13,7 @@ import DType.Core
 -- Per-symbol bindings to the mlx backend's suffixed C exports
 ----------------------------------------------------------------------
 
--- UserDeviceCore (MlxDev s) instance methods call the streamed
+-- UserExecutorCore (MlxExecutor s) instance methods call the streamed
 -- variants below; the trailing `Int` stream_tag is derived from the
 -- type-level `s` via `streamTag` (0 = MCpu, 1 = MGpu). The unstreamed
 -- `prim__*Mlx` declarations are kept for any caller that hasn't moved
@@ -90,16 +90,16 @@ prim__roundMlxStreamed : AnyPtr -> Int -> AnyPtr
 
 
 ----------------------------------------------------------------------
--- MlxStream + MlxDev parameterized family
+-- MlxStream + MlxExecutor parameterized family
 --
--- `MlxDev` is parameterized over a stream tag (`MGpu` vs `MCpu`) so
--- that `MlxDev MGpu` and `MlxDev MCpu` are distinct device types at
--- the type level while sharing one set of `UserDevice*` instances.
+-- `MlxExecutor` is parameterized over a stream tag (`MGpu` vs `MCpu`) so
+-- that `MlxExecutor MGpu` and `MlxExecutor MCpu` are distinct device types at
+-- the type level while sharing one set of `UserExecutor*` instances.
 -- The instance bodies derive an `Int` stream tag from `s` via
 -- `streamTag` and thread it through the `_mlx_streamed` FFI surface
 -- to `mx::StreamContext` on the C side, so each op runs on the
 -- stream the type system claimed. Mirrors the `CUDA Nat` precedent
--- in `Device.idr`.
+-- in `Executor.idr`.
 --
 -- Ergonomic aliases `MlxGpu : Type` and `MlxCpu : Type` are exported
 -- below so callers can write `Tensor [4] MlxGpu F32 WithGrad`
@@ -114,25 +114,25 @@ data MlxStream : Type where
 
 ||| MLX device, parameterized over its stream tag.
 public export
-data MlxDev : MlxStream -> Type where
-  MkMlxDev : MlxDev s
+data MlxExecutor : MlxStream -> Type where
+  MkMlxExecutor : MlxExecutor s
 
-||| `MlxDev MGpu` alias. Metal GPU stream. Only supports F32; dt
+||| `MlxExecutor MGpu` alias. Metal GPU stream. Only supports F32; dt
 ||| has no `Compatible` instance and tensors of `MlxGpu dt` fail to
 ||| typecheck at the construction site.
 public export
 MlxGpu : Type
-MlxGpu = MlxDev MGpu
+MlxGpu = MlxExecutor MGpu
 
-||| `MlxDev MCpu` alias. mlx CPU stream. Supports both F32 and dt.
+||| `MlxExecutor MCpu` alias. mlx CPU stream. Supports both F32 and dt.
 public export
 MlxCpu : Type
-MlxCpu = MlxDev MCpu
+MlxCpu = MlxExecutor MCpu
 
 ||| Int encoding of an `MlxStream` for the streamed FFI surface.
 ||| `MCpu → 0`, `MGpu → 1`. Mirrored on the C side by
-||| `stream_for_tag(int)` in `backend_mlx.cpp`. Each `UserDeviceCore`
-||| (and sibling-interface) method on `MlxDev s` derives the tag from
+||| `stream_for_tag(int)` in `backend_mlx.cpp`. Each `UserExecutorCore`
+||| (and sibling-interface) method on `MlxExecutor s` derives the tag from
 ||| `s` and threads it to the corresponding `_mlx_streamed` FFI so
 ||| the op runs on the correct mlx stream — honouring the type-level
 ||| device parameter rather than the global `mx::set_default_device`.
@@ -149,7 +149,7 @@ prim__mnistGetImageMlx : AnyPtr -> Int -> Int -> AnyPtr
 prim__oneHotMlx : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 public export
-{s : MlxStream} -> UserDeviceCore (MlxDev s) where
+{s : MlxStream} -> UserExecutorCore (MlxExecutor s) where
   deviceName       = case s of
                        MGpu => "mlx:gpu"
                        MCpu => "mlx:cpu"
@@ -285,7 +285,7 @@ prim__cumprodMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
 
 
 public export
-{s : MlxStream} -> UserDeviceLinear (MlxDev s) where
+{s : MlxStream} -> UserExecutorLinear (MlxExecutor s) where
   primMv a b               = prim__mvMlxStreamed a b (streamTag s)
   primMm a b               = prim__mmMlxStreamed a b (streamTag s)
   primMatmul a b           = prim__matmulMlxStreamed a b (streamTag s)
@@ -375,7 +375,7 @@ prim__pairSecondMlxStreamed : AnyPtr -> Int -> AnyPtr
 
 
 public export
-{s : MlxStream} -> UserDeviceNN (MlxDev s) where
+{s : MlxStream} -> UserExecutorNN (MlxExecutor s) where
   primGelu a = prim__geluMlxStreamed a (streamTag s)
   primLeakyRelu a b = prim__leakyReluMlxStreamed a b (streamTag s)
   primSilu a = prim__siluMlxStreamed a (streamTag s)
@@ -424,7 +424,7 @@ prim__maxPool2dBatchedMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> Int ->
 
 
 public export
-{s : MlxStream} -> UserDeviceConv (MlxDev s) where
+{s : MlxStream} -> UserExecutorConv (MlxExecutor s) where
   primConv1d a b c d e = prim__conv1dMlxStreamed a b c d e (streamTag s)
   primConv1dCircular a b = prim__conv1dCircularMlxStreamed a b (streamTag s)
   primAvgPool1d a b c = prim__avgPool1dMlxStreamed a b c (streamTag s)
@@ -552,7 +552,7 @@ prim__castStreamedMlx : AnyPtr -> Int -> Int -> AnyPtr
 -- Fused param create + in-place init. Mlx's C-side port slots stay
 -- nullptr until Phase 7 lands the impl (mx::random::normal etc.); the
 -- shared trampoline in `dtype_streamed.c` aborts loud if called. See
--- the matching block in Device/Tape.idr for the rationale.
+-- the matching block in Executor/Tape.idr for the rationale.
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-param-1d-normal-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-param-1d-normal-streamed-mlx (foreign-procedure \"tensor_create_param_1d_normal_streamed_mlx\" (int double double int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-param-1d-normal-streamed-mlx) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 prim__createParam1dNormalStreamedMlx : Int -> Double -> Double -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-param-2d-normal-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-param-2d-normal-streamed-mlx (foreign-procedure \"tensor_create_param_2d_normal_streamed_mlx\" (int int double double int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-param-2d-normal-streamed-mlx) a0 a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
@@ -573,7 +573,7 @@ prim__createParam4dConstStreamedMlx : Int -> Int -> Int -> Int -> Double -> Int 
 prim__setInitSeedStreamedMlx : Bits64 -> Int -> PrimIO ()
 
 public export
-{s : MlxStream} -> UserDeviceTraining (MlxDev s) where
+{s : MlxStream} -> UserExecutorTraining (MlxExecutor s) where
   primCreateScalarStreamed        = prim__createScalarStreamedMlx
   primCreateStreamed              = prim__createStreamedMlx
   primCreate1dStreamed            = prim__create1dStreamedMlx
@@ -644,7 +644,7 @@ public export
 ----------------------------------------------------------------------
 -- Compatible (device, dtype) instances
 --
--- `MlxCpu` (`MlxDev MCpu`) supports F32, F64, BF16, and F16. mlx's
+-- `MlxCpu` (`MlxExecutor MCpu`) supports F32, F64, BF16, and F16. mlx's
 -- CPU stream has fp64 kernel coverage (see mlx/backend/cpu/{unary,
 -- binary}.h `case float64` branches); bfloat16 + float16 storage
 -- work under `mx::bfloat16` and `mx::float16` (mlx ships scalar
@@ -671,8 +671,8 @@ public export
 -- performance vs F32 on Apple Silicon; tracked in the reframed
 -- TODO row "Audit mlx fused-op + constant pool dtype handling".
 --
--- `MlxGpu` (`MlxDev MGpu`) supports F32, BF16, and F16. Metal GPUs
--- dropped float64 support in mlx 0.31 (`Compatible (MlxDev MGpu) F64`
+-- `MlxGpu` (`MlxExecutor MGpu`) supports F32, BF16, and F16. Metal GPUs
+-- dropped float64 support in mlx 0.31 (`Compatible (MlxExecutor MGpu) F64`
 -- stays deliberately missing — the PyTorch runtime "Float64 not
 -- supported on Metal" error lifted to compile time), but M3+ has
 -- hardware bfloat16 + float16 in Metal so the BF16 and F16 instances
@@ -680,25 +680,25 @@ public export
 ----------------------------------------------------------------------
 
 public export
-Compatible (MlxDev MCpu) F64 where
+Compatible (MlxExecutor MCpu) F64 where
 
 public export
-Compatible (MlxDev MCpu) F32 where
+Compatible (MlxExecutor MCpu) F32 where
 
 public export
-Compatible (MlxDev MCpu) BF16 where
+Compatible (MlxExecutor MCpu) BF16 where
 
 public export
-Compatible (MlxDev MCpu) F16 where
+Compatible (MlxExecutor MCpu) F16 where
 
 public export
-Compatible (MlxDev MGpu) F32 where
+Compatible (MlxExecutor MGpu) F32 where
 
 public export
-Compatible (MlxDev MGpu) BF16 where
+Compatible (MlxExecutor MGpu) BF16 where
 
 public export
-Compatible (MlxDev MGpu) F16 where
+Compatible (MlxExecutor MGpu) F16 where
 
 -- I32 instances: bulk creation, cast, and readback all wired through
 -- `backend_mlx/training/dtype_dispatch.cpp` (dtag=10) and the
@@ -706,11 +706,11 @@ Compatible (MlxDev MGpu) F16 where
 -- helpers. randn-init for I32 params is deliberately not wired
 -- (semantically meaningless); construct I32 tensors via the bulk path.
 public export
-Compatible (MlxDev MCpu) I32 where
+Compatible (MlxExecutor MCpu) I32 where
 public export
-Compatible (MlxDev MGpu) I32 where
+Compatible (MlxExecutor MGpu) I32 where
 
--- DELIBERATELY NO `Compatible (MlxDev MGpu) F64` instance — Metal
+-- DELIBERATELY NO `Compatible (MlxExecutor MGpu) F64` instance — Metal
 -- has no fp64. (Other Int* + bool stay unwired on both streams.)
 
 -- Sub-byte quantization dtypes (#411 BitNet b1.58). CPU stream only —
@@ -718,34 +718,34 @@ Compatible (MlxDev MGpu) I32 where
 -- B3. The CPU instance is enough to validate the typeclass surface +
 -- exercise pack/unpack via the shared C helpers.
 public export
-Compatible (MlxDev MCpu) Ternary where
+Compatible (MlxExecutor MCpu) Ternary where
 public export
-Compatible (MlxDev MGpu) Ternary where
+Compatible (MlxExecutor MGpu) Ternary where
 public export
-Compatible (MlxDev MCpu) Binary where
+Compatible (MlxExecutor MCpu) Binary where
 public export
-Compatible (MlxDev MGpu) Binary where
+Compatible (MlxExecutor MGpu) Binary where
 
 
 ----------------------------------------------------------------------
--- UserDeviceTransfer instance (cross-backend transfer surface)
+-- UserExecutorTransfer instance (cross-backend transfer surface)
 --
 -- mlx routes the intra-backend hardware migration through its
 -- stream-switch mechanism rather than libtorch-style `.to()`; the
 -- existing `tensor_to_device_mlx` C symbol no-ops because mlx's
 -- arrays are device-agnostic at the metadata level (the stream tag
 -- is what drives where compute runs). The runtime stream is picked
--- by `deviceStreamTag` on the `UserDeviceCore (MlxDev s)` instance,
--- so an intra-backend `toDevice` (MCpu→MGpu) actually has to land
+-- by `deviceStreamTag` on the `UserExecutorCore (MlxExecutor s)` instance,
+-- so an intra-backend `toExecutor` (MCpu→MGpu) actually has to land
 -- back through host memory for stream-switch to be observable; we
 -- preserve the parametric implementation here for shape parity
--- with TapeDev / TorchDev.
+-- with TapeExecutor / TorchExecutor.
 ----------------------------------------------------------------------
 
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-mlx)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-mlx (foreign-procedure \"tensor_to_doubles_mlx\" (void* void*) void))) ((top-level-value 'idris-ffi-tensor-to-doubles-mlx) (vector-ref a0 2) a1))"
 prim__toHostMlx : AnyPtr -> AnyPtr -> AnyPtr
 
--- Host buffer helpers — unified across backends, see Device/Tape.idr.
+-- Host buffer helpers — unified across backends, see Executor/Tape.idr.
 %foreign "C:tensor_alloc_doubles,libidrisml"
 prim__allocHostMlx : Int -> AnyPtr
 
@@ -768,7 +768,7 @@ prim__createFromHostMlx : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 prim__intraMigrateMlx : AnyPtr -> String -> AnyPtr
 
 public export
-{s : MlxStream} -> UserDeviceTransfer (MlxDev s) where
+{s : MlxStream} -> UserExecutorTransfer (MlxExecutor s) where
   backendTag         = "mlx"
   primToHost         = prim__toHostMlx
   primAllocHost      = prim__allocHostMlx
@@ -781,7 +781,7 @@ public export
 
 
 ----------------------------------------------------------------------
--- UserDeviceQuant instance (#411 BitNet b1.58)
+-- UserExecutorQuant instance (#411 BitNet b1.58)
 ----------------------------------------------------------------------
 --
 -- Mlx unpacks the 2-bit codes to int8 at construction (storage is
@@ -811,7 +811,7 @@ prim__createTernaryFromHfPacked2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> An
 prim__bitlinearFwdHfQuantMlxStreamed : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> AnyPtr -> Double -> Int -> AnyPtr
 
 public export
-{s : MlxStream} -> UserDeviceQuant (MlxDev s) where
+{s : MlxStream} -> UserExecutorQuant (MlxExecutor s) where
   primCreateTernaryPacked2d bytes bc o i rg =
     prim__createTernaryPacked2dMlxStreamed bytes bc o i rg (streamTag s)
   primBitlinearFwd w sc x b =
@@ -831,7 +831,7 @@ public export
 ----------------------------------------------------------------------
 
 public export
-{s : MlxStream} -> HardwareClassed (MlxDev s) where
+{s : MlxStream} -> HardwareClassed (MlxExecutor s) where
   hardwareClass = case s of
     MCpu => HostCpu
     MGpu => AppleGpu

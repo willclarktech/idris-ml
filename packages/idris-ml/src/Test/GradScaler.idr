@@ -3,7 +3,7 @@ module Test.GradScaler
 import Data.Vect
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 import GradScaler
 import Test.Config
@@ -22,25 +22,25 @@ import Test.Config
 -- Build a tiny scalar autograd chain: param w, forward = w * x,
 -- pre-scaled by the scaler. trainStepScaled drives backward + the
 -- state-machine advance.
-runOneStep : NativeOptimizer TestDevice -> GradScaler TestDevice TestDType ->
+runOneStep : NativeOptimizer TestExecutor -> GradScaler TestExecutor TestDType ->
              IO Double
 runOneStep opt gs = do
-  let wptr = primCreateScalar {d=TestDevice} 0.5 1
-  let wT = the (Tensor [] TestDevice TestDType WithGrad)
+  let wptr = primCreateScalar {d=TestExecutor} 0.5 1
+  let wT = the (Tensor [] TestExecutor TestDType WithGrad)
               (MkTensor wptr (Just "w_state_machine_test"))
-  _ <- pure $ primParamRegister {d=TestDevice} "w_state_machine_test" wptr
-  let xptr = primCreateScalar {d=TestDevice} 3.0 0
-  let xT = the (Tensor [] TestDevice TestDType WithGrad)
+  _ <- pure $ primParamRegister {d=TestExecutor} "w_state_machine_test" wptr
+  let xptr = primCreateScalar {d=TestExecutor} 3.0 0
+  let xT = the (Tensor [] TestExecutor TestDType WithGrad)
               (MkTensor xptr Nothing)
-  loss <- pure $ MkTensor (primMul {d=TestDevice} wT.tensorPtr xT.tensorPtr) Nothing
-  scaled <- applyScale gs (the (Tensor [] TestDevice TestDType WithGrad) loss)
+  loss <- pure $ MkTensor (primMul {d=TestExecutor} wT.tensorPtr xT.tensorPtr) Nothing
+  scaled <- applyScale gs (the (Tensor [] TestExecutor TestDType WithGrad) loss)
   trainStepScaled opt gs scaled
 
 
 -- (a) Initial scale matches what `gradScaler` was constructed with.
 initialScaleIsExact : IO Bool
 initialScaleIsExact = do
-  gs <- gradScaler {d=TestDevice} {dt=TestDType} 100.0 2.0 0.5 5
+  gs <- gradScaler {d=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 5
   s <- currentScale gs
   check ("initial scale is 100.0 (got " ++ show s ++ ")") (s == 100.0)
 
@@ -49,8 +49,8 @@ initialScaleIsExact = do
 -- grown by growthFactor=2 to 200.
 scaleGrowsAfterOneSuccessfulStep : IO Bool
 scaleGrowsAfterOneSuccessfulStep = do
-  gs <- gradScaler {d=TestDevice} {dt=TestDType} 100.0 2.0 0.5 1
-  opt <- pure $ nativeSgd {d=TestDevice} 0.001
+  gs <- gradScaler {d=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 1
+  opt <- pure $ nativeSgd {d=TestExecutor} 0.001
   _ <- runOneStep opt gs
   s <- currentScale gs
   check ("scale grew 100 → 200 after one step (got " ++ show s ++ ")") (s == 200.0)
@@ -61,8 +61,8 @@ scaleGrowsAfterOneSuccessfulStep = do
 -- yet triggering growth).
 scaleStaysBeforeIntervalReached : IO Bool
 scaleStaysBeforeIntervalReached = do
-  gs <- gradScaler {d=TestDevice} {dt=TestDType} 100.0 2.0 0.5 5
-  opt <- pure $ nativeSgd {d=TestDevice} 0.001
+  gs <- gradScaler {d=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 5
+  opt <- pure $ nativeSgd {d=TestExecutor} 0.001
   _ <- runOneStep opt gs
   s <- currentScale gs
   check ("scale stays at 100 before growth interval (got " ++ show s ++ ")") (s == 100.0)

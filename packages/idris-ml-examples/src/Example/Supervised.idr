@@ -8,7 +8,7 @@ import Compat.Random
 
 import Backprop
 import DataPoint
-import Device
+import Executor
 import GradScaler
 import Layer.Core
 import Layer.Linear
@@ -65,11 +65,11 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 
 -- Argmax on a TVec (read three values via prim__item1d).
-evalPrediction : TVec 3 ExampleDevice ExampleDType WithGrad -> Nat
+evalPrediction : TVec 3 ExampleExecutor ExampleDType WithGrad -> Nat
 evalPrediction outV =
-  let v0 = primItem1d {d=ExampleDevice} outV.tensorPtr 0
-      v1 = primItem1d {d=ExampleDevice} outV.tensorPtr 1
-      v2 = primItem1d {d=ExampleDevice} outV.tensorPtr 2
+  let v0 = primItem1d {d=ExampleExecutor} outV.tensorPtr 0
+      v1 = primItem1d {d=ExampleExecutor} outV.tensorPtr 1
+      v2 = primItem1d {d=ExampleExecutor} outV.tensorPtr 2
   in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
 
 %default partial
@@ -83,11 +83,11 @@ showVecD (VArray [SArray a, SArray b]) = "[" ++ show a ++ ", " ++ show b ++ "]"
 
 -- Run the per-sample eval, return (printed lines, correct count).
 evalOneDefault :
-  Network 2 [] 3 ExampleDevice ExampleDType WithGrad ->
+  Network 2 [] 3 ExampleExecutor ExampleDType WithGrad ->
   (Nat, DataPoint 2 3 Double) -> IO Nat
 evalOneDefault trained (_, dp) = do
-  let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
-                (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
+  let inV = the (TVec 2 ExampleExecutor ExampleDType WithGrad)
+                (MkTensor (vectorToTensorPersistent {d=ExampleExecutor} {dt=ExampleDType} (x dp)) Nothing)
   (_, predV) <- forwardVar trained inV
   let predClass = evalPrediction predV
       targetClass = evalPredictionTarget (y dp)
@@ -98,14 +98,14 @@ evalOneDefault trained (_, dp) = do
 
 -- Default-precision path: builds a `Network`, trains via `epochVar`,
 -- evals via `forwardVar`.
-runDefault : Config -> NativeOptimizer ExampleDevice -> IO ()
+runDefault : Config -> NativeOptimizer ExampleExecutor -> IO ()
 runDefault cfg opt = do
   llAny <- linearLayerAny {i = 2} {o = 3} "ll"
-  let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
+  let model : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad
       model = OutputLayer llAny
   putStrLn ""
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
     (\m, d => epochVar opt d tnllLoss m)
     (pure dataPoints)
     (simpleConfig cfg.epochs)
@@ -133,12 +133,12 @@ runDefault cfg opt = do
 evalOneMixed :
   {0 pDt : DType} ->
   RuntimeDType pDt => IsDType pDt =>
-  Compatible ExampleDevice pDt =>
-  NetworkMixed 2 [] 3 ExampleDevice pDt ExampleDType WithGrad ->
+  Compatible ExampleExecutor pDt =>
+  NetworkMixed 2 [] 3 ExampleExecutor pDt ExampleDType WithGrad ->
   (Nat, DataPoint 2 3 Double) -> IO Nat
 evalOneMixed trained (_, dp) = do
-  let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
-                (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
+  let inV = the (TVec 2 ExampleExecutor ExampleDType WithGrad)
+                (MkTensor (vectorToTensorPersistent {d=ExampleExecutor} {dt=ExampleDType} (x dp)) Nothing)
   (_, predV) <- forwardVarMixed trained inV
   let predClass = evalPrediction predV
       targetClass = evalPredictionTarget (y dp)
@@ -155,20 +155,20 @@ evalOneMixed trained (_, dp) = do
 runMixedGeneric :
   {0 pDt : DType} ->
   RuntimeDType pDt => IsDType pDt =>
-  Compatible ExampleDevice pDt =>
-  Config -> NativeOptimizer ExampleDevice ->
-  IO (AnyLayerMixed 2 3 ExampleDevice pDt ExampleDType WithGrad) ->
+  Compatible ExampleExecutor pDt =>
+  Config -> NativeOptimizer ExampleExecutor ->
+  IO (AnyLayerMixed 2 3 ExampleExecutor pDt ExampleDType WithGrad) ->
   String ->
   IO ()
 runMixedGeneric cfg opt mkLayer modeLabel = do
   llAny <- mkLayer
-  let model : NetworkMixed 2 [] 3 ExampleDevice pDt ExampleDType WithGrad
+  let model : NetworkMixed 2 [] 3 ExampleExecutor pDt ExampleDType WithGrad
       model = OutputLayerMixed llAny
-  gs <- defaultGradScaler {d=ExampleDevice} {dt=ExampleDType}
+  gs <- defaultGradScaler {d=ExampleExecutor} {dt=ExampleDType}
   putStrLn modeLabel
   putStrLn ""
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
     (\m, d => epochVarMixed opt gs d tnllLoss m)
     (pure dataPoints)
     (simpleConfig cfg.epochs)
@@ -195,7 +195,7 @@ runMixedGeneric cfg opt mkLayer modeLabel = do
 -- F3 mixed mode (paramDt = computeDt = ExampleDType): the cast
 -- inside LinearMixed.applyVarMixed is structurally a no-op on
 -- builds where ExampleDType is the only dtype in play.
-runMixedNative : Config -> NativeOptimizer ExampleDevice -> IO ()
+runMixedNative : Config -> NativeOptimizer ExampleExecutor -> IO ()
 runMixedNative cfg opt =
   runMixedGeneric cfg opt
     (mixedLinearLayerAny {paramDt = ExampleDType} {computeDt = ExampleDType}
@@ -207,7 +207,7 @@ runMixedNative cfg opt =
 -- BF16 build this is the actual autocast-equivalent recipe — F32
 -- weights, BF16 forward/backward via the autograd-aware tcast,
 -- F32 grad accumulation, optimizer steps F32 directly.
-runMixedF32Master : Config -> NativeOptimizer ExampleDevice -> IO ()
+runMixedF32Master : Config -> NativeOptimizer ExampleExecutor -> IO ()
 runMixedF32Master cfg opt =
   runMixedGeneric cfg opt
     (mixedLinearLayerAny {paramDt = F32} {computeDt = ExampleDType}

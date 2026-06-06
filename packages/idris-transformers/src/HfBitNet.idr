@@ -62,7 +62,7 @@ import Data.Vect
 
 import Checkpoint
 import Compat.Random
-import Device
+import Executor
 import HfCommon
 import Init
 import Layer.RoPE
@@ -203,7 +203,7 @@ fillBytesZero buf off n =
 ||| the scalar out of `weightScaleT` and passes it as a `Double` to
 ||| `tBitlinearFwdHfQuant`.
 public export
-record BitLinearHf (i, o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record BitLinearHf (i, o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitLinearHf
   weightT      : Tensor [o, i] d Ternary NoGrad
   weightScaleT : Tensor [1] d dt NoGrad
@@ -221,7 +221,7 @@ record BitLinearHf (i, o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) w
 -- machinery assumes float-dtype storage. `weightName` is unused here
 -- but kept in the signature so callers thread the HF param name and
 -- the loader follow-up can pick it up without re-plumbing call sites.
-makeBitLinearHf : UserDeviceTraining d => UserDeviceQuant d
+makeBitLinearHf : UserExecutorTraining d => UserExecutorQuant d
                => RuntimeDType dt => Linked d => Compatible d dt
                => {i, o : Nat}
                -> (weightName : String)
@@ -262,11 +262,11 @@ makeBitLinearHf weightName weightScaleName = do
 ||| RmsNorms per block (input_layernorm, post_attention_layernorm,
 ||| attn_sub_norm, ffn_sub_norm) plus the top-level `model.norm`.
 public export
-record BitNetRmsNorm (n : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record BitNetRmsNorm (n : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetRmsNorm
   weight : Tensor [n] d dt g
 
-makeBitNetRmsNorm : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBitNetRmsNorm : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
                  => {n : Nat}
                  -> (paramFullName : String)
                  -> IO (BitNetRmsNorm n d dt WithGrad)
@@ -280,11 +280,11 @@ makeBitNetRmsNorm paramFullName = do
 ||| LM-head projection in `hfBitnetForwardLm`
 ||| (`tie_word_embeddings=True` — no separate `lm_head.weight`).
 public export
-record BitNetEmbedding (vocab, hidden : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record BitNetEmbedding (vocab, hidden : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetEmbedding
   weight : Tensor [vocab, hidden] d dt g
 
-makeBitNetEmbedding : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBitNetEmbedding : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
                    => {vocab, hidden : Nat}
                    -> (paramFullName : String)
                    -> IO (BitNetEmbedding vocab hidden d dt WithGrad)
@@ -309,7 +309,7 @@ makeBitNetEmbedding paramFullName = do
 public export
 record BitNetAttentionState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetAttention
   qProj       : BitLinearHf hidden qOut  d dt g
   kProj       : BitLinearHf hidden kvOut d dt g
@@ -335,7 +335,7 @@ record BitNetAttentionState
 public export
 record BitNetMlpState
         (hidden : Nat) (intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetMlp
   gateProj   : BitLinearHf hidden intermediate d dt g
   upProj     : BitLinearHf hidden intermediate d dt g
@@ -348,7 +348,7 @@ record BitNetMlpState
 public export
 record BitNetBlockState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetBlock
   inputNorm    : BitNetRmsNorm hidden d dt g
   attn         : BitNetAttentionState hidden qOut kvOut d dt g
@@ -362,7 +362,7 @@ public export
 record BitNetModelState
         (vocab : Nat) (hidden : Nat) (numLayers : Nat)
         (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetModel
   embedTokens : BitNetEmbedding vocab hidden d dt g
   blocks      : Vect numLayers (BitNetBlockState hidden qOut kvOut intermediate d dt g)
@@ -375,7 +375,7 @@ record BitNetModelState
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserDeviceTraining d => UserDeviceQuant d
+makeAttention : UserExecutorTraining d => UserExecutorQuant d
              => RuntimeDType dt => Linked d => Compatible d dt
              => {hidden, qOut, kvOut : Nat}
              -> (layerPfx : String)
@@ -397,7 +397,7 @@ makeAttention layerPfx = do
           (layerPfx ++ ".self_attn.o_proj.weight_scale")
   pure (MkBitNetAttention q k v sn o)
 
-makeMlp : UserDeviceTraining d => UserDeviceQuant d
+makeMlp : UserExecutorTraining d => UserExecutorQuant d
        => RuntimeDType dt => Linked d => Compatible d dt
        => {hidden, intermediate : Nat}
        -> (layerPfx : String)
@@ -416,7 +416,7 @@ makeMlp layerPfx = do
           (layerPfx ++ ".mlp.down_proj.weight_scale")
   pure (MkBitNetMlp g u fn dn)
 
-makeBlock : UserDeviceTraining d => UserDeviceQuant d
+makeBlock : UserExecutorTraining d => UserExecutorQuant d
          => RuntimeDType dt => Linked d => Compatible d dt
          => {hidden, qOut, kvOut, intermediate : Nat}
          -> (layerPfx : String)
@@ -428,7 +428,7 @@ makeBlock layerPfx = do
   mp  <- makeMlp {hidden} {intermediate} layerPfx
   pure (MkBitNetBlock ln1 at ln2 mp)
 
-makeBlocks : UserDeviceTraining d => UserDeviceQuant d
+makeBlocks : UserExecutorTraining d => UserExecutorQuant d
           => RuntimeDType dt => Linked d => Compatible d dt
           => {hidden, qOut, kvOut, intermediate : Nat}
           -> (modelPfx : String) -> (n : Nat) -> (offset : Nat)
@@ -461,7 +461,7 @@ makeBlocks pfx (S k) offset = do
 ||| the standard
 ||| safetensors path.
 public export
-hfBitnetModel : UserDeviceTraining d => UserDeviceQuant d
+hfBitnetModel : UserExecutorTraining d => UserExecutorQuant d
              => RuntimeDType dt => Linked d => Compatible d dt
              => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
              -> (modelPrefix : String)
@@ -494,7 +494,7 @@ bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
 ||| / `primMul` / `primSum` / scale) lives in `HfCommon.idr` and is
 ||| shared with HfLlama.
 export
-applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+applyRmsNorm2d : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
                  BitNetRmsNorm hidden d dt g ->
@@ -525,8 +525,8 @@ applyRmsNorm2d eps (MkBitNetRmsNorm weight) input =
 ||| AnyPtr / Int / Double args so the body doesn't close over the
 ||| constraint-heavy `BitLinearHf i o d dt g` record type.
 private
-bitlinearHfProcessRow : {0 d : Device} -> UserDeviceLinear d
-                     => UserDeviceQuant d =>
+bitlinearHfProcessRow : {0 d : Executor} -> UserExecutorLinear d
+                     => UserExecutorQuant d =>
                      (weightTPtr : AnyPtr) -> (scaleVal : Double) ->
                      (biasTPtr : AnyPtr) -> (rmsTPtr : AnyPtr) ->
                      (xPtr : AnyPtr) -> (iI : Int) -> (oI : Int) ->
@@ -541,8 +541,8 @@ bitlinearHfProcessRow weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI r =
 ||| Row-folding helper for `applyBitLinearHf2d`. Lifted to top-level
 ||| (see `bitlinearHfProcessRow`).
 private
-bitlinearHfFoldRows : {0 d : Device} -> UserDeviceLinear d
-                   => UserDeviceQuant d =>
+bitlinearHfFoldRows : {0 d : Executor} -> UserExecutorLinear d
+                   => UserExecutorQuant d =>
                    (weightTPtr : AnyPtr) -> (scaleVal : Double) ->
                    (biasTPtr : AnyPtr) -> (rmsTPtr : AnyPtr) ->
                    (xPtr : AnyPtr) -> (iI : Int) -> (oI : Int) ->
@@ -554,8 +554,8 @@ bitlinearHfFoldRows weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI seqLenI r ac
            (primCat2 {d} acc
              (bitlinearHfProcessRow {d} weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI r))
 
-applyBitLinearHf2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-                  => UserDeviceQuant d => RuntimeDType dt
+applyBitLinearHf2d : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
+                  => UserExecutorQuant d => RuntimeDType dt
                   => Linked d => Compatible d dt
                   => {seqLen, i, o : Nat} ->
                   BitLinearHf i o d dt g ->
@@ -593,7 +593,7 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`.
 ||| Same pattern as HfLlama's `applyEmbedLookup`.
 export
-applyEmbedLookup : {0 d : Device} -> UserDeviceTraining d =>
+applyEmbedLookup : {0 d : Executor} -> UserExecutorTraining d =>
                    {seqLen, vocab, hidden : Nat} ->
                    BitNetEmbedding vocab hidden d dt g ->
                    Tensor [seqLen] d dt g ->
@@ -607,7 +607,7 @@ applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
 
 -- All-heads RoPE helper — same shape as HfLlama's `ropeAllHeadsFlat`.
 ropeAllHeadsFlat :
-     {0 d : Device} -> UserDeviceTraining d =>
+     {0 d : Executor} -> UserExecutorTraining d =>
      {seq, numH, headDim, maxPos : Nat} ->
      RoPETables maxPos headDim d dt g ->
      (full : AnyPtr) ->
@@ -624,8 +624,8 @@ ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = do
 ||| Full multi-head causal self-attention with GQA + RoPE +
 ||| BitNet-specific `attn_sub_norm` between context aggregation and
 ||| `o_proj`.
-applyAttention : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-              => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyAttention : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
+              => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
               => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
               (eps : Double) ->
               BitNetAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g ->
@@ -660,7 +660,7 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
 
 -- BitNet's hidden_act is `relu2` — squared ReLU (`relu(x) ** 2`).
 -- Composes from existing primitives. Element-wise.
-applyRelu2 : {0 d : Device} -> UserDeviceCore d =>
+applyRelu2 : {0 d : Executor} -> UserExecutorCore d =>
              {seqLen, n : Nat} ->
              Tensor [seqLen, n] d dt g ->
              IO (Tensor [seqLen, n] d dt g)
@@ -673,8 +673,8 @@ applyRelu2 x = do
 ||| down BitLinear. Mirrors HF `BitNetMLP.forward`:
 |||
 |||   y = down_proj(ffn_sub_norm(act_fn(gate_proj(x)) * up_proj(x)))
-applyMlp : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-        => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyMlp : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
+        => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
         => {seqLen, hidden, intermediate : Nat} ->
         (eps : Double) ->
         BitNetMlpState hidden intermediate d dt g ->
@@ -693,8 +693,8 @@ applyMlp {seqLen} {intermediate} eps mlp x = do
 ||| One BitNet decoder block: pre-norm + attn (with attn_sub_norm) +
 ||| residual; pre-norm + MLP (with ffn_sub_norm) + residual.
 export
-applyBlock : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-          => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyBlock : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
+          => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
           -> (eps : Double)
           -> BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
@@ -712,8 +712,8 @@ applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} {intermediate}
   tadd xMid mOut
 
 
-applyBlocks : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-           => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyBlocks : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
+           => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
            -> (eps : Double)
            -> Vect n (BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
@@ -731,8 +731,8 @@ applyBlocks eps (b :: bs) tables x = do
 ||| tensor (NOT tied to `embed_tokens.weight`), applied via
 ||| `hfBitnetForwardLm`.
 public export
-hfBitnetForward : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-              => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+hfBitnetForward : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
+              => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
               => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
               -> (eps : Double)
               -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
@@ -750,8 +750,8 @@ hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model table
 ||| Output `[seq, vocab]` logits per position. Bias-free, so we feed
 ||| a zero placeholder bias the same way HfLlama does.
 public export
-hfBitnetForwardLm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-                => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+hfBitnetForwardLm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
+                => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
                 => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
                 -> (eps : Double)
                 -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
@@ -799,7 +799,7 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
 ||| `tCreateTernaryFromHfPacked2d` to get a `Tensor [o, i] d Ternary
 ||| NoGrad`. Returns `Nothing` if the file/key is missing or the byte
 ||| count doesn't match — the caller keeps the placeholder weight.
-loadHfTernaryWeight : {0 d : Device} -> UserDeviceQuant d => Linked d
+loadHfTernaryWeight : {0 d : Executor} -> UserExecutorQuant d => Linked d
                    => {o, i : Nat}
                    -> (path : String) -> (key : String)
                    -> IO (Maybe (Tensor [o, i] d Ternary NoGrad))
@@ -819,7 +819,7 @@ loadHfTernaryWeight path key = do
       pure (Just w)
 
 
-loadBitLinearTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+loadBitLinearTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
                     => {i, o : Nat}
                     -> (path : String) -> (key : String)
                     -> BitLinearHf i o d dt g
@@ -831,7 +831,7 @@ loadBitLinearTernary path key bl = do
     Just w  => pure (MkBitLinearHf w bl.weightScaleT, True)
 
 
-loadAttentionTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+loadAttentionTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
                     => {hidden, qOut, kvOut : Nat}
                     -> (path : String) -> (layerPfx : String)
                     -> BitNetAttentionState hidden qOut kvOut d dt g
@@ -846,7 +846,7 @@ loadAttentionTernary path lp (MkBitNetAttention q k v sn o) = do
   pure (MkBitNetAttention q' k' v' sn o', ok)
 
 
-loadMlpTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+loadMlpTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
               => {hidden, intermediate : Nat}
               -> (path : String) -> (layerPfx : String)
               -> BitNetMlpState hidden intermediate d dt g
@@ -859,7 +859,7 @@ loadMlpTernary path lp (MkBitNetMlp g u fn dn) = do
   pure (MkBitNetMlp g' u' fn dn', ok)
 
 
-loadBlockTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+loadBlockTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
                 => {hidden, qOut, kvOut, intermediate : Nat}
                 -> (path : String) -> (modelPfx : String) -> (idx : Nat)
                 -> BitNetBlockState hidden qOut kvOut intermediate d dt g
@@ -871,7 +871,7 @@ loadBlockTernary path pfx idx (MkBitNetBlock ln1 at ln2 mp) = do
   pure (MkBitNetBlock ln1 at' ln2 mp', nA + nM)
 
 
-loadBlocksTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+loadBlocksTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
                  => {hidden, qOut, kvOut, intermediate : Nat}
                  -> (path : String) -> (modelPfx : String)
                  -> (offset : Nat)
@@ -900,7 +900,7 @@ loadBlocksTernary path pfx offset (b :: bs) = do
 ||| just check `ternaryLoaded == ternaryExpected && floatLoadOk`.
 public export
 loadHfBitnetCheckpoint :
-  {0 d : Device} -> UserDeviceTraining d => UserDeviceQuant d
+  {0 d : Executor} -> UserExecutorTraining d => UserExecutorQuant d
   => RuntimeDType dt => Linked d => Compatible d dt
   => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
   -> (modelPrefix : String)

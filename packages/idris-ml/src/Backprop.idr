@@ -4,7 +4,7 @@ import Data.List
 import Data.Vect
 
 import DataPoint
-import Device
+import Executor
 import Layer.Core
 import Layer.MixedCore
 import Array
@@ -25,7 +25,7 @@ import Tensor
 -- runner from `Train.idr` works unchanged.
 
 public export
-0 LossFn : (0 _ : Device) -> (0 _ : DType) -> Nat -> Type
+0 LossFn : (0 _ : Executor) -> (0 _ : DType) -> Nat -> Type
 LossFn d dt n = TVec n d dt WithGrad -> TVec n d dt WithGrad -> IO (Tensor [] d dt WithGrad)
 
 
@@ -40,7 +40,7 @@ packDoublesIntoBuf buf off (x :: rest) =
   packDoublesIntoBuf (prim__setDouble buf off x) (off + 1) rest
 
 -- Non-persistent input/target tensor from Vector n Double.
-bulkToPersistent : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> Vector n Double -> AnyPtr
+bulkToPersistent : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -54,24 +54,24 @@ bulkToPersistent {n} (VArray elems) =
 
 -- Scalar Tensor holding 0.0. IO so its FFI side effect happens at
 -- sequence-time rather than at call-time.
-freshZeroLossT : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => Double -> IO (Tensor [] d dt WithGrad)
+freshZeroLossT : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => Double -> IO (Tensor [] d dt WithGrad)
 freshZeroLossT seed = ioRerun (\_ => MkTensor (dtCreateScalar {d} {t=dt} seed 0 (deviceStreamTag {d})) Nothing)
 
 -- Add two scalar TVars. Dispatches via `primAdd {d}` so the
 -- type-level device tag drives MLX stream selection.
-taddScalar : {0 d : Device} -> UserDeviceCore d =>
+taddScalar : {0 d : Executor} -> UserExecutorCore d =>
              Tensor [] d dt WithGrad -> Tensor [] d dt WithGrad -> IO (Tensor [] d dt WithGrad)
 taddScalar a b = ioRerun (\_ => MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing)
 
 -- Scale a scalar Tensor by a Double.
-scaleLoss : {0 d : Device} -> UserDeviceCore d =>
+scaleLoss : {0 d : Executor} -> UserExecutorCore d =>
             Tensor [] d dt WithGrad -> Double -> IO (Tensor [] d dt WithGrad)
 scaleLoss v s = ioRerun (\_ => MkTensor (primMulScalar {d} v.tensorPtr s) Nothing)
 
 -- Sum a list of scalar tensors starting from a fresh zero. Replaces
 -- the old `foldl taddScalar (freshZeroLossT 0.0) losses` pattern under
 -- the IO-typed surface.
-sumLosses : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+sumLosses : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
             List (Tensor [] d dt WithGrad) -> IO (Tensor [] d dt WithGrad)
 sumLosses losses = do
   zero <- freshZeroLossT 0.0
@@ -94,7 +94,7 @@ sumLosses losses = do
 
 -- Per-point loss closure factored out to avoid let-block elaboration
 -- weirdness in epochVar's body.
-perPointLoss : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+perPointLoss : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
                LossFn d dt o ->
                Network i hs o d dt WithGrad ->
                DataPoint i o Double ->
@@ -111,7 +111,7 @@ perPointLoss lossFn model dp = do
 ||| sample losses, mean-reduce, native train step. Returns the
 ||| (unchanged) network and the loss scalar.
 export
-epochVar : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVar : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer d ->
             Vect n (DataPoint i o Double) ->
             LossFn d dt o ->
@@ -135,8 +135,8 @@ epochVar opt dataPoints lossFn model = do
 -- forwardVarMixed call. The paramDt slot on the network is unused
 -- at the forward boundary — params get cast paramDt → cDt inside
 -- the layer's `applyVarMixed`.
-perPointLossMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                    UserDeviceQuant d =>
+perPointLossMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                    UserExecutorQuant d =>
                     IsDType pDt => IsDType cDt =>
                     RuntimeDType pDt => RuntimeDType cDt =>
                     Linked d => Compatible d pDt => Compatible d cDt =>
@@ -165,8 +165,8 @@ perPointLossMixed lossFn model dp = do
 ||| the step was skipped due to overflow — callers should treat NaN
 ||| epoch losses as "skip" rather than "diverged").
 export
-epochVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                UserDeviceQuant d =>
+epochVarMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                UserExecutorQuant d =>
                 IsDType pDt => IsDType cDt =>
                 RuntimeDType pDt => RuntimeDType cDt =>
                 Linked d => Compatible d pDt => Compatible d cDt =>
@@ -188,7 +188,7 @@ epochVarMixed opt gs dataPoints lossFn model = do
 
 
 -- Per-point loss for already-tensor-pre-built inputs (TensorDataPoint).
-perPointLossTensor : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+perPointLossTensor : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d dt o ->
                      Network i hs o d dt WithGrad ->
                      TensorDataPoint i o ->
@@ -201,7 +201,7 @@ perPointLossTensor lossFn model dp = do
 
 ||| Supervised epoch over already-tensor-pre-built data points.
 export
-epochVarTensor : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensor : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                   NativeOptimizer d ->
                   Vect n (TensorDataPoint i o) ->
                   LossFn d dt o ->
@@ -218,13 +218,13 @@ epochVarTensor opt dataPoints lossFn model = do
 -- Concatenate a vector of per-sample [k] tensors into a single [n, k].
 -- Routes through `primCat2 {d}` so the MLX stream tag follows the
 -- type-level device.
-catAllTensors : {0 d : Device} -> UserDeviceLinear d => List AnyPtr -> AnyPtr
+catAllTensors : {0 d : Executor} -> UserExecutorLinear d => List AnyPtr -> AnyPtr
 catAllTensors [] = idris_crash "catAllTensors: empty list"
 catAllTensors [x] = x
 catAllTensors (x :: y :: rest) = catAllTensors {d} (primCat2 {d} x y :: rest)
 
 -- Per-sample loss for batched-forward shape.
-perRowLoss : {0 d : Device} -> UserDeviceTraining d => {n, o : Nat} ->
+perRowLoss : {0 d : Executor} -> UserExecutorTraining d => {n, o : Nat} ->
              LossFn d dt o ->
              Tensor [n, o] d dt WithGrad ->
              Tensor [n, o] d dt WithGrad ->
@@ -237,7 +237,7 @@ perRowLoss lossFn predB tgtB k = do
 
 ||| Batched supervised epoch over `TensorDataPoint`s.
 export
-epochVarTensorBatch : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensorBatch : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer d ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn d dt o ->
@@ -280,8 +280,8 @@ epochVarTensorBatch opt dataPoints lossFn model = do
 -- network is `NetworkMixed pDt cDt` and the forward goes through
 -- `forwardVarMixed`.
 perPointLossTensorMixed :
-  {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-  UserDeviceQuant d =>
+  {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+  UserExecutorQuant d =>
   IsDType pDt => IsDType cDt =>
   RuntimeDType pDt => RuntimeDType cDt =>
   Linked d => Compatible d pDt => Compatible d cDt =>
@@ -300,8 +300,8 @@ perPointLossTensorMixed lossFn model dp = do
 ||| data points (parallel to `epochVarTensor`).
 export
 epochVarTensorMixed :
-  {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-  UserDeviceQuant d =>
+  {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+  UserExecutorQuant d =>
   IsDType pDt => IsDType cDt =>
   RuntimeDType pDt => RuntimeDType cDt =>
   Linked d => Compatible d pDt => Compatible d cDt =>
@@ -327,8 +327,8 @@ epochVarTensorMixed opt gs dataPoints lossFn model = do
 ||| accumulation matches `epochVarTensorBatch`'s shape.
 export
 epochVarTensorBatchMixed :
-  {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-  UserDeviceQuant d =>
+  {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+  UserExecutorQuant d =>
   IsDType pDt => IsDType cDt =>
   RuntimeDType pDt => RuntimeDType cDt =>
   Linked d => Compatible d pDt => Compatible d cDt =>
@@ -375,7 +375,7 @@ epochVarTensorBatchMixed opt gs dataPoints lossFn model = do
 
 -- One step of a sequence: forward, compute loss against target,
 -- accumulate.
-recurStep : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+recurStep : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
             LossFn d dt o ->
             (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
             (Vector i Double, Vector o Double) ->
@@ -389,7 +389,7 @@ recurStep lossFn (net, accLoss) (xVec, yVec) = do
   pure (net', newAcc)
 
 -- Per-sequence loss: reset state, walk timesteps, mean-reduce.
-perSeqLoss : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLoss : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d dt o ->
              Network i hs o d dt WithGrad ->
              RecurrentDataPoint i o Double ->
@@ -417,7 +417,7 @@ perSeqLoss lossFn model dp = do
 
 ||| One recurrent epoch.
 export
-epochRecurrentVar : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochRecurrentVar : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer d ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn d dt o ->
@@ -435,7 +435,7 @@ epochRecurrentVar opt dataPoints lossFn model = do
 -- Two-phase epoch (NTM/DNC pattern: encode then decode)
 ----------------------------------------------------------------------
 
-decodeStep : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+decodeStep : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d dt o ->
              AnyPtr ->
              (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
@@ -449,7 +449,7 @@ decodeStep lossFn zeroInPtr (net, accLoss) tgtVec = do
   newAcc <- taddScalar accLoss stepL
   pure (net', newAcc)
 
-encodeStep : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+encodeStep : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
              Network i hs o d dt WithGrad ->
              Vector i Double ->
              IO (Network i hs o d dt WithGrad)
@@ -458,7 +458,7 @@ encodeStep net xVec = do
   (net', _) <- forwardVar net inV
   pure net'
 
-perSeqLossTwoPhase : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLossTwoPhase : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d dt o ->
                      Network i hs o d dt WithGrad ->
                      TwoPhaseDataPoint i o Double ->
@@ -497,7 +497,7 @@ perSeqLossTwoPhase lossFn model dp = do
 
 ||| One two-phase epoch.
 export
-epochTwoPhaseVar : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochTwoPhaseVar : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer d ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn d dt o ->
@@ -516,7 +516,7 @@ epochTwoPhaseVar opt dataPoints lossFn model = do
 ----------------------------------------------------------------------
 
 export
-tvecToVector : {0 d : Device} -> UserDeviceCore d => {n : Nat} -> AnyPtr -> Vector n Double
+tvecToVector : {0 d : Executor} -> UserExecutorCore d => {n : Nat} -> AnyPtr -> Vector n Double
 tvecToVector {n} ptr = VArray (build 0 n)
   where
     build : Int -> (k : Nat) -> Vect k (Scalar Double)
@@ -524,7 +524,7 @@ tvecToVector {n} ptr = VArray (build 0 n)
     build off (S k) = SArray (primItem1d {d} ptr off) :: build (off + 1) k
 
 export
-forwardTwoPhase : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
+forwardTwoPhase : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> {hs : List Nat} ->
                       Network i hs o d dt WithGrad ->
                       TwoPhaseDataPoint i o Double ->
                       IO (Network i hs o d dt WithGrad, List (Vector o Double))

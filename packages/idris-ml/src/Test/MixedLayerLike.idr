@@ -3,7 +3,7 @@ module Test.MixedLayerLike
 import Data.Vect
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 import Array
 import Backprop
@@ -28,9 +28,9 @@ import Test.Config
 
 -- Build a [n] input tensor from a Vect of Doubles. Pattern lifted
 -- from Test.RmsNorm / Test.SwiGLU.
-mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestDevice TestDType WithGrad
+mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkInput xs =
-  let raw = bulkToTensor {d=TestDevice} {dt=TestDType}
+  let raw = bulkToTensor {d=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -42,9 +42,9 @@ mkInput xs =
 -- are covered by C-level cast_grad_propagation (A1).
 linearMixedForwardTypechecks : IO Bool
 linearMixedForwardTypechecks = do
-  lin <- mixedLinearLayerAny {d=TestDevice} {paramDt=TestDType} {computeDt=TestDType}
+  lin <- mixedLinearLayerAny {d=TestExecutor} {paramDt=TestDType} {computeDt=TestDType}
                              {i=4} {o=3} "lin_mixed_test"
-  let netM : NetworkMixed 4 [] 3 TestDevice TestDType TestDType WithGrad
+  let netM : NetworkMixed 4 [] 3 TestExecutor TestDType TestDType WithGrad
       netM = OutputLayerMixed lin
   let input = mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
   (_, _) <- forwardVarMixed netM input
@@ -57,9 +57,9 @@ linearMixedForwardTypechecks = do
 -- (matches the pattern in Test.GradMode.freezeUnfreezeRoundTrip).
 bridgeForwardTypechecks : IO Bool
 bridgeForwardTypechecks = do
-  let net : Network 4 [] 4 TestDevice TestDType WithGrad
-      net = OutputLayer (the (AnyLayer 4 4 TestDevice TestDType WithGrad) tanhLayerAny)
-  let netM : NetworkMixed 4 [] 4 TestDevice TestDType TestDType WithGrad
+  let net : Network 4 [] 4 TestExecutor TestDType WithGrad
+      net = OutputLayer (the (AnyLayer 4 4 TestExecutor TestDType WithGrad) tanhLayerAny)
+  let netM : NetworkMixed 4 [] 4 TestExecutor TestDType TestDType WithGrad
       netM = liftNetwork net
   let input = mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
   (_, _) <- forwardVarMixed netM input
@@ -72,12 +72,12 @@ bridgeForwardTypechecks = do
 -- `LayerLike` methods via the bridge.
 bridgeFreezeUnfreezeRoundTrip : IO Bool
 bridgeFreezeUnfreezeRoundTrip = do
-  let net : Network 4 [] 4 TestDevice TestDType WithGrad
-      net = OutputLayer (the (AnyLayer 4 4 TestDevice TestDType WithGrad) tanhLayerAny)
-  let netM : NetworkMixed 4 [] 4 TestDevice TestDType TestDType WithGrad
+  let net : Network 4 [] 4 TestExecutor TestDType WithGrad
+      net = OutputLayer (the (AnyLayer 4 4 TestExecutor TestDType WithGrad) tanhLayerAny)
+  let netM : NetworkMixed 4 [] 4 TestExecutor TestDType TestDType WithGrad
       netM = liftNetwork net
   frozen <- freezeNetworkMixed netM
-  -- frozen : NetworkMixed 4 [] 4 TestDevice TestDType TestDType NoGrad
+  -- frozen : NetworkMixed 4 [] 4 TestExecutor TestDType TestDType NoGrad
   -- — compile-checked
   _ <- unfreezeNetworkMixed frozen
   -- back to WithGrad — compile-checked
@@ -91,12 +91,12 @@ bridgeFreezeUnfreezeRoundTrip = do
 -- tcast, nativeTrainStepScaled, GradScaler) is exercised in series.
 epochVarMixedSmoke : IO Bool
 epochVarMixedSmoke = do
-  lin <- mixedLinearLayerAny {d=TestDevice} {paramDt=TestDType} {computeDt=TestDType}
+  lin <- mixedLinearLayerAny {d=TestExecutor} {paramDt=TestDType} {computeDt=TestDType}
                              {i=2} {o=1} "epoch_mixed_smoke"
-  let netM : NetworkMixed 2 [] 1 TestDevice TestDType TestDType WithGrad
+  let netM : NetworkMixed 2 [] 1 TestExecutor TestDType TestDType WithGrad
       netM = OutputLayerMixed lin
-  gs <- defaultGradScaler {d=TestDevice} {dt=TestDType}
-  opt <- pure $ nativeSgd {d=TestDevice} 0.01
+  gs <- defaultGradScaler {d=TestExecutor} {dt=TestDType}
+  opt <- pure $ nativeSgd {d=TestExecutor} 0.01
   let dataPoints : Vect 2 (DataPoint 2 1 Double)
       dataPoints =
         [ MkDataPoint (VArray [1.0, 0.0]) (VArray [1.0])

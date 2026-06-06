@@ -33,7 +33,7 @@ module KVCache
 
 import Data.Vect
 
-import Device
+import Executor
 import Tensor
 
 
@@ -49,7 +49,7 @@ import Tensor
 ||| (and so `appendKV` can compute the next-step `len + s` without
 ||| inspecting the new Tensor's implicit `s`).
 public export
-data KVCache : (kvOut : Nat) -> (0 d : Device) -> (0 dt : DType) -> Type where
+data KVCache : (kvOut : Nat) -> (0 d : Executor) -> (0 dt : DType) -> Type where
   ||| Seed state: no tokens cached. Constructed at the start of
   ||| generation (one per layer).
   Empty  : KVCache kvOut d dt
@@ -89,7 +89,7 @@ cacheLen (Filled len _ _) = len
 ||| before append). The cache stores the post-RoPE values; reading
 ||| them back during SDPA is the consumer's path.
 public export
-appendKV : {0 d : Device} -> UserDeviceTraining d =>
+appendKV : {0 d : Executor} -> UserExecutorTraining d =>
            {s, kvOut : Nat} ->
            KVCache kvOut d dt ->
            (newK : Tensor [s, kvOut] d dt NoGrad) ->

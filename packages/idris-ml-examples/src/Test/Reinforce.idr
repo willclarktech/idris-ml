@@ -9,7 +9,7 @@ import Test.Harness
 
 import BuildConfig
 import Example.Reinforce
-import Device
+import Executor
 import Gym.ClassicControl.CartPole
 import Layer.Activation
 import Layer.Core
@@ -27,7 +27,7 @@ testMaxSteps = 20
 ||| paths. Initialization reads from C-side RNG state, so we build it
 ||| ONCE per test and reuse the same Network for sequential and batched
 ||| rollouts.
-mkModel : IO (Network 4 [16, 16] 2 ExampleDevice ExampleDType WithGrad)
+mkModel : IO (Network 4 [16, 16] 2 ExampleExecutor ExampleDType WithGrad)
 mkModel = do
   srand 12345  -- deterministic init for parity reproducibility
   ll1 <- linearLayerAny {i=4} {o=16} "test_ll1"

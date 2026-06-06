@@ -65,7 +65,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Device
+import Executor
 import Example.Common.HfInferenceHelper
 import HfLlama
 import KVCache
@@ -141,11 +141,11 @@ hfWeightsPath = modelDir ++ "/model.safetensors"
 ||| next-token id (or Nothing on out-of-range argmax).
 genStepCached :
      LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                     ExampleDevice ExampleDType WithGrad
-  -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
-  -> Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType)
+                     ExampleExecutor ExampleDType WithGrad
+  -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
+  -> Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType)
   -> List (Fin VocabSize)
-  -> IO (Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType),
+  -> IO (Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType),
          Maybe (Fin VocabSize))
 genStepCached model tables caches toksList = do
   let idsList = map (cast {to=Double} . finToNat) toksList
@@ -153,7 +153,7 @@ genStepCached model tables caches toksList = do
     (curLen ** idDoubles) => do
       let inputIds = mkIds idDoubles
       (caches', logits) <- hfLlamaForwardLmStep
-                                 {d=ExampleDevice} {dt=ExampleDType}
+                                 {d=ExampleExecutor} {dt=ExampleDType}
                                  {seq          = curLen}
                                  {vocab        = VocabSize}
                                  {hidden       = Hidden}
@@ -191,26 +191,26 @@ genStepCached model tables caches toksList = do
 ||| if differential debugging is needed.
 genLoopCached :
      LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                     ExampleDevice ExampleDType WithGrad
-  -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+                     ExampleExecutor ExampleDType WithGrad
+  -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
   -> List (Fin VocabSize)   -- prompt
   -> (remaining : Nat)
   -> IO (List (Fin VocabSize))
 genLoopCached model tables prompt remaining =
-  let initialCaches : Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType)
+  let initialCaches : Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType)
       initialCaches = emptyKVCaches {numLayers=NumLayers} {kvOut=KvOut}
   in go initialCaches prompt prompt remaining
   where
-    go : Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType)
+    go : Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType)
       -> List (Fin VocabSize)   -- accumulator (prompt + generated so far)
       -> List (Fin VocabSize)   -- new tokens to feed this step (prompt on seed, [prev] on steady)
       -> Nat                     -- remaining tokens to generate
       -> IO (List (Fin VocabSize))
     go _      acc _    Z         = pure acc
     go caches acc feed (S k)     = do
-      perfReset {d=ExampleDevice}
+      perfReset {d=ExampleExecutor}
       (caches', mNext) <- genStepCached model tables caches feed
-      ops <- perfOpCount {d=ExampleDevice}
+      ops <- perfOpCount {d=ExampleExecutor}
       putStrLn ("[perf] step " ++ show (length acc) ++ ": " ++ show ops ++ " ops")
       case mNext of
         Nothing => do
@@ -224,15 +224,15 @@ genLoopCached model tables prompt remaining =
 ----------------------------------------------------------------------
 
 runDumpHidden : LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                                ExampleDevice ExampleDType WithGrad
-             -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+                                ExampleExecutor ExampleDType WithGrad
+             -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
              -> IO ()
 runDumpHidden model tables = do
   -- Fixed input: BPE("Hello") = [9906] in Llama 3 vocab (verified by
   -- save_oracle_llama.py if/when added). Single token to keep the
   -- compute cheap on the first run.
   let inputIds = mkIds (the (Vect 1 Double) [9906.0])
-  out <- hfLlamaForward {d=ExampleDevice} {dt=ExampleDType}
+  out <- hfLlamaForward {d=ExampleExecutor} {dt=ExampleDType}
                         {seq          = 1}
                         {vocab        = VocabSize}
                         {hidden       = Hidden}
@@ -253,8 +253,8 @@ runDumpHidden model tables = do
 
 runGenerate : Tokenizer VocabSize
            -> LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                              ExampleDevice ExampleDType WithGrad
-           -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+                              ExampleExecutor ExampleDType WithGrad
+           -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runGenerate tok model tables prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt
@@ -294,8 +294,8 @@ runGenerate tok model tables prompt numTokens = do
 ||| failure mode.
 runDumpTokens : Tokenizer VocabSize
              -> LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                                ExampleDevice ExampleDType WithGrad
-             -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+                                ExampleExecutor ExampleDType WithGrad
+             -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
              -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runDumpTokens tok model tables prompt numTokens = do
   Right (_ ** promptIds) <- tokenize tok prompt
@@ -345,7 +345,7 @@ main = do
   -- that to ~5 GB; that's the practical config for this VM. Tape
   -- (F64-only) doesn't fit in 16 GB; the example skips that lane.
   putStrLn "[stage] hfLlamaModel — constructing 146-param state (~5 GB at F32 / 10 GB at F64)..."
-  model <- hfLlamaModel {d=ExampleDevice} {dt=ExampleDType}
+  model <- hfLlamaModel {d=ExampleExecutor} {dt=ExampleDType}
                         {vocab        = VocabSize}
                         {hidden       = Hidden}
                         {numLayers    = NumLayers}
@@ -360,7 +360,7 @@ main = do
   -- cast-on-load widens to F32 / F64 depending on backend.
   putStrLn ("[stage] loadModelAllowCast — reading " ++ hfWeightsPath ++ " (~2.5 GB BF16, casting to "
             ++ "F32/F64 host-side)...")
-  ok <- loadModelAllowCast {d=ExampleDevice} hfWeightsPath
+  ok <- loadModelAllowCast {d=ExampleExecutor} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
@@ -371,7 +371,7 @@ main = do
   -- Build RoPE tables once (reused across all forward passes /
   -- decode steps).
   putStrLn "[stage] buildLlamaRoPETables — precomputing cos/sin tables..."
-  tables <- buildLlamaRoPETables {d=ExampleDevice} {dt=ExampleDType}
+  tables <- buildLlamaRoPETables {d=ExampleExecutor} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
                                   {headDim = HeadDim}
                                   RopeBase llama3Scaling
@@ -402,7 +402,7 @@ main = do
             forceMajorGc
             _ <- drainManagedHandles
             stageStamp "drain + GC done" t0
-            releaseAllPersistent {d=ExampleDevice}
+            releaseAllPersistent {d=ExampleExecutor}
             stageStamp "releaseAllPersistent done" t0
             pure ()
           else do
@@ -429,6 +429,6 @@ main = do
             forceMajorGc
             _ <- drainManagedHandles
             stageStamp "drain + GC done" t0
-            releaseAllPersistent {d=ExampleDevice}
+            releaseAllPersistent {d=ExampleExecutor}
             stageStamp "releaseAllPersistent done" t0
             pure ()

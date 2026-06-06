@@ -30,14 +30,14 @@
 |||   fits in F16's mantissa, but the result type is different — only
 |||   the user knows whether the cast is semantically correct).
 |||
-||| `Compatible (0 d : Device) (0 t : DType)` is the empty capability
+||| `Compatible (0 d : Executor) (0 t : DType)` is the empty capability
 ||| marker — device d can store dtype t. Instance head IS the proof.
 |||
 ||| Design memo: `docs/develop/precision-parameter.md`.
 module DType.Core
 
 import public Data.Nat
-import Device.Core
+import Executor.Core
 
 
 ----------------------------------------------------------------------
@@ -45,7 +45,7 @@ import Device.Core
 --
 -- Kind-level slot for Tensor's `t` parameter. 0-quantity, no runtime
 -- enforcement — exists for documentation at every kind-binder site.
--- Same trick as `Device.Core`'s `Device = Type`.
+-- Same trick as `Executor.Core`'s `Executor = Type`.
 ----------------------------------------------------------------------
 
 public export
@@ -58,8 +58,8 @@ DType = Type
 --
 -- Each family is a `Nat`-parameterized type constructor. Users
 -- write `Float 32` directly, or use the aliases (`F32`) below.
--- Constructors are present to mirror the Device tag convention
--- (`TapeDev` / `TorchDev d` / `MlxDev s`); user code never
+-- Constructors are present to mirror the Executor tag convention
+-- (`TapeExecutor` / `TorchExecutor d` / `MlxExecutor s`); user code never
 -- constructs values of these types — they exist only as
 -- type-level tags.
 ----------------------------------------------------------------------
@@ -92,8 +92,8 @@ data UInt : Nat -> Type where MkUInt : UInt n
 ----------------------------------------------------------------------
 -- Common aliases
 --
--- Exported for ergonomics. `Tensor [4] TapeDev F64 WithGrad` reads
--- better than `Tensor [4] TapeDev (Float 64) WithGrad`.
+-- Exported for ergonomics. `Tensor [4] TapeExecutor F64 WithGrad` reads
+-- better than `Tensor [4] TapeExecutor (Float 64) WithGrad`.
 ----------------------------------------------------------------------
 
 ||| Ternary value-set {-1, 0, +1}, packed 4 elements per byte using
@@ -301,7 +301,7 @@ public export
 -- require an explicit `tcastUnsafe` op.
 --
 -- Used as `=>` constraint on `toDeviceAs` and `tcast`'s lossless
--- variant. `toDevice` (same-dtype across devices) doesn't need it.
+-- variant. `toExecutor` (same-dtype across devices) doesn't need it.
 ----------------------------------------------------------------------
 
 ||| Reflexive `LTE n n` exposed as a `%hint` so auto-search resolves
@@ -567,4 +567,4 @@ LosslessTo from to => UpcastableTo from to where
 ----------------------------------------------------------------------
 
 public export
-interface Compatible (0 d : Device) (0 t : DType) where
+interface Compatible (0 d : Executor) (0 t : DType) where

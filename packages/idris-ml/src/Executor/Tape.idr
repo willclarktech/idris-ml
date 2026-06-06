@@ -1,11 +1,11 @@
-||| `TapeDev` — `UserDeviceCore` instance for the tape backend.
+||| `TapeExecutor` — `UserExecutorCore` instance for the tape backend.
 |||
 ||| Forwards to the tape-suffixed C symbols emitted under Phase 1's
 ||| `rename_tape.h` (e.g. `tensor_add_tape`). Only resolvable at
 ||| runtime if the build's BACKEND list includes `tape`.
-module Device.Tape
+module Executor.Tape
 
-import Device.Core
+import Executor.Core
 import DType.Core
 
 
@@ -84,14 +84,14 @@ prim__roundTape : AnyPtr -> AnyPtr
 
 
 ----------------------------------------------------------------------
--- TapeDev type + UserDeviceCore instance
+-- TapeExecutor type + UserExecutorCore instance
 ----------------------------------------------------------------------
 
-||| The tape backend's `UserDeviceCore` instance head. An empty type
-||| — it has no values; `Tensor [..] TapeDev` is just a typed tag for
+||| The tape backend's `UserExecutorCore` instance head. An empty type
+||| — it has no values; `Tensor [..] TapeExecutor` is just a typed tag for
 ||| "this tensor lives on the tape backend".
 public export
-data TapeDev : Type where MkTapeDev : TapeDev
+data TapeExecutor : Type where MkTapeExecutor : TapeExecutor
 
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-item-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-item-2d-tape (foreign-procedure \"tensor_item_2d_tape\" (void* int int) double))) ((top-level-value 'idris-ffi-tensor-item-2d-tape) (vector-ref a0 2) a1 a2))"
 prim__item2dTape : AnyPtr -> Int -> Int -> Double
@@ -101,7 +101,7 @@ prim__mnistGetImageTape : AnyPtr -> Int -> Int -> AnyPtr
 prim__oneHotTape : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 public export
-UserDeviceCore TapeDev where
+UserExecutorCore TapeExecutor where
   deviceName       = "tape"
   deviceStreamTag  = 0
   primCreateScalar = prim__createScalarTape
@@ -236,7 +236,7 @@ prim__cumprodTape : AnyPtr -> Int -> AnyPtr
 
 
 public export
-UserDeviceLinear TapeDev where
+UserExecutorLinear TapeExecutor where
   primMv             = prim__mvTape
   primMm             = prim__mmTape
   primMatmul         = prim__matmulTape
@@ -326,7 +326,7 @@ prim__pairSecondTape : AnyPtr -> AnyPtr
 
 
 public export
-UserDeviceNN TapeDev where
+UserExecutorNN TapeExecutor where
   primGelu             = prim__geluTape
   primLeakyRelu        = prim__leakyReluTape
   primSilu             = prim__siluTape
@@ -377,7 +377,7 @@ prim__maxPool2dBatchedTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 
 public export
-UserDeviceConv TapeDev where
+UserExecutorConv TapeExecutor where
   primConv1d           = prim__conv1dTape
   primConv1dCircular   = prim__conv1dCircularTape
   primAvgPool1d        = prim__avgPool1dTape
@@ -531,7 +531,7 @@ prim__createParam4dConstStreamedTape : Int -> Int -> Int -> Int -> Double -> Int
 prim__setInitSeedStreamedTape : Bits64 -> Int -> PrimIO ()
 
 public export
-UserDeviceTraining TapeDev where
+UserExecutorTraining TapeExecutor where
   primCreateScalarStreamed        = prim__createScalarStreamedTape
   primCreateStreamed              = prim__createStreamedTape
   primCreate1dStreamed            = prim__create1dStreamedTape
@@ -600,7 +600,7 @@ UserDeviceTraining TapeDev where
 
 
 ----------------------------------------------------------------------
--- UserDeviceTransfer instance (cross-backend transfer surface)
+-- UserExecutorTransfer instance (cross-backend transfer surface)
 --
 -- Tape lives entirely on host CPU; there are no hardware variants
 -- to switch between, so `primIntraMigrate` is a literal no-op (the
@@ -613,7 +613,7 @@ prim__toHostTape : AnyPtr -> AnyPtr -> AnyPtr
 -- The host buffer helpers (alloc / free / write-return for doubles
 -- and ints) are byte-identical across all three backends, so they
 -- live as unified definitions in `packages/backends/shared_utils.c`.
--- All three `UserDeviceTransfer` instances bind through the same
+-- All three `UserExecutorTransfer` instances bind through the same
 -- unified C symbols here.
 %foreign "C:tensor_alloc_doubles,libidrisml"
 prim__allocHostTape : Int -> AnyPtr
@@ -637,7 +637,7 @@ prim__createFromHostTape : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 prim__intraMigrateTape : AnyPtr -> String -> AnyPtr
 
 public export
-UserDeviceTransfer TapeDev where
+UserExecutorTransfer TapeExecutor where
   backendTag         = "tape"
   primToHost         = prim__toHostTape
   primAllocHost      = prim__allocHostTape
@@ -650,7 +650,7 @@ UserDeviceTransfer TapeDev where
 
 
 ----------------------------------------------------------------------
--- UserDeviceQuant instance (#411 BitNet b1.58)
+-- UserExecutorQuant instance (#411 BitNet b1.58)
 ----------------------------------------------------------------------
 --
 -- Tape stores ternary weights as packed 2-bit codes (4 values/byte)
@@ -677,7 +677,7 @@ prim__createTernaryFromHfPacked2dTape : AnyPtr -> Int -> Int -> AnyPtr
 prim__bitlinearFwdHfQuantTape : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> AnyPtr -> Double -> AnyPtr
 
 public export
-UserDeviceQuant TapeDev where
+UserExecutorQuant TapeExecutor where
   primCreateTernaryPacked2d       = prim__createTernaryPacked2dTape
   primBitlinearFwd                = prim__bitlinearFwdTape
   primBitlinearFwdHfQuant         = prim__bitlinearFwdHfQuantTape
@@ -687,7 +687,7 @@ UserDeviceQuant TapeDev where
 
 
 ----------------------------------------------------------------------
--- Compatible (TapeDev, dt).
+-- Compatible (TapeExecutor, dt).
 --
 -- F64 + F32 are trainable: every public `tensor_*` kernel routes F32
 -- through `tape_load_d` / `make_tensor_arena_f32` after Phase 3 + 3b.
@@ -701,28 +701,28 @@ UserDeviceQuant TapeDev where
 ----------------------------------------------------------------------
 
 public export
-Compatible TapeDev F64 where
+Compatible TapeExecutor F64 where
 
 public export
-Compatible TapeDev F32 where
+Compatible TapeExecutor F32 where
 
 -- Inference-only dtypes — storage + cast + readout, never trainable.
 public export
-Compatible TapeDev BF16 where
+Compatible TapeExecutor BF16 where
 public export
-Compatible TapeDev F16 where
+Compatible TapeExecutor F16 where
 public export
-Compatible TapeDev I8 where
+Compatible TapeExecutor I8 where
 public export
-Compatible TapeDev I16 where
+Compatible TapeExecutor I16 where
 public export
-Compatible TapeDev I32 where
+Compatible TapeExecutor I32 where
 public export
-Compatible TapeDev I64 where
+Compatible TapeExecutor I64 where
 public export
-Compatible TapeDev U8 where
+Compatible TapeExecutor U8 where
 public export
-Compatible TapeDev Bool where
+Compatible TapeExecutor Bool where
 
 -- Sub-byte quantization dtypes (#411 BitNet b1.58). Storage + pack/
 -- unpack are backend-agnostic (`shared_utils.c::ternary_pack`); per-
@@ -730,9 +730,9 @@ Compatible TapeDev Bool where
 -- byte storage — `DT_TERNARY` / `DT_BINARY` are reserved in tape's
 -- internal enum but no kernel writes them in B1.
 public export
-Compatible TapeDev Ternary where
+Compatible TapeExecutor Ternary where
 public export
-Compatible TapeDev Binary where
+Compatible TapeExecutor Binary where
 
 
 ----------------------------------------------------------------------
@@ -740,5 +740,5 @@ Compatible TapeDev Binary where
 ----------------------------------------------------------------------
 
 public export
-HardwareClassed TapeDev where
+HardwareClassed TapeExecutor where
   hardwareClass = HostCpu

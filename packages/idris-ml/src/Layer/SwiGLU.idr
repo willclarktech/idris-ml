@@ -2,7 +2,7 @@ module Layer.SwiGLU
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -33,7 +33,7 @@ import Tensor
 public export
 record SwiGLUState
         (hidden : Nat) (intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkSwiGLU
   gateW : Tensor [intermediate, hidden] d dt g
   upW   : Tensor [intermediate, hidden] d dt g
@@ -51,7 +51,7 @@ record SwiGLUState
 ||| on this manually for now (a 2D batched version would compose
 ||| `tlinear2d` + `tsilu` + `tmul` + `tlinear2d` instead of `tmv`).
 export
-applySwiGLU : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+applySwiGLU : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
               {hidden, intermediate : Nat} ->
               SwiGLUState hidden intermediate d dt g ->
               Tensor [hidden] d dt g ->
@@ -77,7 +77,7 @@ applySwiGLU st@(MkSwiGLU gateW upW downW) input = do
 ||| HF-aligned modules (HfLlama) re-bind at construction to e.g.
 ||| `model.layers.{i}.mlp.gate_proj.weight`.
 export
-swigluLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+swigluLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
               {hidden, intermediate : Nat} -> (paramPrefix : String) ->
               IO (SwiGLUState hidden intermediate d dt WithGrad)
 swigluLayer paramPrefix = do
@@ -96,14 +96,14 @@ swigluLayer paramPrefix = do
 ----------------------------------------------------------------------
 
 -- LayerLike is parameterised by a state type with signature
--- `Nat -> Nat -> Device -> DType -> GradMode -> Type`. SwiGLUState
+-- `Nat -> Nat -> Executor -> DType -> GradMode -> Type`. SwiGLUState
 -- carries an additional `intermediate` knob; collapse it via a
 -- wrapper that pins one of the two "input/output" Nats to be the
 -- intermediate and exposes only (hidden, hidden) to LayerLike — same
 -- shape as Dropout / LayerNorm / RmsNorm which all use i = o = n.
 public export
 data SwiGLUStateAnyI : (hidden : Nat) -> (sameHidden : Nat) ->
-                      (0 d : Device) -> (0 dt : DType) -> (0 g : GradMode) -> Type where
+                      (0 d : Executor) -> (0 dt : DType) -> (0 g : GradMode) -> Type where
   MkSwiGLUAnyI : (intermediate : Nat) ->
                  SwiGLUState hidden intermediate d dt g ->
                  SwiGLUStateAnyI hidden hidden d dt g
@@ -131,7 +131,7 @@ LayerLike SwiGLUStateAnyI where
 ||| Wrap a SwiGLU in `AnyLayer`. The `intermediate` knob is fixed at
 ||| construction; the LayerLike surface only sees (hidden, hidden).
 export
-swigluLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+swigluLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
                  {hidden, intermediate : Nat} -> (paramPrefix : String) ->
                  IO (AnyLayer hidden hidden d dt WithGrad)
 swigluLayerAny {intermediate} pid = do

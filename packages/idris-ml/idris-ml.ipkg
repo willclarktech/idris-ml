@@ -11,18 +11,18 @@ modules = Compat.Random
         , Curriculum
         , DataLoader
         , DataPoint
-        , Device
-        , Device.Core
-        , Device.Mlx
-        , Device.Tape
-        , Device.Torch
+        , Executor
+        , Executor.Core
+        , Executor.Mlx
+        , Executor.Tape
+        , Executor.Torch
         , DType.Core
         , DType.Test
         , Floating
         , GradMode
         , GradScaler
         , HwConfig
-        , HwDevices
+        , HwExecutors
         , Hpo
         , Hpo.LrFinder
         , Init

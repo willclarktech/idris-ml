@@ -15,7 +15,7 @@ import Data.Vect
 import System
 
 import Array
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -26,11 +26,11 @@ testValues = VArray [SArray 1.5, SArray (-2.7), SArray 3.14159, SArray 0.0]
 
 
 -- Read all 4 elements out of a 1D tensor into a Vect.
-readBack : TVec 4 ExampleDevice ExampleDType WithGrad -> Vect 4 Double
-readBack v = [ primItem1d {d=ExampleDevice} v.tensorPtr 0
-             , primItem1d {d=ExampleDevice} v.tensorPtr 1
-             , primItem1d {d=ExampleDevice} v.tensorPtr 2
-             , primItem1d {d=ExampleDevice} v.tensorPtr 3
+readBack : TVec 4 ExampleExecutor ExampleDType WithGrad -> Vect 4 Double
+readBack v = [ primItem1d {d=ExampleExecutor} v.tensorPtr 0
+             , primItem1d {d=ExampleExecutor} v.tensorPtr 1
+             , primItem1d {d=ExampleExecutor} v.tensorPtr 2
+             , primItem1d {d=ExampleExecutor} v.tensorPtr 3
              ]
 
 
@@ -41,9 +41,9 @@ showVec [a, b, c, d] = "[" ++ show a ++ ", " ++ show b ++ ", "
 
 main : IO ()
 main = do
-  putStrLn $ "=== tcast smoke test [" ++ backendName {d=ExampleDevice} ++ "] ==="
-  let srcPtr = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} testValues
-      src    = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor srcPtr Nothing)
+  putStrLn $ "=== tcast smoke test [" ++ backendName {d=ExampleExecutor} ++ "] ==="
+  let srcPtr = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} testValues
+      src    = the (TVec 4 ExampleExecutor ExampleDType WithGrad) (MkTensor srcPtr Nothing)
   let origVals = readBack src
   putStrLn $ "original     : " ++ showVec origVals
 

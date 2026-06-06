@@ -7,7 +7,7 @@ declared in `packages/backends/backend.h`. Injected into each backend's
 compile command via `-include rename_<backend>.h` so the resulting `.o`
 exports backend-suffixed symbols. Enables multi-link (all three
 backends co-existing in one `libidrisml.(so|dylib)`) per the pluggable-
-Device refactor's Phase 1.
+Executor refactor's Phase 1.
 
 Idempotent — re-running with no changes produces no diff. CI gates on
 that property so the headers stay in sync as we add ops.
@@ -108,7 +108,7 @@ def render_header(backend: str, symbols: list[str]) -> str:
         f" * Renames each exported C symbol to `<sym>_{backend}` so all three",
         f" * backends can co-exist linked into one libidrisml.(so|dylib).",
         f" * Every Idris %foreign reaches these via the suffixed name from a",
-        f" * per-instance UserDevice method; the former unified-name link-time",
+        f" * per-instance UserExecutor method; the former unified-name link-time",
         f" * alias machinery has been removed. */",
         f"#ifndef {guard}",
         f"#define {guard}",

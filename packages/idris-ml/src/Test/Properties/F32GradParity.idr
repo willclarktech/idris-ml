@@ -8,12 +8,12 @@
 -- ≈ 2*x; their difference should be bounded by F32 round-off
 -- (~1e-7 relative at unit magnitudes).
 --
--- Implementation pinned to `TapeDev` because:
+-- Implementation pinned to `TapeExecutor` because:
 --   (a) Phase 3b's F32 storage routing exists on tape via the
 --       `tape_load_d` dispatch; the parity test directly exercises
 --       that path.
---   (b) tape always admits both Compatible (TapeDev, F32) and
---       Compatible (TapeDev, F64), so the source elaborates on
+--   (b) tape always admits both Compatible (TapeExecutor, F32) and
+--       Compatible (TapeExecutor, F64), so the source elaborates on
 --       every build config.
 --   (c) tape symbols are linked whenever PRIMARY=tape; on other
 --       backends the test gates at runtime via TestPrimaryBackend.
@@ -36,8 +36,8 @@ import Test.Property
 import Test.Config
 import Test.Harness as Harness
 
-import Device
-import Device.Tape
+import Executor
+import Executor.Tape
 import Tensor
 
 %default partial
@@ -47,15 +47,15 @@ import Tensor
 runRung : (dt : DType) ->
           IsFloating dt =>
           RuntimeDType dt =>
-          Compatible TapeDev dt =>
+          Compatible TapeExecutor dt =>
           String -> Double -> IO Double
 runRung dt pidPrefix x = do
-  countBefore <- getParamCount {d = TapeDev}
+  countBefore <- getParamCount {d = TapeExecutor}
   let pid = pidPrefix ++ "_" ++ show countBefore
-  p <- tparamScalar {d = TapeDev} {dt} pid x
+  p <- tparamScalar {d = TapeExecutor} {dt} pid x
   loss <- tmul p p
   runBackward loss
-  getParamGradAt {d = TapeDev} countBefore 0
+  getParamGradAt {d = TapeExecutor} countBefore 0
 
 prop_f32_grad_matches_f64_body : Double -> IO Bool
 prop_f32_grad_matches_f64_body x = do

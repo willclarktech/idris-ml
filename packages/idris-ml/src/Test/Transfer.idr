@@ -1,4 +1,4 @@
-||| Tests for `toDevice` — both intra-backend fast paths (matching
+||| Tests for `toExecutor` — both intra-backend fast paths (matching
 ||| `backendTag` → in-place primIntraMigrate) and cross-backend
 ||| round-trips (differing tags → host buffer hop).
 |||
@@ -8,7 +8,7 @@
 |||
 ||| `make test` (single-backend) does NOT include this module —
 ||| Test.Transfer references tape / torch / mlx C symbols
-||| explicitly via the per-backend `UserDeviceTransfer` instances.
+||| explicitly via the per-backend `UserExecutorTransfer` instances.
 ||| Single-backend builds link only one of those sets and would
 ||| crash at FFI resolution. `MainMulti.idr` is the entry point that
 ||| wires this module in.
@@ -18,7 +18,7 @@ import Data.List
 import Data.Vect
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 
 
@@ -27,7 +27,7 @@ import Tensor
 ----------------------------------------------------------------------
 
 ||| Create a 4-element Tensor on the destination backend using its
-||| `UserDeviceTransfer.primCreateFromHost`. Mirrors the helper in
+||| `UserExecutorTransfer.primCreateFromHost`. Mirrors the helper in
 ||| `Example.Transfer` so the test exercises the same code path.
 |||
 ||| Every side-effecting step (alloc, write, create, free) goes
@@ -39,7 +39,7 @@ import Tensor
 ||| tripped libsystem_malloc's "pointer being freed was not
 ||| allocated" abort.
 makeVec4 : {0 d : Type} -> {0 dt : DType} ->
-           UserDeviceTransfer d => Compatible d dt =>
+           UserExecutorTransfer d => Compatible d dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] d dt WithGrad)
 makeVec4 (a, b, c, dd) = do
@@ -56,7 +56,7 @@ makeVec4 (a, b, c, dd) = do
   _ <- primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
   pure (MkTensor ptr Nothing)
 
-read4 : {0 d : Type} -> {0 dt : DType} -> UserDeviceCore d =>
+read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore d =>
         Tensor [4] d dt WithGrad ->
         (Double, Double, Double, Double)
 read4 t =
@@ -87,24 +87,24 @@ matchesExpected (a, b, c, d) =
 ||| any build that includes tape).
 intraTapeSmoke : IO Bool
 intraTapeSmoke = do
-  src <- makeVec4 {d = TapeDev} {dt = F64} expected
-  dst <- toDevice TapeDev src
-  check "intra-backend TapeDev→TapeDev preserves value"
+  src <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  dst <- toExecutor TapeExecutor src
+  check "intra-backend TapeExecutor→TapeExecutor preserves value"
         (matchesExpected (read4 dst))
 
-||| Intra-Torch fast path: TorchDev TCpu → TorchDev TMps. Exercises
+||| Intra-Torch fast path: TorchExecutor TCpu → TorchExecutor TMps. Exercises
 ||| libtorch's `.to("mps")` in-place migration via primIntraMigrate.
 ||| Requires the F32 source — libtorch's MPS rejects F64
-||| construction (the `Compatible (TorchDev TMps) F64` non-instance
+||| construction (the `Compatible (TorchExecutor TMps) F64` non-instance
 ||| pre-empts the type, but we still need to land on F32 at runtime).
 intraTorchHwSmoke : IO Bool
 intraTorchHwSmoke = do
   -- Build F64 (today's primCreateFromHost on torch is F64-only),
   -- narrow to F32 for MPS compatibility.
-  src64 <- makeVec4 {d = TorchDev TCpu} {dt = F64} expected
+  src64 <- makeVec4 {d = TorchExecutor TCpu} {dt = F64} expected
   src   <- tcastUnsafe F32 src64
-  dst   <- toDevice (TorchDev TMps) src
-  check "intra-torch TorchDev TCpu→TMps preserves value"
+  dst   <- toExecutor (TorchExecutor TMps) src
+  check "intra-torch TorchExecutor TCpu→TMps preserves value"
         (matchesExpected (read4 dst))
 
 -- (intra-mlx fast path is exercised by `roundtripF32Smoke` below.
@@ -120,42 +120,42 @@ intraTorchHwSmoke = do
 -- Cross-backend smoke (differing backendTag → host round-trip)
 ----------------------------------------------------------------------
 
-||| TapeDev → TorchDev TCpu. The simplest cross-backend hop. F64
+||| TapeExecutor → TorchExecutor TCpu. The simplest cross-backend hop. F64
 ||| throughout; both ends admit F64.
 crossTapeToTorchSmoke : IO Bool
 crossTapeToTorchSmoke = do
-  src <- makeVec4 {d = TapeDev} {dt = F64} expected
-  dst <- toDevice (TorchDev TCpu) src
-  check "cross-backend TapeDev→TorchDev TCpu preserves value"
+  src <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  dst <- toExecutor (TorchExecutor TCpu) src
+  check "cross-backend TapeExecutor→TorchExecutor TCpu preserves value"
         (matchesExpected (read4 dst))
 
-||| TorchDev TCpu → MlxDev MCpu. F64 round-trip through host buffer.
+||| TorchExecutor TCpu → MlxExecutor MCpu. F64 round-trip through host buffer.
 crossTorchToMlxSmoke : IO Bool
 crossTorchToMlxSmoke = do
-  src <- makeVec4 {d = TorchDev TCpu} {dt = F64} expected
-  dst <- toDevice (MlxDev MCpu) src
-  check "cross-backend TorchDev TCpu→MlxDev MCpu preserves value"
+  src <- makeVec4 {d = TorchExecutor TCpu} {dt = F64} expected
+  dst <- toExecutor (MlxExecutor MCpu) src
+  check "cross-backend TorchExecutor TCpu→MlxExecutor MCpu preserves value"
         (matchesExpected (read4 dst))
 
-||| MlxDev MCpu → TapeDev. Closes the F64 round-trip from
+||| MlxExecutor MCpu → TapeExecutor. Closes the F64 round-trip from
 ||| crossTorchToMlxSmoke's perspective.
 crossMlxToTapeSmoke : IO Bool
 crossMlxToTapeSmoke = do
-  src <- makeVec4 {d = MlxDev MCpu} {dt = F64} expected
-  dst <- toDevice TapeDev src
-  check "cross-backend MlxDev MCpu→TapeDev preserves value"
+  src <- makeVec4 {d = MlxExecutor MCpu} {dt = F64} expected
+  dst <- toExecutor TapeExecutor src
+  check "cross-backend MlxExecutor MCpu→TapeExecutor preserves value"
         (matchesExpected (read4 dst))
 
-||| 3-step F64 hop: TapeDev → TorchDev TCpu → MlxDev MCpu → TapeDev.
+||| 3-step F64 hop: TapeExecutor → TorchExecutor TCpu → MlxExecutor MCpu → TapeExecutor.
 ||| End-to-end value preservation across two cross-backend host
 ||| round-trips.
 roundtripF64Smoke : IO Bool
 roundtripF64Smoke = do
-  v0 <- makeVec4 {d = TapeDev} {dt = F64} expected
-  v1 <- toDevice (TorchDev TCpu) v0
-  v2 <- toDevice (MlxDev MCpu) v1
-  v3 <- toDevice TapeDev v2
-  check "F64 roundtrip TapeDev→Torch→Mlx→TapeDev preserves value"
+  v0 <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  v1 <- toExecutor (TorchExecutor TCpu) v0
+  v2 <- toExecutor (MlxExecutor MCpu) v1
+  v3 <- toExecutor TapeExecutor v2
+  check "F64 roundtrip TapeExecutor→Torch→Mlx→TapeExecutor preserves value"
         (matchesExpected (read4 v3))
 
 -- (4-step F32 hop Torch→TMps→MlxGpu→MlxCpu→Torch is exercised in

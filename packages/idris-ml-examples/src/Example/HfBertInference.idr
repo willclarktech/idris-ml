@@ -34,7 +34,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Device
+import Executor
 import Example.Common.HfInferenceHelper
 import HfBert
 import Tensor
@@ -108,7 +108,7 @@ readLogits vocab p = go (cast {to=Int} vocab) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=ExampleDevice} p i
+        else let v = primItem1d {d=ExampleExecutor} p i
              in go end (i + 1) ((cast {to=Nat} i, v) :: acc)
 
 -- O(n log n) sort by descending logit + take 5. With vocab=30522 and
@@ -139,7 +139,7 @@ bertMaskTokenId = 103
 runMaskDemo : Tokenizer VocabSize
            -> (model : BertForMaskedLmState VocabSize Hidden NumLayers
                                             Intermediate MaxPos TypeVocab
-                                            ExampleDevice ExampleDType WithGrad)
+                                            ExampleExecutor ExampleDType WithGrad)
            -> (sentence : String)
            -> IO ()
 runMaskDemo tok model sentence = do
@@ -153,7 +153,7 @@ runMaskDemo tok model sentence = do
           inputIds  = mkIds idDoubles
           posIds    = mkIds (arangeVect seqLen)
           typeIds   = mkIds (zerosVect seqLen)
-      logits <- hfBertMlmForward {d=ExampleDevice} {dt=ExampleDType}
+      logits <- hfBertMlmForward {d=ExampleExecutor} {dt=ExampleDType}
                                  {seqLen}
                                  {vocab        = VocabSize}
                                  {hidden       = Hidden}
@@ -204,20 +204,20 @@ printPooled end i p =
   if i >= end
     then pure ()
     else do
-      let v = primItem1d {d=ExampleDevice} p i
+      let v = primItem1d {d=ExampleExecutor} p i
       putStrLn (show v)
       printPooled end (i + 1) p
 
 runPooledDump : (model : BertForMaskedLmState VocabSize Hidden NumLayers
                                               Intermediate MaxPos TypeVocab
-                                              ExampleDevice ExampleDType WithGrad)
+                                              ExampleExecutor ExampleDType WithGrad)
              -> IO ()
 runPooledDump model = do
   -- Same fixed input save_oracle.py uses: [CLS] hello [SEP].
   let inputIds = mkIds (the (Vect 3 Double) [101.0, 7592.0, 102.0])
       posIds   = mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0])
       typeIds  = mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0])
-  out <- hfBertForward {d=ExampleDevice} {dt=ExampleDType}
+  out <- hfBertForward {d=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 3}
                        {vocab        = VocabSize}
                        {hidden       = Hidden}
@@ -242,7 +242,7 @@ main = do
   t0 <- clockTime Monotonic
 
   -- Build the full BertForMaskedLM (encoder + pooler + MLM head, 44 params).
-  model <- hfBertForMaskedLm {d=ExampleDevice} {dt=ExampleDType}
+  model <- hfBertForMaskedLm {d=ExampleExecutor} {dt=ExampleDType}
                              {vocab        = VocabSize}
                              {hidden       = Hidden}
                              {numLayers    = NumLayers}
@@ -252,7 +252,7 @@ main = do
                              {typeVocab    = TypeVocab}
                              "bert"
   stageStamp "hfBertForMaskedLm ok" t0
-  ok <- loadModelAllowCast {d=ExampleDevice} hfWeightsPath
+  ok <- loadModelAllowCast {d=ExampleExecutor} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)

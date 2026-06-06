@@ -3,7 +3,7 @@ module Test.GradMode
 import Data.Vect
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 import Layer
 import Test.Config
@@ -18,11 +18,11 @@ import Test.Config
 
 weakenGradFlipsRequiresGrad : IO Bool
 weakenGradFlipsRequiresGrad = do
-  let ptr = primCreateScalar {d=TestDevice} 1.0 1  -- rg=1 at construction
-  let t = the (Tensor (the (Vect 0 Nat) []) TestDevice TestDType WithGrad) (MkTensor ptr Nothing)
-  let before = primRequiresGrad {d=TestDevice} t.tensorPtr
+  let ptr = primCreateScalar {d=TestExecutor} 1.0 1  -- rg=1 at construction
+  let t = the (Tensor (the (Vect 0 Nat) []) TestExecutor TestDType WithGrad) (MkTensor ptr Nothing)
+  let before = primRequiresGrad {d=TestExecutor} t.tensorPtr
   t' <- weakenGrad t
-  let after = primRequiresGrad {d=TestDevice} t'.tensorPtr
+  let after = primRequiresGrad {d=TestExecutor} t'.tensorPtr
   check "weakenGrad: rg 1 -> 0" (before == 1 && after == 0)
 
 -- freezeNetwork + unfreezeNetwork round-trip on a parameter-free
@@ -33,12 +33,12 @@ weakenGradFlipsRequiresGrad = do
 
 freezeUnfreezeRoundTrip : IO Bool
 freezeUnfreezeRoundTrip = do
-  let net : Network 4 [] 4 TestDevice TestDType WithGrad
-      net = OutputLayer (the (AnyLayer 4 4 TestDevice TestDType WithGrad) tanhLayerAny)
+  let net : Network 4 [] 4 TestExecutor TestDType WithGrad
+      net = OutputLayer (the (AnyLayer 4 4 TestExecutor TestDType WithGrad) tanhLayerAny)
   frozen <- freezeNetwork net
-  -- frozen : Network 4 [] 4 TestDevice TestDType NoGrad — compile-checked
+  -- frozen : Network 4 [] 4 TestExecutor TestDType NoGrad — compile-checked
   _ <- unfreezeNetwork frozen
-  -- unfrozen : Network 4 [] 4 TestDevice TestDType WithGrad — compile-checked
+  -- unfrozen : Network 4 [] 4 TestExecutor TestDType WithGrad — compile-checked
   check "freezeNetwork / unfreezeNetwork round-trip typechecks" True
 
 

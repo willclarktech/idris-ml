@@ -24,7 +24,7 @@ import Math
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -143,7 +143,7 @@ main = do
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
 
   ntmAny <- ntmLayerAny {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
-  let model : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad
+  let model : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
   putStrLn ""
 
@@ -154,7 +154,7 @@ main = do
       genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 
   -- Metrics: bit accuracy + memory (computed at each log step)
-  let evalMetrics : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
         accs <- traverse (\dp => do
@@ -183,7 +183,7 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation: forwardTwoPhase produces per-step Vector predictions
@@ -191,7 +191,7 @@ main = do
   -- Eval doesn't need gradients; each evalOne runs in its own
   -- withNoGrad bracket so the exit drain fires per-sequence on mlx.
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = withNoGrad {d=ExampleDevice} $ do
+      evalOne dp = withNoGrad {d=ExampleExecutor} $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 
@@ -205,7 +205,7 @@ main = do
   putStrLn ""
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  withNoGrad {d=ExampleDevice} $ traverse_ (\dp => do
+  withNoGrad {d=ExampleExecutor} $ traverse_ (\dp => do
     (_, preds) <- forwardTwoPhase trained dp
     putStr "  Input:  "
     putStrLn $ unwords (map showBinaryVec (encodingInputs dp))

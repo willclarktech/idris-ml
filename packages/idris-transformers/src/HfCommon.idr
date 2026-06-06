@@ -16,7 +16,7 @@ module HfCommon
 
 import Data.Vect
 
-import Device
+import Executor
 import Tensor
 
 
@@ -28,7 +28,7 @@ import Tensor
 ||| a raw `[hidden]` tensor; per-arch wrappers in `HfLlama` /
 ||| `HfBitNet` thin-wrap this to take their own RmsNorm record types.
 |||
-||| One fused FFI call (`primRmsNorm2d` on `UserDeviceTraining`) per
+||| One fused FFI call (`primRmsNorm2d` on `UserExecutorTraining`) per
 ||| invocation. Replaces a per-row 7-primitive chain (narrow / mul /
 ||| sum / mul_scalar / add_scalar / sqrt / div / mul); ~600 tape entries
 ||| per Llama forward become ~32. Each backend's impl matches the HF
@@ -36,7 +36,7 @@ import Tensor
 |||     rstd_i = 1 / sqrt(mean(input[i, :]^2) + eps)
 |||     out[i, j] = input[i, j] * rstd_i * weight[j]
 export
-applyRmsNorm2dRaw : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+applyRmsNorm2dRaw : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
                     {seqLen, hidden : Nat} ->
                     (eps : Double) ->
                     Tensor [hidden] d dt g ->

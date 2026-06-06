@@ -45,7 +45,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Device
+import Executor
 import Example.Common.HfInferenceHelper
 import HfBitNet
 import Layer.RoPE
@@ -113,18 +113,18 @@ hfWeightsPath = modelDir ++ "/model.safetensors"
 -- invokes `dumpFn` with a "block_NN" label. Idris-2's elaborator hung
 -- (>90 min, killed) when this iteration was attempted as a new
 -- polymorphic helper inside HfBitNet.idr; moving it here with the
--- ExampleDevice/ExampleDType types pinned concretely lets the
+-- ExampleExecutor/ExampleDType types pinned concretely lets the
 -- elaborator skip the per-call constraint specialisation that the
 -- BitNet quant-typeclass surface forces.
 iterateBlocksDumping :
      {n : Nat}
   -> Vect n (BitNetBlockState Hidden QOut KvOut Intermediate
-                              ExampleDevice ExampleDType WithGrad)
-  -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
-  -> Tensor [2, Hidden] ExampleDevice ExampleDType WithGrad
+                              ExampleExecutor ExampleDType WithGrad)
+  -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
+  -> Tensor [2, Hidden] ExampleExecutor ExampleDType WithGrad
   -> (idx : Nat)
   -> (dumpFn : String -> AnyPtr -> Int -> IO ())
-  -> IO (Tensor [2, Hidden] ExampleDevice ExampleDType WithGrad)
+  -> IO (Tensor [2, Hidden] ExampleExecutor ExampleDType WithGrad)
 iterateBlocksDumping []        _      x _   _      = pure x
 iterateBlocksDumping (b :: bs) tables x idx dumpFn = do
   x' <- applyBlock {numHeads=NumHeads} {numKvHeads=NumKvHeads}
@@ -141,8 +141,8 @@ iterateBlocksDumping (b :: bs) tables x idx dumpFn = do
 ----------------------------------------------------------------------
 
 genOneStep : BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                              ExampleDevice ExampleDType WithGrad
-          -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+                              ExampleExecutor ExampleDType WithGrad
+          -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
           -> List (Fin VocabSize)
           -> IO (Maybe (Fin VocabSize))
 genOneStep model tables toksList = do
@@ -156,9 +156,9 @@ genOneStep model tables toksList = do
       -- Plain withNoGrad here (not Keep): the step's result is a
       -- Maybe (Fin VocabSize), no Tensor needs to survive the
       -- bracket exit.
-      withNoGrad {d=ExampleDevice} $ do
+      withNoGrad {d=ExampleExecutor} $ do
         let inputIds = mkIds idDoubles
-        logits <- hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
+        logits <- hfBitnetForwardLm {d=ExampleExecutor} {dt=ExampleDType}
                                     {seq          = curLen}
                                     {vocab        = VocabSize}
                                     {hidden       = Hidden}
@@ -175,8 +175,8 @@ genOneStep model tables toksList = do
 
 
 genLoop : BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                           ExampleDevice ExampleDType WithGrad
-       -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+                           ExampleExecutor ExampleDType WithGrad
+       -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
        -> List (Fin VocabSize)
        -> (remaining : Nat)
        -> IO (List (Fin VocabSize))
@@ -188,7 +188,7 @@ genLoop model tables tokens (S k) = do
       putStrLn "  (argmax produced out-of-range token; stopping)"
       pure tokens
     Just next => do
-      resetForEval {d=ExampleDevice}
+      resetForEval {d=ExampleExecutor}
       genLoop model tables (tokens ++ [next]) k
 
 
@@ -198,8 +198,8 @@ genLoop model tables tokens (S k) = do
 
 runGenerate : Tokenizer VocabSize
            -> BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                               ExampleDevice ExampleDType WithGrad
-           -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+                               ExampleExecutor ExampleDType WithGrad
+           -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runGenerate tok model tables prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt
@@ -252,7 +252,7 @@ main = do
 
   putStrLn ("[stage] hfBitnetModel — constructing 542-param state ("
             ++ "embed/norms/scales + ternary placeholders)...")
-  model <- hfBitnetModel {d=ExampleDevice} {dt=ExampleDType}
+  model <- hfBitnetModel {d=ExampleExecutor} {dt=ExampleDType}
                          {vocab        = VocabSize}
                          {hidden       = Hidden}
                          {numLayers    = NumLayers}
@@ -265,7 +265,7 @@ main = do
   putStrLn ("[stage] loadHfBitnetCheckpoint — reading "
             ++ hfWeightsPath ++ " (~1.18 GB)...")
   (loaded, (tnLoaded, tnExpected, floatOk)) <-
-    loadHfBitnetCheckpoint {d=ExampleDevice} {dt=ExampleDType}
+    loadHfBitnetCheckpoint {d=ExampleExecutor} {dt=ExampleDType}
                            {vocab        = VocabSize}
                            {hidden       = Hidden}
                            {numLayers    = NumLayers}
@@ -284,7 +284,7 @@ main = do
   stageStamp "loadHfBitnetCheckpoint ok" t0
 
   putStrLn "[stage] buildLlamaRoPETables — precomputing cos/sin tables..."
-  tables <- buildLlamaRoPETables {d=ExampleDevice} {dt=ExampleDType}
+  tables <- buildLlamaRoPETables {d=ExampleExecutor} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
                                   {headDim = HeadDim}
                                   RopeBase bitnetRopeScaling
@@ -321,9 +321,9 @@ main = do
       -- Step 4: tied LM head — project hFinal through embed_tokens.weight
       let vI = cast {to=Int} VocabSize
           zBuf = prim__allocDoubles vI
-          zeroBias : Tensor [VocabSize] ExampleDevice ExampleDType WithGrad
-          zeroBias = MkTensor (dtCreateState1d {d=ExampleDevice} {t=ExampleDType}
-                                vI zBuf (deviceStreamTag {d=ExampleDevice})) Nothing
+          zeroBias : Tensor [VocabSize] ExampleExecutor ExampleDType WithGrad
+          zeroBias = MkTensor (dtCreateState1d {d=ExampleExecutor} {t=ExampleDType}
+                                vI zBuf (deviceStreamTag {d=ExampleExecutor})) Nothing
       logits <- tlinear2d loaded.embedTokens.weight hFinal zeroBias
       lastRow <- trowSelect logits 1
       dumpFn "logits" lastRow.tensorPtr vI
@@ -336,8 +336,8 @@ main = do
         -- logits one per line so compare_inference.py can read them back.
         let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
         putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
-        logits <- withNoGradKeep {d=ExampleDevice} $
-          hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
+        logits <- withNoGradKeep {d=ExampleExecutor} $
+          hfBitnetForwardLm {d=ExampleExecutor} {dt=ExampleDType}
                             {seq          = 2}
                             {vocab        = VocabSize}
                             {hidden       = Hidden}

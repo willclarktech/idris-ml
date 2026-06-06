@@ -11,7 +11,7 @@
 ||| `BACKEND=torch` only (see the `example-dtype-serialize` Makefile target).
 ||| It is deliberately NOT listed in `idris-ml-examples.ipkg`: that package
 ||| is built on every backend, and this module constructs `BF16`/`F16`/`I32`
-||| in `main` (no `Compatible TapeDev (BFloat 16)` etc.). The Makefile target
+||| in `main` (no `Compatible TapeExecutor (BFloat 16)` etc.). The Makefile target
 ||| compiles it standalone instead.
 module Example.DTypeSerialize
 
@@ -19,7 +19,7 @@ import Data.Vect
 import System
 
 import Array
-import Device
+import Executor
 import Tensor
 import DType.Core
 import Checkpoint
@@ -36,12 +36,12 @@ intVals = VArray [SArray 1.0, SArray (-2.0), SArray 1000.0, SArray (-42.0)]
 
 
 ||| Build a NoGrad tensor at dtype `dt` from a 4-vector and register it.
-saveOne : RuntimeDType dt => Compatible ExampleDevice dt =>
+saveOne : RuntimeDType dt => Compatible ExampleExecutor dt =>
           String -> Vector 4 Double -> IO ()
 saveOne name vals = do
-  _ <- registerParam {d=ExampleDevice} name
-         (the (TVec 4 ExampleDevice dt NoGrad)
-              (MkTensor (bulkToTensor {d=ExampleDevice} {dt} vals) Nothing))
+  _ <- registerParam {d=ExampleExecutor} name
+         (the (TVec 4 ExampleExecutor dt NoGrad)
+              (MkTensor (bulkToTensor {d=ExampleExecutor} {dt} vals) Nothing))
   pure ()
 
 
@@ -51,13 +51,13 @@ main = do
   let path = case args of
                (_ :: p :: _) => p
                _             => "/tmp/idrisml-dtypes.safetensors"
-  putStrLn $ "=== dtype serialize [" ++ backendName {d=ExampleDevice} ++ "] -> " ++ path ++ " ==="
+  putStrLn $ "=== dtype serialize [" ++ backendName {d=ExampleExecutor} ++ "] -> " ++ path ++ " ==="
 
   saveOne {dt=BF16} "w_bf16" floatVals
   saveOne {dt=F16}  "w_f16"  floatVals
   saveOne {dt=I32}  "w_i32"  intVals
 
-  ok <- saveModel {d=ExampleDevice} path
+  ok <- saveModel {d=ExampleExecutor} path
   if ok
     then putStrLn "PASS: wrote bf16/f16/i32 tensors"
     else do putStrLn "FAIL: saveModel returned False"

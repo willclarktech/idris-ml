@@ -1,6 +1,6 @@
-||| Pluggable-Device interface. Phase 2.1 of the refactor; see
-||| `docs/develop/design-decisions.md` "Pluggable Device via sliced
-||| `UserDevice` interfaces" for the design.
+||| Pluggable-Executor interface. Phase 2.1 of the refactor; see
+||| `docs/develop/design-decisions.md` "Pluggable Executor via sliced
+||| `UserExecutor` interfaces" for the design.
 |||
 ||| Phase 2.1 ships the **lifecycle + arithmetic** slice (~20 ops).
 ||| Later slices (2.2-2.5) extend with linear / NN / conv / tape ops.
@@ -10,36 +10,36 @@
 |||
 |||   data MyDev : Type where MD : MyDev
 |||
-|||   UserDeviceCore MyDev where
+|||   UserExecutorCore MyDev where
 |||     primAdd = prim__addMine
 |||     ...
 |||
-||| The built-in `TapeDev` / `TorchDev` / `MlxDev` (in `Device.Tape`,
-||| `Device.Torch`, `Device.Mlx`) forward to the per-backend C
+||| The built-in `TapeExecutor` / `TorchExecutor` / `MlxExecutor` (in `Executor.Tape`,
+||| `Executor.Torch`, `Executor.Mlx`) forward to the per-backend C
 ||| symbols emitted by Phase 1's rename headers
 ||| (`tensor_add_tape` / `tensor_add_torch` / `tensor_add_mlx`).
-module Device.Core
+module Executor.Core
 
 
 ----------------------------------------------------------------------
--- `Device` kind alias
+-- `Executor` kind alias
 --
--- `Device` is a 0-quantity alias for `Type`. Tensor's `d` phantom is
--- declared as `(0 d : Device)`, which is exactly `(0 d : Type)`
+-- `Executor` is a 0-quantity alias for `Type`. Tensor's `d` phantom is
+-- declared as `(0 d : Executor)`, which is exactly `(0 d : Type)`
 -- underneath but reads as "d is a device tag" at every kind-binder
 -- site. No type-system enforcement: nothing stops a caller writing
 -- `Tensor [4] Bool`. But construction (`primCreate*`) and operations
--- (`tadd` etc.) both require `UserDeviceCore d =>`, so non-device
+-- (`tadd` etc.) both require `UserExecutorCore d =>`, so non-device
 -- `d`s can be declared but never inhabited or operated on.
 --
 -- See `docs/develop/design-decisions.md` "Open `d` kind: why
--- `Device = Type` instead of a real sub-kind" for the alternatives
+-- `Executor = Type` instead of a real sub-kind" for the alternatives
 -- considered and why we kept it open.
 ----------------------------------------------------------------------
 
 public export
-0 Device : Type
-Device = Type
+0 Executor : Type
+Executor = Type
 
 
 ----------------------------------------------------------------------
@@ -49,7 +49,7 @@ Device = Type
 -- `Linked d` declares "device `d`'s backend is compiled into this
 -- `libidrisml`." Instances are NOT hardcoded here — they're emitted by
 -- the generated `HwConfig` module from the build's `BACKEND` list, so a
--- torch-only build has no `Linked (MlxDev _)` instance and `MlxDev`
+-- torch-only build has no `Linked (MlxExecutor _)` instance and `MlxExecutor`
 -- becomes unspellable at any constructor carrying the `Linked d =>`
 -- constraint. This is the compile-time *linkage* half of device
 -- availability; the runtime *hardware-presence* half is EAFP (attempt
@@ -57,18 +57,18 @@ Device = Type
 -- `docs/develop/device-availability-gating.md`.
 --
 -- Linkage is per-backend, not per-hardware-variant: a torch build admits
--- every `TorchDev hw` (TCpu / TMps / TCuda n) at the type level; whether
+-- every `TorchExecutor hw` (TCpu / TMps / TCuda n) at the type level; whether
 -- the MPS chip or `cuda:n` actually exists is the runtime question.
 ----------------------------------------------------------------------
 
 public export
-interface Linked (0 d : Device) where
+interface Linked (0 d : Executor) where
 
 
 ----------------------------------------------------------------------
 -- HardwareClass — physical-silicon classification (orthogonal to backend)
 --
--- Backend-scoping (TorchDev TMps vs MlxDev MGpu) is correct: you can't
+-- Backend-scoping (TorchExecutor TMps vs MlxExecutor MGpu) is correct: you can't
 -- mix their tensor handles even though both live on the same Apple GPU.
 -- But that scoping hides the hardware *commonality*. `HardwareClass`
 -- recovers it as runtime data — for *reporting* / grouping during
@@ -97,16 +97,16 @@ Show HardwareClass where
 
 
 ----------------------------------------------------------------------
--- UserDeviceCore — lifecycle + arithmetic slice
+-- UserExecutorCore — lifecycle + arithmetic slice
 ----------------------------------------------------------------------
 
 ||| Phase 2.1 interface: the ~20 ops needed for tensor lifecycle and
-||| elementwise arithmetic. Later phases add `UserDeviceLinear`,
-||| `UserDeviceNN`, `UserDeviceConv`, `UserDeviceTraining` slices.
+||| elementwise arithmetic. Later phases add `UserExecutorLinear`,
+||| `UserExecutorNN`, `UserExecutorConv`, `UserExecutorTraining` slices.
 public export
-interface UserDeviceCore (0 d : Device) where
+interface UserExecutorCore (0 d : Executor) where
   ||| Human-readable device tag: "tape", "torch", "mlx", "mybackend".
-  ||| Used in logs and `Show Device`-style stringification.
+  ||| Used in logs and `Show Executor`-style stringification.
   deviceName : String
 
   ||| Per-device stream-selection tag. Threaded into every C-side
@@ -165,7 +165,7 @@ interface UserDeviceCore (0 d : Device) where
 
 
 ----------------------------------------------------------------------
--- UserDeviceLinear — matmul + reductions + reshape + indexing slice
+-- UserExecutorLinear — matmul + reductions + reshape + indexing slice
 ----------------------------------------------------------------------
 
 ||| The second slice. Covers linear algebra (mv, matmul, linear,
@@ -174,24 +174,24 @@ interface UserDeviceCore (0 d : Device) where
 ||| stack, narrow, transpose), indexing (gather, scatter_add), and
 ||| sort/scan (argsort, cumprod). ~30 ops.
 |||
-||| Subclass of `UserDeviceCore`: an implementer also provides
-||| lifecycle + arithmetic ops, so a single `UserDeviceLinear d =>`
+||| Subclass of `UserExecutorCore`: an implementer also provides
+||| lifecycle + arithmetic ops, so a single `UserExecutorLinear d =>`
 ||| constraint in scope is enough to use both slices' methods. The
-||| convention scales as later slices (`UserDeviceNN`, `Conv`,
+||| convention scales as later slices (`UserExecutorNN`, `Conv`,
 ||| `Tape`) layer on top.
 ||| Open per-device hardware classification. Built-ins map to the
-||| obvious class (`TapeDev`/`*Cpu` → `HostCpu`, `TMps`/`MGpu` →
+||| obvious class (`TapeExecutor`/`*Cpu` → `HostCpu`, `TMps`/`MGpu` →
 ||| `AppleGpu`, `TCuda n` → `Nvidia n`). BYO backends map to
 ||| `Other "user/<name>"` — or a built-in class if they genuinely share
-||| silicon. Opt-in (separate from `UserDeviceCore`) so adding it costs
+||| silicon. Opt-in (separate from `UserExecutorCore`) so adding it costs
 ||| no cascade on existing instances and BYO authors implement it only
 ||| if they want discovery/grouping.
 public export
-interface UserDeviceCore d => HardwareClassed (0 d : Device) where
+interface UserExecutorCore d => HardwareClassed (0 d : Executor) where
   hardwareClass : HardwareClass
 
 public export
-interface UserDeviceCore d => UserDeviceLinear (0 d : Device) where
+interface UserExecutorCore d => UserExecutorLinear (0 d : Executor) where
   -- Linear algebra ----------------------------------------------------
   primMv          : AnyPtr -> AnyPtr -> AnyPtr
   primMm          : AnyPtr -> AnyPtr -> AnyPtr
@@ -240,15 +240,15 @@ interface UserDeviceCore d => UserDeviceLinear (0 d : Device) where
 
 
 ----------------------------------------------------------------------
--- UserDeviceNN — activations + softmax + norms + losses + recurrent
+-- UserExecutorNN — activations + softmax + norms + losses + recurrent
 -- cells + embedding + attention slice
 ----------------------------------------------------------------------
 
 ||| The third slice. Adds non-linearities, normalizations, recurrent
 ||| cells, embeddings, and the loss surfaces. Subclass of
-||| `UserDeviceLinear` (transitively `UserDeviceCore`).
+||| `UserExecutorLinear` (transitively `UserExecutorCore`).
 public export
-interface UserDeviceLinear d => UserDeviceNN (0 d : Device) where
+interface UserExecutorLinear d => UserExecutorNN (0 d : Executor) where
   -- Activations -------------------------------------------------------
   primGelu        : AnyPtr -> AnyPtr
   primLeakyRelu   : AnyPtr -> Double -> AnyPtr
@@ -289,13 +289,13 @@ interface UserDeviceLinear d => UserDeviceNN (0 d : Device) where
 
 
 ----------------------------------------------------------------------
--- UserDeviceConv — convolution + pooling slice
+-- UserExecutorConv — convolution + pooling slice
 ----------------------------------------------------------------------
 
 ||| The fourth slice. Covers 1D and 2D convolution + pooling (~9
-||| ops). Subclass of `UserDeviceNN` (transitively Linear + Core).
+||| ops). Subclass of `UserExecutorNN` (transitively Linear + Core).
 public export
-interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
+interface UserExecutorNN d => UserExecutorConv (0 d : Executor) where
   -- 1D conv + pool
   primConv1d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
   primConv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
@@ -310,7 +310,7 @@ interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
 
 
 ----------------------------------------------------------------------
--- UserDeviceTraining — autograd + param registry + IO + misc slice
+-- UserExecutorTraining — autograd + param registry + IO + misc slice
 ----------------------------------------------------------------------
 
 ||| The fifth and final slice. Closes the chain
@@ -332,9 +332,9 @@ interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
 ||| seen the bindings sit unused. The methods retained below operate
 ||| on a backend-specific Tensor handle or autograd state, so they
 ||| are the dispatch surface that can grow live as layers gain
-||| `UserDeviceTraining d =>` constraints.
+||| `UserExecutorTraining d =>` constraints.
 public export
-interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
+interface UserExecutorConv d => UserExecutorTraining (0 d : Executor) where
   -- Autograd flag --------------------------------------------------
   primRequiresGrad      : AnyPtr -> Int
   primSetRequiresGrad   : AnyPtr -> Int -> PrimIO ()
@@ -350,7 +350,7 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   primTensorSizeAt      : AnyPtr -> Int -> Int
 
   -- Scalar reads / host-buffer creation / data loading ------------
-  -- (kept off `UserDeviceCore` so minimal BYO backends needn't
+  -- (kept off `UserExecutorCore` so minimal BYO backends needn't
   -- implement them; full backends provide them here.)
   ||| Read element `(r, c)` from a 2-D tensor as a host Double.
   primItem2d            : AnyPtr -> Int -> Int -> Double
@@ -542,11 +542,11 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
 
 
 ----------------------------------------------------------------------
--- UserDeviceTransfer — cross-backend tensor transfer surface
+-- UserExecutorTransfer — cross-backend tensor transfer surface
 --
 -- Backends that implement this can act as source or destination for
--- the generic `toDevice` in `Tensor.idr`. The interface bundles
--- everything `toDevice` needs to:
+-- the generic `toExecutor` in `Tensor.idr`. The interface bundles
+-- everything `toExecutor` needs to:
 --   (a) recognise the backend at runtime (via `backendTag`);
 --   (b) migrate a handle in place when source and dest share a
 --       backend (via `primIntraMigrate`); and
@@ -556,17 +556,17 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
 --
 -- The five built-in backends today (tape, torch CPU/MPS/CUDA, mlx
 -- CPU/GPU) all implement this. Users adding a BYO backend that
--- wants to plug into the generic `toDevice` machinery declare their
+-- wants to plug into the generic `toExecutor` machinery declare their
 -- own instance with a globally-unique `backendTag` (convention:
 -- namespace as "user/<name>" to avoid colliding with built-ins).
 ----------------------------------------------------------------------
 
 ||| Cross-backend transfer surface. See module-level docs above.
 public export
-interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
+interface UserExecutorCore d => UserExecutorTransfer (0 d : Executor) where
   ||| Globally unique string identifying the backend (NOT the
   ||| hardware variant). Built-ins reserve "tape", "torch", "mlx".
-  ||| BYO backends should namespace with "user/<name>". `toDevice`
+  ||| BYO backends should namespace with "user/<name>". `toExecutor`
   ||| compares tags to decide intra-vs-cross-backend path; a
   ||| collision would route an intra fast-path through a foreign
   ||| backend's C symbols and crash on handle type mismatch.
@@ -584,7 +584,7 @@ interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
   primFreeHost  : AnyPtr -> PrimIO ()
 
   ||| Allocate / write / free a host int buffer of `n` slots. Used
-  ||| by `toDevice` to build the shape array that
+  ||| by `toExecutor` to build the shape array that
   ||| `primCreateFromHost` consumes.
   primAllocIntHost : Int -> AnyPtr
   primFreeIntHost  : AnyPtr -> PrimIO ()
@@ -606,12 +606,12 @@ interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
 
 
 ----------------------------------------------------------------------
--- UserDeviceQuant — quantization slice (BitNet b1.58 → #411)
+-- UserExecutorQuant — quantization slice (BitNet b1.58 → #411)
 ----------------------------------------------------------------------
 
 ||| Opt-in slice for quantization ops. The three built-in backends
 ||| (tape, torch, mlx) implement it; BYO backends opt in only if they
-||| want BitNet b1.58. Subclass of `UserDeviceCore` so a `UserDeviceQuant
+||| want BitNet b1.58. Subclass of `UserExecutorCore` so a `UserExecutorQuant
 ||| d =>` constraint also brings the lifecycle + arithmetic surface.
 |||
 ||| `primCreateTernaryPacked2d` takes (host-byte-buffer, byte_count, o,
@@ -640,7 +640,7 @@ interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
 ||| produces a Ternary tensor in our layout. One-shot at safetensors
 ||| load.
 public export
-interface UserDeviceCore d => UserDeviceQuant (0 d : Device) where
+interface UserExecutorCore d => UserExecutorQuant (0 d : Executor) where
   primCreateTernaryPacked2d       : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
   primBitlinearFwd                : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
   primAbsmeanPerRow2d             : AnyPtr -> AnyPtr

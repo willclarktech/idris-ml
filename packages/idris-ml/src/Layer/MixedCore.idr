@@ -4,7 +4,7 @@ import Data.Vect
 import System
 import System.File
 
-import Device
+import Executor
 import Tensor
 import Layer.Core
 
@@ -30,7 +30,7 @@ import Layer.Core
 -- forcing the full single-dtype `LayerLike` system to migrate.
 
 public export
-interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
+interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
   ||| Forward: input is in computeDt, output is in computeDt; weights
   ||| (if any) are stored in paramDt and cast internally.
   ||| Constraints are named so instance bodies can disambiguate when
@@ -39,14 +39,14 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
   ||| call `tcastUnsafe` to materialise the paramDt → computeDt cast
   ||| inside their forward.
   |||
-  ||| `UserDeviceQuant d` is in the constraint list so quantization-
+  ||| `UserExecutorQuant d` is in the constraint list so quantization-
   ||| aware layers (BitLinear under #411) can call `tBitlinearFwd`
   ||| from their `applyVarMixed`. All three built-in backends
-  ||| implement `UserDeviceQuant`; BYO backends that want to slot
+  ||| implement `UserExecutorQuant`; BYO backends that want to slot
   ||| layers into a `NetworkMixed` must implement it too (stub the
   ||| methods with `idris_crash` if they don't ship BitNet kernels).
-  applyVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                  UserDeviceQuant d =>
+  applyVarMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                  UserExecutorQuant d =>
                   IsDType pDt => IsDType cDt =>
                   {auto rdtP : RuntimeDType pDt} ->
                   {auto rdtC : RuntimeDType cDt} ->
@@ -58,19 +58,19 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
                   IO (l i o d pDt cDt g, Tensor [o] d cDt g)
 
   ||| Auto-naming prefix (mirrors `LayerLike.layerPrefix`).
-  layerPrefixMixed : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+  layerPrefixMixed : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} ->
                      l i o d pDt cDt g -> String
   layerPrefixMixed _ = ""
 
   ||| Reset per-sequence state. Default = id; recurrent layers override.
-  resetStateMixed : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+  resetStateMixed : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} ->
                     l i o d pDt cDt g -> l i o d pDt cDt g
   resetStateMixed = id
 
   ||| Batched forward (default crashes; layers participating in
   ||| batched training override).
-  applyVarBatchMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                       UserDeviceQuant d =>
+  applyVarBatchMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                       UserExecutorQuant d =>
                        IsDType pDt => IsDType cDt =>
                        {auto rdtP : RuntimeDType pDt} ->
                        {auto rdtC : RuntimeDType cDt} ->
@@ -85,12 +85,12 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
 
   ||| Freeze the layer's parameters. Linear in input (mirrors
   ||| `LayerLike.freezeLayer`).
-  freezeLayerMixed : {0 d : Device} -> UserDeviceTraining d =>
+  freezeLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
                      {0 g : GradMode} -> {i, o : Nat} ->
                      (1 _ : l i o d pDt cDt g) -> IO (l i o d pDt cDt NoGrad)
 
   ||| Inverse of `freezeLayerMixed`. Linear in input.
-  unfreezeLayerMixed : {0 d : Device} -> UserDeviceTraining d =>
+  unfreezeLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
                        {i, o : Nat} ->
                        (1 _ : l i o d pDt cDt NoGrad) -> IO (l i o d pDt cDt WithGrad)
 
@@ -111,7 +111,7 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
 -- already the standard chaining surface.
 
 public export
-data AsMixed : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+data AsMixed : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkAsMixed : AnyLayer i o d dt g -> AsMixed i o d dt dt g
 
 public export
@@ -146,14 +146,14 @@ LayerLikeMixed AsMixed where
 ----------------------------------------------------------------------
 
 public export
-data AnyLayerMixed : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkAnyLayerMixed : (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) ->
+data AnyLayerMixed : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkAnyLayerMixed : (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) ->
                     LayerLikeMixed l =>
                     l i o d pDt cDt g -> AnyLayerMixed i o d pDt cDt g
 
 export
-applyVarAnyMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                   UserDeviceQuant d =>
+applyVarAnyMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                   UserExecutorQuant d =>
                    IsDType pDt => IsDType cDt =>
                    RuntimeDType pDt => RuntimeDType cDt =>
                    Linked d => Compatible d pDt => Compatible d cDt =>
@@ -165,8 +165,8 @@ applyVarAnyMixed (MkAnyLayerMixed l @{dict} layer) input = do
   pure (MkAnyLayerMixed l @{dict} layer', out)
 
 export
-applyVarBatchAnyMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                        UserDeviceQuant d =>
+applyVarBatchAnyMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                        UserExecutorQuant d =>
                         IsDType pDt => IsDType cDt =>
                         RuntimeDType pDt => RuntimeDType cDt =>
                         Linked d => Compatible d pDt => Compatible d cDt =>
@@ -178,7 +178,7 @@ applyVarBatchAnyMixed (MkAnyLayerMixed l @{dict} layer) input = do
   pure (MkAnyLayerMixed l @{dict} layer', out)
 
 export
-freezeAnyLayerMixed : {0 d : Device} -> UserDeviceTraining d =>
+freezeAnyLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
                       {0 g : GradMode} -> {i, o : Nat} ->
                       (1 _ : AnyLayerMixed i o d pDt cDt g) ->
                       IO (AnyLayerMixed i o d pDt cDt NoGrad)
@@ -187,7 +187,7 @@ freezeAnyLayerMixed (MkAnyLayerMixed l @{dict} layer) = do
   pure (MkAnyLayerMixed l @{dict} layer')
 
 export
-unfreezeAnyLayerMixed : {0 d : Device} -> UserDeviceTraining d =>
+unfreezeAnyLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
                         {i, o : Nat} ->
                         (1 _ : AnyLayerMixed i o d pDt cDt NoGrad) ->
                         IO (AnyLayerMixed i o d pDt cDt WithGrad)
@@ -201,7 +201,7 @@ unfreezeAnyLayerMixed (MkAnyLayerMixed l @{dict} layer) = do
 ----------------------------------------------------------------------
 
 public export
-data NetworkMixed : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+data NetworkMixed : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   OutputLayerMixed : AnyLayerMixed i o d pDt cDt g -> NetworkMixed i [] o d pDt cDt g
   (~~~>) : AnyLayerMixed i h d pDt cDt g -> NetworkMixed h hs o d pDt cDt g -> NetworkMixed i (h :: hs) o d pDt cDt g
 
@@ -209,8 +209,8 @@ export infixr 5 ~~~>
 
 ||| Array-level forward through a NetworkMixed.
 export
-forwardVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                  UserDeviceQuant d =>
+forwardVarMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                  UserExecutorQuant d =>
                   IsDType pDt => IsDType cDt =>
                   RuntimeDType pDt => RuntimeDType cDt =>
                   Linked d => Compatible d pDt => Compatible d cDt =>
@@ -227,7 +227,7 @@ forwardVarMixed {hs = h :: _} (l ~~~> rest) input = do
 
 ||| Freeze a NetworkMixed. Linear in input.
 export
-freezeNetworkMixed : {0 d : Device} -> UserDeviceTraining d =>
+freezeNetworkMixed : {0 d : Executor} -> UserExecutorTraining d =>
                      {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                      (1 _ : NetworkMixed i hs o d pDt cDt g) ->
                      IO (NetworkMixed i hs o d pDt cDt NoGrad)
@@ -241,7 +241,7 @@ freezeNetworkMixed {hs = h :: _} (l ~~~> rest) = do
 
 ||| Inverse of `freezeNetworkMixed`. Linear in input.
 export
-unfreezeNetworkMixed : {0 d : Device} -> UserDeviceTraining d =>
+unfreezeNetworkMixed : {0 d : Executor} -> UserExecutorTraining d =>
                        {i, o : Nat} -> {hs : List Nat} ->
                        (1 _ : NetworkMixed i hs o d pDt cDt NoGrad) ->
                        IO (NetworkMixed i hs o d pDt cDt WithGrad)
@@ -255,7 +255,7 @@ unfreezeNetworkMixed {hs = h :: _} (l ~~~> rest) = do
 
 ||| Reset per-sequence state on every layer.
 export
-resetNetworkMixed : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+resetNetworkMixed : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                     NetworkMixed i hs o d pDt cDt g -> NetworkMixed i hs o d pDt cDt g
 resetNetworkMixed (OutputLayerMixed (MkAnyLayerMixed l @{dict} layer)) =
   OutputLayerMixed (MkAnyLayerMixed l @{dict} (resetStateMixed @{dict} layer))
@@ -264,8 +264,8 @@ resetNetworkMixed ((MkAnyLayerMixed l @{dict} layer) ~~~> rest) =
 
 ||| Batched tensor-level forward through a NetworkMixed.
 export
-forwardVarBatchMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
-                       UserDeviceQuant d =>
+forwardVarBatchMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+                       UserExecutorQuant d =>
                        IsDType pDt => IsDType cDt =>
                        RuntimeDType pDt => RuntimeDType cDt =>
                        Linked d => Compatible d pDt => Compatible d cDt =>

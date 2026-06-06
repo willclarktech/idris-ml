@@ -30,7 +30,7 @@ import Layer.Linear
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -120,11 +120,11 @@ mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
 mnistItem ds idx = do
   let -- mnist_get_image / one_hot are dtype-aware: pass ExampleDType's tag so
       -- both yield ExampleDType directly (no cast on any build).
-      imgT = primMnistGetImage {d=ExampleDevice} ds (cast {to=Int} (natToInteger idx)) (dtypeTag {t=ExampleDType})
+      imgT = primMnistGetImage {d=ExampleExecutor} ds (cast {to=Int} (natToInteger idx)) (dtypeTag {t=ExampleDType})
       lbl = prim__mnistGetLabel ds (cast {to=Int} (natToInteger idx))
-      flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
+      flatImg = primReshape1d {d=ExampleExecutor} imgT (cast {to=Int} InputDim)
       lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
-      tgtT = primOneHot {d=ExampleDevice} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
+      tgtT = primOneHot {d=ExampleExecutor} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
   pure (MkTensorDataPoint flatImg tgtT)
 
 
@@ -135,14 +135,14 @@ mnistItem ds idx = do
 ||| Evaluate accuracy on nSamples random test images by forwarding each
 ||| image through the  model and arg-maxing the logits.
 evalAccuracy : {hs : List Nat} ->
-               Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad ->
+               Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad ->
                AnyPtr -> Int -> Nat -> IO (Double, Double)
 evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
   where
     argmax : AnyPtr -> Double -> Int -> Int -> Int
     argmax outT best bestI idx =
       if idx >= cast {to=Int} NumClasses then bestI
-      else let v = primItem1d {d=ExampleDevice} outT idx
+      else let v = primItem1d {d=ExampleExecutor} outT idx
            in if v > best then assert_total $ argmax outT v idx (idx + 1)
                           else assert_total $ argmax outT best bestI (idx + 1)
 
@@ -152,20 +152,20 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
       in pure (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
     go (S k) correct totalLoss = do
       let pos = cast {to=Int} (k * cast numImages `div` nSamples)
-          imgT = primMnistGetImage {d=ExampleDevice} ds pos (dtypeTag {t=ExampleDType})
+          imgT = primMnistGetImage {d=ExampleExecutor} ds pos (dtypeTag {t=ExampleDType})
           lbl = prim__mnistGetLabel ds pos
-          flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
-          inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor flatImg Nothing)
+          flatImg = primReshape1d {d=ExampleExecutor} imgT (cast {to=Int} InputDim)
+          inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor flatImg Nothing)
       (_, predV) <- forwardVar model inV
       let outT = predV.tensorPtr
           pred = argmax outT (-1.0e30) 0 0
           correct' = if pred == lbl then S correct else correct
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
-          tgtT = primOneHot {d=ExampleDevice} lblBuf' 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
-          tgtV = the (TVec NumClasses ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
+          tgtT = primOneHot {d=ExampleExecutor} lblBuf' 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
+          tgtV = the (TVec NumClasses ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
       lossT <- tnllLoss predV tgtV
-      let lossVal = primItem {d=ExampleDevice} lossT.tensorPtr
+      let lossVal = primItem {d=ExampleExecutor} lossT.tensorPtr
       go k correct' (totalLoss + lossVal)
 
 
@@ -183,15 +183,15 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
 ||| sample `tensor_conv2d` calls.
 partial
 trainOneFullPass : {hs : List Nat} ->
-                   NativeOptimizer ExampleDevice ->
+                   NativeOptimizer ExampleExecutor ->
                    IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
                    (batchesPerEpoch : Nat) ->
-                   Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad ->
-                   IO (Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad, Double)
+                   Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad ->
+                   IO (Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad, Double)
 trainOneFullPass opt genBatch n m0 = go m0 n 0.0
   where
-    go : Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad -> Nat -> Double ->
-         IO (Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad, Double)
+    go : Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad -> Nat -> Double ->
+         IO (Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad, Double)
     go m Z     acc = pure (m, acc / cast (natToInteger n))
     go m (S k) acc = do
       batch <- genBatch
@@ -201,10 +201,10 @@ trainOneFullPass opt genBatch n m0 = go m0 n 0.0
 ||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
 mnistMetrics : {hs : List Nat} ->
                AnyPtr -> Int ->
-               Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad ->
+               Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad ->
                IO (List (String, String))
 mnistMetrics testDs testCount m = do
-  pair <- withNoGrad {d=ExampleDevice} (evalAccuracy m testDs testCount 200)
+  pair <- withNoGrad {d=ExampleExecutor} (evalAccuracy m testDs testCount 200)
   pure [("test_acc", show (fst pair)),
         ("test_loss", show (snd pair))]
 
@@ -304,12 +304,12 @@ main = do
   let trainCfg = mkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
                    (mnistMetrics testDs testCount) (\_ => pure ())
 
-  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleDevice}
+  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleExecutor}
     (\m, _ => trainOneFullPass opt genBatch batchesPerEpoch m)
     (pure ()) trainCfg model
 
   putStrLn ""
-  finalPair <- withNoGrad {d=ExampleDevice} (evalAccuracy trained testDs testCount 1000)
+  finalPair <- withNoGrad {d=ExampleExecutor} (evalAccuracy trained testDs testCount 1000)
   let finalAcc = fst finalPair
       finalTestLoss = snd finalPair
   putStrLn $ "Final accuracy (1000 test samples): " ++ show (finalAcc * 100.0) ++ "%"

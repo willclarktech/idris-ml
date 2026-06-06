@@ -13,14 +13,14 @@ EXTRA_LDFLAGS ?=
 
 # MLX stream selection at runtime, also consumed by the BuildConfig
 # generation rule below — when PRIMARY=mlx and MLX_DEVICE=gpu, examples
-# spell `Tensor [..] (MlxDev MGpu) F32 WithGrad` so the type-level
+# spell `Tensor [..] (MlxExecutor MGpu) F32 WithGrad` so the type-level
 # claim matches what mlx actually runs (Metal GPU is float32-only per
 # the f32 rewrite).
 MLX_DEVICE ?= cpu
 
 # Torch hardware selection for the BuildConfig rule. When PRIMARY=torch
-# the example types resolve to `TorchDev TCpu`/`TorchDev TMps`/
-# `TorchDev (TCuda 0)` based on this env var. TMps forces F32 (libtorch
+# the example types resolve to `TorchExecutor TCpu`/`TorchExecutor TMps`/
+# `TorchExecutor (TCuda 0)` based on this env var. TMps forces F32 (libtorch
 # rejects F64 at MPS tensor construction); TCpu and TCuda stay at F64.
 TORCH_DEVICE ?= cpu
 
@@ -55,7 +55,7 @@ TAPE_DTYPE  ?=
 # `_tensor_add` aliased to `_tensor_add_<primary>`) so existing Idris
 # `%foreign "C:tensor_add,libidrisml"` declarations resolve to it.
 # Non-primary backends are reachable only by their suffixed names,
-# which Phase 2.x UserDevice instance methods will target directly.
+# which Phase 2.x UserExecutor instance methods will target directly.
 #
 # Examples:
 #   BACKEND=tape                  — single tape build (default, lean)
@@ -193,7 +193,7 @@ BACKENDS_DIR := packages/backends
 # Local package install prefix (writable, avoids polluting system Idris2).
 # Per-backend-set (under `$(BUILD)`) so each set has its own installed
 # library tree — `idris-ml-0`'s installed `.ttc` interface hashes differ
-# across backend sets (they embed the `HwConfig.idr` / `HwDevices.idr`
+# across backend sets (they embed the `HwConfig.idr` / `HwExecutors.idr`
 # linkage instances), so they cannot share a prefix.
 IDRIS2_LOCAL := $(CURDIR)/$(BUILD)/idris2-prefix
 
@@ -222,14 +222,14 @@ IDRIS_FLAGS := --build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) -p contrib -p id
 # code baked in. Wiping the per-set ttc when any library source is newer than
 # this stamp forces a clean rebuild. See docs/develop/gotchas.md.
 #
-# The generated `.idr` files (HwConfig, HwDevices) get *rewritten on backend-set
+# The generated `.idr` files (HwConfig, HwExecutors) get *rewritten on backend-set
 # switch* — their mtime bumps even when their per-set content is stable. Including
 # them here would defeat the per-set ttc cache: `tape → torch → tape` would
 # rewrite HwConfig.idr (set-A → set-B), then rewrite back (set-B → set-A), then
 # the next tape install would see the stamp older than HwConfig.idr and wipe
 # `build/tape-…/ttc-*`. Their own staleness tracking via `--build-dir`-keyed
 # ttc + interface-hash check is sufficient.
-LIBRARY_SRCS := $(filter-out packages/idris-ml/src/HwConfig.idr packages/idris-ml/src/HwDevices.idr, \
+LIBRARY_SRCS := $(filter-out packages/idris-ml/src/HwConfig.idr packages/idris-ml/src/HwExecutors.idr, \
                   $(shell find packages/idris-ml/src packages/idris-gym/src packages/idris-transformers/src -name '*.idr' 2>/dev/null)) \
                 packages/idris-ml-examples/src/Generate.idr
 
@@ -373,7 +373,7 @@ LIB := $(BUILD)/libidrisml.$(LIB_EXT)
 # The former link-time unified-name alias machinery
 # (`-Wl,-alias_list` on macOS / `-Wl,--defsym=` on Linux) was deleted
 # once every Idris `%foreign` migrated off unified names into
-# per-instance `UserDevice*` methods bound to the suffixed symbols
+# per-instance `UserExecutor*` methods bound to the suffixed symbols
 # directly. A repo-wide scan now finds zero unified-name references to
 # per-backend-renamed C symbols, so nothing needs the alias.
 BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(PRIMARY).h
@@ -603,7 +603,7 @@ $(BUILD)/.backend-stamp: FORCE | $(BUILD)
 # Stamp + generated source for the example device/dtype selection.
 # The Selection matrix lives in BuildConfig.idr.in's module docstring;
 # this rule observes PRIMARY + MLX_DEVICE + TORCH_DEVICE and emits the
-# right (ExampleDevice, ExampleDType) into BuildConfig.idr via sed.
+# right (ExampleExecutor, ExampleDType) into BuildConfig.idr via sed.
 # The stamp records the active tuple so the generation step only
 # writes the source file when the config actually changes (avoiding
 # TTC churn on no-op rebuilds), mirror of the .backend-stamp pattern.
@@ -615,21 +615,21 @@ BUILDCONFIG_IN  := packages/idris-ml-examples/src/BuildConfig.idr.in
 # BuildConfig (one example device/dtype cell), HwConfig emits a variable
 # number of instance blocks — one per backend in BACKEND_LIST — so the
 # recipe appends them to the .in header rather than sed-substituting.
-# Keyed on the whole BACKEND list. Lives in the core library (the Device
+# Keyed on the whole BACKEND list. Lives in the core library (the Executor
 # barrel re-exports it); git-ignored, regenerated each build.
 HWCONFIG_KEY := $(BACKEND)
 HWCONFIG_IDR := packages/idris-ml/src/HwConfig.idr
 HWCONFIG_IN  := packages/idris-ml/src/HwConfig.idr.in
 
-# Generated `builtinDevices : List SomeDevice` — the value-level mirror of
-# HwConfig's `Linked` instances (one `someDevice` candidate per linked
+# Generated `builtinExecutors : List SomeExecutor` — the value-level mirror of
+# HwConfig's `Linked` instances (one `someExecutor` candidate per linked
 # backend's admissible (device, dtype) cells). Lives downstream of `Tensor`
-# (where `someDevice` is defined), unlike HwConfig which the Device barrel
+# (where `someExecutor` is defined), unlike HwConfig which the Executor barrel
 # re-exports upstream. Keyed on the BACKEND list; git-ignored, regenerated.
-HWDEVICES_IDR := packages/idris-ml/src/HwDevices.idr
-HWDEVICES_IN  := packages/idris-ml/src/HwDevices.idr.in
+HWDEVICES_IDR := packages/idris-ml/src/HwExecutors.idr
+HWDEVICES_IN  := packages/idris-ml/src/HwExecutors.idr.in
 
-# Generated `TestDevice` / `TestDType` for the Idris unit test suite. Same
+# Generated `TestExecutor` / `TestDType` for the Idris unit test suite. Same
 # template trick as BuildConfig (one cell, sed-substituted from the active
 # PRIMARY × hw-device envs); lives in the test sourcedir (now colocated
 # under src/Test/ alongside the rest of the test files — dual-ipkg pattern,
@@ -656,37 +656,37 @@ $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 # downstream modules with matching interface hashes don't.
 $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
-		mlx/gpu/*)    DEVICE="MlxDev MGpu";       DTYPE="F32" ;; \
-		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F64" ;; \
-		torch/*/mps)  DEVICE="TorchDev TMps";     DTYPE="F32" ;; \
-		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F64" ;; \
-		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F64" ;; \
-		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
-		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
+		mlx/gpu/*)    DEVICE="MlxExecutor MGpu";       DTYPE="F32" ;; \
+		mlx/cpu/*)    DEVICE="MlxExecutor MCpu";       DTYPE="F64" ;; \
+		torch/*/mps)  DEVICE="TorchExecutor TMps";     DTYPE="F32" ;; \
+		torch/*/cuda) DEVICE="TorchExecutor (TCuda 0)"; DTYPE="F64" ;; \
+		torch/*/*)    DEVICE="TorchExecutor TCpu";     DTYPE="F64" ;; \
+		tape/*/*)     DEVICE="TapeExecutor";           DTYPE="F64" ;; \
+		*)            DEVICE="TapeExecutor";           DTYPE="F64" ;; \
 	esac; \
 	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
 	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
 	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
 	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) TORCH_DTYPE=$(TORCH_DTYPE) MLX_DTYPE=$(MLX_DTYPE) TAPE_DTYPE=$(TAPE_DTYPE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
+	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) TORCH_DTYPE=$(TORCH_DTYPE) MLX_DTYPE=$(MLX_DTYPE) TAPE_DTYPE=$(TAPE_DTYPE) → $$(awk -F' = ' '/^ExampleExecutor = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
 
 $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
-		mlx/gpu/*)    DEVICE="MlxDev MGpu";       DTYPE="F32" ;; \
-		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F64" ;; \
-		torch/*/mps)  DEVICE="TorchDev TMps";     DTYPE="F32" ;; \
-		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F64" ;; \
-		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F64" ;; \
-		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
-		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
+		mlx/gpu/*)    DEVICE="MlxExecutor MGpu";       DTYPE="F32" ;; \
+		mlx/cpu/*)    DEVICE="MlxExecutor MCpu";       DTYPE="F64" ;; \
+		torch/*/mps)  DEVICE="TorchExecutor TMps";     DTYPE="F32" ;; \
+		torch/*/cuda) DEVICE="TorchExecutor (TCuda 0)"; DTYPE="F64" ;; \
+		torch/*/*)    DEVICE="TorchExecutor TCpu";     DTYPE="F64" ;; \
+		tape/*/*)     DEVICE="TapeExecutor";           DTYPE="F64" ;; \
+		*)            DEVICE="TapeExecutor";           DTYPE="F64" ;; \
 	esac; \
 	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
 	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
 	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
 	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[TestConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) TORCH_DTYPE=$(TORCH_DTYPE) MLX_DTYPE=$(MLX_DTYPE) TAPE_DTYPE=$(TAPE_DTYPE) → $$(awk -F' = ' '/^TestDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
+	@echo "[TestConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) TORCH_DTYPE=$(TORCH_DTYPE) MLX_DTYPE=$(MLX_DTYPE) TAPE_DTYPE=$(TAPE_DTYPE) → $$(awk -F' = ' '/^TestExecutor = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
 
 # Same always-touch logic as the .buildconfig-stamp recipe above; see
 # the comment there for why a content-equal stamp still needs an mtime
@@ -702,41 +702,41 @@ $(HWCONFIG_IDR): $(HWCONFIG_IN) $(BUILD)/.hwconfig-stamp
 	@{ cat $(HWCONFIG_IN); \
 	   for b in $(BACKEND_LIST); do \
 	     case $$b in \
-	       tape)  printf 'public export\nLinked TapeDev where\n\n' ;; \
-	       torch) printf 'public export\n{hw : TorchHwDev} -> Linked (TorchDev hw) where\n\n' ;; \
-	       mlx)   printf 'public export\n{s : MlxStream} -> Linked (MlxDev s) where\n\n' ;; \
+	       tape)  printf 'public export\nLinked TapeExecutor where\n\n' ;; \
+	       torch) printf 'public export\n{hw : TorchHwDev} -> Linked (TorchExecutor hw) where\n\n' ;; \
+	       mlx)   printf 'public export\n{s : MlxStream} -> Linked (MlxExecutor s) where\n\n' ;; \
 	     esac; \
 	   done; \
 	 } > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[HwConfig] BACKEND=$(BACKEND) → Linked instances for: $(BACKEND_LIST)"
 
-# Emit `builtinDevices` as `[] ++ <per-backend candidate lists>`. Seeding
+# Emit `builtinExecutors` as `[] ++ <per-backend candidate lists>`. Seeding
 # with `[]` keeps every backend fragment a uniform `++ [...]`, so a
-# tape-only build is `[] ++ [TapeDev/F64]` and the empty BACKEND case is a
-# well-typed `[]`. Each `someDevice {d} {dt}` resolves its Linked /
+# tape-only build is `[] ++ [TapeExecutor/F64]` and the empty BACKEND case is a
+# well-typed `[]`. Each `someExecutor {d} {dt}` resolves its Linked /
 # Compatible / HardwareClassed / UserDeviceTape constraints from the
-# instances brought in via `import Device` / `import Tensor`. torch lists
+# instances brought in via `import Executor` / `import Tensor`. torch lists
 # all three hw variants (TCpu/TMps/TCuda 0) — EAFP filters to what's
 # present (multi-GPU `TCuda n` enumeration via cuda_device_count is a
 # separate follow-up).
 $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 	@{ cat $(HWDEVICES_IN); \
-	   printf 'public export\nbuiltinDevices : List SomeDevice\nbuiltinDevices = []\n'; \
+	   printf 'public export\nbuiltinExecutors : List SomeExecutor\nbuiltinExecutors = []\n'; \
 	   for b in $(BACKEND_LIST); do \
 	     case $$b in \
-	       tape)  printf '  ++ [someDevice {d = TapeDev} {dt = F64}]\n' ;; \
-	       torch) printf '  ++ [ someDevice {d = TorchDev TCpu} {dt = F64}\n     , someDevice {d = TorchDev TMps} {dt = F32}\n     , someDevice {d = TorchDev (TCuda 0)} {dt = F64} ]\n' ;; \
-	       mlx)   printf '  ++ [ someDevice {d = MlxDev MCpu} {dt = F64}\n     , someDevice {d = MlxDev MGpu} {dt = F32} ]\n' ;; \
+	       tape)  printf '  ++ [someExecutor {d = TapeExecutor} {dt = F64}]\n' ;; \
+	       torch) printf '  ++ [ someExecutor {d = TorchExecutor TCpu} {dt = F64}\n     , someExecutor {d = TorchExecutor TMps} {dt = F32}\n     , someExecutor {d = TorchExecutor (TCuda 0)} {dt = F64} ]\n' ;; \
+	       mlx)   printf '  ++ [ someExecutor {d = MlxExecutor MCpu} {dt = F64}\n     , someExecutor {d = MlxExecutor MGpu} {dt = F32} ]\n' ;; \
 	     esac; \
 	   done; \
 	 } > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[HwDevices] BACKEND=$(BACKEND) → builtinDevices for: $(BACKEND_LIST)"
+	@echo "[HwExecutors] BACKEND=$(BACKEND) → builtinExecutors for: $(BACKEND_LIST)"
 
 # Final link: all listed backends' .o + shared objects (primary's
 # suffix). One dylib, no symlink. Every symbol is reached by its
-# suffixed name from the per-instance UserDevice methods — no aliases.
+# suffixed name from the per-instance UserExecutor methods — no aliases.
 $(LIB): $(BACKEND_OBJS) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD)
 	$(LINK_CC) -O2 -shared $(EXTRA_LDFLAGS) -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS)
 
@@ -1286,7 +1286,7 @@ test-coverage: test-coverage-gap-probe test-coverage-backend
 
 # Idris-side unit suite against the active backend. Buckets that
 # touch the C surface (GradMode, ManagedHandle, Tensor lifecycle)
-# resolve through `{d=TestDevice}` which the Makefile-generated
+# resolve through `{d=TestExecutor}` which the Makefile-generated
 # `TestConfig.idr` pins to the active backend.
 #
 # Test build goes through `pack` so the hedgehog + Test.Property
@@ -1301,10 +1301,10 @@ test-unit-idris-ml: backend $(TESTCONFIG_IDR) $(HWCONFIG_IDR) $(HWDEVICES_IDR)
 	./packages/idris-ml/build/exec/test
 
 # Multi-backend Idris tests — adds Test.Transfer (cross-backend
-# `toDevice` smoke + roundtrip) to the unit-test list. Forces
+# `toExecutor` smoke + roundtrip) to the unit-test list. Forces
 # BACKEND=torch,tape,mlx so tape / torch / mlx C symbols are all
 # linked into one dylib — Test.Transfer references all three by
-# name through `UserDeviceTransfer` instance dispatch and would
+# name through `UserExecutorTransfer` instance dispatch and would
 # crash at FFI resolution under any single-backend build. Torch
 # primary so the F32-hop's tcastUnsafe (a RuntimeDType op routed
 # via unified C names) lands on a backend that supports F32.
@@ -1812,7 +1812,7 @@ example-transfer:
 	./$(BUILD)/exec/transfer $(TRANSFER_ARGS)
 
 # F32/F64 precision artifact + cross-backend hop demo. References
-# TapeDev/TorchDev/MlxDev directly, so it needs all three backends
+# TapeExecutor/TorchExecutor/MlxExecutor directly, so it needs all three backends
 # linked (same as `example-transfer`). Unblocked by tape's F32 storage
 # + kernel coverage — every cell is first-class for both precisions.
 example-precision-demo:

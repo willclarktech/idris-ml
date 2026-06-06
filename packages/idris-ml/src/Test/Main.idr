@@ -25,11 +25,11 @@ import Test.Properties.Softmax as Props.Softmax
 import Test.RmsNorm
 import Test.RoPE
 import Test.SwiGLU
--- NOTE: Test.Transfer (UserDeviceTransfer / toDevice smoke) lives in
+-- NOTE: Test.Transfer (UserExecutorTransfer / toExecutor smoke) lives in
 -- the source tree but isn't wired into this default `tests` list:
--- it deliberately references TapeDev / TorchDev / MlxDev by name to
+-- it deliberately references TapeExecutor / TorchExecutor / MlxExecutor by name to
 -- exercise cross-backend hops, so it crashes under any single-backend
--- build. The other buckets above use `{d=TestDevice}` (resolved at
+-- build. The other buckets above use `{d=TestExecutor}` (resolved at
 -- build time from the active PRIMARY via the Makefile-generated
 -- TestConfig.idr — same trick as BuildConfig for the examples), so
 -- `make BACKEND=<b> test` works on every backend. Run the multi-

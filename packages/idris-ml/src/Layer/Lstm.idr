@@ -2,7 +2,7 @@ module Layer.Lstm
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -18,7 +18,7 @@ import Tensor
 -- than inside a Vect literal.
 
 public export
-record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record LstmState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLstm
   iwT : TMat (4 * o) i d dt g
   rwT : TMat (4 * o) o d dt g
@@ -40,7 +40,7 @@ record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMo
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
+applyLstm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
               LstmState i o d dt g ->
               TVec i d dt g ->
               IO (LstmState i o d dt g, TVec o d dt g)
@@ -64,13 +64,13 @@ applyLstm {o} st input = do
 ----------------------------------------------------------------------
 
 
-||| Build an `LstmState i o TapeDev` with Xavier-uniform weight init,
+||| Build an `LstmState i o TapeExecutor` with Xavier-uniform weight init,
 ||| two zero biases (matching `nn.LSTMCell`), and learned `h0`/`c0`
 ||| (zero-init, learned). Weights register as C params under
 ||| `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`, `<prefix>_hb`,
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
-lstmLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
+lstmLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
               IO (LstmState i o d dt WithGrad)
 lstmLayer paramPrefix = do
   -- 4 gates (input, forget, gate, output) stacked along axis=0 →
@@ -97,7 +97,7 @@ lstmLayer paramPrefix = do
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
 ||| V1's `resetState`, where MLX trains correctly via this lazy path.
 export
-resetLstmState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> LstmState i o d dt g -> LstmState i o d dt g
+resetLstmState : {o : Nat} -> {0 d : Executor} -> {0 g : GradMode} -> LstmState i o d dt g -> LstmState i o d dt g
 resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
 
 
@@ -146,5 +146,5 @@ LayerLike LstmState where
 
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+lstmLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)

@@ -30,7 +30,7 @@ import System
 import System.Clock
 
 import Tensor
-import Device
+import Executor
 import BuildConfig
 
 
@@ -83,8 +83,8 @@ buildTensor3d d0 d1 d2 =
       sh' = prim__setInt sh 0 d0I
       sh'' = prim__setInt sh' 1 d1I
       sh''' = prim__setInt sh'' 2 d2I
-  in dtCreate {d=ExampleDevice} {t=ExampleDType} buf' sh''' 3 0
-       (deviceStreamTag {d=ExampleDevice})
+  in dtCreate {d=ExampleExecutor} {t=ExampleDType} buf' sh''' 3 0
+       (deviceStreamTag {d=ExampleExecutor})
 
 
 -- Force backend-side eval. mlx is lazy by default; torch-mps queues
@@ -92,7 +92,7 @@ buildTensor3d d0 d1 d2 =
 -- the call costs nothing if data's already realised.
 forceEval : AnyPtr -> IO ()
 forceEval h = do
-  let v = primItem {d=ExampleDevice} (primSum {d=ExampleDevice} h)
+  let v = primItem {d=ExampleExecutor} (primSum {d=ExampleExecutor} h)
   ignore (pure v)
 
 
@@ -104,7 +104,7 @@ forceEval h = do
 -- across iterations because broadcast preserves outer dims.
 loopMul : Nat -> AnyPtr -> AnyPtr -> IO AnyPtr
 loopMul Z accum _ = pure accum
-loopMul (S k) accum cos = loopMul k (primMul {d=ExampleDevice} accum cos) cos
+loopMul (S k) accum cos = loopMul k (primMul {d=ExampleExecutor} accum cos) cos
 
 
 -- Microseconds between two monotonic clock readings.

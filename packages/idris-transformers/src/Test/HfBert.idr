@@ -5,7 +5,7 @@
 ||| the C-side param registry holds exactly the catalogue's names in
 ||| the catalogue's order — is the second.
 |||
-||| The FFI bucket pins `{d=TapeDev}` directly rather than going
+||| The FFI bucket pins `{d=TapeExecutor}` directly rather than going
 ||| through a generated `TestConfig.idr` like idris-ml's test suite
 ||| does. That means `make BACKEND=torch test-transformers` or
 ||| `BACKEND=mlx test-transformers` would currently fail at FFI
@@ -22,9 +22,9 @@ import Data.Vect
 import HfBert
 import Test.Harness
 
-import Device
-import Device.Core
-import Device.Tape
+import Executor
+import Executor.Core
+import Executor.Tape
 import Tensor
 import Array
 
@@ -134,14 +134,14 @@ testNamingConvention =
 -- returns the name registered at slot i.
 readAllParamNames : IO (List String)
 readAllParamNames = do
-  count <- primIO (primParamCount {d=TapeDev})
+  count <- primIO (primParamCount {d=TapeExecutor})
   go count 0
   where
     go : Int -> Int -> IO (List String)
     go end i = if i >= end
                  then pure []
                  else do
-                   name <- primIO (primParamName {d=TapeDev} i)
+                   name <- primIO (primParamName {d=TapeExecutor} i)
                    rest <- go end (i + 1)
                    pure (name :: rest)
 
@@ -151,7 +151,7 @@ testConstructorRegistersHfNames = do
   let cfg = bertTinyConfig
   -- Build the model. Discard the returned state — we only care that
   -- the C-side param registry now holds all 39 HF-native names.
-  _ <- hfBertModel {d=TapeDev} {dt=F64}
+  _ <- hfBertModel {d=TapeExecutor} {dt=F64}
                    {vocab = cfg.vocabSize}
                    {hidden = cfg.hidden}
                    {numLayers = cfg.numLayers}
@@ -181,9 +181,9 @@ testConstructorRegistersHfNames = do
 -- copies into a fresh C buffer) + tinput1d (which records the handle
 -- as a non-parameter input). The values represent token IDs encoded
 -- as doubles — same convention as Layer.Embedding's input contract.
-mkIdsTensor : {n : Nat} -> Vect n Double -> Tensor [n] TapeDev F64 WithGrad
+mkIdsTensor : {n : Nat} -> Vect n Double -> Tensor [n] TapeExecutor F64 WithGrad
 mkIdsTensor xs =
-  let raw = bulkToTensor {d=TapeDev} {dt=F64}
+  let raw = bulkToTensor {d=TapeExecutor} {dt=F64}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -197,7 +197,7 @@ readOut {n} p = loop (cast {to=Int} n) 0 []
     loop end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=TapeDev} p i
+        else let v = primItem1d {d=TapeExecutor} p i
              in loop end (i + 1) (v :: acc)
 
 -- Finite ≡ neither NaN nor ±Inf. NaN self-inequality + magnitude
@@ -210,7 +210,7 @@ testForwardShapeAndFinite = do
   -- Tiny config: hidden=8, layers=1, heads=2, headDim=4, intermediate=16.
   -- Distinct paramPrefix from bertTinyConfig's "bert" so this test
   -- doesn't collide with the bucket-2 registry.
-  model <- hfBertModel {d=TapeDev} {dt=F64}
+  model <- hfBertModel {d=TapeExecutor} {dt=F64}
                        {vocab        = 4}
                        {hidden       = 8}
                        {numLayers    = 1}
@@ -225,7 +225,7 @@ testForwardShapeAndFinite = do
   let inputIds = mkIdsTensor (the (Vect 3 Double) [1.0, 2.0, 3.0])
       posIds   = mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
       typeIds  = mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
-  out <- hfBertForward {d=TapeDev} {dt=F64}
+  out <- hfBertForward {d=TapeExecutor} {dt=F64}
                        {seqLen       = 3}
                        {vocab        = 4}
                        {hidden       = 8}

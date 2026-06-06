@@ -1,25 +1,25 @@
 ||| F32 / F64 precision artifact + cross-backend hop demo.
 |||
 ||| Unblocked by tape's F32 storage + kernel coverage: every cell
-||| this demo exercises — `TapeDev` (F32 + F64 trainable),
-||| `TorchDev TCpu`, `MlxDev MCpu` — is now first-class for both
+||| this demo exercises — `TapeExecutor` (F32 + F64 trainable),
+||| `TorchExecutor TCpu`, `MlxExecutor MCpu` — is now first-class for both
 ||| precisions. The example tells the precision story in three
 ||| numbered parts:
 |||
-|||   1. F64 → F32 narrowing on `TapeDev` (`tcastUnsafe`). Source
+|||   1. F64 → F32 narrowing on `TapeExecutor` (`tcastUnsafe`). Source
 |||      values are deliberately not exactly representable in F32
 |||      (π-, e-, √2-truncations), so the readback delta is
 |||      non-zero AND inside the F32 epsilon band — proving the
 |||      cast actually narrowed (lossy) without diverging.
 |||
-|||   2. F32 → F64 widening on `TapeDev` (`tcast` via the lossless
+|||   2. F32 → F64 widening on `TapeExecutor` (`tcast` via the lossless
 |||      `UpcastableTo F32 F64` instance). The widened readback is
 |||      bit-for-bit identical to the F32 readback: F32 ⊂ F64, so
 |||      promoting an F32 value into F64 storage adds no new
 |||      precision; the original F64 source is gone.
 |||
-|||   3. Cross-backend F32 hop `TapeDev → TorchDev TCpu → MlxDev MCpu
-|||      → TapeDev`. Each transition is a backendTag-mismatch host-
+|||   3. Cross-backend F32 hop `TapeExecutor → TorchExecutor TCpu → MlxExecutor MCpu
+|||      → TapeExecutor`. Each transition is a backendTag-mismatch host-
 |||      buffer round-trip; F32 bits survive every hop because the
 |||      F32-as-double host carrier is exact in both directions.
 |||
@@ -40,7 +40,7 @@ module Example.PrecisionDemo
 import Data.List
 import Data.Vect
 
-import Device
+import Executor
 import Tensor
 
 
@@ -55,7 +55,7 @@ import Tensor
 ||| module-level constant whose lambda still references buffers
 ||| allocated at module load, double-freeing on the next call.
 makeVec3 : {0 d : Type} -> {0 dt : DType} ->
-           UserDeviceTransfer d => Compatible d dt =>
+           UserExecutorTransfer d => Compatible d dt =>
            (Double, Double, Double) ->
            IO (Tensor [3] d dt WithGrad)
 makeVec3 (a, b, c) = do
@@ -75,7 +75,7 @@ makeVec3 (a, b, c) = do
 ||| Returns F64 doubles regardless of storage dtype — the C side
 ||| promotes F32 to double on readback. `{d}` pins the typeclass
 ||| dispatch (Idris can't infer it from a bare `AnyPtr`).
-read3 : {0 d : Type} -> {0 dt : DType} -> UserDeviceCore d =>
+read3 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore d =>
         Tensor [3] d dt WithGrad ->
         (Double, Double, Double)
 read3 t =
@@ -117,13 +117,13 @@ f32RelTol = 1.0e-6
 
 
 ----------------------------------------------------------------------
--- Part 1: F64 → F32 narrowing (lossy) on TapeDev
+-- Part 1: F64 → F32 narrowing (lossy) on TapeExecutor
 ----------------------------------------------------------------------
 
 partOne_F32LossyCast : IO Bool
 partOne_F32LossyCast = do
-  putStrLn "=== Part 1: F64 → F32 narrowing on TapeDev ==="
-  src <- makeVec3 {d = TapeDev} {dt = F64} sourceF64
+  putStrLn "=== Part 1: F64 → F32 narrowing on TapeExecutor ==="
+  src <- makeVec3 {d = TapeExecutor} {dt = F64} sourceF64
   let srcVals = read3 src
   putStrLn $ "  " ++ padN 22 "F64 source:"          ++ showTriple srcVals
 
@@ -149,8 +149,8 @@ partOne_F32LossyCast = do
 partTwo_F32ToF64Upcast : IO Bool
 partTwo_F32ToF64Upcast = do
   putStrLn ""
-  putStrLn "=== Part 2: F32 → F64 widening on TapeDev ==="
-  src    <- makeVec3 {d = TapeDev} {dt = F64} sourceF64
+  putStrLn "=== Part 2: F32 → F64 widening on TapeExecutor ==="
+  src    <- makeVec3 {d = TapeExecutor} {dt = F64} sourceF64
   narrow <- tcastUnsafe F32 src
   let f32Vals = read3 narrow
   putStrLn $ "  " ++ padN 22 "F32 storage:"   ++ showTriple f32Vals
@@ -180,23 +180,23 @@ partTwo_F32ToF64Upcast = do
 partThree_F32Hop : IO Bool
 partThree_F32Hop = do
   putStrLn ""
-  putStrLn "=== Part 3: F32 hop TapeDev → TorchDev TCpu → MlxDev MCpu → TapeDev ==="
-  src_f64 <- makeVec3 {d = TapeDev} {dt = F64} sourceF64
+  putStrLn "=== Part 3: F32 hop TapeExecutor → TorchExecutor TCpu → MlxExecutor MCpu → TapeExecutor ==="
+  src_f64 <- makeVec3 {d = TapeExecutor} {dt = F64} sourceF64
   v_tape  <- tcastUnsafe F32 src_f64
   let startVals = read3 v_tape
-  putStrLn $ "  " ++ padN 30 "TapeDev F32:"          ++ showTriple startVals
+  putStrLn $ "  " ++ padN 30 "TapeExecutor F32:"          ++ showTriple startVals
 
-  v_torch <- toDevice (TorchDev TCpu) v_tape
+  v_torch <- toExecutor (TorchExecutor TCpu) v_tape
   let torchVals = read3 v_torch
-  putStrLn $ "  " ++ padN 30 "→ TorchDev TCpu F32:"  ++ showTriple torchVals
+  putStrLn $ "  " ++ padN 30 "→ TorchExecutor TCpu F32:"  ++ showTriple torchVals
 
-  v_mlx <- toDevice (MlxDev MCpu) v_torch
+  v_mlx <- toExecutor (MlxExecutor MCpu) v_torch
   let mlxVals = read3 v_mlx
-  putStrLn $ "  " ++ padN 30 "→ MlxDev MCpu F32:"    ++ showTriple mlxVals
+  putStrLn $ "  " ++ padN 30 "→ MlxExecutor MCpu F32:"    ++ showTriple mlxVals
 
-  v_back <- toDevice TapeDev v_mlx
+  v_back <- toExecutor TapeExecutor v_mlx
   let backVals = read3 v_back
-  putStrLn $ "  " ++ padN 30 "→ TapeDev F32 (back):" ++ showTriple backVals
+  putStrLn $ "  " ++ padN 30 "→ TapeExecutor F32 (back):" ++ showTriple backVals
 
   let totalDelta = maxAbsDelta startVals backVals
   putStrLn $ "  " ++ padN 30 "max delta start↔back:" ++ show totalDelta

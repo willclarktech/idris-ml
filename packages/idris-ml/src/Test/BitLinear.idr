@@ -3,7 +3,7 @@ module Test.BitLinear
 import Data.Vect
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 import Array
 import Layer
@@ -41,14 +41,14 @@ import Test.Config
 -- deterministic order; without it Idris/Chez can reorder the calls
 -- across multiple let-bound tensors and one of them ends up
 -- referencing an uninitialised arena slot.
-mkVecDt : {0 dt : DType} -> RuntimeDType dt => Compatible TestDevice dt =>
-          {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice dt WithGrad)
+mkVecDt : {0 dt : DType} -> RuntimeDType dt => Compatible TestExecutor dt =>
+          {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor dt WithGrad)
 mkVecDt xs = do
-  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=dt}
+  raw <- ioRerun (\_ => bulkToTensor {d=TestExecutor} {dt=dt}
                                      (VArray (map SArray xs)))
   pure (tinput1d {n} raw)
 
-mkVec : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType WithGrad)
+mkVec : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType WithGrad)
 mkVec = mkVecDt {dt=TestDType}
 
 
@@ -57,14 +57,14 @@ mkVec = mkVecDt {dt=TestDType}
 -- so the underlying FFI chain inside `bulkToTensor` fires when the
 -- IO action runs; without an IO bracket the Tensor was lazily
 -- evaluated mid-FFI-call and showed rank=0 in the kernel.
-mkVecNoGradDt : {0 dt : DType} -> RuntimeDType dt => Compatible TestDevice dt =>
-                {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice dt NoGrad)
+mkVecNoGradDt : {0 dt : DType} -> RuntimeDType dt => Compatible TestExecutor dt =>
+                {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor dt NoGrad)
 mkVecNoGradDt xs = do
-  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=dt}
+  raw <- ioRerun (\_ => bulkToTensor {d=TestExecutor} {dt=dt}
                                      (VArray (map SArray xs)))
-  weakenGrad {d=TestDevice} (tinput1d {n} raw)
+  weakenGrad {d=TestExecutor} (tinput1d {n} raw)
 
-mkVecNoGrad : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType NoGrad)
+mkVecNoGrad : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType NoGrad)
 mkVecNoGrad = mkVecNoGradDt {dt=TestDType}
 
 
@@ -81,17 +81,17 @@ buildFixtureBytes = do
 
 
 -- Read element `k` of a [3] result Tensor as a Double.
-readElem3 : Tensor [3] TestDevice TestDType g -> Int -> IO Double
+readElem3 : Tensor [3] TestExecutor TestDType g -> Int -> IO Double
 readElem3 t k = do
-  s <- telemSelect {d=TestDevice} {n=3} t k
-  pure (tensorItem {d=TestDevice} s)
+  s <- telemSelect {d=TestExecutor} {n=3} t k
+  pure (tensorItem {d=TestExecutor} s)
 
 -- Read element `k` of a [3] result Tensor parameterised by dtype.
 readElem3Dt : {0 dt : DType} -> {0 g : GradMode} ->
-              Tensor [3] TestDevice dt g -> Int -> IO Double
+              Tensor [3] TestExecutor dt g -> Int -> IO Double
 readElem3Dt t k = do
-  s <- telemSelect {d=TestDevice} {n=3} t k
-  pure (tensorItem {d=TestDevice} s)
+  s <- telemSelect {d=TestExecutor} {n=3} t k
+  pure (tensorItem {d=TestExecutor} s)
 
 
 -- The oracle assertion. Builds the fixture, runs forward, asserts
@@ -99,11 +99,11 @@ readElem3Dt t k = do
 bitlinearForwardOracle : IO Bool
 bitlinearForwardOracle = do
   (bytesPtr, byteCount) <- buildFixtureBytes
-  w <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  w <- tCreateTernaryPacked2d {d=TestExecutor} {o=3} {i=4} bytesPtr byteCount
   s <- mkVecNoGrad (the (Vect 3 Double) [0.5, 0.25, 0.75])
   x <- mkVec       (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
   b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
-  y <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} w s x b
+  y <- tBitlinearFwd {d=TestExecutor} {cDt=TestDType} w s x b
   y0 <- readElem3 y 0
   y1 <- readElem3 y 1
   y2 <- readElem3 y 2
@@ -122,13 +122,13 @@ bitlinearForwardOracle = do
 bitlinearStateRoundtrip : IO Bool
 bitlinearStateRoundtrip = do
   (bytesPtr, byteCount) <- buildFixtureBytes
-  w  <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  w  <- tCreateTernaryPacked2d {d=TestExecutor} {o=3} {i=4} bytesPtr byteCount
   s <- mkVecNoGrad (the (Vect 3 Double) [0.5, 0.25, 0.75])
   b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
-  let st : BitLinearState 4 3 TestDevice Ternary TestDType WithGrad
+  let st : BitLinearState 4 3 TestExecutor Ternary TestDType WithGrad
       st = bitLinearFromTensors w s b
   x <- mkVec (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
-  y <- tBitlinearFwd {d=TestDevice} st.weightT st.scaleT x st.biasT
+  y <- tBitlinearFwd {d=TestExecutor} st.weightT st.scaleT x st.biasT
   y0 <- readElem3 y 0
   checkClose "BitLinearState forward through stored fields" 0.975 y0 1.0e-6
 
@@ -143,12 +143,12 @@ bitlinearStateRoundtrip = do
 bitlinearLayerLikeMixedOracle : IO Bool
 bitlinearLayerLikeMixedOracle = do
   (bytesPtr, byteCount) <- buildFixtureBytes
-  w <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  w <- tCreateTernaryPacked2d {d=TestExecutor} {o=3} {i=4} bytesPtr byteCount
   s <- mkVecNoGrad (the (Vect 3 Double) [0.5, 0.25, 0.75])
   b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
-  let anyL : AnyLayerMixed 4 3 TestDevice Ternary TestDType WithGrad
+  let anyL : AnyLayerMixed 4 3 TestExecutor Ternary TestDType WithGrad
       anyL = bitLinearFromTensorsAny w s b
-      net : NetworkMixed 4 [] 3 TestDevice Ternary TestDType WithGrad
+      net : NetworkMixed 4 [] 3 TestExecutor Ternary TestDType WithGrad
       net = OutputLayerMixed anyL
   x <- mkVec (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
   (_, y) <- forwardVarMixed net x
@@ -171,11 +171,11 @@ bitlinearLayerLikeMixedOracle = do
 bitlinearForwardOracleF32 : IO Bool
 bitlinearForwardOracleF32 = do
   (bytesPtr, byteCount) <- buildFixtureBytes
-  w <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  w <- tCreateTernaryPacked2d {d=TestExecutor} {o=3} {i=4} bytesPtr byteCount
   s <- mkVecNoGradDt {dt=F32} (the (Vect 3 Double) [0.5, 0.25, 0.75])
   x <- mkVecDt       {dt=F32} (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
   b <- mkVecDt       {dt=F32} (the (Vect 3 Double) [0.1, -0.2, 0.3])
-  y <- tBitlinearFwd {d=TestDevice} {cDt=F32} w s x b
+  y <- tBitlinearFwd {d=TestExecutor} {cDt=F32} w s x b
   y0 <- readElem3Dt y 0
   y1 <- readElem3Dt y 1
   y2 <- readElem3Dt y 2
@@ -226,11 +226,11 @@ bitlinearForwardOracleF32 = do
 --        = 0.25 * (-1.75) + 0.3 = -0.4375 + 0.3 = -0.1375
 
 mkMat34NoGrad : Vect 3 (Vect 4 Double) ->
-                IO (Tensor [3, 4] TestDevice TestDType NoGrad)
+                IO (Tensor [3, 4] TestExecutor TestDType NoGrad)
 mkMat34NoGrad xs = do
-  raw <- ioRerun (\_ => bulkToTensor2d {d=TestDevice} {dt=TestDType}
+  raw <- ioRerun (\_ => bulkToTensor2d {d=TestExecutor} {dt=TestDType}
                                        (map (\row => VArray (map SArray row)) xs))
-  weakenGrad {d=TestDevice} (tinput2d {m=3} {n=4} raw)
+  weakenGrad {d=TestExecutor} (tinput2d {m=3} {n=4} raw)
 
 
 absmeanQuantRoundtripOracle : IO Bool
@@ -242,7 +242,7 @@ absmeanQuantRoundtripOracle = do
   (ternaryW, scale) <- tAbsmeanTernaryQuant2d w
   x <- mkVec       (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
   b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
-  y <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} ternaryW scale x b
+  y <- tBitlinearFwd {d=TestExecutor} {cDt=TestDType} ternaryW scale x b
   y0 <- readElem3 y 0
   y1 <- readElem3 y 1
   y2 <- readElem3 y 2
@@ -303,11 +303,11 @@ buildHfFixtureBytes = do
 bitlinearHfPackedRoundtrip : IO Bool
 bitlinearHfPackedRoundtrip = do
   (bytesPtr, _) <- buildHfFixtureBytes
-  w <- tCreateTernaryFromHfPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr
+  w <- tCreateTernaryFromHfPacked2d {d=TestExecutor} {o=3} {i=4} bytesPtr
   s <- mkVecNoGrad (the (Vect 3 Double) [0.5, 0.25, 0.75])
   x <- mkVec       (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
   b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
-  y <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} w s x b
+  y <- tBitlinearFwd {d=TestExecutor} {cDt=TestDType} w s x b
   y0 <- readElem3 y 0
   y1 <- readElem3 y 1
   y2 <- readElem3 y 2
@@ -354,10 +354,10 @@ activationQuantInt8Oracle = do
   ok4 <- checkClose "input_scale = 127/1.5" (127.0 / 1.5) inScale 1.0e-9
   pure (ok0 && ok1 && ok2 && ok3 && ok4)
   where
-    readElemN : Tensor [4] TestDevice TestDType NoGrad -> Int -> IO Double
+    readElemN : Tensor [4] TestExecutor TestDType NoGrad -> Int -> IO Double
     readElemN t k = do
-      s <- telemSelect {d=TestDevice} {n=4} t k
-      pure (tensorItem {d=TestDevice} s)
+      s <- telemSelect {d=TestExecutor} {n=4} t k
+      pure (tensorItem {d=TestExecutor} s)
 
 
 ----------------------------------------------------------------------
@@ -381,7 +381,7 @@ activationQuantInt8Oracle = do
 bitlinearFwdHfQuantConsistency : IO Bool
 bitlinearFwdHfQuantConsistency = do
   (bytesPtr, byteCount) <- buildFixtureBytes
-  w <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  w <- tCreateTernaryPacked2d {d=TestExecutor} {o=3} {i=4} bytesPtr byteCount
   x <- mkVec    (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
   b <- mkVec    (the (Vect 3 Double) [0.1, -0.2, 0.3])
 
@@ -397,12 +397,12 @@ bitlinearFwdHfQuantConsistency = do
   s <- mkVecNoGrad (the (Vect 3 Double) [perRowScale, perRowScale, perRowScale])
   -- xq is NoGrad; weakenGrad? Actually tBitlinearFwd wants matching grad mode on x and bias.
   -- xq : Tensor [4] d dt NoGrad; bias : WithGrad. Promote bias to NoGrad to match.
-  bNoG <- weakenGrad {d=TestDevice} b
-  yComposed <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} w s xq bNoG
+  bNoG <- weakenGrad {d=TestExecutor} b
+  yComposed <- tBitlinearFwd {d=TestExecutor} {cDt=TestDType} w s xq bNoG
 
   -- Fused path: tBitlinearFwdHfQuant (useRmsNorm = False; rmsW is placeholder).
-  xNoG <- weakenGrad {d=TestDevice} x
-  yFused <- tBitlinearFwdHfQuant {d=TestDevice} {cDt=TestDType} w weightScale x b False xNoG 1.0e-5
+  xNoG <- weakenGrad {d=TestExecutor} x
+  yFused <- tBitlinearFwdHfQuant {d=TestExecutor} {cDt=TestDType} w weightScale x b False xNoG 1.0e-5
 
   yc0 <- readElem3 yComposed 0
   yc1 <- readElem3 yComposed 1

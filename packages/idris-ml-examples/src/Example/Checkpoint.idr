@@ -19,7 +19,7 @@ import Layer.Linear
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -39,9 +39,9 @@ dataPoints =
 -- Argmax on a 1D tensor (works on logits — softmax is monotonic)
 evalPrediction : AnyPtr -> Nat
 evalPrediction outT =
-  let v0 = primItem1d {d=ExampleDevice} outT 0
-      v1 = primItem1d {d=ExampleDevice} outT 1
-      v2 = primItem1d {d=ExampleDevice} outT 2
+  let v0 = primItem1d {d=ExampleExecutor} outT 0
+      v1 = primItem1d {d=ExampleExecutor} outT 1
+      v2 = primItem1d {d=ExampleExecutor} outT 2
   in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
 
 -- Argmax on a one-hot Vector target.
@@ -90,23 +90,23 @@ optPath path =
 ----------------------------------------------------------------------
 
 -- Forward each datapoint, compute NLL loss as a Double, average.
-evalModel : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Double
+evalModel : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO Double
 evalModel model = do
   losses <- traverse (\dp => do
-        let inT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
-            inV = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
+        let inT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (x dp)
+            inV = the (TVec 2 ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
         (_, predV) <- forwardVar model inV
-        let tgtT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (y dp)
-            tgtV = the (TVec 3 ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
+        let tgtT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (y dp)
+            tgtV = the (TVec 3 ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
         lossT <- tnllLoss predV tgtV
-        pure (primItem {d=ExampleDevice} lossT.tensorPtr)) dataPoints
+        pure (primItem {d=ExampleExecutor} lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
-printPredictions : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
+printPredictions : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO ()
 printPredictions model = do
   traverse_ (\dp => do
-    let inT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
-        inV = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
+    let inT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (x dp)
+        inV = the (TVec 2 ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
     (_, predV) <- forwardVar model inV
     let predClass = evalPrediction predV.tensorPtr
         targetClass = evalPredictionTarget (y dp)
@@ -125,60 +125,60 @@ printPredictions model = do
 -- Modes
 ----------------------------------------------------------------------
 
-doTrain : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
+doTrain : Config -> Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO ()
 doTrain cfg model = do
   let opt = nativeSgd cfg.lr
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
-  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
-      ok <- saveModel {d=ExampleDevice} cfg.savePath
+      ok <- saveModel {d=ExampleExecutor} cfg.savePath
       putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok2 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
+  evalLoss <- withNoGrad {d=ExampleExecutor} (evalModel trained)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad {d=ExampleDevice} (printPredictions trained)
+  withNoGrad {d=ExampleExecutor} (printPredictions trained)
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
-                            ("loss", show evalLoss), ("backend", backendName {d=ExampleDevice})]
+                            ("loss", show evalLoss), ("backend", backendName {d=ExampleExecutor})]
 
-doContinue : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
+doContinue : Config -> Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO ()
 doContinue cfg model = do
-  ok <- loadModel {d=ExampleDevice} cfg.loadPath
+  ok <- loadModel {d=ExampleExecutor} cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
   let opt = nativeSgd cfg.lr
   ok2 <- loadOptimizer (optPath cfg.loadPath) opt
   putStrLn $ (if ok2 then "Loaded optimizer from " else "FAILED to load optimizer from ")
            ++ optPath cfg.loadPath
   putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
-  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
-      ok3 <- saveModel {d=ExampleDevice} cfg.savePath
+      ok3 <- saveModel {d=ExampleExecutor} cfg.savePath
       putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok4 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
+  evalLoss <- withNoGrad {d=ExampleExecutor} (evalModel trained)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad {d=ExampleDevice} (printPredictions trained)
+  withNoGrad {d=ExampleExecutor} (printPredictions trained)
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
-                            ("loss", show evalLoss), ("backend", backendName {d=ExampleDevice})]
+                            ("loss", show evalLoss), ("backend", backendName {d=ExampleExecutor})]
 
-doInfer : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
+doInfer : Config -> Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO ()
 doInfer cfg model = do
-  ok <- loadModel {d=ExampleDevice} cfg.loadPath
+  ok <- loadModel {d=ExampleExecutor} cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  evalLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
+  evalLoss <- withNoGrad {d=ExampleExecutor} (evalModel model)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad {d=ExampleDevice} (printPredictions model)
+  withNoGrad {d=ExampleExecutor} (printPredictions model)
   putStrLn $ formatResult [("mode", "infer"), ("loss", show evalLoss),
-                            ("backend", backendName {d=ExampleDevice})]
+                            ("backend", backendName {d=ExampleExecutor})]
 
 
 ----------------------------------------------------------------------
@@ -192,10 +192,10 @@ main = do
   srand cfg.seed
 
   llAny <- linearLayerAny {i=2} {o=3} "ll"
-  let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
+  let model : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad
       model = OutputLayer llAny
 
-  putStrLn $ "=== Cross-Backend Transfer [" ++ backendName {d=ExampleDevice} ++ "] -- "
+  putStrLn $ "=== Cross-Backend Transfer [" ++ backendName {d=ExampleExecutor} ++ "] -- "
            ++ cfg.mode ++ " ==="
 
   when cfg.lrFind $ do

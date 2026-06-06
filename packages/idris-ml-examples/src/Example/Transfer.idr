@@ -1,17 +1,17 @@
 ||| Live cross-backend tensor transfer demo.
 |||
-||| Exercises `toDevice` (Tensor.idr) — the backendTag-aware
+||| Exercises `toExecutor` (Tensor.idr) — the backendTag-aware
 ||| migration introduced by Phase 6 of the 2026-05-19 device-
 ||| taxonomy refactor — across every (backend, hardware) cell that
 ||| runs on Apple Silicon:
 |||
-|||   TapeDev          (tape backend, host CPU,        F64 only)
-|||   TorchDev TCpu    (libtorch on host CPU,           F32 + F64)
-|||   TorchDev TMps    (libtorch on Apple Metal,        F32 only)
-|||   MlxDev MCpu      (mlx CPU stream,                 F32 + F64)
-|||   MlxDev MGpu      (mlx Metal stream,               F32 only)
+|||   TapeExecutor          (tape backend, host CPU,        F64 only)
+|||   TorchExecutor TCpu    (libtorch on host CPU,           F32 + F64)
+|||   TorchExecutor TMps    (libtorch on Apple Metal,        F32 only)
+|||   MlxExecutor MCpu      (mlx CPU stream,                 F32 + F64)
+|||   MlxExecutor MGpu      (mlx Metal stream,               F32 only)
 |||
-||| CUDA cells (`TorchDev (TCuda n)`) compile but aren't exercised
+||| CUDA cells (`TorchExecutor (TCuda n)`) compile but aren't exercised
 ||| here — no CUDA hardware on the macOS CI lane.
 |||
 ||| Requires a multi-backend build so all three sets of C symbols
@@ -31,7 +31,7 @@ module Example.Transfer
 import Data.List
 import Data.Vect
 
-import Device
+import Executor
 import Tensor
 import Util
 
@@ -41,7 +41,7 @@ import Util
 ----------------------------------------------------------------------
 
 ||| Create a 4-element Tensor on the destination backend using its
-||| `UserDeviceTransfer.primCreateFromHost` directly. Bypasses
+||| `UserExecutorTransfer.primCreateFromHost` directly. Bypasses
 ||| `bulkToTensor`, which routes via unified-name C symbols — those
 ||| land on the primary backend at link time, regardless of the
 ||| type-level `d`. For cross-backend transfer demos we need fresh
@@ -57,7 +57,7 @@ import Util
 ||| "pointer being freed was not allocated" abort. The same
 ||| structure exists (and is tested) in `Test.Transfer.makeVec4`.
 makeVec4 : {0 d : Type} -> {0 dt : DType} ->
-           UserDeviceTransfer d => Compatible d dt =>
+           UserExecutorTransfer d => Compatible d dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] d dt WithGrad)
 makeVec4 (a, b, c, dd) = do
@@ -79,7 +79,7 @@ makeVec4 (a, b, c, dd) = do
 ||| promotes F32 to double on readback). The `{d}` annotations
 ||| pin the typeclass dispatch — without them, Idris can't infer
 ||| which backend's `primItem1d` to call from a bare `AnyPtr`.
-read4 : {0 d : Type} -> {0 dt : DType} -> UserDeviceCore d =>
+read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore d =>
         Tensor [4] d dt WithGrad ->
         (Double, Double, Double, Double)
 read4 t =
@@ -114,7 +114,7 @@ reportStep label (a, b, c, d) = do
 
 
 ----------------------------------------------------------------------
--- F64 hop: TapeDev ↔ TorchDev TCpu ↔ MlxDev MCpu
+-- F64 hop: TapeExecutor ↔ TorchExecutor TCpu ↔ MlxExecutor MCpu
 --
 -- Exercises cross-backend transfers (differing backendTag → host
 -- round-trip). Three distinct backends, all on host CPU silicon,
@@ -125,33 +125,33 @@ reportStep label (a, b, c, d) = do
 hopF64 : IO Bool
 hopF64 = do
   putStrLn "=== F64 hop (host-CPU silicon, 3 backends) ==="
-  putStrLn "    Starts on TapeDev, hops cross-backend to TorchDev TCpu,"
-  putStrLn "    then to MlxDev MCpu, back to TapeDev. Each transition is"
+  putStrLn "    Starts on TapeExecutor, hops cross-backend to TorchExecutor TCpu,"
+  putStrLn "    then to MlxExecutor MCpu, back to TapeExecutor. Each transition is"
   putStrLn "    a backendTag-mismatch → host-buffer round-trip."
   putStrLn ""
 
-  v_tape <- makeVec4 {d = TapeDev} {dt = F64} expected
-  ok1 <- reportStep "TapeDev:"          (read4 v_tape)
+  v_tape <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  ok1 <- reportStep "TapeExecutor:"          (read4 v_tape)
 
-  v_torch <- toDevice (TorchDev TCpu) v_tape
-  ok2 <- reportStep "→ TorchDev TCpu:"  (read4 v_torch)
+  v_torch <- toExecutor (TorchExecutor TCpu) v_tape
+  ok2 <- reportStep "→ TorchExecutor TCpu:"  (read4 v_torch)
 
-  v_mlx <- toDevice (MlxDev MCpu) v_torch
-  ok3 <- reportStep "→ MlxDev MCpu:"    (read4 v_mlx)
+  v_mlx <- toExecutor (MlxExecutor MCpu) v_torch
+  ok3 <- reportStep "→ MlxExecutor MCpu:"    (read4 v_mlx)
 
-  v_back <- toDevice TapeDev v_mlx
-  ok4 <- reportStep "→ TapeDev (back):" (read4 v_back)
+  v_back <- toExecutor TapeExecutor v_mlx
+  ok4 <- reportStep "→ TapeExecutor (back):" (read4 v_back)
 
   pure (ok1 && ok2 && ok3 && ok4)
 
 
 ----------------------------------------------------------------------
--- F32 hop: TorchDev TCpu ↔ TorchDev TMps ↔ MlxDev MGpu ↔ MlxDev MCpu
+-- F32 hop: TorchExecutor TCpu ↔ TorchExecutor TMps ↔ MlxExecutor MGpu ↔ MlxExecutor MCpu
 --
 -- Exercises both intra-backend fast paths (matching backendTag →
 -- in-place hardware migration via libtorch's `.to()` / mlx's
 -- stream switch) and cross-backend round-trips (host buffer hop).
--- F32 only — TapeDev is excluded because it doesn't admit F32
+-- F32 only — TapeExecutor is excluded because it doesn't admit F32
 -- (no parallel `float*` arena, see TODO row "Broaden runtime
 -- dtype coverage across backends").
 ----------------------------------------------------------------------
@@ -160,13 +160,13 @@ hopF32 : IO Bool
 hopF32 = do
   putStrLn ""
   putStrLn "=== F32 hop (includes Metal GPU cells, 4 cells) ==="
-  putStrLn "    Starts on TorchDev TCpu (built F64, narrowed to F32"
+  putStrLn "    Starts on TorchExecutor TCpu (built F64, narrowed to F32"
   putStrLn "    via tcastUnsafe — see TODO 'Broaden runtime dtype"
   putStrLn "    coverage' for why primCreateFromHost is F64-only on"
   putStrLn "    torch today). Hops intra-torch (fast path via"
-  putStrLn "    libtorch's `.to('mps')`) to TorchDev TMps, cross-"
-  putStrLn "    backend to MlxDev MGpu, intra-mlx to MlxDev MCpu,"
-  putStrLn "    back cross-backend to TorchDev TCpu."
+  putStrLn "    libtorch's `.to('mps')`) to TorchExecutor TMps, cross-"
+  putStrLn "    backend to MlxExecutor MGpu, intra-mlx to MlxExecutor MCpu,"
+  putStrLn "    back cross-backend to TorchExecutor TCpu."
   putStrLn ""
 
   -- Build F64 then narrow to F32 (exactly representable for these
@@ -174,21 +174,21 @@ hopF32 = do
   -- gap on the torch backend (always lands F64) — once the cascade
   -- threads dt through tensor_create_torch, makeVec4 {dt=F32} will
   -- work directly and this tcastUnsafe step can go.
-  v_torch_cpu64 <- makeVec4 {d = TorchDev TCpu} {dt = F64} expected
+  v_torch_cpu64 <- makeVec4 {d = TorchExecutor TCpu} {dt = F64} expected
   v_torch_cpu   <- tcastUnsafe F32 v_torch_cpu64
-  ok1 <- reportStep "TorchDev TCpu (F32):"  (read4 v_torch_cpu)
+  ok1 <- reportStep "TorchExecutor TCpu (F32):"  (read4 v_torch_cpu)
 
-  v_torch_mps <- toDevice (TorchDev TMps) v_torch_cpu
-  ok2 <- reportStep "→ TorchDev TMps:"      (read4 v_torch_mps)
+  v_torch_mps <- toExecutor (TorchExecutor TMps) v_torch_cpu
+  ok2 <- reportStep "→ TorchExecutor TMps:"      (read4 v_torch_mps)
 
-  v_mlx_gpu <- toDevice (MlxDev MGpu) v_torch_mps
-  ok3 <- reportStep "→ MlxDev MGpu:"        (read4 v_mlx_gpu)
+  v_mlx_gpu <- toExecutor (MlxExecutor MGpu) v_torch_mps
+  ok3 <- reportStep "→ MlxExecutor MGpu:"        (read4 v_mlx_gpu)
 
-  v_mlx_cpu <- toDevice (MlxDev MCpu) v_mlx_gpu
-  ok4 <- reportStep "→ MlxDev MCpu:"        (read4 v_mlx_cpu)
+  v_mlx_cpu <- toExecutor (MlxExecutor MCpu) v_mlx_gpu
+  ok4 <- reportStep "→ MlxExecutor MCpu:"        (read4 v_mlx_cpu)
 
-  v_back <- toDevice (TorchDev TCpu) v_mlx_cpu
-  ok5 <- reportStep "→ TorchDev TCpu:"      (read4 v_back)
+  v_back <- toExecutor (TorchExecutor TCpu) v_mlx_cpu
+  ok5 <- reportStep "→ TorchExecutor TCpu:"      (read4 v_back)
 
   pure (ok1 && ok2 && ok3 && ok4 && ok5)
 

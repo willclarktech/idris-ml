@@ -35,7 +35,7 @@ import Layer.Lstm
 import Layer.Ntm
 import Layer.Transformer
 import Tensor
-import Device
+import Executor
 import BuildConfig
 
 %default partial
@@ -78,7 +78,7 @@ buildDummyVector n =
   let nI   = the Int (cast n)
       buf  = prim__allocDoubles nI
       buf' = prim__setDouble buf 0 0.1
-  in dtCreateState1d {d=ExampleDevice} {t=ExampleDType} nI buf' (deviceStreamTag {d=ExampleDevice})
+  in dtCreateState1d {d=ExampleExecutor} {t=ExampleDType} nI buf' (deviceStreamTag {d=ExampleExecutor})
 
 
 ----------------------------------------------------------------------
@@ -109,7 +109,7 @@ LinearWarmup = 10
 benchLinear : IO ()
 benchLinear = do
   ll <- linearLayerAny {i=LinearI} {o=LinearO} "axisb_linear_ll"
-  let model : Network LinearI [] LinearO ExampleDevice ExampleDType WithGrad
+  let model : Network LinearI [] LinearO ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ll
   let opt = nativeSgd 0.01
 
@@ -158,11 +158,11 @@ LstmIters = 100
 LstmWarmup : Nat
 LstmWarmup = 10
 
-lstmStep : NativeOptimizer ExampleDevice ->
-           Tensor [LstmI] ExampleDevice ExampleDType WithGrad ->
-           Tensor [LstmO] ExampleDevice ExampleDType WithGrad ->
-           Network LstmI [] LstmO ExampleDevice ExampleDType WithGrad ->
-           IO (Network LstmI [] LstmO ExampleDevice ExampleDType WithGrad, Double)
+lstmStep : NativeOptimizer ExampleExecutor ->
+           Tensor [LstmI] ExampleExecutor ExampleDType WithGrad ->
+           Tensor [LstmO] ExampleExecutor ExampleDType WithGrad ->
+           Network LstmI [] LstmO ExampleExecutor ExampleDType WithGrad ->
+           IO (Network LstmI [] LstmO ExampleExecutor ExampleDType WithGrad, Double)
 lstmStep opt inp tgt model = do
   (model', pred) <- forwardVar model inp
   loss <- tmseLoss pred tgt
@@ -172,15 +172,15 @@ lstmStep opt inp tgt model = do
 benchLstmCell : IO ()
 benchLstmCell = do
   ll <- lstmLayerAny {i=LstmI} {o=LstmO} "axisb_lstm"
-  let model : Network LstmI [] LstmO ExampleDevice ExampleDType WithGrad
+  let model : Network LstmI [] LstmO ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ll
   let opt = nativeSgd 0.01
 
   let inT  = buildDummyVector LstmI
       tgtT = buildDummyVector LstmO
-      inp  = the (Tensor [LstmI] ExampleDevice ExampleDType WithGrad)
+      inp  = the (Tensor [LstmI] ExampleExecutor ExampleDType WithGrad)
                (MkTensor inT Nothing)
-      tgt  = the (Tensor [LstmO] ExampleDevice ExampleDType WithGrad)
+      tgt  = the (Tensor [LstmO] ExampleExecutor ExampleDType WithGrad)
                (MkTensor tgtT Nothing)
 
   (warmModel, _) <- repeatEpoch LstmWarmup (\m => lstmStep opt inp tgt m) model 0.0
@@ -250,7 +250,7 @@ benchConv2dBlock : IO ()
 benchConv2dBlock = do
   ll <- conv2dLayerAny {inC=ConvInC, outC=ConvOutC, h=ConvH, w=ConvW,
                          kH=ConvKH, kW=ConvKW, padH=0, padW=0} "axisb_conv"
-  let model : Network ConvInputDim [] ConvOutputDim ExampleDevice ExampleDType WithGrad
+  let model : Network ConvInputDim [] ConvOutputDim ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ll
   let opt = nativeSgd 0.01
 
@@ -320,7 +320,7 @@ NtmWarmup = 5
 benchNtmHead : IO ()
 benchNtmHead = do
   ntmAny <- ntmLayerAny {i=NtmInputW, o=NtmOutputW, n=NtmN, m=NtmM, h=NtmH} "axisb_ntm"
-  let model : Network NtmInputW [] NtmOutputW ExampleDevice ExampleDType WithGrad
+  let model : Network NtmInputW [] NtmOutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
 
   batch <- copyTaskBinaryBatchVect {w = NtmW} NtmBatch 2 4
@@ -388,7 +388,7 @@ benchTransformerBlock = do
                                 numHeads=TxHeads, headDim=TxHeadDim,
                                 numBlocks=TxNumBlocks, vocabSize=TxVocab}
                                "axisb_tx"
-  let model : Network TxSeq [] TxOutputDim ExampleDevice ExampleDType WithGrad
+  let model : Network TxSeq [] TxOutputDim ExampleExecutor ExampleDType WithGrad
       model = OutputLayer txAny
   let opt = nativeSgd 0.01
 

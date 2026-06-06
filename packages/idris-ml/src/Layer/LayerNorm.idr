@@ -2,7 +2,7 @@ module Layer.LayerNorm
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -23,7 +23,7 @@ import Tensor
 -- (mirrors Dropout's pattern).
 
 public export
-data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+data LayerNormState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkLayerNorm : TVec n d dt g -> TVec n d dt g -> LayerNormState n n d dt g
 
 
@@ -34,7 +34,7 @@ data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : Gr
 %default partial
 
 export
-applyLayerNorm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
+applyLayerNorm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
                    LayerNormState n n d dt g ->
                    TVec n d dt g ->
                    IO (LayerNormState n n d dt g, TVec n d dt g)
@@ -50,11 +50,11 @@ applyLayerNorm {n} st@(MkLayerNorm gamma beta) input = ioRerun (\_ =>
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build a `LayerNormState n n TapeDev` with gamma initialised to 1.0
+||| Build a `LayerNormState n n TapeExecutor` with gamma initialised to 1.0
 ||| and beta to 0.0. Both register as C params under
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export
-layerNormLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
+layerNormLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
                    IO (LayerNormState n n d dt WithGrad)
 layerNormLayer paramPrefix = do
   let gName = paramPrefix ++ "_gamma"
@@ -85,6 +85,6 @@ LayerLike LayerNormState where
 
 ||| Wrap a LayerNorm in `AnyLayer`.
 export
-layerNormLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
+layerNormLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
                       IO (AnyLayer n n d dt WithGrad)
 layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

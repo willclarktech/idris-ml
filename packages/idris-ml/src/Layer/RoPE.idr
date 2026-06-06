@@ -2,7 +2,7 @@ module Layer.RoPE
 
 import Data.Vect
 
-import Device
+import Executor
 import Tensor
 
 
@@ -192,7 +192,7 @@ writeSinTable buf halfDim sLen freqs pos i =
 ||| per table. Both manageable.
 public export
 record RoPETables (maxPos : Nat) (headDim : Nat)
-                  (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+                  (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkRoPETables
   cosTable : Tensor [maxPos, div headDim 2] d dt g
   sinTable : Tensor [maxPos, div headDim 2] d dt g
@@ -203,7 +203,7 @@ record RoPETables (maxPos : Nat) (headDim : Nat)
 |||   `base`     : rope_theta (Llama 3 = 500000).
 |||   `scaling`  : NTK scaling params (use `llama3Scaling` for default).
 export
-buildLlamaRoPETables : {0 d : Device} -> UserDeviceTraining d =>
+buildLlamaRoPETables : {0 d : Executor} -> UserExecutorTraining d =>
                        RuntimeDType dt => Linked d => Compatible d dt
                     => {maxPos, headDim : Nat}
                     -> (base : Double)
@@ -250,7 +250,7 @@ buildLlamaRoPETables base scaling = ioRerun (\_ =>
 ||| Idris's type system can't catch this today without a runtime
 ||| bounds-check.
 public export
-applyRope : {0 d : Device} -> UserDeviceTraining d =>
+applyRope : {0 d : Executor} -> UserExecutorTraining d =>
             {seq, headDim, maxPos : Nat} ->
             RoPETables maxPos headDim d dt g ->
             (positionOffset : Nat) ->
@@ -308,7 +308,7 @@ applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioReru
 ||| via the same cos/sin tables broadcast across the head axis.
 ||| Caller's responsibility: `seq + positionOffset <= maxPos`.
 public export
-applyRopeAllHeads : {0 d : Device} -> UserDeviceTraining d =>
+applyRopeAllHeads : {0 d : Executor} -> UserExecutorTraining d =>
                     {seq, numHeads, headDim, maxPos : Nat} ->
                     RoPETables maxPos headDim d dt g ->
                     (positionOffset : Nat) ->
@@ -374,7 +374,7 @@ applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOf
 ||| Caller's responsibility: same `seq + positionOffset <= maxPos`
 ||| bound as `applyRope`.
 public export
-applyRopeInverse : {0 d : Device} -> UserDeviceTraining d =>
+applyRopeInverse : {0 d : Executor} -> UserExecutorTraining d =>
                    {seq, headDim, maxPos : Nat} ->
                    RoPETables maxPos headDim d dt g ->
                    (positionOffset : Nat) ->
@@ -405,7 +405,7 @@ applyRopeInverse {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input =
 ||| lifted across `[seq, numHeads, headDim]` via cos/sin broadcast on
 ||| the head axis.
 public export
-applyRopeInverseAllHeads : {0 d : Device} -> UserDeviceTraining d =>
+applyRopeInverseAllHeads : {0 d : Executor} -> UserExecutorTraining d =>
                            {seq, numHeads, headDim, maxPos : Nat} ->
                            RoPETables maxPos headDim d dt g ->
                            (positionOffset : Nat) ->

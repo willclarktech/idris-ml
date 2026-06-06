@@ -24,7 +24,7 @@ import Math
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -127,7 +127,7 @@ main = do
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H ++ " R=" ++ show R
 
   dncAny <- dncLayerAny {r = R, n = N, m = M, h = H, i = InputW, o = OutputW} "dnc"
-  let model : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad
+  let model : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer dncAny
   putStrLn ""
 
@@ -138,7 +138,7 @@ main = do
       genBatch = recallTaskBinaryBatchVect {w = W} cfg.batch cfg.minItems cfg.maxItems SeqLen
 
   -- Metrics: bit accuracy + memory
-  let evalMetrics : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- recallTaskBinaryBatchVect {w = W} 10 cfg.minItems cfg.maxItems SeqLen
         accs <- traverse (\dp => do
@@ -161,7 +161,7 @@ main = do
                    (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
                    evalMetrics (\_ => pure ())
 
-  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
@@ -172,13 +172,13 @@ main = do
   k2Batch <- recallTaskBinaryBatchVect {w = W} TestSize 2 2 SeqLen
   k4Batch <- recallTaskBinaryBatchVect {w = W} TestSize 4 4 SeqLen
   k6Batch <- recallTaskBinaryBatchVect {w = W} TestSize 6 6 SeqLen
-  k2Acc <- withNoGrad {d=ExampleDevice} $ do
+  k2Acc <- withNoGrad {d=ExampleExecutor} $ do
     accs <- traverse evalOne k2Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k4Acc <- withNoGrad {d=ExampleDevice} $ do
+  k4Acc <- withNoGrad {d=ExampleExecutor} $ do
     accs <- traverse evalOne k4Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k6Acc <- withNoGrad {d=ExampleDevice} $ do
+  k6Acc <- withNoGrad {d=ExampleExecutor} $ do
     accs <- traverse evalOne k6Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
 

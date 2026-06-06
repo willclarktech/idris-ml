@@ -3,7 +3,7 @@ module Layer.Linear
 import Data.Vect
 
 import Compat.Random
-import Device
+import Executor
 import Init
 import Layer.Core
 import Sampler
@@ -19,7 +19,7 @@ import Tensor
 -- Bias and weight are registered C params at construction time.
 
 public export
-record LinearState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record LinearState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLinear
   weightT : Tensor [o, i] d dt g
   biasT   : Tensor [o] d dt g
@@ -84,7 +84,7 @@ zeroBuf buf off n =
 ||| pair; callers wanting other distributions wire the underlying
 ||| FFI directly.
 export
-mkLinearWith : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat}
+mkLinearWith : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat}
             -> (paramPrefix : String)
             -> (weightStd : Double)
             -> (biasStd : Double)
@@ -104,11 +104,11 @@ mkLinearWith pfx wStd bStd = do
 ||| match the new fused-init primitive surface — see plan P3 lock-in.
 ||| Registers under `<paramPrefix>_weights` / `<paramPrefix>_biases`.
 export
-linearLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o d dt WithGrad)
+linearLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o d dt WithGrad)
 linearLayer paramPrefix =
   mkLinearWith paramPrefix (1.0 / sqrt (cast {to=Double} i)) 0.0
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export
-linearLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+linearLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 linearLayerAny pid = map (MkAnyLayer LinearState) (linearLayer pid)

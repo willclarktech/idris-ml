@@ -1,7 +1,7 @@
 module Test.ManagedHandle
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 import Test.Config
 
@@ -14,13 +14,13 @@ import Test.Config
 
 -- Allocate Tensors and immediately discard the handle (no further use).
 -- Idris's Chez codegen sees the binding `raw` as live only during the
--- primItem {d=TestDevice} read; after that the binding is dead and the wrap
+-- primItem {d=TestExecutor} read; after that the binding is dead and the wrap
 -- is GC-eligible. Forced major GC will queue dead wraps with the guardian.
 allocAndDropSum : Nat -> Double -> IO Double
 allocAndDropSum Z acc = pure acc
 allocAndDropSum (S k) acc = do
-  let h = primCreateScalar {d=TestDevice} (cast k) 0
-  let v = primItem {d=TestDevice} h
+  let h = primCreateScalar {d=TestExecutor} (cast k) 0
+  let v = primItem {d=TestExecutor} h
   allocAndDropSum k (acc + v)
 
 allocAndDrop : Nat -> IO ()
@@ -65,8 +65,8 @@ drainCollectsAfterGc = do
 scalarRoundTrip : IO Bool
 scalarRoundTrip = do
   _ <- initManagedHandles
-  let h = primCreateScalar {d=TestDevice} 42.0 0
-  let v = primItem {d=TestDevice} h
+  let h = primCreateScalar {d=TestExecutor} 42.0 0
+  let v = primItem {d=TestExecutor} h
   check "create + item round-trips through wrapped ABI" (v == 42.0)
 
 export

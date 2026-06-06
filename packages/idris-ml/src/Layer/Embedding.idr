@@ -2,7 +2,7 @@ module Layer.Embedding
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -16,11 +16,11 @@ import Tensor
 -- vocab × embedDim weight is a learnable param.
 --
 -- Provided as a standalone op + a `LayerLike` adapter that fits a
--- specific (seqLen, embedDim) pair into the `Nat -> Nat -> Device ->
+-- specific (seqLen, embedDim) pair into the `Nat -> Nat -> Executor ->
 -- Type` interface.
 
 public export
-record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkEmbedding
   weightT : TMat vocab embedDim d dt g
 
@@ -35,7 +35,7 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 dt : DTyp
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
 ||| the flattened embedding vectors. Wraps `primEmbedding {d}`.
 export
-applyEmbedding : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {seqLen, embedDim, vocab : Nat} ->
+applyEmbedding : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {seqLen, embedDim, vocab : Nat} ->
                    EmbeddingState vocab embedDim d dt g ->
                    TVec seqLen d dt g ->
                    IO (TVec (seqLen * embedDim) d dt g)
@@ -50,11 +50,11 @@ applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build an `EmbeddingState vocab embedDim TapeDev` with weights
+||| Build an `EmbeddingState vocab embedDim TapeExecutor` with weights
 ||| sampled from N(0, 0.02) — HF default for token / position embeddings.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
-embeddingLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
+embeddingLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
                    IO (EmbeddingState vocab embedDim d dt WithGrad)
 embeddingLayer paramPrefix = do
   let wName = paramPrefix ++ "_weight"
@@ -66,7 +66,7 @@ embeddingLayer paramPrefix = do
 -- LayerLike adapter (specific seqLen × embedDim)
 ----------------------------------------------------------------------
 --
--- `LayerLike` requires `(l : Nat -> Nat -> Device -> Type)`. To fit
+-- `LayerLike` requires `(l : Nat -> Nat -> Executor -> Type)`. To fit
 -- Embedding (which has 3 Nat params), we wrap it for a specific
 -- (vocab, embedDim) pair. The seqLen is the input dim; output is
 -- `seqLen * embedDim`.
@@ -78,7 +78,7 @@ embeddingLayer paramPrefix = do
 
 public export
 data EmbeddingWrap : (vocab : Nat) -> (embedDim : Nat) ->
-                      Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+                      Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkEmbeddingWrap : EmbeddingState vocab embedDim d dt g ->
                      EmbeddingWrap vocab embedDim seqLen (seqLen * embedDim) d dt g
 
@@ -100,7 +100,7 @@ public export
 
 ||| Wrap a fresh embedding into `AnyLayer` for a specific seqLen.
 export
-embeddingLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {vocab, embedDim, seqLen : Nat} ->
+embeddingLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer seqLen (seqLen * embedDim) d dt WithGrad)
 embeddingLayerAny pid = do

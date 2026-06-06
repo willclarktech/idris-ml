@@ -17,7 +17,7 @@ import public Checkpoint
 import public Curriculum
 import public DataLoader
 import public DataPoint
-import public Device
+import public Executor
 import public Floating
 import public Hpo
 import public Init
@@ -31,4 +31,4 @@ import public Array
 import public Train
 import public Util
 import public Tensor
-import public HwDevices
+import public HwExecutors

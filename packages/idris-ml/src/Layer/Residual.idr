@@ -2,7 +2,7 @@ module Layer.Residual
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -15,7 +15,7 @@ import Tensor
 -- and output dim. GADT enforces `i = o = n`.
 
 public export
-data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+data ResidualState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkResidual : AnyLayer n n d dt g -> ResidualState n n d dt g
 
 
@@ -26,7 +26,7 @@ data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : Gra
 %default partial
 
 export
-applyResidual : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
+applyResidual : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
                   ResidualState n n d dt g ->
                   TVec n d dt g ->
                   IO (ResidualState n n d dt g, TVec n d dt g)

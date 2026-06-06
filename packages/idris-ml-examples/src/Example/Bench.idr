@@ -17,7 +17,7 @@ import Layer.Ntm
 import Layer.Rnn
 import Array
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -56,7 +56,7 @@ supervisedData =
 benchSupervised : IO ()
 benchSupervised = do
   llAny <- linearLayerAny {i=2} {o=3} "ll"
-  let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
+  let model : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad
       model = OutputLayer llAny
   let opt = nativeSgd 0.03
 
@@ -94,7 +94,7 @@ rnnRawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ gen
 benchRnn : IO ()
 benchRnn = do
   rnnAny <- rnnLayerAny {i=1} {o=1} "rnn"
-  let model : Network 1 [] 1 ExampleDevice ExampleDType WithGrad
+  let model : Network 1 [] 1 ExampleExecutor ExampleDType WithGrad
       model = OutputLayer rnnAny
   let dataPoints = rnnRawData 8
   let opt = nativeSgd 0.03
@@ -140,7 +140,7 @@ BenchBatch = 5
 benchNtm : IO ()
 benchNtm = do
   ntmAny <- ntmLayerAny {i=BenchInputW, o=BenchOutputW, n=BenchN, m=BenchM, h=BenchH} "ntm"
-  let model : Network BenchInputW [] BenchOutputW ExampleDevice ExampleDType WithGrad
+  let model : Network BenchInputW [] BenchOutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
 
   -- Generate fixed training data (raw Doubles; epochTwoPhaseVar converts internally)
@@ -188,7 +188,7 @@ CopyBatch = 16
 benchNtmCopy : IO ()
 benchNtmCopy = do
   ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad
+  let model : Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
 
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
@@ -211,17 +211,17 @@ benchNtmCopy = do
 -- NTM Copy 1K (realistic: fresh data + GC, matching real training)
 ----------------------------------------------------------------------
 
-copy1kEpoch : NativeOptimizer ExampleDevice ->
-              Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad ->
-              IO (Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad, Double)
+copy1kEpoch : NativeOptimizer ExampleExecutor ->
+              Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad ->
+              IO (Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad, Double)
 copy1kEpoch opt m = do
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
   epochTwoPhaseVar opt batch tbceLoss m
 
-copy1kLoop : NativeOptimizer ExampleDevice -> Nat -> Nat ->
-             Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad ->
+copy1kLoop : NativeOptimizer ExampleExecutor -> Nat -> Nat ->
+             Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad ->
              Double ->
-             IO (Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad, Double)
+             IO (Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad, Double)
 copy1kLoop opt numEpochs remaining m loss =
   if remaining == 0 then pure (m, loss)
   else do
@@ -233,7 +233,7 @@ copy1kLoop opt numEpochs remaining m loss =
 benchNtmCopy1k : IO ()
 benchNtmCopy1k = do
   ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad
+  let model : Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
 
@@ -279,7 +279,7 @@ RecallBatch = 16
 benchNtmRecall : IO ()
 benchNtmRecall = do
   ntmAny <- ntmLayerAny {i=RecallInputW, o=RecallOutputW, n=RecallN, m=RecallM, h=RecallH} "ntm"
-  let model : Network RecallInputW [] RecallOutputW ExampleDevice ExampleDType WithGrad
+  let model : Network RecallInputW [] RecallOutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
 
   batch <- recallTaskBinaryBatchVect {w = RecallW} RecallBatch 2 6 3

@@ -3,7 +3,7 @@
 ||| Walks through the recipe from `docs/grad-mode-and-device-typing.md`'s
 ||| "Custom devices: user-supplied backends" section: declare your
 ||| own device tag type, bind your dylib's C symbols via `%foreign`,
-||| implement `UserDeviceCore` for the type, and `Tensor [..] MyDev`
+||| implement `UserExecutorCore` for the type, and `Tensor [..] MyDev`
 ||| is a valid type that dispatches all ops to your backend.
 |||
 ||| This example uses the libbyo.dylib (see
@@ -15,8 +15,8 @@
 ||| Build + run via `make example-bring-your-own`.
 module Example.BringYourOwn
 
-import Device
-import Device.Core
+import Executor
+import Executor.Core
 import BuildConfig
 
 
@@ -110,7 +110,7 @@ prim__roundBYO : AnyPtr -> AnyPtr
 
 
 ----------------------------------------------------------------------
--- Step 3: implement `UserDeviceCore` for your type.
+-- Step 3: implement `UserExecutorCore` for your type.
 --
 -- One method per op. The method body forwards to your backend's
 -- corresponding `%foreign` binding. `deviceName` is the human tag
@@ -118,7 +118,7 @@ prim__roundBYO : AnyPtr -> AnyPtr
 ----------------------------------------------------------------------
 
 public export
-UserDeviceCore BYO where
+UserExecutorCore BYO where
   deviceName       = "byo"
   deviceStreamTag  = 0      -- no stream concept (like tape/torch)
   primCreateScalar = prim__createScalarBYO
@@ -149,21 +149,21 @@ UserDeviceCore BYO where
 -- in, it is available by definition (the generated HwConfig only
 -- withholds instances for the built-in backends not in BACKEND). With
 -- this instance, `BYO` tensors are spellable at the Linked-gated tensor
--- constructors too — not just the raw UserDeviceCore methods `fma` uses.
+-- constructors too — not just the raw UserExecutorCore methods `fma` uses.
 public export
 Linked BYO where
 
 
 ----------------------------------------------------------------------
--- Step 4: use it. Any function that's generic in `UserDeviceCore d`
+-- Step 4: use it. Any function that's generic in `UserExecutorCore d`
 -- resolves to your instance when called with `{d = BYO}` (or with
 -- `BYO`-typed Tensor arguments that drive the inference).
 ----------------------------------------------------------------------
 
-||| Compute `(a + b) * c` using only `UserDeviceCore` methods.
+||| Compute `(a + b) * c` using only `UserExecutorCore` methods.
 ||| Polymorphic in `d`; works with any backend that implements the
 ||| interface.
-fma : (0 d : Type) -> UserDeviceCore d => Double -> Double -> Double -> Double
+fma : (0 d : Type) -> UserExecutorCore d => Double -> Double -> Double -> Double
 fma d a b c =
   primItem {d}
     (primMul {d}
@@ -184,8 +184,8 @@ main = do
   putStrLn ""
   putStrLn "Same expression on the build's primary backend (libidrisml)"
   putStrLn "for contrast — no [byo] lines, because the dispatch"
-  putStrLn "goes through whatever ExampleDevice resolves to in this build."
+  putStrLn "goes through whatever ExampleExecutor resolves to in this build."
   putStrLn ""
-  let viaPrimary = fma ExampleDevice 2.0 3.0 5.0
+  let viaPrimary = fma ExampleExecutor 2.0 3.0 5.0
   putStrLn ""
-  putStrLn ("(2 + 3) * 5 on " ++ deviceName {d = ExampleDevice} ++ " = " ++ show viaPrimary)
+  putStrLn ("(2 + 3) * 5 on " ++ deviceName {d = ExampleExecutor} ++ " = " ++ show viaPrimary)

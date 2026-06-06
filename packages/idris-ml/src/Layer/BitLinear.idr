@@ -2,7 +2,7 @@ module Layer.BitLinear
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Layer.MixedCore
 import Tensor
@@ -31,7 +31,7 @@ import Tensor
 -- argument kind: i, o, d, paramDt, computeDt, g).
 
 public export
-record BitLinearState (i : Nat) (o : Nat) (0 d : Device)
+record BitLinearState (i : Nat) (o : Nat) (0 d : Executor)
                       (0 paramDt : DType) (0 computeDt : DType) (0 g : GradMode) where
   constructor MkBitLinear
   weightT : Tensor [o, i] d Ternary NoGrad
@@ -85,7 +85,7 @@ LayerLikeMixed BitLinearState where
 ||| Filed under the #411 follow-up.
 export
 bitLinearFromTensors :
-  {i, o : Nat} -> {0 d : Device} -> {0 cDt : DType} -> {0 g : GradMode} ->
+  {i, o : Nat} -> {0 d : Executor} -> {0 cDt : DType} -> {0 g : GradMode} ->
   Tensor [o, i] d Ternary NoGrad ->
   Tensor [o] d cDt NoGrad ->
   Tensor [o] d cDt g ->
@@ -98,7 +98,7 @@ bitLinearFromTensors w s b = MkBitLinear w s b
 ||| `mixedLinearLayerAny` etc.
 export
 bitLinearFromTensorsAny :
-  {i, o : Nat} -> {0 d : Device} -> {0 cDt : DType} -> {0 g : GradMode} ->
+  {i, o : Nat} -> {0 d : Executor} -> {0 cDt : DType} -> {0 g : GradMode} ->
   Tensor [o, i] d Ternary NoGrad ->
   Tensor [o] d cDt NoGrad ->
   Tensor [o] d cDt g ->

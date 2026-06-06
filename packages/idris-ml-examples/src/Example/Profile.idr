@@ -14,7 +14,7 @@ import Layer.Core
 import Layer.Ntm
 import Array
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -81,11 +81,11 @@ BatchSize = 16
 ----------------------------------------------------------------------
 
 profileEpoch :
-  NativeOptimizer ExampleDevice ->
+  NativeOptimizer ExampleExecutor ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
-  Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
+  Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad ->
   Nat ->
-  IO (Network InputW [] OutputW ExampleDevice ExampleDType WithGrad)
+  IO (Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad)
 profileEpoch opt dataPoints model epochNum = do
   t0 <- clockTime Monotonic
   (model', lossVal) <- epochTwoPhaseVar opt dataPoints tbceLoss model
@@ -104,11 +104,11 @@ profileEpoch opt dataPoints model epochNum = do
 ----------------------------------------------------------------------
 
 profileLoop :
-  NativeOptimizer ExampleDevice ->
+  NativeOptimizer ExampleExecutor ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
-  Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
+  Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad ->
   Nat -> Nat ->
-  IO (Network InputW [] OutputW ExampleDevice ExampleDType WithGrad)
+  IO (Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad)
 profileLoop opt dataPoints model cur count =
   if cur >= count
     then pure model
@@ -131,7 +131,7 @@ main = do
   putStrLn ""
 
   ntmAny <- ntmLayerAny {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
-  let model : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad
+  let model : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
 
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
@@ -154,20 +154,20 @@ main = do
   putStrLn header
 
   -- Reset C-side profile counters before the timed window
-  profileReset {d=ExampleDevice}
+  profileReset {d=ExampleExecutor}
 
   -- Profile: 10 epochs with timing
   finalModel <- profileLoop opt dataPoints warmModel 0 10
 
   putStrLn ""
   -- Backend per-op profile (top forward + backward) to stderr
-  profileReport {d=ExampleDevice}
+  profileReport {d=ExampleExecutor}
   putStrLn "Done."
 
   where
     -- Warmup loop using epochTwoPhaseVar ( typed-surface fast path)
-    go : Nat -> Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
-         IO (Network InputW [] OutputW ExampleDevice ExampleDType WithGrad)
+    go : Nat -> Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad ->
+         IO (Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad)
     go 5 m = pure m
     go k m = do
       dps <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20

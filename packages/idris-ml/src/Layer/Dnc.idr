@@ -3,7 +3,7 @@ module Layer.Dnc
 import Data.Vect
 
 import Compat.Random
-import Device
+import Executor
 import Init
 import Layer.Core
 import Layer.Linear
@@ -31,7 +31,7 @@ DncOutputInput h r m = h + r * m
 ----------------------------------------------------------------------
 
 -- Concat read-output tensors followed by the input tensor.
-catReadOutsAndInput : {0 d : Device} -> UserDeviceTraining d => {k : Nat} -> Vect k AnyPtr -> AnyPtr -> AnyPtr
+catReadOutsAndInput : {0 d : Executor} -> UserExecutorTraining d => {k : Nat} -> Vect k AnyPtr -> AnyPtr -> AnyPtr
 catReadOutsAndInput [] inp = inp
 catReadOutsAndInput (ro :: rest) inp =
   primCat2 {d} ro (catReadOutsAndInput {d} rest inp)
@@ -39,7 +39,7 @@ catReadOutsAndInput (ro :: rest) inp =
 -- Concat r read-output tensors. Crashes on r=0.
 %default partial
 
-catReadOuts : {0 d : Device} -> UserDeviceTraining d => {k : Nat} -> Vect k AnyPtr -> AnyPtr
+catReadOuts : {0 d : Executor} -> UserExecutorTraining d => {k : Nat} -> Vect k AnyPtr -> AnyPtr
 catReadOuts [] = idris_crash "Dnc: catReadOuts r=0"
 catReadOuts (h :: t) = catRest h t
   where
@@ -50,7 +50,7 @@ catReadOuts (h :: t) = catRest h t
 -- Compute prod_j (1 - free_gate_j * prev_read_w_j) over r heads.
 -- `onesScalar` is the precomputed scalar 1.0 (passed in to avoid
 -- one dtCreateScalar {t=dt} call per (deviceStreamTag {d}) recursion).
-dncRetention : {0 d : Device} -> UserDeviceTraining d => {k : Nat} -> AnyPtr -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
+dncRetention : {0 d : Executor} -> UserExecutorTraining d => {k : Nat} -> AnyPtr -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
 dncRetention _ _ _ [] acc = acc
 dncRetention onesScalar idx freeGatesT (rw :: rws) acc =
   let fg = primSelect {d} freeGatesT 0 idx
@@ -63,7 +63,7 @@ dncRetention onesScalar idx freeGatesT (rw :: rws) acc =
 -- per timestep, dominated DNC forward overhead at ~1k prims/step
 -- for n=32 — close to 200ms/epoch wasted on a constant). Fix moves
 -- those 1027 prims out of the hot path entirely.
-buildNonDiagMask : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
+buildNonDiagMask : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
 buildNonDiagMask n =
   let nI = cast {to=Int} n
       numElems = nI * nI
@@ -82,14 +82,14 @@ buildNonDiagMask n =
 -- Zero the diagonal of a [n,n] matrix using a precomputed mask.
 -- The mask is built once at DncState construction (`buildNonDiagMask`)
 -- and stored in the state; this is now just the multiply.
-dncZeroDiag : {0 d : Device} -> UserDeviceTraining d => AnyPtr -> AnyPtr -> AnyPtr
+dncZeroDiag : {0 d : Executor} -> UserExecutorTraining d => AnyPtr -> AnyPtr -> AnyPtr
 dncZeroDiag maskPtr matT = primMul {d} matT maskPtr
 
 -- Per-head read processing for r heads.
 -- `linkTransT` is the transposed link matrix, computed ONCE by the
 -- caller and threaded in — used to be `primTranspose2d {d} linkT` per
 -- head, R redundant FFI calls on a head-invariant value.
-dncReadHeads : {0 d : Device} -> UserDeviceTraining d => {k : Nat} -> Int -> Vect k AnyPtr ->
+dncReadHeads : {0 d : Executor} -> UserExecutorTraining d => {k : Nat} -> Int -> Vect k AnyPtr ->
                   AnyPtr -> AnyPtr -> AnyPtr ->
                   AnyPtr -> AnyPtr -> AnyPtr ->
                   Int ->
@@ -133,7 +133,7 @@ dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT m
 public export
 data DncState :
   (r : Nat) -> (n : Nat) -> (m : Nat) -> (h : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkDnc :
     LstmState (DncControllerInput r m i) h d dt g ->
@@ -169,13 +169,13 @@ data DncState :
 -- entries or wrapped Idris Tensors reference it, freed when both let go.
 -- See docs/develop/tensor-lifecycle.md and `Layer/Ntm.idr`'s
 -- zeroState comment.
-zeroState1d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
 zeroState1d {d} {dt} n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
   in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
 
-constState1d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> Double -> AnyPtr
+constState1d : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> Double -> AnyPtr
 constState1d n v =
   let nI = cast {to=Int} n
       buf = fillBuf (prim__allocDoubles nI) 0 nI v
@@ -185,14 +185,14 @@ constState1d n v =
     fillBuf b i n v = if i >= n then b
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
-zeroState2d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (a, b : Nat) -> AnyPtr
+zeroState2d : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (a, b : Nat) -> AnyPtr
 zeroState2d a b =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
       buf = prim__allocDoubles (aI * bI)
   in dtCreateState2d {d} {t=dt} aI bI buf (deviceStreamTag {d})
 
-constState2d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (a, b : Nat) -> Double -> AnyPtr
+constState2d : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (a, b : Nat) -> Double -> AnyPtr
 constState2d a b v =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
@@ -204,11 +204,11 @@ constState2d a b v =
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
 -- Vect r of zero-state [n] handles (for read weights and read outputs).
-mkZeroVectN : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectN : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectN Z _ = []
 mkZeroVectN (S k) n = zeroState1d {d} {dt} n :: mkZeroVectN {d} {dt} k n
 
-mkZeroVectM : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectM : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectM Z _ = []
 mkZeroVectM (S k) m = zeroState1d {d} {dt} m :: mkZeroVectM {d} {dt} k m
 
@@ -218,7 +218,7 @@ mkZeroVectM (S k) m = zeroState1d {d} {dt} m :: mkZeroVectM {d} {dt} k m
 ----------------------------------------------------------------------
 
 export
-applyDnc : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
+applyDnc : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
              DncState r n m h i o d dt g ->
              TVec i d dt g ->
              IO (DncState r n m h i o d dt g, TVec o d dt g)
@@ -363,7 +363,7 @@ applyDnc {r} {n} {m}
 -- Build r Kaiming-uniform read-output state tensors (one per read head).
 -- PyTorch default kaiming_uniform on (1, m) per head: bound = 1/sqrt(m).
 -- Sampled once at construction; non-learnable.
-mkKaimingReadOuts : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
+mkKaimingReadOuts : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
 mkKaimingReadOuts Z _ _ = pure []
 mkKaimingReadOuts (S k) m bound = do
   vals <- traverse (\_ => randomRIO (-bound, bound)) (Vect.replicate m ())
@@ -374,7 +374,7 @@ mkKaimingReadOuts (S k) m bound = do
   rest <- mkKaimingReadOuts {d} {dt} k m bound
   pure (ptr :: rest)
 
-||| Build a `DncState r n m h i o TapeDev` matching the PyTorch reference's
+||| Build a `DncState r n m h i o TapeExecutor` matching the PyTorch reference's
 ||| `DNCLayer.__init__` (`torch_ref/dnc/layer.py`) line-for-line:
 |||
 ||| - LSTM controller:        Idris's `lstmLayer` (now with learned h0/c0)
@@ -386,7 +386,7 @@ mkKaimingReadOuts (S k) m bound = do
 ||| - initial read outputs:   `kaiming_uniform_((R, m))`, non-learnable,
 |||                           sampled once at construction
 export
-dncLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
+dncLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (DncState r n m h i o d dt WithGrad)
 dncLayer pfx = do
@@ -513,7 +513,7 @@ public export
                 (map retypeGrad link) rwTs roTs)
 
 export
-dncLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
+dncLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 dncLayerAny pid =

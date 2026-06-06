@@ -4,14 +4,14 @@
 ||| `MLX_DEVICE` + `TORCH_DEVICE` at build time and substitutes the
 ||| chosen tags into this template via sed.
 |||
-||| Selection matrix (PRIMARY × hw-device env → ExampleDevice, ExampleDType):
+||| Selection matrix (PRIMARY × hw-device env → ExampleExecutor, ExampleDType):
 |||
-|||   tape, *                     → TapeDev,              F64
-|||   torch, TORCH_DEVICE=cpu      → TorchDev TCpu,        F64
-|||   torch, TORCH_DEVICE=mps      → TorchDev TMps,        F32
-|||   torch, TORCH_DEVICE=cuda     → TorchDev (TCuda 0),   F64
-|||   mlx, MLX_DEVICE=cpu          → MlxDev MCpu,          F64
-|||   mlx, MLX_DEVICE=gpu          → MlxDev MGpu,          F32
+|||   tape, *                     → TapeExecutor,              F64
+|||   torch, TORCH_DEVICE=cpu      → TorchExecutor TCpu,        F64
+|||   torch, TORCH_DEVICE=mps      → TorchExecutor TMps,        F32
+|||   torch, TORCH_DEVICE=cuda     → TorchExecutor (TCuda 0),   F64
+|||   mlx, MLX_DEVICE=cpu          → MlxExecutor MCpu,          F64
+|||   mlx, MLX_DEVICE=gpu          → MlxExecutor MGpu,          F32
 |||
 ||| TMps + F64 deliberately doesn't exist — libtorch rejects F64 at
 ||| MPS tensor construction. mlx GPU is F32-only too (Metal dropped
@@ -26,16 +26,16 @@
 ||| clobbered on the next build. Edit this `.in` file instead.
 module BuildConfig
 
-import public Device
-import public Device.Tape
-import public Device.Torch
-import public Device.Mlx
+import public Executor
+import public Executor.Tape
+import public Executor.Torch
+import public Executor.Mlx
 
-||| Device tag examples target. See the Selection matrix in the
+||| Executor tag examples target. See the Selection matrix in the
 ||| module docstring.
 public export
-ExampleDevice : Type
-ExampleDevice = @DEVICE@
+ExampleExecutor : Type
+ExampleExecutor = @DEVICE@
 
 ||| DType examples target. See the Selection matrix in the module
 ||| docstring.

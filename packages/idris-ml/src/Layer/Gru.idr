@@ -2,7 +2,7 @@ module Layer.Gru
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -21,7 +21,7 @@ import Tensor
 -- `TMat (3 * o) ...` and `TVec (3 * o) ...` aliases.
 
 public export
-record GruState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record GruState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGru
   iwT : TMat (3 * o) i d dt g         -- W_ih [3*o, i]
   ihB : TVec (3 * o) d dt g           -- b_ih [3*o]
@@ -37,7 +37,7 @@ record GruState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMod
 %default partial
 
 export
-applyGru : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
+applyGru : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
              GruState i o d dt g ->
              TVec i d dt g ->
              IO (GruState i o d dt g, TVec o d dt g)
@@ -55,11 +55,11 @@ applyGru {o} st input = do
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build a `GruState i o TapeDev` with Xavier-uniform weights and
+||| Build a `GruState i o TapeExecutor` with Xavier-uniform weights and
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
-gruLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
+gruLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
              IO (GruState i o d dt WithGrad)
 gruLayer paramPrefix = do
   -- GRU has 3 gates (reset, update, new); weights are stacked along
@@ -80,7 +80,7 @@ gruLayer paramPrefix = do
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetGruState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> GruState i o d dt g -> GruState i o d dt g
+resetGruState : {o : Nat} -> {0 d : Executor} -> {0 g : GradMode} -> GruState i o d dt g -> GruState i o d dt g
 resetGruState st = { hiddenT := Nothing } st
 
 
@@ -119,5 +119,5 @@ LayerLike GruState where
 
 ||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+gruLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

@@ -2,7 +2,7 @@
 |||
 ||| This binary's `Main.main` is everything in `Main.idr`'s default
 ||| `tests` list PLUS the `Test.Transfer` suite, which exercises
-||| cross-backend `toDevice` hops and so needs tape, torch, *and*
+||| cross-backend `toExecutor` hops and so needs tape, torch, *and*
 ||| mlx C symbols linked at runtime.
 |||
 ||| Build via:
@@ -27,7 +27,7 @@ import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.ManagedHandle
 import Test.Transfer
-import Test.MultiDeviceRegistry
+import Test.MultiExecutorRegistry
 
 main : IO ()
 main = runAll
@@ -42,5 +42,5 @@ main = runAll
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
   , ("Transfer",        Test.Transfer.tests)
-  , ("MultiDeviceRegistry", Test.MultiDeviceRegistry.tests)
+  , ("MultiExecutorRegistry", Test.MultiExecutorRegistry.tests)
   ]

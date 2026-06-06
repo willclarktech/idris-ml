@@ -3,7 +3,7 @@ module Layer.LinearMixed
 import Data.Vect
 
 import Compat.Random
-import Device
+import Executor
 import Init
 import Layer.Core
 import Layer.MixedCore
@@ -33,7 +33,7 @@ import Tensor
 -- effectively free, and torch/mlx handle it via their native cast.
 
 public export
-record LinearMixedState (i : Nat) (o : Nat) (0 d : Device)
+record LinearMixedState (i : Nat) (o : Nat) (0 d : Executor)
                         (0 paramDt : DType) (0 computeDt : DType) (0 g : GradMode) where
   constructor MkLinearMixed
   weightT : Tensor [o, i] d paramDt g
@@ -88,7 +88,7 @@ LayerLikeMixed LinearMixedState where
 ||| doesn't influence construction. The forward cast happens per-call
 ||| via `tcastUnsafe`.
 export
-mixedLinearLayer : UserDeviceTraining d =>
+mixedLinearLayer : UserExecutorTraining d =>
                    RuntimeDType paramDt => RuntimeDType computeDt =>
                    Linked d =>
                    Compatible d paramDt => Compatible d computeDt =>
@@ -105,7 +105,7 @@ mixedLinearLayer pfx = do
 ||| Wrap a `LinearMixedState` in `AnyLayerMixed` for use in a
 ||| `NetworkMixed`.
 export
-mixedLinearLayerAny : UserDeviceTraining d =>
+mixedLinearLayerAny : UserExecutorTraining d =>
                       RuntimeDType paramDt => RuntimeDType computeDt =>
                       Linked d =>
                       Compatible d paramDt => Compatible d computeDt =>

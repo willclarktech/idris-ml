@@ -3,7 +3,7 @@
 ||| Three modes (driven by `--mode`):
 |||
 |||   1. `save` — build a tiny `LinearState 2 3` model on the active
-|||      `(ExampleDevice, ExampleDType)` pair, train it for a handful
+|||      `(ExampleExecutor, ExampleDType)` pair, train it for a handful
 |||      of epochs so the params have meaningful values, and write
 |||      the checkpoint to `--path`. The SafeTensors header records
 |||      the actual dtype (`F32` or `F64`) per param.
@@ -44,7 +44,7 @@ import Layer.Linear
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -93,16 +93,16 @@ specs =
 -- Eval — mean NLL loss over the 5 data points.
 ----------------------------------------------------------------------
 
-evalModel : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Double
+evalModel : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO Double
 evalModel model = do
   losses <- traverse (\dp => do
-        let inT  = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
-            inV  = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
-            tgtT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (y dp)
-            tgtV = the (TVec 3 ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
+        let inT  = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (x dp)
+            inV  = the (TVec 2 ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
+            tgtT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (y dp)
+            tgtV = the (TVec 3 ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
         (_, predV) <- forwardVar model inV
         lossT <- tnllLoss predV tgtV
-        pure (primItem {d=ExampleDevice} lossT.tensorPtr)) dataPoints
+        pure (primItem {d=ExampleExecutor} lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
 
@@ -110,33 +110,33 @@ evalModel model = do
 -- Modes
 ----------------------------------------------------------------------
 
-doSave : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Bool
+doSave : Config -> Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO Bool
 doSave cfg model = do
   let opt = nativeSgd cfg.lr
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs"
-  (trained, _, _) <- runTraining {d=ExampleDevice}
+  (trained, _, _) <- runTraining {d=ExampleExecutor}
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
-  trainedLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
+  trainedLoss <- withNoGrad {d=ExampleExecutor} (evalModel trained)
   putStrLn $ "Trained eval loss: " ++ show trainedLoss
-  ok <- saveModel {d=ExampleDevice} cfg.path
+  ok <- saveModel {d=ExampleExecutor} cfg.path
   putStrLn $ (if ok then "Saved to " else "FAILED to save to ") ++ cfg.path
   pure ok
 
 doLoad : (allowCast : Bool) -> Config ->
-         Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Bool
+         Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO Bool
 doLoad allowCast cfg model = do
   -- Initial eval — captures the untrained / random-init baseline.
-  initLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
+  initLoss <- withNoGrad {d=ExampleExecutor} (evalModel model)
   putStrLn $ "Pre-load eval loss: " ++ show initLoss
-  ok <- if allowCast then loadModelAllowCast {d=ExampleDevice} cfg.path
-                     else loadModel {d=ExampleDevice} cfg.path
+  ok <- if allowCast then loadModelAllowCast {d=ExampleExecutor} cfg.path
+                     else loadModel {d=ExampleExecutor} cfg.path
   let label : String
       label = if allowCast then "load-cast" else "load-strict"
   putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path
   if ok
     then do
-      loadedLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
+      loadedLoss <- withNoGrad {d=ExampleExecutor} (evalModel model)
       putStrLn $ "Post-load eval loss: " ++ show loadedLoss
     else pure ()
   pure ok
@@ -161,10 +161,10 @@ main = do
   -- a single test runner reuses one process. Within a single run,
   -- the prefix doesn't matter — save and load use the same prefix.
   llAny <- linearLayerAny {i=2} {o=3} "pck_ll"
-  let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
+  let model : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad
       model = OutputLayer llAny
 
-  putStrLn $ "=== PrecisionCheckpoint [" ++ backendName {d=ExampleDevice}
+  putStrLn $ "=== PrecisionCheckpoint [" ++ backendName {d=ExampleExecutor}
            ++ "] mode=" ++ cfg.mode ++ " ==="
 
   result <- case cfg.mode of

@@ -2,7 +2,7 @@ module Layer.Dropout
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -24,10 +24,10 @@ dropoutSeed : Int -> Int
 --
 -- Parameterised by both input and output sizes (with `i = n` and
 -- `o = n` enforced by the constructor) so the type fits LayerLike's
--- `Nat -> Nat -> Device -> Type` arity.
+-- `Nat -> Nat -> Executor -> Type` arity.
 
 public export
-data DropoutState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+data DropoutState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d dt g
 
 
@@ -38,7 +38,7 @@ data DropoutState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : Grad
 %default partial
 
 export
-applyDropout : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
+applyDropout : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
                  DropoutState n n d dt g ->
                  TVec n d dt g ->
                  IO (DropoutState n n d dt g, TVec n d dt g)

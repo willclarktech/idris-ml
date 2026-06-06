@@ -3,17 +3,17 @@
 ||| idris-ml has three orthogonal compile-time capabilities, each an empty
 ||| marker interface with curated instances:
 |||
-|||   * `Compatible (0 d : Device) (0 t : DType)` — dtype admissibility.
+|||   * `Compatible (0 d : Executor) (0 t : DType)` — dtype admissibility.
 |||     Some hardware can't represent some dtypes: the MLX Metal GPU
 |||     dropped float64 in mlx 0.31; libtorch rejects float64 at MPS
-|||     construction. There is no `Compatible (MlxDev MGpu) F64` /
-|||     `Compatible (TorchDev TMps) F64` instance. Build-independent —
+|||     construction. There is no `Compatible (MlxExecutor MGpu) F64` /
+|||     `Compatible (TorchExecutor TMps) F64` instance. Build-independent —
 |||     every backend's Compatible instances are always in scope.
 |||
-|||   * `Linked (0 d : Device)` — backend linkage. Only backends compiled
+|||   * `Linked (0 d : Executor)` — backend linkage. Only backends compiled
 |||     into this `libidrisml` (the `BACKEND` list) get a `Linked`
 |||     instance, emitted by the generated `HwConfig`. A tape-only build
-|||     has no `Linked (MlxDev _)`, so naming an mlx device at a
+|||     has no `Linked (MlxExecutor _)`, so naming an mlx device at a
 |||     constructor fails to typecheck. Build-dependent.
 |||
 |||   * `IsFloating (0 t : DType)` / `IsIntegral (0 t : DType)` — op-level
@@ -37,7 +37,7 @@ module Example.DTypePitch
 
 import Data.Vect
 
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -49,39 +49,39 @@ compatOK : Compatible d dt => ()
 compatOK = ()
 
 okTapeF64    : ()
-okTapeF64    = compatOK {d = TapeDev}        {dt = F64}
+okTapeF64    = compatOK {d = TapeExecutor}        {dt = F64}
 okTorchCpuF64 : ()
-okTorchCpuF64 = compatOK {d = TorchDev TCpu}  {dt = F64}
+okTorchCpuF64 = compatOK {d = TorchExecutor TCpu}  {dt = F64}
 okTorchCpuF32 : ()
-okTorchCpuF32 = compatOK {d = TorchDev TCpu}  {dt = F32}
+okTorchCpuF32 = compatOK {d = TorchExecutor TCpu}  {dt = F32}
 okTorchMpsF32 : ()
-okTorchMpsF32 = compatOK {d = TorchDev TMps}  {dt = F32}
+okTorchMpsF32 = compatOK {d = TorchExecutor TMps}  {dt = F32}
 okMlxCpuF64  : ()
-okMlxCpuF64  = compatOK {d = MlxDev MCpu}     {dt = F64}
+okMlxCpuF64  = compatOK {d = MlxExecutor MCpu}     {dt = F64}
 okMlxCpuF32  : ()
-okMlxCpuF32  = compatOK {d = MlxDev MCpu}     {dt = F32}
+okMlxCpuF32  = compatOK {d = MlxExecutor MCpu}     {dt = F32}
 okMlxGpuF32  : ()
-okMlxGpuF32  = compatOK {d = MlxDev MGpu}     {dt = F32}
+okMlxGpuF32  = compatOK {d = MlxExecutor MGpu}     {dt = F32}
 
 -- Uncomment either: "Can't find an implementation for Compatible ... F64".
--- badMlxGpuF64   : () ; badMlxGpuF64   = compatOK {d = MlxDev MGpu}    {dt = F64}
--- badTorchMpsF64 : () ; badTorchMpsF64 = compatOK {d = TorchDev TMps}  {dt = F64}
+-- badMlxGpuF64   : () ; badMlxGpuF64   = compatOK {d = MlxExecutor MGpu}    {dt = F64}
+-- badTorchMpsF64 : () ; badTorchMpsF64 = compatOK {d = TorchExecutor TMps}  {dt = F64}
 
 
 -- Axis 2: Linked (backend linkage). Build-DEPENDENT — only the
--- compiled-in backends have a Linked instance. ExampleDevice is always
+-- compiled-in backends have a Linked instance. ExampleExecutor is always
 -- linked (it's this build's device).
 
 linkedOK : Linked d => ()
 linkedOK = ()
 
 linkedExample : ()
-linkedExample = linkedOK {d = ExampleDevice}
+linkedExample = linkedOK {d = ExampleExecutor}
 
 -- Uncomment on a build whose BACKEND omits that backend and it fails
 -- with "Can't find an implementation for Linked ...":
--- linkedMlxGpu  : () ; linkedMlxGpu  = linkedOK {d = MlxDev MGpu}
--- linkedTorchCpu : () ; linkedTorchCpu = linkedOK {d = TorchDev TCpu}
+-- linkedMlxGpu  : () ; linkedMlxGpu  = linkedOK {d = MlxExecutor MGpu}
+-- linkedTorchCpu : () ; linkedTorchCpu = linkedOK {d = TorchExecutor TCpu}
 
 
 -- Lossless-upcast partial order: `F32 → F64` is lossless, `F64 → F32`
@@ -127,17 +127,17 @@ main : IO ()
 main = do
   putStrLn "=== device capability gates ==="
   putStrLn "Compatible (dtype) admits, on every build:"
-  putStrLn "  TapeDev F64 | TorchDev {TCpu F64/F32, TMps F32} | MlxDev {MCpu F64/F32, MGpu F32}"
-  putStrLn "  rejected: MlxDev MGpu F64 | TorchDev TMps F64"
+  putStrLn "  TapeExecutor F64 | TorchExecutor {TCpu F64/F32, TMps F32} | MlxExecutor {MCpu F64/F32, MGpu F32}"
+  putStrLn "  rejected: MlxExecutor MGpu F64 | TorchExecutor TMps F64"
   putStrLn "Linked (linkage) admits only this build's BACKEND."
   putStrLn "IsFloating/IsIntegral (op kind) gate ops on the dtype tag:"
   putStrLn "  floating: F32/F64/BF16/F16 | integral: I8/I16/I32/I64/U8 | Bool: neither"
   putStrLn "  rejected: a loss / backprop on a Bool or Int tensor"
   putStrLn ""
   -- Real construction satisfies BOTH Compatible and Linked.
-  v <- tconstScalar {d = ExampleDevice} {dt = ExampleDType} 42.0
-  putStrLn $ "Constructed Tensor [] on " ++ deviceName {d = ExampleDevice}
+  v <- tconstScalar {d = ExampleExecutor} {dt = ExampleDType} 42.0
+  putStrLn $ "Constructed Tensor [] on " ++ deviceName {d = ExampleExecutor}
                ++ " " ++ dtypeName {t = ExampleDType}
                ++ " holding " ++ show (tensorItem v)
-  putStrLn $ "RESULT\tgate=ok\tdevice=" ++ deviceName {d = ExampleDevice}
+  putStrLn $ "RESULT\tgate=ok\tdevice=" ++ deviceName {d = ExampleExecutor}
                ++ "\tdtype=" ++ dtypeName {t = ExampleDType}

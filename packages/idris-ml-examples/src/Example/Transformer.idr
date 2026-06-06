@@ -27,7 +27,7 @@ import Array
 import Checkpoint
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -86,7 +86,7 @@ ReversalLen = SeqLen `minus` InputLen
 |||  typed-surface CE loss on per-sample logits + target [seqLen *
 ||| vocabSize]. Masks the random-prefix positions so only the reversal
 ||| portion contributes (V1 `reversalCE` parity, returning a Tensor [] CPU).
-catCELossVar : TVec OutputDim ExampleDevice ExampleDType WithGrad -> TVec OutputDim ExampleDevice ExampleDType WithGrad -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+catCELossVar : TVec OutputDim ExampleExecutor ExampleDType WithGrad -> TVec OutputDim ExampleExecutor ExampleDType WithGrad -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 catCELossVar predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -104,14 +104,14 @@ catCELossVar predV targetV = ioRerun (\_ =>
       -- an empty array, then the downstream `primReshape2d ... revLen
       -- vsI` aborts with "Cannot reshape array of size 0 into shape
       -- (6, 8)". Fix: row indices instead of flat indices.
-      logitsFull = primReshape2d {d=ExampleDevice} predV.tensorPtr sI vsI
-      targetFull = primReshape2d {d=ExampleDevice} targetV.tensorPtr sI vsI
-      logitsR = primNarrow {d=ExampleDevice} logitsFull 0 skip revLen
-      logProbs = primLogSoftmax2d {d=ExampleDevice} logitsR
-      tgtsR = primNarrow {d=ExampleDevice} targetFull 0 skip revLen
-      product = primMul {d=ExampleDevice} logProbs tgtsR
-      totalSum = primSum {d=ExampleDevice} product
-      loss = primMulScalar {d=ExampleDevice} (primNeg {d=ExampleDevice} totalSum) (1.0 / cast {to=Double} revLen)
+      logitsFull = primReshape2d {d=ExampleExecutor} predV.tensorPtr sI vsI
+      targetFull = primReshape2d {d=ExampleExecutor} targetV.tensorPtr sI vsI
+      logitsR = primNarrow {d=ExampleExecutor} logitsFull 0 skip revLen
+      logProbs = primLogSoftmax2d {d=ExampleExecutor} logitsR
+      tgtsR = primNarrow {d=ExampleExecutor} targetFull 0 skip revLen
+      product = primMul {d=ExampleExecutor} logProbs tgtsR
+      totalSum = primSum {d=ExampleExecutor} product
+      loss = primMulScalar {d=ExampleExecutor} (primNeg {d=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
   in MkTensor loss Nothing)
 
 
@@ -133,7 +133,7 @@ argmaxAtPtr vocabSize t pos =
   let scan : Int -> Nat -> Double -> Nat
       scan k bestI bestV =
         if k >= cast {to=Int} vocabSize then bestI
-        else let v = primItem1d {d=ExampleDevice} t (cast pos * cast vocabSize + k)
+        else let v = primItem1d {d=ExampleExecutor} t (cast pos * cast vocabSize + k)
              in if v > bestV
                   then assert_total $ scan (k + 1) (cast k) v
                   else assert_total $ scan (k + 1) bestI bestV
@@ -197,7 +197,7 @@ main = do
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
               "tfm0"
-  let model : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad
+  let model : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad
       model = OutputLayer tfmAny
   putStrLn ""
 
@@ -205,11 +205,11 @@ main = do
       genBatch = sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
   -- Per-epoch metrics: accuracy on a fresh eval batch via single-sample forwardVar.
-  let evalMetrics : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         results <- traverse (\dp => do
-              let inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor (inputTensor dp) Nothing)
+              let inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor (inputTensor dp) Nothing)
               (_, predV) <- forwardVar m inV
               let predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
                   expected = map (argmaxAtPtr VocabSize (targetTensor dp)) positions
@@ -237,7 +237,7 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
     (\m, d => epochVarTensorBatch opt d catCELossVar m) genBatch trainCfg model
 
   -- Single-sample eval
@@ -245,10 +245,10 @@ main = do
   putStrLn "Evaluation:"
   evalRaw <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
   let tdp = index FZ evalRaw
-      inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor (inputTensor tdp) Nothing)
+      inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor (inputTensor tdp) Nothing)
   (_, predV) <- forwardVar trained inV
   let inpT = inputTensor tdp
-      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {d=ExampleDevice} inpT (cast p)))) positions
+      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {d=ExampleExecutor} inpT (cast p)))) positions
       targetDecoded = map (argmaxAtPtr VocabSize (targetTensor tdp)) positions
       predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
       sortCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)

@@ -2,7 +2,7 @@ module Layer.RmsNorm
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -36,7 +36,7 @@ import Tensor
 -- the composed form is a hot path.
 
 public export
-data RmsNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+data RmsNormState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkRmsNorm : TVec n d dt g -> RmsNormState n n d dt g
 
 
@@ -58,7 +58,7 @@ defaultRmsNormEps = 1.0e-5
 ||| smart constructors below pin `defaultRmsNormEps` for the LayerLike
 ||| instance; HfLlama uses this form directly with the config's eps.
 export
-applyRmsNormEps : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => {n : Nat} ->
+applyRmsNormEps : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => {n : Nat} ->
                   (eps : Double) -> RmsNormState n n d dt g ->
                   TVec n d dt g -> IO (RmsNormState n n d dt g, TVec n d dt g)
 applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
@@ -82,7 +82,7 @@ applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
 ||| under `<prefix>_weight`. HF-aligned modules (HfLlama) re-bind the
 ||| name at registration to `<model.layers.i.input_layernorm.weight>`.
 export
-rmsNormLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+rmsNormLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
                {n : Nat} -> (paramPrefix : String) ->
                IO (RmsNormState n n d dt WithGrad)
 rmsNormLayer paramPrefix = do
@@ -110,7 +110,7 @@ LayerLike RmsNormState where
 
 ||| Wrap an RmsNorm in `AnyLayer`.
 export
-rmsNormLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+rmsNormLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
                   {n : Nat} -> (paramPrefix : String) ->
                   IO (AnyLayer n n d dt WithGrad)
 rmsNormLayerAny pid = map (MkAnyLayer RmsNormState) (rmsNormLayer pid)

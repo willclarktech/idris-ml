@@ -410,8 +410,8 @@ jobs:
       - name: Run Idris unit suite (tape)
         # Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite
         # against the tape primary. The test buckets that touch the C
-        # surface (GradMode, ManagedHandle) use `{d=TestDevice}` which the
-        # Makefile-generated `TestConfig.idr` resolves to TapeDev here, so
+        # surface (GradMode, ManagedHandle) use `{d=TestExecutor}` which the
+        # Makefile-generated `TestConfig.idr` resolves to TapeExecutor here, so
         # FFI calls land on tape-suffixed C symbols.
         run: make BACKEND=tape test-unit-idris-ml
 
@@ -420,9 +420,9 @@ jobs:
         run: make BACKEND=torch test-unit-c
 
       - name: Run Idris unit suite (torch, Ubuntu)
-        # Same suite as the tape lane but with TestDevice = TorchDev TCpu.
+        # Same suite as the tape lane but with TestExecutor = TorchExecutor TCpu.
         # Catches Idris-side regressions that a tape-only run would miss
-        # (broken torch Scheme wrapper, drift in `UserDeviceTransfer`
+        # (broken torch Scheme wrapper, drift in `UserExecutorTransfer`
         # instances, etc.).
         if: matrix.os == 'ubuntu-latest'
         run: make BACKEND=torch test-unit-idris-ml
@@ -432,7 +432,7 @@ jobs:
         run: make BACKEND=mlx test-unit-c
 
       - name: Run Idris unit suite (mlx, macOS)
-        # Same suite as tape/torch but with TestDevice = MlxDev MCpu.
+        # Same suite as tape/torch but with TestExecutor = MlxExecutor MCpu.
         # Catches mlx Scheme-wrapper drift, lazy-eval / handle-lifetime
         # regressions in the test-managed-handle suite under Metal.
         if: matrix.os == 'macos-latest'
@@ -454,8 +454,8 @@ jobs:
         run: make BACKEND=mlx test-unit-examples
 
       - name: Run multi-backend Idris suite (macOS)
-        # Adds Test.Transfer (cross-backend `toDevice` smoke) +
-        # Test.MultiDeviceRegistry (registry isolation invariant) on
+        # Adds Test.Transfer (cross-backend `toExecutor` smoke) +
+        # Test.MultiExecutorRegistry (registry isolation invariant) on
         # top of the per-backend buckets. Forces BACKEND=torch,tape,mlx
         # so all three sets of C symbols are linked — only feasible on
         # the macOS lane (Ubuntu has no mlx).

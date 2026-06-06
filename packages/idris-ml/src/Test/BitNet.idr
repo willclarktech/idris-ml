@@ -3,7 +3,7 @@ module Test.BitNet
 import Data.Vect
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 import Array
 import Layer
@@ -98,17 +98,17 @@ FIXTURE_EXPECTED_Y = [-3.1641801259368396, -0.29296268251998431, -2.752322043195
 -- referencing an uninitialised arena slot. See gotchas.md
 -- "Pure-typed FFI helpers reorder across sibling let-bindings".
 
-mkVec : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType WithGrad)
+mkVec : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType WithGrad)
 mkVec xs = do
-  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=TestDType}
+  raw <- ioRerun (\_ => bulkToTensor {d=TestExecutor} {dt=TestDType}
                                      (VArray (map SArray xs)))
   pure (tinput1d {n} raw)
 
-mkVecNoGrad : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType NoGrad)
+mkVecNoGrad : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType NoGrad)
 mkVecNoGrad xs = do
-  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=TestDType}
+  raw <- ioRerun (\_ => bulkToTensor {d=TestExecutor} {dt=TestDType}
                                      (VArray (map SArray xs)))
-  weakenGrad {d=TestDevice} (tinput1d {n} raw)
+  weakenGrad {d=TestExecutor} (tinput1d {n} raw)
 
 
 -- Write a Vect n Int into a freshly allocated byte buffer; returns
@@ -127,10 +127,10 @@ buildPackedBytes {n} xs = do
 
 
 readElemN : {n : Nat} -> {0 g : GradMode} ->
-            Tensor [n] TestDevice TestDType g -> Int -> IO Double
+            Tensor [n] TestExecutor TestDType g -> Int -> IO Double
 readElemN {n} t k = do
-  s <- telemSelect {d=TestDevice} {n} t k
-  pure (tensorItem {d=TestDevice} s)
+  s <- telemSelect {d=TestExecutor} {n} t k
+  pure (tensorItem {d=TestExecutor} s)
 
 
 ----------------------------------------------------------------------
@@ -152,15 +152,15 @@ bitnetMlpBlockOracle : IO Bool
 bitnetMlpBlockOracle = do
   -- Pack the three ternary weights into freshly-allocated byte buffers.
   (gateBytes, gateByteCount) <- buildPackedBytes FIXTURE_GATE_W_BYTES
-  gateW <- tCreateTernaryPacked2d {d=TestDevice}
+  gateW <- tCreateTernaryPacked2d {d=TestExecutor}
              {o=FIXTURE_INTERMEDIATE} {i=FIXTURE_HIDDEN}
              gateBytes gateByteCount
   (upBytes, upByteCount) <- buildPackedBytes FIXTURE_UP_W_BYTES
-  upW <- tCreateTernaryPacked2d {d=TestDevice}
+  upW <- tCreateTernaryPacked2d {d=TestExecutor}
            {o=FIXTURE_INTERMEDIATE} {i=FIXTURE_HIDDEN}
            upBytes upByteCount
   (downBytes, downByteCount) <- buildPackedBytes FIXTURE_DOWN_W_BYTES
-  downW <- tCreateTernaryPacked2d {d=TestDevice}
+  downW <- tCreateTernaryPacked2d {d=TestExecutor}
              {o=FIXTURE_HIDDEN} {i=FIXTURE_INTERMEDIATE}
              downBytes downByteCount
 
@@ -177,13 +177,13 @@ bitnetMlpBlockOracle = do
   x        <- mkVec FIXTURE_X
 
   -- Compose the block forward.
-  gate   <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} gateW gateS x gateB
-  up     <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} upW   upS   x upB
+  gate   <- tBitlinearFwd {d=TestExecutor} {cDt=TestDType} gateW gateS x gateB
+  up     <- tBitlinearFwd {d=TestExecutor} {cDt=TestDType} upW   upS   x upB
   siluG  <- tsilu gate
   gated  <- tmul siluG up
   let subNormState = MkRmsNorm subNormW
-  (_, normed) <- applyRmsNormEps {d=TestDevice} 1.0e-5 subNormState gated
-  y      <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} downW downS normed downB
+  (_, normed) <- applyRmsNormEps {d=TestExecutor} 1.0e-5 subNormState gated
+  y      <- tBitlinearFwd {d=TestExecutor} {cDt=TestDType} downW downS normed downB
 
   -- Assert each output element matches the PyTorch oracle within 1e-6.
   y0 <- readElemN y 0

@@ -3,7 +3,7 @@ module Test.SwiGLU
 import Data.Vect
 
 import Test.Harness
-import Device
+import Executor
 import Tensor
 import Array
 import Layer.SwiGLU
@@ -24,7 +24,7 @@ readVec n p = go (cast {to=Int} n) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=TestDevice} p i
+        else let v = primItem1d {d=TestExecutor} p i
              in go end (i + 1) (v :: acc)
 
 
@@ -39,9 +39,9 @@ maxAbsDiff actual expected = go actual expected 0.0
       in go as bs (if d > m then d else m)
 
 
-mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestDevice TestDType WithGrad
+mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkInput xs =
-  let raw = bulkToTensor {d=TestDevice} {dt=TestDType}
+  let raw = bulkToTensor {d=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -53,7 +53,7 @@ fillOnes _   0 b = b
 fillOnes off k b = fillOnes (off + 1) (k - 1) (prim__setDouble b off 1.0)
 
 mkOnesWeight : {o, i : Nat} -> (name : String) ->
-               IO (Tensor [o, i] TestDevice TestDType WithGrad)
+               IO (Tensor [o, i] TestExecutor TestDType WithGrad)
 mkOnesWeight {o} {i} name =
   let nElts = cast {to=Int} (o * i)
       buf   = prim__allocDoubles nElts
@@ -64,7 +64,7 @@ mkOnesWeight {o} {i} name =
 -- swigluLayer's Xavier-uniform init so the forward has an analytically
 -- computable reference.
 mkAllOnesSwiGLU : {hidden, intermediate : Nat} -> (pfx : String) ->
-                   IO (SwiGLUState hidden intermediate TestDevice TestDType WithGrad)
+                   IO (SwiGLUState hidden intermediate TestExecutor TestDType WithGrad)
 mkAllOnesSwiGLU pfx = do
   gateW <- mkOnesWeight {o=intermediate} {i=hidden}       (pfx ++ "_gate_weight")
   upW   <- mkOnesWeight {o=intermediate} {i=hidden}       (pfx ++ "_up_weight")
@@ -104,7 +104,7 @@ testForwardAllOnesAt12 = do
 
 testShapeAndFinite : IO Bool
 testShapeAndFinite = do
-  sw <- swigluLayer {d=TestDevice} {dt=TestDType}
+  sw <- swigluLayer {d=TestExecutor} {dt=TestDType}
                     {hidden=4} {intermediate=11}  -- intermediate ≠ 4*hidden to catch hard-coded ratios
                     "sw_shape"
   let input = mkInput (the (Vect 4 Double) [0.5, -1.5, 2.0, -0.25])

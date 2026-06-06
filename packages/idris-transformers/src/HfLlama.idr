@@ -54,7 +54,7 @@ module HfLlama
 import Data.Vect
 
 import Compat.Random
-import Device
+import Executor
 import HfCommon
 import Init
 import KVCache
@@ -174,11 +174,11 @@ fillConst buf off n v =
 ||| k_proj / v_proj / o_proj and the SwiGLU sublayer's gate / up /
 ||| down projections.
 public export
-record LlamaLinearNoBias (i, o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record LlamaLinearNoBias (i, o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaLinear
   weight : Tensor [o, i] d dt g
 
-makeLlamaLinear : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeLlamaLinear : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
                => {i, o : Nat}
                -> (paramFullName : String)
                -> IO (LlamaLinearNoBias i o d dt WithGrad)
@@ -198,11 +198,11 @@ makeLlamaLinear paramFullName = do
 ||| `…post_attention_layernorm.weight`). The eps comes from the model
 ||| config (1e-5 for Llama 3).
 public export
-record LlamaRmsNorm (n : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record LlamaRmsNorm (n : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaRmsNorm
   weight : Tensor [n] d dt g
 
-makeLlamaRmsNorm : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeLlamaRmsNorm : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
                 => {n : Nat}
                 -> (paramFullName : String)
                 -> IO (LlamaRmsNorm n d dt WithGrad)
@@ -216,11 +216,11 @@ makeLlamaRmsNorm paramFullName = do
 ||| Token embedding: `[vocab, hidden]`. Used for both the input
 ||| embedding lookup AND the (tied) LM head at forward time.
 public export
-record LlamaEmbedding (vocab, hidden : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record LlamaEmbedding (vocab, hidden : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaEmbedding
   weight : Tensor [vocab, hidden] d dt g
 
-makeLlamaEmbedding : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeLlamaEmbedding : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
                   => {vocab, hidden : Nat}
                   -> (paramFullName : String)
                   -> IO (LlamaEmbedding vocab hidden d dt WithGrad)
@@ -245,7 +245,7 @@ makeLlamaEmbedding paramFullName = do
 public export
 record LlamaAttentionState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaAttention
   qProj : LlamaLinearNoBias hidden qOut  d dt g     -- [numHeads * headDim, hidden]
   kProj : LlamaLinearNoBias hidden kvOut d dt g     -- [numKvHeads * headDim, hidden]
@@ -259,7 +259,7 @@ record LlamaAttentionState
 public export
 record LlamaMlpState
         (hidden : Nat) (intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaMlp
   gateProj : LlamaLinearNoBias hidden intermediate d dt g
   upProj   : LlamaLinearNoBias hidden intermediate d dt g
@@ -271,7 +271,7 @@ record LlamaMlpState
 public export
 record LlamaBlockState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaBlock
   inputNorm    : LlamaRmsNorm hidden d dt g
   attn         : LlamaAttentionState hidden qOut kvOut d dt g
@@ -286,7 +286,7 @@ public export
 record LlamaModelState
         (vocab : Nat) (hidden : Nat) (numLayers : Nat)
         (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaModel
   embedTokens : LlamaEmbedding vocab hidden d dt g
   blocks      : Vect numLayers (LlamaBlockState hidden qOut kvOut intermediate d dt g)
@@ -297,7 +297,7 @@ record LlamaModelState
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeAttention : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
              => {hidden, qOut, kvOut : Nat}
              -> (layerPfx : String)
              -> IO (LlamaAttentionState hidden qOut kvOut d dt WithGrad)
@@ -308,7 +308,7 @@ makeAttention layerPfx = do
   o <- makeLlamaLinear {i=qOut}   {o=hidden} (layerPfx ++ ".self_attn.o_proj.weight")
   pure (MkLlamaAttention q k v o)
 
-makeMlp : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeMlp : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
        => {hidden, intermediate : Nat}
        -> (layerPfx : String)
        -> IO (LlamaMlpState hidden intermediate d dt WithGrad)
@@ -318,7 +318,7 @@ makeMlp layerPfx = do
   dn <- makeLlamaLinear {i=intermediate} {o=hidden}       (layerPfx ++ ".mlp.down_proj.weight")
   pure (MkLlamaMlp g u dn)
 
-makeBlock : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlock : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
          => {hidden, qOut, kvOut, intermediate : Nat}
          -> (layerPfx : String)
          -> IO (LlamaBlockState hidden qOut kvOut intermediate d dt WithGrad)
@@ -329,7 +329,7 @@ makeBlock layerPfx = do
   mp  <- makeMlp {hidden} {intermediate} layerPfx
   pure (MkLlamaBlock ln1 at ln2 mp)
 
-makeBlocks : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlocks : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
           => {hidden, qOut, kvOut, intermediate : Nat}
           -> (modelPfx : String) -> (n : Nat) -> (offset : Nat)
           -> IO (Vect n (LlamaBlockState hidden qOut kvOut intermediate d dt WithGrad))
@@ -350,7 +350,7 @@ makeBlocks pfx (S k) offset = do
 ||| system catches dimension mismatches at construction time. For
 ||| `llama32_1B_Config`: qOut=2048, kvOut=512.
 public export
-hfLlamaModel : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+hfLlamaModel : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
             => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
             -> (modelPrefix : String)
             -> IO (LlamaModelState vocab hidden numLayers qOut kvOut intermediate d dt WithGrad)
@@ -372,7 +372,7 @@ hfLlamaModel pfx = do
 ||| `LlamaRmsNorm` wrapper. The body lives in `HfCommon.idr` so
 ||| HfBitNet (and any future adapter using the same per-row fold)
 ||| shares the implementation.
-applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+applyRmsNorm2d : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
                  LlamaRmsNorm hidden d dt g ->
@@ -384,7 +384,7 @@ applyRmsNorm2d eps (MkLlamaRmsNorm weight) input =
 
 ||| Bias-free Linear forward on `[seqLen, in] -> [seqLen, out]`.
 ||| Plain matmul `x @ W^T`. Used for q/k/v/o_proj and gate/up/down_proj.
-applyLinear2d : {0 d : Device} -> UserDeviceTraining d =>
+applyLinear2d : {0 d : Executor} -> UserExecutorTraining d =>
                 LlamaLinearNoBias i o d dt g ->
                 Tensor [seqLen, i] d dt g ->
                 IO (Tensor [seqLen, o] d dt g)
@@ -396,7 +396,7 @@ applyLinear2d (MkLlamaLinear w) x = ioRerun (\_ =>
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`. Same
 ||| pattern as HfBert.idr's applyEmbedLookup2d.
-applyEmbedLookup : {0 d : Device} -> UserDeviceTraining d =>
+applyEmbedLookup : {0 d : Executor} -> UserExecutorTraining d =>
                    {seqLen, vocab, hidden : Nat} ->
                    LlamaEmbedding vocab hidden d dt g ->
                    Tensor [seqLen] d dt g ->
@@ -431,7 +431,7 @@ writeCausalMask buf i j n =
 -- All-heads RoPE collapses that to ~7 ops per Q or K per layer
 -- (broadcast muls + narrow + reshape + 1 concat for the rotate-half).
 ropeAllHeadsFlat :
-     {0 d : Device} -> UserDeviceTraining d =>
+     {0 d : Executor} -> UserExecutorTraining d =>
      {seq, numH, headDim, maxPos : Nat} ->
      RoPETables maxPos headDim d dt g ->
      (full : AnyPtr) ->                     -- [seq, numH * headDim]
@@ -447,7 +447,7 @@ ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI offs
 
 
 ||| Full multi-head causal self-attention with GQA + RoPE.
-applyAttention : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+applyAttention : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
                  {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
                  -- NB: previously had `{auto qPrf : hidden = numHeads * headDim}`
                  -- and `{auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}`.
@@ -490,7 +490,7 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
 ||| SwiGLU MLP on `[seq, hidden]`. Three bias-free linears plus a
 ||| fused `primSwiGlu2d` (silu(gate) * up) middle stage — collapses the
 ||| previous `tsilu` + `tmul` pair into one FFI call per block.
-applyMlp : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+applyMlp : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
            LlamaMlpState hidden intermediate d dt g ->
            Tensor [seqLen, hidden] d dt g ->
            IO (Tensor [seqLen, hidden] d dt g)
@@ -505,7 +505,7 @@ applyMlp mlp x = do
 
 ||| One Llama decoder block: pre-norm + attn + residual; pre-norm +
 ||| MLP + residual.
-applyBlock : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+applyBlock : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
           => RuntimeDType dt => Linked d => Compatible d dt
           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
           -- qPrf / ratio proofs dropped — see applyAttention. -->
@@ -523,7 +523,7 @@ applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} eps blk tables x = d
   tadd xMid mOut
 
 
-applyBlocks : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+applyBlocks : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
            => RuntimeDType dt => Linked d => Compatible d dt
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
            -- qPrf / ratio proofs dropped — see applyAttention. -->
@@ -542,7 +542,7 @@ applyBlocks eps (b :: bs) tables x = do
 ||| post-`model.norm`. The LM head (tied to embed_tokens) is applied
 ||| separately via `hfLlamaForwardLm`.
 public export
-hfLlamaForward : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+hfLlamaForward : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
               => RuntimeDType dt => Linked d => Compatible d dt
               => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
               -- qPrf / ratio proofs dropped — see applyAttention. -->
@@ -561,7 +561,7 @@ hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
 ||| logits per position. Reuses the embedding tensor as the LM
 ||| projection weight (same pattern as HfBert's applyMlmHead).
 public export
-hfLlamaForwardLm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+hfLlamaForwardLm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
                 => RuntimeDType dt => Linked d => Compatible d dt
                 => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
                 -- qPrf / ratio proofs dropped — see applyAttention. -->
@@ -604,7 +604,7 @@ hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
 ||| full cached prefix, and returns the updated cache + projected
 ||| output.
 applyAttentionCached :
-       {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+       {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
     => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat}
     -> LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g
     -> RoPETables maxPos headDim d dt g
@@ -675,7 +675,7 @@ applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
 
 ||| One Llama decoder block with KV cache threading.
 applyBlockCached :
-       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
     => RuntimeDType dt => Linked d => Compatible d dt
     => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
@@ -698,7 +698,7 @@ applyBlockCached {seq} {hidden} {numHeads} {numKvHeads} {headDim}
 
 ||| Thread a Vect of per-layer KV caches through the decoder stack.
 applyBlocksCached :
-       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
     => RuntimeDType dt => Linked d => Compatible d dt
     => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
     -> (eps : Double)
@@ -721,7 +721,7 @@ applyBlocksCached eps (b :: bs) tables (c :: cs) x = do
 ||| generation.
 public export
 hfLlamaForwardStep :
-       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
     => RuntimeDType dt => Linked d => Compatible d dt
     => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
@@ -742,7 +742,7 @@ hfLlamaForwardStep {numHeads} {numKvHeads} {headDim} eps model tables caches tok
 ||| logits `[seq, vocab]`. Companion to `hfLlamaForwardLm`.
 public export
 hfLlamaForwardLmStep :
-       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
     => RuntimeDType dt => Linked d => Compatible d dt
     => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)

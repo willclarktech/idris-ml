@@ -10,7 +10,7 @@ import Compat.Random
 import DataPoint
 import Math
 import Array
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -408,10 +408,10 @@ reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       -- buffer pushed onto a Metal stream (which mlx aborts with
       -- "float64 is not supported on the GPU"). dtypeTag {t=ExampleDType}
       -- pins the on-device storage to the build's dtype.
-      inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
+      inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleExecutor})
       -- Target: one-hot [seqLen * vocabSize] for cross-entropy
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 ||| Generate a batch of reversal tensor data points.
 export
@@ -442,9 +442,9 @@ sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       sI = cast {to=Int} seqLen
       vI = cast {to=Int} vocabSize
       -- See reversalTensorPoint for the dtype rationale.
-      inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
+      inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleExecutor})
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 ||| Generate a batch of sorting tensor data points.
 export

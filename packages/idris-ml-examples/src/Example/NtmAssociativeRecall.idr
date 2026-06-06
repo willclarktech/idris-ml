@@ -23,7 +23,7 @@ import Math
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -123,7 +123,7 @@ main = do
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
 
   ntmAny <- ntmLayerAny {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
-  let model : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad
+  let model : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer ntmAny
   putStrLn ""
 
@@ -134,7 +134,7 @@ main = do
       genBatch = recallTaskBinaryBatchVect {w = W} cfg.batch cfg.minItems cfg.maxItems SeqLen
 
   -- Metrics: bit accuracy + memory
-  let evalMetrics : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- recallTaskBinaryBatchVect {w = W} 10 cfg.minItems cfg.maxItems SeqLen
         accs <- traverse (\dp => do
@@ -157,7 +157,7 @@ main = do
                    (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
                    evalMetrics (\_ => pure ())
 
-  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation
@@ -165,7 +165,7 @@ main = do
   -- forwardTwoPhase on mlx (one batch-level bracket can pile up
   -- TestSize × seq-len mlx buffers before draining).
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = withNoGrad {d=ExampleDevice} $ do
+      evalOne dp = withNoGrad {d=ExampleExecutor} $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 

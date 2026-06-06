@@ -18,7 +18,7 @@ import Sampler
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -48,10 +48,10 @@ MaxAct : Double; MaxAct = 1.0
 -- --- Architectures --------------------------------------------------
 
 ActorNet : Type
-ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleDevice ExampleDType WithGrad
+ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor ExampleDType WithGrad
 
 QNet : Type
-QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleDevice ExampleDType WithGrad
+QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor ExampleDType WithGrad
 
 
 mkActor : IO ActorNet
@@ -99,23 +99,23 @@ squashCorrection u =
 
 actorMean : ActorNet -> Vect ObsDim Double -> IO Double
 actorMean actor obs = do
-  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar actor stateV
-  pure (primItem1d {d=ExampleDevice} outV.tensorPtr 0)
+  pure (primItem1d {d=ExampleExecutor} outV.tensorPtr 0)
 
 qValue : QNet -> Vect ObsDim Double -> Double -> IO Double
 qValue q obs action = do
-  let inV = the (TVec QInputDim ExampleDevice ExampleDType WithGrad)
-                (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (qInputTensor (qInput obs action))) Nothing)
+  let inV = the (TVec QInputDim ExampleExecutor ExampleDType WithGrad)
+                (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (qInputTensor (qInput obs action))) Nothing)
   (_, outV) <- forwardVar q inV
-  pure (primItem1d {d=ExampleDevice} outV.tensorPtr 0)
+  pure (primItem1d {d=ExampleExecutor} outV.tensorPtr 0)
 
 
-sampleActionIO : ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad -> Vect ObsDim Double ->
+sampleActionIO : ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad -> Vect ObsDim Double ->
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
   mean <- actorMean actor obs
-  let logStd = primItem {d=ExampleDevice} logStdV.tensorPtr
+  let logStd = primItem {d=ExampleExecutor} logStdV.tensorPtr
       std = Prelude.exp logStd
   eps <- normalSample
   let u = mean + std * eps
@@ -134,7 +134,7 @@ record SACState where
   q2      : QNet
   q1Tgt   : QNet
   q2Tgt   : QNet
-  logStdV : Tensor [] ExampleDevice ExampleDType WithGrad
+  logStdV : Tensor [] ExampleExecutor ExampleDType WithGrad
   buffer  : ReplayBuffer ObsDim ActDim
   stepRef : IORef Nat
   envRef  : IORef MCCState
@@ -186,7 +186,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 -- --- Q-network loss (batched) ---------------------------------------
 
-computeTargetVal : QNet -> QNet -> ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
+computeTargetVal : QNet -> QNet -> ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
                    Double -> Double -> Transition ObsDim ActDim -> IO Double
 computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
   nextPair <- sampleActionIO actor logStdV t.nextObs
@@ -198,8 +198,8 @@ computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
       doneMask = if t.done then 0.0 else 1.0
   pure (t.reward + gamma * doneMask * (minQNextD - alpha * nextLogP))
 
-perSampleQLoss : {n : Nat} -> (qOutB : Tensor [n, 1] ExampleDevice ExampleDType WithGrad) -> Double ->
-                 Int -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+perSampleQLoss : {n : Nat} -> (qOutB : Tensor [n, 1] ExampleExecutor ExampleDType WithGrad) -> Double ->
+                 Int -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 perSampleQLoss qOutB tv k = do
   qRow    <- trowSelect qOutB k
   qScalar <- telemSelect qRow 0
@@ -207,28 +207,28 @@ perSampleQLoss qOutB tv k = do
   diff    <- tsub qScalar targetT
   tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
-qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
+qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
              Double -> Double -> Vect n (Transition ObsDim ActDim) ->
-             IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+             IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
   targetVals <- traverse (computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha) batch
   let qInputs = the (Vect n (Vector QInputDim Double))
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)
-      qInputBT = bulkToTensor2d {d=ExampleDevice} {dt=ExampleDType} qInputs
-      qInputV = the (Tensor [n, QInputDim] ExampleDevice ExampleDType WithGrad) (MkTensor qInputBT Nothing)
+      qInputBT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} qInputs
+      qInputV = the (Tensor [n, QInputDim] ExampleExecutor ExampleDType WithGrad) (MkTensor qInputBT Nothing)
   (_, qOutB) <- forwardVarBatch qOnline qInputV
   losses <- go qOutB (toList targetVals) 0
   meanScalarLoss n losses
   where
     oneAct : Vect ActDim Double -> Double
     oneAct [a] = a
-    go : {n : Nat} -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> List Double -> Int -> IO (List (Tensor [] ExampleDevice ExampleDType WithGrad))
+    go : {n : Nat} -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> List Double -> Int -> IO (List (Tensor [] ExampleExecutor ExampleDType WithGrad))
     go _ [] _ = pure []
     go qOutB (tv :: rest) k = do
       l <- perSampleQLoss qOutB tv k
@@ -238,30 +238,30 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 
 -- --- Actor loss with reparameterization -----------------------------
 
-buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad
+buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad
 buildScalarColumn {n} xs =
   let rows = the (Vect n (Vector 1 Double)) (map (\x => VArray [SArray x]) xs)
-      ptr = bulkToTensor2d {d=ExampleDevice} {dt=ExampleDType} rows
+      ptr = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} rows
   in MkTensor ptr Nothing
 
 actorPerStepLoss : {n : Nat} ->
-                   Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
-                   Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
-                   Tensor [] ExampleDevice ExampleDType WithGrad -> Double ->
-                   Int -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+                   Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
+                   Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
+                   Tensor [] ExampleExecutor ExampleDType WithGrad -> Double ->
+                   Int -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   q1Row <- trowSelect q1B rowIdx
   q1S   <- telemSelect q1Row 0
-  let q1Val = primItem1d {d=ExampleDevice} q1Row.tensorPtr 0
+  let q1Val = primItem1d {d=ExampleExecutor} q1Row.tensorPtr 0
   q2Row <- trowSelect q2B rowIdx
   q2S   <- telemSelect q2Row 0
-  let q2Val = primItem1d {d=ExampleDevice} q2Row.tensorPtr 0
+  let q2Val = primItem1d {d=ExampleExecutor} q2Row.tensorPtr 0
       minQS = if q1Val <= q2Val then q1S else q2S
   meanRow <- trowSelect meanB rowIdx
   meanS   <- telemSelect meanRow 0
   uRow    <- trowSelect uBT rowIdx
   uS      <- telemSelect uRow 0
-  let uVal = primItem1d {d=ExampleDevice} uRow.tensorPtr 0
+  let uVal = primItem1d {d=ExampleExecutor} uRow.tensorPtr 0
   diffM    <- tsub uS meanS
   negTwoLs <- tmulScalar logStdV (-2.0)
   varInv   <- texp negTwoLs
@@ -277,15 +277,15 @@ actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   alphaLogP <- tmulScalar lpV alpha
   tsub alphaLogP minQS
 
-actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
-                 Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
+                 Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
-  let logStd = primItem {d=ExampleDevice} logStdV.tensorPtr
+  let logStd = primItem {d=ExampleExecutor} logStdV.tensorPtr
       stdVal = Prelude.exp logStd
   epses <- traverse (\_ => normalSample) obsBatch
   let obsTensors = the (Vect n (Vector ObsDim Double)) (map obsTensor obsBatch)
-      obsBT = bulkToTensor2d {d=ExampleDevice} {dt=ExampleDType} obsTensors
-      obsBV = the (Tensor [n, ObsDim] ExampleDevice ExampleDType WithGrad) (MkTensor obsBT Nothing)
+      obsBT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} obsTensors
+      obsBV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor obsBT Nothing)
   (_, meanB) <- forwardVarBatch actor obsBV
   let epsScales = map (\e => stdVal * e) epses
       epsBV = buildScalarColumn epsScales
@@ -299,9 +299,9 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
   meanScalarLoss n losses
   where
     go : {n : Nat} ->
-         Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
-         Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
-         List Double -> Int -> IO (List (Tensor [] ExampleDevice ExampleDType WithGrad))
+         Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
+         Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
+         List Double -> Int -> IO (List (Tensor [] ExampleExecutor ExampleDType WithGrad))
     go _ _ _ _ [] _ = pure []
     go meanB uBT q1B q2B (_ :: rest) k = do
       l <- actorPerStepLoss meanB uBT q1B q2B logStdV alpha k
@@ -311,7 +311,7 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
 
 -- --- Batch update ---------------------------------------------------
 
-runBatchUpdate : NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice ->
+runBatchUpdate : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
                  SACState -> Config -> {n : Nat} ->
                  Vect n (Transition ObsDim ActDim) -> IO ()
 runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
@@ -329,7 +329,7 @@ runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
 
 -- --- Main loop ------------------------------------------------------
 
-sacStep : NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice ->
+sacStep : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
           Config -> SACState -> IO (SACState, Double)
 sacStep q1Opt q2Opt actorOpt cfg st = do
   stepCount <- readIORef st.stepRef
@@ -375,8 +375,8 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
                  Nothing => pure ()
                  Just batch => do
                    runBatchUpdate q1Opt q2Opt actorOpt st cfg batch
-                   _ <- polyakUpdate {d=ExampleDevice} cfg.tau "q1_" "q1tgt_"
-                   _ <- polyakUpdate {d=ExampleDevice} cfg.tau "q2_" "q2tgt_"
+                   _ <- polyakUpdate {d=ExampleExecutor} cfg.tau "q1_" "q1tgt_"
+                   _ <- polyakUpdate {d=ExampleExecutor} cfg.tau "q2_" "q2tgt_"
                    pure ()
              else pure ()
 
@@ -404,7 +404,7 @@ evalEp actor st (S k) acc = do
 evalN : ActorNet -> Nat -> Double -> IO Double
 evalN _ Z acc = pure acc
 evalN actor (S k) acc = do
-  v <- withNoGrad {d=ExampleDevice} (evalEp actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
+  v <- withNoGrad {d=ExampleExecutor} (evalEp actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
   evalN actor k (acc + v)
 
 
@@ -432,10 +432,10 @@ main = do
   q2 <- mkQ "q2_"
   q1Tgt <- mkQ "q1tgt_"
   q2Tgt <- mkQ "q2tgt_"
-  logStdV <- the (IO (Tensor [] ExampleDevice ExampleDType WithGrad)) (tparamScalar "actor_log_std" 0.0)
+  logStdV <- the (IO (Tensor [] ExampleExecutor ExampleDType WithGrad)) (tparamScalar "actor_log_std" 0.0)
 
-  _ <- polyakUpdate {d=ExampleDevice} 1.0 "q1_" "q1tgt_"
-  _ <- polyakUpdate {d=ExampleDevice} 1.0 "q2_" "q2tgt_"
+  _ <- polyakUpdate {d=ExampleExecutor} 1.0 "q1_" "q1tgt_"
+  _ <- polyakUpdate {d=ExampleExecutor} 1.0 "q2_" "q2tgt_"
 
   buffer <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
@@ -461,7 +461,7 @@ main = do
       trainCfg = mkTrainConfig cfg.epochs 2000
                             (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
                             (\_ => readRLMetrics "recent_20" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
     (\s, _ => do
        (s', loss) <- sacStep q1Opt q2Opt actorOpt cfg s
        recordReturn metrics (negate loss)

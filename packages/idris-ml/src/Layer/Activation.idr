@@ -2,7 +2,7 @@ module Layer.Activation
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -27,7 +27,7 @@ data ActivationKind
   | ALeakyRelu Double  -- slope
 
 public export
-data ActivationState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+data ActivationState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkActivation : ActivationKind -> ActivationState n n d dt g
 
 

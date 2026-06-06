@@ -1,11 +1,11 @@
-||| `TorchDev` — `UserDeviceCore` instance for the libtorch backend.
+||| `TorchExecutor` — `UserExecutorCore` instance for the libtorch backend.
 |||
 ||| Forwards to the torch-suffixed C symbols emitted under Phase 1's
 ||| `rename_torch.h` (e.g. `tensor_add_torch`). Only resolvable at
 ||| runtime if the build's BACKEND list includes `torch`.
-module Device.Torch
+module Executor.Torch
 
-import Device.Core
+import Executor.Core
 import DType.Core
 
 
@@ -84,12 +84,12 @@ prim__roundTorch : AnyPtr -> AnyPtr
 
 
 ----------------------------------------------------------------------
--- TorchHwDev + TorchDev type + UserDeviceCore instance
+-- TorchHwDev + TorchExecutor type + UserExecutorCore instance
 --
 -- `TorchHwDev` enumerates the hardware variants the torch backend
 -- supports: CPU (the historical default), MPS (Apple Metal), and
 -- CUDA n (NVIDIA, indexed). Every torch-backed `Tensor` carries one
--- of these via `TorchDev d`, so the type-system can prevent
+-- of these via `TorchExecutor d`, so the type-system can prevent
 -- cross-device op attempts at compile time while libtorch's
 -- auto-dispatch handles intra-device routing at run time.
 ----------------------------------------------------------------------
@@ -100,7 +100,7 @@ data TorchHwDev : Type where
   TMps  : TorchHwDev
   TCuda : Nat -> TorchHwDev
 
-||| Maps a `TorchHwDev` to the device string libtorch's `at::Device`
+||| Maps a `TorchHwDev` to the device string libtorch's `at::Executor`
 ||| accepts: "cpu", "mps", or "cuda:<n>". This is what gets passed to
 ||| `tensor_to_device(handle, str)` after every fresh tensor
 ||| construction so the new tensor lands on the right hardware.
@@ -111,10 +111,10 @@ torchHwDevName TMps      = "mps"
 torchHwDevName (TCuda n) = "cuda:" ++ show n
 
 public export
-data TorchDev : TorchHwDev -> Type where MkTorchDev : TorchDev d
+data TorchExecutor : TorchHwDev -> Type where MkTorchExecutor : TorchExecutor d
 
 ||| FFI binding for libtorch's `tensor.to(device_str)`. Used by every
-||| `UserDeviceCore (TorchDev d)` create method to migrate fresh
+||| `UserExecutorCore (TorchExecutor d)` create method to migrate fresh
 ||| (CPU-allocated) tensors to the target hardware. On `TCpu` the
 ||| migration is a self-move (`.to("cpu")` is a no-op for CPU tensors).
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-device-torch)) (set-top-level-value! 'idris-ffi-tensor-to-device-torch (foreign-procedure \"tensor_to_device_torch\" (void* string) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-to-device-torch) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
@@ -128,7 +128,7 @@ prim__mnistGetImageTorch : AnyPtr -> Int -> Int -> AnyPtr
 prim__oneHotTorch : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 public export
-{d : TorchHwDev} -> UserDeviceCore (TorchDev d) where
+{d : TorchHwDev} -> UserExecutorCore (TorchExecutor d) where
   deviceName       = torchHwDevName d
   deviceStreamTag  = 0
   -- Create primitives go through libtorch's CPU-bound construction
@@ -267,7 +267,7 @@ prim__cumprodTorch : AnyPtr -> Int -> AnyPtr
 
 
 public export
-{d : TorchHwDev} -> UserDeviceLinear (TorchDev d) where
+{d : TorchHwDev} -> UserExecutorLinear (TorchExecutor d) where
   primMv             = prim__mvTorch
   primMm             = prim__mmTorch
   primMatmul         = prim__matmulTorch
@@ -357,7 +357,7 @@ prim__pairSecondTorch : AnyPtr -> AnyPtr
 
 
 public export
-{d : TorchHwDev} -> UserDeviceNN (TorchDev d) where
+{d : TorchHwDev} -> UserExecutorNN (TorchExecutor d) where
   primGelu             = prim__geluTorch
   primLeakyRelu        = prim__leakyReluTorch
   primSilu             = prim__siluTorch
@@ -408,7 +408,7 @@ prim__maxPool2dBatchedTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 
 public export
-{d : TorchHwDev} -> UserDeviceConv (TorchDev d) where
+{d : TorchHwDev} -> UserExecutorConv (TorchExecutor d) where
   primConv1d           = prim__conv1dTorch
   primConv1dCircular   = prim__conv1dCircularTorch
   primAvgPool1d        = prim__avgPool1dTorch
@@ -561,7 +561,7 @@ prim__createParam4dConstStreamedTorch : Int -> Int -> Int -> Int -> Double -> In
 prim__setInitSeedStreamedTorch : Bits64 -> Int -> PrimIO ()
 
 public export
-{d : TorchHwDev} -> UserDeviceTraining (TorchDev d) where
+{d : TorchHwDev} -> UserExecutorTraining (TorchExecutor d) where
   primCreateScalarStreamed        = prim__createScalarStreamedTorch
   primCreateStreamed              = prim__createStreamedTorch
   primCreate1dStreamed            = prim__create1dStreamedTorch
@@ -630,7 +630,7 @@ public export
 
 
 ----------------------------------------------------------------------
--- Compatible (TorchDev, dt).
+-- Compatible (TorchExecutor, dt).
 --
 -- F32 is admitted on every hardware variant (CPU / MPS / CUDA), F64
 -- on CPU and CUDA. **MPS + F64 is deliberately NOT compatible**:
@@ -638,19 +638,19 @@ public export
 -- (`Cannot convert a MPS Tensor to float64 dtype`), not just at op
 -- dispatch — so admitting the combination would let the type
 -- system mint a value the runtime can't represent. Users wanting
--- F64-precision on MPS hardware should pin to `(TorchDev TCpu) F64`
--- or `(TorchDev (TCuda n)) F64`. Mirrors the
--- `Compatible (MlxDev MGpu) F64`-rejection demo for mlx.
+-- F64-precision on MPS hardware should pin to `(TorchExecutor TCpu) F64`
+-- or `(TorchExecutor (TCuda n)) F64`. Mirrors the
+-- `Compatible (MlxExecutor MGpu) F64`-rejection demo for mlx.
 ----------------------------------------------------------------------
 
 public export
-{d : TorchHwDev} -> Compatible (TorchDev d) F32 where
+{d : TorchHwDev} -> Compatible (TorchExecutor d) F32 where
 
 public export
-Compatible (TorchDev TCpu) F64 where
+Compatible (TorchExecutor TCpu) F64 where
 
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) F64 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) F64 where
 
 -- Inference-only dtypes (2026-05-22): BF16/F16/Int*/Bool on TCpu + TCuda.
 -- MPS BF16 added 2026-05-28 (opt-in via TORCH_DTYPE=BF16 BuildConfig
@@ -663,60 +663,60 @@ public export
 -- same construction-time rejection as F64 (Metal storage support is
 -- per-version). Wiring is torch-only; tape/mlx have no instances.
 public export
-Compatible (TorchDev TCpu) BF16 where
+Compatible (TorchExecutor TCpu) BF16 where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) BF16 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) BF16 where
 public export
-Compatible (TorchDev TMps) BF16 where
+Compatible (TorchExecutor TMps) BF16 where
 public export
-Compatible (TorchDev TCpu) F16 where
+Compatible (TorchExecutor TCpu) F16 where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) F16 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) F16 where
 public export
-Compatible (TorchDev TCpu) I8 where
+Compatible (TorchExecutor TCpu) I8 where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) I8 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) I8 where
 public export
-Compatible (TorchDev TCpu) I16 where
+Compatible (TorchExecutor TCpu) I16 where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) I16 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) I16 where
 public export
-Compatible (TorchDev TCpu) I32 where
+Compatible (TorchExecutor TCpu) I32 where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) I32 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) I32 where
 public export
-Compatible (TorchDev TCpu) I64 where
+Compatible (TorchExecutor TCpu) I64 where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) I64 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) I64 where
 public export
-Compatible (TorchDev TCpu) U8 where
+Compatible (TorchExecutor TCpu) U8 where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) U8 where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) U8 where
 public export
-Compatible (TorchDev TCpu) Bool where
+Compatible (TorchExecutor TCpu) Bool where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) Bool where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) Bool where
 
 -- Sub-byte quantization dtypes (#411 BitNet b1.58). CPU + CUDA only —
 -- libtorch MPS lacks the construction-side sub-byte storage routing
 -- (mirrors the Int* / Bool MPS exclusion). The Idris-side Compatible
 -- gate is the structural prereq; per-backend kernels arrive in B3.
 public export
-Compatible (TorchDev TCpu) Ternary where
+Compatible (TorchExecutor TCpu) Ternary where
 public export
-Compatible (TorchDev TMps) Ternary where
+Compatible (TorchExecutor TMps) Ternary where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) Ternary where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) Ternary where
 public export
-Compatible (TorchDev TCpu) Binary where
+Compatible (TorchExecutor TCpu) Binary where
 public export
-Compatible (TorchDev TMps) Binary where
+Compatible (TorchExecutor TMps) Binary where
 public export
-{n : Nat} -> Compatible (TorchDev (TCuda n)) Binary where
+{n : Nat} -> Compatible (TorchExecutor (TCuda n)) Binary where
 
 
 ----------------------------------------------------------------------
--- UserDeviceTransfer instance (cross-backend transfer surface)
+-- UserExecutorTransfer instance (cross-backend transfer surface)
 --
 -- The torch hardware-migrate path is the only one that does real
 -- work: `tensor_to_device_torch(handle, "mps"|"cuda:n")` migrates a
@@ -727,7 +727,7 @@ public export
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-torch)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-torch (foreign-procedure \"tensor_to_doubles_torch\" (void* void*) void))) ((top-level-value 'idris-ffi-tensor-to-doubles-torch) (vector-ref a0 2) a1))"
 prim__toHostTorch : AnyPtr -> AnyPtr -> AnyPtr
 
--- Host buffer helpers — unified across backends, see Device/Tape.idr.
+-- Host buffer helpers — unified across backends, see Executor/Tape.idr.
 %foreign "C:tensor_alloc_doubles,libidrisml"
 prim__allocHostTorch : Int -> AnyPtr
 
@@ -748,14 +748,14 @@ prim__setIntHostTorch : AnyPtr -> Int -> Int -> AnyPtr
 ||| (which lands on CPU by default in libtorch) then
 ||| `tensor_to_device_torch(handle, "mps"|"cuda:n")` so the returned
 ||| tensor is on the right hardware variant. Matches the post-create
-||| migration the existing `primCreate` does in `UserDeviceCore
-||| (TorchDev d)`.
+||| migration the existing `primCreate` does in `UserExecutorCore
+||| (TorchExecutor d)`.
 prim__createFromHostTorch : (d : TorchHwDev) -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 prim__createFromHostTorch d dat sh rank rg =
   prim__toDeviceTorch (prim__createTorch dat sh rank rg) (torchHwDevName d)
 
 public export
-{d : TorchHwDev} -> UserDeviceTransfer (TorchDev d) where
+{d : TorchHwDev} -> UserExecutorTransfer (TorchExecutor d) where
   backendTag         = "torch"
   primToHost         = prim__toHostTorch
   primAllocHost      = prim__allocHostTorch
@@ -769,7 +769,7 @@ public export
 
 
 ----------------------------------------------------------------------
--- UserDeviceQuant instance (#411 BitNet b1.58)
+-- UserExecutorQuant instance (#411 BitNet b1.58)
 ----------------------------------------------------------------------
 --
 -- Torch unpacks the 2-bit codes to int8 at construction (storage is
@@ -797,7 +797,7 @@ prim__createTernaryFromHfPacked2dTorch : AnyPtr -> Int -> Int -> AnyPtr
 prim__bitlinearFwdHfQuantTorch : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> AnyPtr -> Double -> AnyPtr
 
 public export
-{d : TorchHwDev} -> UserDeviceQuant (TorchDev d) where
+{d : TorchHwDev} -> UserExecutorQuant (TorchExecutor d) where
   primCreateTernaryPacked2d       = prim__createTernaryPacked2dTorch
   primBitlinearFwd                = prim__bitlinearFwdTorch
   primBitlinearFwdHfQuant         = prim__bitlinearFwdHfQuantTorch
@@ -811,7 +811,7 @@ public export
 ----------------------------------------------------------------------
 
 public export
-{d : TorchHwDev} -> HardwareClassed (TorchDev d) where
+{d : TorchHwDev} -> HardwareClassed (TorchExecutor d) where
   hardwareClass = case d of
     TCpu    => HostCpu
     TMps    => AppleGpu

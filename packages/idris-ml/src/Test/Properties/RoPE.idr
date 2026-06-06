@@ -23,7 +23,7 @@ import Test.Property
 import Test.Config
 import Test.Harness as Harness
 
-import Device
+import Executor
 import Tensor
 import Array
 import Layer.RoPE
@@ -49,10 +49,10 @@ ROPE_BASE = 10000.0
 
 mkInput2d : {seq, headDim : Nat} ->
             Vect seq (Vect headDim Double) ->
-            Tensor [seq, headDim] TestDevice TestDType WithGrad
+            Tensor [seq, headDim] TestExecutor TestDType WithGrad
 mkInput2d xs =
   let rows = map (\r => VArray (map SArray r)) xs
-      raw  = bulkToTensor2d {d=TestDevice} {dt=TestDType} {b=seq} {i=headDim} rows
+      raw  = bulkToTensor2d {d=TestExecutor} {dt=TestDType} {b=seq} {i=headDim} rows
   in tinput2d {m=seq} {n=headDim} raw
 
 -- Element-wise readback into a row-major flat List Double. Simpler
@@ -67,7 +67,7 @@ readMatFlat rows cols p = go (cast {to=Int} rows) (cast {to=Int} cols) 0 0 []
         else if c >= cEnd
           then go rEnd cEnd (r + 1) 0 acc
           else
-            let v = primItem2d {d=TestDevice} p r c
+            let v = primItem2d {d=TestExecutor} p r c
             in go rEnd cEnd r (c + 1) (v :: acc)
 
 flattenRows : Vect r (Vect c Double) -> List Double
@@ -80,13 +80,13 @@ maxAbsDiff (a :: as) (b :: bs) = max (abs (a - b)) (maxAbsDiff as bs)
 
 prop_rope_inverse_commutativity_body : Vect SEQ (Vect HEAD_DIM Double) -> IO Bool
 prop_rope_inverse_commutativity_body xs = do
-  tables <- buildLlamaRoPETables {d=TestDevice} {dt=TestDType}
+  tables <- buildLlamaRoPETables {d=TestExecutor} {dt=TestDType}
                                  {maxPos=MAX_POS} {headDim=HEAD_DIM}
                                  ROPE_BASE noScaling
   let inputT = mkInput2d xs
-  rotated  <- applyRope        {d=TestDevice} {seq=SEQ} {headDim=HEAD_DIM}
+  rotated  <- applyRope        {d=TestExecutor} {seq=SEQ} {headDim=HEAD_DIM}
                                {maxPos=MAX_POS} tables 0 inputT
-  restored <- applyRopeInverse {d=TestDevice} {seq=SEQ} {headDim=HEAD_DIM}
+  restored <- applyRopeInverse {d=TestExecutor} {seq=SEQ} {headDim=HEAD_DIM}
                                {maxPos=MAX_POS} tables 0 rotated
   outVals <- readMatFlat SEQ HEAD_DIM restored.tensorPtr
   let inVals  = flattenRows xs

@@ -30,7 +30,7 @@ import Schedule
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -144,9 +144,9 @@ gptTensorPoint corpus corpusLen = do
       targetToks = Data.List.take SeqLen (drop 1 window)
       sI = cast {to=Int} SeqLen
       vI = cast {to=Int} VocabSize
-      inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
+      inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleExecutor})
       tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 gptBatchVect : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) ->
                IO (Vect n (TensorDataPoint InputDim OutputDim))
@@ -164,16 +164,16 @@ gptBatchVect corpus corpusLen (S k) = do
 ||| Categorical cross-entropy on ALL positions (standard LM loss).
 ||| Operates on a flat [SeqLen * VocabSize] Tensor; reshapes to
 ||| [SeqLen, VocabSize] and computes mean NLL across positions.
-allPositionsCELoss : TVec OutputDim ExampleDevice ExampleDType WithGrad -> TVec OutputDim ExampleDevice ExampleDType WithGrad -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+allPositionsCELoss : TVec OutputDim ExampleExecutor ExampleDType WithGrad -> TVec OutputDim ExampleExecutor ExampleDType WithGrad -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 allPositionsCELoss predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
-      logitsR = primReshape2d {d=ExampleDevice} predV.tensorPtr sI vsI
-      logProbs = primLogSoftmax2d {d=ExampleDevice} logitsR
-      tgtsR = primReshape2d {d=ExampleDevice} targetV.tensorPtr sI vsI
-      product = primMul {d=ExampleDevice} logProbs tgtsR
-      totalSum = primSum {d=ExampleDevice} product
-      loss = primMulScalar {d=ExampleDevice} (primNeg {d=ExampleDevice} totalSum) (1.0 / cast {to=Double} SeqLen)
+      logitsR = primReshape2d {d=ExampleExecutor} predV.tensorPtr sI vsI
+      logProbs = primLogSoftmax2d {d=ExampleExecutor} logitsR
+      tgtsR = primReshape2d {d=ExampleExecutor} targetV.tensorPtr sI vsI
+      product = primMul {d=ExampleExecutor} logProbs tgtsR
+      totalSum = primSum {d=ExampleExecutor} product
+      loss = primMulScalar {d=ExampleExecutor} (primNeg {d=ExampleExecutor} totalSum) (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
 
 
@@ -181,7 +181,7 @@ allPositionsCELoss predV targetV = ioRerun (\_ =>
 -- Autoregressive Generation (single-sample forward)
 ----------------------------------------------------------------------
 
-generateText : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad ->
+generateText : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
                String -> Nat -> Double -> IO String
 generateText model seed genLen temperature = do
   let seedIdxs = map charToIdx (unpack seed)
@@ -204,9 +204,9 @@ generateText model seed genLen temperature = do
     sampleAt outT pos =
       let vsI = cast {to=Int} VocabSize
           sI = cast {to=Int} SeqLen
-          logitsR = primReshape2d {d=ExampleDevice} outT sI vsI
+          logitsR = primReshape2d {d=ExampleExecutor} outT sI vsI
           posI = cast {to=Int} (natToInteger pos)
-      in map (\j => exp (primItem2d {d=ExampleDevice} logitsR posI (cast j) / temperature))
+      in map (\j => exp (primItem2d {d=ExampleExecutor} logitsR posI (cast j) / temperature))
              vocabIdxs
 
     argmax : List Double -> Int
@@ -215,13 +215,13 @@ generateText model seed genLen temperature = do
            (the (Int, Double) (0, -1.0e10))
            (zip (map cast vocabIdxs) probs))
 
-    go : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad ->
+    go : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
          List Int -> Nat -> List Char -> IO (List Char)
     go _ _ Z acc = pure (reverse acc)
     go m ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
-          inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0 (deviceStreamTag {d=ExampleDevice})
-          inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
+          inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0 (deviceStreamTag {d=ExampleExecutor})
+          inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
       (_, predV) <- forwardVar m inV
       let unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
           totSum = foldl (+) 0.0 unnorm
@@ -236,7 +236,7 @@ generateText model seed genLen temperature = do
 -- Evaluation: bits-per-character on a held-out corpus slice
 ----------------------------------------------------------------------
 
-evalBPC : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad ->
+evalBPC : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
           (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> IO Double
 evalBPC model corpus corpusLen nSamples = go nSamples 0.0
   where
@@ -247,14 +247,14 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           targetToks = Data.List.take SeqLen (drop 1 window)
           sI = cast {to=Int} SeqLen
           vI = cast {to=Int} VocabSize
-          inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
+          inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleExecutor})
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-          tgtT = primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
-          inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
-          tgtV = the (TVec OutputDim ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
+          tgtT = primOneHot {d=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
+          inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
+          tgtV = the (TVec OutputDim ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
       (_, predV) <- forwardVar model inV
       lossT <- allPositionsCELoss predV tgtV
-      pure (primItem {d=ExampleDevice} lossT.tensorPtr / log 2.0)
+      pure (primItem {d=ExampleExecutor} lossT.tensorPtr / log 2.0)
 
     go : Nat -> Double -> IO Double
     go Z acc = pure acc
@@ -299,9 +299,9 @@ trainValSplit valFrac idx =
 -- LR-schedule helper: update all registered params each epoch.
 ----------------------------------------------------------------------
 
-setLRAll : NativeOptimizer ExampleDevice -> Double -> IO ()
+setLRAll : NativeOptimizer ExampleExecutor -> Double -> IO ()
 setLRAll opt lr = do
-  n <- getParamCount {d=ExampleDevice}
+  n <- getParamCount {d=ExampleExecutor}
   go 0 n
   where
     go : Int -> Int -> IO ()
@@ -309,7 +309,7 @@ setLRAll opt lr = do
       if i >= n
         then pure ()
         else do
-          nm <- getParamName {d=ExampleDevice} i
+          nm <- getParamName {d=ExampleExecutor} i
           setParamLR opt nm lr
           go (i + 1) n
 
@@ -379,7 +379,7 @@ main = do
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
               "tfm0"
-  let model : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad
+  let model : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad
       model = OutputLayer tfmAny
   putStrLn ""
 
@@ -391,7 +391,7 @@ main = do
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = gptBatchVect trainIndices trainLen BatchSize
 
-  let evalMetrics : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
       evalMetrics m = do
         valBpc <- evalBPC m valIndices valLen 20
         pure [("val_bpc", show valBpc)]
@@ -418,9 +418,9 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  let stepFn : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad ->
+  let stepFn : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
                Vect BatchSize (TensorDataPoint InputDim OutputDim) ->
-               IO (Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad, Double)
+               IO (Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad, Double)
       stepFn m d = do
         ep <- readIORef epochRef
         let lr = schedule ep
@@ -428,7 +428,7 @@ main = do
         writeIORef epochRef (S ep)
         epochVarTensorBatch opt d allPositionsCELoss m
 
-  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleDevice} stepFn genBatch trainCfg model
+  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleExecutor} stepFn genBatch trainCfg model
 
   putStrLn ""
   valBpc <- evalBPC trained valIndices valLen 50
@@ -438,12 +438,12 @@ main = do
 
   putStrLn ""
   putStrLn "Generation (seed='to be or '):"
-  sample1 <- withNoGrad {d=ExampleDevice} (generateText trained "to be or " 200 1.0)
+  sample1 <- withNoGrad {d=ExampleExecutor} (generateText trained "to be or " 200 1.0)
   putStrLn $ "  " ++ show sample1
 
   putStrLn ""
   putStrLn "Generation (seed='the '):"
-  sample2 <- withNoGrad {d=ExampleDevice} (generateText trained "the " 200 1.0)
+  sample2 <- withNoGrad {d=ExampleExecutor} (generateText trained "the " 200 1.0)
   putStrLn $ "  " ++ show sample2
 
   putStrLn ""

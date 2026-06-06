@@ -19,7 +19,7 @@ import RL.ReplayBuffer
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -42,7 +42,7 @@ NumActions : Nat; NumActions = 3
 MaxSteps : Nat; MaxSteps = 200
 
 QNet : Type
-QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions ExampleDevice ExampleDType WithGrad
+QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions ExampleExecutor ExampleDType WithGrad
 
 mkQNet : (scope : String) -> IO QNet
 mkQNet scope = do
@@ -71,12 +71,12 @@ epsilonAt step start end decaySteps =
 
 greedyAction : QNet -> Vect ObsDim Double -> IO Nat
 greedyAction online obs = do
-  let stateT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)
-      stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
+  let stateT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)
+      stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar online stateV
-  let q0 = primItem1d {d=ExampleDevice} qV.tensorPtr 0
-      q1 = primItem1d {d=ExampleDevice} qV.tensorPtr 1
-      q2 = primItem1d {d=ExampleDevice} qV.tensorPtr 2
+  let q0 = primItem1d {d=ExampleExecutor} qV.tensorPtr 0
+      q1 = primItem1d {d=ExampleExecutor} qV.tensorPtr 1
+      q2 = primItem1d {d=ExampleExecutor} qV.tensorPtr 2
   pure (if q0 >= q1 && q0 >= q2 then 0
         else if q1 >= q2 then 1
         else 2)
@@ -99,17 +99,17 @@ epsGreedyIO online obs eps = do
 
 vectorMaxPtr : AnyPtr -> Double
 vectorMaxPtr t =
-  let v0 = primItem1d {d=ExampleDevice} t 0
-      v1 = primItem1d {d=ExampleDevice} t 1
-      v2 = primItem1d {d=ExampleDevice} t 2
+  let v0 = primItem1d {d=ExampleExecutor} t 0
+      v1 = primItem1d {d=ExampleExecutor} t 1
+      v2 = primItem1d {d=ExampleExecutor} t 2
   in if v0 >= v1 && v0 >= v2 then v0
      else if v1 >= v2 then v1
      else v2
 
 computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> IO Double
 computeTargetVal target gamma t = do
-  let stateT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor t.nextObs)
-      stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
+  let stateT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor t.nextObs)
+      stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar target stateV
   let nextMax = vectorMaxPtr qV.tensorPtr
       bootstrap = if t.done then 0.0 else gamma * nextMax
@@ -118,8 +118,8 @@ computeTargetVal target gamma t = do
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 
-perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] ExampleDevice ExampleDType WithGrad) ->
-                Transition ObsDim 1 -> Double -> Int -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad) ->
+                Transition ObsDim 1 -> Double -> Int -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 perSampleLoss qOutB t tv k = do
   let aIdx = actionIdx t.action
   qRow    <- trowSelect qOutB k
@@ -128,26 +128,26 @@ perSampleLoss qOutB t tv k = do
   diff    <- tsub qScalar targetT
   tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
-                   Vect n (Transition ObsDim 1) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+                   Vect n (Transition ObsDim 1) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 batchLossBatched n online target gamma batch = do
   targetVals <- traverse (computeTargetVal target gamma) batch
   let obsTensors = map (\t => obsTensor t.obs) batch
-      obsBT = bulkToTensor2d {d=ExampleDevice} {dt=ExampleDType} obsTensors
-      obsBV = the (Tensor [n, ObsDim] ExampleDevice ExampleDType WithGrad) (MkTensor obsBT Nothing)
+      obsBT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} obsTensors
+      obsBV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor obsBT Nothing)
   (_, qOutB) <- forwardVarBatch online obsBV
   losses <- go qOutB (toList batch) (toList targetVals) 0
   meanScalarLoss n losses
   where
-    go : {n : Nat} -> Tensor [n, NumActions] ExampleDevice ExampleDType WithGrad ->
+    go : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad ->
          List (Transition ObsDim 1) ->
-         List Double -> Int -> IO (List (Tensor [] ExampleDevice ExampleDType WithGrad))
+         List Double -> Int -> IO (List (Tensor [] ExampleExecutor ExampleDType WithGrad))
     go _ [] _ _ = pure []
     go _ _ [] _ = pure []
     go qOutB (t :: tRest) (tv :: tvRest) k = do
@@ -182,7 +182,7 @@ record DqnState where
 actionToVec : Nat -> Vect 1 Double
 actionToVec a = [cast (natToInteger a)]
 
-trainIfReady : NativeOptimizer ExampleDevice -> DqnState -> IO DqnState
+trainIfReady : NativeOptimizer ExampleExecutor -> DqnState -> IO DqnState
 trainIfReady opt st = do
   bufSz <- bufferSize st.buffer
   if bufSz < st.cfgBatch
@@ -197,7 +197,7 @@ trainIfReady opt st = do
           -- bursts past the paravirt-Metal buffer ceiling). Params update
           -- in-place via the registry (rc>1, spared), so the () result
           -- needs no KeepAlive rescue.
-          withGenFree {d=ExampleDevice} $ do
+          withGenFree {d=ExampleExecutor} $ do
             loss <- batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
             _ <- nativeTrainStep opt loss
             pure ()
@@ -208,7 +208,7 @@ shapedReward : DqnState -> MCState -> MCState -> Double -> Double
 shapedReward st _ s' baseReward =
   baseReward + st.cfgShaping * abs s'.mcVel
 
-runEpisode : NativeOptimizer ExampleDevice -> DqnState -> IO (DqnState, Double)
+runEpisode : NativeOptimizer ExampleExecutor -> DqnState -> IO (DqnState, Double)
 runEpisode opt st0 = go st0 (MkMC (-0.5) 0.0) MaxSteps 0.0
   where
     go : DqnState -> MCState -> Nat -> Double -> IO (DqnState, Double)
@@ -231,7 +231,7 @@ runEpisode opt st0 = go st0 (MkMC (-0.5) 0.0) MaxSteps 0.0
           st' <- trainIfReady opt st
 
           when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
-            _ <- polyakUpdate {d=ExampleDevice} 1.0 "online_" "target_"
+            _ <- polyakUpdate {d=ExampleExecutor} 1.0 "online_" "target_"
             pure ()
 
           if isDone
@@ -321,7 +321,7 @@ main = do
 
   qNet0 <- mkQNet "online_"
   target0 <- mkQNet "target_"
-  _ <- polyakUpdate {d=ExampleDevice} 1.0 "online_" "target_"
+  _ <- polyakUpdate {d=ExampleExecutor} 1.0 "online_" "target_"
 
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
@@ -346,7 +346,7 @@ main = do
   let trainCfg : TrainConfig DqnState
       trainCfg = mkTrainConfig cfg.epochs 50 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
     (\st, _ => do
        (st', ret) <- runEpisode opt st
        recordReturn metrics ret
@@ -356,7 +356,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 30
-  totalReturn <- withNoGrad {d=ExampleDevice} (evalN trained.qNet nEval 0.0)
+  totalReturn <- withNoGrad {d=ExampleExecutor} (evalN trained.qNet nEval 0.0)
   let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

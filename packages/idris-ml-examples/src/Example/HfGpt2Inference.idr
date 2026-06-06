@@ -46,7 +46,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Device
+import Executor
 import Example.Common.HfInferenceHelper
 import HfGpt2
 import Tensor
@@ -106,13 +106,13 @@ arangeVect n = go n 0.0
 ----------------------------------------------------------------------
 
 runDumpHidden : Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                               ExampleDevice ExampleDType WithGrad
+                               ExampleExecutor ExampleDType WithGrad
              -> IO ()
 runDumpHidden model = do
   -- BPE("Hello world") = [15496, 995]. Same as save_oracle_gpt2.py.
   let inputIds = mkIds (the (Vect 2 Double) [15496.0, 995.0])
       posIds   = mkIds (arangeVect 2)
-  out <- hfGpt2Forward {d=ExampleDevice} {dt=ExampleDType}
+  out <- hfGpt2Forward {d=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 2}
                        {vocab        = VocabSize}
                        {hidden       = Hidden}
@@ -138,7 +138,7 @@ runDumpHidden model = do
 -- `plusCommutative`-style proof. We convert to `Vect` via fromList
 -- once at each genOneStep call (the length is whatever the list is).
 genOneStep : Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                            ExampleDevice ExampleDType WithGrad
+                            ExampleExecutor ExampleDType WithGrad
           -> List (Fin VocabSize)
           -> IO (Maybe (Fin VocabSize))
 genOneStep model toksList = do
@@ -151,7 +151,7 @@ genOneStep model toksList = do
     (curLen ** idDoubles) => do
       let inputIds = mkIds idDoubles
           posIds   = mkIds (arangeVect curLen)
-      logits <- hfGpt2ForwardLm {d=ExampleDevice} {dt=ExampleDType}
+      logits <- hfGpt2ForwardLm {d=ExampleExecutor} {dt=ExampleDType}
                                 {seqLen       = curLen}
                                 {vocab        = VocabSize}
                                 {hidden       = Hidden}
@@ -168,7 +168,7 @@ genOneStep model toksList = do
 -- Generate `remaining` more tokens, snoc'ing each onto the input.
 -- Returns the full token list (prompt + generated tokens).
 genLoop : Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                         ExampleDevice ExampleDType WithGrad
+                         ExampleExecutor ExampleDType WithGrad
        -> List (Fin VocabSize)
        -> (remaining : Nat)
        -> IO (List (Fin VocabSize))
@@ -194,7 +194,7 @@ genLoop model tokens (S k) = do
 
 runGenerate : Tokenizer VocabSize
            -> Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                             ExampleDevice ExampleDType WithGrad
+                             ExampleExecutor ExampleDType WithGrad
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runGenerate tok model prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt
@@ -229,7 +229,7 @@ main = do
 
   -- Build a distilgpt2 model. Each param registers under the literal
   -- HF name (`transformer.wte.weight`, etc.).
-  model <- hfGpt2Model {d=ExampleDevice} {dt=ExampleDType}
+  model <- hfGpt2Model {d=ExampleExecutor} {dt=ExampleDType}
                        {vocab        = VocabSize}
                        {hidden       = Hidden}
                        {numLayers    = NumLayers}
@@ -243,7 +243,7 @@ main = do
   -- widening at the loader; distilgpt2 is F32 on disk so the cost is
   -- a copy on F32 backends (mlx-gpu / torch-mps) and a widen on F64
   -- backends (tape).
-  ok <- loadModelAllowCast {d=ExampleDevice} hfWeightsPath
+  ok <- loadModelAllowCast {d=ExampleExecutor} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)

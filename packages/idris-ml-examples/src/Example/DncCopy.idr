@@ -25,7 +25,7 @@ import Math
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -147,7 +147,7 @@ main = do
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H ++ " R=" ++ show R
 
   dncAny <- dncLayerAny {r = R, n = N, m = M, h = H, i = InputW, o = OutputW} "dnc"
-  let model : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad
+  let model : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad
       model = OutputLayer dncAny
   putStrLn ""
 
@@ -158,7 +158,7 @@ main = do
       genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 
   -- Metrics: bit accuracy + memory (computed at each log step)
-  let evalMetrics : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
         accs <- traverse (\dp => do
@@ -186,7 +186,7 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation
@@ -197,17 +197,17 @@ main = do
 
   shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
   fullBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 20
-  shortAcc <- withNoGrad {d=ExampleDevice} $ do
+  shortAcc <- withNoGrad {d=ExampleExecutor} $ do
     accs <- traverse evalOne shortBatch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  fullAcc <- withNoGrad {d=ExampleDevice} $ do
+  fullAcc <- withNoGrad {d=ExampleExecutor} $ do
     accs <- traverse evalOne fullBatch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
 
   putStrLn ""
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  withNoGrad {d=ExampleDevice} $ traverse_ (\dp => do
+  withNoGrad {d=ExampleExecutor} $ traverse_ (\dp => do
     (_, preds) <- forwardTwoPhase trained dp
     putStr "  Input:  "
     putStrLn $ unwords (map showBinaryVec (encodingInputs dp))

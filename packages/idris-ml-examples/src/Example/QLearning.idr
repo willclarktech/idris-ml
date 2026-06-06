@@ -12,7 +12,7 @@ import Gym.ToyText.CliffWalking
 import Math
 import Array
 import Train
-import Device
+import Executor
 import BuildConfig
 
 
@@ -188,7 +188,7 @@ main = do
   putStrLn ""
 
   metrics <- newRLMetricsState 100
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
     (\m, d => do
        let (m', loss) = epochQLearning cfg m d
        recordReturn metrics (negate loss)

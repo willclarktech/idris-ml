@@ -13,7 +13,7 @@ import Gym.ToyText.Blackjack
 import Math
 import Array
 import Train
-import Device
+import Executor
 import BuildConfig
 
 
@@ -252,7 +252,7 @@ main = do
 
   let trainCfg : TrainConfig MCModel
       trainCfg = mkTrainConfig cfg.epochs 5000 NoEarlyStop (const (pure [])) (\_ => pure ())
-  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
     (\m, d => pure (epochMC cfg m d))
     genInput
     trainCfg zeroModel

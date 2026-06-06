@@ -19,7 +19,7 @@ import Sampler
 import Array
 import Train
 import Util
-import Device
+import Executor
 import Tensor
 import BuildConfig
 
@@ -54,10 +54,10 @@ RolloutLen : Nat; RolloutLen = 1024
 BatchSize : Nat; BatchSize = 64
 
 Actor : Type
-Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions ExampleDevice ExampleDType WithGrad
+Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions ExampleExecutor ExampleDType WithGrad
 
 Critic : Type
-Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleDevice ExampleDType WithGrad
+Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor ExampleDType WithGrad
 
 mkActor : IO Actor
 mkActor = do
@@ -105,18 +105,18 @@ record RollStep where
 
 criticValue : Critic -> Vect ObsDim Double -> IO Double
 criticValue critic obs = do
-  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar critic stateV
-  pure (primItem1d {d=ExampleDevice} outV.tensorPtr 0)
+  pure (primItem1d {d=ExampleExecutor} outV.tensorPtr 0)
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
-  let stateV  = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV  = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logitsV) <- forwardVar actor stateV
-  let logPT   = primLogSoftmax {d=ExampleDevice} logitsV.tensorPtr 0
-      lp0     = primItem1d {d=ExampleDevice} logPT 0
-      lp1     = primItem1d {d=ExampleDevice} logPT 1
-      lp2     = primItem1d {d=ExampleDevice} logPT 2
+  let logPT   = primLogSoftmax {d=ExampleExecutor} logitsV.tensorPtr 0
+      lp0     = primItem1d {d=ExampleExecutor} logPT 0
+      lp1     = primItem1d {d=ExampleExecutor} logPT 1
+      lp2     = primItem1d {d=ExampleExecutor} logPT 2
   v <- criticValue critic obs
   u <- randomRIO (the Double 0.0, 1.0)
   let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
@@ -140,7 +140,7 @@ rollout actor critic st stepsLeft (S k) = do
   -- immediately. The whole rollout is RolloutLen (e.g. 1024) steps; a
   -- single outer withNoGrad would accumulate all of them past the
   -- paravirt-Metal ceiling. The step result is plain data (Nat/Double).
-  triple <- withNoGrad {d=ExampleDevice} (sampleActionIO actor critic obs)
+  triple <- withNoGrad {d=ExampleExecutor} (sampleActionIO actor critic obs)
   let a  = fst triple
       lp = fst (snd triple)
       v  = snd (snd triple)
@@ -203,18 +203,18 @@ normAdvs triples =
 clipScalar : Double -> Double -> Double -> Double
 clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 
-perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] ExampleDevice ExampleDType WithGrad) ->
-              (valueB : Tensor [n, 1] ExampleDevice ExampleDType WithGrad) -> (rowIdx : Int) ->
+perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad) ->
+              (valueB : Tensor [n, 1] ExampleExecutor ExampleDType WithGrad) -> (rowIdx : Int) ->
               Double -> Double -> Double ->
-              (RollStep, Double, Double) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+              (RollStep, Double, Double) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) = do
   logitsRow <- trowSelect logitsB rowIdx
-  let logPT = the (Tensor [NumActions] ExampleDevice ExampleDType WithGrad)
-                  (MkTensor (primLogSoftmax {d=ExampleDevice} logitsRow.tensorPtr 0) Nothing)
+  let logPT = the (Tensor [NumActions] ExampleExecutor ExampleDType WithGrad)
+                  (MkTensor (primLogSoftmax {d=ExampleExecutor} logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
   lpNew <- telemSelect logPT aIdx
-  let lpVal = primItem1d {d=ExampleDevice} logPT.tensorPtr aIdx
+  let lpVal = primItem1d {d=ExampleExecutor} logPT.tensorPtr aIdx
   valueRow <- trowSelect valueB rowIdx
   valueV   <- telemSelect valueRow 0
   oldLPT   <- tconstScalar step.oldLogProb
@@ -238,21 +238,21 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
   p0V  <- texp lp0V
   p1V  <- texp lp1V
   p2V  <- texp lp2V
-  let negEntV = the (Tensor [] ExampleDevice ExampleDType WithGrad)
-                    (MkTensor (primAdd {d=ExampleDevice}
-                              (primAdd {d=ExampleDevice} (primMul {d=ExampleDevice} p0V.tensorPtr lp0V.tensorPtr)
-                                         (primMul {d=ExampleDevice} p1V.tensorPtr lp1V.tensorPtr))
-                              (primMul {d=ExampleDevice} p2V.tensorPtr lp2V.tensorPtr))
+  let negEntV = the (Tensor [] ExampleExecutor ExampleDType WithGrad)
+                    (MkTensor (primAdd {d=ExampleExecutor}
+                              (primAdd {d=ExampleExecutor} (primMul {d=ExampleExecutor} p0V.tensorPtr lp0V.tensorPtr)
+                                         (primMul {d=ExampleExecutor} p1V.tensorPtr lp1V.tensorPtr))
+                              (primMul {d=ExampleExecutor} p2V.tensorPtr lp2V.tensorPtr))
                             Nothing)
   entTerm <- tmulScalar negEntV entropyCoef
-  pure (MkTensor (primAdd {d=ExampleDevice} (primAdd {d=ExampleDevice} policyT.tensorPtr valueTerm.tensorPtr)
+  pure (MkTensor (primAdd {d=ExampleExecutor} (primAdd {d=ExampleExecutor} policyT.tensorPtr valueTerm.tensorPtr)
                        entTerm.tensorPtr) Nothing)
 
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 
@@ -324,9 +324,9 @@ prepareRollout critic cfg steps finalSt = do
 -- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
 -- forward each, then build per-sample loss expressions by indexing into
 -- the [B, NumActions] / [B, 1] tensors.
-runBatch : NativeOptimizer ExampleDevice -> Actor -> Critic -> Config ->
+runBatch : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
            List (RollStep, Double, Double) -> IO ()
-runBatch opt actor critic cfg batch = withGenFree {d=ExampleDevice} $ do
+runBatch opt actor critic cfg batch = withGenFree {d=ExampleExecutor} $ do
   -- Per-minibatch generation bracket: free this update's grad
   -- intermediates immediately. PPO runs K (e.g. 10) epochs × minibatches
   -- of batched forward+loss over the whole rollout; without per-step
@@ -336,8 +336,8 @@ runBatch opt actor critic cfg batch = withGenFree {d=ExampleDevice} $ do
       n = length batch
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
-      stackedT = bulkToTensor2d {d=ExampleDevice} {dt=ExampleDType} obsBatch
-      stackedV = the (Tensor [n, ObsDim] ExampleDevice ExampleDType WithGrad) (MkTensor stackedT Nothing)
+      stackedT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} obsBatch
+      stackedV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor stackedT Nothing)
   (_, logitsB) <- forwardVarBatch actor stackedV
   (_, valueB)  <- forwardVarBatch critic stackedV
   losses <- enumeratedLosses logitsB valueB batchVec 0
@@ -345,10 +345,10 @@ runBatch opt actor critic cfg batch = withGenFree {d=ExampleDevice} $ do
   _ <- nativeTrainStep opt loss
   pure ()
   where
-    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] ExampleDevice ExampleDType WithGrad ->
-                       Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
+    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad ->
+                       Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
                        Vect k (RollStep, Double, Double) -> Int ->
-                       IO (List (Tensor [] ExampleDevice ExampleDType WithGrad))
+                       IO (List (Tensor [] ExampleExecutor ExampleDType WithGrad))
     enumeratedLosses _ _ [] _ = pure []
     enumeratedLosses lB vB (t :: rest) k = do
       l  <- perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
@@ -361,7 +361,7 @@ runBatch opt actor critic cfg batch = withGenFree {d=ExampleDevice} $ do
 -- desugaring crashes  PPO on MLX with "invalid memory reference"
 -- on the second runBatch onwards. `>>=`-style sequencing (do-block)
 -- works fine. See the module-header comment.
-runBatches : NativeOptimizer ExampleDevice -> Actor -> Critic -> Config ->
+runBatches : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
              List (List (RollStep, Double, Double)) -> IO ()
 runBatches _ _ _ _ [] = pure ()
 runBatches opt actor critic cfg (b :: rest) = do
@@ -369,7 +369,7 @@ runBatches opt actor critic cfg (b :: rest) = do
   runBatches opt actor critic cfg rest
 
 
-kEpochUpdate : NativeOptimizer ExampleDevice -> Actor -> Critic -> Config ->
+kEpochUpdate : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
                List (RollStep, Double, Double) -> Nat -> IO ()
 kEpochUpdate _ _ _ _ _ Z = pure ()
 kEpochUpdate opt actor critic cfg prepped (S k) = do
@@ -379,7 +379,7 @@ kEpochUpdate opt actor critic cfg prepped (S k) = do
   kEpochUpdate opt actor critic cfg prepped k
 
 
-ppoEpoch : NativeOptimizer ExampleDevice -> Config -> PPOState -> IO (PPOState, Double)
+ppoEpoch : NativeOptimizer ExampleExecutor -> Config -> PPOState -> IO (PPOState, Double)
 ppoEpoch opt cfg st = do
   startSt <- readIORef st.envRef
   -- Rollout's per-step forwards extract logits/values as Doubles for
@@ -396,7 +396,7 @@ ppoEpoch opt cfg st = do
 
   -- prepareRollout calls computeBootstrap which does one critic
   -- forward — also grad-free.
-  prepped <- withNoGrad {d=ExampleDevice} (prepareRollout st.critic cfg steps finalSt)
+  prepped <- withNoGrad {d=ExampleExecutor} (prepareRollout st.critic cfg steps finalSt)
   kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
   let episodeReturns = computeEpisodeReturns steps
@@ -422,11 +422,11 @@ ppoEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> IO Nat
 greedyAct actor obs = do
-  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logits) <- forwardVar actor stateV
-  let l0 = primItem1d {d=ExampleDevice} logits.tensorPtr 0
-      l1 = primItem1d {d=ExampleDevice} logits.tensorPtr 1
-      l2 = primItem1d {d=ExampleDevice} logits.tensorPtr 2
+  let l0 = primItem1d {d=ExampleExecutor} logits.tensorPtr 0
+      l1 = primItem1d {d=ExampleExecutor} logits.tensorPtr 1
+      l2 = primItem1d {d=ExampleExecutor} logits.tensorPtr 2
   pure (if l0 >= l1 && l0 >= l2 then 0
         else if l1 >= l2 then 1
         else 2)
@@ -492,7 +492,7 @@ main = do
   let trainCfg : TrainConfig PPOState
       trainCfg = mkTrainConfig cfg.epochs 10 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
     (\s, _ => do
        (s', loss) <- ppoEpoch opt cfg s
        recordReturn metrics (negate loss)
@@ -502,7 +502,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 20
-  evalSum <- withNoGrad {d=ExampleDevice} (evalN trained.actor nEval 0.0)
+  evalSum <- withNoGrad {d=ExampleExecutor} (evalN trained.actor nEval 0.0)
   let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

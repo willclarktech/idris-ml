@@ -2,7 +2,7 @@ module Layer.BatchNorm
 
 import Data.Vect
 
-import Device
+import Executor
 import Layer.Core
 import Tensor
 
@@ -20,12 +20,12 @@ import Tensor
 -- Eval: use running stats.
 --
 -- GADT pins `i = o = channels * spatialDim` so the layer fits
--- `LayerLike`'s `Nat -> Nat -> Device -> Type` arity (same trick
+-- `LayerLike`'s `Nat -> Nat -> Executor -> Type` arity (same trick
 -- as Dropout / LayerNorm / EmbeddingWrap).
 
 public export
 data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
-                        Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+                        Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkBatchNorm :
     TVec channels d dt g ->          -- gamma (learnable)
     TVec channels d dt g ->          -- beta (learnable)
@@ -46,7 +46,7 @@ data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
 %default partial
 
 export
-applyBatchNorm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
+applyBatchNorm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
                    BatchNormState channels spatialDim
                      (channels * spatialDim)
                      (channels * spatialDim) d dt g ->
@@ -84,7 +84,7 @@ fillConst buf off n v =
 ||| Params register as `<prefix>_gamma` / `<prefix>_beta`; state
 ||| tensors are persistent C tensors (non-learnable).
 export
-batchNormLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
+batchNormLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
@@ -145,7 +145,7 @@ public export
 
 ||| Wrap in `AnyLayer`.
 export
-batchNormLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
+batchNormLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer (channels * spatialDim) (channels * spatialDim) d dt WithGrad)
 batchNormLayerAny pid =

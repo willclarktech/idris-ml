@@ -25,12 +25,12 @@ module GradScaler
 import Data.IORef
 import Data.Vect
 
-import Device
+import Executor
 import Tensor
 
 
 public export
-record GradScaler (0 d : Device) (0 dt : DType) where
+record GradScaler (0 d : Executor) (0 dt : DType) where
   constructor MkGradScaler
   scaleRef       : IORef Double
   consecutiveRef : IORef Nat
@@ -75,7 +75,7 @@ currentScale gs = readIORef gs.scaleRef
 ||| Named `applyScale` rather than `scaleLoss` to avoid clashing
 ||| with Backprop.idr's `scaleLoss` (the mean-reduction helper).
 export
-applyScale : {0 d : Device} -> UserDeviceCore d =>
+applyScale : {0 d : Executor} -> UserExecutorCore d =>
              GradScaler d dt -> Tensor [] d dt WithGrad ->
              IO (Tensor [] d dt WithGrad)
 applyScale gs loss = do
@@ -100,7 +100,7 @@ isNaN x = x /= x
 ||| NaN for skipped steps, the unscaled loss otherwise. Callers
 ||| that want to distinguish should check `isNaN` themselves.
 export
-trainStepScaled : {0 d : Device} -> UserDeviceTraining d => IsFloating dt =>
+trainStepScaled : {0 d : Executor} -> UserExecutorTraining d => IsFloating dt =>
                   NativeOptimizer d -> GradScaler d dt ->
                   Tensor [] d dt WithGrad -> IO Double
 trainStepScaled opt gs scaledLoss = do

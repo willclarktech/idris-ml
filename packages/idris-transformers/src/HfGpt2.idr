@@ -33,7 +33,7 @@ module HfGpt2
 import Data.Vect
 
 import Compat.Random
-import Device
+import Executor
 import Init
 import Sampler
 import Tensor
@@ -169,12 +169,12 @@ fillConst buf off n v =
 ||| At forward time: `y = x @ W + b` (`x` is `[batch, in]`, `W` is
 ||| `[in, out]`, `b` is `[out]`, result is `[batch, out]`).
 public export
-record Gpt2Conv1D (i, o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record Gpt2Conv1D (i, o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Conv1D
   weight : Tensor [i, o] d dt g  -- HF-native storage shape
   bias   : Tensor [o] d dt g
 
-makeConv1D : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeConv1D : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
           => {i, o : Nat}
           -> (paramPrefix : String)
           -> IO (Gpt2Conv1D i o d dt WithGrad)
@@ -193,12 +193,12 @@ makeConv1D pfx = do
 ||| LayerNorms with affine params (unlike Llama's RMSNorm which only
 ||| has a weight).
 public export
-record Gpt2LN (n : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record Gpt2LN (n : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2LN
   gamma : Tensor [n] d dt g
   beta  : Tensor [n] d dt g
 
-makeGpt2LN : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeGpt2LN : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
           => {n : Nat}
           -> (paramPrefix : String)
           -> IO (Gpt2LN n d dt WithGrad)
@@ -212,11 +212,11 @@ makeGpt2LN pfx = do
 
 ||| Token / positional embedding: `[count, hidden]`.
 public export
-record Gpt2Embedding (count, hidden : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record Gpt2Embedding (count, hidden : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Embedding
   weight : Tensor [count, hidden] d dt g
 
-makeGpt2Embedding : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeGpt2Embedding : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
                  => {count, hidden : Nat}
                  -> (paramPrefix : String)
                  -> IO (Gpt2Embedding count hidden d dt WithGrad)
@@ -233,7 +233,7 @@ makeGpt2Embedding pfx = do
 public export
 record Gpt2AttentionState
         (hidden : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Attention
   cAttn : Gpt2Conv1D hidden (3 * hidden) d dt g  -- fused QKV
   cProj : Gpt2Conv1D hidden hidden d dt g
@@ -241,7 +241,7 @@ record Gpt2AttentionState
 public export
 record Gpt2MlpState
         (hidden, intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Mlp
   cFc   : Gpt2Conv1D hidden intermediate d dt g
   cProj : Gpt2Conv1D intermediate hidden d dt g
@@ -249,7 +249,7 @@ record Gpt2MlpState
 public export
 record Gpt2BlockState
         (hidden, intermediate : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Block
   ln1  : Gpt2LN hidden d dt g
   attn : Gpt2AttentionState hidden d dt g
@@ -259,7 +259,7 @@ record Gpt2BlockState
 public export
 record Gpt2ModelState
         (vocab, hidden, numLayers, intermediate, maxPos : Nat)
-        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Model
   wte    : Gpt2Embedding vocab hidden d dt g
   wpe    : Gpt2Embedding maxPos hidden d dt g
@@ -271,7 +271,7 @@ record Gpt2ModelState
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeAttention : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
              => {hidden : Nat}
              -> (paramPrefix : String)
              -> IO (Gpt2AttentionState hidden d dt WithGrad)
@@ -280,7 +280,7 @@ makeAttention pfx = do
   cp <- makeConv1D {i=hidden} {o=hidden}     (pfx ++ ".c_proj")
   pure (MkGpt2Attention ca cp)
 
-makeMlp : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeMlp : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
        => {hidden, intermediate : Nat}
        -> (paramPrefix : String)
        -> IO (Gpt2MlpState hidden intermediate d dt WithGrad)
@@ -289,7 +289,7 @@ makeMlp pfx = do
   cp <- makeConv1D {i=intermediate} {o=hidden}       (pfx ++ ".c_proj")
   pure (MkGpt2Mlp cf cp)
 
-makeBlock : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlock : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
          => {hidden, intermediate : Nat}
          -> (paramPrefix : String)
          -> IO (Gpt2BlockState hidden intermediate d dt WithGrad)
@@ -301,7 +301,7 @@ makeBlock pfx = do
   pure (MkGpt2Block l1 at l2 mp)
 
 
-makeBlocks : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlocks : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
           => {hidden, intermediate : Nat}
           -> (paramPrefix : String)
           -> (n : Nat)
@@ -319,7 +319,7 @@ makeBlocks pfx (S k) offset  = do
 ||| registered names are exactly HF's on-disk names — `transformer.wte.weight`,
 ||| `transformer.h.0.attn.c_attn.weight`, etc.).
 public export
-hfGpt2Model : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+hfGpt2Model : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
            => {vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
            -> {auto prfH : hidden = numHeads * headDim}
            -> (paramPrefix : String)
@@ -342,7 +342,7 @@ hfGpt2Model pfx = do
 gpt2LnEps : Double
 gpt2LnEps = 1.0e-5
 
-applyLN2d : {0 d : Device} -> UserDeviceTraining d =>
+applyLN2d : {0 d : Executor} -> UserExecutorTraining d =>
             Gpt2LN hidden d dt g
          -> Tensor [seqLen, hidden] d dt g
          -> IO (Tensor [seqLen, hidden] d dt g)
@@ -354,7 +354,7 @@ applyLN2d (MkGpt2LN g b) input = ioRerun (\_ =>
 ||| Conv1D forward on `[seqLen, i] -> [seqLen, o]`. Bias broadcasts
 ||| `[o]` across the seqLen axis via `primAdd`'s standard
 ||| numpy-style broadcasting (verified on all three backends).
-applyConv1D2d : {0 d : Device} -> UserDeviceTraining d =>
+applyConv1D2d : {0 d : Executor} -> UserExecutorTraining d =>
                 Gpt2Conv1D i o d dt g
              -> Tensor [seqLen, i] d dt g
              -> IO (Tensor [seqLen, o] d dt g)
@@ -377,7 +377,7 @@ writeCausalMask buf i j n =
 -- Per-head attention math (causal, with multi-head split via
 -- axis=1 narrow). Caller supplies the prebuilt causal mask pointer.
 -- Returns AnyPtr to a `[seqLen, headDim]` block.
-oneHeadCausalCtx : {0 d : Device} -> UserDeviceTraining d =>
+oneHeadCausalCtx : {0 d : Executor} -> UserExecutorTraining d =>
                    (qFull, kFull, vFull : AnyPtr)
                 -> (causalMask : AnyPtr)
                 -> (startI, headDimI : Int)
@@ -394,7 +394,7 @@ oneHeadCausalCtx qFull kFull vFull causalMask startI headDimI scale =
   in primMm {d} attn vh
 
 -- Concatenate per-head outputs along axis=1 to recover `[seqLen, hidden]`.
-buildCausalHeads : {0 d : Device} -> UserDeviceTraining d =>
+buildCausalHeads : {0 d : Executor} -> UserExecutorTraining d =>
                    (qFull, kFull, vFull, causalMask : AnyPtr)
                 -> (headDimI : Int) -> (scale : Double)
                 -> (remaining : Nat) -> (startI : Int) -> (acc : AnyPtr)
@@ -415,7 +415,7 @@ buildCausalHeads qFull kFull vFull causalMask headDimI scale (S k) startI acc =
 ||| loop (one less narrow + concat round trip); `numHeads = S (S _)`
 ||| goes through the full multi-head path which exercises the
 ||| commit-1 narrow-axis-1 fix on torch/mlx.
-applySelfAttn : {0 d : Device} -> UserDeviceTraining d =>
+applySelfAttn : {0 d : Executor} -> UserExecutorTraining d =>
                 {seqLen, hidden, numHeads, headDim : Nat}
              -> {auto prf : hidden = numHeads * headDim}
              -> Gpt2AttentionState hidden d dt g
@@ -456,7 +456,7 @@ applySelfAttn {numHeads = S (S k)} {hidden} {headDim} sa causalMask input = do
 
 
 ||| MLP: c_proj(gelu(c_fc(x))).
-applyMlp : {0 d : Device} -> UserDeviceTraining d =>
+applyMlp : {0 d : Executor} -> UserExecutorTraining d =>
            Gpt2MlpState hidden intermediate d dt g
         -> Tensor [seqLen, hidden] d dt g
         -> IO (Tensor [seqLen, hidden] d dt g)
@@ -469,7 +469,7 @@ applyMlp mlp x = do
 
 ||| One decoder block. Pre-norm + residual on both attention and MLP
 ||| sublayers. (Contrast HfBert which is post-norm.)
-applyBlock : {0 d : Device} -> UserDeviceTraining d =>
+applyBlock : {0 d : Executor} -> UserExecutorTraining d =>
              {seqLen, hidden, numHeads, headDim, intermediate : Nat}
           -> {auto prf : hidden = numHeads * headDim}
           -> Gpt2BlockState hidden intermediate d dt g
@@ -487,7 +487,7 @@ applyBlock {hidden} {numHeads} {headDim} blk causalMask x = do
   tadd xMid mOut
 
 
-applyBlocks : {0 d : Device} -> UserDeviceTraining d =>
+applyBlocks : {0 d : Executor} -> UserExecutorTraining d =>
               {seqLen, hidden, numHeads, headDim, intermediate, n : Nat}
            -> {auto prf : hidden = numHeads * headDim}
            -> Vect n (Gpt2BlockState hidden intermediate d dt g)
@@ -502,7 +502,7 @@ applyBlocks (b :: bs) cm x = do
 
 -- Embedding lookup returning `[seqLen, hidden]`. Same wrapping pattern
 -- as HfBert's `applyEmbedLookup2d`.
-applyEmbedLookup2d : {0 d : Device} -> UserDeviceTraining d =>
+applyEmbedLookup2d : {0 d : Executor} -> UserExecutorTraining d =>
                      {seqLen, vocab, hidden : Nat}
                   -> Gpt2Embedding vocab hidden d dt g
                   -> Tensor [seqLen] d dt g
@@ -526,7 +526,7 @@ applyEmbedLookup2d {seqLen} {hidden} (MkGpt2Embedding w) tokens = ioRerun (\_ =>
 ||| (matching the convention used by HfBert's `posIds`). The caller
 ||| materialises `[0, 1, ..., seqLen-1]`.
 public export
-hfGpt2Forward : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+hfGpt2Forward : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
                 {seqLen, vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
              -> {auto prf : hidden = numHeads * headDim}
              -> Gpt2ModelState vocab hidden numLayers intermediate maxPos d dt g
@@ -558,7 +558,7 @@ hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
 ||| logits for each position. Same reconstitution pattern as HfBert's
 ||| `applyMlmHead`.
 public export
-hfGpt2ForwardLm : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+hfGpt2ForwardLm : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
                   {seqLen, vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
                -> {auto prf : hidden = numHeads * headDim}
                -> Gpt2ModelState vocab hidden numLayers intermediate maxPos d dt g

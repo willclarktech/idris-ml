@@ -12,7 +12,7 @@
 ||| If a third adapter wants greedy decode in the future, *that's* the
 ||| signal to lift them with a parametric closure API.
 |||
-||| All values use the `ExampleDevice` / `ExampleDType` pair from
+||| All values use the `ExampleExecutor` / `ExampleDType` pair from
 ||| `BuildConfig` so the helpers pick up the per-build target lane
 ||| automatically (e.g. F32 on torch-mps / mlx-gpu, F64 on tape).
 module Example.Common.HfInferenceHelper
@@ -24,7 +24,7 @@ import System.File
 
 import Array
 import BuildConfig
-import Device
+import Executor
 import Tensor
 import Util
 
@@ -37,9 +37,9 @@ import Util
 ||| to Double — the autograd surface is float-typed).
 public export
 mkIds : {n : Nat} -> Vect n Double
-     -> Tensor [n] ExampleDevice ExampleDType WithGrad
+     -> Tensor [n] ExampleExecutor ExampleDType WithGrad
 mkIds xs =
-  let raw = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
+  let raw = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -64,7 +64,7 @@ printRow end i p =
   if i >= end
     then pure ()
     else do
-      let v = primItem1d {d=ExampleDevice} p i
+      let v = primItem1d {d=ExampleExecutor} p i
       putStrLn (show v)
       printRow end (i + 1) p
 
@@ -84,7 +84,7 @@ argmaxRow vocab p = go (cast {to=Int} vocab) 0 0 (-1.0e300)
     go end i bestI bestV =
       if i >= end
         then pure (cast {to=Nat} bestI)
-        else let v = primItem1d {d=ExampleDevice} p i
+        else let v = primItem1d {d=ExampleExecutor} p i
              in if v > bestV
                   then go end (i + 1) i v
                   else go end (i + 1) bestI bestV
@@ -107,7 +107,7 @@ collectShown end startIdx ptr = go startIdx []
       if i >= end
         then pure (reverse acc)
         else do
-          let v = primItem1d {d=ExampleDevice} ptr i
+          let v = primItem1d {d=ExampleExecutor} ptr i
           go (i + 1) (show v :: acc)
 
 ||| Write a 1D row of `nElems` floats from `ptr` to `path`, one float

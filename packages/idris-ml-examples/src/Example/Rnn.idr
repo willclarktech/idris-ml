@@ -9,7 +9,7 @@ import Compat.Random
 import Backprop
 import Checkpoint
 import DataPoint
-import Device
+import Executor
 import Generate
 import Layer.Core
 import Layer.Linear
@@ -62,7 +62,7 @@ main = do
 
   rnnAny <- rnnLayerAny {i = 1} {o = 4} "rnn"
   llAny <- linearLayerAny {i = 4} {o = 1} "ll"
-  let model : Network 1 [4] 1 ExampleDevice ExampleDType WithGrad
+  let model : Network 1 [4] 1 ExampleExecutor ExampleDType WithGrad
       model = rnnAny ~~> OutputLayer llAny
   putStrLn ""
 
@@ -73,7 +73,7 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
     (\m, d => epochRecurrentVar opt d tbceLoss m)
     (pure (patternData 8))
     trainCfg
