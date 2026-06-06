@@ -118,11 +118,13 @@ BatchSize = 64
 ||| Fetch a single MNIST image as a TensorDataPoint (raw tensor pointer).
 mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
 mnistItem ds idx = do
-  let -- mnist_get_image / one_hot are dtype-aware: pass ExampleDType's tag so
-      -- both yield ExampleDType directly (no cast on any build).
-      imgT = primMnistGetImage {ex=ExampleExecutor} ds (cast {to=Int} (natToInteger idx)) (dtypeTag {t=ExampleDType})
-      lbl = prim__mnistGetLabel ds (cast {to=Int} (natToInteger idx))
-      flatImg = primReshape1d {ex=ExampleExecutor} imgT (cast {to=Int} InputDim)
+  let -- idxImage / one_hot are dtype-aware: ExampleDType is fixed at the
+      -- type level via the {t=ExampleDType} implicit, so both yield
+      -- ExampleDType directly (no cast on any build). idxImage produces
+      -- the flat 1-D shape the model consumes — no intermediate
+      -- [1, 28, 28] handle to reshape away.
+      flatImg = idxImage {ex=ExampleExecutor} {t=ExampleDType} ds (cast {to=Int} (natToInteger idx)) (cast {to=Int} InputDim)
+      lbl = prim__idxLabel ds (cast {to=Int} (natToInteger idx))
       lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
       tgtT = primOneHot {ex=ExampleExecutor} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
   pure (MkTensorDataPoint flatImg tgtT)
@@ -152,9 +154,8 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
       in pure (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
     go (S k) correct totalLoss = do
       let pos = cast {to=Int} (k * cast numImages `div` nSamples)
-          imgT = primMnistGetImage {ex=ExampleExecutor} ds pos (dtypeTag {t=ExampleDType})
-          lbl = prim__mnistGetLabel ds pos
-          flatImg = primReshape1d {ex=ExampleExecutor} imgT (cast {to=Int} InputDim)
+          flatImg = idxImage {ex=ExampleExecutor} {t=ExampleDType} ds pos (cast {to=Int} InputDim)
+          lbl = prim__idxLabel ds pos
           inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor flatImg Nothing)
       (_, predV) <- forwardVar model inV
       let outT = predV.tensorPtr
@@ -255,10 +256,10 @@ main = do
       trainLblPath = cfg.dataDir ++ "/train-labels-idx1-ubyte"
       testImgPath  = cfg.dataDir ++ "/t10k-images-idx3-ubyte"
       testLblPath  = cfg.dataDir ++ "/t10k-labels-idx1-ubyte"
-  let trainDs = prim__mnistLoad trainImgPath trainLblPath
-  let testDs = prim__mnistLoad testImgPath testLblPath
-  let trainCount = prim__mnistCount trainDs
-      testCount = prim__mnistCount testDs
+  let trainDs = prim__idxLoad trainImgPath trainLblPath
+  let testDs = prim__idxLoad testImgPath testLblPath
+  let trainCount = prim__idxCount trainDs
+      testCount = prim__idxCount testDs
   putStrLn $ "Train: " ++ show trainCount ++ " images, Test: " ++ show testCount ++ " images"
 
   -- Build  model

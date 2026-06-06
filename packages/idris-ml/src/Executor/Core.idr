@@ -534,9 +534,6 @@ interface UserExecutorCore ex => UserExecutorTensorCreate (0 ex : Executor) wher
   -- Scalar reads / data loading
   ||| Read element `(r, c)` from a 2-D tensor as a host Double.
   primItem2d            : AnyPtr -> Int -> Int -> Double
-  ||| Load image `idx` from an MNIST dataset handle into a tensor of the
-  ||| dtype selected by the trailing `dtypeTag`. Args: (handle, idx, dtypeTag).
-  primMnistGetImage     : AnyPtr -> Int -> Int -> AnyPtr
   ||| One-hot encode an int-index buffer into a [len, classes]
   ||| matrix in the dtype selected by the trailing `dtypeTag` (so the
   ||| produced tensor honestly matches the Idris `dt`; 0/1 is exact in

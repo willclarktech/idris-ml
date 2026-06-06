@@ -213,19 +213,32 @@ releaseHandle wr = ignore $ primIO (prim__releaseHandleC wr)
 -- Conv2D / MaxPool2D
 
 
--- MNIST data loading
-%foreign "C:mnist_load,libidrisml"
+-- IDX-format dataset loading (file format Yann LeCun shipped MNIST in;
+-- the helpers live in packages/backends/idx.c and are compiled ONCE
+-- into libidrisml.dylib, not per-backend — so the dataset surface is
+-- intentionally outside the UserExecutor* typeclass dispatch. The
+-- Idris side hands the borrowed `idx_image_doubles` pointer to
+-- `dtCreate1d` (a thin wrapper around the generic dtype-streamed
+-- creator) to construct the tensor; no per-backend `mnist_get_image_<b>`
+-- symbol exists.
+%foreign "C:idx_load,libidrisml"
 export
-prim__mnistLoad : String -> String -> AnyPtr
+prim__idxLoad : String -> String -> AnyPtr
 
-%foreign "C:mnist_count,libidrisml"
+%foreign "C:idx_count,libidrisml"
 export
-prim__mnistCount : AnyPtr -> Int
+prim__idxCount : AnyPtr -> Int
 
-
-%foreign "C:mnist_get_label,libidrisml"
+%foreign "C:idx_label_at,libidrisml"
 export
-prim__mnistGetLabel : AnyPtr -> Int -> Int
+prim__idxLabel : AnyPtr -> Int -> Int
+
+%foreign "C:idx_image_doubles,libidrisml"
+export
+prim__idxImageDoubles : AnyPtr -> Int -> AnyPtr
+
+-- The `idxImage` convenience helper is defined further down, after
+-- `dtCreate1d` is in scope.
 
 -- Parameter registry: `primParamRegister {ex}` (UserExecutorTraining) is
 -- the sole entry. Each backend's instance wraps the returned handle
@@ -588,6 +601,22 @@ dtCreate1d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> Run
              Linked ex => Compatible ex t =>
              Int -> AnyPtr -> Int -> Int -> AnyPtr
 dtCreate1d n dat rg stream = primCreate1dStreamed {ex} n dat rg stream (dtypeTag {t})
+
+||| Construct a flat 1-D image tensor (length `flatLen` = rows * cols)
+||| for image `idx` in the IDX dataset `ds`. The C side allocates and
+||| memcpys a fresh `double[flatLen]` (ownership transfers — the
+||| streamed creator path free()s its input buffer); this routes that
+||| pointer through the generic dtype-streamed creator (`dtCreate1d`)
+||| so the result honestly matches the caller's chosen `t`. The
+||| intermediate 3-D shape the legacy `mnist_get_image` produced was
+||| always reshape-flattened at the call site, so the 1-D shape here
+||| saves an FFI hop without changing user code's downstream view.
+public export
+idxImage : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
+           Linked ex => Compatible ex t =>
+           AnyPtr -> Int -> Int -> AnyPtr
+idxImage ds idx flatLen =
+  dtCreate1d {ex} {t} flatLen (prim__idxImageDoubles ds idx) 0 (deviceStreamTag {ex})
 
 public export
 dtCreate2d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>

@@ -36,10 +36,14 @@ int idx_count(void* handle);
 /* Label (0..numClasses-1) for the image at index. */
 int idx_label_at(void* handle, int index);
 
-/* Borrowed pointer to the image at `index`, length `rows * cols` doubles
- * already in [0, 1]. Lifetime tied to the IdxDataset handle. Idris
- * passes this pointer to `primCreate3dStreamed 1 rows cols ...` to
- * construct the tensor; no per-image copy happens on the C side. */
+/* Return a freshly malloc'd double[rows * cols] copy of the image at
+ * `index`, normalized to [0, 1]. Ownership transfers to the caller —
+ * the streamed-creator path (tape / torch / mlx all consistently free
+ * the input buffer after the tensor copy) consumes and frees it.
+ * Allocate-and-copy is the convention; a "borrowed pointer" return
+ * would be misused by the streamed creators and free a slice of the
+ * dataset buffer. The cost (1µs per image × 60k images per MNIST
+ * epoch ≈ 60ms) is negligible next to a real training step. */
 double* idx_image_doubles(void* handle, int index);
 
 /* Free the dataset handle + its buffers. */

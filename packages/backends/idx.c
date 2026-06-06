@@ -94,7 +94,15 @@ int idx_label_at(void* handle, int index) {
 
 double* idx_image_doubles(void* handle, int index) {
     IdxDataset* ds = (IdxDataset*)handle;
-    return ds->images + (size_t)index * (size_t)ds->rows * (size_t)ds->cols;
+    size_t dim = (size_t)ds->rows * (size_t)ds->cols;
+    double* out = malloc(dim * sizeof(double));
+    /* memcpy the pre-decoded normalized doubles from the dataset slice.
+     * Allocate-and-copy because the streamed creator path free()s its
+     * input buffer; returning a borrowed pointer would corrupt the
+     * loaded dataset on first call. */
+    const double* src = ds->images + (size_t)index * dim;
+    for (size_t i = 0; i < dim; i++) out[i] = src[i];
+    return out;
 }
 
 void idx_free(void* handle) {
