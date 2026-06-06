@@ -663,11 +663,16 @@ public export
   -- <<< END GENERATED <<<
 
 public export
-{d : TorchHwDev} -> UserExecutorProfiling (TorchExecutor d) where
+{d : TorchHwDev} -> UserExecutorDiagnostics (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primLiveCount = prim__liveCountTorch
   primPeakLiveCount = prim__peakLiveCountTorch
   primPerfOpCount = prim__perfOpCountTorch
+  -- <<< END GENERATED <<<
+
+public export
+{d : TorchHwDev} -> UserExecutorProfiling (TorchExecutor d) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primPerfReset = prim__perfResetTorch
   primProfileReport = prim__profileReportTorch
   primProfileReset = prim__profileResetTorch

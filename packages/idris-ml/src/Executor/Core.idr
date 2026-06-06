@@ -564,22 +564,14 @@ interface UserExecutorCore ex => UserExecutorMemoryHygiene (0 ex : Executor) whe
   ||| `backend_reset_for_eval` symbol.
   primResetForEval : PrimIO ()
 
-||| Op-timing counters + live/peak-handle reporting.
-||| Orthogonal to autograd; sits next to `Core` because it observes,
-||| doesn't mutate, the training surface.
-|||
-||| TODO audit: several methods here are asymmetric across backends —
-||| `primLiveCount/PeakLiveCount` (reporting-only, dummy-arg defeats
-||| Idris-Chez constant-folding), `primPerfOpCount` (#393 op-submission
-||| diagnostic, `Int` workaround for the Bits64 codegen crash).
-||| Candidates for demotion to a `UserExecutorDiagnostics` opt-in
-||| interface — pending in a follow-up commit.
+||| Opt-in diagnostics slice. Handle-count reporting (live + peak) and
+||| op-submission counters. All three in-tree backends implement it;
+||| BYO backends opt in only if they expose the underlying counters.
+||| Superclass of `UserExecutorTraining`, so `Train.idr`'s logging code
+||| and `Tensor.idr`'s `perfOpCount` wrapper resolve unchanged for the
+||| three in-tree backends.
 public export
-interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
-  ||| Reset this backend's op-timing profile counters.
-  primProfileReset        : PrimIO ()
-  ||| Print this backend's profile breakdown to stderr.
-  primProfileReport       : PrimIO ()
+interface UserExecutorCore ex => UserExecutorDiagnostics (0 ex : Executor) where
   ||| Count of live backend tensor handles (mlx: all_tensors; torch:
   ||| intermediates; tape: tape entries). The arg is ignored — it exists
   ||| only to defeat Idris-Chez constant-folding of the FFI call so the
@@ -593,9 +585,10 @@ interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
   ||| wrap on torch (counts graph nodes per forward); no-op on tape
   ||| and mlx (their per-op submission story is different — tape is
   ||| eager-CPU, mlx is lazy-batched via mx::array). Use bracketed
-  ||| `primPerfReset` + `primPerfOpCount` at example sites to extract
-  ||| per-forward op counts without instrumenting every kernel wrapper.
-  primPerfReset           : PrimIO ()
+  ||| `primPerfReset` (`UserExecutorProfiling`) + `primPerfOpCount` at
+  ||| example sites to extract per-forward op counts without
+  ||| instrumenting every kernel wrapper.
+  |||
   ||| Returns `Int` (not `Bits64`) — `PrimIO Bits64` triggered a
   ||| cumulative-state crash on tape F32 HfLlama (#401). Idris-2's
   ||| chez codegen emits `unsigned-64` for Bits64 returns; something
@@ -603,6 +596,18 @@ interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
   ||| 64-bit platforms) holds the same value and is the codepath used
   ||| by every other counter FFI in the codebase.
   primPerfOpCount         : PrimIO Int
+
+||| Op-timing profile counters (cumulative timing breakdown across the
+||| training surface). Orthogonal to autograd; observes, doesn't mutate.
+public export
+interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
+  ||| Reset this backend's op-timing profile counters.
+  primProfileReset        : PrimIO ()
+  ||| Print this backend's profile breakdown to stderr.
+  primProfileReport       : PrimIO ()
+  ||| Reset op-submission counters. Bracket with `primPerfOpCount` in
+  ||| `UserExecutorDiagnostics` to extract per-forward op counts.
+  primPerfReset           : PrimIO ()
 
 ||| Tensor creation surface: shape queries + host item reads + dtype-
 ||| streamed creators + fused param-init. Inference-only adapters
@@ -656,6 +661,7 @@ interface (UserExecutorConv ex,
            UserExecutorOptimizations ex,
            UserExecutorSerialize ex,
            UserExecutorProfiling ex,
+           UserExecutorDiagnostics ex,
            UserExecutorMemoryHygiene ex,
            UserExecutorStreamed ex,
            UserExecutorTensorCreate ex) =>
