@@ -12,8 +12,8 @@ OUT="$DIR/input.txt"
 # `-s` (non-empty) not `-f` (exists) — catches half-downloaded files
 # from interrupted curl runs that would otherwise look cached.
 if [ -s "$OUT" ]; then
-  echo "Already exists: $OUT"
-  exit 0
+	echo "Already exists: $OUT"
+	exit 0
 fi
 
 echo "Downloading tinyshakespeare ..."

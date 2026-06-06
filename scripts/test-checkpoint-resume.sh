@@ -20,8 +20,8 @@ echo "=== Step 1: train 10 epochs (checkpoint every 5) → $DIR ==="
 "$BIN" --epochs 10 --seed "$SEED" --checkpoint-dir "$DIR" --checkpoint-every 5
 
 for f in last.model.safetensors last.opt.safetensors last.trainer_state.json \
-         best.model.safetensors best.opt.safetensors; do
-  [ -f "$DIR/$f" ] || { echo "FAIL: missing checkpoint artifact $f"; exit 1; }
+				 best.model.safetensors best.opt.safetensors; do
+	[ -f "$DIR/$f" ] || { echo "FAIL: missing checkpoint artifact $f"; exit 1; }
 done
 
 EP="$(grep -o '"epoch":[[:space:]]*[0-9]*' "$DIR/last.trainer_state.json" | grep -o '[0-9]*')"
@@ -33,8 +33,8 @@ OUT="$("$BIN" --epochs 20 --seed "$SEED" --resume "$DIR" 2>&1)"
 echo "$OUT"
 
 echo "$OUT" | grep -q "Resuming from epoch 10" \
-  || { echo "FAIL: resumed run did not load the epoch-10 checkpoint"; exit 1; }
+	|| { echo "FAIL: resumed run did not load the epoch-10 checkpoint"; exit 1; }
 echo "$OUT" | grep -q "epochs=20" \
-  || { echo "FAIL: resumed run did not complete at 20 epochs"; exit 1; }
+	|| { echo "FAIL: resumed run did not complete at 20 epochs"; exit 1; }
 
 echo "PASS: checkpoint resume smoke test (epoch 10 → 20)"

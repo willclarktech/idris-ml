@@ -40,150 +40,150 @@ CELLS_CSV="tape,torch-cpu,torch-mps,mlx-cpu,mlx-gpu"
 SEED=42
 
 while [ $# -gt 0 ]; do
-  case "$1" in
-    --examples) EXAMPLES_CSV="$2"; shift 2 ;;
-    --cells)    CELLS_CSV="$2"; shift 2 ;;
-    --seed)     SEED="$2"; shift 2 ;;
-    -h|--help)  sed -n '/^# scripts/,/^set -e/p' "$0"; exit 0 ;;
-    *) echo "unknown flag: $1" >&2; exit 2 ;;
-  esac
+	case "$1" in
+		--examples) EXAMPLES_CSV="$2"; shift 2 ;;
+		--cells)    CELLS_CSV="$2"; shift 2 ;;
+		--seed)     SEED="$2"; shift 2 ;;
+		-h|--help)  sed -n '/^# scripts/,/^set -e/p' "$0"; exit 0 ;;
+		*) echo "unknown flag: $1" >&2; exit 2 ;;
+	esac
 done
 
 # example -> "make-target args-var pytorch-module N_LONG"
 spec_for() {
-  case "$1" in
-    supervised)        echo "example-supervised SUPERVISED_ARGS torch_ref.scripts.supervised 200" ;;
-    rnn)               echo "example-rnn RNN_ARGS torch_ref.scripts.rnn 200" ;;
-    lstm)              echo "example-lstm LSTM_ARGS torch_ref.scripts.lstm 200" ;;
-    gru)               echo "example-gru GRU_ARGS torch_ref.scripts.gru 200" ;;
-    transformer)       echo "example-transformer TRANSFORMER_ARGS torch_ref.scripts.transformer 200" ;;
-    ntm-copy)          echo "example-ntm-copy NTM_COPY_ARGS torch_ref.scripts.ntm_copy 40" ;;
-    ntm-recall)        echo "example-ntm-associative-recall NTM_ASSOCIATIVE_RECALL_ARGS torch_ref.scripts.ntm_recall 40" ;;
-    dnc-copy)          echo "example-dnc-copy DNC_COPY_ARGS torch_ref.scripts.dnc_copy 80" ;;
-    dnc-recall)        echo "example-dnc-recall DNC_RECALL_ARGS torch_ref.scripts.dnc_recall 40" ;;
-    reinforce)         echo "example-reinforce REINFORCE_ARGS torch_ref.scripts.reinforce 200" ;;
-    dqn)               echo "example-dqn DQN_ARGS torch_ref.scripts.dqn 80" ;;
-    mountain-car)      echo "example-mountain-car MOUNTAIN_CAR_ARGS torch_ref.scripts.mountain_car 80" ;;
-    mountain-car-cont) echo "example-mountain-car-cont MOUNTAIN_CAR_CONT_ARGS torch_ref.scripts.mountain_car_cont 2000" ;;
-    a2c)               echo "example-a2c A2C_ARGS torch_ref.scripts.a2c 200" ;;
-    ppo)               echo "example-ppo PPO_ARGS torch_ref.scripts.ppo 40" ;;
-    sac)               echo "example-sac SAC_ARGS torch_ref.scripts.sac 2000" ;;
-    *) return 1 ;;
-  esac
+	case "$1" in
+		supervised)        echo "example-supervised SUPERVISED_ARGS torch_ref.scripts.supervised 200" ;;
+		rnn)               echo "example-rnn RNN_ARGS torch_ref.scripts.rnn 200" ;;
+		lstm)              echo "example-lstm LSTM_ARGS torch_ref.scripts.lstm 200" ;;
+		gru)               echo "example-gru GRU_ARGS torch_ref.scripts.gru 200" ;;
+		transformer)       echo "example-transformer TRANSFORMER_ARGS torch_ref.scripts.transformer 200" ;;
+		ntm-copy)          echo "example-ntm-copy NTM_COPY_ARGS torch_ref.scripts.ntm_copy 40" ;;
+		ntm-recall)        echo "example-ntm-associative-recall NTM_ASSOCIATIVE_RECALL_ARGS torch_ref.scripts.ntm_recall 40" ;;
+		dnc-copy)          echo "example-dnc-copy DNC_COPY_ARGS torch_ref.scripts.dnc_copy 80" ;;
+		dnc-recall)        echo "example-dnc-recall DNC_RECALL_ARGS torch_ref.scripts.dnc_recall 40" ;;
+		reinforce)         echo "example-reinforce REINFORCE_ARGS torch_ref.scripts.reinforce 200" ;;
+		dqn)               echo "example-dqn DQN_ARGS torch_ref.scripts.dqn 80" ;;
+		mountain-car)      echo "example-mountain-car MOUNTAIN_CAR_ARGS torch_ref.scripts.mountain_car 80" ;;
+		mountain-car-cont) echo "example-mountain-car-cont MOUNTAIN_CAR_CONT_ARGS torch_ref.scripts.mountain_car_cont 2000" ;;
+		a2c)               echo "example-a2c A2C_ARGS torch_ref.scripts.a2c 200" ;;
+		ppo)               echo "example-ppo PPO_ARGS torch_ref.scripts.ppo 40" ;;
+		sac)               echo "example-sac SAC_ARGS torch_ref.scripts.sac 2000" ;;
+		*) return 1 ;;
+	esac
 }
 
 # cell -> "BACKEND DEVICE"
 cell_to_backend_device() {
-  case "$1" in
-    tape)      echo "tape cpu" ;;
-    torch)     echo "torch cpu" ;;
-    torch-cpu) echo "torch cpu" ;;
-    torch-mps) echo "torch mps" ;;
-    mlx-cpu)   echo "mlx cpu" ;;
-    mlx-gpu)   echo "mlx gpu" ;;
-    *) return 1 ;;
-  esac
+	case "$1" in
+		tape)      echo "tape cpu" ;;
+		torch)     echo "torch cpu" ;;
+		torch-cpu) echo "torch cpu" ;;
+		torch-mps) echo "torch mps" ;;
+		mlx-cpu)   echo "mlx cpu" ;;
+		mlx-gpu)   echo "mlx gpu" ;;
+		*) return 1 ;;
+	esac
 }
 
 # Build the per-cell BUILD_KEY (matches Makefile's BUILD_KEY := ...).
 build_key_for_cell() {
-  local backend="$1" device="$2"
-  local mlx_dev=cpu torch_dev=cpu
-  case "$backend" in
-    mlx)   mlx_dev="$device"   ;;
-    torch) torch_dev="$device" ;;
-    tape)  ;;
-  esac
-  echo "${backend}-mlx${mlx_dev}-torch${torch_dev}"
+	local backend="$1" device="$2"
+	local mlx_dev=cpu torch_dev=cpu
+	case "$backend" in
+		mlx)   mlx_dev="$device"   ;;
+		torch) torch_dev="$device" ;;
+		tape)  ;;
+	esac
+	echo "${backend}-mlx${mlx_dev}-torch${torch_dev}"
 }
 
 # example-rnn (tape, cpu) -> ./build/tape-mlxcpu-torchcpu/exec/rnn
 binary_for_target() {
-  local target="$1" backend="$2" device="$3"
-  local build_key
-  build_key=$( build_key_for_cell "$backend" "$device" )
-  echo "./build/${build_key}/exec/${target#example-}"
+	local target="$1" backend="$2" device="$3"
+	local build_key
+	build_key=$( build_key_for_cell "$backend" "$device" )
+	echo "./build/${build_key}/exec/${target#example-}"
 }
 
 build_idris_binary() {
-  local target="$1" var="$2" backend="$3" device="$4"
-  local errlog rc=0
-  errlog=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-build.XXXXXX" )
-  case "$backend" in
-    mlx)
-      MLX_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
-        "$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
-      ;;
-    torch)
-      TORCH_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
-        "$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
-      ;;
-    *)
-      BACKEND="$backend" make --no-print-directory "$target" \
-        "$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
-      ;;
-  esac
-  if [ "$rc" -ne 0 ]; then
-    echo "[BUILD FAIL] make $target backend=$backend device=$device exit=$rc" >&2
-    tail -5 "$errlog" >&2
-    rm -f "$errlog"
-    return "$rc"
-  fi
-  rm -f "$errlog"
+	local target="$1" var="$2" backend="$3" device="$4"
+	local errlog rc=0
+	errlog=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-build.XXXXXX" )
+	case "$backend" in
+		mlx)
+			MLX_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
+				"$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
+			;;
+		torch)
+			TORCH_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
+				"$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
+			;;
+		*)
+			BACKEND="$backend" make --no-print-directory "$target" \
+				"$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
+			;;
+	esac
+	if [ "$rc" -ne 0 ]; then
+		echo "[BUILD FAIL] make $target backend=$backend device=$device exit=$rc" >&2
+		tail -5 "$errlog" >&2
+		rm -f "$errlog"
+		return "$rc"
+	fi
+	rm -f "$errlog"
 }
 
 run_idris_once() {
-  local target="$1" _var="$2" n="$3" backend="$4" device="$5"
-  local bin rc stdout_path errlog
-  bin=$( binary_for_target "$target" "$backend" "$device" )
-  stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX" )
-  errlog=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-err.XXXXXX" )
-  rc=0
-  if [ "$backend" = "mlx" ]; then
-    MLX_DEVICE="$device" "$bin" --epochs "$n" --seed "$SEED" >"$stdout_path" 2>"$errlog" || rc=$?
-  else
-    "$bin" --epochs "$n" --seed "$SEED" >"$stdout_path" 2>"$errlog" || rc=$?
-  fi
-  if [ "$rc" -ne 0 ]; then
-    echo "[CRASH] $bin (backend=$backend device=$device epochs=$n) exit=$rc" >&2
-    tail -3 "$errlog" >&2
-    rm -f "$stdout_path" "$errlog"
-    echo "crashed"
-    return 0
-  fi
-  rm -f "$errlog"
-  perf_extract_marker "$stdout_path"
-  rm -f "$stdout_path"
+	local target="$1" _var="$2" n="$3" backend="$4" device="$5"
+	local bin rc stdout_path errlog
+	bin=$( binary_for_target "$target" "$backend" "$device" )
+	stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX" )
+	errlog=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-err.XXXXXX" )
+	rc=0
+	if [ "$backend" = "mlx" ]; then
+		MLX_DEVICE="$device" "$bin" --epochs "$n" --seed "$SEED" >"$stdout_path" 2>"$errlog" || rc=$?
+	else
+		"$bin" --epochs "$n" --seed "$SEED" >"$stdout_path" 2>"$errlog" || rc=$?
+	fi
+	if [ "$rc" -ne 0 ]; then
+		echo "[CRASH] $bin (backend=$backend device=$device epochs=$n) exit=$rc" >&2
+		tail -3 "$errlog" >&2
+		rm -f "$stdout_path" "$errlog"
+		echo "crashed"
+		return 0
+	fi
+	rm -f "$errlog"
+	perf_extract_marker "$stdout_path"
+	rm -f "$stdout_path"
 }
 
 run_pytorch_once() {
-  local mod="$1" n="$2"
-  local stdout_path rc
-  stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX" )
-  rc=0
-  ( cd packages/pytorch && uv run python -m "$mod" --epochs "$n" --seed "$SEED" ) \
-    >"$stdout_path" 2>/dev/null || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    rm -f "$stdout_path"
-    echo "crashed"
-    return 0
-  fi
-  perf_extract_marker "$stdout_path"
-  rm -f "$stdout_path"
+	local mod="$1" n="$2"
+	local stdout_path rc
+	stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX" )
+	rc=0
+	( cd packages/pytorch && uv run python -m "$mod" --epochs "$n" --seed "$SEED" ) \
+		>"$stdout_path" 2>/dev/null || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		rm -f "$stdout_path"
+		echo "crashed"
+		return 0
+	fi
+	perf_extract_marker "$stdout_path"
+	rm -f "$stdout_path"
 }
 
 measure_idris() {
-  local target="$1" var="$2" n_long="$3" backend="$4" device="$5"
-  if ! build_idris_binary "$target" "$var" "$backend" "$device"; then
-    echo "crashed"
-    return 0
-  fi
-  run_idris_once "$target" "$var" "$n_long" "$backend" "$device"
+	local target="$1" var="$2" n_long="$3" backend="$4" device="$5"
+	if ! build_idris_binary "$target" "$var" "$backend" "$device"; then
+		echo "crashed"
+		return 0
+	fi
+	run_idris_once "$target" "$var" "$n_long" "$backend" "$device"
 }
 
 measure_pytorch() {
-  local mod="$1" n_long="$2"
-  run_pytorch_once "$mod" "$n_long"
+	local mod="$1" n_long="$2"
+	run_pytorch_once "$mod" "$n_long"
 }
 
 COMMIT=$( perf_commit_with_dirty )
@@ -196,30 +196,30 @@ IFS=, read -r -a EXAMPLES <<<"$EXAMPLES_CSV"
 IFS=, read -r -a CELLS <<<"$CELLS_CSV"
 
 for example in "${EXAMPLES[@]}"; do
-  spec=$( spec_for "$example" ) || { echo "unknown example: $example" >&2; exit 2; }
-  read -r IDRIS_TGT IDRIS_VAR REF_MOD N_LONG <<<"$spec"
+	spec=$( spec_for "$example" ) || { echo "unknown example: $example" >&2; exit 2; }
+	read -r IDRIS_TGT IDRIS_VAR REF_MOD N_LONG <<<"$spec"
 
-  echo "[$example] pytorch ref N=$N_LONG..." >&2
-  PY_MS=$( measure_pytorch "$REF_MOD" "$N_LONG" )
+	echo "[$example] pytorch ref N=$N_LONG..." >&2
+	PY_MS=$( measure_pytorch "$REF_MOD" "$N_LONG" )
 
-  for cell in "${CELLS[@]}"; do
-    bd=$( cell_to_backend_device "$cell" ) || { echo "unknown cell: $cell" >&2; exit 2; }
-    read -r BACKEND DEVICE <<<"$bd"
-    echo "[$example/$cell] idris N=$N_LONG..." >&2
-    IDRIS_MS=$( measure_idris "$IDRIS_TGT" "$IDRIS_VAR" "$N_LONG" "$BACKEND" "$DEVICE" )
-    if [ "$IDRIS_MS" = "crashed" ] || [ "$IDRIS_MS" = "missing" ]; then
-      RATIO="N/A"
-    elif [ "$PY_MS" = "crashed" ] || [ "$PY_MS" = "missing" ]; then
-      RATIO="N/A"
-    else
-      RATIO=$( python3 -c "print(round($IDRIS_MS / $PY_MS, 2) if $PY_MS > 0 else float('inf'))" )
-    fi
-    python3 -m mltools.perf_log append-baseline \
-      --example "$example" --backend "$BACKEND" --device "$DEVICE" \
-      --commit "$COMMIT" --idris-ms "$IDRIS_MS" --pytorch-ms "$PY_MS" \
-      --ratio "$RATIO" --n-long "$N_LONG" --seed "$SEED"
-    printf '%-18s %-8s %-6s %12s %12s %8s\n' "$example" "$BACKEND" "$DEVICE" "$IDRIS_MS" "$PY_MS" "$RATIO"
-  done
+	for cell in "${CELLS[@]}"; do
+		bd=$( cell_to_backend_device "$cell" ) || { echo "unknown cell: $cell" >&2; exit 2; }
+		read -r BACKEND DEVICE <<<"$bd"
+		echo "[$example/$cell] idris N=$N_LONG..." >&2
+		IDRIS_MS=$( measure_idris "$IDRIS_TGT" "$IDRIS_VAR" "$N_LONG" "$BACKEND" "$DEVICE" )
+		if [ "$IDRIS_MS" = "crashed" ] || [ "$IDRIS_MS" = "missing" ]; then
+			RATIO="N/A"
+		elif [ "$PY_MS" = "crashed" ] || [ "$PY_MS" = "missing" ]; then
+			RATIO="N/A"
+		else
+			RATIO=$( python3 -c "print(round($IDRIS_MS / $PY_MS, 2) if $PY_MS > 0 else float('inf'))" )
+		fi
+		python3 -m mltools.perf_log append-baseline \
+			--example "$example" --backend "$BACKEND" --device "$DEVICE" \
+			--commit "$COMMIT" --idris-ms "$IDRIS_MS" --pytorch-ms "$PY_MS" \
+			--ratio "$RATIO" --n-long "$N_LONG" --seed "$SEED"
+		printf '%-18s %-8s %-6s %12s %12s %8s\n' "$example" "$BACKEND" "$DEVICE" "$IDRIS_MS" "$PY_MS" "$RATIO"
+	done
 done
 
 echo

@@ -38,18 +38,18 @@ BENCHMARKS_PATH="BENCHMARKS.md"
 DO_BUILD=1
 DO_RENDER=1
 for arg in "$@"; do
-  case "$arg" in
-    --no-build) DO_BUILD=0 ;;
-    --no-render) DO_RENDER=0 ;;
-    -h|--help)
-      sed -n '2,30p' "$0"
-      exit 0
-      ;;
-    *)
-      echo "perf-fast.sh: unknown arg: $arg" >&2
-      exit 2
-      ;;
-  esac
+	case "$arg" in
+		--no-build) DO_BUILD=0 ;;
+		--no-render) DO_RENDER=0 ;;
+		-h|--help)
+			sed -n '2,30p' "$0"
+			exit 0
+			;;
+		*)
+			echo "perf-fast.sh: unknown arg: $arg" >&2
+			exit 2
+			;;
+	esac
 done
 
 COMMIT=$( perf_commit_with_dirty )
@@ -62,9 +62,9 @@ trap 'rm -f "$A_TAPE_OUT" "$A_PYTORCH_OUT" "$B_TAPE_OUT" "$B_PYTORCH_OUT"' EXIT
 
 echo "==> perf-fast: running tape Axis A (op kernels)"
 if [ "$DO_BUILD" = "1" ]; then
-  caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make bench-ops 2>&1 | tee "$A_TAPE_OUT" >&2
+	caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make bench-ops 2>&1 | tee "$A_TAPE_OUT" >&2
 else
-  ./build/tape-mlxcpu-torchcpu/bench_ops | tee "$A_TAPE_OUT" >&2
+	./build/tape-mlxcpu-torchcpu/bench_ops | tee "$A_TAPE_OUT" >&2
 fi
 
 echo "==> perf-fast: running pytorch Axis A (op kernels)"
@@ -72,9 +72,9 @@ caffeinate -i nice -n 19 make bench-ops-py 2>&1 | tee "$A_PYTORCH_OUT" >&2
 
 echo "==> perf-fast: running tape Axis B (single-layer fwd+bwd)"
 if [ "$DO_BUILD" = "1" ]; then
-  caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make bench-layers 2>&1 | tee "$B_TAPE_OUT" >&2
+	caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make bench-layers 2>&1 | tee "$B_TAPE_OUT" >&2
 else
-  ./build/tape-mlxcpu-torchcpu/exec/layers-bench | tee "$B_TAPE_OUT" >&2
+	./build/tape-mlxcpu-torchcpu/exec/layers-bench | tee "$B_TAPE_OUT" >&2
 fi
 
 echo "==> perf-fast: running pytorch Axis B (single-layer fwd+bwd)"
@@ -82,17 +82,17 @@ caffeinate -i nice -n 19 make bench-layers-py 2>&1 | tee "$B_PYTORCH_OUT" >&2
 
 echo "==> perf-fast: parsing and logging measurements"
 python3 -m mltools.perf_log parse-op-bench --axis A --runtime tape \
-  --commit "$COMMIT" --input "$A_TAPE_OUT"
+	--commit "$COMMIT" --input "$A_TAPE_OUT"
 python3 -m mltools.perf_log parse-op-bench --axis A --runtime pytorch \
-  --commit "$COMMIT" --input "$A_PYTORCH_OUT"
+	--commit "$COMMIT" --input "$A_PYTORCH_OUT"
 python3 -m mltools.perf_log parse-op-bench --axis B --runtime tape \
-  --commit "$COMMIT" --input "$B_TAPE_OUT"
+	--commit "$COMMIT" --input "$B_TAPE_OUT"
 python3 -m mltools.perf_log parse-op-bench --axis B --runtime pytorch \
-  --commit "$COMMIT" --input "$B_PYTORCH_OUT"
+	--commit "$COMMIT" --input "$B_PYTORCH_OUT"
 
 if [ "$DO_RENDER" = "1" ]; then
-  echo "==> perf-fast: rendering BENCHMARKS.md"
-  python3 scripts/render-benchmarks.py
+	echo "==> perf-fast: rendering BENCHMARKS.md"
+	python3 scripts/render-benchmarks.py
 fi
 
 echo "==> perf-fast: done"

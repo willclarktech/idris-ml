@@ -27,19 +27,19 @@ set -euo pipefail
 source "$( dirname "${BASH_SOURCE[0]}" )/perf_lib.sh"
 
 if [ $# -lt 2 ]; then
-  cat <<EOF >&2
+	cat <<EOF >&2
 usage: $0 <example-key> <backend> [example-args...]
 
 example-keys: ntm-copy, ntm-recall, dnc-copy, dnc-recall, supervised,
-              rnn, lstm, gru, transformer, gpt, matmul-bench, mnist, seq-classify,
-              reinforce, dqn, mountain-car, mountain-car-cont, a2c,
-              ppo, sac, hf-bert, hf-gpt2, hf-llama, hf-llama-generate, hf-bitnet,
-              bert-classify-finetune, bert-classify-sst2-finetune,
-              bert-classify-sst2-lora,
-              gpt2-lm-finetune, bert-mlm-finetune
+							rnn, lstm, gru, transformer, gpt, matmul-bench, mnist, seq-classify,
+							reinforce, dqn, mountain-car, mountain-car-cont, a2c,
+							ppo, sac, hf-bert, hf-gpt2, hf-llama, hf-llama-generate, hf-bitnet,
+							bert-classify-finetune, bert-classify-sst2-finetune,
+							bert-classify-sst2-lora,
+							gpt2-lm-finetune, bert-mlm-finetune
 backends:     tape, mlx, torch
 EOF
-  exit 2
+	exit 2
 fi
 
 EXAMPLE_KEY="$1"; shift
@@ -47,52 +47,52 @@ BACKEND="$1"; shift
 ARGS=("$@")
 
 case "$EXAMPLE_KEY" in
-  ntm-copy)            TGT=example-ntm-copy;                   AVAR=NTM_COPY_ARGS ;;
-  ntm-recall)          TGT=example-ntm-associative-recall;     AVAR=NTM_ASSOCIATIVE_RECALL_ARGS ;;
-  dnc-copy)            TGT=example-dnc-copy;                   AVAR=DNC_COPY_ARGS ;;
-  dnc-recall)          TGT=example-dnc-recall;                 AVAR=DNC_RECALL_ARGS ;;
-  supervised)          TGT=example-supervised;                 AVAR=SUPERVISED_ARGS ;;
-  rnn)                 TGT=example-rnn;                        AVAR=RNN_ARGS ;;
-  lstm)                TGT=example-lstm;                       AVAR=LSTM_ARGS ;;
-  gru)                 TGT=example-gru;                        AVAR=GRU_ARGS ;;
-  transformer)         TGT=example-transformer;                AVAR=TRANSFORMER_ARGS ;;
-  gpt)                 TGT=example-gpt;                        AVAR=GPT_ARGS ;;
-  matmul-bench)        TGT=example-matmul-bench;               AVAR=MATMUL_BENCH_ARGS ;;
-  mnist)               TGT=example-mnist;                      AVAR=MNIST_ARGS ;;
-  seq-classify)        TGT=example-seq-classify;               AVAR=SEQ_ARGS ;;
-  reinforce)           TGT=example-reinforce;                  AVAR=REINFORCE_ARGS ;;
-  dqn)                 TGT=example-dqn;                        AVAR=DQN_ARGS ;;
-  mountain-car)        TGT=example-mountain-car;               AVAR=MOUNTAIN_CAR_ARGS ;;
-  mountain-car-cont)   TGT=example-mountain-car-cont;          AVAR=MOUNTAIN_CAR_CONT_ARGS ;;
-  a2c)                 TGT=example-a2c;                        AVAR=A2C_ARGS ;;
-  ppo)                 TGT=example-ppo;                        AVAR=PPO_ARGS ;;
-  sac)                 TGT=example-sac;                        AVAR=SAC_ARGS ;;
-  bert-classify-finetune)
-                       TGT=example-bert-classify-finetune;     AVAR=BERT_FINETUNE_ARGS ;;
-  bert-classify-sst2-finetune)
-                       TGT=example-bert-classify-sst2-finetune; AVAR=BERT_SST2_ARGS ;;
-  bert-classify-sst2-lora)
-                       TGT=example-bert-classify-sst2-lora;     AVAR=BERT_SST2_LORA_ARGS ;;
-  gpt2-lm-finetune)
-                       TGT=example-gpt2-lm-finetune;            AVAR=GPT2_LM_ARGS ;;
-  bert-mlm-finetune)
-                       TGT=example-bert-mlm-finetune;           AVAR=BERT_MLM_ARGS ;;
-  # HF inference examples — no training loop, no RESULT line; the
-  # mltools.perf_log writer parses `[stage] [hh:mm:ss] <label>` lines
-  # into entry.stages instead. AVAR is set to a no-op make-variable
-  # name so the existing AVAR=ARGS plumbing doesn't fight us (the
-  # inference examples don't take CLI args via *_ARGS).
-  hf-bert)             TGT=example-hf-bert-inference;          AVAR=_HF_NOARGS ;;
-  hf-gpt2)             TGT=example-hf-gpt2-inference;          AVAR=_HF_NOARGS ;;
-  hf-llama)            TGT=example-hf-llama-inference;         AVAR=_HF_NOARGS ;;
-  # Same example as hf-llama, but with the --dump-tokens / multi-step
-  # generation gate path exercised. Distinguished from `hf-llama` so
-  # the perf-log entry carries the gate's wall-clock separately from
-  # the user-facing-demo wall-clock (they decode for different default
-  # budgets; the gate is fixed at --num-tokens 4 in the Makefile).
-  hf-llama-generate)   TGT=test-e2e-hf-llama-generate-roundtrip; AVAR=_HF_NOARGS ;;
-  hf-bitnet)           TGT=example-hf-bitnet-inference;        AVAR=_HF_NOARGS ;;
-  *) echo "unknown example-key: $EXAMPLE_KEY" >&2; exit 2 ;;
+	ntm-copy)            TGT=example-ntm-copy;                   AVAR=NTM_COPY_ARGS ;;
+	ntm-recall)          TGT=example-ntm-associative-recall;     AVAR=NTM_ASSOCIATIVE_RECALL_ARGS ;;
+	dnc-copy)            TGT=example-dnc-copy;                   AVAR=DNC_COPY_ARGS ;;
+	dnc-recall)          TGT=example-dnc-recall;                 AVAR=DNC_RECALL_ARGS ;;
+	supervised)          TGT=example-supervised;                 AVAR=SUPERVISED_ARGS ;;
+	rnn)                 TGT=example-rnn;                        AVAR=RNN_ARGS ;;
+	lstm)                TGT=example-lstm;                       AVAR=LSTM_ARGS ;;
+	gru)                 TGT=example-gru;                        AVAR=GRU_ARGS ;;
+	transformer)         TGT=example-transformer;                AVAR=TRANSFORMER_ARGS ;;
+	gpt)                 TGT=example-gpt;                        AVAR=GPT_ARGS ;;
+	matmul-bench)        TGT=example-matmul-bench;               AVAR=MATMUL_BENCH_ARGS ;;
+	mnist)               TGT=example-mnist;                      AVAR=MNIST_ARGS ;;
+	seq-classify)        TGT=example-seq-classify;               AVAR=SEQ_ARGS ;;
+	reinforce)           TGT=example-reinforce;                  AVAR=REINFORCE_ARGS ;;
+	dqn)                 TGT=example-dqn;                        AVAR=DQN_ARGS ;;
+	mountain-car)        TGT=example-mountain-car;               AVAR=MOUNTAIN_CAR_ARGS ;;
+	mountain-car-cont)   TGT=example-mountain-car-cont;          AVAR=MOUNTAIN_CAR_CONT_ARGS ;;
+	a2c)                 TGT=example-a2c;                        AVAR=A2C_ARGS ;;
+	ppo)                 TGT=example-ppo;                        AVAR=PPO_ARGS ;;
+	sac)                 TGT=example-sac;                        AVAR=SAC_ARGS ;;
+	bert-classify-finetune)
+											 TGT=example-bert-classify-finetune;     AVAR=BERT_FINETUNE_ARGS ;;
+	bert-classify-sst2-finetune)
+											 TGT=example-bert-classify-sst2-finetune; AVAR=BERT_SST2_ARGS ;;
+	bert-classify-sst2-lora)
+											 TGT=example-bert-classify-sst2-lora;     AVAR=BERT_SST2_LORA_ARGS ;;
+	gpt2-lm-finetune)
+											 TGT=example-gpt2-lm-finetune;            AVAR=GPT2_LM_ARGS ;;
+	bert-mlm-finetune)
+											 TGT=example-bert-mlm-finetune;           AVAR=BERT_MLM_ARGS ;;
+	# HF inference examples — no training loop, no RESULT line; the
+	# mltools.perf_log writer parses `[stage] [hh:mm:ss] <label>` lines
+	# into entry.stages instead. AVAR is set to a no-op make-variable
+	# name so the existing AVAR=ARGS plumbing doesn't fight us (the
+	# inference examples don't take CLI args via *_ARGS).
+	hf-bert)             TGT=example-hf-bert-inference;          AVAR=_HF_NOARGS ;;
+	hf-gpt2)             TGT=example-hf-gpt2-inference;          AVAR=_HF_NOARGS ;;
+	hf-llama)            TGT=example-hf-llama-inference;         AVAR=_HF_NOARGS ;;
+	# Same example as hf-llama, but with the --dump-tokens / multi-step
+	# generation gate path exercised. Distinguished from `hf-llama` so
+	# the perf-log entry carries the gate's wall-clock separately from
+	# the user-facing-demo wall-clock (they decode for different default
+	# budgets; the gate is fixed at --num-tokens 4 in the Makefile).
+	hf-llama-generate)   TGT=test-e2e-hf-llama-generate-roundtrip; AVAR=_HF_NOARGS ;;
+	hf-bitnet)           TGT=example-hf-bitnet-inference;        AVAR=_HF_NOARGS ;;
+	*) echo "unknown example-key: $EXAMPLE_KEY" >&2; exit 2 ;;
 esac
 
 COMMIT=$( perf_commit_with_dirty )
@@ -123,7 +123,7 @@ LOG=$( mktemp )
 T0=$( perf_now_ms )
 set +e
 BACKEND="$BACKEND" stdbuf -oL make --no-print-directory "$TGT" \
-  "${AVAR}=${ARGS[*]}" 2>&1 | tee "$LOG"
+	"${AVAR}=${ARGS[*]}" 2>&1 | tee "$LOG"
 RC=${PIPESTATUS[0]}
 set -e
 T1=$( perf_now_ms )
@@ -145,19 +145,19 @@ PERF_LINES=$( grep -E '^\[perf\]' "$LOG" || true )
 ARG_SUMMARY="${ARGS[*]:-defaults}"
 
 python3 -m mltools.perf_log append-run \
-  --example "$EXAMPLE_KEY" \
-  --backend "$BACKEND" \
-  --device "$DEVICE" \
-  --mlx-compile "$MLX_COMPILE_STATE" \
-  --commit "$COMMIT" \
-  --cli-args "$ARG_SUMMARY" \
-  --exit-code "$RC" \
-  --wall-ms "$ELAPSED_MS" \
-  --wall-human "$ELAPSED_PRETTY" \
-  --torch-dtype "$TORCH_DTYPE_STATE" \
-  --mlx-dtype "$MLX_DTYPE_STATE" \
-  --tape-dtype "$TAPE_DTYPE_STATE" \
-  --parse-log "$LOG"
+	--example "$EXAMPLE_KEY" \
+	--backend "$BACKEND" \
+	--device "$DEVICE" \
+	--mlx-compile "$MLX_COMPILE_STATE" \
+	--commit "$COMMIT" \
+	--cli-args "$ARG_SUMMARY" \
+	--exit-code "$RC" \
+	--wall-ms "$ELAPSED_MS" \
+	--wall-human "$ELAPSED_PRETTY" \
+	--torch-dtype "$TORCH_DTYPE_STATE" \
+	--mlx-dtype "$MLX_DTYPE_STATE" \
+	--tape-dtype "$TAPE_DTYPE_STATE" \
+	--parse-log "$LOG"
 
 rm -f "$LOG"
 

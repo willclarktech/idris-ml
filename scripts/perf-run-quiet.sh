@@ -45,7 +45,7 @@ INNER=(nice -n 19 env "MAKEFLAGS=-j${J}" "${SCRIPT_DIR}/perf-run.sh" "$@")
 # -s (system), which is for daemons that own the wake reason. Available
 # on macOS; pass-through on other systems.
 if [ "$(uname -s)" = "Darwin" ] && command -v caffeinate >/dev/null 2>&1; then
-  exec caffeinate -i "${INNER[@]}"
+	exec caffeinate -i "${INNER[@]}"
 else
-  exec "${INNER[@]}"
+	exec "${INNER[@]}"
 fi
