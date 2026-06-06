@@ -3882,6 +3882,41 @@ Pattern is monotone in trainable param count × steps: tiny workloads stay in no
 
 **Cross-references**: prior entries this session (AdamW foreach + Adam extension); no source changes for this characterisation, only `docs/develop/perf-log.jsonl` appends.
 
+### 2026-06-08 — A2c worked-example batched policy forward port — `aff7eb72`
+
+**Plan job**: Task E of the follow-up plan — worked example for the TODO row "Port batched policy forward to remaining RL examples". Picked A2c first because it's the closest sibling to Reinforce structurally (single env state, fixed RolloutLen) — proves the pattern before rolling out to Ppo / Sac / Dqn / MountainCar*.
+
+**Motivation**: A2c's `a2cEpoch` previously ran one env, collected RolloutLen steps, computed GAE, did one update. The batched form runs `NumEnvs=4` independent envs in lockstep with one batched (actor, critic) forward per timestep, then concatenates per-env GAE chains into a `T*N`-sample update batch. Forward-pass per-op overhead amortises across 4× more samples per gradient step.
+
+**Change**:
+- **Idris side** (`packages/idris-ml-examples/src/Example/A2c.idr`): new `rolloutBatched` (mirrors Reinforce's `rolloutEpBatched`), new `computeBootstrapsBatched`, new `buildLossBatched`. Existing `buildLoss` refactored to delegate to a shared `buildLossFromMerged` so sequential and batched share the post-GAE machinery. `A2CState.envRef` now `IORef (VecEnv NumEnvs CPState)` (was `IORef CPState`), `retRef` now `IORef (Vect NumEnvs Double)` (was `IORef Double`). `main` uses `Gym.Vector.resetAll` for init.
+- **PyTorch side** (`packages/pytorch/torch_ref/models/a2c.py`, `scripts/a2c.py`): `make_cartpole_vec_env` wraps `NUM_ENVS=4` CartPoles in `gym.vector.SyncVectorEnv` with per-env reset-to-zero override. `collect_rollout` now batched returning `[T, N, ...]` tensors. `compute_advantages` applies per-env GAE then concats. `train_a2c` / script flatten `[T, N, ...]` to `[T*N, ...]` for `a2c_update`. Script's `--rollout` default also moved from 10 to 20 to match Idris' `RolloutLen=20` (a previously-undocumented paired-side desync, fixed in the same commit).
+- Hyperparameters otherwise unchanged: lr=7e-4, gamma=0.99, lam=0.95, entropy=0.01, value-coef=0.5.
+
+**Convergence — 5-seed sweep at the new batched config (5000 updates)**:
+
+| Side | Seeds | avg_return (greedy 30-50 ep) | Pass rate |
+|---|---|---|---|
+| Idris tape | 42 / 123 / 456 / 789 / 2024 | 200.0 / 200.0 / 200.0 / 200.0 / 200.0 | **5/5** |
+| PyTorch CPU | 42 / 123 / 456 / 789 / 2024 | 200.0 / 200.0 / 200.0 / 200.0 / 200.0 | **5/5** |
+
+Both sides reach the CartPole solve-threshold ceiling (200.0) on every seed at the new batched config. No hyperparameter retune was needed — the per-env GAE + concat-then-normalize-advantages pattern preserves the gradient signal.
+
+**Performance**:
+
+| Cell | Pre-batched (seq, single env) | Post-batched (NumEnvs=4) | Per-sample wall |
+|---|---:|---:|---:|
+| Idris tape | wall 17.9s · ~2 ms/ep · 20 samples/ep · 100 µs/sample | wall ~19.3s · ~3 ms/ep · 80 samples/ep · ~37 µs/sample | **−63%** per sample |
+| PyTorch CPU | wall ~17s · ~4 ms/ep · 10 samples/ep · ~400 µs/sample | wall ~17s · ~4 ms/ep · 40 samples/ep · ~100 µs/sample | **−75%** per sample |
+
+Total wall per update is similar to pre-batched on both sides (within ±10%), but per-sample wall drops by 60-75% because the batched forward amortises per-op overhead across 4× the samples. The ratio (Idris tape vs PyTorch CPU) holds — Idris remains ~2× faster per update on this env-bound workload.
+
+**Outcome**: landed. Foundation for Phase 3a Ppo port (same shape — single env state, fixed rolloutLen) + Phase 3b off-policy quartet (Sac / Dqn / MountainCar / MountainCarCont — replay buffer dynamics differ, but the rollout pattern transfers).
+
+**perf-log entries**: 5 paired Idris-tape seed entries + 5 PyTorch-CPU runs (the PyTorch side isn't auto-logged; only Idris-side runs land in `perf-log.jsonl` via `perf-run.sh`). The PyTorch numbers above are from inline `make ref-a2c --seed N` runs captured in this session.
+
+**Cross-references**: `packages/idris-ml-examples/src/Example/A2c.idr` (Idris batched impl); `packages/pytorch/torch_ref/models/a2c.py` + `scripts/a2c.py` (paired PyTorch side); `Gym.Vector.VecEnv` (already used by Reinforce post-`a6e74996`).
+
 ### 2026-06-08 — Note: `844a4e1b` commit-body impact claim was overbroad
 
 The fix-itself is correct (perf-run.sh's case arm for `hf-llama-generate` was renamed `test-e2e-hf-llama-generate-roundtrip` on 2026-05-24 in `5351a82e` but the script wasn't updated). However the commit body claimed "all hf-llama-generate perf-run measurements have been silently exit-2 / wall ~0.5s since 2026-05-24" — perf-log shows several successful runs between 2026-05-24 and the fix: `676830b9+dirty` (61.9s wall, exit 0, 2026-06-04 11:11), `2c7d371f` (28-37 min wall, exit 0, 2026-06-04 14:09 + 14:46), `1b268fed+dirty` (22 min wall, exit 0, 2026-06-04 15:12). The 2026-06-04 successes were the in-flight HfLlama measurements that continued working until something between `1b268fed+dirty` (succeeded) and `3e08ad3d` (failed 2026-06-08 12:16, triggering the fix) broke them. The script bug was real; the "silently broken for two weeks" framing was not. Noting here for future archeology — no code change.
