@@ -848,6 +848,26 @@ The "open `d`" property is preserved: BYO backends declare their own tag type wi
 
 Phase 7 of the 2026-05-19 refactor collapsed the historical generic-device-tag layer (`CPU` / `CUDA n` / `MPS` top-level types in `Device.idr`, plus their `*_Unified` C-symbol forwarding instances). `Device.idr` is now a barrel re-export only; every Tensor in the codebase carries a specific backend-tagged device (`TapeDev` / `TorchDev d` / `MlxDev s`). The link-time alias machinery that exposed each primary backend's symbols under unified C names still exists but has no Idris consumers — `TODO.md` has a parked row to delete it.
 
+### 2026-06-06 follow-up: MLX exposes streams, not a scheduler
+
+While planning Phase E of the Machine/Hardware/Backend/Executor rework, an audit of the vendored mlx headers confirmed: **MLX does not provide a per-op auto-router.** What it exposes is `mx::set_default_device`, `mx::Stream`, and `mx::StreamContext` — explicit per-op stream selection. There is no `mx::auto_stream(op_shape)` or graph-time scheduler that picks CPU vs GPU based on op characteristics.
+
+The TODO row originally framed as "MLX auto device selection" was reframed as the more honest "Cross-backend auto device switch" (Low) — the implementation surface is identical for torch CPU↔MPS↔CUDA, since none of the three backends do this routing on their own. A user-space heuristic (matmul-size threshold, calibrated from MatmulBench) at the Idris typeclass level or in C-side dispatch shims is the path forward when it becomes worth implementing. Per `project_mlx_gpu_environment.md`, at idris-ml's current example sizes MLX GPU is 3–12× *slower* than the CPU stream (Metal kernel-launch wall), so the heuristic today mostly says "always CPU" — defer until LLM-scale workloads make GPU consistently faster.
+
+### 2026-06-06: Machine / Hardware / Backend / Executor open-kind reshape
+
+Renamed and restructured the device-abstraction surface for a clearer conceptual model. What was previously called the `Device` open kind is renamed to `Executor` — it represents an *execution target* (a Backend × Hardware pair), not a physical device. Three new open kinds parallel `Executor`:
+
+- **`Machine`** (informal in commit history before, now in code at `Machine.idr`) — physical compute environment. Built-in tags: `MacMSeries`, `MacIntel`, `IntelCuda Nat`, `LinuxCpu`, `LinuxCuda Nat`. A `Machine` provides one or more `Hardware` classes via the `Provides m h` typeclass.
+- **`Hardware`** (`Hardware.idr`) — physical hardware class. Built-in tags: `Cpu`, `AppleGpu`, `Cuda Nat`. An `Executor` runs on a `Hardware` via the `RunsOn e h` typeclass.
+- **`Backend`** (`Backend.idr`) — backend library. Built-in tags: `TapeBackend`, `TorchBackend`, `MlxBackend`. An `Executor` is provided by a `Backend` via the `RunsVia e b` typeclass.
+
+A new `Preset b h` typeclass binds the choice: per primary `Backend` × chosen `Hardware`, it picks the default `(Executor, DType)` cell. The generated `BuildConfig.idr` is now content-free — it sed-substitutes `(ChosenMachine, PrimaryBackend, ChosenHardware)` from the Makefile-resolved `(MACHINE, PRIMARY, HARDWARE)` envs, then derives `ExampleExecutor = presetExecutor {b=PrimaryBackend} {h=ChosenHardware}` and similarly for `ExampleDType`.
+
+The `MACHINE` + `HARDWARE` Makefile knobs replace the orthogonal `MLX_DEVICE` + `TORCH_DEVICE` pair on Apple Silicon (where they ceremonially named the same Metal hardware). Both still accepted as fine-grained overrides. Auto-detect probes `uname` + presence indicators to choose sensible defaults.
+
+The existing runtime-value `HardwareClass = HostCpu | AppleGpu | Nvidia Nat | Other String` (in `Executor.Core`, used by `someExecutor` discovery for reporting) coexists with the new type-level `Hardware.AppleGpu` despite the shared name — Idris disambiguates by context since one is a `HardwareClass` constructor and the other is a `Type`.
+
 ### Open `dt` parameter: same `Type` alias trick, with Compatible + UpcastableTo on top (2026-05-17)
 
 `Tensor` gained a fourth 0-quantity phantom parameter for the data
