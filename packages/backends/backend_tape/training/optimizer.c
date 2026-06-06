@@ -169,7 +169,7 @@ void tape_optimizer_set_param_lr(void* h, const char* name, double lr) {
 }
 
 /* ----------------------------------------------------------------------
-   AdamW foreach fast path — opt-in via TAPE_OPTIMIZER_FOREACH=1.
+   AdamW foreach fast path — default for F64-tagged params.
 
    Replaces the per-element AdamW inner loop with a BLAS-1 moment update
    for F64 params. Math sequence preserved: m ← β1·m + (1-β1)·g and
@@ -178,7 +178,7 @@ void tape_optimizer_set_param_lr(void* h, const char* name, double lr) {
    FMA inside cblas_daxpy; the paired test in test_optimizers.c asserts
    convergence within 1e-12, not bit-identical equality.
 
-   F32-tagged params fall through to the scalar inner loop verbatim
+   F32-tagged params fall through to the scalar inner switch's case 3
    (mixed-dtype foreach is out of scope; the per-call BLAS overhead
    isn't worth a widen-narrow staging pass for the F32 case).
    ---------------------------------------------------------------------- */
@@ -231,10 +231,16 @@ void tape_optimizer_step(void* h) {
        in `_h0` / `_c0` (LSTM learned initial state). */
     int skip_lstm_init = getenv("SKIP_LSTM_INIT") != NULL;
 
-    /* AdamW foreach opt-in. Re-read every step so a test can toggle
-       between scalar and foreach within one process. F32 params fall
-       through to the scalar inner loop regardless. */
-    int use_adamw_foreach = (opt->type == 3) && (getenv("TAPE_OPTIMIZER_FOREACH") != NULL);
+    /* AdamW foreach: default for F64 params; F32 params fall through to
+       the scalar inner switch's case 3 (mixed-dtype foreach is out of
+       scope). The paired test in test_optimizers.c uses the env-var
+       opt-out (`TAPE_OPTIMIZER_FOREACH=0`) to force scalar for one
+       phase so it can assert |scalar - foreach| < 1e-12 over 50
+       AdamW steps; the env var is otherwise an internal debug knob,
+       not a user-facing surface. */
+    int use_adamw_foreach = (opt->type == 3);
+    const char* env = getenv("TAPE_OPTIMIZER_FOREACH");
+    if (env && env[0] == '0') use_adamw_foreach = 0;
 
     for (int i = 0; i < param_count(); i++) {
         if (!opt_owns_param(opt, i)) continue;

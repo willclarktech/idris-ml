@@ -107,14 +107,17 @@ Test(training_optimizer_per_param_lr, partial_override) {
    that propagates through the bias-correct + sqrt-div; over 50 AdamW
    steps with realistic hyperparameters the cumulative drift stays well
    under 1e-12. Same param shape on both phases hits the n ≥ 256 BLAS
-   gate so both code paths exercise BLAS in the moment update. */
+   gate so both code paths exercise BLAS in the moment update.
+
+   Foreach is the default; this test uses TAPE_OPTIMIZER_FOREACH=0 as an
+   internal opt-out to force scalar for phase 1. */
 Test(training_optimizer_adamw_foreach, matches_scalar_on_256_elem_param) {
     const int N = 256;
     const int NSTEPS = 50;
     double scalar_w[256], foreach_w[256];
 
-    /* Phase 1: scalar path (env unset). */
-    unsetenv("TAPE_OPTIMIZER_FOREACH");
+    /* Phase 1: scalar path (env opt-out). */
+    setenv("TAPE_OPTIMIZER_FOREACH", "0", 1);
     param_clear();
     double wdata1[256];
     for (int i = 0; i < N; i++) wdata1[i] = (double)(i % 7) * 0.1 - 0.3;
@@ -132,8 +135,9 @@ Test(training_optimizer_adamw_foreach, matches_scalar_on_256_elem_param) {
     optimizer_free(opt1);
     param_clear();
 
-    /* Phase 2: foreach path (env set). Identical init + grad trajectory. */
-    setenv("TAPE_OPTIMIZER_FOREACH", "1", 1);
+    /* Phase 2: foreach path (default; env unset). Identical init + grad
+       trajectory. */
+    unsetenv("TAPE_OPTIMIZER_FOREACH");
     double wdata2[256];
     for (int i = 0; i < N; i++) wdata2[i] = (double)(i % 7) * 0.1 - 0.3;
     TensorHandle W2 = tensor_create_param_2d_f64(16, 16, heap_copy(wdata2, N));
@@ -149,7 +153,6 @@ Test(training_optimizer_adamw_foreach, matches_scalar_on_256_elem_param) {
     tensor_to_doubles(W2, foreach_w);
     optimizer_free(opt2);
     param_clear();
-    unsetenv("TAPE_OPTIMIZER_FOREACH");
 
     /* Compare element-wise. */
     double max_diff = 0.0;

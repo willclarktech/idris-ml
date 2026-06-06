@@ -3782,3 +3782,32 @@ BitLinear classes with different algebra" entry;
 `packages/idris-transformers/scripts/{save_oracle_bitnet_blocks,
 compare_bitnet_blocks}.py` (new bisection scripts kept checked
 in for any future adapter's numerical work).
+
+### 2026-06-08 — Tape AdamW foreach (BLAS-1 moment update) — `4da11736`
+
+**Plan job**: Medium TODO row "Tape optimizer foreach fast path".
+
+**Motivation**: Tape's `tape_optimizer_step` (`backend_tape/training/optimizer.c:169-254`) walks every registered param's gradient buffer element-by-element through an inner switch that branches on `opt->type` AND on `t->dtype_tag` (via `tape_grad_load_d` / `tape_load_d` / `tape_store_d`). For F64 AdamW workloads the per-element dispatch defeats compiler autovectorization — both the type switch and the dtype branch are inside the j loop, so neon-shaped chains never form. Hypothesis: a typed F64-only foreach path with BLAS-1 (Accelerate's `cblas_dscal` + `cblas_daxpy`) for the moment update + direct `(double*)t->data` / `(double*)t->grad` access (no per-element dtype branch) would unblock the autovectorizer for the remaining scalar passes too.
+
+**Change**: New `adamw_foreach_param` helper. For F64 params with numel ≥ 256: `m ← β1·m + (1-β1)·g` via `cblas_dscal` + `cblas_daxpy`; the `v` update and weight update (`bias-correct` + `sqrt` + decoupled weight decay) stay scalar but operate on direct double pointers with no inner-loop branches. F32 params fall through to the original scalar inner. Opt-in via `TAPE_OPTIMIZER_FOREACH=1` re-read every step. AdamW-only (opt->type == 3); SGD/RMSprop/Adam unchanged. Convergence-correct: paired Criterion test `training_optimizer_adamw_foreach::matches_scalar_on_256_elem_param` asserts |scalar - foreach| < 1e-12 over 50 AdamW steps on a 256-element param; RED probe with β1 swapped for β2 produced max_diff=8.93e-01 at idx=2 (a real value-mismatch failure, not a compile/link slip).
+
+**Impact**:
+
+| (example, backend) | scalar wall (warm) | foreach wall | delta | bit-identical loss? |
+|---|---:|---:|---:|---:|
+| gpt / tape | 7.771s | 7.771s | noise (~0%) | yes (bpc=4.352528933012726) |
+| bert-mlm-finetune / tape | 11.107s / 10.939s (mean 11.023s) | 6.486s / 6.155s (mean 6.321s) | **−43%** | yes (loss=2.9052) |
+
+The gpt result is the floor: too-small model (VocabSize=65, hidden tiny) → optimizer wall is sub-noise on this VM. Bert-tiny (~4M params, vocab=30522, hidden=128) is the first AdamW workload where the optimizer takes a meaningful slice of wall and the foreach win is well above the ~15-20% single-run noise floor (`feedback_vm_perf_noise`). Both pairs of bert-mlm runs ran with the mlx F32 hf-llama measurement running concurrently (separate BUILD_KEY tree, both nice -19), so any contention is symmetric across scalar/foreach.
+
+**Outcome**: landed and collapsed. The env-var gate stays one commit (`4da11736`); the follow-up commit removes the gate (and the F64 AdamW case from the scalar inner switch), making the foreach path the default for F64 AdamW. F32 AdamW + SGD/RMSprop/Adam keep the existing scalar inner.
+
+**perf-log entries**:
+- `2026-06-08T13:56:07Z` gpt / tape scalar (cold) wall 68188ms
+- `2026-06-08T13:56:26Z` gpt / tape foreach (warm) wall 7771ms
+- `2026-06-08T13:57:59Z` bert-mlm-finetune / tape scalar (cold) wall 19300ms
+- `2026-06-08T13:58:25Z` bert-mlm-finetune / tape foreach #1 wall 6486ms
+- `2026-06-08T13:59:19Z` bert-mlm-finetune / tape scalar #2 (warm) wall 11107ms
+- `2026-06-08T<after this commit>` bert-mlm-finetune / tape foreach #2 wall 6155ms; scalar #3 wall 10939ms
+
+**Cross-references**: `backend_tape/training/optimizer.c` (adamw_foreach_param + dispatch); `packages/idris-test-c/src/test_optimizers.c` (Criterion paired test); TODO row deleted; CHANGELOG closure entry.
