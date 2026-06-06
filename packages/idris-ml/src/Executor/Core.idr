@@ -356,6 +356,13 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
   primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
 
+  ||| Polyak / EMA blend across the registry: for every pair of params
+  ||| whose paramIds share the (onlineScope, targetScope) pair
+  ||| (`<onlineScope><suffix>` and `<targetScope><suffix>`), set
+  ||| target ← (1 - τ)·target + τ·online. Per-backend because the
+  ||| registry is per-backend. Returns the count of pairs updated.
+  primPolyakBlend : Double -> String -> String -> PrimIO Int
+
   -- Fused param create + in-place init. Replaces the per-element Idris-
   -- side sampler + per-element prim__setDouble FFI for model state
   -- construction. Each: (dims…, init-params, streamTag, dtypeTag) →
@@ -425,12 +432,6 @@ interface UserExecutorCore ex => UserExecutorAutograd (0 ex : Executor) where
 public export
 interface UserExecutorAutograd ex => UserExecutorParamRegistry (0 ex : Executor) where
   primParamRegister     : String -> AnyPtr -> AnyPtr
-  ||| Polyak / EMA blend across the registry: for every pair of
-  ||| params whose paramIds share the (onlineScope, targetScope)
-  ||| pair (`<onlineScope><suffix>` and `<targetScope><suffix>`),
-  ||| set target ← (1 - τ)·target + τ·online. Per-backend because
-  ||| the registry is per-backend. Returns the count of pairs updated.
-  primPolyakBlend       : Double -> String -> String -> PrimIO Int
   ||| Number of params registered in this backend's registry.
   primParamCount        : PrimIO Int
   ||| paramId of the `i`th registered param.

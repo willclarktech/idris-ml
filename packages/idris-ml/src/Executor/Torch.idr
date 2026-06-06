@@ -592,6 +592,7 @@ public export
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTorch
   primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTorch
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTorch
+  primPolyakBlend = prim__polyakBlendTorch
   primRmsNorm2d = prim__rmsNorm2dTorch
   primSdpa2d = prim__sdpa2dTorch
   primSwiGlu2d = prim__swiGlu2dTorch
@@ -619,7 +620,6 @@ public export
   primParamName = prim__paramNameTorch
   primParamRegister = prim__paramRegisterTorch
   primParamZeroAll = prim__paramZeroAllTorch
-  primPolyakBlend = prim__polyakBlendTorch
   -- <<< END GENERATED <<<
 
 public export

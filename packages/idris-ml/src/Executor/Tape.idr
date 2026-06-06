@@ -559,6 +559,7 @@ UserExecutorOptimizations TapeExecutor where
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTape
   primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTape
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTape
+  primPolyakBlend = prim__polyakBlendTape
   primRmsNorm2d = prim__rmsNorm2dTape
   primSdpa2d = prim__sdpa2dTape
   primSwiGlu2d = prim__swiGlu2dTape
@@ -586,7 +587,6 @@ UserExecutorParamRegistry TapeExecutor where
   primParamName = prim__paramNameTape
   primParamRegister = prim__paramRegisterTape
   primParamZeroAll = prim__paramZeroAllTape
-  primPolyakBlend = prim__polyakBlendTape
   -- <<< END GENERATED <<<
 
 public export

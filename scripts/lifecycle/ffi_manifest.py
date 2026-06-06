@@ -77,7 +77,7 @@ MANIFEST = {
     "param_tensor": Entry(args=("i",), ret="T"),
     "param_zero_all": Entry(args=(), ret="v", slice="UserExecutorParamRegistry", idris_method="primParamZeroAll", c_symbol="param_zero_all_grads", mlx="direct"),
     "param_erase_by_prefix": Entry(args=("s",), ret="v", slice="UserExecutorParamRegistry", idris_method="primParamEraseByPrefix", mlx="direct"),
-    "polyak_blend": Entry(args=("d", "s", "s"), ret="i", slice="UserExecutorParamRegistry", idris_method="primPolyakBlend", mlx="direct"),
+    "polyak_blend": Entry(args=("d", "s", "s"), ret="i", slice="UserExecutorOptimizations", idris_method="primPolyakBlend", mlx="direct"),
     "tensor_abs": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primAbs"),
     "tensor_absmean_per_row_2d": Entry(args=("T",), ret="T", slice="UserExecutorQuant", idris_method="primAbsmeanPerRow2d", mlx="bespoke"),
     "tensor_add_scalar": Entry(args=("T", "d"), ret="T", slice="UserExecutorCore", idris_method="primAddScalar"),

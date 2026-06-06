@@ -603,6 +603,7 @@ public export
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedMlx
   primCreateParam4dConstStreamed = prim__createParam4dConstStreamedMlx
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedMlx
+  primPolyakBlend = prim__polyakBlendMlx
   primRmsNorm2d = prim__rmsNorm2dMlx
   primSdpa2d = prim__sdpa2dMlx
   primSwiGlu2d = prim__swiGlu2dMlx
@@ -630,7 +631,6 @@ public export
   primParamName = prim__paramNameMlx
   primParamRegister = prim__paramRegisterMlx
   primParamZeroAll = prim__paramZeroAllMlx
-  primPolyakBlend = prim__polyakBlendMlx
   -- <<< END GENERATED <<<
 
 public export
