@@ -49,6 +49,16 @@ So `Space = Discrete Nat | Box (Vect n Double) (Vect n Double) | MultiBin Nat | 
 
 Actions sampled from `categoricalSample (Vect n policy outputs)` are in `{0..n-1}` by construction — the invariant holds at the source, not the interface.
 
+### CUDA device index: `Nat`, not `Fin n`
+
+`TCuda : Fin n -> TorchHwDev` would prevent out-of-range CUDA device indices at the type level, but `n` (the host's GPU count) is a runtime fact the type system can't reach without poisoning the build artifacts:
+
+- `HwConfig.idr` is generated at build time from `BACKEND` / `MLX_DEVICE` / `TORCH_DEVICE` — none of which encode GPU count. Baking `CudaCount : Nat` into the generator would couple the `BUILD_KEY` to the host's hardware and break "same artifacts across CUDA boxes with different GPU counts".
+- Enumerating `TCuda0 | TCuda1 | …` to a fixed upper bound is `Fin` with extra steps and a hard ceiling on supported topologies.
+- The runtime EAFP gate (`attemptOn` / `availableDevices builtinDevices`, see "Device-availability gating") already turns "device `n` doesn't exist on this host" into a typed `Left DeviceError` — the right layer for a fact whose truth value can change between processes on the same binary.
+
+The invariant "the index resolves to a real device" lives at construction time, not at the type level — same shape as the `Compatible (MlxExecutor MGpu) F64` story where a runtime-detectable dtype/device mismatch is gated by a missing `Compatible` instance, not by lifting the device count into the type.
+
 ### Stochastic envs: seed-in-state + pure PRNG
 
 `FrozenLake` (slippery) and `Blackjack` (card draws) need randomness inside `step`. Three options:
