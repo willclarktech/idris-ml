@@ -406,15 +406,23 @@ public export
   primMaskedFill a0 a1 a2 = prim__maskedFillMlxStreamed a0 a1 a2 (streamTag s)
   primPairFirst a0 = prim__pairFirstMlxStreamed a0 (streamTag s)
   primPairSecond a0 = prim__pairSecondMlxStreamed a0 (streamTag s)
-  primRmsNorm2d = prim__rmsNorm2dMlx
-  primSdpa2d = prim__sdpa2dMlx
   primSilu a0 = prim__siluMlxStreamed a0 (streamTag s)
   primSoftmax a0 a1 = prim__softmaxMlxStreamed a0 a1 (streamTag s)
   primSoftmax2d a0 = prim__softmax2dMlxStreamed a0 (streamTag s)
   primSoftmax3d a0 = prim__softmax3dMlxStreamed a0 (streamTag s)
   primSoftplus a0 = prim__softplusMlxStreamed a0 (streamTag s)
+  -- <<< END GENERATED <<<
+
+
+public export
+{s : MlxStream} -> UserExecutorOptimizations (MlxExecutor s) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primRmsNorm2d = prim__rmsNorm2dMlx
+  primSdpa2d = prim__sdpa2dMlx
   primSwiGlu2d = prim__swiGlu2dMlx
   -- <<< END GENERATED <<<
+
+
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (mlx-suffixed)
 ----------------------------------------------------------------------

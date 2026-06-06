@@ -391,13 +391,19 @@ public export
   primMaskedFill = prim__maskedFillTorch
   primPairFirst = prim__pairFirstTorch
   primPairSecond = prim__pairSecondTorch
-  primRmsNorm2d = prim__rmsNorm2dTorch
-  primSdpa2d = prim__sdpa2dTorch
   primSilu = prim__siluTorch
   primSoftmax = prim__softmaxTorch
   primSoftmax2d = prim__softmax2dTorch
   primSoftmax3d = prim__softmax3dTorch
   primSoftplus = prim__softplusTorch
+  -- <<< END GENERATED <<<
+
+
+public export
+{d : TorchHwDev} -> UserExecutorOptimizations (TorchExecutor d) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primRmsNorm2d = prim__rmsNorm2dTorch
+  primSdpa2d = prim__sdpa2dTorch
   primSwiGlu2d = prim__swiGlu2dTorch
   -- <<< END GENERATED <<<
 

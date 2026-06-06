@@ -357,13 +357,19 @@ UserExecutorNN TapeExecutor where
   primMaskedFill = prim__maskedFillTape
   primPairFirst = prim__pairFirstTape
   primPairSecond = prim__pairSecondTape
-  primRmsNorm2d = prim__rmsNorm2dTape
-  primSdpa2d = prim__sdpa2dTape
   primSilu = prim__siluTape
   primSoftmax = prim__softmaxTape
   primSoftmax2d = prim__softmax2dTape
   primSoftmax3d = prim__softmax3dTape
   primSoftplus = prim__softplusTape
+  -- <<< END GENERATED <<<
+
+
+public export
+UserExecutorOptimizations TapeExecutor where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primRmsNorm2d = prim__rmsNorm2dTape
+  primSdpa2d = prim__sdpa2dTape
   primSwiGlu2d = prim__swiGlu2dTape
   -- <<< END GENERATED <<<
 

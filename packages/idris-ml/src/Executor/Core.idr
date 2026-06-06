@@ -283,9 +283,55 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   primPairFirst      : AnyPtr -> AnyPtr
   primPairSecond     : AnyPtr -> AnyPtr
 
-  -- Fused inference ops (lifted from the legacy `Training` slice;
-  -- belong here because they are forward-pass compute kernels, not
-  -- training-only machinery).
+
+
+----------------------------------------------------------------------
+-- UserExecutorConv — convolution + pooling slice
+----------------------------------------------------------------------
+
+||| The fourth slice. Covers 1D and 2D convolution + pooling (~9
+||| ops). Subclass of `UserExecutorNN` (transitively Linear + Core).
+public export
+interface UserExecutorNN ex => UserExecutorConv (0 ex : Executor) where
+  -- 1D conv + pool
+  primConv1d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primConv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
+  primAvgPool1d      : AnyPtr -> Int -> Int -> AnyPtr
+  primMaxPool1d      : AnyPtr -> Int -> Int -> AnyPtr
+  -- 2D conv + pool
+  primConv2d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primConv2dBatched  : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primAvgPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primMaxPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primMaxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserExecutorOptimizations — opt-in fused-op slice
+--
+-- Backends with native fused kernels for these ops declare an instance
+-- and provide overrides. Backends without (BYO inference adapters,
+-- hardware lacking the fused intrinsic) don't declare the instance at
+-- all — any caller requiring a fused op carries a
+-- `UserExecutorOptimizations ex =>` constraint, signalling which
+-- backends it admits.
+--
+-- Categorical opt-in surface like `HardwareClassed` — no defaults
+-- expressed via Core/Linear/NN primitives. The defaults would need
+-- broadcasting / GQA-reshape / registry-iteration semantics that vary
+-- subtly across backends; with no current BYO authors, investing in
+-- fallback scaffolding fails the no-back-compat principle. If a BYO
+-- author needs a method here, they implement it.
+--
+-- All three built-in backends (tape, torch, mlx) implement the entries
+-- below natively today; the slice is also a superclass of the
+-- `UserExecutorTraining` and `UserExecutorInference` aggregates, so
+-- existing call sites using those aggregates continue to resolve.
+----------------------------------------------------------------------
+
+||| Opt-in fused-op surface. See module-level docs above.
+public export
+interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   ||| TODO #399 Commit B — fused scaled-dot-product attention.
   ||| Q : [seq, numHeads * headDim] (flat layout, axis-1 = nH*hd)
   ||| K : [seq, numKvHeads * headDim]
@@ -309,27 +355,6 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   ||| Fused SwiGLU activation core: silu(gate) * up. Both inputs share
   ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
   primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
-
-
-----------------------------------------------------------------------
--- UserExecutorConv — convolution + pooling slice
-----------------------------------------------------------------------
-
-||| The fourth slice. Covers 1D and 2D convolution + pooling (~9
-||| ops). Subclass of `UserExecutorNN` (transitively Linear + Core).
-public export
-interface UserExecutorNN ex => UserExecutorConv (0 ex : Executor) where
-  -- 1D conv + pool
-  primConv1d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-  primConv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
-  primAvgPool1d      : AnyPtr -> Int -> Int -> AnyPtr
-  primMaxPool1d      : AnyPtr -> Int -> Int -> AnyPtr
-  -- 2D conv + pool
-  primConv2d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primConv2dBatched  : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primAvgPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primMaxPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primMaxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 
 ----------------------------------------------------------------------
@@ -580,10 +605,13 @@ interface UserExecutorCore ex => UserExecutorTensorCreate (0 ex : Executor) wher
 ||| backwards compatibility with all `UserExecutorTraining ex =>`
 ||| callsites. Per-backend instances are one-liner `UserExecutorTraining
 ||| FooExec where` declarations — the actual prim* assignments live
-||| in the six sub-instance blocks above. Resolving this constraint
-||| transitively brings in everything an existing layer needs.
+||| in the seven sub-instance blocks above (six sub-slices + the
+||| `UserExecutorOptimizations` opt-in slice). Resolving this
+||| constraint transitively brings in everything an existing layer
+||| needs.
 public export
 interface (UserExecutorConv ex,
+           UserExecutorOptimizations ex,
            UserExecutorSerialize ex,
            UserExecutorProfiling ex,
            UserExecutorTensorCreate ex) =>
@@ -708,14 +736,16 @@ interface UserExecutorCore ex => UserExecutorQuant (0 ex : Executor) where
 ||| Inference-only aggregate. Documents the minimum surface a third-
 ||| party backend that ships only forward-pass + checkpoint-load (no
 ||| optimizer, no autograd) needs to implement: `Conv` (transitively
-||| pulls in Core + Linear + NN, which now hosts the fused inference
-||| ops `primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d`), `TensorCreate`
-||| (data loading + dtype-streamed creators), `Transfer` (cross-backend
-||| handles), and `Quant` (BitNet ternary surface). Skipping Autograd /
-||| ParamRegistry / Optimizer / Serialize is a real reduction — those
-||| four sub-slices together hold 27 of the 57 legacy Training methods.
+||| pulls in Core + Linear + NN), `Optimizations` (the fused inference
+||| ops `primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d` — promoted out
+||| of NN in the 2026-06-09 audit), `TensorCreate` (data loading +
+||| dtype-streamed creators), `Transfer` (cross-backend handles), and
+||| `Quant` (BitNet ternary surface). Skipping Autograd / ParamRegistry
+||| / Optimizer / Serialize is a real reduction — those four sub-slices
+||| together hold 27 of the 57 legacy Training methods.
 public export
 interface (UserExecutorConv ex,
+           UserExecutorOptimizations ex,
            UserExecutorTensorCreate ex,
            UserExecutorTransfer ex,
            UserExecutorQuant ex) =>
