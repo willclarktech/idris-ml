@@ -47,16 +47,16 @@ static void tape_backward_add(TapeEntry* e) {
     if (b) ensure_grad(b);
     ensure_grad(r);
     if (a_match) {
-        for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
+        for (int j = 0; j < a->numel; j++) tape_grad_add_d(a, j, tape_grad_load_d(r, j));
     } else if (a && a->numel == 1) {
-        double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
-        ((double*)a->grad)[0] += s;
+        double s = 0; for (int j = 0; j < r->numel; j++) s += tape_grad_load_d(r, j);
+        tape_grad_add_d(a, 0, s);
     }
     if (b_match) {
-        for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[j];
+        for (int j = 0; j < b->numel; j++) tape_grad_add_d(b, j, tape_grad_load_d(r, j));
     } else if (b && b->numel == 1) {
-        double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
-        ((double*)b->grad)[0] += s;
+        double s = 0; for (int j = 0; j < r->numel; j++) s += tape_grad_load_d(r, j);
+        tape_grad_add_d(b, 0, s);
     }
     if ((a && !a_match && a->numel != 1) || (b && !b_match && b->numel != 1)) {
         int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -66,15 +66,16 @@ static void tape_backward_add(TapeEntry* e) {
         int do_a = a && !a_match && a->numel != 1;
         int do_b = b && !b_match && b->numel != 1;
         for (int i = 0; i < r->numel; i++) {
+            double rg = tape_grad_load_d(r, i);
             if (do_a) {
                 int ai = 0;
                 for (int k = 0; k < r->rank; k++) ai += idx[k] * a_str[k];
-                ((double*)a->grad)[ai] += ((double*)r->grad)[i];
+                tape_grad_add_d(a, ai, rg);
             }
             if (do_b) {
                 int bi = 0;
                 for (int k = 0; k < r->rank; k++) bi += idx[k] * b_str[k];
-                ((double*)b->grad)[bi] += ((double*)r->grad)[i];
+                tape_grad_add_d(b, bi, rg);
             }
             for (int k = r->rank - 1; k >= 0; k--) {
                 if (++idx[k] < r->shape[k]) break; idx[k] = 0;

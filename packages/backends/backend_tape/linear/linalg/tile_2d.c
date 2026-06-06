@@ -65,10 +65,10 @@ static void tape_backward_tile_2d(TapeEntry* e) {
                 double s = 0.0;
                 for (int r0 = 0; r0 < rep0; r0++) {
                     for (int c0 = 0; c0 < rep1; c0++) {
-                        s += ((double*)r->grad)[(r0 * m + si) * N + (c0 * n + sj)];
+                        s += tape_grad_load_d(r, (r0 * m + si) * N + (c0 * n + sj));
                     }
                 }
-                ((double*)a->grad)[si * n + sj] += s;
+                tape_grad_add_d(a, si * n + sj, s);
             }
         }
     }

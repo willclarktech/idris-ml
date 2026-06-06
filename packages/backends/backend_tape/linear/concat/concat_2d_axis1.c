@@ -59,13 +59,13 @@ static void tape_backward_concat_2d_axis1(TapeEntry* e) {
         ensure_grad(a);
         for (int i = 0; i < m_c; i++)
             for (int j = 0; j < n_c; j++)
-                ((double*)a->grad)[i*n_c + j] += ((double*)r->grad)[i*(n_c + k_c) + j];
+                tape_grad_add_d(a, i*n_c + j, tape_grad_load_d(r, i*(n_c + k_c) + j));
     }
     if (b->requires_grad) {
         ensure_grad(b);
         for (int i = 0; i < m_c; i++)
             for (int j = 0; j < k_c; j++)
-                ((double*)b->grad)[i*k_c + j] += ((double*)r->grad)[i*(n_c + k_c) + (n_c + j)];
+                tape_grad_add_d(b, i*k_c + j, tape_grad_load_d(r, i*(n_c + k_c) + (n_c + j)));
     }
 }
 

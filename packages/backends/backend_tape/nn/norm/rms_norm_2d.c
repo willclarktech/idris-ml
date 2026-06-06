@@ -124,8 +124,8 @@ static void tape_backward_rms_norm_2d(TapeEntry* e) {
         ensure_grad(meta->weight);
         for (int j = 0; j < nn; j++) {
             double dw = 0;
-            for (int i = 0; i < mm; i++) dw += ((double*)r->grad)[i*nn+j] * meta->x_hat[i*nn+j];
-            ((double*)meta->weight->grad)[j] += dw;
+            for (int i = 0; i < mm; i++) dw += tape_grad_load_d(r, i*nn+j) * meta->x_hat[i*nn+j];
+            tape_grad_add_d(meta->weight, j, dw);
         }
     }
     if (a && a->requires_grad) {
@@ -133,14 +133,14 @@ static void tape_backward_rms_norm_2d(TapeEntry* e) {
         for (int i = 0; i < mm; i++) {
             double sum_dxhat_xhat = 0;
             for (int j = 0; j < nn; j++) {
-                double dxhat = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->weight, j);
+                double dxhat = tape_grad_load_d(r, i*nn+j) * tape_load_d(meta->weight, j);
                 sum_dxhat_xhat += dxhat * meta->x_hat[i*nn+j];
             }
             double mean_dxhat_xhat = sum_dxhat_xhat / nn;
             for (int j = 0; j < nn; j++) {
-                double dxhat = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->weight, j);
-                ((double*)a->grad)[i*nn+j] += meta->rstd[i] *
-                    (dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat);
+                double dxhat = tape_grad_load_d(r, i*nn+j) * tape_load_d(meta->weight, j);
+                tape_grad_add_d(a, i*nn+j, meta->rstd[i] *
+                    (dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat));
             }
         }
     }

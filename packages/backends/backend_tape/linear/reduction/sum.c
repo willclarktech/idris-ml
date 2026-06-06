@@ -26,8 +26,9 @@ static void tape_backward_sum(TapeEntry* e) {
     Tensor* a = e->arg1;
     if (a) {
         ensure_grad(a);
+        double rg0 = tape_grad_load_d(r, 0);
         for (int j = 0; j < a->numel; j++)
-            ((double*)a->grad)[j] += ((double*)r->grad)[0];
+            tape_grad_add_d(a, j, rg0);
     }
 }
 

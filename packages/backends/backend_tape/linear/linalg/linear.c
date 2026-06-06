@@ -137,7 +137,7 @@ static void tape_backward_linear(TapeEntry* e) {
         if (a->dtype_tag == DT_F32) {
             for (int ii = 0; ii < m_l; ii++)
                 for (int jj = 0; jj < n_l; jj++)
-                    ((double*)a->grad)[ii*n_l+jj] += ((double*)r->grad)[ii] * x_vals_l[jj];
+                    tape_grad_add_d(a, ii*n_l+jj, tape_grad_load_d(r, ii) * x_vals_l[jj]);
         } else {
 #ifdef __APPLE__
             cblas_dger(CblasRowMajor, m_l, n_l, 1.0,
@@ -146,7 +146,7 @@ static void tape_backward_linear(TapeEntry* e) {
 #else
             for (int ii = 0; ii < m_l; ii++)
                 for (int jj = 0; jj < n_l; jj++)
-                    ((double*)a->grad)[ii*n_l+jj] += ((double*)r->grad)[ii] * x_vals_l[jj];
+                    tape_grad_add_d(a, ii*n_l+jj, tape_grad_load_d(r, ii) * x_vals_l[jj]);
 #endif
         }
     }
@@ -156,8 +156,8 @@ static void tape_backward_linear(TapeEntry* e) {
             for (int jj = 0; jj < n_l; jj++) {
                 double s = 0;
                 for (int ii = 0; ii < m_l; ii++)
-                    s += tape_load_d(a, ii*n_l+jj) * ((double*)r->grad)[ii];
-                ((double*)b->grad)[jj] += s;
+                    s += tape_load_d(a, ii*n_l+jj) * tape_grad_load_d(r, ii);
+                tape_grad_add_d(b, jj, s);
             }
         } else {
 #ifdef __APPLE__
@@ -167,8 +167,8 @@ static void tape_backward_linear(TapeEntry* e) {
 #else
             for (int jj = 0; jj < n_l; jj++) {
                 double s = 0;
-                for (int ii = 0; ii < m_l; ii++) s += ((double*)a->data)[ii*n_l+jj] * ((double*)r->grad)[ii];
-                ((double*)b->grad)[jj] += s;
+                for (int ii = 0; ii < m_l; ii++) s += ((double*)a->data)[ii*n_l+jj] * tape_grad_load_d(r, ii);
+                tape_grad_add_d(b, jj, s);
             }
 #endif
         }
@@ -176,7 +176,7 @@ static void tape_backward_linear(TapeEntry* e) {
     if (lm->bias && lm->bias->requires_grad) {
         ensure_grad(lm->bias);
         for (int ii = 0; ii < m_l; ii++)
-            ((double*)lm->bias->grad)[ii] += ((double*)r->grad)[ii];
+            tape_grad_add_d(lm->bias, ii, tape_grad_load_d(r, ii));
     }
 }
 

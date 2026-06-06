@@ -28,7 +28,7 @@ static void tape_backward_sigmoid(TapeEntry* e) {
         ensure_grad(a);
         for (int j = 0; j < a->numel; j++) {
             double s = tape_load_d(r, j);
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 - s);
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * s * (1.0 - s));
         }
     }
 }

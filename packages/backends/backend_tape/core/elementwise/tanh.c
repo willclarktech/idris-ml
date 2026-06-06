@@ -27,7 +27,7 @@ static void tape_backward_tanh(TapeEntry* e) {
         ensure_grad(a);
         for (int j = 0; j < a->numel; j++) {
             double t = tape_load_d(r, j);
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * (1.0 - t * t);
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * (1.0 - t * t));
         }
     }
 }

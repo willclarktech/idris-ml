@@ -185,22 +185,14 @@ Tensor* tape_zero_tensor(int* shape, int rank, int dtype_tag, int requires_grad)
     return t;
 }
 
-/* Grad allocator — grads stay F64 regardless of param dtype (asymmetric
-   data=F32 / grad=F64 mirrors mixed-precision practice and keeps the 67-case
-   backward switch dtype-agnostic). Optimizer step reads F64 grads and writes
-   F32 data, which forces F32 precision on the result. */
+/* Grad allocator — buffer size matches data dtype (Row 38 symmetric
+   F32 grads). F32-tagged tensors get a `numel * sizeof(float)` buffer;
+   everything else (F64, BF16/F16 via the F64 lingua-franca path) gets
+   a `numel * sizeof(double)` buffer. Pair with the typed accessors
+   `tape_grad_load_d` / `tape_grad_add_d` / `tape_grad_store_d` in
+   arena.h — direct `((double*)t->grad)[i]` access on F32 tensors
+   would read/write 8 bytes into a 4-byte slot. */
 void ensure_grad(Tensor* t) {
-    if (!t->grad) {
-        t->grad = calloc(t->numel, sizeof(double));
-    }
-}
-
-/* Typed grad allocator — allocates per data dtype. F32-tagged tensors
-   get a `numel * sizeof(float)` buffer; everything else falls through
-   to the F64 default. Drop-in for `ensure_grad` at backward sites that
-   have been migrated to use the `tape_grad_*` typed accessors. See
-   `arena.h` for the migration rationale (Row 38). */
-void ensure_grad_typed(Tensor* t) {
     if (!t->grad) {
         t->grad = calloc(t->numel, tape_grad_elem_size(t->dtype_tag));
     }

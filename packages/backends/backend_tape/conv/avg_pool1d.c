@@ -56,8 +56,8 @@ static void tape_backward_avg_pool1d(TapeEntry* e) {
         for (int c = 0; c < meta->C; c++)
             for (int ol = 0; ol < meta->oL; ol++)
                 for (int kl = 0; kl < meta->kL; kl++)
-                    ((double*)a->grad)[c*meta->L + ol*meta->stride + kl]
-                        += ((double*)r->grad)[c*meta->oL + ol] * scale;
+                    tape_grad_add_d(a, c*meta->L + ol*meta->stride + kl,
+                        tape_grad_load_d(r, c*meta->oL + ol) * scale);
     }
 }
 

@@ -144,8 +144,8 @@ static void tape_backward_linear_2d(TapeEntry* e) {
                 for (int jj = 0; jj < i2; jj++) {
                     double s = 0;
                     for (int bb = 0; bb < B2; bb++)
-                        s += ((double*)r->grad)[bb*o2+oo] * x_vals_2[bb*i2+jj];
-                    ((double*)a->grad)[oo*i2+jj] += s;
+                        s += tape_grad_load_d(r, bb*o2+oo) * x_vals_2[bb*i2+jj];
+                    tape_grad_add_d(a, oo*i2+jj, s);
                 }
         } else {
 #ifdef __APPLE__
@@ -158,8 +158,8 @@ static void tape_backward_linear_2d(TapeEntry* e) {
                 for (int jj = 0; jj < i2; jj++) {
                     double s = 0;
                     for (int bb = 0; bb < B2; bb++)
-                        s += ((double*)r->grad)[bb*o2+oo] * x_vals_2[bb*i2+jj];
-                    ((double*)a->grad)[oo*i2+jj] += s;
+                        s += tape_grad_load_d(r, bb*o2+oo) * x_vals_2[bb*i2+jj];
+                    tape_grad_add_d(a, oo*i2+jj, s);
                 }
 #endif
         }
@@ -171,8 +171,8 @@ static void tape_backward_linear_2d(TapeEntry* e) {
                 for (int jj = 0; jj < i2; jj++) {
                     double s = 0;
                     for (int oo = 0; oo < o2; oo++)
-                        s += ((double*)r->grad)[bb*o2+oo] * tape_load_d(a, oo*i2+jj);
-                    ((double*)b->grad)[bb*i2+jj] += s;
+                        s += tape_grad_load_d(r, bb*o2+oo) * tape_load_d(a, oo*i2+jj);
+                    tape_grad_add_d(b, bb*i2+jj, s);
                 }
         } else {
 #ifdef __APPLE__
@@ -185,8 +185,8 @@ static void tape_backward_linear_2d(TapeEntry* e) {
                 for (int jj = 0; jj < i2; jj++) {
                     double s = 0;
                     for (int oo = 0; oo < o2; oo++)
-                        s += ((double*)r->grad)[bb*o2+oo] * ((double*)a->data)[oo*i2+jj];
-                    ((double*)b->grad)[bb*i2+jj] += s;
+                        s += tape_grad_load_d(r, bb*o2+oo) * ((double*)a->data)[oo*i2+jj];
+                    tape_grad_add_d(b, bb*i2+jj, s);
                 }
 #endif
         }
@@ -195,8 +195,8 @@ static void tape_backward_linear_2d(TapeEntry* e) {
         ensure_grad(lm2->bias);
         for (int oo = 0; oo < o2; oo++) {
             double s = 0;
-            for (int bb = 0; bb < B2; bb++) s += ((double*)r->grad)[bb*o2+oo];
-            ((double*)lm2->bias->grad)[oo] += s;
+            for (int bb = 0; bb < B2; bb++) s += tape_grad_load_d(r, bb*o2+oo);
+            tape_grad_add_d(lm2->bias, oo, s);
         }
     }
 }

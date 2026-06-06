@@ -1,22 +1,16 @@
-/* Criterion suite for tape's typed-grad infrastructure (Phase 3a).
+/* Criterion suite for tape's typed-grad infrastructure (Row 38).
  *
- * Verifies that `ensure_grad_typed` allocates a per-data-dtype grad
+ * Verifies that `ensure_grad` allocates a per-data-dtype grad
  * buffer (F32 tensors get 4 bytes/elem, F64 default 8), and that the
  * `tape_grad_load_d` / `tape_grad_add_d` / `tape_grad_store_d` inline
  * accessors round-trip values correctly through both buffer widths.
  *
- * Background: prior to 2026-06-06 the legacy `ensure_grad` allocated
- * F64 unconditionally, mirroring autocast's "high-precision
- * accumulator over low-precision weights" pattern. Row 38 ships a
- * symmetric-F32 path where grad buffers match data dtype; this is
- * the foundational commit (3a) introducing the helpers. Subsequent
- * 3b/3c/3d migrate the ~143 `(double*)t->grad` backward call sites
- * to use the typed helpers; 3e migrates the optimizer M/V buffers.
- *
- * The legacy `ensure_grad` and the new `ensure_grad_typed` coexist
- * during the migration window so that build + tests stay green at
- * every commit. Once every backward site is migrated, the legacy
- * `ensure_grad` will be removed (Phase 3e).
+ * Background: prior to 2026-06-06 `ensure_grad` allocated F64
+ * unconditionally, mirroring autocast's "high-precision accumulator
+ * over low-precision weights" pattern. Row 38 reframed that as a
+ * memory optimisation and shipped a symmetric-F32 path where grad
+ * buffers match data dtype. Every grad-touching site moved to use
+ * the typed accessors below in one commit (no parallel API kept).
  */
 
 #include <criterion/criterion.h>
@@ -32,7 +26,7 @@
 /* Internal arena.h surface — re-declared locally to avoid pulling in
    the whole header (which has private struct definitions). */
 typedef struct Tensor Tensor;
-extern void ensure_grad_typed(Tensor* t);
+extern void ensure_grad(Tensor* t);
 extern size_t tape_grad_elem_size(int dtype_tag);
 
 /* These mirror the inline definitions in arena.h. Tests that exercise
@@ -52,7 +46,7 @@ Test(tape_grad_typed, elem_size_dispatches_on_dtag) {
 
 /* End-to-end roundtrip: an F32 tensor's gradient via a simple multiply
    should match the F64 reference within F32 precision. This is the
-   smallest assertion that exercises ensure_grad_typed + the typed
+   smallest assertion that exercises ensure_grad + the typed
    accumulators THROUGH the public FFI surface, without depending on
    any backward site having migrated yet (the existing F64 backward
    path runs the F64 reference; the F32 path uses the existing

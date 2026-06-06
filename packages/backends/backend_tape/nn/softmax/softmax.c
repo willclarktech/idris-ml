@@ -82,9 +82,9 @@ static void tape_backward_softmax(TapeEntry* e) {
             double s = 0;
             for (int jj = 0; jj < n_sm; jj++) {
                 double delta = (ii == jj) ? 1.0 : 0.0;
-                s += ((double*)r->grad)[jj] * tape_load_d(r, jj) * (delta - sm_i);
+                s += tape_grad_load_d(r, jj) * tape_load_d(r, jj) * (delta - sm_i);
             }
-            ((double*)a->grad)[ii] += s;
+            tape_grad_add_d(a, ii, s);
         }
     }
 }

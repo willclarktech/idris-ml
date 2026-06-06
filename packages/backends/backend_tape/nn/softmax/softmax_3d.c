@@ -53,9 +53,9 @@ static void tape_backward_softmax_3d(TapeEntry* e) {
         for (int i = 0; i < total_rows; i++) {
             double dot = 0;
             for (int j = 0; j < nn; j++)
-                dot += ((double*)r->grad)[i*nn+j] * tape_load_d(r, i*nn+j);
+                dot += tape_grad_load_d(r, i*nn+j) * tape_load_d(r, i*nn+j);
             for (int j = 0; j < nn; j++)
-                ((double*)a->grad)[i*nn+j] += tape_load_d(r, i*nn+j) * (((double*)r->grad)[i*nn+j] - dot);
+                tape_grad_add_d(a, i*nn+j, tape_load_d(r, i*nn+j) * (tape_grad_load_d(r, i*nn+j) - dot));
         }
     }
 }

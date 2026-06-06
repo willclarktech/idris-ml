@@ -76,12 +76,12 @@ static void tape_backward_conv1d(TapeEntry* e) {
         ensure_grad(a);
         for (int oc = 0; oc < outC; oc++)
             for (int ol = 0; ol < oL; ol++) {
-                double dout = ((double*)r->grad)[oc*oL + ol];
+                double dout = tape_grad_load_d(r, oc*oL + ol);
                 for (int ic = 0; ic < inC; ic++)
                     for (int kl = 0; kl < kL; kl++) {
                         int il = ol * str - pad + kl;
                         if (il >= 0 && il < LL)
-                            ((double*)a->grad)[ic*LL + il] += dout * tape_load_d(b, oc*inC*kL + ic*kL + kl);
+                            tape_grad_add_d(a, ic*LL + il, dout * tape_load_d(b, oc*inC*kL + ic*kL + kl));
                     }
             }
     }
@@ -94,9 +94,9 @@ static void tape_backward_conv1d(TapeEntry* e) {
                     for (int ol = 0; ol < oL; ol++) {
                         int il = ol * str - pad + kl;
                         if (il >= 0 && il < LL)
-                            s += ((double*)r->grad)[oc*oL + ol] * tape_load_d(a, ic*LL + il);
+                            s += tape_grad_load_d(r, oc*oL + ol) * tape_load_d(a, ic*LL + il);
                     }
-                    ((double*)b->grad)[oc*inC*kL + ic*kL + kl] += s;
+                    tape_grad_add_d(b, oc*inC*kL + ic*kL + kl, s);
                 }
     }
     Tensor* bias_t = (Tensor*)e->inputs;
@@ -104,8 +104,8 @@ static void tape_backward_conv1d(TapeEntry* e) {
         ensure_grad(bias_t);
         for (int oc = 0; oc < outC; oc++) {
             double s = 0;
-            for (int ol = 0; ol < oL; ol++) s += ((double*)r->grad)[oc*oL + ol];
-            ((double*)bias_t->grad)[oc] += s;
+            for (int ol = 0; ol < oL; ol++) s += tape_grad_load_d(r, oc*oL + ol);
+            tape_grad_add_d(bias_t, oc, s);
         }
     }
 }

@@ -50,7 +50,7 @@ static void tape_backward_scatter_add(TapeEntry* e) {
         for (int i = 0; i < nn; i++) {
             int idx = (int)tape_load_d(b, i);
             if (idx >= 0 && idx < r->numel)
-                ((double*)a->grad)[i] += ((double*)r->grad)[idx];
+                tape_grad_add_d(a, i, tape_grad_load_d(r, idx));
         }
     }
 }

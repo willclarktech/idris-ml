@@ -45,19 +45,13 @@ static inline Tensor* make_tensor_arena_f64(double* arena_data, int numel, int* 
     return make_tensor_arena(arena_data, numel, shape, rank, rg);
 }
 
-/* Grad allocator — grads stay F64 regardless of param dtype (legacy
- * mixed-precision pattern: high-precision accumulator over low-precision
- * weights). Per-op backward sites migrating to symmetric-F32 grads
- * (Row 38) use `ensure_grad_typed` + `tape_grad_*` helpers below. */
+/* Grad allocator — buffer size matches data dtype. F32-tagged tensors
+ * get a `numel * sizeof(float)` buffer; F64 (and BF16/F16 via the F64
+ * lingua-franca path) get `numel * sizeof(double)`. Every backward
+ * site must access the buffer via the typed `tape_grad_*` accessors
+ * below — direct `((double*)t->grad)[i]` access on F32 tensors would
+ * read/write 8 bytes into a 4-byte slot (silent memory smash). */
 void ensure_grad(Tensor* t);
-
-/* Typed grad allocator — F32-tagged tensors get a `numel * sizeof(float)`
- * buffer instead of `numel * sizeof(double)`. Drop-in for `ensure_grad`
- * at every backward site that has been migrated to use the typed
- * accumulators below. Per Row 38, each backward op migrates from
- * `ensure_grad` + `((double*)t->grad)[i] += v` to `ensure_grad_typed` +
- * `tape_grad_add_d(t, i, v)`. */
-void ensure_grad_typed(Tensor* t);
 
 /* Byte size of one grad element for the given DT_* tag. F32 → 4,
  * everything else → 8 (the F64 lingua-franca default). */
@@ -77,9 +71,9 @@ static inline void tape_store_d(Tensor* t, int i, double v) {
     else                        ((double*)t->data)[i] = v;
 }
 
-/* Dtype-aware grad element load — reads t->grad[i] as double. Pair
- * with `ensure_grad_typed` — the buffer's element width matches
- * t->dtype_tag. For F64 (default), a single double load. */
+/* Dtype-aware grad element load — reads t->grad[i] as double. The
+ * buffer's element width matches t->dtype_tag (see `ensure_grad`).
+ * For F64 (default), a single double load. */
 static inline double tape_grad_load_d(const Tensor* t, int i) {
     return (t->dtype_tag == DT_F32) ? (double)((float*)t->grad)[i]
                                     : ((double*)t->grad)[i];
@@ -94,7 +88,7 @@ static inline void tape_grad_add_d(Tensor* t, int i, double v) {
 }
 
 /* Dtype-aware grad element store — overwrites t->grad[i] with v,
- * narrowing to float when t is F32-tagged. Pair with `ensure_grad_typed`. */
+ * narrowing to float when t is F32-tagged. */
 static inline void tape_grad_store_d(Tensor* t, int i, double v) {
     if (t->dtype_tag == DT_F32) ((float*)t->grad)[i] = (float)v;
     else                        ((double*)t->grad)[i] = v;

@@ -64,9 +64,9 @@ static void tape_backward_log_softmax(TapeEntry* e) {
         ensure_grad(r);
         int n_ls = r->numel;
         double sum_grad = 0;
-        for (int j = 0; j < n_ls; j++) sum_grad += ((double*)r->grad)[j];
+        for (int j = 0; j < n_ls; j++) sum_grad += tape_grad_load_d(r, j);
         for (int j = 0; j < n_ls; j++)
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] - exp(tape_load_d(r, j)) * sum_grad;
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) - exp(tape_load_d(r, j)) * sum_grad);
     }
 }
 

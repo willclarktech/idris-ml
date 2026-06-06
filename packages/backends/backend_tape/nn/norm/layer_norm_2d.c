@@ -114,16 +114,16 @@ static void tape_backward_layer_norm_2d(TapeEntry* e) {
         ensure_grad(meta->gamma);
         for (int j = 0; j < nn; j++) {
             double dg = 0;
-            for (int i = 0; i < mm; i++) dg += ((double*)r->grad)[i*nn+j] * meta->x_hat[i*nn+j];
-            ((double*)meta->gamma->grad)[j] += dg;
+            for (int i = 0; i < mm; i++) dg += tape_grad_load_d(r, i*nn+j) * meta->x_hat[i*nn+j];
+            tape_grad_add_d(meta->gamma, j, dg);
         }
     }
     if (meta->bias && meta->bias->requires_grad) {
         ensure_grad(meta->bias);
         for (int j = 0; j < nn; j++) {
             double db = 0;
-            for (int i = 0; i < mm; i++) db += ((double*)r->grad)[i*nn+j];
-            ((double*)meta->bias->grad)[j] += db;
+            for (int i = 0; i < mm; i++) db += tape_grad_load_d(r, i*nn+j);
+            tape_grad_add_d(meta->bias, j, db);
         }
     }
     if (a && a->requires_grad) {
@@ -132,16 +132,16 @@ static void tape_backward_layer_norm_2d(TapeEntry* e) {
             double mean_dxhat = 0;
             double mean_dxhat_xhat = 0;
             for (int j = 0; j < nn; j++) {
-                double dxh = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->gamma, j);
+                double dxh = tape_grad_load_d(r, i*nn+j) * tape_load_d(meta->gamma, j);
                 mean_dxhat += dxh;
                 mean_dxhat_xhat += dxh * meta->x_hat[i*nn+j];
             }
             mean_dxhat /= nn;
             mean_dxhat_xhat /= nn;
             for (int j = 0; j < nn; j++) {
-                double dxh = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->gamma, j);
-                ((double*)a->grad)[i*nn+j] += meta->rstd[i] *
-                    (dxh - mean_dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat);
+                double dxh = tape_grad_load_d(r, i*nn+j) * tape_load_d(meta->gamma, j);
+                tape_grad_add_d(a, i*nn+j, meta->rstd[i] *
+                    (dxh - mean_dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat));
             }
         }
     }

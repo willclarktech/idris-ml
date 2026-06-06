@@ -36,7 +36,7 @@ static void tape_backward_softplus(TapeEntry* e) {
         ensure_grad(a);
         for (int j = 0; j < a->numel; j++) {
             double s = 1.0 / (1.0 + exp(-tape_load_d(a, j)));
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * s;
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * s);
         }
     }
 }

@@ -107,7 +107,7 @@ static void tape_backward_mv(TapeEntry* e) {
         if (a->dtype_tag == DT_F32) {
             for (int ii = 0; ii < m_mv; ii++)
                 for (int jj = 0; jj < n_mv; jj++)
-                    ((double*)a->grad)[ii*n_mv+jj] += ((double*)r->grad)[ii] * x_vals[jj];
+                    tape_grad_add_d(a, ii*n_mv+jj, tape_grad_load_d(r, ii) * x_vals[jj]);
         } else {
 #ifdef __APPLE__
             /* A.grad [m,n] += grad [m] * x^T [n] — rank-1 outer product */
@@ -117,7 +117,7 @@ static void tape_backward_mv(TapeEntry* e) {
 #else
             for (int ii = 0; ii < m_mv; ii++)
                 for (int jj = 0; jj < n_mv; jj++)
-                    ((double*)a->grad)[ii*n_mv+jj] += ((double*)r->grad)[ii] * x_vals[jj];
+                    tape_grad_add_d(a, ii*n_mv+jj, tape_grad_load_d(r, ii) * x_vals[jj]);
 #endif
         }
     }
@@ -128,8 +128,8 @@ static void tape_backward_mv(TapeEntry* e) {
             for (int jj = 0; jj < n_mv; jj++) {
                 double s = 0;
                 for (int ii = 0; ii < m_mv; ii++)
-                    s += tape_load_d(a, ii*n_mv+jj) * ((double*)r->grad)[ii];
-                ((double*)b->grad)[jj] += s;
+                    s += tape_load_d(a, ii*n_mv+jj) * tape_grad_load_d(r, ii);
+                tape_grad_add_d(b, jj, s);
             }
         } else {
 #ifdef __APPLE__
@@ -140,8 +140,8 @@ static void tape_backward_mv(TapeEntry* e) {
             for (int jj = 0; jj < n_mv; jj++) {
                 double s = 0;
                 for (int ii = 0; ii < m_mv; ii++)
-                    s += ((double*)a->data)[ii*n_mv+jj] * ((double*)r->grad)[ii];
-                ((double*)b->grad)[jj] += s;
+                    s += ((double*)a->data)[ii*n_mv+jj] * tape_grad_load_d(r, ii);
+                tape_grad_add_d(b, jj, s);
             }
 #endif
         }

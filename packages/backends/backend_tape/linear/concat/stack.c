@@ -67,7 +67,7 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
             r->requires_grad = rg_check;
             r->persistent = 0;
             /* Still record OP_STACK with input pointers for backward.
-               STACK backward distributes ((double*)r->grad)[i] to inputs[i]->grad[0].
+               STACK backward distributes tape_grad_load_d(r, i) to inputs[i]->grad[0].
                The inputs are SELECT views, so their grad flows to the parent. */
             if (rg_check) {
                 Tensor** inputs = malloc(count * sizeof(Tensor*));
@@ -118,7 +118,7 @@ static void tape_backward_stack(TapeEntry* e) {
             if (inp->requires_grad) {
                 ensure_grad(inp);
                 ensure_grad(r);
-                ((double*)inp->grad)[0] += ((double*)r->grad)[j];
+                tape_grad_add_d(inp, 0, tape_grad_load_d(r, j));
             }
         }
     }

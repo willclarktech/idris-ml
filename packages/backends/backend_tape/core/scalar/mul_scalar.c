@@ -45,7 +45,7 @@ static void tape_backward_mul_scalar(TapeEntry* e) {
     Tensor* a = e->arg1;
     if (a) {
         ensure_grad(a); ensure_grad(r);
-        for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * e->scalar_arg;
+        for (int j = 0; j < a->numel; j++) tape_grad_add_d(a, j, tape_grad_load_d(r, j) * e->scalar_arg);
     }
 }
 

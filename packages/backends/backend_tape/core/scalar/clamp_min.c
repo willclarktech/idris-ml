@@ -52,7 +52,7 @@ static void tape_backward_clamp_min(TapeEntry* e) {
         ensure_grad(a);
         ensure_grad(r);
         for (int j = 0; j < a->numel; j++)
-            ((double*)a->grad)[j] += (tape_load_d(a, j) > min_val) ? ((double*)r->grad)[j] : 0.0;
+            tape_grad_add_d(a, j, (tape_load_d(a, j) > min_val) ? tape_grad_load_d(r, j) : 0.0);
     }
 }
 

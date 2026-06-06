@@ -75,7 +75,7 @@ static void tape_backward_max_pool2d(TapeEntry* e) {
         ensure_grad(a);
         int out_numel = meta->C * meta->oH * meta->oW;
         for (int i = 0; i < out_numel; i++)
-            ((double*)a->grad)[meta->max_indices[i]] += ((double*)r->grad)[i];
+            tape_grad_add_d(a, meta->max_indices[i], tape_grad_load_d(r, i));
     }
 }
 

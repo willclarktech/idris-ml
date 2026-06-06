@@ -25,7 +25,7 @@ static void tape_backward_neg(TapeEntry* e) {
     Tensor* a = e->arg1;
     if (a) {
         ensure_grad(a);
-        for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] -= ((double*)r->grad)[j];
+        for (int j = 0; j < a->numel; j++) tape_grad_add_d(a, j, -(tape_grad_load_d(r, j)));
     }
 }
 

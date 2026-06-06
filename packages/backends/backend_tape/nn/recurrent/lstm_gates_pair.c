@@ -144,7 +144,7 @@ static void tape_backward_lstm_gates(TapeEntry* e) {
         if (b) ensure_grad(b);
 
         for (int j = 0; j < o_lstm; j++) {
-            double d_h = ((double*)r->grad)[j];
+            double d_h = tape_grad_load_d(r, j);
             double tanhC = tanh(lm->new_cell[j]);
 
             /* d_oGate = d_h * tanh(cell) */
@@ -159,13 +159,13 @@ static void tape_backward_lstm_gates(TapeEntry* e) {
             /* d_gGate = d_cell * iG */
             double d_gG = d_cell * lm->iG[j];
             /* d_prevCell = d_cell * fG */
-            if (b) ((double*)b->grad)[j] += d_cell * lm->fG[j];
+            if (b) tape_grad_add_d(b, j, d_cell * lm->fG[j]);
 
             /* Activation derivatives → combined gradient */
-            ((double*)a->grad)[j]            += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);  /* sigmoid' */
-            ((double*)a->grad)[o_lstm + j]   += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
-            ((double*)a->grad)[2*o_lstm + j] += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);  /* tanh' */
-            ((double*)a->grad)[3*o_lstm + j] += d_oG * lm->oG[j] * (1.0 - lm->oG[j]);
+            tape_grad_add_d(a, j, d_iG * lm->iG[j] * (1.0 - lm->iG[j]))  /* sigmoid' */;
+            tape_grad_add_d(a, o_lstm + j, d_fG * lm->fG[j] * (1.0 - lm->fG[j]));
+            tape_grad_add_d(a, 2*o_lstm + j, d_gG * (1.0 - lm->gG[j] * lm->gG[j]))  /* tanh' */;
+            tape_grad_add_d(a, 3*o_lstm + j, d_oG * lm->oG[j] * (1.0 - lm->oG[j]));
         }
     }
 }
@@ -185,7 +185,7 @@ static void tape_backward_lstm_gates_cell(TapeEntry* e) {
         if (b) ensure_grad(b);
 
         for (int j = 0; j < o_lstm; j++) {
-            double d_cell = ((double*)r->grad)[j];
+            double d_cell = tape_grad_load_d(r, j);
 
             /* d_fGate = d_cell * prevCell */
             double d_fG = d_cell * (b ? tape_load_d(b, j) : 0);
@@ -194,12 +194,12 @@ static void tape_backward_lstm_gates_cell(TapeEntry* e) {
             /* d_gGate = d_cell * iG */
             double d_gG = d_cell * lm->iG[j];
             /* d_prevCell = d_cell * fG */
-            if (b) ((double*)b->grad)[j] += d_cell * lm->fG[j];
+            if (b) tape_grad_add_d(b, j, d_cell * lm->fG[j]);
 
             /* Activation derivatives → combined gradient (additive with OP_LSTM_GATES) */
-            ((double*)a->grad)[j]            += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);
-            ((double*)a->grad)[o_lstm + j]   += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
-            ((double*)a->grad)[2*o_lstm + j] += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);
+            tape_grad_add_d(a, j, d_iG * lm->iG[j] * (1.0 - lm->iG[j]));
+            tape_grad_add_d(a, o_lstm + j, d_fG * lm->fG[j] * (1.0 - lm->fG[j]));
+            tape_grad_add_d(a, 2*o_lstm + j, d_gG * (1.0 - lm->gG[j] * lm->gG[j]));
             /* No output gate gradient from cell path (oG only affects hidden) */
         }
     }

@@ -326,7 +326,7 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
                 double s = 0;
                 for (int m = 0; m < M_unf; m++)
                     s += dY_unf[m*outC + oc] * X_col[m*K_unf + kk];
-                ((double*)b->grad)[oc*K_unf + kk] += s;
+                tape_grad_add_d(b, oc*K_unf + kk, s);
             }
 #endif
         free(X_col);
@@ -368,7 +368,7 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
                     for (int ow = 0; ow < oW; ow++)
                         s += dout_b[oc*oH*oW + oh*oW + ow];
             }
-            ((double*)bias_t->grad)[oc] += s;
+            tape_grad_add_d(bias_t, oc, s);
         }
     }
     if (dY_unf) free(dY_unf);

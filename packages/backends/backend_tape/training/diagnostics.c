@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../tensor.h"
+#include "../arena.h"
 #include "../../backend.h"
 
 void _dbg_dump_param_grads_if_enabled(void) {
@@ -30,7 +31,7 @@ void _dbg_dump_param_grads_if_enabled(void) {
         int has_nan = 0;
         if (t->grad) {
             for (int j = 0; j < t->numel; j++) {
-                double g = ((double*)t->grad)[j];
+                double g = tape_grad_load_d(t, j);
                 if (isnan(g) || isinf(g)) has_nan = 1;
                 l2 += g * g;
             }

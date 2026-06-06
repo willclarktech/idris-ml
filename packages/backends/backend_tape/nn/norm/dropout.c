@@ -75,7 +75,7 @@ static void tape_backward_dropout(TapeEntry* e) {
     if (a && a->requires_grad) {
         ensure_grad(a);
         for (int j = 0; j < meta->numel; j++)
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * meta->mask[j];
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * meta->mask[j]);
     }
 }
 

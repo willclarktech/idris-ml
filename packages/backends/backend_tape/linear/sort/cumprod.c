@@ -45,10 +45,10 @@ static void tape_backward_cumprod(TapeEntry* e) {
         int n = a->numel;
         double suffix_sum = 0.0;
         for (int i = n - 1; i >= 0; i--) {
-            suffix_sum += ((double*)r->grad)[i] * tape_load_d(r, i);
+            suffix_sum += tape_grad_load_d(r, i) * tape_load_d(r, i);
             double ai = tape_load_d(a, i);
             if (fabs(ai) > 1e-30) {
-                ((double*)a->grad)[i] += suffix_sum / ai;
+                tape_grad_add_d(a, i, suffix_sum / ai);
             } else {
                 double partial = 0.0;
                 for (int j = i; j < n; j++) {
@@ -56,9 +56,9 @@ static void tape_backward_cumprod(TapeEntry* e) {
                     for (int k = 0; k <= j; k++) {
                         if (k != i) prod_excl *= tape_load_d(a, k);
                     }
-                    partial += ((double*)r->grad)[j] * prod_excl;
+                    partial += tape_grad_load_d(r, j) * prod_excl;
                 }
-                ((double*)a->grad)[i] += partial;
+                tape_grad_add_d(a, i, partial);
             }
         }
     }

@@ -42,7 +42,7 @@ static void tape_backward_transpose_2d(TapeEntry* e) {
         ensure_grad(a);
         for (int i = 0; i < mm; i++)
             for (int j = 0; j < nn; j++)
-                ((double*)a->grad)[i*nn+j] += ((double*)r->grad)[j*mm+i];
+                tape_grad_add_d(a, i*nn+j, tape_grad_load_d(r, j*mm+i));
     }
 }
 

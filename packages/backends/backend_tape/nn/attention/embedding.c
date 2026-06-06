@@ -78,7 +78,7 @@ static void tape_backward_embedding(TapeEntry* e) {
         for (int i = 0; i < meta->n; i++) {
             int idx = meta->indices[i];
             for (int j = 0; j < meta->embedDim; j++)
-                ((double*)a->grad)[idx * meta->embedDim + j] += ((double*)r->grad)[i * meta->embedDim + j];
+                tape_grad_add_d(a, idx * meta->embedDim + j, tape_grad_load_d(r, i * meta->embedDim + j));
         }
     }
 }

@@ -31,18 +31,18 @@ static void tape_backward_dot(TapeEntry* e) {
     if (a && a->numel > 1) {
         ensure_grad(a);
         for (int j = 0; j < a->numel; j++)
-            ((double*)a->grad)[j] += ((double*)r->grad)[0] * tape_load_d(b, j);
+            tape_grad_add_d(a, j, tape_grad_load_d(r, 0) * tape_load_d(b, j));
     } else if (a) {
         ensure_grad(a);
-        ((double*)a->grad)[0] += ((double*)r->grad)[0] * tape_load_d(b, 0);
+        tape_grad_add_d(a, 0, tape_grad_load_d(r, 0) * tape_load_d(b, 0));
     }
     if (b && b->numel > 1) {
         ensure_grad(b);
         for (int j = 0; j < b->numel; j++)
-            ((double*)b->grad)[j] += ((double*)r->grad)[0] * tape_load_d(a, j);
+            tape_grad_add_d(b, j, tape_grad_load_d(r, 0) * tape_load_d(a, j));
     } else if (b) {
         ensure_grad(b);
-        ((double*)b->grad)[0] += ((double*)r->grad)[0] * tape_load_d(a, 0);
+        tape_grad_add_d(b, 0, tape_grad_load_d(r, 0) * tape_load_d(a, 0));
     }
 }
 

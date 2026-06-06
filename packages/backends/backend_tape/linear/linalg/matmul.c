@@ -64,8 +64,8 @@ static void tape_backward_vecmat(TapeEntry* e) {
         ensure_grad(a);
         for (int i = 0; i < n_vm; i++) {
             double s = 0;
-            for (int j = 0; j < m_vm; j++) s += ((double*)r->grad)[j] * tape_load_d(b, i*m_vm+j);
-            ((double*)a->grad)[i] += s;
+            for (int j = 0; j < m_vm; j++) s += tape_grad_load_d(r, j) * tape_load_d(b, i*m_vm+j);
+            tape_grad_add_d(a, i, s);
         }
     }
     if (b) {
@@ -73,7 +73,7 @@ static void tape_backward_vecmat(TapeEntry* e) {
         for (int i = 0; i < n_vm; i++) {
             double a_i = tape_load_d(a, i);
             for (int j = 0; j < m_vm; j++)
-                ((double*)b->grad)[i*m_vm+j] += ((double*)r->grad)[j] * a_i;
+                tape_grad_add_d(b, i*m_vm+j, tape_grad_load_d(r, j) * a_i);
         }
     }
 }

@@ -40,8 +40,8 @@ static void tape_backward_div(TapeEntry* e) {
     if (a_match && b_match) {
         for (int j = 0; j < r->numel; j++) {
             double bv = tape_load_d(b, j);
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] / bv;
-            ((double*)b->grad)[j] -= ((double*)r->grad)[j] * tape_load_d(a, j) / (bv * bv);
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) / bv);
+            tape_grad_add_d(b, j, -(tape_grad_load_d(r, j) * tape_load_d(a, j) / (bv * bv)));
         }
     } else {
         int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -55,8 +55,8 @@ static void tape_backward_div(TapeEntry* e) {
                 bi += idx[k] * b_str[k];
             }
             double bv = tape_load_d(b, bi);
-            if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] / bv;
-            if (b) ((double*)b->grad)[bi] -= ((double*)r->grad)[i] * tape_load_d(a, ai) / (bv * bv);
+            if (a) tape_grad_add_d(a, ai, tape_grad_load_d(r, i) / bv);
+            if (b) tape_grad_add_d(b, bi, -(tape_grad_load_d(r, i) * tape_load_d(a, ai) / (bv * bv)));
             for (int k = r->rank - 1; k >= 0; k--) {
                 if (++idx[k] < r->shape[k]) break; idx[k] = 0;
             }

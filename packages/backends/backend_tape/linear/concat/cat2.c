@@ -77,12 +77,12 @@ static void tape_backward_cat(TapeEntry* e) {
     if (a) {
         ensure_grad(a);
         for (int j = 0; j < a->numel; j++)
-            ((double*)a->grad)[j] += ((double*)r->grad)[j];
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j));
     }
     if (b) {
         ensure_grad(b);
         for (int j = 0; j < b->numel; j++)
-            ((double*)b->grad)[j] += ((double*)r->grad)[split + j];
+            tape_grad_add_d(b, j, tape_grad_load_d(r, split + j));
     }
 }
 

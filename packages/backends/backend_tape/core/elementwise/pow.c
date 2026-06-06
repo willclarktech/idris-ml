@@ -41,8 +41,8 @@ static void tape_backward_pow(TapeEntry* e) {
         for (int j = 0; j < r->numel; j++) {
             double av = fmax(tape_load_d(a, j), 1e-20);
             double bv = tape_load_d(b, j);
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * bv * pow(av, bv - 1.0);
-            ((double*)b->grad)[j] += ((double*)r->grad)[j] * tape_load_d(r, j) * log(av);
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * bv * pow(av, bv - 1.0));
+            tape_grad_add_d(b, j, tape_grad_load_d(r, j) * tape_load_d(r, j) * log(av));
         }
     } else {
         int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -57,8 +57,8 @@ static void tape_backward_pow(TapeEntry* e) {
             }
             double av = fmax(tape_load_d(a, ai), 1e-20);
             double bv = tape_load_d(b, bi);
-            if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * bv * pow(av, bv - 1.0);
-            if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * tape_load_d(r, i) * log(av);
+            if (a) tape_grad_add_d(a, ai, tape_grad_load_d(r, i) * bv * pow(av, bv - 1.0));
+            if (b) tape_grad_add_d(b, bi, tape_grad_load_d(r, i) * tape_load_d(r, i) * log(av));
             for (int k = r->rank - 1; k >= 0; k--) {
                 if (++idx[k] < r->shape[k]) break; idx[k] = 0;
             }

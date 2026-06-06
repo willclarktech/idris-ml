@@ -37,7 +37,7 @@ static void tape_backward_reshape(TapeEntry* e) {
         ensure_grad(a);
         ensure_grad(r);
         for (int j = 0; j < a->numel; j++)
-            ((double*)a->grad)[j] += ((double*)r->grad)[j];
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j));
     }
 }
 

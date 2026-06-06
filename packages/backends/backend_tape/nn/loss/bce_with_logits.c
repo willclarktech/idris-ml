@@ -41,7 +41,7 @@ static void tape_backward_bce_with_logits(TapeEntry* e) {
         int n_bce = a->numel;
         for (int j = 0; j < n_bce; j++) {
             double sig = 1.0 / (1.0 + exp(-tape_load_d(a, j)));
-            ((double*)a->grad)[j] += ((double*)r->grad)[0] * (sig - tape_load_d(b, j)) / n_bce;
+            tape_grad_add_d(a, j, tape_grad_load_d(r, 0) * (sig - tape_load_d(b, j)) / n_bce);
         }
     }
 }

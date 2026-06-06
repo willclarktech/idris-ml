@@ -66,7 +66,7 @@ static void tape_backward_conv1d_circular(TapeEntry* e) {
         for (int ii = 0; ii < n_cv; ii++) {
             for (int j = 0; j < k_cv; j++) {
                 int idx = (ii - pad_cv + j + n_cv) % n_cv;
-                ((double*)a->grad)[idx] += ((double*)r->grad)[ii] * tape_load_d(b, k_cv - 1 - j);
+                tape_grad_add_d(a, idx, tape_grad_load_d(r, ii) * tape_load_d(b, k_cv - 1 - j));
             }
         }
     }
@@ -75,7 +75,7 @@ static void tape_backward_conv1d_circular(TapeEntry* e) {
         for (int ii = 0; ii < n_cv; ii++) {
             for (int j = 0; j < k_cv; j++) {
                 int idx = (ii - pad_cv + j + n_cv) % n_cv;
-                ((double*)b->grad)[k_cv - 1 - j] += ((double*)r->grad)[ii] * tape_load_d(a, idx);
+                tape_grad_add_d(b, k_cv - 1 - j, tape_grad_load_d(r, ii) * tape_load_d(a, idx));
             }
         }
     }

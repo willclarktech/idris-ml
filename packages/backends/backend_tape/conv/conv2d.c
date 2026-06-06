@@ -103,15 +103,15 @@ static void tape_backward_conv2d(TapeEntry* e) {
         for (int oc = 0; oc < outC; oc++)
             for (int oh = 0; oh < oH; oh++)
                 for (int ow = 0; ow < oW; ow++) {
-                    double dout = ((double*)r->grad)[oc*oH*oW + oh*oW + ow];
+                    double dout = tape_grad_load_d(r, oc*oH*oW + oh*oW + ow);
                     for (int ic = 0; ic < inC; ic++)
                         for (int kh = 0; kh < kH; kh++)
                             for (int kw = 0; kw < kW; kw++) {
                                 int ih = oh * strideH - padH + kh;
                                 int iw = ow * strideW - padW + kw;
                                 if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
-                                    ((double*)a->grad)[ic*HH*WW + ih*WW + iw] +=
-                                        dout * tape_load_d(b, oc*inC*kH*kW + ic*kH*kW + kh*kW + kw);
+                                    tape_grad_add_d(a, ic*HH*WW + ih*WW + iw,
+                                        dout * tape_load_d(b, oc*inC*kH*kW + ic*kH*kW + kh*kW + kw));
                             }
                 }
     }
@@ -129,10 +129,10 @@ static void tape_backward_conv2d(TapeEntry* e) {
                                 int ih = oh * strideH - padH + kh;
                                 int iw = ow * strideW - padW + kw;
                                 if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
-                                    s += ((double*)r->grad)[oc*oH*oW + oh*oW + ow]
+                                    s += tape_grad_load_d(r, oc*oH*oW + oh*oW + ow)
                                        * tape_load_d(a, ic*HH*WW + ih*WW + iw);
                             }
-                        ((double*)b->grad)[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw] += s;
+                        tape_grad_add_d(b, oc*inC*kH*kW + ic*kH*kW + kh*kW + kw, s);
                     }
     }
 
@@ -144,8 +144,8 @@ static void tape_backward_conv2d(TapeEntry* e) {
             double s = 0;
             for (int oh = 0; oh < oH; oh++)
                 for (int ow = 0; ow < oW; ow++)
-                    s += ((double*)r->grad)[oc*oH*oW + oh*oW + ow];
-            ((double*)bias_t->grad)[oc] += s;
+                    s += tape_grad_load_d(r, oc*oH*oW + oh*oW + ow);
+            tape_grad_add_d(bias_t, oc, s);
         }
     }
 }

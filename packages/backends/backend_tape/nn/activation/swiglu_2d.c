@@ -95,17 +95,17 @@ static void tape_backward_swiglu_2d(TapeEntry* e) {
     if (gNeedsGrad) ensure_grad(g);
     if (uNeedsGrad) ensure_grad(u);
     for (int i = 0; i < N; i++) {
-        double dout = ((double*)r->grad)[i];
+        double dout = tape_grad_load_d(r, i);
         double s = meta->sig_g[i];
         double gv = tape_load_d(g, i);
         if (gNeedsGrad) {
             double uv = tape_load_d(u, i);
             /* silu'(gate) = s * (1 + gate * (1 - s)) */
             double dsilu = s * (1.0 + gv * (1.0 - s));
-            ((double*)g->grad)[i] += dout * uv * dsilu;
+            tape_grad_add_d(g, i, dout * uv * dsilu);
         }
         if (uNeedsGrad) {
-            ((double*)u->grad)[i] += dout * gv * s;
+            tape_grad_add_d(u, i, dout * gv * s);
         }
     }
 }

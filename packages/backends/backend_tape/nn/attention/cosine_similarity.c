@@ -81,9 +81,9 @@ static void tape_backward_cosine_sim(TapeEntry* e) {
             for (int j = 0; j < w_cs; j++) { double v = tape_load_d(a, ii*w_cs+j); anorm2 += v * v; }
             double anorm = sqrt(anorm2) + 1e-8;
             double cos_val = tape_load_d(r, ii);
-            double g = ((double*)r->grad)[ii];
+            double g = tape_grad_load_d(r, ii);
             for (int j = 0; j < w_cs; j++) {
-                ((double*)a->grad)[ii*w_cs+j] += g * (tape_load_d(b, j) / (anorm * bnorm) - cos_val * tape_load_d(a, ii*w_cs+j) / (anorm2 + 1e-10));
+                tape_grad_add_d(a, ii*w_cs+j, g * (tape_load_d(b, j) / (anorm * bnorm) - cos_val * tape_load_d(a, ii*w_cs+j) / (anorm2 + 1e-10)));
             }
         }
 
@@ -94,9 +94,9 @@ static void tape_backward_cosine_sim(TapeEntry* e) {
                 for (int j = 0; j < w_cs; j++) { double v = tape_load_d(a, ii*w_cs+j); anorm2 += v * v; }
                 double anorm = sqrt(anorm2) + 1e-8;
                 double cos_val = tape_load_d(r, ii);
-                double g = ((double*)r->grad)[ii];
+                double g = tape_grad_load_d(r, ii);
                 for (int j = 0; j < w_cs; j++) {
-                    ((double*)b->grad)[j] += g * (tape_load_d(a, ii*w_cs+j) / (anorm * bnorm) - cos_val * tape_load_d(b, j) / (bnorm2 + 1e-10));
+                    tape_grad_add_d(b, j, g * (tape_load_d(a, ii*w_cs+j) / (anorm * bnorm) - cos_val * tape_load_d(b, j) / (bnorm2 + 1e-10)));
                 }
             }
         }

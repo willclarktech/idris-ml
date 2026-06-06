@@ -29,7 +29,7 @@ static void tape_backward_silu(TapeEntry* e) {
         for (int j = 0; j < a->numel; j++) {
             double x = tape_load_d(a, j);
             double s = 1.0 / (1.0 + exp(-x));
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 + x * (1.0 - s));
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * s * (1.0 + x * (1.0 - s)));
         }
     }
 }

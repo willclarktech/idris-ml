@@ -44,9 +44,13 @@ void tensor_backward(TensorHandle h) {
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
 
-    /* Initialize loss gradient to 1.0 */
+    /* Initialize loss gradient to 1.0. Typed allocation matches the
+       loss's data dtype so the grad buffer is F32-sized for F32 losses
+       (required by the Row 38 symmetric-grad path — mismatched
+       allocation + typed accumulators would read the high bytes of
+       the F64 1.0 encoding as garbage on F32 reads). */
     ensure_grad(loss);
-    ((double*)loss->grad)[0] = 1.0;
+    tape_grad_store_d(loss, 0, 1.0);
 
     int processed = 0, skipped = 0;
 

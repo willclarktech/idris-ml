@@ -32,20 +32,24 @@ static int tape_tensor_requires_grad(void* h) { return ((Tensor*)h)->requires_gr
 static int tape_tensor_has_grad(void* h)      { return ((Tensor*)h)->grad != NULL; }
 
 /* ----------------------------------------------------------------------
-   Per-element data access — dtype-aware via tape_load_d / tape_store_d.
-   Grad is always F64.
+   Per-element data + grad access — dtype-aware via tape_load_d /
+   tape_store_d (data) and tape_grad_load_d / tape_grad_store_d (grad).
+   The grad-side dispatch is part of the Row 38 symmetric-F32-grads
+   migration: F32 tensors get F32 grad buffers (4 bytes/elem) and
+   tape_grad_*_d narrows on store / widens on load.
    ---------------------------------------------------------------------- */
 static double tape_data_read(void* h, int i)            { return tape_load_d((Tensor*)h, i); }
 static void   tape_data_write(void* h, int i, double v) { tape_store_d((Tensor*)h, i, v); }
-static double tape_grad_read(void* h, int i)            { return ((double*)((Tensor*)h)->grad)[i]; }
-static void   tape_grad_write(void* h, int i, double v) { ((double*)((Tensor*)h)->grad)[i] = v; }
+static double tape_grad_read(void* h, int i)            { return tape_grad_load_d((Tensor*)h, i); }
+static void   tape_grad_write(void* h, int i, double v) { tape_grad_store_d((Tensor*)h, i, v); };
 
 /* ----------------------------------------------------------------------
-   Bulk grad zero. memset over the F64 grad buffer.
+   Bulk grad zero. memset over the typed grad buffer (size matches
+   tape_grad_elem_size(t->dtype_tag)).
    ---------------------------------------------------------------------- */
 static void tape_zero_grad(void* h) {
     Tensor* t = (Tensor*)h;
-    if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
+    if (t->grad) memset(t->grad, 0, (size_t)t->numel * tape_grad_elem_size(t->dtype_tag));
 }
 
 /* ----------------------------------------------------------------------

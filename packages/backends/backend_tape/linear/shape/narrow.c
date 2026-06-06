@@ -117,36 +117,31 @@ static void tape_backward_narrow(TapeEntry* e) {
     if (!a) return;
     ensure_grad(a);
 
-    /* Infer which dim was narrowed from a/r shape comparison. The
-     * grad buffers are F64 (lingua-franca; tape ops walk F64 grads
-     * regardless of forward storage). */
+    /* Infer which dim was narrowed from a/r shape comparison. Grad
+     * accumulation routes through tape_grad_*_d so F32 buffers narrow
+     * on store / widen on load. */
     if (a->rank == 1) {
         /* 1D narrow: contiguous segment starting at `start`. */
-        double* ag = (double*)a->grad;
-        double* rg = (double*)r->grad;
         for (int j = 0; j < r->numel; j++)
-            ag[start + j] += rg[j];
+            tape_grad_add_d(a, start + j, tape_grad_load_d(r, j));
     } else if (a->rank == 2 && r->rank == 2
                && r->shape[1] == a->shape[1]) {
         /* 2D axis-0 narrow: contiguous block of `len` rows starting
          * at row `start`. */
         int cols = a->shape[1];
-        double* ag = (double*)a->grad;
-        double* rg = (double*)r->grad;
         for (int row = 0; row < r->shape[0]; row++)
             for (int col = 0; col < cols; col++)
-                ag[(start + row) * cols + col] += rg[row * cols + col];
+                tape_grad_add_d(a, (start + row) * cols + col,
+                                tape_grad_load_d(r, row * cols + col));
     } else if (a->rank == 2 && r->rank == 2
                && r->shape[0] == a->shape[0]) {
         /* 2D axis-1 narrow: scatter columns back to parent. */
         int parent_cols = a->shape[1];
         int slice_cols  = r->shape[1];
-        double* ag = (double*)a->grad;
-        double* rg = (double*)r->grad;
         for (int row = 0; row < r->shape[0]; row++)
             for (int col = 0; col < slice_cols; col++)
-                ag[row * parent_cols + start + col]
-                    += rg[row * slice_cols + col];
+                tape_grad_add_d(a, row * parent_cols + start + col,
+                                tape_grad_load_d(r, row * slice_cols + col));
     } else {
         fprintf(stderr,
                 "tape narrow backward: unrecognised shape pair "

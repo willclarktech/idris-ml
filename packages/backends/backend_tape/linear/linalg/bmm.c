@@ -89,8 +89,8 @@ static void tape_backward_bmm(TapeEntry* e) {
                     for (int j = 0; j < nn; j++) {
                         double s = 0;
                         for (int p = 0; p < kk; p++)
-                            s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * tape_load_d(b, j*kk+p);
-                        ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
+                            s += tape_grad_load_d(r, bi*mm*kk + i*kk+p) * tape_load_d(b, j*kk+p);
+                        tape_grad_add_d(a, bi*mm*nn + i*nn+j, s);
                     }
         } else
 #ifdef __APPLE__
@@ -104,8 +104,8 @@ static void tape_backward_bmm(TapeEntry* e) {
                 for (int j = 0; j < nn; j++) {
                     double s = 0;
                     for (int p = 0; p < kk; p++)
-                        s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * ((double*)b->data)[j*kk+p];
-                    ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
+                        s += tape_grad_load_d(r, bi*mm*kk + i*kk+p) * ((double*)b->data)[j*kk+p];
+                    tape_grad_add_d(a, bi*mm*nn + i*nn+j, s);
                 }
 #endif
     }
@@ -117,8 +117,8 @@ static void tape_backward_bmm(TapeEntry* e) {
                     for (int p = 0; p < kk; p++) {
                         double s = 0;
                         for (int i = 0; i < mm; i++)
-                            s += tape_load_d(a, bi*mm*nn + i*nn+j) * ((double*)r->grad)[bi*mm*kk + i*kk+p];
-                        ((double*)b->grad)[j*kk+p] += s;
+                            s += tape_load_d(a, bi*mm*nn + i*nn+j) * tape_grad_load_d(r, bi*mm*kk + i*kk+p);
+                        tape_grad_add_d(b, j*kk+p, s);
                     }
         } else
 #ifdef __APPLE__
@@ -132,8 +132,8 @@ static void tape_backward_bmm(TapeEntry* e) {
                 for (int p = 0; p < kk; p++) {
                     double s = 0;
                     for (int i = 0; i < mm; i++)
-                        s += ((double*)a->data)[bi*mm*nn + i*nn+j] * ((double*)r->grad)[bi*mm*kk + i*kk+p];
-                    ((double*)b->grad)[j*kk+p] += s;
+                        s += ((double*)a->data)[bi*mm*nn + i*nn+j] * tape_grad_load_d(r, bi*mm*kk + i*kk+p);
+                    tape_grad_add_d(b, j*kk+p, s);
                 }
 #endif
         ;

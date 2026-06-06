@@ -86,8 +86,8 @@ static void tape_backward_bmm_3x3(TapeEntry* e) {
                 for (int j = 0; j < nn; j++) {
                     double s = 0;
                     for (int p = 0; p < kk; p++)
-                        s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * tape_load_d(b, bi*nn*kk + j*kk+p);
-                    ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
+                        s += tape_grad_load_d(r, bi*mm*kk + i*kk+p) * tape_load_d(b, bi*nn*kk + j*kk+p);
+                    tape_grad_add_d(a, bi*mm*nn + i*nn+j, s);
                 }
     }
     if (b && b->requires_grad) {
@@ -97,8 +97,8 @@ static void tape_backward_bmm_3x3(TapeEntry* e) {
                 for (int p = 0; p < kk; p++) {
                     double s = 0;
                     for (int i = 0; i < mm; i++)
-                        s += tape_load_d(a, bi*mm*nn + i*nn+j) * ((double*)r->grad)[bi*mm*kk + i*kk+p];
-                    ((double*)b->grad)[bi*nn*kk + j*kk+p] += s;
+                        s += tape_load_d(a, bi*mm*nn + i*nn+j) * tape_grad_load_d(r, bi*mm*kk + i*kk+p);
+                    tape_grad_add_d(b, bi*nn*kk + j*kk+p, s);
                 }
     }
 }

@@ -42,7 +42,7 @@ static void tape_backward_gelu(TapeEntry* e) {
             double inner = c * (x + 0.044715 * x * x * x);
             double t = tanh(inner);
             double dtdx = (1.0 - t * t) * c * (1.0 + 3.0 * 0.044715 * x * x);
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * (0.5 * (1.0 + t) + 0.5 * x * dtdx);
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * (0.5 * (1.0 + t) + 0.5 * x * dtdx));
         }
     }
 }

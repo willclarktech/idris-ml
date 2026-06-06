@@ -49,7 +49,7 @@ static void tape_backward_gather(TapeEntry* e) {
         for (int i = 0; i < nn; i++) {
             int idx = (int)tape_load_d(index, i);
             if (idx >= 0 && idx < a->numel)
-                ((double*)a->grad)[idx] += ((double*)r->grad)[i];
+                tape_grad_add_d(a, idx, tape_grad_load_d(r, i));
         }
     }
 }

@@ -196,7 +196,7 @@ void tape_optimizer_step(void* h) {
             lr = opt->param_lr[i];
 
         for (int j = 0; j < t->numel; j++) {
-            double g = ((double*)t->grad)[j];
+            double g = tape_grad_load_d(t, j);
             int idx = base + j;
 
             double w = tape_load_d(t, j);
@@ -334,9 +334,9 @@ void tape_optimizer_clip_grad_value_filtered(void* h, double max_val) {
         Tensor* t = (Tensor*)param_tensor(i);
         if (!t->grad) continue;
         for (int j = 0; j < t->numel; j++) {
-            double v = ((double*)t->grad)[j];
-            if      (v >  max_val) ((double*)t->grad)[j] =  max_val;
-            else if (v < -max_val) ((double*)t->grad)[j] = -max_val;
+            double v = tape_grad_load_d(t, j);
+            if      (v >  max_val) tape_grad_store_d(t, j, max_val);
+            else if (v < -max_val) tape_grad_store_d(t, j, -max_val);
         }
     }
 }
@@ -349,7 +349,7 @@ double tape_optimizer_clip_grad_norm_filtered(void* h, double max_norm) {
         Tensor* t = (Tensor*)param_tensor(i);
         if (!t->grad) continue;
         for (int j = 0; j < t->numel; j++)
-            total += ((double*)t->grad)[j] * ((double*)t->grad)[j];
+            total += tape_grad_load_d(t, j) * tape_grad_load_d(t, j);
     }
     double norm = sqrt(total);
     if (norm > max_norm) {
@@ -359,7 +359,7 @@ double tape_optimizer_clip_grad_norm_filtered(void* h, double max_norm) {
             Tensor* t = (Tensor*)param_tensor(i);
             if (!t->grad) continue;
             for (int j = 0; j < t->numel; j++)
-                ((double*)t->grad)[j] *= scale;
+                tape_grad_store_d(t, j, tape_grad_load_d(t, j) * scale);
         }
     }
     return norm;

@@ -78,12 +78,12 @@ static void tape_backward_select(TapeEntry* e) {
         ensure_grad(r);
         if (r->numel == 1) {
             /* Scalar select from vector */
-            ((double*)a->grad)[sel_idx] += ((double*)r->grad)[0];
+            tape_grad_add_d(a, sel_idx, tape_grad_load_d(r, 0));
         } else {
             /* Row select from matrix */
             int cols = r->numel;
             for (int j = 0; j < cols; j++)
-                ((double*)a->grad)[sel_idx * cols + j] += ((double*)r->grad)[j];
+                tape_grad_add_d(a, sel_idx * cols + j, tape_grad_load_d(r, j));
         }
     }
 }

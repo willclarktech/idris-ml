@@ -50,8 +50,8 @@ static void tape_backward_outer(TapeEntry* e) {
         for (int ii = 0; ii < m_out; ii++) {
             double s = 0;
             for (int jj = 0; jj < n_out; jj++)
-                s += ((double*)r->grad)[ii*n_out+jj] * tape_load_d(b, jj);
-            ((double*)a->grad)[ii] += s;
+                s += tape_grad_load_d(r, ii*n_out+jj) * tape_load_d(b, jj);
+            tape_grad_add_d(a, ii, s);
         }
     }
     if (b->requires_grad) {
@@ -60,8 +60,8 @@ static void tape_backward_outer(TapeEntry* e) {
         for (int jj = 0; jj < n_out; jj++) {
             double s = 0;
             for (int ii = 0; ii < m_out; ii++)
-                s += ((double*)r->grad)[ii*n_out+jj] * tape_load_d(a, ii);
-            ((double*)b->grad)[jj] += s;
+                s += tape_grad_load_d(r, ii*n_out+jj) * tape_load_d(a, ii);
+            tape_grad_add_d(b, jj, s);
         }
     }
 }

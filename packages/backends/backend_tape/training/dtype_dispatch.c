@@ -155,7 +155,7 @@ static void tape_backward_cast_dtype(TapeEntry* e) {
     ensure_grad(a);
     ensure_grad(r);
     for (int i = 0; i < r->numel; i++) {
-        ((double*)a->grad)[i] += ((double*)r->grad)[i];
+        tape_grad_add_d(a, i, tape_grad_load_d(r, i));
     }
 }
 TAPE_REGISTER_OP(OP_CAST_DTYPE, tape_backward_cast_dtype)

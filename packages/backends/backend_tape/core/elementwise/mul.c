@@ -37,8 +37,9 @@ static void tape_backward_mul(TapeEntry* e) {
     /* Fast path: both shapes match r */
     if (a_match && b_match) {
         for (int j = 0; j < r->numel; j++) {
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * tape_load_d(b, j);
-            ((double*)b->grad)[j] += ((double*)r->grad)[j] * tape_load_d(a, j);
+            double rg = tape_grad_load_d(r, j);
+            if (a) tape_grad_add_d(a, j, rg * tape_load_d(b, j));
+            if (b) tape_grad_add_d(b, j, rg * tape_load_d(a, j));
         }
     } else {
         /* Mixed: scalar / broadcast on either side. Walk r positions. */
@@ -52,8 +53,9 @@ static void tape_backward_mul(TapeEntry* e) {
                 ai += idx[k] * a_str[k];
                 bi += idx[k] * b_str[k];
             }
-            if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * tape_load_d(b, bi);
-            if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * tape_load_d(a, ai);
+            double rg = tape_grad_load_d(r, i);
+            if (a) tape_grad_add_d(a, ai, rg * tape_load_d(b, bi));
+            if (b) tape_grad_add_d(b, bi, rg * tape_load_d(a, ai));
             for (int k = r->rank - 1; k >= 0; k--) {
                 if (++idx[k] < r->shape[k]) break; idx[k] = 0;
             }

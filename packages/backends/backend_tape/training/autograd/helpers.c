@@ -24,7 +24,7 @@
 TensorHandle tensor_grad(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     if (!t->grad) return NULL;
-    return make_scalar(((double*)t->grad)[0], 0);
+    return make_scalar(tape_grad_load_d(t, 0), 0);
 }
 
 void tensor_zero_grad(TensorHandle h) {

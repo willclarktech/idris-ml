@@ -26,7 +26,7 @@ static void tape_backward_abs(TapeEntry* e) {
     if (a) {
         ensure_grad(a);
         for (int j = 0; j < a->numel; j++)
-            ((double*)a->grad)[j] += ((double*)r->grad)[j] * (tape_load_d(a, j) >= 0 ? 1.0 : -1.0);
+            tape_grad_add_d(a, j, tape_grad_load_d(r, j) * (tape_load_d(a, j) >= 0 ? 1.0 : -1.0));
     }
 }
 

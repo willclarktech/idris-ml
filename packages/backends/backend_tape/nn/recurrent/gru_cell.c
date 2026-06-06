@@ -101,7 +101,7 @@ static void tape_backward_gru_cell(TapeEntry* e) {
     Tensor* r    = e->result;
     ensure_grad(r);
     for (int i = 0; i < oo; i++) {
-        double dh = ((double*)r->grad)[i];
+        double dh = tape_grad_load_d(r, i);
         double zv = meta->zG[i];
         double rv = meta->rG[i];
         double nv = meta->nG[i];
@@ -115,19 +115,19 @@ static void tape_backward_gru_cell(TapeEntry* e) {
 
         if (ih && ih->requires_grad) {
             ensure_grad(ih);
-            ((double*)ih->grad)[i]        += d_z_raw;
-            ((double*)ih->grad)[oo + i]   += d_r_raw;
-            ((double*)ih->grad)[2*oo + i] += d_n_pre;   /* d_ih_n = d_n_pre */
+            tape_grad_add_d(ih, i, d_z_raw);
+            tape_grad_add_d(ih, oo + i, d_r_raw);
+            tape_grad_add_d(ih, 2*oo + i, d_n_pre)   /* d_ih_n = d_n_pre */;
         }
         if (hh && hh->requires_grad) {
             ensure_grad(hh);
-            ((double*)hh->grad)[i]        += d_z_raw;
-            ((double*)hh->grad)[oo + i]   += d_r_raw;
-            ((double*)hh->grad)[2*oo + i] += d_hh_n;
+            tape_grad_add_d(hh, i, d_z_raw);
+            tape_grad_add_d(hh, oo + i, d_r_raw);
+            tape_grad_add_d(hh, 2*oo + i, d_hh_n);
         }
         if (prev && prev->requires_grad) {
             ensure_grad(prev);
-            ((double*)prev->grad)[i] += dh * zv;
+            tape_grad_add_d(prev, i, dh * zv);
         }
     }
 }
