@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Download MNIST dataset (4 .idx files) to data/mnist/
 set -e
 

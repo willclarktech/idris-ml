@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Download tinyshakespeare corpus (1.1 MB, 65-char vocab) to data/tinyshakespeare/.
 # Source: karpathy/char-rnn — the canonical char-level LM benchmark file.
 set -e

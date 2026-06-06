@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test_cuda_colab.sh — Run on Google Colab (or any Linux with CUDA + PyTorch)
 #
 # Tests the idris-ml torch backend on CUDA GPU.
