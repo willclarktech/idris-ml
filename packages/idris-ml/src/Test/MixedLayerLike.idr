@@ -27,12 +27,20 @@ import Test.Config
 
 
 -- Build a [n] input tensor from a Vect of Doubles. Pattern lifted
--- from Test.RmsNorm / Test.SwiGLU.
-mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
-mkInput xs =
-  let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}
-                         (VArray (map SArray xs))
-  in tinput1d {n} raw
+-- from Test.RmsNorm / Test.SwiGLU, with `ioRerun` around the
+-- `bulkToTensor` call: returning `IO (Tensor [n] ...)` (not a pure
+-- `let raw = bulkToTensor ...`) prevents Idris/Chez from reordering
+-- the C-side tensor allocation past sibling do-block IO actions
+-- (per `feedback_pure_typed_ffi_reorders.md`). Pre-fix, the pure-let
+-- form caused `linearMixedForwardTypechecks` to crash inside
+-- `tensor_linear_torch` → `torch::mv` with a rank-0 input handle
+-- because the `let input = mkInput xs` was hoisted past
+-- `lin <- mixedLinearLayerAny`.
+mkInput : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType WithGrad)
+mkInput xs = do
+  raw <- ioRerun (\_ => bulkToTensor {ex=TestExecutor} {dt=TestDType}
+                                     (VArray (map SArray xs)))
+  pure (tinput1d {n} raw)
 
 
 -- A2: LinearMixed constructs end-to-end and runs through the
@@ -46,7 +54,7 @@ linearMixedForwardTypechecks = do
                              {i=4} {o=3} "lin_mixed_test"
   let netM : NetworkMixed 4 [] 3 TestExecutor TestDType TestDType WithGrad
       netM = OutputLayerMixed lin
-  let input = mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
+  input <- mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
   (_, _) <- forwardVarMixed netM input
   check "mixedLinearLayer + forwardVarMixed compose end-to-end" True
 
@@ -61,7 +69,7 @@ bridgeForwardTypechecks = do
       net = OutputLayer (the (AnyLayer 4 4 TestExecutor TestDType WithGrad) tanhLayerAny)
   let netM : NetworkMixed 4 [] 4 TestExecutor TestDType TestDType WithGrad
       netM = liftNetwork net
-  let input = mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
+  input <- mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
   (_, _) <- forwardVarMixed netM input
   check "liftNetwork + forwardVarMixed compose end-to-end" True
 
