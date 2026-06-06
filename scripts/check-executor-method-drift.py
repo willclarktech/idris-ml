@@ -39,6 +39,32 @@ EXECUTOR_FILES = {
 # kernel the other two can't support).
 ALLOWLIST: set[tuple[str, str]] = set()  # (slice, method) pairs
 
+# Slices where backends opt in independently — drift across backends is
+# expected and intentional.
+#
+# Two kinds of slices live here:
+#   * **Opt-in interfaces** (`Streamed`, `MemoryHygiene`, `Diagnostics`,
+#     ...) — backends with the relevant hardware concept implement them;
+#     others don't even declare an instance. Useful only to backends with
+#     that concept.
+#   * **Default-impl interfaces** (`Optimizations`) — every backend gets
+#     working semantics via interface-level defaults; per-backend impls
+#     are partial, overriding only the methods they natively accelerate.
+#     Drift across overrides is the whole point.
+#
+# Methods in these slices are not checked for cross-backend presence.
+# The drift gate remains intact for mandatory slices (`Core`, `Linear`,
+# `NN`, `Conv`, `Autograd`, `ParamRegistry`, `Optimizer`, `Serialize`,
+# `Profiling`, `TensorCreate`). Other gates (the per-slice numeric
+# verification test for `Optimizations`; the existing example smoke
+# gates) cover correctness of the opt-in surfaces.
+OPT_IN_SLICES: set[str] = {
+    "Optimizations",
+    "Streamed",
+    "MemoryHygiene",
+    "Diagnostics",
+}
+
 
 INTERFACE_HEAD_RE = re.compile(
     r"^(?:\{[^}]*\}\s*->\s*)?"               # optional implicit binder
@@ -102,6 +128,8 @@ def main() -> int:
     drift: list[tuple[str, str, list[str]]] = []
     for slice_name, method in sorted(all_keys):
         if (slice_name, method) in ALLOWLIST:
+            continue
+        if slice_name in OPT_IN_SLICES:
             continue
         present = [b for b in EXECUTOR_FILES if method in parsed.get(b, {}).get(slice_name, set())]
         if len(present) < len(EXECUTOR_FILES):
