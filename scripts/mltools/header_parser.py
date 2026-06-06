@@ -129,3 +129,19 @@ def grep_word_in_dir(symbol: str, root: Path, suffixes: Iterable[str] = ("*.c",)
             except (OSError, UnicodeDecodeError):
                 continue
     return hits
+
+
+def grep_word_in_dirs(
+    symbol: str, roots: Iterable[Path], suffixes: Iterable[str] = ("*.c",)
+) -> list[Path]:
+    """Like `grep_word_in_dir` but across multiple roots; roots that
+    don't exist are silently skipped. Lets the coverage probe declare a
+    static list of test-tree roots without each caller having to guard
+    on `path.exists()`.
+    """
+    hits: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        hits.extend(grep_word_in_dir(symbol, root, suffixes))
+    return hits

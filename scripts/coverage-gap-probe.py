@@ -45,11 +45,33 @@ from mltools.header_parser import (  # noqa: E402
     extract_ffi_symbols_from_source,
     extract_ops,
     find_op_source,
-    grep_word_in_dir,
+    grep_word_in_dirs,
 )
 
 BACKENDS = ROOT / "packages" / "backends"
-TEST_DIR = BACKENDS / "test"
+
+# Tests are colocated under each backend's source tree plus cross-cutting
+# integration tests under packages/idris-test-c/src/. See
+# docs/develop/coverage-policy.md axis 1. Roots that don't exist (e.g.
+# backend_torch has no colocated tests today) are silently skipped by
+# grep_word_in_dirs. The legacy packages/backends/test/ tree that the
+# predecessor bash version pointed at no longer exists.
+TEST_ROOTS = [
+    BACKENDS / "backend_tape",
+    BACKENDS / "backend_torch",
+    BACKENDS / "backend_mlx",
+    ROOT / "packages" / "idris-test-c" / "src",
+]
+
+# Per-OP narrower roots: a tape OP_* is only triggered through the tape
+# autograd's backward dispatch, so its test file lives under
+# backend_tape/. Cross-cutting tests under idris-test-c/src/ count too —
+# they exercise the OP via its FFI symbol regardless of which backend's
+# tape they target.
+OP_TEST_ROOTS = {
+    "tape": [BACKENDS / "backend_tape", ROOT / "packages" / "idris-test-c" / "src"],
+    "mlx": [BACKENDS / "backend_mlx", ROOT / "packages" / "idris-test-c" / "src"],
+}
 
 # Documented FFI exclusion list (lifted verbatim from
 # coverage-gap-probe.sh; see docs/develop/coverage-policy.md
@@ -104,6 +126,7 @@ def build_ops_rows() -> list[dict]:
         backend_dir = BACKENDS / f"backend_{backend}"
         if not header.exists():
             continue
+        roots = OP_TEST_ROOTS[backend]
         ops = sorted(extract_ops(header.read_text()))
         for op in ops:
             source = find_op_source(op, backend_dir, anchor)
@@ -112,7 +135,7 @@ def build_ops_rows() -> list[dict]:
                 symbols = sorted(extract_ffi_symbols_from_source(source.read_text()))
             test_path = None
             for sym in symbols:
-                hits = grep_word_in_dir(sym, TEST_DIR)
+                hits = grep_word_in_dirs(sym, roots)
                 if hits:
                     test_path = hits[0]
                     break
@@ -141,7 +164,7 @@ def build_symbols_rows() -> list[dict]:
     for sym in syms:
         if sym in FFI_EXCLUSIONS:
             continue
-        hits = grep_word_in_dir(sym, TEST_DIR)
+        hits = grep_word_in_dirs(sym, TEST_ROOTS)
         rows.append({"symbol": sym, "test_hits": str(len(hits))})
     return rows
 

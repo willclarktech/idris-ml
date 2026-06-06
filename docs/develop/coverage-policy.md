@@ -134,14 +134,18 @@ When introducing a new `OP_FOO` to either tape or mlx:
 2. **Backward** — register via `TAPE_REGISTER_OP(OP_FOO, ...)` (tape)
    or `MLX_REGISTER_REPLAY(OP_FOO, ...)` (mlx) in the same source
    file.
-3. **Add a Criterion test** at `test/common/<area>/test_foo.c` that:
+3. **Add a Criterion test** at `backend_<b>/<area>/test_foo.c`
+   (colocated with the source file from step 1; cross-cutting tests
+   go under `packages/idris-test-c/src/` instead). The test:
    - exercises `tensor_foo` forward with hand-computed expected
      values
    - calls `tensor_backward(loss)` and asserts gradients via
      `param_grad_item_at` against finite-difference or hand-computed
      reference
-   - on torch passes the same test (the common-tree file runs on all
-     three backends via `-DBACKEND_<b>` gating)
+   - if the op exists on more than one backend, add the same
+     assertions under each backend's tree — the Makefile's
+     `CRITERION_BACKEND_TEST_SRCS` rule discovers `test_*.c` under
+     every `backend_<b>/` and links the matching backend's variant
 4. **TDD commit shape**: per `feedback_tdd_default`, either commit
    the test together with the implementing change (paired commit,
    body line `RED before this commit: <assertion>`) or commit the
@@ -189,12 +193,16 @@ assert pairwise agreement within tolerance.
 It is intentionally deferred. The same divergence-catching is achieved
 by the common-test pattern at lower cost:
 
-- The Criterion suite under `packages/backends/test/common/` is built **once
-  per backend** (`-DBACKEND_<NAME>` selects assertions). When a test like
-  `test_gelu.c::forward_backward_at_one` is added, it runs on tape, torch,
-  and mlx in three separate CI invocations. If one backend's answer differs,
-  that backend's CI lane fails; the other lanes stay green; you immediately
-  know which backend disagrees.
+- The colocated Criterion suite under `packages/backends/backend_<b>/`
+  (plus cross-cutting tests under `packages/idris-test-c/src/`) is built
+  per backend. When `test_gelu.c::forward_backward_at_one` is added under
+  one backend's tree, the contributor adds the same assertions under the
+  other backends' trees too, so the same logical test runs on tape,
+  torch, and mlx in three separate CI invocations. If one backend's
+  answer differs, that backend's CI lane fails; the other lanes stay
+  green; you immediately know which backend disagrees. (This used to be
+  one common-tree file gated by `-DBACKEND_<NAME>`; the trees are now
+  colocated per backend instead.)
 - This is how `test_gelu.c` caught torch using exact GELU instead of the
   tanh approximation (commit `b23a090`), how `test_transpose_last2.c` caught
   mlx's `tensor_to_doubles` reading non-contiguous views in storage order
