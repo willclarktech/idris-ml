@@ -44,7 +44,7 @@ ARGS=("$@")
 
 case "$EXAMPLE_KEY" in
   ntm-copy)            TGT=example-ntm-copy;                   AVAR=NTM_COPY_ARGS ;;
-  ntm-recall)          TGT=example-ntm-associative-recall;     AVAR=NTM_RECALL_ARGS ;;
+  ntm-recall)          TGT=example-ntm-associative-recall;     AVAR=NTM_ASSOCIATIVE_RECALL_ARGS ;;
   dnc-copy)            TGT=example-dnc-copy;                   AVAR=DNC_COPY_ARGS ;;
   dnc-recall)          TGT=example-dnc-recall;                 AVAR=DNC_RECALL_ARGS ;;
   supervised)          TGT=example-supervised;                 AVAR=SUPERVISED_ARGS ;;

@@ -56,7 +56,7 @@ case "$EXAMPLE_KEY" in
   gru)               IDRIS_TGT=example-gru;                    IDRIS_VAR=GRU_ARGS;               REF_MOD=torch_ref.scripts.gru;               N_LONG=200  ;;
   transformer)       IDRIS_TGT=example-transformer;            IDRIS_VAR=TRANSFORMER_ARGS;       REF_MOD=torch_ref.scripts.transformer;       N_LONG=200  ;;
   ntm-copy)          IDRIS_TGT=example-ntm-copy;               IDRIS_VAR=NTM_COPY_ARGS;          REF_MOD=torch_ref.scripts.ntm_copy;          N_LONG=40   ;;
-  ntm-recall)        IDRIS_TGT=example-ntm-associative-recall; IDRIS_VAR=NTM_RECALL_ARGS;        REF_MOD=torch_ref.scripts.ntm_recall;        N_LONG=40   ;;
+  ntm-recall)        IDRIS_TGT=example-ntm-associative-recall; IDRIS_VAR=NTM_ASSOCIATIVE_RECALL_ARGS;        REF_MOD=torch_ref.scripts.ntm_recall;        N_LONG=40   ;;
   dnc-copy)          IDRIS_TGT=example-dnc-copy;               IDRIS_VAR=DNC_COPY_ARGS;          REF_MOD=torch_ref.scripts.dnc_copy;          N_LONG=80   ;;
   dnc-recall)        IDRIS_TGT=example-dnc-recall;             IDRIS_VAR=DNC_RECALL_ARGS;        REF_MOD=torch_ref.scripts.dnc_recall;        N_LONG=40   ;;
   reinforce)         IDRIS_TGT=example-reinforce;              IDRIS_VAR=REINFORCE_ARGS;         REF_MOD=torch_ref.scripts.reinforce;         N_LONG=200  ;;

@@ -1871,7 +1871,7 @@ example-ntm-copy: install
 example-ntm-associative-recall: install
 	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
 	cp $(LIB) $(BUILD)/exec/ntm-associative-recall_app/
-	$(STDBUF) ./$(BUILD)/exec/ntm-associative-recall $(SEED_FLAG) $(NTM_RECALL_ARGS)
+	$(STDBUF) ./$(BUILD)/exec/ntm-associative-recall $(SEED_FLAG) $(NTM_ASSOCIATIVE_RECALL_ARGS)
 
 example-dnc-copy: install
 	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
@@ -2562,28 +2562,38 @@ test-e2e-examples:
 		for e in $(EXAMPLES); do \
 			echo "--- $$e [$$lane] ---"; \
 			extra_args=""; \
+			smoke_args=""; \
 			case "$$e" in \
-				example-supervised)  extra_args="SUPERVISED_ARGS=--epochs 5" ;; \
-				example-rnn)         extra_args="RNN_ARGS=--epochs 5" ;; \
-				example-lstm)        extra_args="LSTM_ARGS=--epochs 5" ;; \
-				example-gru)         extra_args="GRU_ARGS=--epochs 5" ;; \
-				example-transformer) extra_args="TRANSFORMER_ARGS=--epochs 5" ;; \
-				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 10" ;; \
-				example-gpt)         extra_args="GPT_ARGS=--epochs 3" ;; \
-				example-matmul-bench) extra_args="MATMUL_BENCH_ARGS=--size 1024 --iters 3" ;; \
-				example-mnist)       extra_args="MNIST_ARGS=--epochs 1 --train-count 6000" ;; \
-				example-seq-classify) extra_args="SEQ_ARGS=--epochs 5" ;; \
-				example-dqn)         extra_args="DQN_ARGS=--epochs 10" ;; \
-				example-mountain-car) extra_args="MOUNTAIN_CAR_ARGS=--epochs 5" ;; \
-				example-mountain-car-cont) extra_args="MOUNTAIN_CAR_CONT_ARGS=--epochs 5" ;; \
-				example-a2c)         extra_args="A2C_ARGS=--epochs 50" ;; \
-				example-ppo)         extra_args="PPO_ARGS=--epochs 5" ;; \
-				example-sac)         extra_args="SAC_ARGS=--epochs 100" ;; \
-				example-ntm-copy)    extra_args="NTM_COPY_ARGS=--epochs 5" ;; \
-				example-ntm-associative-recall) extra_args="NTM_RECALL_ARGS=--epochs 5" ;; \
-				example-dnc-copy)    extra_args="DNC_COPY_ARGS=--epochs 5 --max-len 3 --batch 1" ;; \
-				example-dnc-recall)  extra_args="DNC_RECALL_ARGS=--epochs 5 --max-items 2 --batch 1" ;; \
+				example-supervised)              smoke_args="--epochs 5" ;; \
+				example-rnn)                     smoke_args="--epochs 5" ;; \
+				example-lstm)                    smoke_args="--epochs 5" ;; \
+				example-gru)                     smoke_args="--epochs 5" ;; \
+				example-transformer)             smoke_args="--epochs 5" ;; \
+				example-reinforce)               smoke_args="--epochs 10" ;; \
+				example-gpt)                     smoke_args="--epochs 3" ;; \
+				example-matmul-bench)            smoke_args="--size 1024 --iters 3" ;; \
+				example-mnist)                   smoke_args="--epochs 1 --train-count 6000" ;; \
+				example-seq-classify)            smoke_args="--epochs 5" ;; \
+				example-dqn)                     smoke_args="--epochs 10" ;; \
+				example-mountain-car)            smoke_args="--epochs 5" ;; \
+				example-mountain-car-cont)       smoke_args="--epochs 5" ;; \
+				example-a2c)                     smoke_args="--epochs 50" ;; \
+				example-ppo)                     smoke_args="--epochs 5" ;; \
+				example-sac)                     smoke_args="--epochs 100" ;; \
+				example-ntm-copy)                smoke_args="--epochs 5" ;; \
+				example-ntm-associative-recall)  smoke_args="--epochs 5" ;; \
+				example-dnc-copy)                smoke_args="--epochs 5 --max-len 3 --batch 1" ;; \
+				example-dnc-recall)              smoke_args="--epochs 5 --max-items 2 --batch 1" ;; \
 			esac; \
+			if [ -n "$$smoke_args" ]; then \
+				args_var=$$(echo "$${e#example-}" | tr 'a-z-' 'A-Z_')_ARGS; \
+				if ! grep -qF "\$$($$args_var)" Makefile; then \
+					echo "FAIL: $$e: test-examples derived '$$args_var' but no Makefile recipe consumes it."; \
+					echo "  (Naming convention: example-foo-bar => FOO_BAR_ARGS. Likely cause: the var was renamed in the recipe without updating the test-examples case-arm, or vice versa.)"; \
+					fail=1; [ -n "$$FAIL_FAST" ] && exit 1; continue; \
+				fi; \
+				extra_args="$$args_var=$$smoke_args"; \
+			fi; \
 			t_start=$$(date +%s); \
 			if [ -n "$$extra_args" ]; then \
 				output=$$(env $$lane_env $$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e "$$extra_args" 2>&1); rc=$$?; \

@@ -62,7 +62,7 @@ spec_for() {
     gru)               echo "example-gru GRU_ARGS torch_ref.scripts.gru 200" ;;
     transformer)       echo "example-transformer TRANSFORMER_ARGS torch_ref.scripts.transformer 200" ;;
     ntm-copy)          echo "example-ntm-copy NTM_COPY_ARGS torch_ref.scripts.ntm_copy 40" ;;
-    ntm-recall)        echo "example-ntm-associative-recall NTM_RECALL_ARGS torch_ref.scripts.ntm_recall 40" ;;
+    ntm-recall)        echo "example-ntm-associative-recall NTM_ASSOCIATIVE_RECALL_ARGS torch_ref.scripts.ntm_recall 40" ;;
     dnc-copy)          echo "example-dnc-copy DNC_COPY_ARGS torch_ref.scripts.dnc_copy 80" ;;
     dnc-recall)        echo "example-dnc-recall DNC_RECALL_ARGS torch_ref.scripts.dnc_recall 40" ;;
     reinforce)         echo "example-reinforce REINFORCE_ARGS torch_ref.scripts.reinforce 200" ;;
