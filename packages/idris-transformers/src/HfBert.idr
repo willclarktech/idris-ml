@@ -21,6 +21,7 @@ import Data.Vect
 
 import Compat.Random
 import Executor
+import HfCommon
 import Init
 import Sampler
 import Tensor
@@ -132,9 +133,7 @@ mlmHeadParamNames pfx =
   ]
 
 encoderParamNames : (pfx : String) -> (numLayers : Nat) -> List String
-encoderParamNames _   Z     = []
-encoderParamNames pfx (S k) =
-  encoderParamNames pfx k ++ encoderLayerParamNames pfx k
+encoderParamNames pfx numLayers = forBlocks numLayers (encoderLayerParamNames pfx)
 
 ||| The complete BERT param catalogue for `cfg`, in the order
 ||| `hfBertModel` registers them. Equality against this list is the

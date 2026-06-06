@@ -164,18 +164,9 @@ layerParamNames pfx i =
 public export
 hfBitnetParamNames : (cfg : BitNetConfig) -> (pfx : String) -> List String
 hfBitnetParamNames cfg pfx =
-  let mkLayer = layerParamNames pfx
-  in [embeddingsParamName pfx]
-  ++ concatMap mkLayer (rangeNat cfg.numLayers)
-  ++ [finalNormParamName pfx]
-
-  where
-    rangeNat : Nat -> List Nat
-    rangeNat n = go n 0 []
-      where
-        go : Nat -> Nat -> List Nat -> List Nat
-        go Z _ acc = reverse acc
-        go (S k) i acc = go k (S i) (i :: acc)
+  [embeddingsParamName pfx]
+    ++ forBlocks cfg.numLayers (layerParamNames pfx)
+    ++ [finalNormParamName pfx]
 
 
 ----------------------------------------------------------------------

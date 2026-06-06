@@ -109,3 +109,24 @@ projectTiedLmHead embedWeight hFinal =
       zeroBias : Tensor [vocab] ex dt g
       zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
   in tlinear2d embedWeight hFinal zeroBias
+
+
+----------------------------------------------------------------------
+-- Per-block fan-out helper
+----------------------------------------------------------------------
+
+||| `forBlocks n mk = mk 0 ++ mk 1 ++ … ++ mk (n - 1)`.
+|||
+||| Every adapter's `hfXxxParamNames` catalogue has the same skeleton:
+||| an opening section (embeddings / wte / model.embed_tokens), then a
+||| per-block fan-out, then a closing section (final norm). This
+||| helper centralises the fan-out so each adapter only owns its per-
+||| block component-name list — the strings themselves stay
+||| per-adapter (load-bearing HF on-disk contract).
+export
+forBlocks : Nat -> (Nat -> List String) -> List String
+forBlocks n mk = go n 0
+  where
+    go : Nat -> Nat -> List String
+    go Z     _ = []
+    go (S k) i = mk i ++ go k (S i)

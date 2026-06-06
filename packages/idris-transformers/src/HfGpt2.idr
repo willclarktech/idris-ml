@@ -128,18 +128,9 @@ public export
 hfGpt2ParamNames : (cfg : Gpt2Config) -> (pfx : String) -> List String
 hfGpt2ParamNames cfg pfx =
   let pfx_t = if pfx == "" then "transformer" else pfx ++ ".transformer"
-      mkBlock = blockParamNames pfx_t
   in embeddingsParamNames pfx_t
-  ++ concatMap mkBlock (rangeNat cfg.numLayers)
+  ++ forBlocks cfg.numLayers (blockParamNames pfx_t)
   ++ finalNormParamNames pfx_t
-
-  where
-    rangeNat : Nat -> List Nat
-    rangeNat n = go n 0 []
-      where
-        go : Nat -> Nat -> List Nat -> List Nat
-        go Z _ acc = reverse acc
-        go (S k) i acc = go k (S i) (i :: acc)
 
 
 ----------------------------------------------------------------------
