@@ -24,6 +24,7 @@ modules = Compat.Random
         , GradScaler
         , Hardware
         , HwConfig
+        , Machine
         , HwExecutors
         , Hpo
         , Hpo.LrFinder
