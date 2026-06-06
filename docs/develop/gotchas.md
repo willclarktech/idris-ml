@@ -578,6 +578,54 @@ default both stay at seed=42 (matches the primary tape/torch path).
 
 C kernels, buffer systems, optimizer internals, and the layer system.
 
+### `__act/` is a reserved paramId prefix (activation-dump scratch space)
+
+`forwardVarTraced` at `IDRISML_LOG_LEVEL=trace` registers per-layer
+activations into the param registry under `__act/<label>/<i>` synthetic
+names, calls `primParamSaveByName` to flush them, then calls
+`primParamEraseByPrefix "__act/<label>/"` to remove them BEFORE
+returning. The whole register-save-erase happens inside a single
+`forwardVarTraced` invocation; outside the function the registry is
+exactly as it was.
+
+If a user model also uses `__act/...` as a paramId prefix:
+- `saveModelMatching path (isPrefixOf "__act/")` saves everything,
+  including the user's "real" weights with that prefix.
+- The flush after a TRACE-level `forwardVarTraced` call would also
+  pick up the user's weights.
+- The post-flush erase would drop the user's weights from the
+  registry. **This is the corruption case** — the model would lose
+  parameters mid-training.
+
+Treat `__act/` as reserved: don't use it as a paramId prefix for any
+parameter that should outlive a single forward pass. The label
+component (`<label>`) is also sanitized (non-`[A-Za-z0-9_-]` →
+`_`), so synthetic names are guaranteed to start with literal
+`__act/`. Two leading underscores match the broader "internal, not
+user-facing" naming convention.
+
+### `IDRISML_ACTIVATION_DIR` + `IDRISML_ACTIVATION_EVERY_N` env vars
+
+Used by `forwardVarTraced` at TRACE level only:
+
+- `IDRISML_ACTIVATION_DIR` — directory under which to write
+  `<label>-<seq>.safetensors` files (default `./activations`).
+  `forwardVarTraced` `createDir`s it on first dump; the create
+  ignores the "already exists" error.
+- `IDRISML_ACTIVATION_EVERY_N` — dump frequency (default `1`,
+  meaning every forward). Per-process global counter; value `N` keeps
+  one in every N dumps. Useful for long-run debugging where
+  `EVERY_N=1` would otherwise fill disk.
+
+The TRACE branch also requires the dylib to be built with
+`IDRISML_LOG=trace make backend install` — the build ceiling
+(`backends/log.c:30`) clamps the active log level, so a default
+`IDRISML_LOG=info` build can't be flipped to TRACE at runtime no
+matter what `IDRISML_LOG_LEVEL` env var is set.
+
+Python-side reader: `from safetensors.numpy import load_file; d =
+load_file('./activations/<label>-1.safetensors'); print(d.keys())`.
+
 ### `tensor_conv2d` requires a rank-3 input (not flat)
 
 `tensor_conv2d` (single-sample) takes a rank-3 input `[inC, H, W]` and

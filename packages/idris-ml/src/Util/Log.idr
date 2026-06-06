@@ -61,8 +61,9 @@ public export
 logDebug : String -> IO ()
 logDebug msg = primIO (prim__logDebug msg)
 
-||| Emit at TRACE level. Reserved for per-op tracing — the future
-||| `forwardVarTraced` migration target.
+||| Emit at TRACE level. Used by `forwardVarTraced`'s
+||| activation-dump branch (see `Layer/Core.idr`); reserve for
+||| per-op tracing.
 public export
 logTrace : String -> IO ()
 logTrace msg = primIO (prim__logTrace msg)
