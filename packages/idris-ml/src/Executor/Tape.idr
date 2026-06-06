@@ -101,7 +101,6 @@ prim__oneHotTape : AnyPtr -> Int -> Int -> Int -> AnyPtr
 public export
 UserExecutorCore TapeExecutor where
   deviceName       = "tape"
-  deviceStreamTag  = 0
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primAbs = prim__absTape
   primAdd = prim__addTape
@@ -126,6 +125,10 @@ UserExecutorCore TapeExecutor where
   primSub = prim__subTape
   primTanh = prim__tanhTape
   -- <<< END GENERATED <<<
+
+public export
+UserExecutorStreamed TapeExecutor where
+  deviceStreamTag = 0
 
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (tape-suffixed)

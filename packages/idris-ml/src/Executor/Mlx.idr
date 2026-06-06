@@ -151,7 +151,6 @@ public export
   deviceName       = case s of
                        MGpu => "mlx:gpu"
                        MCpu => "mlx:cpu"
-  deviceStreamTag  = streamTag s
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primAbs a0 = prim__absMlxStreamed a0 (streamTag s)
   primAdd a0 a1 = prim__addMlxStreamed a0 a1 (streamTag s)
@@ -176,6 +175,11 @@ public export
   primSub a0 a1 = prim__subMlxStreamed a0 a1 (streamTag s)
   primTanh a0 = prim__tanhMlxStreamed a0 (streamTag s)
   -- <<< END GENERATED <<<
+
+public export
+{s : MlxStream} -> UserExecutorStreamed (MlxExecutor s) where
+  deviceStreamTag = streamTag s
+
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (mlx-suffixed, streamed)
 ----------------------------------------------------------------------

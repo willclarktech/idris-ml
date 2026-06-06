@@ -109,24 +109,6 @@ interface UserExecutorCore (0 ex : Executor) where
   ||| Used in logs and `Show Executor`-style stringification.
   deviceName : String
 
-  ||| Per-device stream-selection tag. Threaded into every C-side
-  ||| `_streamed` primitive so the type-level `d` drives stream
-  ||| dispatch instead of `default_stream_tag()` (which reads the
-  ||| `MLX_DEVICE` env var at process start).
-  |||
-  ||| MLX devices return their stream's tag (`MGpu = 1`, `MCpu = 0`);
-  ||| every other backend returns 0 (the tape and torch backends
-  ||| have no stream concept — their `_streamed` C entries are
-  ||| no-op wrappers that ignore the arg).
-  |||
-  ||| TODO audit: candidate for demotion to a `UserExecutorStreamed`
-  ||| opt-in interface (BYO authors without streams shouldn't have
-  ||| to write `deviceStreamTag = 0` boilerplate). Deferred from the
-  ||| Optimizations-slice audit because the drift gate's OPT_IN_SLICES
-  ||| escape hatch covers slice-level opt-in, not default-impl methods
-  ||| on a mandatory slice. Needs a paired drift-gate change.
-  deviceStreamTag : Int
-
   -- Lifecycle ---------------------------------------------------------
   ||| Allocate a 0-rank tensor with the given value and grad flag.
   ||| `requires_grad` is 0 or 1.
@@ -165,6 +147,31 @@ interface UserExecutorCore (0 ex : Executor) where
   primClampMin  : AnyPtr -> Double -> AnyPtr
   primClamp     : AnyPtr -> Double -> Double -> AnyPtr
   primRound     : AnyPtr -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserExecutorStreamed — per-device stream-selection tag
+----------------------------------------------------------------------
+
+||| Opt-in stream-selection slice. Threaded into every C-side
+||| `_streamed` primitive so the type-level `ex` drives stream
+||| dispatch instead of `default_stream_tag()` (which would read the
+||| `MLX_DEVICE` env var at process start).
+|||
+||| MLX devices return their stream's tag (`MGpu = 1`, `MCpu = 0`);
+||| the tape and torch backends declare a `deviceStreamTag = 0`
+||| instance so the streamed-FFI machinery threads a stable 0 through
+||| their no-op `_streamed` C wrappers. BYO backends without a stream
+||| concept can omit the instance entirely; the `_streamed` callers in
+||| `Tensor.idr` will fail to elaborate, which is the correct signal
+||| ("this backend doesn't model streams; use the non-streamed path").
+|||
+||| Superclass of both `UserExecutorTraining` and `UserExecutorInference`,
+||| so existing callers of either aggregate resolve unchanged for the
+||| three in-tree backends (all of which implement this slice).
+public export
+interface UserExecutorCore ex => UserExecutorStreamed (0 ex : Executor) where
+  deviceStreamTag : Int
 
 
 ----------------------------------------------------------------------
@@ -640,6 +647,7 @@ interface (UserExecutorConv ex,
            UserExecutorOptimizations ex,
            UserExecutorSerialize ex,
            UserExecutorProfiling ex,
+           UserExecutorStreamed ex,
            UserExecutorTensorCreate ex) =>
           UserExecutorTraining (0 ex : Executor) where
 
@@ -772,6 +780,7 @@ interface UserExecutorCore ex => UserExecutorQuant (0 ex : Executor) where
 public export
 interface (UserExecutorConv ex,
            UserExecutorOptimizations ex,
+           UserExecutorStreamed ex,
            UserExecutorTensorCreate ex,
            UserExecutorTransfer ex,
            UserExecutorQuant ex) =>

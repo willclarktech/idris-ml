@@ -131,7 +131,6 @@ prim__oneHotTorch : AnyPtr -> Int -> Int -> Int -> AnyPtr
 public export
 {d : TorchHwDev} -> UserExecutorCore (TorchExecutor d) where
   deviceName       = torchHwDevName d
-  deviceStreamTag  = 0
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primAbs = prim__absTorch
   primAdd = prim__addTorch
@@ -161,6 +160,11 @@ public export
   -- hardware via `tensor_to_device`. Self-move on `TCpu`.
   primCreateScalar val rg =
     prim__toDeviceTorch (prim__createScalarTorch val rg) (torchHwDevName d)
+
+public export
+{d : TorchHwDev} -> UserExecutorStreamed (TorchExecutor d) where
+  deviceStreamTag = 0
+
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (torch-suffixed)
 ----------------------------------------------------------------------
