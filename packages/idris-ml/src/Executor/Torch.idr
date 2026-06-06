@@ -7,6 +7,7 @@ module Executor.Torch
 
 import Executor.Core
 import DType.Core
+import Hardware
 
 
 ----------------------------------------------------------------------
@@ -816,3 +817,12 @@ public export
     TCpu    => HostCpu
     TMps    => AppleGpu
     TCuda n => Nvidia n
+
+
+----------------------------------------------------------------------
+-- Hardware (type-level): map each torch hw variant to its kind tag.
+----------------------------------------------------------------------
+
+public export RunsOn (TorchExecutor TCpu)        Cpu       where
+public export RunsOn (TorchExecutor TMps)        AppleGpu  where
+public export {n : Nat} -> RunsOn (TorchExecutor (TCuda n)) (Cuda n) where

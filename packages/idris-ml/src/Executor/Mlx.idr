@@ -7,6 +7,7 @@ module Executor.Mlx
 
 import Executor.Core
 import DType.Core
+import Hardware
 
 
 ----------------------------------------------------------------------
@@ -835,3 +836,11 @@ public export
   hardwareClass = case s of
     MCpu => HostCpu
     MGpu => AppleGpu
+
+
+----------------------------------------------------------------------
+-- Hardware (type-level): map each mlx stream to its kind tag.
+----------------------------------------------------------------------
+
+public export RunsOn (MlxExecutor MCpu) Cpu      where
+public export RunsOn (MlxExecutor MGpu) AppleGpu where

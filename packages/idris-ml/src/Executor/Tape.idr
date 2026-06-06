@@ -7,6 +7,7 @@ module Executor.Tape
 
 import Executor.Core
 import DType.Core
+import Hardware
 
 
 ----------------------------------------------------------------------
@@ -742,3 +743,11 @@ Compatible TapeExecutor Binary where
 public export
 HardwareClassed TapeExecutor where
   hardwareClass = HostCpu
+
+
+----------------------------------------------------------------------
+-- Hardware (type-level): tape runs on Cpu.
+----------------------------------------------------------------------
+
+public export
+RunsOn TapeExecutor Cpu where
