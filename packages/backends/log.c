@@ -39,3 +39,11 @@ void idrisml_log_impl(int level, const char *fmt, ...) {
     vfprintf(stderr, fmt, args);
     va_end(args);
 }
+
+/* Fixed-arity wrappers — see log.h. Each delegates to IDRISML_LOG so
+ * the compile-time level ceiling applies uniformly. */
+void idrisml_log_error(const char *msg) { IDRISML_LOG(IDRISML_LEVEL_ERROR, "%s\n", msg); }
+void idrisml_log_warn (const char *msg) { IDRISML_LOG(IDRISML_LEVEL_WARN,  "%s\n", msg); }
+void idrisml_log_info (const char *msg) { IDRISML_LOG(IDRISML_LEVEL_INFO,  "%s\n", msg); }
+void idrisml_log_debug(const char *msg) { IDRISML_LOG(IDRISML_LEVEL_DEBUG, "%s\n", msg); }
+void idrisml_log_trace(const char *msg) { IDRISML_LOG(IDRISML_LEVEL_TRACE, "%s\n", msg); }

@@ -9,6 +9,7 @@ import Data.Nat
 import System.Clock
 
 import Util
+import Util.Log
 import Executor
 import Tensor
 import Schedule
@@ -243,7 +244,7 @@ runTrainingIO :
   IO (model, Nat, Double)
 runTrainingIO {model} epochFn dataSrc cfg model0 = do
   tStart <- clockTime Monotonic
-  putStrLn $ "Training... [backend=" ++ backendName {ex} ++ "]"
+  logInfo $ "Training... [backend=" ++ backendName {ex} ++ "]"
   bestRef <- newIORef (the Double (1.0/0.0))
   startEp <- case cfg.checkpoint of
     Nothing  => pure 0
@@ -253,7 +254,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
         Nothing => pure 0
         Just (ep0, best0) => do
           writeIORef bestRef best0
-          putStrLn $ "  Resuming from epoch " ++ show ep0
+          logInfo $ "  Resuming from epoch " ++ show ep0
                    ++ " (best=" ++ showFix 6 best0 ++ ")"
           pure ep0
   result@(m, epochsDone, loss) <- case cfg.earlyStop of
@@ -271,9 +272,9 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                   else pure m
     Nothing  => pure m
   tEnd <- clockTime Monotonic
-  putStrLn $ formatTimingSummary tStart tEnd epochsDone
-  putStrLn $ formatPerfMsPerEp tStart tEnd epochsDone
-  putStrLn $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
+  logInfo $ formatTimingSummary tStart tEnd epochsDone
+  logInfo $ formatPerfMsPerEp tStart tEnd epochsDone
+  logInfo $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
           ++ "\tCurrent RSS: " ++ show (getCurrentRssMB 0) ++ " MB"
           ++ "\tLive handles: " ++ show (primLiveCount {ex} (cast epochsDone))
           ++ "\tPeak handles: " ++ show (primPeakLiveCount {ex} (cast epochsDone))
@@ -313,7 +314,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                    ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
                    ++ "\thandles=" ++ show (primLiveCount {ex} (cast ep))
                    ++ "\tpeakhandles=" ++ show (primPeakLiveCount {ex} (cast ep))
-      putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
+      logInfo $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 
     -- Per-epoch generation-scoped free. `epochBegin` marks the tensor
@@ -383,7 +384,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
         epochEnd
         if loss /= loss
           then do now <- clockTime Monotonic
-                  putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
+                  logWarn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
                   pure (m', ep, loss)
           else do postEpoch bestRef ep loss
                   goSimple bestRef (S ep) m' loss t0
@@ -391,7 +392,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     diverged : Clock Monotonic -> Nat -> model -> Double -> IO (model, Nat, Double)
     diverged t0 ep m loss = do
       now <- clockTime Monotonic
-      putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
+      logWarn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
       pure (m, ep, loss)
 
     -- Patience-based early stopping
@@ -416,7 +417,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                 stale' = if improved then 0 else stale + 1
             if pat > 0 && stale' >= pat
               then do now <- clockTime Monotonic
-                      putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch "
+                      logInfo $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch "
                                ++ show (ep + 1) ++ " (patience=" ++ show pat ++ ")"
                       pure (m', ep + 1, loss)
               else goPatience bestRef (S ep) m' best' stale' t0 pat minD
@@ -452,12 +453,12 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                                else let cc = convCount + 1
                                     in if cc >= pat
                                       then do now <- clockTime Monotonic
-                                              putStrLn $ "  " ++ formatElapsed t0 now
+                                              logInfo $ "  " ++ formatElapsed t0 now
                                                        ++ " Converged at epoch " ++ show (ep + 1)
                                                        ++ " (window_avg=" ++ show windowAvg ++ ")"
                                               pure (m', ep + 1, loss)
                                       else do now <- clockTime Monotonic
-                                              putStrLn $ "    " ++ formatElapsed t0 now
+                                              logInfo $ "    " ++ formatElapsed t0 now
                                                        ++ " convergence " ++ show cc ++ "/" ++ show pat
                                                        ++ " (window_avg=" ++ show windowAvg ++ ")"
                                               goWindowed bestRef (S ep) m' 0.0 0 avgs' cc t0 thresh win pat)
@@ -507,13 +508,13 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                         else let cc = convCount + 1
                              in if cc >= pat
                                then do now <- clockTime Monotonic
-                                       putStrLn $ "  " ++ formatElapsed t0 now
+                                       logInfo $ "  " ++ formatElapsed t0 now
                                                 ++ " Converged at epoch " ++ show (ep + 1)
                                                 ++ " (p" ++ show (cast {to=Int} (pct * 100.0))
                                                 ++ "_loss=" ++ show pctVal ++ ")"
                                        pure (m', ep + 1, loss)
                                else do now <- clockTime Monotonic
-                                       putStrLn $ "    " ++ formatElapsed t0 now
+                                       logInfo $ "    " ++ formatElapsed t0 now
                                                 ++ " convergence " ++ show cc ++ "/" ++ show pat
                                                 ++ " (p" ++ show (cast {to=Int} (pct * 100.0))
                                                 ++ "_loss=" ++ show pctVal ++ ")"

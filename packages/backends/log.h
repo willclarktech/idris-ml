@@ -15,8 +15,8 @@
  *   ERROR — always visible; aborts and crash diagnostics
  *   WARN  — non-fatal anomalies (reserved)
  *   INFO  — default user-facing output: epoch summaries, RSS, NaN-diverge
- *   DEBUG — opt-in diagnostics: DEBUG_PARAM_GRADS / DEBUG_LSTM_TRAJ /
- *           DEBUG_NAN_TRAP fprintf bodies live behind this gate
+ *   DEBUG — opt-in diagnostics: DEBUG_PARAM_GRADS / DEBUG_LSTM_TRAJ
+ *           fprintf bodies live behind this gate
  *   TRACE — per-op tracing; future home for forwardVarTraced telemetry
  *
  * Cross-language: the Idris-side Util.Log uses the same env var so an
@@ -55,6 +55,18 @@ int idrisml_log_resolve_level(void);
  * (via #if at the macro call site) and the runtime cache (via a leading
  * branch here). */
 void idrisml_log_impl(int level, const char *fmt, ...);
+
+/* Fixed-arity wrappers for Idris-side FFI consumption. Idris-2's FFI
+ * doesn't support varargs; Idris formats the message string and calls
+ * the right-level wrapper with a single `const char *`. Each wrapper
+ * is a one-liner `IDRISML_LOG(level, "%s", msg)` so the same compile-
+ * time elision applies — `IDRISML_LOG=warn` builds drop the INFO/DEBUG
+ * call bodies the same way as C-side macro uses. */
+void idrisml_log_error(const char *msg);
+void idrisml_log_warn (const char *msg);
+void idrisml_log_info (const char *msg);
+void idrisml_log_debug(const char *msg);
+void idrisml_log_trace(const char *msg);
 
 #ifdef __cplusplus
 }

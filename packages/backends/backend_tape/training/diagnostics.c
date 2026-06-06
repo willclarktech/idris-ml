@@ -21,10 +21,15 @@
 #include "../tensor.h"
 #include "../arena.h"
 #include "../../backend.h"
+#include "../../log.h"
 
 void _dbg_dump_param_grads_if_enabled(void) {
+    /* Outer level gate: bypass entirely when build ceiling is < DEBUG.
+     * Without this the function still links and getenv() runs even on
+     * IDRISML_LOG=warn builds. */
+    if (idrisml_log_resolve_level() < IDRISML_LEVEL_DEBUG) return;
     if (!getenv("DEBUG_PARAM_GRADS")) return;
-    fprintf(stderr, "=== param grads after backward ===\n");
+    IDRISML_LOG(IDRISML_LEVEL_DEBUG, "=== param grads after backward ===\n");
     for (int i = 0; i < param_count(); i++) {
         Tensor* t = (Tensor*)param_tensor(i);
         double l2 = 0.0;
@@ -37,7 +42,8 @@ void _dbg_dump_param_grads_if_enabled(void) {
             }
             l2 = sqrt(l2);
         }
-        fprintf(stderr, "  %-40s numel=%-6d l2=%12.6e%s%s\n",
+        IDRISML_LOG(IDRISML_LEVEL_DEBUG,
+                "  %-40s numel=%-6d l2=%12.6e%s%s\n",
                 param_name(i), t->numel, l2,
                 t->grad ? "" : " NO_GRAD",
                 has_nan ? " NAN_OR_INF!" : "");
@@ -49,6 +55,7 @@ void _dbg_dump_param_grads_if_enabled(void) {
 static int _dbg_traj_step = 0;
 
 void _dbg_dump_lstm_traj_if_enabled(void) {
+    if (idrisml_log_resolve_level() < IDRISML_LEVEL_DEBUG) return;
     if (!getenv("DEBUG_LSTM_TRAJ")) return;
     int every = 100;
     const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
@@ -69,7 +76,7 @@ void _dbg_dump_lstm_traj_if_enabled(void) {
                 if (v > mx) mx = v;
             }
             l2 = sqrt(l2);
-            fprintf(stderr,
+            IDRISML_LOG(IDRISML_LEVEL_DEBUG,
                 "[traj epoch %d] %s l2=%.10g min=%.10g max=%.10g | t[0..2]=%.10g, %.10g, %.10g\n",
                 _dbg_traj_step, nm, l2, mn, mx,
                 t->numel >= 1 ? ((double*)t->data)[0] : 0.0,
