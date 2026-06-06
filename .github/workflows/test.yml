@@ -64,7 +64,7 @@ jobs:
         # without updating .github/workflows/test.yml.spec.json. Spec
         # is the single source of truth; add a gate by appending to
         # the spec and regenerating, not by editing the workflow.
-        run: make lint-ci-workflow
+        run: make test-integration-lint-ci-workflow
       - name: Install uv + lint-only Python deps
         # `--only-group dev --no-install-project` installs ruff + vulture
         # + their transitive deps WITHOUT pulling in torch / transformers
@@ -370,7 +370,7 @@ jobs:
         # Framework + selection rule: docs/develop/testing-taxonomy.md
         # (Axis A/B/C/D coverage). Tier 1 cadence: every PR (target
         # wall <= 5 min).
-        run: make test-perf-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression
+        run: make bench-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression
 
       - name: Run perf-regression gate (kind="run" entries, advisory)
         # Companion to the kind="op_bench" gate above. Groups
