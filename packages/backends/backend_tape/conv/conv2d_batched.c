@@ -11,9 +11,10 @@
  * replaces an O(B·outC·inC·kH·kW·oH·oW) hand-rolled triple loop with
  * Apple Accelerate's blocked sgemm.
  *
- * The F32 path keeps a direct 6-loop computation (im2col + cblas_sgemm
- * is future work). The F32 backward widens to double buffers so the
- * existing dgemm path covers it without a separate sgemm implementation.
+ * The F32 forward path mirrors the F64 path via the parallel
+ * `conv2d_im2col_f32` helper + `cblas_sgemm`. The F32 backward
+ * keeps widening to double buffers so the existing dgemm path
+ * covers it without a separate sgemm implementation.
  *
  * Conv2DBatchedMeta stays in tape.h; im2col / col2im helpers are TU-
  * private to this file (no other op needs them).
@@ -46,6 +47,37 @@ static void conv2d_im2col(const double* input, int B, int inC, int H, int W,
         for (int oh = 0; oh < oH; oh++) {
             for (int ow = 0; ow < oW; ow++) {
                 double* row = X_col + ((size_t)b * oH * oW + oh * oW + ow) * K;
+                for (int ic = 0; ic < inC; ic++) {
+                    for (int kh = 0; kh < kH; kh++) {
+                        int ih = oh * strideH - padH + kh;
+                        if (ih < 0 || ih >= H) continue;
+                        for (int kw = 0; kw < kW; kw++) {
+                            int iw = ow * strideW - padW + kw;
+                            if (iw < 0 || iw >= W) continue;
+                            row[ic * kH * kW + kh * kW + kw] =
+                                inp_b[ic * H * W + ih * W + iw];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* im2col F32 sibling: identical structure to conv2d_im2col but with
+   float-typed buffers, for the F32 forward sgemm path. */
+static void conv2d_im2col_f32(const float* input, int B, int inC, int H, int W,
+                              int kH, int kW, int padH, int padW,
+                              int strideH, int strideW, int oH, int oW,
+                              float* X_col) {
+    int K = inC * kH * kW;
+    int M = B * oH * oW;
+    memset(X_col, 0, (size_t)M * K * sizeof(float));
+    for (int b = 0; b < B; b++) {
+        const float* inp_b = input + (size_t)b * inC * H * W;
+        for (int oh = 0; oh < oH; oh++) {
+            for (int ow = 0; ow < oW; ow++) {
+                float* row = X_col + ((size_t)b * oH * oW + oh * oW + ow) * K;
                 for (int ic = 0; ic < inC; ic++) {
                     for (int kh = 0; kh < kH; kh++) {
                         int ih = oh * strideH - padH + kh;
@@ -115,28 +147,44 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
 
     void* out_buf;
     if (is_f32) {
-        /* F32 path: direct 6-loop computation; im2col + cblas_sgemm is
-           future work. Loops do double arithmetic and narrow at the
-           store (numerical-stability-friendly). */
-        float* out = arena_alloc(out_numel * sizeof(float));
-        for (int b = 0; b < B; b++)
+        /* F32 forward: im2col + cblas_sgemm, mirroring the F64 path.
+           F32 BLAS is already wired (mm.c, bmm.c, linear_2d.c). */
+        int K = inC * kH * kW;
+        int M = B * oH * oW;
+        float* X_col = (float*)calloc((size_t)M * K, sizeof(float));
+        conv2d_im2col_f32((const float*)input->data, B, inC, H, W, kH, kW,
+                          padH, padW, strideH, strideW, oH, oW, X_col);
+        float* Y_unf = (float*)calloc((size_t)M * outC, sizeof(float));
+#ifdef __APPLE__
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                    M, outC, K, 1.0f,
+                    X_col, K,
+                    (const float*)kernel->data, K,
+                    0.0f, Y_unf, outC);
+#else
+        for (int m = 0; m < M; m++)
             for (int oc = 0; oc < outC; oc++) {
-                double b_val = bias ? tape_load_d(bias, oc) : 0.0;
-                for (int oh = 0; oh < oH; oh++)
-                    for (int ow = 0; ow < oW; ow++) {
-                        double val = b_val;
-                        for (int ic = 0; ic < inC; ic++)
-                            for (int kh = 0; kh < kH; kh++)
-                                for (int kw = 0; kw < kW; kw++) {
-                                    int ih = oh*strideH - padH + kh;
-                                    int iw = ow*strideW - padW + kw;
-                                    if (ih >= 0 && ih < H && iw >= 0 && iw < W)
-                                        val += tape_load_d(input, b*inC*H*W + ic*H*W + ih*W + iw)
-                                             * tape_load_d(kernel, oc*inC*kH*kW + ic*kH*kW + kh*kW + kw);
-                                }
-                        out[((size_t)b * outC + oc) * oH * oW + oh*oW + ow] = (float)val;
-                    }
+                float s = 0.0f;
+                for (int k = 0; k < K; k++)
+                    s += X_col[m*K + k] * ((const float*)kernel->data)[oc*K + k];
+                Y_unf[m*outC + oc] = s;
             }
+#endif
+        float* out = arena_alloc(out_numel * sizeof(float));
+        for (int b = 0; b < B; b++) {
+            for (int oc = 0; oc < outC; oc++) {
+                float b_val = bias ? (float)tape_load_d(bias, oc) : 0.0f;
+                float* out_chan = out + ((size_t)b * outC + oc) * oH * oW;
+                for (int oh = 0; oh < oH; oh++) {
+                    for (int ow = 0; ow < oW; ow++) {
+                        int row = b * oH * oW + oh * oW + ow;
+                        out_chan[oh*oW + ow] = Y_unf[row * outC + oc] + b_val;
+                    }
+                }
+            }
+        }
+        free(Y_unf);
+        free(X_col);
         out_buf = out;
     } else {
         int K = inC * kH * kW;
