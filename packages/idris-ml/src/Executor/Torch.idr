@@ -503,6 +503,8 @@ prim__paramSaveTorch : String -> PrimIO Int
 prim__paramLoadTorch : String -> PrimIO Int
 %foreign "C:param_load_with_policy_torch,libidrisml"
 prim__paramLoadWithPolicyTorch : String -> Int -> PrimIO Int
+%foreign "C:param_load_with_prefix_torch,libidrisml"
+prim__paramLoadWithPrefixTorch : String -> Int -> String -> PrimIO Int
 %foreign "C:optimizer_save_torch,libidrisml"
 prim__optimizerSaveTorch : AnyPtr -> String -> PrimIO Int
 %foreign "C:optimizer_load_torch,libidrisml"
@@ -623,6 +625,7 @@ public export
   primOptimizerSave = prim__optimizerSaveTorch
   primParamLoad = prim__paramLoadTorch
   primParamLoadWithPolicy = prim__paramLoadWithPolicyTorch
+  primParamLoadWithPrefix = prim__paramLoadWithPrefixTorch
   primParamSave = prim__paramSaveTorch
   -- <<< END GENERATED <<<
 

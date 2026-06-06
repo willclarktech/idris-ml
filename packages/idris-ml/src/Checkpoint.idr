@@ -53,6 +53,27 @@ loadModelAllowCast path = do
   rc <- primIO (primParamLoadWithPolicy {ex} path 1)
   pure (rc == 0)
 
+||| Like `loadModel`, but loads only the safetensors keys whose name
+||| starts with `prefix`. Existing in-memory params whose name does
+||| NOT start with `prefix` are untouched — useful for warm-starting a
+||| pretrained backbone (e.g. `loadModelPrefix "model.safetensors" "bert."`)
+||| while keeping a fresh head at its init.
+||| Strict-dtype mode (matching `loadModel`).
+export
+loadModelPrefix : UserExecutorTraining ex => (path : String) -> (pfx : String) -> IO Bool
+loadModelPrefix path pfx = do
+  rc <- primIO (primParamLoadWithPrefix {ex} path 0 pfx)
+  pure (rc == 0)
+
+||| `loadModelPrefix` with `loadModelAllowCast` semantics — silent
+||| F32 ↔ F64 conversion at load time for the prefix-matched keys.
+export
+loadModelPrefixAllowCast : UserExecutorTraining ex =>
+                           (path : String) -> (pfx : String) -> IO Bool
+loadModelPrefixAllowCast path pfx = do
+  rc <- primIO (primParamLoadWithPrefix {ex} path 1 pfx)
+  pure (rc == 0)
+
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
 ||| Returns True on success.
 export

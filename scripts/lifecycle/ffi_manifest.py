@@ -67,6 +67,7 @@ MANIFEST = {
     "param_count": Entry(args=(), ret="i", slice="UserExecutorParamRegistry", idris_method="primParamCount", mlx="direct"),
     "param_grad_item_at": Entry(args=("i", "i"), ret="d", slice="UserExecutorParamRegistry", idris_method="primParamGradItemAt", mlx="direct"),
     "param_load_with_policy": Entry(args=("s", "i"), ret="i", slice="UserExecutorSerialize", idris_method="primParamLoadWithPolicy", mlx="direct"),
+    "param_load_with_prefix": Entry(args=("s", "i", "s"), ret="i", slice="UserExecutorSerialize", idris_method="primParamLoadWithPrefix", mlx="direct"),
     "param_load": Entry(args=("s",), ret="i", slice="UserExecutorSerialize", idris_method="primParamLoad", mlx="direct"),
     "param_name": Entry(args=("i",), ret="s", slice="UserExecutorParamRegistry", idris_method="primParamName", mlx="direct"),
     "param_register_return": Entry(args=("s", "T"), ret="T"),

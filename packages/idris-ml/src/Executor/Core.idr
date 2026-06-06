@@ -444,6 +444,10 @@ interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) wh
   primParamLoad           : String -> PrimIO Int
   ||| Load params with a cast policy (`allowCast` = 0/1).
   primParamLoadWithPolicy : String -> Int -> PrimIO Int
+  ||| Load only safetensors keys whose name starts with `prefix`.
+  ||| `allowCast` semantics as `primParamLoadWithPolicy`; empty prefix
+  ||| matches every key (degrades to `primParamLoadWithPolicy`).
+  primParamLoadWithPrefix : String -> Int -> String -> PrimIO Int
   ||| Save optimizer state buffers to a file.
   primOptimizerSave       : AnyPtr -> String -> PrimIO Int
   ||| Load optimizer state buffers from a file.

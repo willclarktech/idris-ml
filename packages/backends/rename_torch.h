@@ -56,6 +56,7 @@
 #define param_load_data param_load_data_torch
 #define param_load_data_int64 param_load_data_int64_torch
 #define param_load_with_policy param_load_with_policy_torch
+#define param_load_with_prefix param_load_with_prefix_torch
 #define param_name param_name_torch
 #define param_register param_register_torch
 #define param_register_return param_register_return_torch

@@ -238,12 +238,17 @@ int param_save(const char* path) {
    Load
    ================================================================ */
 
-int param_load_with_policy(const char* path, int allow_cast) {
+/* Core loader. `prefix == NULL` loads every key (legacy behaviour);
+   `prefix != NULL` loads only safetensors keys whose name starts with
+   `prefix` (used by Idris-side `loadModelPrefix` to warm-start a
+   pretrained backbone while leaving a fresh head at its init). */
+static int param_load_core(const char* path, int allow_cast, const char* prefix) {
     FILE* f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "param_load: cannot open '%s'\n", path);
         return -1;
     }
+    size_t prefix_len = prefix ? strlen(prefix) : 0;
 
     /* Read header size */
     uint64_t header_size;
@@ -280,9 +285,16 @@ int param_load_with_policy(const char* path, int allow_cast) {
 
     /* For each tensor in the file, find matching param */
     cJSON* entry = NULL;
+    int considered = 0;
     cJSON_ArrayForEach(entry, root) {
         const char* name = entry->string;
         if (!name) continue;
+
+        /* Prefix filter — silently skip non-matching keys when set.
+           Distinct from the registry-miss "skipping" log below: a prefix
+           skip is an intended hit, not a missing param. */
+        if (prefix && strncmp(name, prefix, prefix_len) != 0) continue;
+        considered++;
 
         /* Look up in param registry */
         int pidx = -1;
@@ -413,14 +425,29 @@ int param_load_with_policy(const char* path, int allow_cast) {
     cJSON_Delete(root);
     fclose(f);
 
-    fprintf(stderr, "param_load: loaded %d/%d parameters from '%s'%s\n",
-            loaded, n, path,
-            (rc != 0) ? " (with errors — see above)" : "");
+    if (prefix) {
+        fprintf(stderr,
+                "param_load: loaded %d/%d (prefix-matched %d) parameters from '%s'%s\n",
+                loaded, n, considered, path,
+                (rc != 0) ? " (with errors — see above)" : "");
+    } else {
+        fprintf(stderr, "param_load: loaded %d/%d parameters from '%s'%s\n",
+                loaded, n, path,
+                (rc != 0) ? " (with errors — see above)" : "");
+    }
     return rc;
 }
 
+int param_load_with_policy(const char* path, int allow_cast) {
+    return param_load_core(path, allow_cast, /*prefix=*/NULL);
+}
+
+int param_load_with_prefix(const char* path, int allow_cast, const char* prefix) {
+    return param_load_core(path, allow_cast, prefix);
+}
+
 int param_load(const char* path) {
-    return param_load_with_policy(path, /*allow_cast=*/0);
+    return param_load_core(path, /*allow_cast=*/0, /*prefix=*/NULL);
 }
 
 /* Reads the raw on-disk bytes of a named tensor from a safetensors

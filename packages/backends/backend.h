@@ -682,6 +682,16 @@ int param_load(const char* path);
    every tensor loaded cleanly, nonzero if any entry was skipped. */
 int param_load_with_policy(const char* path, int allow_cast);
 
+/* Load params subject to a name-prefix filter. Same dtype-policy
+   semantics as param_load_with_policy; additionally, safetensors
+   keys whose name does not start with `prefix` are silently skipped.
+   Used to warm-start a pretrained backbone (prefix="bert.") while
+   leaving a fresh classification head at its init. `prefix` of
+   NULL or an empty string behaves identically to
+   param_load_with_policy. Returns 0 if every kept tensor loaded
+   cleanly, nonzero if any entry was skipped on its merits. */
+int param_load_with_prefix(const char* path, int allow_cast, const char* prefix);
+
 /* Overwrite param tensor data in-place from a double buffer (per-backend). */
 void param_load_data(int idx, const double* data, int numel);
 
