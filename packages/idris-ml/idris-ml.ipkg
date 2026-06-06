@@ -46,6 +46,7 @@ modules = Compat.Random
         , Layer.LayerNorm
         , Layer.Linear
         , Layer.LinearMixed
+        , Layer.LoraLinear
         , Layer.Lstm
         , Layer.Dnc
         , Layer.MixedCore

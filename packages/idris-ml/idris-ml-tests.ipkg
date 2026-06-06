@@ -23,6 +23,7 @@ modules = Test.Main
         , Test.Hpo.LrFinder
         , Test.Init
         , Test.Lossless
+        , Test.LoraLinear
         , Test.ManagedHandle
         , Test.Math
         , Test.MixedLayerLike

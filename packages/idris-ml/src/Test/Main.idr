@@ -12,6 +12,7 @@ import Test.RL.Gae
 import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.Lossless
+import Test.LoraLinear
 import Test.ManagedHandle
 import Test.BitLinear
 import Test.BitNet
@@ -49,6 +50,7 @@ main = runAll
   , ("RL.ReplayBuffer", Test.RL.ReplayBuffer.tests)
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
   , ("Lossless",        Test.Lossless.tests)
+  , ("LoraLinear",      Test.LoraLinear.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
   , ("BitLinear",       Test.BitLinear.tests)
   , ("BitNet",          Test.BitNet.tests)
