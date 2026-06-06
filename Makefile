@@ -1568,6 +1568,32 @@ example-bert-classify-sst2-finetune: install install-transformers \
 	cp $(LIB) $(BUILD)/exec/bert-classify-sst2-finetune_app/
 	./$(BUILD)/exec/bert-classify-sst2-finetune $(SEED_FLAG) $(BERT_SST2_ARGS)
 
+# Tokenize Tiny Shakespeare via distilgpt2's BPE for use by the GPT-2
+# LM continued-pretraining example. Lands a flat comma-separated
+# integer token-id file (~338K tokens). Skipped if file is already on
+# disk (the script's `[[ -s OUT_PATH ]]` check guards re-tokenization).
+data/tinyshakespeare/input.distilgpt2.tokens: data/tinyshakespeare/input.txt
+	bash packages/idris-transformers/scripts/tokenize-text-corpus.sh \
+		data/tinyshakespeare/input.txt distilgpt2 \
+		data/tinyshakespeare/input.distilgpt2.tokens
+
+data-tinyshakespeare-distilgpt2: data/tinyshakespeare/input.distilgpt2.tokens
+
+# GPT-2 LM continued pretraining: distilgpt2 backbone + sliding-window
+# next-token CE loss on Tiny Shakespeare. Deps on the distilgpt2
+# checkpoint (HF pattern rule) + the tokenized corpus.
+example-gpt2-lm-finetune: install install-transformers \
+		models/distilgpt2/config.json \
+		data/tinyshakespeare/input.distilgpt2.tokens
+	idris2 $(IDRIS_FLAGS) -p idris-transformers -o gpt2-lm-finetune \
+		$(EXAMPLE_SRC)/Example/Gpt2LmFinetune.idr
+	cp $(LIB) $(BUILD)/exec/gpt2-lm-finetune_app/
+	./$(BUILD)/exec/gpt2-lm-finetune $(SEED_FLAG) $(GPT2_LM_ARGS)
+
+ref-gpt2-lm-finetune: models/distilgpt2/config.json \
+		data/tinyshakespeare/input.distilgpt2.tokens
+	cd packages/pytorch && uv run python -m torch_ref.scripts.gpt2_lm_finetune $(GPT2_LM_ARGS)
+
 # HuggingFace BERT inference example. Loads google/bert_uncased_L-2_H-128_A-2
 # weights via the HF-aligned HfBert layer module (from idris-transformers)
 # and dumps the 128-dim pooled [CLS] output to stdout, one value per line.
