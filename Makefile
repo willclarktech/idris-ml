@@ -1568,6 +1568,20 @@ example-bert-classify-sst2-finetune: install install-transformers \
 	cp $(LIB) $(BUILD)/exec/bert-classify-sst2-finetune_app/
 	./$(BUILD)/exec/bert-classify-sst2-finetune $(SEED_FLAG) $(BERT_SST2_ARGS)
 
+# LoRA fine-tune variant: same backbone + dataset + classifier, but
+# freezes the backbone weights and trains only the LoRA adapters
+# (Q+V projections, rank=8 default) + the classifier head. Trainable
+# param count drops from ~4.4M to ~6K (~0.13% of the model). Saved
+# adapter is ~80KB on disk and round-trips with HF peft via
+# `make validate-lora-adapter` (cross-tool gate).
+example-bert-classify-sst2-lora: install install-transformers \
+		models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
+	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-sst2-lora \
+		$(EXAMPLE_SRC)/Example/BertClassifySst2Lora.idr
+	cp $(LIB) $(BUILD)/exec/bert-classify-sst2-lora_app/
+	./$(BUILD)/exec/bert-classify-sst2-lora $(SEED_FLAG) $(BERT_SST2_LORA_ARGS)
+
 # Tokenize Tiny Shakespeare via distilgpt2's BPE for use by the GPT-2
 # LM continued-pretraining example. Lands a flat comma-separated
 # integer token-id file (~338K tokens). Skipped if file is already on
@@ -2242,6 +2256,21 @@ ref-bert-classify-finetune:
 ref-bert-classify-sst2-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
 		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
 	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_sst2_finetune $(BERT_SST2_ARGS)
+
+ref-bert-classify-sst2-lora-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
+	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_sst2_lora_finetune $(BERT_SST2_LORA_ARGS)
+
+# Cross-tool gate: load an idris-ml-saved LoRA adapter via peft and run a
+# forward pass. ADAPTER_DIR points at the directory written by the
+# `--save-adapter` flag on the worked example. Default = /tmp/idris-ml-lora-out;
+# override on the command line: `make validate-lora-adapter ADAPTER_DIR=...`.
+ADAPTER_DIR ?= /tmp/idris-ml-lora-out
+validate-lora-adapter: models/google/bert_uncased_L-2_H-128_A-2/config.json
+	cd packages/pytorch && uv run python torch_ref/scripts/validate_lora_adapter.py \
+		--adapter-dir $(realpath $(ADAPTER_DIR)) \
+		--base-model $(realpath models/google/bert_uncased_L-2_H-128_A-2) \
+		--num-labels 2
 
 ref-rnn:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.rnn

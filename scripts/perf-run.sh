@@ -31,6 +31,7 @@ example-keys: ntm-copy, ntm-recall, dnc-copy, dnc-recall, supervised,
               reinforce, dqn, mountain-car, mountain-car-cont, a2c,
               ppo, sac, hf-bert, hf-gpt2, hf-llama, hf-llama-generate, hf-bitnet,
               bert-classify-finetune, bert-classify-sst2-finetune,
+              bert-classify-sst2-lora,
               gpt2-lm-finetune, bert-mlm-finetune
 backends:     tape, mlx, torch
 EOF
@@ -66,6 +67,8 @@ case "$EXAMPLE_KEY" in
                        TGT=example-bert-classify-finetune;     AVAR=BERT_FINETUNE_ARGS ;;
   bert-classify-sst2-finetune)
                        TGT=example-bert-classify-sst2-finetune; AVAR=BERT_SST2_ARGS ;;
+  bert-classify-sst2-lora)
+                       TGT=example-bert-classify-sst2-lora;     AVAR=BERT_SST2_LORA_ARGS ;;
   gpt2-lm-finetune)
                        TGT=example-gpt2-lm-finetune;            AVAR=GPT2_LM_ARGS ;;
   bert-mlm-finetune)

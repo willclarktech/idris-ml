@@ -320,11 +320,89 @@ positions; `CrossEntropyLoss(ignore_index=-100)` skips them).
 
 ### Today's limits + parked follow-ups
 
-- **LoRA / parameter-efficient fine-tuning.** TODO.
+(no open follow-ups in the BERT MLM lane)
+
+### LoRA / parameter-efficient fine-tuning (shipped 2026-06-07)
+
+LoRA (Hu et al. 2021) wraps a frozen base `Linear` weight `W : [o, i]`
+with a low-rank trainable update `(α/r)·B·A` where `A : [r, i]` and
+`B : [o, r]` with `r ≪ min(o, i)`. Only `A` and `B` train; `W` stays
+frozen. For BERT-tiny (~4.5M params) with r=8 on Q+V across 2 layers,
+that's ~6K trainable params (~0.13% of the model) and an adapter file
+of ~80 KB vs the ~17 MB full safetensors.
+
+The shape:
+
+```idris
+import HfBert
+import HfBertForClassification
+import HfBertLora
+import HfLoraIO
+import Train.Freeze
+
+-- 1. Construct the model (same as the full-FT path).
+model <- hfBertForSequenceClassification {numClasses=2} "bert" "classifier"
+
+-- 2. Warm-start backbone from disk.
+True <- loadModelPrefixAllowCast ckptPath "bert."
+
+-- 3. Inject LoRA adapters on Q + V (peft's canonical default).
+--    Registers params under HF-aligned names:
+--      bert.encoder.layer.{i}.attention.self.{query,value}.lora_A
+--      bert.encoder.layer.{i}.attention.self.{query,value}.lora_B
+adapters <- loraInjectBert "bert" 2 8 16.0  -- numLayers, rank, alpha
+
+-- 4. Freeze backbone, then unfreeze adapters (classifier stays trainable).
+freezeByPrefix   opt "bert."
+unfreezeBySuffix opt "lora_A"
+unfreezeBySuffix opt "lora_B"
+
+-- 5. Forward through the LoRA-aware variant.
+logits <- hfBertSeqClassifyForwardWithLora
+            model (Just adapters) inputIds posIds typeIds (Just mask)
+
+-- 6. After training, save the adapter in peft-compatible format.
+let cfg = MkLoraAdapterConfig 8 16.0 ["query", "value"] "SEQ_CLS"
+ok <- saveLoraAdapter "./adapter-out" cfg
+```
+
+The saved directory matches HuggingFace `peft`'s on-disk layout:
+
+```
+adapter-out/
+  adapter_config.json          -- LoRA hyperparams
+  adapter_model.safetensors    -- A / B tensors under peft's wrapped names
+                                  (base_model.model.<...>.lora_A.default.weight)
+```
+
+**Cross-tool round-trip**: an idris-saved adapter loads cleanly in
+Python via `PeftModel.from_pretrained(base, "adapter-out")`. The
+`validate_lora_adapter.py` script + `make validate-lora-adapter
+ADAPTER_DIR=adapter-out` target exercises the gate end-to-end.
+
+Worked example: `Example/BertClassifySst2Lora.idr` runs LoRA fine-tune
+on a SST-2 subset; the paired ref at
+`packages/pytorch/torch_ref/scripts/bert_classify_sst2_lora_finetune.py`
+uses HF `peft.LoraConfig` with matching hyperparameters.
+
+### Today's limits + parked follow-ups for LoRA
+
+- **LoRA dropout.** `peft` defaults to `lora_dropout=0.05`; the MVP
+  uses 0.0 for clean numerical comparison. Trivially added later
+  via the existing `Layer.Dropout`.
+- **LoRA on bias terms** (`bias="all"` / `bias="lora_only"`). MVP
+  uses `bias="none"` (peft's canonical default for BERT).
+- **LoRA merge-into-base inference.** `W ← W + (α/r)·B·A` at deploy
+  time; current code keeps adapters split at inference.
+- **LoRA on GPT-2 / Llama.** Mechanical extension once a worked
+  example is needed — `LoraLinear` is architecture-agnostic; only
+  `loraInjectGpt2` / `loraInjectLlama` need writing.
+- **QLoRA** (4-bit quantized base) — no quantization infrastructure
+  in idris-ml today.
 
 ## What's not supported yet
 
-- **LoRA / parameter-efficient fine-tuning.** TODO.
+(no open follow-ups in the HF fine-tuning surface as of 2026-06-07)
 
 ## Cross-references
 

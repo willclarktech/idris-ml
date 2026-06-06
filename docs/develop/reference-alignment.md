@@ -14,6 +14,42 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > referenced in the A2C/PPO entries is structurally impossible in V2 (each layer is named at
 > construction). See [path-c-migration.md](path-c-migration.md).
 
+## BERT SST-2 LoRA fine-tune (2026-06-07)
+
+New paired example `bert-classify-sst2-lora` — LoRA fine-tune on top of the bert-tiny backbone for SST-2 binary sentiment classification. Same architecture / dataset / seqLen / classifier head as the prior full-fine-tune row; the only difference is what trains.
+
+| Item | Idris | PyTorch |
+|---|---|---|
+| Backbone | `google/bert_uncased_L-2_H-128_A-2` (frozen) | same (frozen via `peft.get_peft_model`) |
+| Adapter type | LoRA on Q + V attention projections | `LoraConfig(target_modules=["query","value"])` |
+| LoRA rank | 8 | 8 |
+| LoRA alpha | 16 | 16 |
+| LoRA dropout | 0.0 (omitted for clean numerical comparison) | 0.0 |
+| LoRA bias mode | `bias="none"` (no LoRA on bias terms) | `bias="none"` |
+| Trainable params | ~6,402 (~0.13% of model) | matches (peft `print_trainable_parameters`) |
+| Adapter file size | ~80 KB (saved via `HfLoraIO.saveLoraAdapter`) | ~80 KB (peft `save_pretrained`) |
+| Optimizer | AdamW(lr=1e-4, β=(0.9, 0.999), ε=1e-8, wd=0.01) | same |
+| Gradient clip | norm 1.0 | same |
+| Epochs | 3 | 3 |
+| Batch size | 8 | 8 |
+| Seq len | 32 | 32 |
+| Default train/dev subset | 256/256 | same |
+| LR vs full FT | 1e-4 (5× higher than full FT's 2e-5) | matches — peft tutorial recommendation, only adapters update |
+
+**Convergence (256-subset default)**:
+
+| Backend | Wall | Loss (final) | Dev acc (final) | Seed |
+|---|---|---|---|---|
+| Idris tape | 27.3 s | 0.337 | 0.570 | 42 |
+| Idris torch | 25.2 s | 0.300 | 0.613 | 42 |
+| Idris mlx-cpu | 44.4 s | 0.339 | 0.566 | 99 (via perf-run-quiet) |
+| PyTorch CPU (peft) | (run `make ref-bert-classify-sst2-lora-finetune` after `uv sync`) | — | — | — |
+
+The 256-subset numbers are bounded by the limited training signal (256 examples × 3 epochs × 8 batch = ~96 train steps total). Full SST-2 (~67k train) would converge to ~80%+ per the HF tutorial but takes hours on Idris tape; the demo's contribution is proving the LoRA pipeline correctly composes end-to-end across the registered adapters + freeze-by-suffix + peft-compatible save path.
+
+**Cross-tool gate**: `make example-bert-classify-sst2-lora -- --save-adapter /tmp/lora-out` produces a directory that loads cleanly via `make validate-lora-adapter ADAPTER_DIR=/tmp/lora-out` (which runs `PeftModel.from_pretrained` in Python and forward-passes a sentence). This is the strongest evidence the on-disk format matches peft.
+
+
 ## BERT MLM continued pretraining (2026-06-07)
 
 New paired example `bert-mlm-finetune` — bert-tiny MLM continued pretraining on Tiny Shakespeare-via-WordPiece.

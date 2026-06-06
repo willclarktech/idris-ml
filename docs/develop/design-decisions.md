@@ -386,6 +386,64 @@ covered by the FT1 unit test `Test.CheckpointSubset` (6 assertions,
 3 backends). The real-text fine-tune workflow needing the tokenizer
 + attention mask + LoRA / PEFT is parked as follow-up TODO rows.
 
+## LoRA: parallel adapter records threaded into forward (2026-06-07)
+
+Adding LoRA to `HfBert` came down to two architectural choices:
+
+1. **Where do LoRA adapter records live?** Two options were
+   considered:
+   - **(a) Replace base Linears in `BertModelState`.** Walk the
+     state record at injection time and substitute each target
+     attention `BertLinearWb` with a LoRA-wrapped variant.
+     Requires duplicating the whole record hierarchy
+     (`BertLayerLora`, `BertSelfAttentionLora`, `BertModelLora`)
+     plus a parallel `hfBertForwardLora` that dispatches the right
+     forward at each Linear. ~300 LOC of mirror records.
+   - **(b) Pass a parallel `BertLoraAdapters` value alongside the
+     base state.** Hold per-layer `(A, B)` adapter pairs in a
+     separate record; the forward fn takes
+     `Maybe (BertLoraAdapters ...)` and applies the LoRA delta
+     when `Just`. No record duplication; existing
+     `BertModelState` callers don't change.
+
+   **Chosen: (b).** Avoided ~300 LOC of mirror boilerplate; kept the
+   non-LoRA `hfBertForward` callsite bit-identical. Tradeoff: the
+   forward path branches at every attention layer on
+   `Maybe adapters`, vs (a)'s monomorphic dispatch. The branch is
+   one pointer comparison; well below the matmul cost. The harder
+   tradeoff is that selecting per-layer LoRA presence (e.g. "LoRA
+   only on layers 0 and 1, not 2") would need redesigning the
+   `BertLoraAdapters` shape — but that's not in the peft default
+   anyway (`target_modules` applies to all layers).
+
+2. **Adapter file format: peft-compatible or Idris-only?** peft's
+   on-disk adapter keys wrap idris-ml's HF-aligned names with two
+   decorations: `base_model.model.` prefix + `.default.weight`
+   suffix. The middle (`bert.encoder.layer.0.attention.self.query.lora_A`)
+   IS the HF-aligned part. Choices were:
+   - **(a) Idris-only round-trip.** Save with the bare in-memory
+     paramId names. Simpler; adapter is only loadable by idris-ml.
+   - **(b) peft-compatible.** Wrap/strip the peft decorations at
+     the safetensors-IO boundary. Adapter round-trips with
+     Python `peft.PeftModel.from_pretrained`.
+
+   **Chosen: (b).** ~50 LOC marginal cost for cross-tool round-trip
+   — the strongest evidence the on-disk format truly matches peft
+   is loading an idris-saved adapter into Python peft and running
+   forward without errors (the `validate_lora_adapter.py` gate).
+   The C-side `param_save_by_name_renamed(path, lookup_nl,
+   ondisk_nl, count)` FFI extends the L2 save-by-name path with
+   override on-disk names; mostly mechanical to add.
+
+The shipped surface (`Layer/LoraLinear.idr` + `HfBert.HfBertLora.idr`
++ `HfBert.HfLoraIO.idr`) gives the user three composable layers:
+(1) the `LoraLinear` primitive that generalises to any
+trained-`Linear`-wrapping case; (2) the per-architecture
+`BertLoraAdapters` + `hfBertForwardWithLora` that fixes the BERT
+attention-projection convention; (3) the peft-compatible adapter-IO
+that bridges to HuggingFace. Future architectures (GPT-2 / Llama
+LoRA) reuse (1) + (3) and add their own `(2)`.
+
 ## Composable weight initialization (Sampler + InitStrategy)
 
 Init methods define a target **variance** and the distribution shape is orthogonal. Previously these were conflated — `xavierInit` returned a uniform range limit, baking in both "Xavier variance formula" and "uniform distribution." The refactored design separates them into two composable pieces:
