@@ -86,7 +86,7 @@ case "$EXAMPLE_KEY" in
   # the perf-log entry carries the gate's wall-clock separately from
   # the user-facing-demo wall-clock (they decode for different default
   # budgets; the gate is fixed at --num-tokens 4 in the Makefile).
-  hf-llama-generate)   TGT=test-hf-llama-generate-roundtrip;   AVAR=_HF_NOARGS ;;
+  hf-llama-generate)   TGT=test-e2e-hf-llama-generate-roundtrip; AVAR=_HF_NOARGS ;;
   hf-bitnet)           TGT=example-hf-bitnet-inference;        AVAR=_HF_NOARGS ;;
   *) echo "unknown example-key: $EXAMPLE_KEY" >&2; exit 2 ;;
 esac
