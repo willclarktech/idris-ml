@@ -118,7 +118,7 @@ each backend's adapter binds to its own math. The struct is per-backend
 
 ## Backend rename mechanism
 
-`scripts/gen-rename-headers.py` scans `backend.h` for function
+`scripts/codegen/gen-rename-headers.py` scans `backend.h` for function
 declarations and emits `rename_<b>.h` for each backend with
 `#define <sym> <sym>_<b>` lines. `g_active_port` is added manually via
 the script's `EXTRA_EXPORTS` list (the regex only matches function

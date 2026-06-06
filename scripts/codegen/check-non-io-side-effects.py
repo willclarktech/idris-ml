@@ -31,7 +31,7 @@ that surfaces from the IO refactor (commits leading up to e337512) and
 the saved feedback `feedback_typeclass_zero_arg_method_eval.md`.
 
 Usage:
-    python3 scripts/lifecycle/check-non-io-side-effects.py
+    python3 scripts/codegen/check-non-io-side-effects.py
 
 Exit 0 on clean; 1 on any violation.
 """

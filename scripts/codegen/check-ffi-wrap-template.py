@@ -8,7 +8,7 @@ For each `%foreign` declaration in the file set:
 
 - `%foreign "C:cname,libidrisml"`: cname's base name must NOT be in
   MANIFEST. If it is, the decl is a missing conversion — wrap it via
-  scripts/lifecycle/ffi-convert-to-scheme.py.
+  scripts/codegen/ffi-convert-to-scheme.py.
 
 - `%foreign "scheme:..."`: locate the first foreign-procedure call whose
   name is in MANIFEST (a bespoke helper that only references things
@@ -36,7 +36,7 @@ Cosmetic variations (extra init blocks, whitespace) are tolerated.
 The linter enforces the lifecycle invariants, not the exact template.
 
 Usage:
-    python3 scripts/lifecycle/check-ffi-wrap-template.py
+    python3 scripts/codegen/check-ffi-wrap-template.py
 
 Exit code 0 on clean; 1 on any violation.
 """
@@ -204,7 +204,7 @@ def check_file(path, errors):
                         f"{path}: {name} uses %foreign \"C:{cname}\" but "
                         f"base {base!r} is in MANIFEST — should have been "
                         f"converted to wrap-on-return scheme template. "
-                        f"Run scripts/lifecycle/ffi-convert-to-scheme.py."
+                        f"Run scripts/codegen/ffi-convert-to-scheme.py."
                     )
             continue
 

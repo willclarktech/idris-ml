@@ -159,7 +159,7 @@ Rules:
 - The TAG must match the C function's suffix: `_tape` → `"tape"`,
   `_torch` → `"torch"`, `_mlx` (or `_mlx_streamed`) → `"mlx"`,
   unsuffixed → `"primary"`. The generator's `backend_tag_of` in
-  `scripts/lifecycle/ffi_manifest.py` enforces this.
+  `scripts/codegen/ffi_manifest.py` enforces this.
 - Raw-pointer arguments (`R`, e.g. malloc'd double buffers) and
   primitive arguments (`int`, `double`, `string`) pass through
   unchanged.
@@ -252,7 +252,7 @@ there and behaviour is bit-identical; the mechanism is mlx-only.
 ### The two-file workflow
 
 1. **Add the FFI to the manifest.** Open
-   `scripts/lifecycle/ffi_manifest.py` and add a new `MANIFEST` entry
+   `scripts/codegen/ffi_manifest.py` and add a new `MANIFEST` entry
    for your C symbol's base name (no `_tape`/`_torch`/`_mlx` suffix):
 
    ```python
@@ -269,7 +269,7 @@ there and behaviour is bit-identical; the mechanism is mlx-only.
    `Device/{Mlx,Tape,Torch}.idr` will be rewritten in place:
 
    ```sh
-   python3 scripts/lifecycle/ffi-convert-to-scheme.py \
+   python3 scripts/codegen/ffi-convert-to-scheme.py \
      packages/idris-ml/src/Tensor.idr \
      packages/idris-ml/src/Device.idr \
      packages/idris-ml/src/Device/{Mlx,Tape,Torch}.idr
@@ -459,7 +459,7 @@ Rolled out in phases:
   function — the wrap doing all the work means the parallel layer
   was redundant
 - P4' (commit `c3460ce`): structural linter +
-  `scripts/lifecycle/ffi_manifest.py` as single source of truth
+  `scripts/codegen/ffi_manifest.py` as single source of truth
 - P5' (commit `b63dc06`): perf baselines (within VM noise of
   pre-sweep) + drain-cadence tuning declined (memory bounded at
   ~49MB on the originally-failing mlx examples without mid-block

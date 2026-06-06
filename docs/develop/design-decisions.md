@@ -1353,7 +1353,7 @@ The Chez vector IS the Tensor's Idris-level identity. The `Tensor` record's `ten
 
 - **Allocation cost.** Each FFI now allocates a Chez vector. For ~5K FFIs/epoch that's 5K small vectors — negligible compared to mx::array allocations on the C side, but worth measuring.
 - **Library load timing.** `foreign-procedure` looks up symbols via dlsym in already-loaded libraries. If the first FFI invocation is a `%foreign "scheme:..."` (no implicit library-load hint), `libidrisml` may not be loaded yet. Mitigation: `initManagedHandles` explicitly calls `load-shared-object "libidrisml.dylib"` at first guardian creation, and each converted Scheme primitive does the same load check as a fallback.
-- **Per-FFI mechanical churn.** ~600 Tensor-touching FFIs across Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr each need their Scheme glue generated. Mechanical (driven by `scripts/lifecycle/ffi-convert-to-scheme.py`), lintable (`make check-ffi-wrap-template` in CI preflight), but real work.
+- **Per-FFI mechanical churn.** ~600 Tensor-touching FFIs across Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr each need their Scheme glue generated. Mechanical (driven by `scripts/codegen/ffi-convert-to-scheme.py`), lintable (`make check-ffi-wrap-template` in CI preflight), but real work.
 - **Cross-backend symmetry.** The ABI applies on mlx; on tape/torch primary builds, the wrappers still execute (allocate a vector, register with guardian) but `tensor_retain_handle` is a no-op stub, so the lifecycle is inert. Slight overhead on tape/torch (one vector per FFI) without lifecycle benefit. Acceptable until tape/torch want refcount-driven freeing for their own reasons.
 
 **Options considered**:

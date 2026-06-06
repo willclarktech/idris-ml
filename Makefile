@@ -663,14 +663,14 @@ check-executor-method-drift:
 # `-- <<< END GENERATED <<<` markers are preserved.
 .PHONY: gen-executor-instances
 gen-executor-instances:
-	@python3 scripts/lifecycle/gen-executor-instances.py
+	@python3 scripts/codegen/gen-executor-instances.py
 
 # CI gate: fails if running gen-executor-instances would change any file
 # (i.e. someone hand-edited the marker-bounded blocks without updating
 # MANIFEST, or vice versa).
 .PHONY: check-executor-instances
 check-executor-instances:
-	@python3 scripts/lifecycle/gen-executor-instances.py --check
+	@python3 scripts/codegen/gen-executor-instances.py --check
 
 # Final link compiler: c++ if any C++ backend (torch/mlx) is in the
 # list, else cc. Picks the right runtime libraries automatically.
@@ -982,10 +982,10 @@ backend: $(LIB)
 # generated files are checked in; `make test-integration-lint-rename-headers`
 # (in CI) gates that they stay in sync with backend.h.
 rename-headers:
-	@python3 scripts/gen-rename-headers.py
+	@python3 scripts/codegen/gen-rename-headers.py
 
 test-integration-lint-rename-headers:
-	@python3 scripts/gen-rename-headers.py --check
+	@python3 scripts/codegen/gen-rename-headers.py --check
 
 # Gate: regenerate .github/workflows/test.yml from
 # .github/workflows/test.yml.spec.json and fail if the on-disk file
@@ -1001,10 +1001,10 @@ test-integration-lint-ci-workflow:
 # wrap-on-return Scheme template. See
 # docs/develop/tensor-lifecycle-plan.md "FFI conventions". The single
 # source of truth for which C symbols are Tensor handles is
-# scripts/lifecycle/ffi_manifest.py — both the converter and the linter
+# scripts/codegen/ffi_manifest.py — both the converter and the linter
 # read from it.
 test-integration-lint-ffi-wrap-template:
-	@python3 scripts/lifecycle/check-ffi-wrap-template.py
+	@python3 scripts/codegen/check-ffi-wrap-template.py
 
 # Lint: flag %foreign declarations whose Idris type is non-IO but whose
 # C body has side effects (allocate, mutate, log, append to tape).
@@ -1013,7 +1013,7 @@ test-integration-lint-ffi-wrap-template:
 # for the underlying mechanism. Known dead surfaces are skip-listed in
 # the script until the dead-code cleanup row lands.
 test-integration-lint-non-io-side-effects:
-	@python3 scripts/lifecycle/check-non-io-side-effects.py
+	@python3 scripts/codegen/check-non-io-side-effects.py
 
 # Criterion-driven test suite (per-test process isolation + JUnit XML).
 # Today only ships a smoke test (test_criterion_smoke.c) verifying the

@@ -144,7 +144,7 @@ The `LayerLike` interface (4 methods: `applyVar`, `applyVarBatch`, `layerPrefix`
 
 ### Tensor lifecycle (wrapped-handle ABI)
 
-`tensorPtr` is a Chez vector `#(tensor-handle-v2 tag raw)` (slot 1 = backend tag, slot 2 = raw pointer), not a raw pointer. Every Tensor-touching `%foreign` binds to a Scheme wrapper that unwraps via `(vector-ref a<i> 2)` on Tensor args and wraps + retains + registers with `idris-tensor-guardian` on Tensor returns. The wrap IS the value — Idris-Chez codegen can't elide it without eliding the Tensor. C-side refcount drives freeing on mlx; tape and torch carry no-op retain/release stubs. New FFIs go through `scripts/lifecycle/ffi_manifest.py` + `ffi-convert-to-scheme.py`; `make check-ffi-wrap-template` (CI preflight) enforces the template. Full model in `docs/develop/tensor-lifecycle.md`.
+`tensorPtr` is a Chez vector `#(tensor-handle-v2 tag raw)` (slot 1 = backend tag, slot 2 = raw pointer), not a raw pointer. Every Tensor-touching `%foreign` binds to a Scheme wrapper that unwraps via `(vector-ref a<i> 2)` on Tensor args and wraps + retains + registers with `idris-tensor-guardian` on Tensor returns. The wrap IS the value — Idris-Chez codegen can't elide it without eliding the Tensor. C-side refcount drives freeing on mlx; tape and torch carry no-op retain/release stubs. New FFIs go through `scripts/codegen/ffi_manifest.py` + `ffi-convert-to-scheme.py`; `make check-ffi-wrap-template` (CI preflight) enforces the template. Full model in `docs/develop/tensor-lifecycle.md`.
 
 ## Key Patterns
 

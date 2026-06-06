@@ -18,8 +18,8 @@ Per-backend body shape:
 - `bespoke`  → skipped; the body must live below `<<< END GENERATED <<<`.
 
 Usage:
-    python scripts/lifecycle/gen-executor-instances.py            # rewrite in place
-    python scripts/lifecycle/gen-executor-instances.py --check    # exit 1 on diff
+    python scripts/codegen/gen-executor-instances.py            # rewrite in place
+    python scripts/codegen/gen-executor-instances.py --check    # exit 1 on diff
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "lifecycle"))
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "codegen"))
 from ffi_manifest import MANIFEST, Entry  # noqa: E402
 
 EXEC_DIR = REPO_ROOT / "packages" / "idris-ml" / "src" / "Executor"
@@ -191,7 +191,7 @@ def main():
             print(f"gen-executor-instances --check: {len(diffs)} file(s) would change:")
             for backend, path in diffs:
                 print(f"  - {path.relative_to(REPO_ROOT)}")
-            print("Re-run scripts/lifecycle/gen-executor-instances.py to update.")
+            print("Re-run scripts/codegen/gen-executor-instances.py to update.")
             sys.exit(1)
         print("gen-executor-instances --check: clean")
     else:
