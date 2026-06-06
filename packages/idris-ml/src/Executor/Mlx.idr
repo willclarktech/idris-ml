@@ -665,18 +665,23 @@ public export
   -- <<< END GENERATED <<<
 
 public export
-{s : MlxStream} -> UserExecutorProfiling (MlxExecutor s) where
+{s : MlxStream} -> UserExecutorMemoryHygiene (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primEpochBegin = prim__epochBeginMlx
   primEpochEnd = prim__epochEndMlx
+  primReleaseAllPersistent = prim__releaseAllPersistentMlx
+  primResetForEval = prim__resetForEvalMlx
+  -- <<< END GENERATED <<<
+
+public export
+{s : MlxStream} -> UserExecutorProfiling (MlxExecutor s) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primLiveCount = prim__liveCountMlx
   primPeakLiveCount = prim__peakLiveCountMlx
   primPerfOpCount = prim__perfOpCountMlx
   primPerfReset = prim__perfResetMlx
   primProfileReport = prim__profileReportMlx
   primProfileReset = prim__profileResetMlx
-  primReleaseAllPersistent = prim__releaseAllPersistentMlx
-  primResetForEval = prim__resetForEvalMlx
   -- <<< END GENERATED <<<
 
 public export

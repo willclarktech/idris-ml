@@ -527,27 +527,19 @@ interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) wh
   ||| Load optimizer state buffers from a file.
   primOptimizerLoad       : AnyPtr -> String -> PrimIO Int
 
-||| Op-timing counters + epoch hooks + live/peak-handle reporting.
-||| Orthogonal to autograd; sits next to `Core` because it observes,
-||| doesn't mutate, the training surface.
+||| Opt-in memory-hygiene slice. Bracket calls around epoch boundaries
+||| and persistent-pool flushes. MLX implements all four meaningfully;
+||| tape and torch keep no-op (or cheap arena-reset) bodies — they
+||| participate as superclass members of `UserExecutorTraining` /
+||| `UserExecutorInference` so existing call sites resolve unchanged.
 |||
-||| TODO audit: several methods here are asymmetric across backends —
-||| `primEpochBegin/End` (MLX-meaningful, tape/torch no-ops),
-||| `primReleaseAllPersistent` (cheap on tape arena, meaningful on
-||| torch + mlx), `primResetForEval` (footgun marked UNSAFE in
-||| training), `primLiveCount/PeakLiveCount` (reporting-only, dummy-
-||| arg defeats Idris-Chez constant-folding), `primPerfOpCount` (#393
-||| op-submission diagnostic, `Int` workaround for the Bits64 codegen
-||| crash). Candidates for demotion to `UserExecutorMemoryHygiene` /
-||| `UserExecutorDiagnostics` opt-in interfaces. Deferred from the
-||| Optimizations-slice audit; needs a drift-gate change to recognize
-||| default-impl methods on mandatory slices.
+||| BYO backends without managed-handle pools can omit the instance
+||| entirely; `Train.idr`'s epoch loop and `Tensor.idr`'s inference
+||| helpers (`releaseAllPersistent`, `resetForEval`) require the
+||| constraint, which is the correct signal that those helpers are
+||| not callable on backends without the underlying machinery.
 public export
-interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
-  ||| Reset this backend's op-timing profile counters.
-  primProfileReset        : PrimIO ()
-  ||| Print this backend's profile breakdown to stderr.
-  primProfileReport       : PrimIO ()
+interface UserExecutorCore ex => UserExecutorMemoryHygiene (0 ex : Executor) where
   ||| Mark the start of a training epoch's tensor generation.
   primEpochBegin          : PrimIO ()
   ||| End the epoch generation: free wrap-only handles created since
@@ -571,6 +563,23 @@ interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
   ||| training (clobbers param grads). Wraps the existing C
   ||| `backend_reset_for_eval` symbol.
   primResetForEval : PrimIO ()
+
+||| Op-timing counters + live/peak-handle reporting.
+||| Orthogonal to autograd; sits next to `Core` because it observes,
+||| doesn't mutate, the training surface.
+|||
+||| TODO audit: several methods here are asymmetric across backends —
+||| `primLiveCount/PeakLiveCount` (reporting-only, dummy-arg defeats
+||| Idris-Chez constant-folding), `primPerfOpCount` (#393 op-submission
+||| diagnostic, `Int` workaround for the Bits64 codegen crash).
+||| Candidates for demotion to a `UserExecutorDiagnostics` opt-in
+||| interface — pending in a follow-up commit.
+public export
+interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
+  ||| Reset this backend's op-timing profile counters.
+  primProfileReset        : PrimIO ()
+  ||| Print this backend's profile breakdown to stderr.
+  primProfileReport       : PrimIO ()
   ||| Count of live backend tensor handles (mlx: all_tensors; torch:
   ||| intermediates; tape: tape entries). The arg is ignored — it exists
   ||| only to defeat Idris-Chez constant-folding of the FFI call so the
@@ -647,6 +656,7 @@ interface (UserExecutorConv ex,
            UserExecutorOptimizations ex,
            UserExecutorSerialize ex,
            UserExecutorProfiling ex,
+           UserExecutorMemoryHygiene ex,
            UserExecutorStreamed ex,
            UserExecutorTensorCreate ex) =>
           UserExecutorTraining (0 ex : Executor) where
@@ -780,6 +790,7 @@ interface UserExecutorCore ex => UserExecutorQuant (0 ex : Executor) where
 public export
 interface (UserExecutorConv ex,
            UserExecutorOptimizations ex,
+           UserExecutorMemoryHygiene ex,
            UserExecutorStreamed ex,
            UserExecutorTensorCreate ex,
            UserExecutorTransfer ex,

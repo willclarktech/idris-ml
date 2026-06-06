@@ -620,18 +620,23 @@ UserExecutorSerialize TapeExecutor where
   -- <<< END GENERATED <<<
 
 public export
-UserExecutorProfiling TapeExecutor where
+UserExecutorMemoryHygiene TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primEpochBegin = prim__epochBeginTape
   primEpochEnd = prim__epochEndTape
+  primReleaseAllPersistent = prim__releaseAllPersistentTape
+  primResetForEval = prim__resetForEvalTape
+  -- <<< END GENERATED <<<
+
+public export
+UserExecutorProfiling TapeExecutor where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primLiveCount = prim__liveCountTape
   primPeakLiveCount = prim__peakLiveCountTape
   primPerfOpCount = prim__perfOpCountTape
   primPerfReset = prim__perfResetTape
   primProfileReport = prim__profileReportTape
   primProfileReset = prim__profileResetTape
-  primReleaseAllPersistent = prim__releaseAllPersistentTape
-  primResetForEval = prim__resetForEvalTape
   -- <<< END GENERATED <<<
 
 public export

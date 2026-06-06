@@ -654,18 +654,23 @@ public export
   -- <<< END GENERATED <<<
 
 public export
-{d : TorchHwDev} -> UserExecutorProfiling (TorchExecutor d) where
+{d : TorchHwDev} -> UserExecutorMemoryHygiene (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primEpochBegin = prim__epochBeginTorch
   primEpochEnd = prim__epochEndTorch
+  primReleaseAllPersistent = prim__releaseAllPersistentTorch
+  primResetForEval = prim__resetForEvalTorch
+  -- <<< END GENERATED <<<
+
+public export
+{d : TorchHwDev} -> UserExecutorProfiling (TorchExecutor d) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primLiveCount = prim__liveCountTorch
   primPeakLiveCount = prim__peakLiveCountTorch
   primPerfOpCount = prim__perfOpCountTorch
   primPerfReset = prim__perfResetTorch
   primProfileReport = prim__profileReportTorch
   primProfileReset = prim__profileResetTorch
-  primReleaseAllPersistent = prim__releaseAllPersistentTorch
-  primResetForEval = prim__resetForEvalTorch
   -- <<< END GENERATED <<<
 
 public export
