@@ -6,10 +6,10 @@ DQN on discrete MountainCar — without it, random Gaussian exploration
 almost never reaches the goal in 999 steps.
 
 Uses canonical `gym.make("MountainCarContinuous-v0")` for env physics.
-Reset state pinned to (-0.5, 0.0) with float64 to mirror idris-gym's
-`Gym.ClassicControl.MountainCarContinuous.reset` (canonical Gymnasium
-randomizes pos ~ U(-0.6, -0.4); both Idris and torch_ref pin to
-deterministic center).
+Both Idris (`Gym.ClassicControl.MountainCarContinuous.reset`) and the
+PyTorch reference randomize the initial state per Gymnasium
+U(-0.6, -0.4) × {0.0} — seeded once at trainer start, advanced per
+episode.
 
 Aligned with `Example.MountainCarCont` (Idris): same architecture
 (actor 2→64→64→1, twin Q 3→64→64→1, fixed alpha=0.2, polyak τ=0.005),
@@ -49,9 +49,12 @@ def make_mountaincarcont_env(seed: int) -> gym.Env:
 
 
 def reset_to_center(env: gym.Env) -> np.ndarray:
-    """Pin env state to (-0.5, 0.0) and return obs (float64)."""
-    env.unwrapped.state = np.array([-0.5, 0.0], dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
-    return np.array([-0.5, 0.0], dtype=np.float64)
+    """Return obs of the env's current (just-reset) state as float64.
+
+    Previously pinned to (-0.5, 0.0); idris-gym now randomizes per
+    Gymnasium and the PyTorch side follows.
+    """
+    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
@@ -59,16 +62,15 @@ def obs_tensor(obs: np.ndarray) -> Tensor:
 
 
 def make_mountaincarcont_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
-    """N MountainCarContinuous-v0 envs in a SyncVectorEnv, each reset to
-    (-0.5, 0.0) (mirrors Idris-side `Gym.Vector.resetAll`)."""
+    """N MountainCarContinuous-v0 envs in a SyncVectorEnv, seeded once at
+    construction and randomized per Gymnasium on each reset (mirrors
+    Idris-side `Gym.Vector.resetAll`)."""
     def _make(idx: int):
         def _f():
             return make_mountaincarcont_env(seed + idx)
         return _f
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
-    for sub in vec.envs:
-        reset_to_center(sub)
     return vec
 
 
@@ -242,13 +244,13 @@ def train_sac(
                 next_obs_np[i].tolist(),
                 bool(terms_np[i]),
             )
-        # Episode completion + reset.
+        # Episode completion + auto-reset. Gymnasium's SyncVectorEnv
+        # already auto-resets terminated sub-envs and returns the
+        # randomized initial obs in next_obs_np[i].
         for i in range(NUM_ENVS):
             if is_dones[i]:
                 history.append(float(ep_returns_running[i]))
                 ep_returns_running[i] = 0.0
-                reset_to_center(vec_env.envs[i])
-                next_obs_np[i] = np.array([-0.5, 0.0], dtype=np.float64)
         obs_np = next_obs_np
         if len(buffer) >= max(batch_size, warmup_steps):
             sac_update(

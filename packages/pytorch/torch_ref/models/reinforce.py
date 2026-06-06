@@ -1,10 +1,10 @@
 """REINFORCE (Williams 1992) on CartPole-v1.
 
 Policy gradient with mean-return baseline. Uses canonical
-`gym.make("CartPole-v1")` for env physics. Reset state is pinned to
-the all-zero start `(0, 0, 0, 0)` to mirror `Gym.ClassicControl.CartPole.reset`
-on the Idris side (canonical Gymnasium randomizes each component
-~ U(-0.05, 0.05); both Idris and torch_ref pin to deterministic zero).
+`gym.make("CartPole-v1")` for env physics. Both Idris
+(`Gym.ClassicControl.CartPole.reset`) and the PyTorch reference
+randomize each of the 4 initial-state components per Gymnasium
+U(-0.05, 0.05) — seeded once at trainer start, advanced per episode.
 
 MAX_STEPS=200 matches the CartPole-v0 episode cap (idris-gym
 `cartPoleMaxSteps`). CartPole-v1's wrapper has a 500-step cap but we
@@ -33,22 +33,23 @@ MAX_STEPS = 200
 
 
 def make_cartpole_env(seed: int) -> gym.Env:
-    """Create a seeded CartPole-v1 env. Reset state is pinned to all-zero
-    by `reset_to_zero` after each `env.reset()`."""
+    """Create a CartPole-v1 env seeded once at construction. Per-episode
+    resets advance the env's PRNG and randomize the start state per
+    Gymnasium's U(-0.05, 0.05)^4, matching idris-gym's randomized
+    `Env.reset`."""
     env = gym.make("CartPole-v1")
     env.reset(seed=seed)
     return env
 
 
 def reset_to_zero(env: gym.Env) -> np.ndarray:
-    """Pin env state to (0, 0, 0, 0) and return the corresponding obs.
+    """Return the obs of the env's current (just-reset) state as float64.
 
-    Uses float64 so the internal CartPole dynamics step at the same
-    precision as the policy network (and the pre-migration hand-rolled
-    env, which did the math in Python float = double).
+    Previously pinned env state to (0, 0, 0, 0) to match idris-gym's
+    deterministic reset; idris-gym now randomizes per Gymnasium and the
+    PyTorch side follows suit. Function name kept for call-site stability.
     """
-    env.unwrapped.state = np.zeros(4, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
-    return np.zeros(4, dtype=np.float64)
+    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:

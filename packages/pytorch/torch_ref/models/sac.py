@@ -2,9 +2,10 @@
 
 Stochastic tanh-squashed Gaussian actor, twin Q-networks, Polyak-averaged
 target Q-networks, fixed entropy temperature α. Uses canonical
-`gym.make("Pendulum-v1")` for env physics — reset state is pinned to
-(theta=π, theta_dot=0) to mirror idris-gym's deterministic `MkP Pi 0.0`
-(see `docs/develop/reference-alignment.md`).
+`gym.make("Pendulum-v1")` for env physics. Both Idris
+(`Gym.ClassicControl.Pendulum.reset`) and the PyTorch reference
+randomize the initial state per Gymnasium θ ~ U(-π, π), θ̇ ~ U(-1, 1) —
+seeded once at trainer start, advanced per episode.
 
 Aligned with `Example.Sac` (Idris): separate actor + Q1 + Q2 networks
 registered under distinct paramId scope prefixes on the Idris side, and
@@ -39,14 +40,13 @@ NUM_ENVS = 4
 
 
 def _reset_to_pi(env: gym.Env) -> np.ndarray:
-    """Pin env state to (theta=π, theta_dot=0) and return the obs.
+    """Return obs [cos(theta), sin(theta), theta_dot] of the env's current
+    (just-reset) state as float64.
 
-    Canonical Pendulum-v1 randomizes the init within theta ∈ [-π, π],
-    theta_dot ∈ [-1, 1]; idris-gym uses deterministic worst-case
-    `MkP Pi 0.0`. The torch reference pins to match — eliminating
-    state-distribution differences from convergence comparisons.
+    Previously pinned state to (theta=π, theta_dot=0) to match idris-gym's
+    deterministic reset; idris-gym now randomizes per Gymnasium (theta ~
+    U(-π, π), theta_dot ~ U(-1, 1)) and the PyTorch side follows.
     """
-    env.unwrapped.state = np.array([math.pi, 0.0], dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
     th, dth = env.unwrapped.state  # pyright: ignore[reportAttributeAccessIssue]
     return np.array([math.cos(th), math.sin(th), dth], dtype=np.float64)
 
@@ -56,15 +56,14 @@ def _obs_tensor(obs: np.ndarray) -> Tensor:
 
 
 def make_pendulum_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
-    """N Pendulum-v1 envs in a SyncVectorEnv, each pinned to (π, 0)."""
+    """N Pendulum-v1 envs in a SyncVectorEnv, seeded once at construction
+    and randomized per Gymnasium on each reset."""
     def _make(idx: int):
         def _f():
             return gym.make("Pendulum-v1")
         return _f
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset(seed=seed)
-    for sub in vec.envs:
-        _reset_to_pi(sub)
     return vec
 
 
@@ -282,10 +281,8 @@ def train_sac(
                 history.append(float(ep_returns_running[i]))
                 ep_returns_running[i] = 0.0
                 ep_lens[i] = 0
-                _reset_to_pi(vec_env.envs[i])
-                next_obs_np[i] = np.array(
-                    [math.cos(math.pi), math.sin(math.pi), 0.0], dtype=np.float64
-                )
+                # SyncVectorEnv auto-resets terminated sub-envs; the
+                # randomized initial obs is already in next_obs_np[i].
         obs_np = next_obs_np
         if len(buffer) >= max(batch_size, warmup_steps):
             sac_update(

@@ -6,10 +6,9 @@ shaping `r' = r + shaping * |v'|` to provide a dense intermediate
 signal — the agent learns to build kinetic energy as the proven
 precursor to reaching the goal.
 
-Reset state pinned to (-0.5, 0.0) with float64 to mirror idris-gym's
-`Gym.ClassicControl.MountainCar.reset = MkMC (-0.5) 0.0` (canonical
-Pendulum randomizes pos ~ U(-0.6, -0.4); both Idris and torch_ref pin
-to deterministic center).
+Both Idris (`Gym.ClassicControl.MountainCar.reset`) and the PyTorch
+reference randomize the initial state per Gymnasium U(-0.6, -0.4) ×
+{0.0} — seeded once at trainer start, advanced per episode.
 
 Aligned with `Example.MountainCar` (Idris): same architecture (2 -> 64 ->
 64 -> 3), same defaults (lr=1e-3, gamma=0.99, batch=64, buffer=50K,
@@ -41,17 +40,21 @@ NUM_ENVS = 4
 
 
 def make_mountaincar_env(seed: int) -> gym.Env:
-    """Create a seeded MountainCar-v0 env. Use `reset_to_center` to pin
-    initial state after each `env.reset()`."""
+    """Create a MountainCar-v0 env seeded once at construction. Per-episode
+    resets advance the env's PRNG and randomize pos ~ U(-0.6, -0.4) per
+    Gymnasium, matching idris-gym's randomized `Env.reset`."""
     env = gym.make("MountainCar-v0")
     env.reset(seed=seed)
     return env
 
 
 def reset_to_center(env: gym.Env) -> np.ndarray:
-    """Pin env state to (-0.5, 0.0) and return obs."""
-    env.unwrapped.state = np.array([-0.5, 0.0], dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
-    return np.array([-0.5, 0.0], dtype=np.float64)
+    """Return obs of the env's current (just-reset) state as float64.
+
+    Previously pinned to (-0.5, 0.0); idris-gym now randomizes per
+    Gymnasium and the PyTorch side follows.
+    """
+    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
@@ -105,15 +108,14 @@ def eps_greedy_action(q: QNetwork, obs: Tensor, epsilon: float, rng: random.Rand
 
 
 def make_mountaincar_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
-    """N MountainCar-v0 envs in a SyncVectorEnv, each reset to (-0.5, 0.0)."""
+    """N MountainCar-v0 envs in a SyncVectorEnv, seeded once at construction
+    and randomized per Gymnasium on each reset."""
     def _make(idx: int):
         def _f():
             return make_mountaincar_env(seed + idx)
         return _f
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
-    for sub in vec.envs:
-        reset_to_center(sub)
     return vec
 
 
@@ -247,10 +249,8 @@ def dqn_episode_batched(
                 next_obs_np[i].tolist(),
                 bool(dones_np[i]),
             )
-        for i in range(NUM_ENVS):
-            if dones_np[i]:
-                reset_to_center(vec_env.envs[i])
-                next_obs_np[i] = np.array([-0.5, 0.0], dtype=np.float64)
+        # Gymnasium SyncVectorEnv auto-resets terminated sub-envs; the
+        # randomized initial obs is already in next_obs_np[i].
         obs_np = next_obs_np
         step_count += 1
 

@@ -1,10 +1,10 @@
 """PPO (Schulman et al. 2017) on Acrobot-v1 (discrete-action, categorical policy).
 
 Uses canonical `gym.make("Acrobot-v1")` for env physics (single-step
-RK4 with dt=0.2). Reset state pinned to (0, 0, 0, 0) with float64 to
-mirror `Gym.ClassicControl.Acrobot.reset = MkA 0 0 0 0` — canonical
-Gymnasium randomizes each state component ~ U(-0.1, 0.1); both Idris
-and torch_ref pin to deterministic hanging-down start.
+RK4 with dt=0.2). Both Idris (`Gym.ClassicControl.Acrobot.reset`) and
+the PyTorch reference randomize the 4-component initial state per
+Gymnasium U(-0.1, 0.1) — seeded once at trainer start, advanced per
+episode.
 
 Acrobot is the canonical "PPO clipped-surrogate demonstrates"
 benchmark — discrete actions (3: -1/0/+1 torque), sparse reward
@@ -19,6 +19,7 @@ use the same N to keep the cross-backend reference comparable.
 
 from __future__ import annotations
 
+import math
 import random
 import time
 
@@ -39,22 +40,27 @@ NUM_ENVS = 4
 
 
 def make_acrobot_env(seed: int) -> gym.Env:
-    """Create a seeded Acrobot-v1 env. Use `reset_to_zero` to pin the
-    initial state to (0,0,0,0) after each `env.reset()`."""
+    """Create an Acrobot-v1 env seeded once at construction. Per-episode
+    resets advance the env's PRNG and randomize the 4 state components
+    ~ U(-0.1, 0.1) per Gymnasium, matching idris-gym's randomized
+    `Env.reset`."""
     env = gym.make("Acrobot-v1")
     env.reset(seed=seed)
     return env
 
 
 def reset_to_zero(env: gym.Env) -> np.ndarray:
-    """Pin env state to (0, 0, 0, 0) (hanging-down) and return obs (float64).
+    """Return obs [cos(th1), sin(th1), cos(th2), sin(th2), dth1, dth2]
+    derived from the env's current (just-reset) state, as float64.
 
-    Canonical Acrobot-v1 randomizes each component ~ U(-0.1, 0.1).
-    Pinning to zero matches idris-gym `MkA 0 0 0 0`.
+    Previously pinned state to (0, 0, 0, 0); idris-gym now randomizes
+    per Gymnasium and the PyTorch side follows.
     """
-    env.unwrapped.state = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
-    # Obs is [cos(th1), sin(th1), cos(th2), sin(th2), dth1, dth2].
-    return np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    th1, th2, dth1, dth2 = env.unwrapped.state  # pyright: ignore[reportAttributeAccessIssue]
+    return np.array(
+        [math.cos(th1), math.sin(th1), math.cos(th2), math.sin(th2), dth1, dth2],
+        dtype=np.float64,
+    )
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
@@ -162,16 +168,15 @@ def gae_batched(
 
 
 def make_acrobot_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
-    """N independent Acrobot envs in a SyncVectorEnv, each reset to all-zero
-    to mirror idris-gym's `Gym.ClassicControl.Acrobot.reset = MkA 0 0 0 0`."""
+    """N independent Acrobot envs in a SyncVectorEnv, seeded once at
+    construction and randomized per Gymnasium on each reset (mirrors
+    idris-gym's `Gym.Vector.resetAll`)."""
     def _make(idx: int):
         def _f():
             return make_acrobot_env(seed + idx)
         return _f
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
-    for sub in vec.envs:
-        reset_to_zero(sub)
     return vec
 
 
@@ -245,9 +250,9 @@ def collect_rollout(
         rew_list.append(torch.from_numpy(rewards_np.astype(np.float64)).to(device, dtype))
         val_list.append(values_t.detach().to(dtype))
         done_list.append(torch.from_numpy(dones_np.astype(np.float64)).to(device, dtype))
-        # Per-env episode accounting + reset-to-zero overrides for envs
-        # whose episode ended (either gym-side terminate/truncate or our
-        # per-env max_ep_len truncation).
+        # Per-env episode accounting. Gymnasium's SyncVectorEnv auto-resets
+        # any terminated/truncated sub-env and returns the new randomized
+        # obs in next_obs_np[env_idx], so we don't need to reset manually.
         ep_sums = ep_sums + rewards_np.astype(np.float64)
         next_obs_np = next_obs_np.astype(np.float64)
         for env_idx in range(n):
@@ -255,10 +260,6 @@ def collect_rollout(
                 ep_returns.append(float(ep_sums[env_idx]))
                 ep_sums[env_idx] = 0.0
                 ep_lens[env_idx] = 0
-                reset_to_zero(vec_env.envs[env_idx])
-                next_obs_np[env_idx] = np.array(
-                    [1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64
-                )
         obs_np = next_obs_np
     return (
         torch.stack(obs_list),     # [T, N, 6]
