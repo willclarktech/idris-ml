@@ -10,3 +10,18 @@ trim_trailing_whitespace = true
 [*.idr]
 indent_size = 2
 indent_style = space
+
+[*.py]
+indent_size = 4
+indent_style = space
+
+[*.{c,h,cpp,hpp}]
+indent_size = 4
+indent_style = space
+
+[*.{yml,yaml}]
+indent_size = 2
+indent_style = space
+
+[*.sh]
+indent_style = tab
