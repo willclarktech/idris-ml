@@ -11,6 +11,16 @@ packages/backends/
 │                              #   unified symbols: index arrays, RSS, MNIST
 │                              #   file loaders, dropout RNG, _wall_ms,
 │                              #   bf16/f16 bit-cast helpers).
+├── idx.{c,h}                  # IDX-format dataset loader (compile-once,
+│                              #   unified symbols). Separate from
+│                              #   shared_utils.c because it has its own
+│                              #   header (IdxDataset struct) and is the
+│                              #   replacement path for mnist.c — its
+│                              #   `idx_image_doubles` returns a borrowed
+│                              #   pointer into the loaded buffer so the
+│                              #   Idris side can call `primCreate3dStreamed`
+│                              #   directly, removing the per-backend
+│                              #   `mnist_get_image_<b>` symbol.
 ├── shared/
 │   └── training/
 │       ├── port.h             # BackendPort dispatch table (39 methods).

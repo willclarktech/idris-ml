@@ -631,7 +631,7 @@ else
   IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_INFO
 endif
 
-SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o $(BUILD)/log.o $(BUILD)/probes.o
+SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o $(BUILD)/idx.o $(BUILD)/log.o $(BUILD)/probes.o
 
 $(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(CJSON_H) $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
@@ -643,6 +643,9 @@ $(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -c -o $@ $<
 
 $(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h | $(BUILD)
+	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
+
+$(BUILD)/idx.o: $(BACKENDS_DIR)/idx.c $(BACKENDS_DIR)/idx.h | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BUILD)/log.o: $(BACKENDS_DIR)/log.c $(BACKENDS_DIR)/log.h | $(BUILD)
