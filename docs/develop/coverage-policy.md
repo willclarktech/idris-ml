@@ -142,10 +142,20 @@ When introducing a new `OP_FOO` to either tape or mlx:
    - calls `tensor_backward(loss)` and asserts gradients via
      `param_grad_item_at` against finite-difference or hand-computed
      reference
-   - if the op exists on more than one backend, add the same
-     assertions under each backend's tree — the Makefile's
-     `CRITERION_BACKEND_TEST_SRCS` rule discovers `test_*.c` under
-     every `backend_<b>/` and links the matching backend's variant
+   - **one colocated file covers all backends.** The Makefile's
+     `CRITERION_BACKEND_TEST_SRCS` rule globs `test_*.c` under every
+     `backend_<b>/` tree and links them into a single Criterion
+     binary gated by `-DBACKEND_<PRIMARY>`. A test that calls the
+     public `tensor_<op>` FFI exercises whichever backend's
+     implementation the rename header resolves to at link time, so
+     authoring under `backend_tape/<area>/test_<op>.c` is sufficient
+     for tape + torch + mlx coverage as long as all three
+     implement `tensor_<op>`. Backend-specific tests (internals,
+     dispatch tables, port slots) gate themselves with
+     `#ifdef BACKEND_<NAME>` and live under that backend's tree
+   - tolerances `TEST_TOL_TIGHT` / `TEST_TOL_RELAXED` (from
+     `packages/idris-test-c/include/test_helpers.h`) switch between
+     1e-12 (F64 backends) and 1e-5 (mlx F32) automatically
 4. **TDD commit shape**: per `feedback_tdd_default`, either commit
    the test together with the implementing change (paired commit,
    body line `RED before this commit: <assertion>`) or commit the

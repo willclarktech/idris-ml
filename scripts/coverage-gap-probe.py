@@ -56,22 +56,21 @@ BACKENDS = ROOT / "packages" / "backends"
 # backend_torch has no colocated tests today) are silently skipped by
 # grep_word_in_dirs. The legacy packages/backends/test/ tree that the
 # predecessor bash version pointed at no longer exists.
+#
+# Per-OP search uses the SAME roots as per-symbol search: the Makefile's
+# CRITERION_BACKEND_TEST_SRCS rule globs `test_*.c` under every backend
+# tree and links them all into one Criterion binary gated by
+# `-DBACKEND_<PRIMARY>`, so a tape-colocated test_<op>.c that calls the
+# public `tensor_<op>` FFI exercises mlx's implementation when
+# PRIMARY=mlx (and torch's when PRIMARY=torch). Narrowing per-backend
+# would falsely flag MISSING on every cross-backend test (this was the
+# original bug behind the "7 mlx OP_* gaps" framing in commit 16f99d94).
 TEST_ROOTS = [
     BACKENDS / "backend_tape",
     BACKENDS / "backend_torch",
     BACKENDS / "backend_mlx",
     ROOT / "packages" / "idris-test-c" / "src",
 ]
-
-# Per-OP narrower roots: a tape OP_* is only triggered through the tape
-# autograd's backward dispatch, so its test file lives under
-# backend_tape/. Cross-cutting tests under idris-test-c/src/ count too —
-# they exercise the OP via its FFI symbol regardless of which backend's
-# tape they target.
-OP_TEST_ROOTS = {
-    "tape": [BACKENDS / "backend_tape", ROOT / "packages" / "idris-test-c" / "src"],
-    "mlx": [BACKENDS / "backend_mlx", ROOT / "packages" / "idris-test-c" / "src"],
-}
 
 # Documented FFI exclusion list (lifted verbatim from
 # coverage-gap-probe.sh; see docs/develop/coverage-policy.md
@@ -126,7 +125,6 @@ def build_ops_rows() -> list[dict]:
         backend_dir = BACKENDS / f"backend_{backend}"
         if not header.exists():
             continue
-        roots = OP_TEST_ROOTS[backend]
         ops = sorted(extract_ops(header.read_text()))
         for op in ops:
             source = find_op_source(op, backend_dir, anchor)
@@ -135,7 +133,7 @@ def build_ops_rows() -> list[dict]:
                 symbols = sorted(extract_ffi_symbols_from_source(source.read_text()))
             test_path = None
             for sym in symbols:
-                hits = grep_word_in_dirs(sym, roots)
+                hits = grep_word_in_dirs(sym, TEST_ROOTS)
                 if hits:
                     test_path = hits[0]
                     break

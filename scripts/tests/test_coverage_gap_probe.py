@@ -63,8 +63,28 @@ def test_missing_root_is_silently_skipped() -> None:
     assert grep_word_in_dirs("tensor_add", bogus) == []
 
 
+def test_mlx_ops_covered_by_cross_backend_tests() -> None:
+    """The tape-colocated `test_avg_pool2d.c` (and similar) exercises
+    mlx's `tensor_avg_pool2d` when the binary is built with
+    `-DBACKEND_MLX` because the Makefile globs `test_*.c` across all
+    three backend trees. The probe MUST scan all trees for OP coverage
+    (not narrow to the matching backend's tree) or it will falsely flag
+    every cross-backend test as MISSING — the regression behind the
+    `16f99d94` follow-up.
+    """
+    backends = ROOT / "packages" / "backends"
+    all_trees = [backends / d for d in ("backend_tape", "backend_torch", "backend_mlx")]
+    all_trees.append(ROOT / "packages" / "idris-test-c" / "src")
+    for sym in ("tensor_avg_pool2d", "tensor_gelu", "tensor_masked_fill",
+                "tensor_rms_norm_2d", "tensor_swiglu_2d", "tensor_tile_2d",
+                "tensor_max_pool2d_batched"):
+        hits = grep_word_in_dirs(sym, all_trees)
+        assert hits, f"{sym} has no test hits — cross-backend tree search is broken"
+
+
 if __name__ == "__main__":
     test_tape_add_has_test_coverage()
     test_tape_backward_has_test_coverage()
     test_missing_root_is_silently_skipped()
+    test_mlx_ops_covered_by_cross_backend_tests()
     print("OK")
