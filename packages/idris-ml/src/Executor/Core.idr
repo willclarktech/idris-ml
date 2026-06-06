@@ -284,6 +284,14 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   -- Embedding / similarity -------------------------------
   primEmbedding      : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
   primEmbedding2d    : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  ||| Kept as a mandatory `UserExecutorNN` method (audit closure): a
+  ||| pure-Idris alternative (`sum(a * b, dim) / (sqrt(sum(a^2, dim))
+  ||| * sqrt(sum(b^2, dim)))`) would emit 8 lazy-graph nodes per call
+  ||| (4 reductions + 2 sqrts + mul + div). In NTM's per-timestep
+  ||| content-addressing loop (3 callsites in `Layer/{Ntm,Dnc}.idr`)
+  ||| under the `withNoGrad` bracket on mlx, that would compound
+  ||| MTLBuffer pressure and risk hitting the existing handle-count
+  ||| ceiling. The fused kernel is the right shape for this hot loop.
   primCosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
   -- Loss --------------------------------------------------------------
@@ -648,6 +656,13 @@ interface UserExecutorCore ex => UserExecutorTensorCreate (0 ex : Executor) wher
   ||| matrix in the dtype selected by the trailing `dtypeTag` (so the
   ||| produced tensor honestly matches the Idris `dt`; 0/1 is exact in
   ||| every dtype). Args: (index buffer, len, classes, dtypeTag).
+  |||
+  ||| Kept as a mandatory primitive (audit closure): replacing with a
+  ||| pure-Idris path (`dtCreate2d` zeros + per-row `setItem`) would
+  ||| require N+1 FFI hops per call on the LLM training hot path
+  ||| (BERT mini batch_size=16 × seq_len=128 → 2049 hops vs 1). The
+  ||| fused kernel is uniformly faster on all three backends; the
+  ||| per-call FFI saving compounds across every training step.
   primOneHot            : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
   -- dtype-streamed creation -----------------------------------------
