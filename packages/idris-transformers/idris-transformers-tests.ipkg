@@ -18,6 +18,7 @@ modules = Test.Main
         , Test.HfBertLoraInject
         , Test.HfLoraIO
         , Test.HfBitNet
+        , Test.HfCommon
         , Test.HfDataset
         , Test.HfGpt2
         , Test.HfLlama

@@ -21,6 +21,7 @@ import Data.Vect
 
 import HfBert
 import Test.Harness
+import Test.HfCommon
 
 import Executor
 import Executor.Core
@@ -100,10 +101,9 @@ firstMismatch xs ys = go Z xs ys
 
 testParamCount : IO Bool
 testParamCount =
-  let got      = length (bertParamNames bertTinyConfig "bert")
-      expected = 39
-  in check ("bertParamNames length = 39 (got " ++ show got ++ ")")
-           (got == expected)
+  assertHfModelParamCount "bertParamNames"
+                          (bertParamNames bertTinyConfig "bert")
+                          39
 
 testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =

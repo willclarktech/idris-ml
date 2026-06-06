@@ -23,6 +23,7 @@ import Data.Vect
 
 import HfBitNet
 import Test.Harness
+import Test.HfCommon
 
 import Executor
 import Executor.Core
@@ -122,10 +123,9 @@ firstMismatch xs ys = go Z xs ys
 
 testParamCount : IO Bool
 testParamCount =
-  let got      = length (hfBitnetParamNames bitnet2B4T_Config "model")
-      expected = 542
-  in check ("hfBitnetParamNames length = 542 (got " ++ show got ++ ")")
-           (got == expected)
+  assertHfModelParamCount "hfBitnetParamNames"
+                          (hfBitnetParamNames bitnet2B4T_Config "model")
+                          542
 
 testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =

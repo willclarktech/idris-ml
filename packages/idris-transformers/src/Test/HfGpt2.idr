@@ -17,6 +17,7 @@ import Data.Vect
 
 import HfGpt2
 import Test.Harness
+import Test.HfCommon
 
 import Executor
 import Executor.Core
@@ -75,10 +76,9 @@ firstMismatch xs ys = go Z xs ys
 
 testParamCount : IO Bool
 testParamCount =
-  let got      = length (hfGpt2ParamNames distilGpt2Config "")
-      expected = 76
-  in check ("hfGpt2ParamNames length = 76 (got " ++ show got ++ ")")
-           (got == expected)
+  assertHfModelParamCount "hfGpt2ParamNames"
+                          (hfGpt2ParamNames distilGpt2Config "")
+                          76
 
 testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =

@@ -17,6 +17,7 @@ import Data.Vect
 
 import HfLlama
 import Test.Harness
+import Test.HfCommon
 
 import Executor
 import Executor.Core
@@ -75,10 +76,9 @@ firstMismatch xs ys = go Z xs ys
 
 testParamCount : IO Bool
 testParamCount =
-  let got      = length (hfLlamaParamNames llama32_1B_Config "model")
-      expected = 146
-  in check ("hfLlamaParamNames length = 146 (got " ++ show got ++ ")")
-           (got == expected)
+  assertHfModelParamCount "hfLlamaParamNames"
+                          (hfLlamaParamNames llama32_1B_Config "model")
+                          146
 
 testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
