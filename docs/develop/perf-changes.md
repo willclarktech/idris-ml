@@ -3842,3 +3842,42 @@ The win profile matches the prior session's AdamW characterization: scales with 
 - `2026-06-08T<later>Z` transformer / tape foreach (three runs) walls 4241 / 4526 / 5543 ms
 
 **Cross-references**: `backend_tape/training/optimizer.c` (gate widen + comment update); `packages/idris-test-c/src/test_optimizers.c` (new paired Adam test, original AdamW pair retained); ran concurrently with the in-flight mlx F32 hf-llama bg measurement (separate BUILD_KEY tree `tape-mlxcpu-torchcpu-machmac-m-series-hwcpu` vs `mlx-mlxgpu-…-mdtF32`, no contention).
+
+### 2026-06-08 — Tape Adam/AdamW foreach: cross-workload characterisation — `cc126bda`
+
+**Plan job**: Task C of the follow-up plan — verify the foreach wall reduction across the remaining AdamW-using tape examples, characterise where the win lives.
+
+**Motivation**: the AdamW landing measured bert-mlm-finetune (−43%) but only one workload. Task B extended foreach to Adam (type 2) and measured transformer (~−20%) + mnist (noise). This entry closes the picture across the BERT/GPT family.
+
+**Impact** — paired warm-tree perf-run.sh measurements on `cc126bda`:
+
+| (example, backend) | scalar wall | foreach wall | wall delta | converged? |
+|---|---:|---:|---:|---|
+| bert-classify-finetune / tape (1582 ep) | 11.640s | 10.947s | noise (~−6%) | loss=0.0008 acc=1.000 |
+| bert-classify-sst2-finetune / tape pass 1 | 71.0s | 12.1s | −83% (scalar outlier) | loss=0.3337 acc=0.594 |
+| bert-classify-sst2-finetune / tape pass 2 | 17.309s | 10.919s | **−37%** | loss=0.3337 acc=0.594 |
+| bert-classify-sst2-lora / tape (3 ep) | 31.905s | 23.772s | **−25%** | loss=0.3373 acc=0.570 |
+| gpt2-lm-finetune / tape pass 1 (100 steps) | 3m 7s | 55.324s | **−70%** | loss=4.6110 |
+| gpt2-lm-finetune / tape pass 2 (100 steps) | 2m 24s | 47.272s | **−67%** | loss=4.6110 |
+
+The sst2-finetune pass-1 scalar (71s) is treated as an outlier — the host had transient contention; pass 2 reproduces the workload at −37%, consistent with the workload size. Gpt2-lm-finetune holds at ~−67-70% across both passes; the largest tape AdamW workload here, and the win scales with the param count × steps the foreach iterates.
+
+The full picture across all tape Adam/AdamW measurements this session:
+
+| Workload | Trainable params (rough) | Foreach win |
+|---|---:|---:|
+| mnist | ~few K | noise |
+| transformer (translation) | ~few K | −20% |
+| bert-classify-finetune (synthetic) | ~few K (toy task) | noise |
+| bert-classify-sst2-lora | LoRA-reduced (~K range) | −25% |
+| bert-classify-sst2-finetune | ~4M (BERT-tiny full) | −37% |
+| bert-mlm-finetune | ~4M (BERT-tiny full) | −43% |
+| gpt2-lm-finetune | ~124M (GPT-2 base) | −67-70% |
+
+Pattern is monotone in trainable param count × steps: tiny workloads stay in noise; mid-size BERT-tiny lands in the −37% to −43% band; GPT-2 base hits −67-70%. The foreach payoff is the BLAS-1 m-update amortising over the registered-param sweep — bigger sweep, bigger win.
+
+**Outcome**: no further code changes. The Adam (type 2) gate widen at `fdcd5a1c` + AdamW (type 3) foreach at `4da11736` already cover both type tags. The TODO row stays deleted (was closed in the AdamW commit's CHANGELOG entry); no need for additional follow-up unless RMSprop (type 1) becomes a hot path on some new workload (different math shape, separate ticket).
+
+**perf-log entries**: bert-classify-finetune (1 pair), bert-classify-sst2-finetune (2 pairs), bert-classify-sst2-lora (1 pair), gpt2-lm-finetune (2 pairs), all timestamped `2026-06-08T<later>Z` against commit `cc126bda`.
+
+**Cross-references**: prior entries this session (AdamW foreach + Adam extension); no source changes for this characterisation, only `docs/develop/perf-log.jsonl` appends.
