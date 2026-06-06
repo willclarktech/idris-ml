@@ -3881,3 +3881,7 @@ Pattern is monotone in trainable param count × steps: tiny workloads stay in no
 **perf-log entries**: bert-classify-finetune (1 pair), bert-classify-sst2-finetune (2 pairs), bert-classify-sst2-lora (1 pair), gpt2-lm-finetune (2 pairs), all timestamped `2026-06-08T<later>Z` against commit `cc126bda`.
 
 **Cross-references**: prior entries this session (AdamW foreach + Adam extension); no source changes for this characterisation, only `docs/develop/perf-log.jsonl` appends.
+
+### 2026-06-08 — Note: `844a4e1b` commit-body impact claim was overbroad
+
+The fix-itself is correct (perf-run.sh's case arm for `hf-llama-generate` was renamed `test-e2e-hf-llama-generate-roundtrip` on 2026-05-24 in `5351a82e` but the script wasn't updated). However the commit body claimed "all hf-llama-generate perf-run measurements have been silently exit-2 / wall ~0.5s since 2026-05-24" — perf-log shows several successful runs between 2026-05-24 and the fix: `676830b9+dirty` (61.9s wall, exit 0, 2026-06-04 11:11), `2c7d371f` (28-37 min wall, exit 0, 2026-06-04 14:09 + 14:46), `1b268fed+dirty` (22 min wall, exit 0, 2026-06-04 15:12). The 2026-06-04 successes were the in-flight HfLlama measurements that continued working until something between `1b268fed+dirty` (succeeded) and `3e08ad3d` (failed 2026-06-08 12:16, triggering the fix) broke them. The script bug was real; the "silently broken for two weeks" framing was not. Noting here for future archeology — no code change.

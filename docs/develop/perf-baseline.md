@@ -50,6 +50,16 @@ Bold = winning cell per example (lowest ratio).
 narrow-bug fixes for transformer + DNC). Prior tables below are
 historical snapshots; this section is current.
 
+**Note (2026-06-08)**: tape numbers in the table predate the Adam/AdamW
+foreach landing (`4da11736` + `fdcd5a1c`). On tape workloads where Adam
+or AdamW is the optimizer, the new ratios are tighter than the 0.04-0.16
+shown above — measured deltas of ~−20% (transformer), ~−37% (BERT-tiny
+finetune), and ~−67-70% (GPT-2 base finetune); see `perf-changes.md`
+entries dated 2026-06-08 for the per-workload numbers. The headlines
+(tape wins every cell, mlx-gpu in `project_mlx_gpu_environment.md`,
+etc.) are unchanged; the table will be re-swept on the next full
+`scripts/perf-sweep.sh` pass.
+
 ## How this table is filled in
 
 Run `scripts/perf-baseline.sh <example-key> <backend>`. The script does
