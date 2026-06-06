@@ -1,0 +1,23 @@
+"""Tensor allocation primitives — scalars, 1d-4d, params, state, host buffers."""
+
+from .._entry import Entry
+
+
+ENTRIES = {
+    "tensor_cast_streamed": Entry(args=('T', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCastStreamed', c_symbol='tensor_cast_dtype_streamed', mlx='direct'),
+    "tensor_create_1d_streamed": Entry(args=('i', 'R', 'i', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreate1dStreamed', mlx='direct'),
+    "tensor_create_2d_streamed": Entry(args=('i', 'i', 'R', 'i', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreate2dStreamed', mlx='direct'),
+    "tensor_create_param_1d_streamed": Entry(args=('i', 'R', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateParam1dStreamed', mlx='direct'),
+    "tensor_create_param_2d_streamed": Entry(args=('i', 'i', 'R', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateParam2dStreamed', mlx='direct'),
+    "tensor_create_param_3d_streamed": Entry(args=('i', 'i', 'i', 'R', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateParam3dStreamed', mlx='direct'),
+    "tensor_create_param_4d_streamed": Entry(args=('i', 'i', 'i', 'i', 'R', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateParam4dStreamed', mlx='direct'),
+    "tensor_create_scalar_streamed": Entry(args=('d', 'i', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateScalarStreamed', mlx='direct'),
+    "tensor_create_state_1d_streamed": Entry(args=('i', 'R', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateState1dStreamed', mlx='direct'),
+    "tensor_create_state_2d_streamed": Entry(args=('i', 'i', 'R', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateState2dStreamed', mlx='direct'),
+    "tensor_create_streamed": Entry(args=('R', 'R', 'i', 'i', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primCreateStreamed', mlx='direct'),
+    "tensor_item_2d": Entry(args=('T', 'i', 'i'), ret='d', slice='UserExecutorTensorCreate', idris_method='primItem2d', mlx='direct'),
+    "tensor_one_hot": Entry(args=('R', 'i', 'i', 'i'), ret='T', slice='UserExecutorTensorCreate', idris_method='primOneHot', mlx='direct'),
+    "tensor_set_init_seed_streamed": Entry(args=('i', 'i'), ret='v', slice='UserExecutorTensorCreate', idris_method='primSetInitSeedStreamed', mlx='direct'),
+    "tensor_tensor_dim": Entry(args=('T',), ret='i', slice='UserExecutorTensorCreate', idris_method='primTensorDim', c_symbol='tensor_dim', mlx='direct'),
+    "tensor_tensor_size_at": Entry(args=('T', 'i'), ret='i', slice='UserExecutorTensorCreate', idris_method='primTensorSizeAt', c_symbol='tensor_size', mlx='direct'),
+}
