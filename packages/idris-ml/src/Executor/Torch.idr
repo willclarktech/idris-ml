@@ -9,6 +9,7 @@ import Executor.Core
 import DType.Core
 import Backend
 import Hardware
+import Preset
 
 
 ----------------------------------------------------------------------
@@ -836,3 +837,26 @@ public export {n : Nat} -> RunsOn (TorchExecutor (TCuda n)) (Cuda n) where
 
 public export
 {hw : TorchHwDev} -> RunsVia (TorchExecutor hw) TorchBackend where
+
+
+----------------------------------------------------------------------
+-- Preset: per-Hardware defaults for libtorch.
+--   * Cpu      → TorchExecutor TCpu        + F64
+--   * AppleGpu → TorchExecutor TMps        + F32   (libtorch Metal is F32-only)
+--   * Cuda n   → TorchExecutor (TCuda n)   + F64
+----------------------------------------------------------------------
+
+public export
+Preset TorchBackend Cpu where
+  presetExecutor = TorchExecutor TCpu
+  presetDType    = F64
+
+public export
+Preset TorchBackend AppleGpu where
+  presetExecutor = TorchExecutor TMps
+  presetDType    = F32
+
+public export
+{n : Nat} -> Preset TorchBackend (Cuda n) where
+  presetExecutor = TorchExecutor (TCuda n)
+  presetDType    = F64

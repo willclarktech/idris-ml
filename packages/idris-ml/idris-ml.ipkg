@@ -25,6 +25,7 @@ modules = Compat.Random
         , Hardware
         , HwConfig
         , Machine
+        , Preset
         , HwExecutors
         , Hpo
         , Hpo.LrFinder

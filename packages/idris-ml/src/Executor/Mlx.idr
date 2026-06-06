@@ -9,6 +9,7 @@ import Executor.Core
 import DType.Core
 import Backend
 import Hardware
+import Preset
 
 
 ----------------------------------------------------------------------
@@ -853,3 +854,21 @@ public export RunsOn (MlxExecutor MGpu) AppleGpu where
 
 public export
 {s : MlxStream} -> RunsVia (MlxExecutor s) MlxBackend where
+
+
+----------------------------------------------------------------------
+-- Preset: per-Hardware defaults for mlx.
+--   * Cpu      → MlxExecutor MCpu + F64
+--   * AppleGpu → MlxExecutor MGpu + F32   (Metal stream is F32-only since mlx 0.31)
+-- mlx is macOS-only, so no Cuda preset.
+----------------------------------------------------------------------
+
+public export
+Preset MlxBackend Cpu where
+  presetExecutor = MlxExecutor MCpu
+  presetDType    = F64
+
+public export
+Preset MlxBackend AppleGpu where
+  presetExecutor = MlxExecutor MGpu
+  presetDType    = F32

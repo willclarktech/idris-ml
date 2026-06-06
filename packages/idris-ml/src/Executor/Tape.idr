@@ -9,6 +9,7 @@ import Executor.Core
 import DType.Core
 import Backend
 import Hardware
+import Preset
 
 
 ----------------------------------------------------------------------
@@ -760,3 +761,16 @@ RunsOn TapeExecutor Cpu where
 
 public export
 RunsVia TapeExecutor TapeBackend where
+
+
+----------------------------------------------------------------------
+-- Preset: tape on Cpu defaults to TapeExecutor + F64.
+-- Tape on AppleGpu / Cuda is intentionally undeclared — picking those
+-- with PRIMARY=tape becomes a "no instance Preset TapeBackend …"
+-- compile error at the example.
+----------------------------------------------------------------------
+
+public export
+Preset TapeBackend Cpu where
+  presetExecutor = TapeExecutor
+  presetDType    = F64
