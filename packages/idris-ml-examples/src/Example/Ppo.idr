@@ -9,6 +9,7 @@ import Compat.Random
 import Floating
 import Gym.ClassicControl.Acrobot
 import Gym.Env
+import Gym.Vector
 import Hpo.LrFinder
 import Layer.Activation
 import Layer.Core
@@ -50,7 +51,18 @@ ObsDim : Nat; ObsDim = 6
 Hidden : Nat; Hidden = 64
 NumActions : Nat; NumActions = 3
 EpisodeLen : Nat; EpisodeLen = 500   -- Acrobot defaultTimeLimit
-RolloutLen : Nat; RolloutLen = 1024
+
+||| Number of parallel envs run per ppoEpoch. Matches Idris-side
+||| `Example.A2c.NumEnvs` and PyTorch `torch_ref.models.ppo.NUM_ENVS`.
+||| Compile-time because the batched-forward shape `[NumEnvs, ObsDim]` is
+||| part of the autograd graph.
+NumEnvs : Nat; NumEnvs = 4
+
+||| Per-env rollout length. Total samples per ppoEpoch is
+||| `NumEnvs * RolloutLen`. Pre-batched used `RolloutLen=1024` with one
+||| env (1024 samples); we keep the same per-update sample budget across
+||| 4 parallel envs (256 per env × 4 envs = 1024 total).
+RolloutLen : Nat; RolloutLen = 256
 BatchSize : Nat; BatchSize = 64
 
 Actor : Type
@@ -158,6 +170,106 @@ rollout actor critic st stepsLeft (S k) = do
       let (stepsRest, finalSt, retsRest) = recur
           retsCarry = if isDone then 0.0 :: retsRest else retsRest
       pure (stepRec :: stepsRest, finalSt, retsCarry)
+
+
+----------------------------------------------------------------------
+-- Batched rollout (NumEnvs parallel envs, one batched forward per step)
+----------------------------------------------------------------------
+
+-- Sample one action per env from a [n, NumActions] batched log-prob
+-- tensor. Records the log-prob of the chosen action per env (PPO needs
+-- this for the importance ratio later).
+sampleActionFromBatch : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType g ->
+                        Vect n AState -> IO (Vect n Nat, Vect n Double)
+sampleActionFromBatch logProbsB envs = go 0 envs
+  where
+    go : Int -> Vect k AState -> IO (Vect k Nat, Vect k Double)
+    go _ [] = pure ([], [])
+    go i (_ :: rest) = do
+      let lp0 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 0
+          lp1 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 1
+          lp2 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 2
+      u <- randomRIO (the Double 0.0, 1.0)
+      let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
+          lp = case a of
+                 0 => lp0
+                 1 => lp1
+                 _ => lp2
+      (acts, lpVals) <- go (i + 1) rest
+      pure (a :: acts, lp :: lpVals)
+
+-- Step every env with its action; auto-reset envs that terminate OR hit
+-- the EpisodeLen truncation cap. Returns next states, rewards, done
+-- flags, and updated per-env stepsLeft counters.
+stepAllAutoResetTrunc : Vect n AState -> Vect n Nat -> Vect n Nat ->
+                        (Vect n AState, Vect n Double, Vect n Bool, Vect n Nat)
+stepAllAutoResetTrunc [] [] [] = ([], [], [], [])
+stepAllAutoResetTrunc (s :: ss) (a :: as) (sl :: sls) =
+  case aStep s a of
+    (r, s', outcome, _) =>
+      let natTerm = case outcome of
+                      Terminated => True
+                      _          => False
+          truncate = sl == 1
+          isDone = natTerm || truncate
+          nextS  = if isDone then MkA 0.0 0.0 0.0 0.0 else s'
+          nextSl = if isDone then EpisodeLen else sl `minus` 1
+      in case stepAllAutoResetTrunc ss as sls of
+           (rest, rs, ds, sls') => (nextS :: rest, r :: rs, isDone :: ds, nextSl :: sls')
+
+-- Build per-env RollStep records.
+mkRollSteps : Vect n (Vect ObsDim Double) -> Vect n Nat -> Vect n Double ->
+              Vect n Double -> Vect n Double -> Vect n Bool ->
+              Vect n RollStep
+mkRollSteps [] [] [] [] [] [] = []
+mkRollSteps (o :: os) (a :: as) (lp :: lps) (v :: vs) (r :: rs) (d :: ds) =
+  MkRS o a lp v r d :: mkRollSteps os as lps vs rs ds
+
+||| Batched per-env rollout. Each env steps RolloutLen times in lockstep;
+||| one batched (actor, critic) forward per timestep amortises Idris-side
+||| per-op overhead across NumEnvs samples. Threads per-env stepsLeft for
+||| truncation. Done envs auto-reset to `MkA 0 0 0 0` with stepsLeft
+||| restored to EpisodeLen.
+rolloutBatched : {n : Nat} -> Actor -> Critic ->
+                 VecEnv n AState -> Vect n Nat -> Nat ->
+                 IO (Vect n (List RollStep), VecEnv n AState, Vect n Nat)
+rolloutBatched actor critic v0 sl0 rolloutLen = do
+  (envs', sls', stepLists) <- go rolloutLen v0.envs sl0 (replicate n [])
+  pure (map reverse stepLists, MkVecEnv envs', sls')
+  where
+    -- Helper: map with index over a Vect.
+    mapIdx : (Nat -> a -> b) -> Vect k a -> Vect k b
+    mapIdx _ [] = []
+    mapIdx f (x :: xs) = f 0 x :: mapIdx (\i, v => f (S i) v) xs
+
+    go : Nat -> Vect n AState -> Vect n Nat -> Vect n (List RollStep) ->
+         IO (Vect n AState, Vect n Nat, Vect n (List RollStep))
+    go Z envs sls accs = pure (envs, sls, accs)
+    go (S k) envs sls accs = withNoGrad {ex=ExampleExecutor} $ do
+      -- Per-step no-grad bracket (matches sequential rollout's hygiene):
+      -- free this step's forward intermediates immediately. With
+      -- RolloutLen=256 per env and N=4 envs, accumulating all forward
+      -- handles in one outer bracket would push past the paravirt-Metal
+      -- ceiling.
+      let obsRows : Vect n (Vector ObsDim Double)
+          obsRows = map (\s => obsTensor (observeVec s)) envs
+          batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
+          stateV : Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad
+          stateV = MkTensor batchPtr Nothing
+      (_, logitsV) <- forwardVarBatch actor stateV
+      let logProbsV = the (Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad)
+                        (MkTensor (primLogSoftmax2d {ex=ExampleExecutor} logitsV.tensorPtr) Nothing)
+      (_, valuesV) <- forwardVarBatch critic stateV
+      (acts, lps) <- sampleActionFromBatch logProbsV envs
+      let valueRows : Vect n Double
+          valueRows = mapIdx (\i, _ => primItem2d {ex=ExampleExecutor} valuesV.tensorPtr (cast i) 0) envs
+          obsVects : Vect n (Vect ObsDim Double)
+          obsVects = map observeVec envs
+      case stepAllAutoResetTrunc envs acts sls of
+        (envs', rewards, dones, sls') =>
+          let newSteps = mkRollSteps obsVects acts lps valueRows rewards dones
+              accs' = zipWith (\acc, s => s :: acc) accs newSteps
+          in go k envs' sls' accs'
 
 
 ----------------------------------------------------------------------
@@ -306,9 +418,10 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 record PPOState where
   constructor MkPPO
-  actor   : Actor
-  critic  : Critic
-  envRef  : IORef AState
+  actor    : Actor
+  critic   : Critic
+  envRef   : IORef (VecEnv NumEnvs AState)
+  stepsRef : IORef (Vect NumEnvs Nat)
 
 
 prepareRollout : Critic -> Config -> List RollStep -> AState ->
@@ -319,6 +432,38 @@ prepareRollout critic cfg steps finalSt = do
       gaeOut    = gae cfg.gamma cfg.lam bootstrap triples
       merged    = map flattenTriple (zip steps gaeOut)
   pure (normAdvs merged)
+
+
+-- Per-env bootstrap: critic value at each env's final state, zeroed for
+-- envs whose last step terminated (matches sequential `computeBootstrap`).
+computeBootstrapsBatched : Critic -> Vect n (List RollStep) -> VecEnv n AState ->
+                           IO (Vect n Double)
+computeBootstrapsBatched critic stepLists v = batchOver stepLists v.envs
+  where
+    batchOver : Vect k (List RollStep) -> Vect k AState -> IO (Vect k Double)
+    batchOver [] [] = pure []
+    batchOver (steps :: rest) (s :: ss) = do
+      b <- computeBootstrap critic steps s
+      bs <- batchOver rest ss
+      pure (b :: bs)
+
+
+-- Batched prepareRollout: per-env GAE → concat → normalize advantages
+-- across the whole flat batch (matches PyTorch SyncVectorEnv updates,
+-- where advantages are normalized over T*N samples).
+prepareRolloutBatched : Critic -> Config -> Vect n (List RollStep) ->
+                        VecEnv n AState -> IO (List (RollStep, Double, Double))
+prepareRolloutBatched critic cfg stepLists finalEnvs = do
+  bootstraps <- computeBootstrapsBatched critic stepLists finalEnvs
+  let mergedPerEnv : Vect n (List (RollStep, Double, Double))
+      mergedPerEnv = zipWith
+        (\steps, boot =>
+          let triples = map stepTriple steps
+              gaeOut = gae cfg.gamma cfg.lam boot triples
+          in map flattenTriple (zip steps gaeOut))
+        stepLists bootstraps
+      flatMerged = concat (toList mergedPerEnv)
+  pure (normAdvs flatMerged)
 
 
 -- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
@@ -381,28 +526,33 @@ kEpochUpdate opt actor critic cfg prepped (S k) = do
 
 ppoEpoch : NativeOptimizer ExampleExecutor -> Config -> PPOState -> IO (PPOState, Double)
 ppoEpoch opt cfg st = do
-  startSt <- readIORef st.envRef
-  -- Rollout's per-step forwards extract logits/values as Doubles for
-  -- sampling. Gradients come from kEpochUpdate's separate batched
-  -- forward (PPO recomputes log-probs over the rollout for each
-  -- inner epoch). No grad needed during rollout.
-  -- No outer withNoGrad here: `rollout` brackets each step's forward
-  -- itself (per-step), so the live handle count stays bounded across the
-  -- full RolloutLen instead of accumulating in one giant bracket.
-  rolled  <- rollout st.actor st.critic startSt EpisodeLen RolloutLen
-  let steps   = fst rolled
-      finalSt = fst (snd rolled)
-  writeIORef st.envRef finalSt
+  startEnvs <- readIORef st.envRef
+  startSls  <- readIORef st.stepsRef
+  -- rolloutBatched brackets each timestep's batched forward in
+  -- withNoGrad itself; gradients come from kEpochUpdate's separate
+  -- batched forward (PPO recomputes log-probs over the rollout for each
+  -- inner epoch). No outer withNoGrad here — would pin handles for the
+  -- full RolloutLen and pressure paravirt-Metal.
+  rolled <- rolloutBatched st.actor st.critic startEnvs startSls RolloutLen
+  let stepLists = fst rolled
+      finalEnvs = fst (snd rolled)
+      finalSls  = snd (snd rolled)
+  writeIORef st.envRef finalEnvs
+  writeIORef st.stepsRef finalSls
 
-  -- prepareRollout calls computeBootstrap which does one critic
-  -- forward — also grad-free.
-  prepped <- withNoGrad {ex=ExampleExecutor} (prepareRollout st.critic cfg steps finalSt)
+  prepped <- withNoGrad {ex=ExampleExecutor} (prepareRolloutBatched st.critic cfg stepLists finalEnvs)
   kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
-  let episodeReturns = computeEpisodeReturns steps
-      nEp = length episodeReturns
-      sumEp = sum episodeReturns
-      avgEp = if nEp > 0 then sumEp / cast (natToInteger nEp) else sum (map (\s => s.reward) steps)
+  -- Episode returns: walk each env's step list separately, summing
+  -- per-completed-episode returns. Matches PyTorch SyncVectorEnv where
+  -- any env's done counts once.
+  let allReturns = concat (toList (map computeEpisodeReturns stepLists))
+      nEp = length allReturns
+      sumEp = sum allReturns
+      sumRew = sum (map (\steps => sum (map (\s => s.reward) steps)) (toList stepLists))
+      avgEp = if nEp > 0
+              then sumEp / cast (natToInteger nEp)
+              else sumRew / cast (natToInteger NumEnvs)
   pure (st, negate avgEp)
   where
     computeEpisodeReturns : List RollStep -> List Double
@@ -473,8 +623,11 @@ main = do
 
   actor  <- mkActor
   critic <- mkCritic
-  envRef <- newIORef (the AState (MkA 0.0 0.0 0.0 0.0))
-  let st0 = MkPPO actor critic envRef
+  let initEnvs : VecEnv NumEnvs AState
+      initEnvs = resetAll {state=AState} {action=Nat} {obs=Vect 6 Double}
+  envRef   <- newIORef initEnvs
+  stepsRef <- newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs EpisodeLen))
+  let st0 = MkPPO actor critic envRef stepsRef
       opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 0.5
 
   putStrLn ""

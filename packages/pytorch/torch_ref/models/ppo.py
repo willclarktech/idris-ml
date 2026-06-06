@@ -9,6 +9,12 @@ and torch_ref pin to deterministic hanging-down start.
 Acrobot is the canonical "PPO clipped-surrogate demonstrates"
 benchmark — discrete actions (3: -1/0/+1 torque), sparse reward
 (-1/step, 0 at goal), longer horizon, 500-step TimeLimit.
+
+Batched rollouts: NUM_ENVS independent Acrobot envs stepped in lockstep
+via `gym.vector.SyncVectorEnv`, mirroring Idris'
+`Gym.Vector.VecEnv NumEnvs AState`. One batched (actor, critic) forward
+per timestep amortises per-op overhead across the N samples. Both sides
+use the same N to keep the cross-backend reference comparable.
 """
 
 from __future__ import annotations
@@ -26,6 +32,10 @@ from torch import Tensor
 from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem_suffix
 
 MAX_STEPS = 500  # gymnasium Acrobot-v1 default TimeLimit
+
+# Number of parallel envs run per ppo_update. Matches Idris-side
+# `Example.Ppo.NumEnvs`. Compile-time on Idris; module-level here.
+NUM_ENVS = 4
 
 
 def make_acrobot_env(seed: int) -> gym.Env:
@@ -120,59 +130,147 @@ def gae(
     return advantages, returns
 
 
+def gae_batched(
+    rewards: Tensor,
+    values: Tensor,
+    dones: Tensor,
+    bootstraps: Tensor,
+    gamma: float,
+    lam: float,
+) -> tuple[Tensor, Tensor]:
+    """Per-env GAE on batched [T, N] inputs. bootstraps is [N]. Returns
+    advantages [T, N], returns [T, N]. Each env's GAE chain is independent
+    — matches Idris-side `prepareRolloutBatched`."""
+    t_len, n = rewards.shape
+    advantages = torch.zeros_like(rewards)
+    for env_idx in range(n):
+        a_next = 0.0
+        v_next = float(bootstraps[env_idx].item())
+        for t in reversed(range(t_len)):
+            mask = 1.0 - float(dones[t, env_idx].item())
+            delta = (
+                float(rewards[t, env_idx].item())
+                + gamma * v_next * mask
+                - float(values[t, env_idx].item())
+            )
+            a = delta + gamma * lam * mask * a_next
+            advantages[t, env_idx] = a
+            a_next = a
+            v_next = float(values[t, env_idx].item())
+    returns = advantages + values
+    return advantages, returns
+
+
+def make_acrobot_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+    """N independent Acrobot envs in a SyncVectorEnv, each reset to all-zero
+    to mirror idris-gym's `Gym.ClassicControl.Acrobot.reset = MkA 0 0 0 0`."""
+    def _make(idx: int):
+        def _f():
+            return make_acrobot_env(seed + idx)
+        return _f
+    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec.reset()
+    for sub in vec.envs:
+        reset_to_zero(sub)
+    return vec
+
+
 def collect_rollout(
     actor: Actor,
     critic: Critic,
-    env: gym.Env,
+    vec_env: gym.vector.SyncVectorEnv,
     obs_np: np.ndarray,
+    ep_lens: np.ndarray,
     n_steps: int,
     max_ep_len: int,
     rng: random.Random,
 ) -> tuple[
-    list[Tensor],
-    list[int],
-    list[float],
-    list[float],
-    list[float],
-    list[bool],
-    np.ndarray,
-    list[float],
+    Tensor,           # obs [T, N, 6]
+    Tensor,           # actions [T, N] long
+    Tensor,           # old_log_probs [T, N]
+    Tensor,           # rewards [T, N]
+    Tensor,           # values [T, N]
+    Tensor,           # dones [T, N]
+    np.ndarray,       # new_obs [N, 6]
+    np.ndarray,       # new_ep_lens [N]
+    list[float],      # completed episode returns
 ]:
+    """Batched rollout of `n_steps` steps across NUM_ENVS parallel envs with
+    auto-reset on done OR per-env max_ep_len truncation. Returns `[T, N, ...]`
+    tensors. Mirrors Idris-side `rolloutBatched` + per-env stepsLeft."""
+    n = NUM_ENVS
+    device, dtype = get_device(), get_dtype()
     obs_list: list[Tensor] = []
-    act_list: list[int] = []
-    lp_list: list[float] = []
-    rew_list: list[float] = []
-    val_list: list[float] = []
-    done_list: list[bool] = []
+    act_list: list[Tensor] = []
+    lp_list: list[Tensor] = []
+    rew_list: list[Tensor] = []
+    val_list: list[Tensor] = []
+    done_list: list[Tensor] = []
     ep_returns: list[float] = []
-    ep_sum = 0.0
-    ep_len = 0
+    ep_sums = np.zeros(n, dtype=np.float64)
     for _ in range(n_steps):
-        obs = obs_tensor(obs_np)
-        action, lp = sample_action(actor, obs, rng)
+        obs_t = obs_tensor(obs_np)  # [N, 6]
         with torch.no_grad():
-            v = float(critic(obs).item())
-        next_obs_np, reward, term, trunc, _ = env.step(action)
+            logits = actor(obs_t)            # [N, 3]
+            log_probs_t = F.log_softmax(logits, dim=-1)
+            probs_t = torch.exp(log_probs_t)
+            values_t = critic(obs_t)          # [N]
+        # Per-env categorical sampling with the shared rng (matches Idris'
+        # one-randomRIO-per-env-per-step convention).
+        actions_np = np.zeros(n, dtype=np.int64)
+        lps_np = np.zeros(n, dtype=np.float64)
+        probs_np = probs_t.cpu().numpy()
+        log_probs_np = log_probs_t.cpu().numpy()
+        for env_idx in range(n):
+            u = rng.random()
+            cum = 0.0
+            a = probs_np.shape[1] - 1
+            for j in range(probs_np.shape[1]):
+                cum += float(probs_np[env_idx, j])
+                if u <= cum:
+                    a = j
+                    break
+            actions_np[env_idx] = a
+            lps_np[env_idx] = float(log_probs_np[env_idx, a])
+        # Step all envs.
+        next_obs_np, rewards_np, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        ep_lens = ep_lens + 1
+        gym_dones = np.logical_or(terms_np, truncs_np)
+        len_trunc = ep_lens >= max_ep_len
+        dones_np = np.logical_or(gym_dones, len_trunc)
+        # Record per-step batch.
+        obs_list.append(obs_t)
+        act_list.append(torch.from_numpy(actions_np).to(device))
+        lp_list.append(torch.from_numpy(lps_np.astype(np.float64)).to(device, dtype))
+        rew_list.append(torch.from_numpy(rewards_np.astype(np.float64)).to(device, dtype))
+        val_list.append(values_t.detach().to(dtype))
+        done_list.append(torch.from_numpy(dones_np.astype(np.float64)).to(device, dtype))
+        # Per-env episode accounting + reset-to-zero overrides for envs
+        # whose episode ended (either gym-side terminate/truncate or our
+        # per-env max_ep_len truncation).
+        ep_sums = ep_sums + rewards_np.astype(np.float64)
         next_obs_np = next_obs_np.astype(np.float64)
-        ep_sum += float(reward)
-        ep_len += 1
-        truncate = ep_len >= max_ep_len
-        done = bool(term or trunc or truncate)
-        obs_list.append(obs)
-        act_list.append(action)
-        lp_list.append(lp)
-        rew_list.append(float(reward))
-        val_list.append(v)
-        done_list.append(done)
-        if done:
-            ep_returns.append(ep_sum)
-            ep_sum = 0.0
-            ep_len = 0
-            env.reset()
-            obs_np = reset_to_zero(env)
-        else:
-            obs_np = next_obs_np
-    return obs_list, act_list, lp_list, rew_list, val_list, done_list, obs_np, ep_returns
+        for env_idx in range(n):
+            if dones_np[env_idx]:
+                ep_returns.append(float(ep_sums[env_idx]))
+                ep_sums[env_idx] = 0.0
+                ep_lens[env_idx] = 0
+                reset_to_zero(vec_env.envs[env_idx])
+                next_obs_np[env_idx] = np.array(
+                    [1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64
+                )
+        obs_np = next_obs_np
+    return (
+        torch.stack(obs_list),     # [T, N, 6]
+        torch.stack(act_list),     # [T, N]
+        torch.stack(lp_list),      # [T, N]
+        torch.stack(rew_list),     # [T, N]
+        torch.stack(val_list),     # [T, N]
+        torch.stack(done_list),    # [T, N]
+        obs_np,                    # [N, 6]
+        ep_lens,                   # [N]
+        ep_returns,
+    )
 
 
 def ppo_update(
@@ -225,7 +323,7 @@ def ppo_update(
 
 def train_ppo(
     total_rollouts: int = 100,
-    rollout_steps: int = 1024,
+    rollout_steps: int = 256,
     lr: float = 3e-4,
     gamma: float = 0.99,
     lam: float = 0.95,
@@ -237,46 +335,55 @@ def train_ppo(
     seed: int = 42,
     log_every: int = 10,
 ) -> tuple[Actor, list[float]]:
+    """Batched PPO. Total samples per update = rollout_steps * NUM_ENVS
+    (pre-batched used rollout_steps=1024 with one env; default here is
+    256 steps × 4 envs = 1024 total to keep the per-update sample budget
+    constant, matching Idris-side `Example.Ppo.RolloutLen`)."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     actor = Actor().to(get_device())
     critic = Critic().to(get_device())
     actor_opt = torch.optim.Adam(actor.parameters(), lr=lr)
     critic_opt = torch.optim.Adam(critic.parameters(), lr=lr)
-    env = make_acrobot_env(seed)
-    obs_np = reset_to_zero(env)
+    vec_env = make_acrobot_vec_env(seed, NUM_ENVS)
+    obs_np = np.tile(
+        np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1)
+    )
+    ep_lens = np.zeros(NUM_ENVS, dtype=np.int64)
     history: list[float] = []
     t_start = time.monotonic()
     for r in range(total_rollouts):
-        obs_l, act_l, lp_l, rew_l, val_l, done_l, obs_np, ep_rets = collect_rollout(
-            actor,
-            critic,
-            env,
-            obs_np,
-            rollout_steps,
-            max_ep_len,
-            rng,
+        obs_t, act_t, lp_t, rew_t, val_t, done_t, obs_np, ep_lens, ep_rets = collect_rollout(
+            actor, critic, vec_env, obs_np, ep_lens, rollout_steps, max_ep_len, rng
         )
+        # Per-env bootstrap: critic value at the post-rollout state,
+        # zeroed for any env whose last step terminated.
         with torch.no_grad():
-            bootstrap = 0.0 if (done_l and done_l[-1]) else float(critic(obs_tensor(obs_np)).item())
-        advs, rets = gae(rew_l, val_l, done_l, bootstrap, gamma, lam)
-        device, dtype = get_device(), get_dtype()
-        obs_t = torch.stack(obs_l)
-        act_t = torch.tensor(act_l, dtype=torch.long, device=device)
-        lp_t = torch.tensor(lp_l, dtype=dtype, device=device)
-        adv_t = torch.tensor(advs, dtype=dtype, device=device)
-        ret_t = torch.tensor(rets, dtype=dtype, device=device)
-        adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
+            bootstrap_v = critic(obs_tensor(obs_np))   # [N]
+            last_done = done_t[-1]                      # [N]
+            bootstraps = torch.where(
+                last_done > 0.5,
+                torch.zeros_like(bootstrap_v),
+                bootstrap_v,
+            )
+        adv_t, ret_t = gae_batched(rew_t, val_t, done_t, bootstraps, gamma, lam)
+        # Flatten [T, N, ...] → [T*N, ...] for the update step.
+        flat_obs = obs_t.reshape(-1, 6)
+        flat_act = act_t.reshape(-1).long()
+        flat_lp = lp_t.reshape(-1)
+        flat_adv = adv_t.reshape(-1)
+        flat_ret = ret_t.reshape(-1)
+        flat_adv = (flat_adv - flat_adv.mean()) / (flat_adv.std() + 1e-8)
         ppo_update(
             actor,
             critic,
             actor_opt,
             critic_opt,
-            obs_t,
-            act_t,
-            lp_t,
-            adv_t,
-            ret_t,
+            flat_obs,
+            flat_act,
+            flat_lp,
+            flat_adv,
+            flat_ret,
             clip_eps,
             entropy_coef,
             k_epochs,

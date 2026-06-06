@@ -18,18 +18,19 @@ import random
 import sys
 import time
 
+import numpy as np
 import torch
 
 from torch_ref.models.ppo import (
+    NUM_ENVS,
     Actor,
     Critic,
     collect_rollout,
     evaluate,
-    gae,
-    make_acrobot_env,
+    gae_batched,
+    make_acrobot_vec_env,
     obs_tensor,
     ppo_update,
-    reset_to_zero,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
@@ -50,7 +51,12 @@ def main() -> None:
     parser.add_argument("--lambda", dest="lam", type=float, default=0.95)
     parser.add_argument("--clip-eps", type=float, default=0.2)
     parser.add_argument("--entropy", type=float, default=0.01)
-    parser.add_argument("--rollout", type=int, default=1024)
+    parser.add_argument(
+        "--rollout",
+        type=int,
+        default=256,
+        help="Per-env rollout steps (total samples = rollout * NUM_ENVS).",
+    )
     parser.add_argument("--k-epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--max-ep-len", type=int, default=500)
@@ -85,41 +91,54 @@ def main() -> None:
     critic_opt = torch.optim.Adam(critic.parameters(), lr=args.lr)
     print()
 
-    env = make_acrobot_env(args.seed)
-    obs_state = [reset_to_zero(env)]
+    vec_env = make_acrobot_vec_env(args.seed, NUM_ENVS)
+    obs_state = [
+        np.tile(
+            np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1)
+        )
+    ]
+    ep_lens_state = [np.zeros(NUM_ENVS, dtype=np.int64)]
 
     def epoch_fn() -> float:
-        """One PPO rollout + update. Returns -avg_ep_return (matches Idris)."""
-        obs_l, act_l, lp_l, rew_l, val_l, done_l, new_obs, ep_rets = collect_rollout(
-            actor,
-            critic,
-            env,
-            obs_state[0],
-            args.rollout,
-            args.max_ep_len,
-            rng,
+        """One batched PPO rollout + update across NUM_ENVS envs. Returns
+        -avg_ep_return (matches Idris)."""
+        obs_t, act_t, lp_t, rew_t, val_t, done_t, new_obs, new_ep_lens, ep_rets = (
+            collect_rollout(
+                actor,
+                critic,
+                vec_env,
+                obs_state[0],
+                ep_lens_state[0],
+                args.rollout,
+                args.max_ep_len,
+                rng,
+            )
         )
         with torch.no_grad():
-            bootstrap = (
-                0.0 if (done_l and done_l[-1]) else float(critic(obs_tensor(new_obs)).item())
+            bootstrap_v = critic(obs_tensor(new_obs))   # [N]
+            last_done = done_t[-1]                       # [N]
+            bootstraps = torch.where(
+                last_done > 0.5,
+                torch.zeros_like(bootstrap_v),
+                bootstrap_v,
             )
-        advs, rets = gae(rew_l, val_l, done_l, bootstrap, args.gamma, args.lam)
-        obs_t = torch.stack(obs_l)
-        act_t = torch.tensor(act_l, dtype=torch.long, device=args.device)
-        lp_t = torch.tensor(lp_l, dtype=get_dtype(), device=args.device)
-        adv_t = torch.tensor(advs, dtype=get_dtype(), device=args.device)
-        ret_t = torch.tensor(rets, dtype=get_dtype(), device=args.device)
-        adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
+        adv_t, ret_t = gae_batched(rew_t, val_t, done_t, bootstraps, args.gamma, args.lam)
+        flat_obs = obs_t.reshape(-1, 6)
+        flat_act = act_t.reshape(-1).long()
+        flat_lp = lp_t.reshape(-1)
+        flat_adv = adv_t.reshape(-1)
+        flat_ret = ret_t.reshape(-1)
+        flat_adv = (flat_adv - flat_adv.mean()) / (flat_adv.std() + 1e-8)
         ppo_update(
             actor,
             critic,
             actor_opt,
             critic_opt,
-            obs_t,
-            act_t,
-            lp_t,
-            adv_t,
-            ret_t,
+            flat_obs,
+            flat_act,
+            flat_lp,
+            flat_adv,
+            flat_ret,
             args.clip_eps,
             args.entropy,
             args.k_epochs,
@@ -127,8 +146,10 @@ def main() -> None:
             rng,
         )
         obs_state[0] = new_obs
+        ep_lens_state[0] = new_ep_lens
 
-        avg_ep = sum(ep_rets) / len(ep_rets) if ep_rets else float(sum(rew_l))
+        sum_rew_per_env = float(rew_t.sum().item()) / NUM_ENVS
+        avg_ep = sum(ep_rets) / len(ep_rets) if ep_rets else sum_rew_per_env
         return -avg_ep  # Idris returns `negate avgEp`
 
     if args.lr_find:
