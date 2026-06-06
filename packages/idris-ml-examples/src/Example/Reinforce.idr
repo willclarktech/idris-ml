@@ -8,6 +8,7 @@ import Compat.Random
 import Floating
 import Gym.ClassicControl.CartPole
 import Gym.Env
+import Gym.Vector
 import Hpo.LrFinder
 import Layer.Activation
 import Layer.Core
@@ -73,11 +74,11 @@ rolloutEp model st (r :: rs) (S k) acc = do
 export
 rolloutEpBatched : {n : Nat} -> {hs : List Nat} ->
                    Network 4 hs 2 ExampleExecutor ExampleDType WithGrad ->
-                   Vect n CPState ->
+                   VecEnv n CPState ->
                    Vect n (List Double) ->
                    Nat ->
                    IO (Vect n (List StepRec))
-rolloutEpBatched model states0 rss0 maxSteps = do
+rolloutEpBatched model (MkVecEnv states0) rss0 maxSteps = do
   result <- go maxSteps states0 rss0 (replicate n False) (replicate n [])
   pure (map reverse result)
   where
@@ -186,8 +187,8 @@ computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
                      Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> Vect n (List Double) ->
                      IO (Tensor [] ExampleExecutor ExampleDType WithGrad, Double)
 computeLossBatched gamma model randomBatchV = do
-  let initStates : Vect n CPState = replicate n (MkCP 0 0 0 0)
-  epsV  <- rolloutEpBatched model initStates randomBatchV MaxSteps
+  let initEnvs : VecEnv n CPState = resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+  epsV  <- rolloutEpBatched model initEnvs randomBatchV MaxSteps
   let eps   = toList epsV
       epReturns = map sumRewards eps
       nEp = cast {to=Double} (natToInteger (List.length epReturns))
