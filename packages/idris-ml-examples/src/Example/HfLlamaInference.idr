@@ -116,11 +116,11 @@ Intermediate = 8192
 MaxPos : Nat
 MaxPos = 8192
 
-RopeBase : Double
-RopeBase = 500000.0
-
-RmsNormEps : Double
-RmsNormEps = 1.0e-5
+-- `ropeBase` and `rmsNormEps` come from `llama32_1B_Config`; no local
+-- duplicates. `MaxPos` stays a top-level Nat because it shows up at
+-- type position in `RoPETables MaxPos HeadDim ...` and the demo clamps
+-- it well below `llama32_1B_Config.maxPosition` (131072) to keep the
+-- cos/sin tables small.
 
 ModelRepo : String
 ModelRepo = "unsloth/Llama-3.2-1B"
@@ -164,7 +164,7 @@ genStepCached model tables caches toksList = do
                                  {headDim      = HeadDim}
                                  {intermediate = Intermediate}
                                  {maxPos       = MaxPos}
-                                 RmsNormEps model tables caches inputIds
+                                 llama32_1B_Config.rmsNormEps model tables caches inputIds
       lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
       nextN   <- argmaxRow VocabSize lastRow.tensorPtr
       pure (caches', natToFin nextN VocabSize)
@@ -243,7 +243,7 @@ runDumpHidden model tables = do
                         {headDim      = HeadDim}
                         {intermediate = Intermediate}
                         {maxPos       = MaxPos}
-                        RmsNormEps model tables inputIds
+                        llama32_1B_Config.rmsNormEps model tables inputIds
   lastRow <- trowSelect out 0
   printRow (cast {to=Int} Hidden) 0 lastRow.tensorPtr
 
@@ -376,7 +376,7 @@ main = do
   tables <- buildLlamaRoPETables {ex=ExampleExecutor} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
                                   {headDim = HeadDim}
-                                  RopeBase llama3Scaling
+                                  llama32_1B_Config.ropeBase llama32_1B_RopeScaling
   stageStamp "buildLlamaRoPETables ok" t0
 
   if dumpHidden

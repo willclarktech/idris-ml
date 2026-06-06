@@ -92,11 +92,10 @@ Intermediate = 6912
 MaxPos : Nat
 MaxPos = 32
 
-RopeBase : Double
-RopeBase = 500000.0
-
-RmsNormEps : Double
-RmsNormEps = 1.0e-5
+-- `ropeBase` and `rmsNormEps` come from `bitnet2B4T_Config`; no local
+-- duplicates. `MaxPos` stays separate because the demo clamps it well
+-- below `bitnet2B4T_Config.maxPosition` (2048) to keep the cos/sin
+-- tables tiny.
 
 ModelRepo : String
 ModelRepo = "microsoft/bitnet-b1.58-2B-4T"
@@ -129,7 +128,7 @@ iterateBlocksDumping []        _      x _   _      = pure x
 iterateBlocksDumping (b :: bs) tables x idx dumpFn = do
   x' <- applyBlock {numHeads=NumHeads} {numKvHeads=NumKvHeads}
                    {headDim=HeadDim}   {intermediate=Intermediate}
-                   RmsNormEps b tables x
+                   bitnet2B4T_Config.rmsNormEps b tables x
   let label = "block_" ++ (if idx < 10 then "0" ++ show idx else show idx)
       n     = cast {to=Int} 2 * cast {to=Int} Hidden
   dumpFn label x'.tensorPtr n
@@ -168,7 +167,7 @@ genOneStep model tables toksList = do
                                     {headDim      = HeadDim}
                                     {intermediate = Intermediate}
                                     {maxPos       = MaxPos}
-                                    RmsNormEps model tables inputIds
+                                    bitnet2B4T_Config.rmsNormEps model tables inputIds
         lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
         nextN   <- argmaxRow VocabSize lastRow.tensorPtr
         pure (natToFin nextN VocabSize)
@@ -288,7 +287,7 @@ main = do
   tables <- buildLlamaRoPETables {ex=ExampleExecutor} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
                                   {headDim = HeadDim}
-                                  RopeBase bitnetRopeScaling
+                                  bitnet2B4T_Config.ropeBase bitnetRopeScaling
   stageStamp "buildLlamaRoPETables ok" t0
 
   if bisectBlocks
@@ -317,7 +316,7 @@ main = do
       hMid <- iterateBlocksDumping loaded.blocks tables emb Z dumpFn
       -- Step 3: final RmsNorm
       hFinal <- applyRmsNorm2d {seqLen=2} {hidden=Hidden}
-                               RmsNormEps loaded.finalNorm hMid
+                               bitnet2B4T_Config.rmsNormEps loaded.finalNorm hMid
       dumpFn "final_norm" hFinal.tensorPtr nHidden
       -- Step 4: tied LM head — project hFinal through embed_tokens.weight
       let vI = cast {to=Int} VocabSize
@@ -348,7 +347,7 @@ main = do
                             {headDim      = HeadDim}
                             {intermediate = Intermediate}
                             {maxPos       = MaxPos}
-                            RmsNormEps loaded tables inputIds
+                            bitnet2B4T_Config.rmsNormEps loaded tables inputIds
         stageStamp "hfBitnetForwardLm ok" t0
         lastRow <- trowSelect logits 1
         printRow (cast {to=Int} VocabSize) 0 lastRow.tensorPtr

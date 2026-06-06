@@ -99,6 +99,15 @@ llama32_1B_Config = MkLlamaConfig
   }
 
 
+||| Llama 3.2 NTK-aware RoPE scaling. Exposed here (instead of only
+||| via `Layer.RoPE.llama3Scaling`) so the example / inference site
+||| can import the per-arch scaling from the same module as the
+||| per-arch config record — mirrors `HfBitNet.bitnetRopeScaling`.
+public export
+llama32_1B_RopeScaling : LlamaRopeScaling
+llama32_1B_RopeScaling = llama3Scaling
+
+
 ----------------------------------------------------------------------
 -- Param-name catalogue (pure Idris — single source of truth)
 ----------------------------------------------------------------------
