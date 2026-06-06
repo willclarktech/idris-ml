@@ -17,6 +17,9 @@
 ||| the resulting `String` straight through.
 module Util.Log
 
+%foreign "C:idrisml_log_resolve_level,libidrisml"
+prim__getLogLevel : PrimIO Int
+
 %foreign "C:idrisml_log_error,libidrisml"
 prim__logError : String -> PrimIO ()
 
@@ -63,3 +66,37 @@ logDebug msg = primIO (prim__logDebug msg)
 public export
 logTrace : String -> IO ()
 logTrace msg = primIO (prim__logTrace msg)
+
+||| Level constants matching `backends/log.h` IDRISML_LEVEL_*.
+||| Use these for `getLogLevel >= levelTrace`-style branch gates
+||| in callers (e.g. `forwardVarTraced`'s SafeTensors-dump branch).
+public export
+levelSilent : Int
+levelSilent = 0
+
+public export
+levelError : Int
+levelError = 1
+
+public export
+levelWarn : Int
+levelWarn = 2
+
+public export
+levelInfo : Int
+levelInfo = 3
+
+public export
+levelDebug : Int
+levelDebug = 4
+
+public export
+levelTrace : Int
+levelTrace = 5
+
+||| Read the active log level. Resolves the runtime override on
+||| first call (capped at the build ceiling) and caches; subsequent
+||| calls are a single load. Returns one of the `level*` constants.
+public export
+getLogLevel : IO Int
+getLogLevel = primIO prim__getLogLevel

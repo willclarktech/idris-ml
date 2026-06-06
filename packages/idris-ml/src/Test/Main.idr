@@ -11,6 +11,7 @@ import Test.Sampler
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
+import Test.Log
 import Test.Lossless
 import Test.LoraLinear
 import Test.ManagedHandle
@@ -50,6 +51,7 @@ main = runAll
   , ("RL.Gae",          Test.RL.Gae.tests)
   , ("RL.ReplayBuffer", Test.RL.ReplayBuffer.tests)
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
+  , ("Log",             Test.Log.tests)
   , ("Lossless",        Test.Lossless.tests)
   , ("LoraLinear",      Test.LoraLinear.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
