@@ -2,7 +2,7 @@
 
 This doc walks through `Example/HfLlamaInference.idr` — idris-ml's
 canonical "this runs an actual LLM" demo. It loads
-`meta-llama/Llama-3.2-1B` from a HuggingFace `.safetensors`
+`unsloth/Llama-3.2-1B` from a HuggingFace `.safetensors`
 checkpoint, decodes 8 greedy tokens given the prompt "The capital of
 France is", and prints "Paris" as the first generated token. Reads as
 a tour of the moving parts the row "LLM-class example (Llama-7B-shape
@@ -35,8 +35,8 @@ TAPE_DTYPE=F32 make example-hf-llama-inference                             # ~1 
 ```
 
 The checkpoint is downloaded via the `models/` rule the first time
-you run it. Requires an HF token + license-accept for the
-`meta-llama/Llama-3.2-1B` repo.
+you run it. `unsloth/Llama-3.2-1B` is a public mirror of Meta's
+weights — no HF token or license-accept required.
 
 ## Architecture (Llama 3.2 1B)
 

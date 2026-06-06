@@ -78,31 +78,27 @@
       ]
     },
     {
-      "name": "Run HfLlama end-to-end roundtrip (Ubuntu, torch, HF_TOKEN-gated)",
+      "name": "Run HfLlama end-to-end roundtrip (Ubuntu, torch)",
       "run": "make BACKEND=torch test-e2e-hf-llama-roundtrip",
       "os": "ubuntu",
-      "if": "env.HF_TOKEN != ''",
-      "env": {"HF_TOKEN": "${{ secrets.HF_TOKEN }}"},
       "comment": [
         "Cross-language gate for Llama 3.2 1B. Regenerates the Python",
-        "oracle from meta-llama/Llama-3.2-1B (license-gated), runs the",
-        "Idris HfLlamaInference binary --dump-final-hidden, asserts the",
+        "oracle from unsloth/Llama-3.2-1B (public mirror of Meta's",
+        "weights, no license-gate / no HF_TOKEN), runs the Idris",
+        "HfLlamaInference binary --dump-final-hidden, asserts the",
         "2048-dim last-position hidden state matches the oracle within",
         "max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps",
         "and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu",
         "lane carries the same Idris-side numerics through libtorch CPU.",
-        "Step skips cleanly when HF_TOKEN is unset in repo/org secrets",
-        "(forks without the token won't see a failing step). BACKEND=torch",
-        "because tape F64 doesn't fit (~10 GB params + arena vs ~14 GB",
-        "runner RAM); see Low-priority TODO \"Tape F64 large-LM OOM\"."
+        "BACKEND=torch because tape F64 doesn't fit (~10 GB params +",
+        "arena vs ~14 GB runner RAM); see Low-priority TODO \"Tape F64",
+        "large-LM OOM\"."
       ]
     },
     {
-      "name": "Run HfLlama multi-step generation roundtrip (Ubuntu, torch, HF_TOKEN-gated)",
+      "name": "Run HfLlama multi-step generation roundtrip (Ubuntu, torch)",
       "run": "make BACKEND=torch test-e2e-hf-llama-generate-roundtrip",
       "os": "ubuntu",
-      "if": "env.HF_TOKEN != ''",
-      "env": {"HF_TOKEN": "${{ secrets.HF_TOKEN }}"},
       "comment": [
         "Cross-language gate for Llama 3.2 1B's *generation* path.",
         "The companion `test-e2e-hf-llama-roundtrip` step above tests a",
@@ -115,10 +111,9 @@
         "tokenization, every layer of the forward, argmax, and the",
         "per-step glue that the single-forward gate can't see.",
         "",
-        "Same HF_TOKEN gating + BACKEND=torch as the sibling step.",
-        "Currently more expensive than the single-forward gate (4",
-        "forwards on growing sequences); the KV cache landing will",
-        "collapse it back to ~constant per step."
+        "BACKEND=torch as the sibling step. Currently more expensive",
+        "than the single-forward gate (4 forwards on growing sequences);",
+        "the KV cache landing will collapse it back to ~constant per step."
       ]
     },
     {

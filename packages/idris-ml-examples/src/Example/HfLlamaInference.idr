@@ -1,4 +1,5 @@
-||| HfLlamaInference — load `meta-llama/Llama-3.2-1B` (base) and run
+||| HfLlamaInference — load `unsloth/Llama-3.2-1B` (base; a public
+||| mirror of `meta-llama/Llama-3.2-1B`'s weights, no `HF_TOKEN`) and run
 ||| Llama through the typed-tensor / type-safe-dependent-shape stack.
 |||
 ||| Llama 3.2 1B: vocab=128256, hidden=2048, n_layer=16, n_head=32,
@@ -40,10 +41,10 @@
 |||                           print.
 |||
 ||| Pre-requisites (CI handles these via the make targets):
-|||   - HF_TOKEN with Llama 3.2 license accepted on huggingface.co
-|||   - `packages/idris-transformers/models/meta-llama/Llama-3.2-1B/model.safetensors`
+|||   - `packages/idris-transformers/models/unsloth/Llama-3.2-1B/model.safetensors`
 |||     — fetch with
-|||         HF_TOKEN=hf_... bash packages/idris-transformers/scripts/hf-download.sh meta-llama/Llama-3.2-1B
+|||         bash packages/idris-transformers/scripts/hf-download.sh unsloth/Llama-3.2-1B
+|||     (public mirror; no `HF_TOKEN` required).
 |||   - Python `transformers` available via the pytorch venv (for the
 |||     Tokenizer subprocess).
 |||
@@ -122,7 +123,7 @@ RmsNormEps : Double
 RmsNormEps = 1.0e-5
 
 ModelRepo : String
-ModelRepo = "meta-llama/Llama-3.2-1B"
+ModelRepo = "unsloth/Llama-3.2-1B"
 
 modelDir : String
 modelDir = "models/" ++ ModelRepo

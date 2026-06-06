@@ -1,6 +1,6 @@
 """Produce the integration-test oracle for Example/HfLlamaInference.
 
-Loads `meta-llama/Llama-3.2-1B` via HuggingFace transformers, runs
+Loads `unsloth/Llama-3.2-1B` via HuggingFace transformers, runs
 forward on a fixed single-token input, and writes the last-position
 hidden state (post final RmsNorm) to
 `models/llama-3.2-1b-oracle.safetensors`. The Idris side reads the same
@@ -25,9 +25,10 @@ Usage:
     make test-transformers-oracle-llama
 
 Pre-requisite: the model must be downloaded under
-`<repo>/models/meta-llama/Llama-3.2-1B/` (license-gated; fetch with
-HF_TOKEN=hf_... bash packages/idris-transformers/scripts/hf-download.sh
-meta-llama/Llama-3.2-1B).
+`<repo>/models/unsloth/Llama-3.2-1B/` (public mirror of Meta's weights;
+no HF_TOKEN required; fetch with `bash
+packages/idris-transformers/scripts/hf-download.sh
+unsloth/Llama-3.2-1B`).
 """
 
 from __future__ import annotations
@@ -42,9 +43,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT  = SCRIPT_DIR.parent.parent.parent
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "llama-3.2-1b-oracle.safetensors"
-MODEL_LOCAL = MODELS_DIR / "meta-llama" / "Llama-3.2-1B"
+MODEL_LOCAL = MODELS_DIR / "unsloth" / "Llama-3.2-1B"
 
-MODEL_ID = "meta-llama/Llama-3.2-1B"
+MODEL_ID = "unsloth/Llama-3.2-1B"
 
 # "Hello" under Llama 3 BPE = [9906]. Single token to keep the compute
 # cheap on this 1.24B-param model (a single forward at hidden=2048

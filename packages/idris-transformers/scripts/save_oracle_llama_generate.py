@@ -7,7 +7,7 @@ hidden state for a max-abs-diff gate, this one covers *multi-token
 greedy generation* and saves the resulting token-ID sequence (int64)
 for an exact-match gate.
 
-Loads `meta-llama/Llama-3.2-1B` via HuggingFace transformers, tokenizes
+Loads `unsloth/Llama-3.2-1B` via HuggingFace transformers, tokenizes
 a fixed prompt, runs `model.generate(do_sample=False, use_cache=True)`
 for a fixed budget, and writes the full output sequence (prompt +
 generated tokens) to
@@ -39,9 +39,10 @@ Usage:
     make test-transformers-oracle-llama-generate
 
 Pre-requisite: the model must be downloaded under
-`<repo>/models/meta-llama/Llama-3.2-1B/` (license-gated; fetch with
-HF_TOKEN=hf_... bash packages/idris-transformers/scripts/hf-download.sh
-meta-llama/Llama-3.2-1B).
+`<repo>/models/unsloth/Llama-3.2-1B/` (public mirror of Meta's weights;
+no HF_TOKEN required; fetch with `bash
+packages/idris-transformers/scripts/hf-download.sh
+unsloth/Llama-3.2-1B`).
 """
 
 from __future__ import annotations
@@ -56,9 +57,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT  = SCRIPT_DIR.parent.parent.parent
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "llama-3.2-1b-generate-oracle.safetensors"
-MODEL_LOCAL = MODELS_DIR / "meta-llama" / "Llama-3.2-1B"
+MODEL_LOCAL = MODELS_DIR / "unsloth" / "Llama-3.2-1B"
 
-MODEL_ID = "meta-llama/Llama-3.2-1B"
+MODEL_ID = "unsloth/Llama-3.2-1B"
 
 # Matches `runGenerate` default in HfLlamaInference.idr — the prompt the
 # user-facing demo uses. The gate exercises the exact path the user

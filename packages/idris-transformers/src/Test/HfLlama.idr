@@ -25,9 +25,9 @@ import Tensor
 
 
 ----------------------------------------------------------------------
--- Reference catalogue (mirrors `meta-llama/Llama-3.2-1B`'s
--- safetensors header — verified from upstream HF Llama 3 model card +
--- modeling_llama.py state_dict)
+-- Reference catalogue (mirrors `unsloth/Llama-3.2-1B`'s safetensors
+-- header — a public mirror of `meta-llama/Llama-3.2-1B`; verified
+-- from upstream HF Llama 3 model card + modeling_llama.py state_dict)
 ----------------------------------------------------------------------
 
 oneLayer : Nat -> List String

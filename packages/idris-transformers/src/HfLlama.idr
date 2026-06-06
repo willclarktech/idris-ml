@@ -1,13 +1,12 @@
 ||| Llama (3 / 3.1 / 3.2 family), HF-aligned.
 |||
-||| Target: `meta-llama/Llama-3.2-1B` (base, not Instruct — skips the
-||| chat-template requirement for v1). Architecture covers the Llama 3
-||| family; only the dims at construction time change between 1B / 3B
-||| / 8B.
+||| Target: `unsloth/Llama-3.2-1B` (a public mirror of Meta's
+||| base weights — no `HF_TOKEN` / license-accept needed; identical
+||| safetensors to `meta-llama/Llama-3.2-1B`). Architecture covers the
+||| Llama 3 family; only the dims at construction time change between
+||| 1B / 3B / 8B.
 |||
-||| Llama 3.2 1B specifics (from HF's `config.json` for the public-
-||| facing checkpoint, accepted-license required to fetch the actual
-||| weights via `HF_TOKEN`):
+||| Llama 3.2 1B specifics (from HF's `config.json`):
 |||
 |||   vocab_size            = 128256
 |||   hidden_size           = 2048
@@ -83,7 +82,7 @@ record LlamaConfig where
   rmsNormEps   : Double
 
 
-||| `meta-llama/Llama-3.2-1B` config.
+||| `unsloth/Llama-3.2-1B` config (same shapes as `meta-llama/Llama-3.2-1B`).
 public export
 llama32_1B_Config : LlamaConfig
 llama32_1B_Config = MkLlamaConfig

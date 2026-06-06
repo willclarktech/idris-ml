@@ -50,7 +50,7 @@ mirrors that.
 | --- | --- | --- |
 | `HfBert` | `google/bert_uncased_L-2_H-128_A-2` (and BERT-family checkpoints sharing the same naming) | ready |
 | `HfGpt2` | `hf-internal-testing/tiny-random-gpt2` (and GPT-2 family) | ready |
-| `HfLlama` | `meta-llama/Llama-3.2-1B` (base, gated; license-accept + `HF_TOKEN` required) | ready (forward pass; KV cache follow-up) |
+| `HfLlama` | `unsloth/Llama-3.2-1B` (public mirror of Meta's weights; no `HF_TOKEN`) | ready (forward pass; KV cache follow-up) |
 
 ## Worked example: load and run BERT-tiny
 
