@@ -1,7 +1,7 @@
 /* training/autograd/helpers.c — thin autograd-surface helpers.
  *
  * Bundles the small, self-contained autograd helpers that
- * the `UserDeviceTraining` interface exposes:
+ * the `UserExecutorTraining` interface exposes:
  *   - tensor_grad, tensor_zero_grad
  *   - tensor_requires_grad, tensor_set_requires_grad
  *   - tensor_detach (= clone), tensor_with_grad

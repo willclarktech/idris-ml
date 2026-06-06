@@ -23,7 +23,7 @@
  *    once at dylib load and stash the resolved `c10::Device` in a
  *    process-wide variable; the creators consult it when staging the
  *    cast+move pair. Mirrors the legacy `prim__toDeviceTorch` wrap on
- *    `UserDeviceCore.primCreate*` and the `UserDeviceTraining`
+ *    `UserExecutorCore.primCreate*` and the `UserExecutorTraining`
  *    non-streamed `primCreate{Param,State}*` methods, but in C so the
  *    streamed path gets the same treatment without an FFI signature
  *    change.
@@ -32,7 +32,7 @@
  *    "cuda" / "cuda:N") → if unavailable on this host (e.g. mps with
  *    no MPS, cuda:N out of range), libtorch's `.to()` throws at the
  *    first create — the Idris EAFP gate (toDeviceChecked /
- *    builtinDevices probe) surfaces that as `Left DeviceError`. If
+ *    builtinExecutors probe) surfaces that as `Left ExecutorError`. If
  *    `TORCH_DEVICE` is unset we leave the default at `at::kCPU`.
  */
 #include <torch/torch.h>

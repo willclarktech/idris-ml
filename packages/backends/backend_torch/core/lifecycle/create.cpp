@@ -23,7 +23,7 @@ static TensorHandle tensor_create_impl(double* data, int* shape, int rank,
     // Effective target degrades to CPU on (MPS, F64) — Metal rejects F64
     // at construction. Lets Transfer.idr explicitly create F64-on-CPU even
     // under a `TORCH_DEVICE=mps` build, then migrate later with the typed
-    // `toDevice` (which gates on `Compatible`).
+    // `toExecutor` (which gates on `Compatible`).
     c10::Device target = (g_torch_target_device.type() == c10::DeviceType::MPS
                           && dt == torch::kFloat64) ? at::kCPU
                                                     : g_torch_target_device;

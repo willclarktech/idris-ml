@@ -5,7 +5,7 @@
  * Renames each exported C symbol to `<sym>_mlx` so all three
  * backends can co-exist linked into one libidrisml.(so|dylib).
  * Every Idris %foreign reaches these via the suffixed name from a
- * per-instance UserDevice method; the former unified-name link-time
+ * per-instance UserExecutor method; the former unified-name link-time
  * alias machinery has been removed. */
 #ifndef IDRISML_RENAME_MLX_H
 #define IDRISML_RENAME_MLX_H

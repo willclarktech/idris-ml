@@ -1,9 +1,9 @@
 /* Per-call stream selection for the mlx backend's modular tree.
  *
- * `Tensor [..] (MlxDev MGpu)` and `Tensor [..] (MlxDev MCpu)` are
+ * `Tensor [..] (MlxExecutor MGpu)` and `Tensor [..] (MlxExecutor MCpu)` are
  * distinct types in the Idris-side type system; the C-side runtime
  * honours that distinction by running each op on the right mlx stream.
- * The `UserDeviceCore (MlxDev s)` instance derives an int stream tag
+ * The `UserExecutorCore (MlxExecutor s)` instance derives an int stream tag
  * from `s` (0 = cpu, 1 = gpu) and threads it through the `_streamed`
  * FFI variants. Each streamed entry opens an `mx::StreamContext` from
  * the cached cpu_stream / gpu_stream, so the array's primitive ties

@@ -2,7 +2,7 @@
  * backend_byo.c — "Bring Your Own" example backend.
  *
  * Minimal demonstration of how a user-supplied backend plugs into
- * idris-ml's UserDeviceCore typeclass. Each op logs "[byo] <name>"
+ * idris-ml's UserExecutorCore typeclass. Each op logs "[byo] <name>"
  * to stderr so you can SEE the dispatch happen, then returns a stub
  * (the input pointer, or a zero scalar). No real math; the goal is
  * to show the type-level mechanism, not implement an autograd
@@ -17,7 +17,7 @@
  * and the "Custom devices: user-supplied backends" section of
  * docs/grad-mode-and-device-typing.md.
  *
- * Scope note: this file is deliberately the *minimum* — UserDeviceCore
+ * Scope note: this file is deliberately the *minimum* — UserExecutorCore
  * only, no training surface, no shared-port adoption. A backend that
  * wants gradient descent + optimizer state + safetensors load/save
  * follows the path documented in `packages/backends/README.md`

@@ -5,7 +5,7 @@
  * libtorch's `.to()` throw a c10::Error. Unguarded, that exception
  * crosses the C->Chez FFI boundary and becomes std::terminate/SIGABRT.
  * Catch it here and return a NULL handle; the Idris side lifts NULL ->
- * Left DeviceError. This is the one source of truth for availability —
+ * Left ExecutorError. This is the one source of truth for availability —
  * no separate is_available probe to drift. All torch device-pinning
  * (primCreateFromHost, primIntraMigrate, primCreate's post-create
  * migration) routes through here, so this single guard covers them.

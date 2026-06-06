@@ -45,10 +45,10 @@ extern c10::Device g_torch_target_device;
    CPU when the global target can't hold the dtype (Metal's hard limit:
    MPS rejects F64 at construction time, so a `t.to(F64, MPS)` aborts
    the whole process). This lets `TORCH_DEVICE=mps` builds still create
-   F64 tensors on CPU when callers ask for `TorchDev TCpu / F64`
+   F64 tensors on CPU when callers ask for `TorchExecutor TCpu / F64`
    explicitly (Transfer.idr's cross-backend hop chain, etc.) — they'll
-   migrate to MPS later via the typed `toDevice` API if needed, gated by
-   `Compatible (TorchDev TMps) F64` which deliberately doesn't exist. */
+   migrate to MPS later via the typed `toExecutor` API if needed, gated by
+   `Compatible (TorchExecutor TMps) F64` which deliberately doesn't exist. */
 /* Non-static so dtype_init.cpp can reuse the same fallback policy. */
 c10::Device torch_effective_device(torch::ScalarType dt) {
     if (g_torch_target_device.type() == c10::DeviceType::MPS &&

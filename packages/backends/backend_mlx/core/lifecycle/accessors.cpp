@@ -8,7 +8,7 @@
  *   - tensor_to_int64: byte-level I64 readout. mlx has no native int64
  *     storage; integer round-trip goes through double, so this inherits
  *     the 2^53 ceiling. Implemented for symbol completeness — the
- *     Idris-side `Compatible MlxDev I64` is closed, so the realistic
+ *     Idris-side `Compatible MlxExecutor I64` is closed, so the realistic
  *     reachable use is safetensors I/O on F32/F64/BF16-typed tensors.
  *   - tensor_dtype_name: F32, F64, BF16, F16, or I32. Other int* +
  *     bool are not wired (Idris `Compatible` gates each pair at the
@@ -45,7 +45,7 @@ extern "C" void tensor_to_doubles(TensorHandle h, double* out) {
 // stores only F32/F64; integer storage round-trips through `double`,
 // inheriting the same 2^53 ceiling as the lingua-franca path.
 // Practically the safetensors I/O caller only reaches this on tensors
-// already typed I64, which mlx can't construct (Compatible MlxDev I64
+// already typed I64, which mlx can't construct (Compatible MlxExecutor I64
 // is closed). Implemented for symbol completeness.
 extern "C" void tensor_to_int64(TensorHandle h, int64_t* out) {
     auto t = (Tensor*)h;
