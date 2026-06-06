@@ -13,6 +13,7 @@ depends = contrib
 
 modules = Test.Main
         , Test.HfBert
+        , Test.HfBertForClassification
         , Test.HfBitNet
         , Test.HfGpt2
         , Test.HfLlama

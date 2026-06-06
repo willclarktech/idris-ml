@@ -2,6 +2,7 @@ module Test.Main
 
 import Test.Harness
 import Test.HfBert
+import Test.HfBertForClassification
 import Test.HfBitNet
 import Test.HfGpt2
 import Test.HfLlama
@@ -14,5 +15,6 @@ main = runAll (
   [ ("package wiring",
      [ check "ipkg parses and harness links" True
      ])
-  ] ++ Test.HfBert.suite ++ Test.HfGpt2.suite ++ Test.HfLlama.suite
+  ] ++ Test.HfBert.suite ++ Test.HfBertForClassification.suite
+    ++ Test.HfGpt2.suite ++ Test.HfLlama.suite
     ++ Test.HfBitNet.suite ++ Test.KVCache.suite ++ Test.Tokenizer.suite)
