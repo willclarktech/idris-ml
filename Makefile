@@ -741,6 +741,21 @@ $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 #   @PRIMARY_BACKEND_TAG@  ← PRIMARY          → Idris Backend type
 #   @CHOSEN_HARDWARE_TAG@  ← HARDWARE_RESOLVED → Idris Hardware type
 #   @PRIMARY@              ← PRIMARY          → string (TestConfig only)
+# Helper: turn (PRIMARY, HARDWARE_RESOLVED) into the concrete Executor
+# type (TapeExecutor / TorchExecutor TCpu / MlxExecutor MGpu / ...) and
+# DType (F64 / F32) per the Preset typeclass's canonical mapping. We
+# emit the resolved type directly into BuildConfig.idr because Idris-2
+# typeclass methods don't unfold during constraint search — using
+# `presetExecutor {b=PrimaryBackend} {h=ChosenHardware}` would leave
+# `UserExecutorTraining (presetExecutor ...)` unresolvable.
+#
+# These mirror the Preset instances in:
+#   * packages/idris-ml/src/Executor/Tape.idr  (TapeBackend × Cpu)
+#   * packages/idris-ml/src/Executor/Torch.idr (TorchBackend × Cpu/AppleGpu/Cuda)
+#   * packages/idris-ml/src/Executor/Mlx.idr   (MlxBackend × Cpu/AppleGpu)
+# Adding a new (Backend, Hardware) Preset means updating BOTH here and
+# the Idris instance.
+
 $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(MACHINE_RESOLVED)" in \
 		mac-m-series)   MTAG="MacMSeries" ;; \
@@ -762,9 +777,21 @@ $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		cuda)   HTAG="Cuda 0" ;;    \
 		*)      HTAG="Cpu" ;;       \
 	esac; \
-	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g" $< > $@.tmp; \
+	case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
+		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
+		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
+		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
+		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
+		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
+		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+	esac; \
+	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
+	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
+	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[BuildConfig] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED)"
+	@echo "[BuildConfig] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → ExampleExecutor=$$(awk -F' = ' '/^ExampleExecutor = / { print $$2; exit }' $@) / ExampleDType=$$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
 
 $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(MACHINE_RESOLVED)" in \
@@ -787,9 +814,21 @@ $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		cuda)   HTAG="Cuda 0" ;;    \
 		*)      HTAG="Cpu" ;;       \
 	esac; \
-	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
+	case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
+		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
+		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
+		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
+		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
+		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
+		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+	esac; \
+	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
+	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
+	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[TestConfig] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED)"
+	@echo "[TestConfig] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → TestExecutor=$$(awk -F' = ' '/^TestExecutor = / { print $$2; exit }' $@) / TestDType=$$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
 
 # Same always-touch logic as the .buildconfig-stamp recipe above; see
 # the comment there for why a content-equal stamp still needs an mtime

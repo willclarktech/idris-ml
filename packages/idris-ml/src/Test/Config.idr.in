@@ -48,15 +48,17 @@ public export
 TestHardware : Type
 TestHardware = @CHOSEN_HARDWARE_TAG@
 
-||| Test Executor — resolved via Preset.
+||| Test Executor — sed-substituted directly (typeclass methods don't
+||| unfold during constraint search; emit the resolved type so
+||| `UserExecutorTraining TestExecutor` reduces cleanly).
 public export
 TestExecutor : Type
-TestExecutor = presetExecutor {b=TestPrimaryBackendTag} {h=TestHardware}
+TestExecutor = @EXAMPLE_EXECUTOR_TYPE@
 
-||| Test DType — resolved via Preset.
+||| Test DType — sed-substituted directly (same reason).
 public export
 TestDType : Type
-TestDType = presetDType {b=TestPrimaryBackendTag} {h=TestHardware}
+TestDType = @EXAMPLE_DTYPE_TYPE@
 
 ||| Lowercase name of the primary backend ("tape" / "torch" / "mlx"),
 ||| as seen at TestConfig generation time. Value-level mirror of the

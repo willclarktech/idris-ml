@@ -46,15 +46,24 @@ public export
 ChosenHardware : Type
 ChosenHardware = @CHOSEN_HARDWARE_TAG@
 
-||| Example default Executor — resolved via Preset.
+||| Example default Executor — sed-substituted directly from
+||| `(PrimaryBackend, ChosenHardware)` per the Preset typeclass's
+||| canonical mapping. Equivalent to `presetExecutor {b=PrimaryBackend}
+||| {h=ChosenHardware}`, but spelled as a concrete type so downstream
+||| typeclass constraints (`UserExecutorTraining ExampleExecutor`)
+||| reduce cleanly during elaboration. Idris-2 typeclass methods don't
+||| unfold during constraint search; emitting the resolved type avoids
+||| the `UserExecutorTraining (presetExecutor ...)` constraint that
+||| can't find an instance.
 public export
 ExampleExecutor : Type
-ExampleExecutor = presetExecutor {b=PrimaryBackend} {h=ChosenHardware}
+ExampleExecutor = @EXAMPLE_EXECUTOR_TYPE@
 
-||| Example default DType — resolved via Preset.
+||| Example default DType — sed-substituted directly (same reason as
+||| ExampleExecutor above).
 public export
 ExampleDType : Type
-ExampleDType = presetDType {b=PrimaryBackend} {h=ChosenHardware}
+ExampleDType = @EXAMPLE_DTYPE_TYPE@
 
 ||| Compile-time coherence checks. Resolving these names at module-load
 ||| forces typeclass resolution to fire — if either instance is missing,
