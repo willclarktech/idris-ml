@@ -282,18 +282,48 @@ AdamW(lr=5e-5, wd=0.01, clip=1.0). Both sides drop loss into the
 4.0-5.0 range after 50 steps of single-example batches, starting from
 distilgpt2's pretrained baseline of ~5.5 on this corpus.
 
+### BERT MLM continued pretraining
+
+As of 2026-06-07 the BERT MLM continued-pretraining path ships as a
+worked example. See
+[`Example/BertMlmFinetune.idr`](../../packages/idris-ml-examples/src/Example/BertMlmFinetune.idr).
+
+Architecture: `google/bert_uncased_L-2_H-128_A-2` (same backbone as
+the SST-2 example) with the MLM head loaded (44 total params: 39
+backbone + 5 head).
+
+Corpus: Tiny Shakespeare tokenized via BERT WordPiece into
+`data/tinyshakespeare/input.bert-tiny.tokens` (~289K tokens). Same
+tokenizer script as the GPT-2 LM example; different tokenizer.
+
+```bash
+make data-tinyshakespeare-bert-tiny   # tokenize once
+make example-bert-mlm-finetune        # train (default 100 steps)
+```
+
+The training loop:
+
+1. Samples a random sliding window of SeqLen=32 tokens.
+2. Applies HF's 80/10/10 masking at 15% probability per position
+   (80% → `[MASK]`=103, 10% → random vocab id, 10% → keep original;
+   CLS/SEP never masked).
+3. Forwards through `hfBertMlmForward` → `[SeqLen, Vocab]` logits.
+4. Computes cross-entropy ONLY at masked positions (via a `[SeqLen,
+   Vocab]` target one-hot that's zero-row-padded at unmasked
+   positions, then summed and normalized by `numMasked`).
+
+The `bertMlmLoss` function uses the same logSoftmax2d + multiply +
+sum + negate chain as the GPT-2 example, but with a per-position
+mask multiplier on the target so only masked rows contribute to the
+sum. PyTorch ref uses HF's `labels` convention (`-100` at unmasked
+positions; `CrossEntropyLoss(ignore_index=-100)` skips them).
+
 ### Today's limits + parked follow-ups
 
-- **BERT MLM continued pretraining example.** Architecture +
-  forward (`hfBertMlmForward`) ships; the worked example is a
-  TODO row.
 - **LoRA / parameter-efficient fine-tuning.** TODO.
 
 ## What's not supported yet
 
-- **BERT MLM continued pretraining worked example.** Architecture +
-  forward (`hfBertMlmForward`) ships in `idris-transformers`; only
-  the worked fine-tune example is parked (TODO).
 - **LoRA / parameter-efficient fine-tuning.** TODO.
 
 ## Cross-references

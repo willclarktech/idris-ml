@@ -14,6 +14,32 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > referenced in the A2C/PPO entries is structurally impossible in V2 (each layer is named at
 > construction). See [path-c-migration.md](path-c-migration.md).
 
+## BERT MLM continued pretraining (2026-06-07)
+
+New paired example `bert-mlm-finetune` — bert-tiny MLM continued pretraining on Tiny Shakespeare-via-WordPiece.
+
+| Side | File | Notes |
+|------|------|-------|
+| Idris | `packages/idris-ml-examples/src/Example/BertMlmFinetune.idr` | `loadModelAllowCast` loads 44 params (39 backbone + 5 MLM head); HF 80/10/10 masking; position-selective CE loss; `hfBertMlmForward` → `[SeqLen, Vocab]` logits |
+| PyTorch | `packages/pytorch/torch_ref/scripts/bert_mlm_finetune.py` | reads the SAME token file; `AutoModelForMaskedLM.from_pretrained` + HF labels with -100 at unmasked positions |
+
+| Setting | Both sides |
+|---------|------------|
+| Architecture | bert-tiny / `google/bert_uncased_L-2_H-128_A-2` (vocab=30522, hidden=128, layers=2, heads=2, headDim=64, intermediate=512, maxPos=512, typeVocab=2) |
+| SeqLen / batch | 32 / 1 (single-example batch) |
+| Corpus | Tiny Shakespeare (1.1MB) tokenized via BERT WordPiece → `data/tinyshakespeare/input.bert-tiny.tokens` (288K tokens) |
+| Masking | HF 80/10/10 at 15% mask probability per position. Of masked positions: 80% → `[MASK]` (id=103), 10% → fixed mid-vocab id=200 (Idris) / id=200 (Python — both hardcoded the same shortcut to keep the per-step distribution aligned; HF's `DataCollatorForLanguageModeling` samples uniformly over the full vocab, an approximation worth ~negligible loss difference at 50-step bounded training). CLS=101 / SEP=102 never masked. |
+| Loss | Position-selective cross-entropy: CE per masked position, sum / numMasked. Idris uses `bertMlmLoss` (logSoftmax2d + multiply by zero-row-padded one-hot + sum + negate + divide by numMasked). PyTorch uses `CrossEntropyLoss(ignore_index=-100)` against labels with `-100` at unmasked positions. |
+| Optimizer | AdamW(lr=5e-5, β=(0.9, 0.999), ε=1e-8, weight_decay=0.01) + grad-norm clip 1.0 |
+| Default steps | 100 |
+| Convergence on 50 steps (seed=42) | Idris tape: EMA 5.15 → 4.90 / 8.2s; Idris torch: EMA 5.15 → 4.90 / 1m13s; Idris mlx-cpu (seed=99 via perf-run-quiet): 7.3s; PyTorch CPU: EMA 5.51 → 5.21 / 0.6s |
+
+bert-tiny's pretrained MLM loss baseline on this corpus sits at ~5.5 (vocab=30522;
+uniform-random `ln(30522) ≈ 10.3`). Both sides start near the baseline and drop
+into the 4.9-5.2 range after 50 single-example steps. Per-step variance is high
+because each window's number of masked positions varies stochastically; EMA
+smooths the trajectory.
+
 ## GPT-2 LM continued pretraining (2026-06-07)
 
 New paired example `gpt2-lm-finetune` — distilgpt2 fine-tune on Tiny Shakespeare.
