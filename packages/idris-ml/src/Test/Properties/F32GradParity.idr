@@ -8,15 +8,13 @@
 -- ≈ 2*x; their difference should be bounded by F32 round-off
 -- (~1e-7 relative at unit magnitudes).
 --
--- Implementation pinned to `TapeExecutor` because:
---   (a) Phase 3b's F32 storage routing exists on tape via the
---       `tape_load_d` dispatch; the parity test directly exercises
---       that path.
---   (b) tape always admits both Compatible (TapeExecutor, F32) and
---       Compatible (TapeExecutor, F64), so the source elaborates on
---       every build config.
---   (c) tape symbols are linked whenever PRIMARY=tape; on other
---       backends the test gates at runtime via TestPrimaryBackend.
+-- Polymorphic over `TestExecutor` (the build's active primary, via
+-- the Makefile-generated `Test.Config`). Requires both
+-- `Compatible TestExecutor F32` and `Compatible TestExecutor F64`,
+-- so the test elaborates on every F64-admissible primary
+-- (tape, torch-cpu, torch-cuda, mlx-cpu) and is skipped at the
+-- ipkg level on F32-only lanes (torch-mps, mlx-gpu) — CI's
+-- `test-unit-idris-ml` matrix doesn't cover those today.
 --
 -- Param-registry note: `tparamScalar` registers each param under a
 -- distinct name (see feedback_param_registry_dedup — the C-side
@@ -37,7 +35,6 @@ import Test.Config
 import Test.Harness as Harness
 
 import Executor
-import Executor.Tape
 import Tensor
 
 %default partial
@@ -47,15 +44,15 @@ import Tensor
 runRung : (dt : DType) ->
           IsFloating dt =>
           RuntimeDType dt =>
-          Compatible TapeExecutor dt =>
+          Compatible TestExecutor dt =>
           String -> Double -> IO Double
 runRung dt pidPrefix x = do
-  countBefore <- getParamCount {ex=TapeExecutor}
+  countBefore <- getParamCount {ex=TestExecutor}
   let pid = pidPrefix ++ "_" ++ show countBefore
-  p <- tparamScalar {ex=TapeExecutor} {dt} pid x
+  p <- tparamScalar {ex=TestExecutor} {dt} pid x
   loss <- tmul p p
   runBackward loss
-  getParamGradAt {ex=TapeExecutor} countBefore 0
+  getParamGradAt {ex=TestExecutor} countBefore 0
 
 prop_f32_grad_matches_f64_body : Double -> IO Bool
 prop_f32_grad_matches_f64_body x = do
@@ -77,16 +74,11 @@ prop_f32_grad_matches_f64_body x = do
 
 prop_f32_grad_matches_f64 : IO Bool
 prop_f32_grad_matches_f64 =
-  if TestPrimaryBackend == "tape"
-    then checkPropertyIOn
-           "f32_grad_matches_f64"
-           25
-           (double (linearFracFrom 0.0 (-1.0) 1.0))
-           prop_f32_grad_matches_f64_body
-    else Harness.check
-           ("f32_grad_matches_f64 (SKIPPED: requires tape primary, "
-            ++ "active=" ++ TestPrimaryBackend ++ ")")
-           True
+  checkPropertyIOn
+    "f32_grad_matches_f64"
+    25
+    (double (linearFracFrom 0.0 (-1.0) 1.0))
+    prop_f32_grad_matches_f64_body
 
 export
 tests : List (IO Bool)
