@@ -1542,6 +1542,32 @@ example-bert-classify-finetune: install install-transformers
 	cp $(LIB) $(BUILD)/exec/bert-classify-finetune_app/
 	./$(BUILD)/exec/bert-classify-finetune $(SEED_FLAG) $(BERT_FINETUNE_ARGS)
 
+# SST-2 dataset pattern: $(SST2_DATA_DIR)/{train,validation}.tsv. Pattern
+# rule fires when either file is missing; downloader is idempotent.
+SST2_DATA_DIR := data/hf-datasets/glue-sst2
+
+$(SST2_DATA_DIR)/train.tsv:
+	bash packages/idris-transformers/scripts/hf-download-dataset.sh glue train sst2
+
+$(SST2_DATA_DIR)/validation.tsv:
+	bash packages/idris-transformers/scripts/hf-download-dataset.sh glue validation sst2
+
+# Convenience alias for fetching both splits.
+data-sst2: $(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
+
+# Real-text fine-tune: warm-starts the bert_uncased_L-2_H-128_A-2 backbone
+# from disk, fine-tunes on SST-2 with attention-mask threading. Deps on
+# the bert-tiny checkpoint (via the HF pattern rule defined further down
+# — hardcode `models/...` since HF_MODELS_DIR := assignment lands later
+# in the file) plus the SST-2 TSV files (via the dataset rule above).
+example-bert-classify-sst2-finetune: install install-transformers \
+		models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
+	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-sst2-finetune \
+		$(EXAMPLE_SRC)/Example/BertClassifySst2Finetune.idr
+	cp $(LIB) $(BUILD)/exec/bert-classify-sst2-finetune_app/
+	./$(BUILD)/exec/bert-classify-sst2-finetune $(SEED_FLAG) $(BERT_SST2_ARGS)
+
 # HuggingFace BERT inference example. Loads google/bert_uncased_L-2_H-128_A-2
 # weights via the HF-aligned HfBert layer module (from idris-transformers)
 # and dumps the 128-dim pooled [CLS] output to stdout, one value per line.
@@ -2162,6 +2188,10 @@ ref-supervised:
 
 ref-bert-classify-finetune:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_finetune
+
+ref-bert-classify-sst2-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
+	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_sst2_finetune $(BERT_SST2_ARGS)
 
 ref-rnn:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.rnn

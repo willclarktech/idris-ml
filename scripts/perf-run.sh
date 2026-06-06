@@ -30,7 +30,7 @@ example-keys: ntm-copy, ntm-recall, dnc-copy, dnc-recall, supervised,
               rnn, lstm, gru, transformer, gpt, matmul-bench, mnist, seq-classify,
               reinforce, dqn, mountain-car, mountain-car-cont, a2c,
               ppo, sac, hf-bert, hf-gpt2, hf-llama, hf-llama-generate, hf-bitnet,
-              bert-classify-finetune
+              bert-classify-finetune, bert-classify-sst2-finetune
 backends:     tape, mlx, torch
 EOF
   exit 2
@@ -63,6 +63,8 @@ case "$EXAMPLE_KEY" in
   sac)                 TGT=example-sac;                        AVAR=SAC_ARGS ;;
   bert-classify-finetune)
                        TGT=example-bert-classify-finetune;     AVAR=BERT_FINETUNE_ARGS ;;
+  bert-classify-sst2-finetune)
+                       TGT=example-bert-classify-sst2-finetune; AVAR=BERT_SST2_ARGS ;;
   # HF inference examples — no training loop, no RESULT line; we extract
   # `[stage] [hh:mm:ss] <label>` timings into entry.stages instead. AVAR
   # is set to a no-op make-variable name so the existing AVAR=ARGS

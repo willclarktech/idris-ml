@@ -198,30 +198,70 @@ seconds on all three backends; multi-seed 5/5 on tape). The paired
 PyTorch reference is
 [`bert_classify_finetune.py`](../../packages/pytorch/torch_ref/scripts/bert_classify_finetune.py).
 
+### Real-text dataset support (SST-2 / IMDb / GLUE)
+
+As of 2026-06-07, the real-text fine-tuning path is in. Three
+primitives layer on the synthetic example above:
+
+1. **Attention mask on the forward** — `hfBertForward`,
+   `hfBertMlmForward`, and `hfBertSeqClassifyForward` take an
+   optional final `Maybe (Tensor [seqLen, seqLen] ex dt g)`
+   argument. When `Just`, `primMaskedFill scores mask (-1.0e20)`
+   runs between matmul and softmax in every attention layer. Entries
+   `>= 0.5` are treated as "mask out"; `Nothing` is bit-identical
+   to the pre-RT1 unmasked path.
+2. **Tokenized dataset loader** —
+   [`HfDataset.idr`](../../packages/idris-transformers/src/HfDataset.idr)
+   exports `loadHfDataset : String -> IO (List TokenizedExample)`,
+   `padToSeqLen : Nat -> Nat -> TokenizedExample -> (Vect seqLen Nat,
+   Vect seqLen Double, Nat)`, and `toAttentionMask2d : Vect seqLen
+   Double -> Vect (seqLen*seqLen) Double` (1D HF-convention mask →
+   row-major flat 2D matrix). Format is a simple TSV per line:
+   `<label>\t<id1,id2,…>` — no JSON parser dep.
+3. **Downloader** —
+   [`scripts/hf-download-dataset.sh`](../../packages/idris-transformers/scripts/hf-download-dataset.sh)
+   wraps HF `datasets.load_dataset` + `transformers.AutoTokenizer
+   .encode` in the existing pytorch uv venv, writes the TSV into
+   `data/hf-datasets/<repo>/<split>.tsv`. Pre-tokenizes at download
+   time so the Idris side never pays the ~1s/call subprocess
+   startup of `Tokenizer.idr`. Make wrapper:
+
+   ```bash
+   make data-sst2       # fetches train + validation splits
+   make clean-datasets  # removes the cached data/hf-datasets/
+   ```
+
+The worked example is
+[`Example/BertClassifySst2Finetune.idr`](../../packages/idris-ml-examples/src/Example/BertClassifySst2Finetune.idr).
+Warm-starts the `google/bert_uncased_L-2_H-128_A-2` backbone via
+`loadModelPrefixAllowCast`, loads SST-2 via `loadHfDataset`, pads to
+seqLen=32 + builds the 2D mask via `toAttentionMask2d`, forwards
+through `hfBertSeqClassifyForward _ _ _ _ (Just mask)`. Paired
+PyTorch ref:
+[`bert_classify_sst2_finetune.py`](../../packages/pytorch/torch_ref/scripts/bert_classify_sst2_finetune.py).
+
+Default config (`--max-train 256 --max-dev 256 --epochs 3`) is
+tuned for fast iteration; the subset converges below HF's tutorial
+threshold (Idris tape ~59%, torch ~61%, mlx-cpu ~56%; PyTorch
+~52% on the same subset). Full SST-2 + 3 epochs at lr=2e-5
+matches HF's documented ~80%+, but takes ~hours on Idris tape.
+
 ### Today's limits + parked follow-ups
 
-- **Synthetic dataset only.** The worked example generates token IDs
-  at runtime. Real-text datasets (SST-2, IMDb, GLUE) need wiring the
-  existing `Tokenizer.idr` HF-subprocess wrapper into the data
-  pipeline. Tracked as a TODO row.
-- **No attention mask on `hfBertForward`.** Fine for fixed-length
-  synthetic batches; variable-length real-text fine-tuning needs a
-  mask wired through `applyEncoder`'s softmax. Tracked alongside the
-  real-text TODO row.
-- **Full fine-tune only.** LoRA / adapters are not in scope for
-  this round. Tracked as a follow-up TODO row.
+- **GPT-2 LM continued pretraining example.** Architecture +
+  forward (`hfGpt2Forward`) ships in `idris-transformers`; the
+  worked example is a TODO row.
+- **BERT MLM continued pretraining example.** Architecture +
+  forward (`hfBertMlmForward`) ships; the worked example is a
+  TODO row.
+- **LoRA / parameter-efficient fine-tuning.** TODO.
 
 ## What's not supported yet
 
-- **Tokenizer integration in the worked fine-tune example.** The
-  inference examples use `Tokenizer.idr` (HF-subprocess); the
-  fine-tune example bypasses it via synthetic IDs. Real-text
-  fine-tuning + tokenizer-driven batch generation land together
-  (see TODO row).
 - **GPT-2 LM continued pretraining + BERT MLM continued
-  pretraining.** Both architectures + forward passes ship in
-  `idris-transformers`; only the worked fine-tune examples are
-  parked (TODO).
+  pretraining worked examples.** Both architectures + forward
+  passes ship in `idris-transformers`; only the worked fine-tune
+  examples are parked (TODO).
 - **LoRA / parameter-efficient fine-tuning.** TODO.
 
 ## Cross-references

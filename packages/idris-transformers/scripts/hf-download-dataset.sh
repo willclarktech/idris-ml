@@ -63,6 +63,7 @@ cd "$REPO_ROOT/packages/pytorch"
 uv run python - "$DATASET" "$SPLIT" "$CONFIG" "$TOKENIZER" "$OUT_PATH" <<'PYEOF'
 import os, sys
 from datasets import load_dataset
+from huggingface_hub.errors import HfUriError
 from transformers import AutoTokenizer
 
 dataset, split, config, tokenizer_id, out_path = sys.argv[1:6]
@@ -71,7 +72,32 @@ print(f"hf-download-dataset: load_dataset({dataset!r}, {config or '<no-config>'}
 ds_args = {"split": split}
 if config:
     ds_args["name"] = config
-ds = load_dataset(dataset, token=os.environ.get("HF_TOKEN"), **ds_args)
+
+# `datasets` >=3.0 requires fully-namespaced repo IDs (e.g. `nyu-mll/glue`
+# instead of `glue`). For the canonical short names — glue / squad / imdb
+# / etc. — fall back to the upstream maintainer's namespace automatically
+# so the user-facing CLI stays terse.
+NAMESPACE_FALLBACKS = {
+    "glue":   "nyu-mll/glue",
+    "squad":  "rajpurkar/squad",
+    "imdb":   "stanfordnlp/imdb",
+    "sst2":   "stanfordnlp/sst2",
+}
+candidates = [dataset]
+if dataset in NAMESPACE_FALLBACKS:
+    candidates.append(NAMESPACE_FALLBACKS[dataset])
+ds = None
+for cand in candidates:
+    try:
+        ds = load_dataset(cand, token=os.environ.get("HF_TOKEN"), **ds_args)
+        if cand != dataset:
+            print(f"  (using namespaced repo {cand!r})")
+        break
+    except (HfUriError, ValueError) as exc:
+        last_exc = exc
+        continue
+if ds is None:
+    raise SystemExit(f"hf-download-dataset: failed to load {dataset!r}: {last_exc}")
 
 # Identify the text + label columns. SST-2 uses `sentence` + `label`; IMDb
 # uses `text` + `label`. Fall back to the first string-ish column for text.
