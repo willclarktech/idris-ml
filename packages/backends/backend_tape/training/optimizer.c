@@ -35,6 +35,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __APPLE__
+#include <Accelerate/Accelerate.h>
+#else
+#include <cblas.h>
+#endif
 #include "../arena.h"
 #include "../tape.h"
 #include "../tensor.h"
@@ -164,6 +169,55 @@ void tape_optimizer_set_param_lr(void* h, const char* name, double lr) {
 }
 
 /* ----------------------------------------------------------------------
+   AdamW foreach fast path — opt-in via TAPE_OPTIMIZER_FOREACH=1.
+
+   Replaces the per-element AdamW inner loop with a BLAS-1 moment update
+   for F64 params. Math sequence preserved: m ← β1·m + (1-β1)·g and
+   v ← β2·v + (1-β2)·g² landed before the bias-correct + weight update.
+   The BLAS-1 path may differ from the scalar path by ULP via Accelerate
+   FMA inside cblas_daxpy; the paired test in test_optimizers.c asserts
+   convergence within 1e-12, not bit-identical equality.
+
+   F32-tagged params fall through to the scalar inner loop verbatim
+   (mixed-dtype foreach is out of scope; the per-call BLAS overhead
+   isn't worth a widen-narrow staging pass for the F32 case).
+   ---------------------------------------------------------------------- */
+static void adamw_foreach_param(TapeOptimizer* opt, Tensor* t, int base, double lr) {
+    int n = t->numel;
+    double* g = (double*)t->grad;
+    double* w = (double*)t->data;
+    double* m = opt->m + base;
+    double* v = opt->v + base;
+
+    /* m ← β1·m + (1-β1)·g — BLAS-1 (dscal + daxpy). For tiny n the BLAS
+       call overhead outweighs the vectorized inner; gate by n ≥ 256
+       (smaller params keep the scalar autovectorized loop). */
+    if (n >= 256) {
+        cblas_dscal(n, opt->beta1, m, 1);
+        cblas_daxpy(n, 1.0 - opt->beta1, g, 1, m, 1);
+    } else {
+        for (int j = 0; j < n; j++) m[j] = opt->beta1 * m[j] + (1.0 - opt->beta1) * g[j];
+    }
+
+    /* v ← β2·v + (1-β2)·g² — single scalar pass; compiler autovectorizes,
+       no scratch buffer required. */
+    for (int j = 0; j < n; j++) {
+        v[j] = opt->beta2 * v[j] + (1.0 - opt->beta2) * g[j] * g[j];
+    }
+
+    /* Per-element weight update — same expression as the scalar path so
+       the bias-correct factors round identically. */
+    double bc1 = 1.0 - pow(opt->beta1, opt->t);
+    double bc2 = 1.0 - pow(opt->beta2, opt->t);
+    for (int j = 0; j < n; j++) {
+        double mhat = m[j] / bc1;
+        double vhat = v[j] / bc2;
+        double w1 = w[j] - lr * mhat / (sqrt(vhat) + opt->eps);
+        w[j] = w1 - lr * opt->weight_decay * w1;
+    }
+}
+
+/* ----------------------------------------------------------------------
    Step — per-element flat-buffer math + tape epoch hygiene.
    ---------------------------------------------------------------------- */
 void tape_optimizer_step(void* h) {
@@ -176,6 +230,11 @@ void tape_optimizer_step(void* h) {
     /* SKIP_LSTM_INIT diagnostic — skips updating params whose names end
        in `_h0` / `_c0` (LSTM learned initial state). */
     int skip_lstm_init = getenv("SKIP_LSTM_INIT") != NULL;
+
+    /* AdamW foreach opt-in. Re-read every step so a test can toggle
+       between scalar and foreach within one process. F32 params fall
+       through to the scalar inner loop regardless. */
+    int use_adamw_foreach = (opt->type == 3) && (getenv("TAPE_OPTIMIZER_FOREACH") != NULL);
 
     for (int i = 0; i < param_count(); i++) {
         if (!opt_owns_param(opt, i)) continue;
@@ -194,6 +253,11 @@ void tape_optimizer_step(void* h) {
         double lr = opt->lr;
         if (opt->param_lr && i < opt->param_lr_count && opt->param_lr[i] >= 0)
             lr = opt->param_lr[i];
+
+        if (use_adamw_foreach && t->dtype_tag != DT_F32) {
+            adamw_foreach_param(opt, t, base, lr);
+            continue;
+        }
 
         for (int j = 0; j < t->numel; j++) {
             double g = tape_grad_load_d(t, j);
