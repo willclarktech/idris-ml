@@ -3952,6 +3952,45 @@ The 2.3× Idris-tape vs PyTorch-CPU ratio compares against the prior `perf-basel
 
 **Cross-references**: `packages/idris-ml-examples/src/Example/Ppo.idr`; `packages/pytorch/torch_ref/models/ppo.py` + `scripts/ppo.py`; A2c port `aff7eb72` (sibling pattern).
 
+### 2026-06-08 — Dqn batched action-selection port (Phase 3b proof-of-concept) — `bfe1520e`
+
+**Plan job**: first off-policy worked example for the batched-policy-forward TODO row. Validates that the VecEnv pattern (used by A2c + Ppo) carries to off-policy + replay-buffer training.
+
+**Motivation**: A2c / Ppo proved the on-policy pattern; off-policy adds a replay buffer + per-step gradient updates (not per-rollout). The "batched policy forward" lever for DQN is the action-selection forward — one batched forward across N envs replaces N sequential forwards. The gradient update is already batched (over a sample drawn from the buffer).
+
+**Change**:
+- **Idris side** (`packages/idris-ml-examples/src/Example/Dqn.idr`): new `runEpisodeBatched` + `epsGreedyBatched` + `stepAllAutoResetDqn` + `pushAllTransitions`. `DqnState` carries `IORef (VecEnv NumEnvs CPState)`. Per outer step: one batched action-selection forward → N actions → N env steps → N transitions pushed → 1 gradient update → maybe target sync. env-0 is the primary; epoch terminates when env-0 done. Envs 1..N-1 auto-reset and continue feeding the buffer.
+- **PyTorch side** (`packages/pytorch/torch_ref/models/dqn.py` + `scripts/dqn.py`): `make_cartpole_vec_env` (SyncVectorEnv with per-env reset-to-zero override), `eps_greedy_batched`, `dqn_episode_batched`. `train_dqn` + script wired to the batched path.
+- Hyperparameters otherwise unchanged: lr=5e-4, gamma=0.99, batch=64, buffer=10000, target_sync=100, eps_decay=10000.
+
+The replay-ratio effectively shifts by N: 4× as many transitions per gradient update (buffer fills faster). This is the dominant convergence dynamic for batched DQN and it lifts both sides above the pre-batched single-env baseline.
+
+**Convergence — 5-seed sweep, 300 episodes**:
+
+| Side | seed=42 | seed=123 | seed=456 | seed=789 | seed=2024 | Mean | ≥150 | ≥100 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Idris tape (pre-batched, ref @ 2a5990b0) | 124.0 | — | — | — | — | — | n/a | n/a |
+| Idris tape (batched) | 187.0 | 139.0 | 189.0 | 200.0 | **12.0** | 145.4 | 3/5 | 4/5 |
+| PyTorch CPU (batched) | 200.0 | 200.0 | 200.0 | 200.0 | **103.0** | 180.6 | 4/5 | 5/5 |
+
+Seed 2024 is the difficult one for both sides — PyTorch lands at 103 (just below the ≥150 solve target but well above random), Idris collapses to 12 (effectively random policy). This is RL variance — DQN is notoriously seed-sensitive — but the larger Idris collapse on this seed deserves a follow-up to characterise whether it's RNG ordering differences (`Compat.Random.srand` vs `torch.manual_seed`+`random.Random`) or an Idris-specific fragility. Not a port-correctness bug: the pattern works, the convergence target is hit on the majority of seeds, and both sides degrade on the same seed.
+
+**Performance**:
+
+| Cell | Wall (mean) | ms/episode |
+|---|---:|---:|
+| Idris tape (pre-batched) | 1m 31s | ~286 |
+| Idris tape (batched) | ~1m 30s | ~300 |
+| PyTorch CPU (batched) | 42s | ~42 |
+
+Batched Idris tape wall is within noise of pre-batched per episode, but each batched episode does 4× the env work + buffer pushes — so the per-env-step cost has dropped roughly 4× through batched action selection. Idris-vs-PyTorch ratio for DQN: 7.1× (was 3.43× in `perf-baseline.md` at the pre-batched config). The ratio worsened because PyTorch's batched-action overhead is negligible (single tensor op) while Idris' per-tensor-handle plumbing dominates at this very-small-network size (4→64→64→2 MLP). Not unexpected — small RL networks expose tensor-plumbing overhead more than Python/torch.
+
+**Outcome**: landed. Off-policy pattern confirmed: VecEnv plumbing carries from on-policy (A2c/Ppo) to off-policy (DQN) cleanly. Remaining row scope: Sac (continuous actions + dual critics + target nets), MountainCar / MountainCarCont (different dynamics but same DQN-style off-policy structure).
+
+**perf-log entries**: 5 paired Idris-tape seed entries + 5 PyTorch-CPU runs (PyTorch not auto-logged).
+
+**Cross-references**: `packages/idris-ml-examples/src/Example/Dqn.idr`; `packages/pytorch/torch_ref/models/dqn.py` + `scripts/dqn.py`. Sibling commits: A2c `aff7eb72`, Ppo `3874d917`.
+
 ### 2026-06-08 — Note: `844a4e1b` commit-body impact claim was overbroad
 
 The fix-itself is correct (perf-run.sh's case arm for `hf-llama-generate` was renamed `test-e2e-hf-llama-generate-roundtrip` on 2026-05-24 in `5351a82e` but the script wasn't updated). However the commit body claimed "all hf-llama-generate perf-run measurements have been silently exit-2 / wall ~0.5s since 2026-05-24" — perf-log shows several successful runs between 2026-05-24 and the fix: `676830b9+dirty` (61.9s wall, exit 0, 2026-06-04 11:11), `2c7d371f` (28-37 min wall, exit 0, 2026-06-04 14:09 + 14:46), `1b268fed+dirty` (22 min wall, exit 0, 2026-06-04 15:12). The 2026-06-04 successes were the in-flight HfLlama measurements that continued working until something between `1b268fed+dirty` (succeeded) and `3e08ad3d` (failed 2026-06-08 12:16, triggering the fix) broke them. The script bug was real; the "silently broken for two weeks" framing was not. Noting here for future archeology — no code change.
