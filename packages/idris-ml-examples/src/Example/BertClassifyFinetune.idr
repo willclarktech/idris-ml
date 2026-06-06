@@ -209,7 +209,7 @@ exampleLoss model ex = do
                                      {headDim=HeadDim} {intermediate=Intermediate}
                                      {maxPos=MaxPos} {typeVocab=TypeVocab}
                                      {numClasses=NumClasses}
-                                     model ids pos typ
+                                     model ids pos typ Nothing
   target <- oneHotTensor ex.label
   tnllLoss logits target
 
@@ -254,7 +254,7 @@ predictClass model ids = do
                                      {headDim=HeadDim} {intermediate=Intermediate}
                                      {maxPos=MaxPos} {typeVocab=TypeVocab}
                                      {numClasses=NumClasses}
-                                     model idsT pos typ
+                                     model idsT pos typ Nothing
   let v0 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 0
       v1 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 1
       v2 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 2

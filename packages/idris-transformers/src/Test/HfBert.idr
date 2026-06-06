@@ -235,7 +235,7 @@ testForwardShapeAndFinite = do
                        {intermediate = 16}
                        {maxPos       = 4}
                        {typeVocab    = 2}
-                       model inputIds posIds typeIds
+                       model inputIds posIds typeIds Nothing
   -- primItem1d takes an AnyPtr directly; no need to coerce the
   -- Tensor's gradmode.
   vals <- readOut {n=8} out.tensorPtr

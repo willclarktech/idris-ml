@@ -145,14 +145,18 @@ hfBertForSequenceClassification bertPfx clsPfx = do
 ----------------------------------------------------------------------
 
 ||| Full BertForSequenceClassification forward: input_ids (plus
-||| position + tokenType IDs) → `[numClasses]` logits.
+||| position + tokenType IDs, and an optional attention mask) →
+||| `[numClasses]` logits.
 |||
-|||   pooled  = hfBertForward(base, ids, position, tokenType)  -- [hidden]
+|||   pooled  = hfBertForward(base, ids, position, tokenType, mask)  -- [hidden]
 |||   logits  = classifier.dense.weight · pooled + classifier.dense.bias
 |||
 ||| The caller composes this with `tnllLoss` against a one-hot target
 ||| at the example-level (no batching at this layer; the worked example
 ||| reduces over a `Vect n` of examples per epoch).
+|||
+||| Pass `Nothing` for `attentionMask` on fixed-length / non-padded
+||| inputs — output is bit-identical to the pre-RT1 path.
 export
 hfBertSeqClassifyForward :
      {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
@@ -163,7 +167,8 @@ hfBertSeqClassifyForward :
   -> (inputIds     : Tensor [seqLen] ex dt g)
   -> (positionIds  : Tensor [seqLen] ex dt g)
   -> (tokenTypeIds : Tensor [seqLen] ex dt g)
+  -> (attentionMask : Maybe (Tensor [seqLen, seqLen] ex dt g))
   -> IO (Tensor [numClasses] ex dt g)
-hfBertSeqClassifyForward (MkBertForSeqClassify base (MkBertClassifierHead head)) i p t = do
-  pooled <- hfBertForward {numHeads} {headDim} base i p t
+hfBertSeqClassifyForward (MkBertForSeqClassify base (MkBertClassifierHead head)) i p t mask = do
+  pooled <- hfBertForward {numHeads} {headDim} base i p t mask
   tlinear head.weight pooled head.bias

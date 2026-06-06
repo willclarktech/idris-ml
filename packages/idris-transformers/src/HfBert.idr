@@ -505,17 +505,26 @@ applyBertLinear2d (MkBertLinear w b) x = tlinear2d w x b
 -- Per-head attention math. Returns AnyPtr to a [seqLen, headDim]
 -- block; the caller's job is to either concat it with siblings or
 -- (for the single-head case) wrap directly into a Tensor.
+--
+-- `mask` is the optional [seqLen, seqLen] attention mask handle:
+-- when `Just`, `primMaskedFill scores mask (-1.0e20)` is applied
+-- between matmul and softmax. Convention matches HfGpt2's
+-- `causalMask`: a non-zero entry means "mask out this position".
 oneHeadCtx : {0 ex : Executor} -> UserExecutorTraining ex
           => (qFull, kFull, vFull : AnyPtr)
+          -> (mask : Maybe AnyPtr)
           -> (startI, headDimI : Int) -> (scale : Double)
           -> AnyPtr
-oneHeadCtx qFull kFull vFull startI headDimI scale =
+oneHeadCtx qFull kFull vFull mask startI headDimI scale =
   let qh     = primNarrow {ex} qFull 1 startI headDimI
       kh     = primNarrow {ex} kFull 1 startI headDimI
       vh     = primNarrow {ex} vFull 1 startI headDimI
       kT     = primTranspose2d {ex} kh
       scores = primMulScalar {ex} (primMm {ex} qh kT) scale
-      attn   = primSoftmax2d {ex} scores
+      sMasked = case mask of
+        Nothing  => scores
+        Just m   => primMaskedFill {ex} scores m (-1.0e20)
+      attn   = primSoftmax2d {ex} sMasked
   in primMm {ex} attn vh
 
 -- Build the multi-head context by concatenating per-head blocks
@@ -524,14 +533,15 @@ oneHeadCtx qFull kFull vFull startI headDimI scale =
 -- is the column offset for the *next* head.
 buildHeads : {0 ex : Executor} -> UserExecutorTraining ex
           => (qFull, kFull, vFull : AnyPtr)
+          -> (mask : Maybe AnyPtr)
           -> (headDimI : Int) -> (scale : Double)
           -> (remaining : Nat) -> (startI : Int) -> (acc : AnyPtr)
           -> AnyPtr
-buildHeads _ _ _ _ _ Z _ acc = acc
-buildHeads qFull kFull vFull headDimI scale (S k) startI acc =
-  let nextCtx = oneHeadCtx {ex} qFull kFull vFull startI headDimI scale
+buildHeads _ _ _ _ _ _ Z _ acc = acc
+buildHeads qFull kFull vFull mask headDimI scale (S k) startI acc =
+  let nextCtx = oneHeadCtx {ex} qFull kFull vFull mask startI headDimI scale
       newAcc  = primConcat2dAxis1 {ex} acc nextCtx
-  in buildHeads {ex} qFull kFull vFull headDimI scale k (startI + headDimI) newAcc
+  in buildHeads {ex} qFull kFull vFull mask headDimI scale k (startI + headDimI) newAcc
 
 -- Full multi-head self-attention. Computes Q/K/V via the three fused
 -- linears, then splits + recombines per-head. Output is the
@@ -551,13 +561,14 @@ applySelfAttn : {0 ex : Executor} -> UserExecutorTraining ex
              => {seqLen, hidden, numHeads, headDim : Nat}
              -> {auto prf : hidden = numHeads * headDim}
              -> BertSelfAttentionState hidden ex dt g
+             -> (mask : Maybe AnyPtr)
              -> Tensor [seqLen, hidden] ex dt g
              -> IO (Tensor [seqLen, hidden] ex dt g)
-applySelfAttn {numHeads = Z} _ input = pure input
-applySelfAttn {numHeads = S Z} {headDim} sa input = do
+applySelfAttn {numHeads = Z} _ _ input = pure input
+applySelfAttn {numHeads = S Z} {headDim} sa mask input = do
   -- Single-head: q/k/v are already the full attention tensors;
   -- no narrow needed. Drop to primitives only for the matmul +
-  -- softmax chain.
+  -- (optional masked-fill +) softmax chain.
   q  <- applyBertLinear2d sa.query input  -- [seq, hidden]
   k' <- applyBertLinear2d sa.key   input
   v  <- applyBertLinear2d sa.value input
@@ -565,13 +576,16 @@ applySelfAttn {numHeads = S Z} {headDim} sa input = do
     let scale  = 1.0 / sqrt (cast {to=Double} headDim)
         kT     = primTranspose2d {ex} k'.tensorPtr
         scores = primMulScalar {ex} (primMm {ex} q.tensorPtr kT) scale
-        attn   = primSoftmax2d {ex} scores
+        sMasked = case mask of
+          Nothing => scores
+          Just m  => primMaskedFill {ex} scores m (-1.0e20)
+        attn   = primSoftmax2d {ex} sMasked
         ctx    = primMm {ex} attn v.tensorPtr
     in MkTensor ctx Nothing)
-applySelfAttn {numHeads = S (S k)} {headDim} sa input = do
-  -- Multi-head: per-head narrow → matmul → softmax → matmul, then
-  -- concat. Crashes on tape today (see docstring above); torch/mlx
-  -- expected to work.
+applySelfAttn {numHeads = S (S k)} {headDim} sa mask input = do
+  -- Multi-head: per-head narrow → matmul → (mask) → softmax → matmul,
+  -- then concat. Same `mask` (over positions, not features) applies
+  -- to every head.
   q  <- applyBertLinear2d sa.query input
   k' <- applyBertLinear2d sa.key   input
   v  <- applyBertLinear2d sa.value input
@@ -580,8 +594,8 @@ applySelfAttn {numHeads = S (S k)} {headDim} sa input = do
       qP       = q.tensorPtr
       kP       = k'.tensorPtr
       vP       = v.tensorPtr
-      head0    = oneHeadCtx {ex} qP kP vP 0 headDimI scale
-      ctxPtr   = buildHeads {ex} qP kP vP headDimI scale (S k) headDimI head0
+      head0    = oneHeadCtx {ex} qP kP vP mask 0 headDimI scale
+      ctxPtr   = buildHeads {ex} qP kP vP mask headDimI scale (S k) headDimI head0
   pure (MkTensor ctxPtr Nothing)
 
 -- One BERT layer: self-attention + residual + LayerNorm + FFN
@@ -590,10 +604,11 @@ applyLayer : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
           => {seqLen, hidden, intermediate, numHeads, headDim : Nat}
           -> {auto prf : hidden = numHeads * headDim}
           -> BertLayerState hidden intermediate ex dt g
+          -> (mask : Maybe AnyPtr)
           -> Tensor [seqLen, hidden] ex dt g
           -> IO (Tensor [seqLen, hidden] ex dt g)
-applyLayer (MkBertLayer sa so im out) input = do
-  attnCtx  <- applySelfAttn {numHeads} {headDim} sa input
+applyLayer (MkBertLayer sa so im out) mask input = do
+  attnCtx  <- applySelfAttn {numHeads} {headDim} sa mask input
   attnDen  <- applyBertLinear2d so.dense attnCtx
   postAttn <- tadd input attnDen
   postLN1  <- applyLN2d so.layerNorm postAttn
@@ -608,12 +623,13 @@ applyEncoder : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining 
             => {seqLen, hidden, intermediate, numHeads, headDim, numLayers : Nat}
             -> {auto prf : hidden = numHeads * headDim}
             -> Vect numLayers (BertLayerState hidden intermediate ex dt g)
+            -> (mask : Maybe AnyPtr)
             -> Tensor [seqLen, hidden] ex dt g
             -> IO (Tensor [seqLen, hidden] ex dt g)
-applyEncoder []        h = pure h
-applyEncoder (l :: ls) h = do
-  h' <- applyLayer {numHeads} {headDim} l h
-  applyEncoder {numHeads} {headDim} ls h'
+applyEncoder []        _    h = pure h
+applyEncoder (l :: ls) mask h = do
+  h' <- applyLayer {numHeads} {headDim} l mask h
+  applyEncoder {numHeads} {headDim} ls mask h'
 
 -- Pooler: take the [CLS] (row 0), apply dense + tanh.
 applyPooler : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
@@ -650,6 +666,12 @@ applyEmbeddings (MkBertEmbeddings we pe te ln) inputIds positionIds tokenTypeIds
 |||
 ||| numHeads / headDim are implicit Nats with the
 ||| `hidden = numHeads * headDim` proof required at the call site.
+|||
+||| `attentionMask` is an optional `[seqLen, seqLen]` matrix; entries
+||| `>= 0.5` are treated as "mask out" (`-1.0e20` filled into scores
+||| pre-softmax, so attending to those positions returns ~0 weight).
+||| Pass `Nothing` for the original no-mask behaviour — bit-identical
+||| to the pre-RT1 forward on fixed-length / non-padded inputs.
 export
 hfBertForward : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
              => {seqLen, vocab, hidden, numLayers, numHeads, headDim,
@@ -659,10 +681,11 @@ hfBertForward : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining
              -> (inputIds     : Tensor [seqLen] ex dt g)
              -> (positionIds  : Tensor [seqLen] ex dt g)
              -> (tokenTypeIds : Tensor [seqLen] ex dt g)
+             -> (attentionMask : Maybe (Tensor [seqLen, seqLen] ex dt g))
              -> IO (Tensor [hidden] ex dt g)
-hfBertForward (MkBertModel emb layers pool) inputIds positionIds tokenTypeIds = do
+hfBertForward (MkBertModel emb layers pool) inputIds positionIds tokenTypeIds mask = do
   hEmb <- applyEmbeddings emb inputIds positionIds tokenTypeIds
-  hEnc <- applyEncoder {numHeads} {headDim} layers hEmb
+  hEnc <- applyEncoder {numHeads} {headDim} layers (map (\m => m.tensorPtr) mask) hEmb
   applyPooler pool hEnc
 
 
@@ -765,6 +788,9 @@ applyMlmHead (MkBertMlmHead td tn b) wordEmb x = do
 ||| Full MLM forward: input IDs → per-token vocab logits. Caller
 ||| extracts the row at any `[MASK]` position and takes top-K to get
 ||| candidate fill-ins.
+|||
+||| `attentionMask` semantics match `hfBertForward`: `Just mat` injects
+||| `-1.0e20` at any entry `>= 0.5`; `Nothing` runs un-masked.
 export
 hfBertMlmForward : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
                 => {seqLen, vocab, hidden, numLayers, numHeads, headDim,
@@ -774,8 +800,9 @@ hfBertMlmForward : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTrain
                 -> (inputIds     : Tensor [seqLen] ex dt g)
                 -> (positionIds  : Tensor [seqLen] ex dt g)
                 -> (tokenTypeIds : Tensor [seqLen] ex dt g)
+                -> (attentionMask : Maybe (Tensor [seqLen, seqLen] ex dt g))
                 -> IO (Tensor [seqLen, vocab] ex dt g)
-hfBertMlmForward (MkBertForMaskedLm (MkBertModel emb layers _) head) i p t = do
+hfBertMlmForward (MkBertForMaskedLm (MkBertModel emb layers _) head) i p t mask = do
   hEmb <- applyEmbeddings emb i p t
-  hEnc <- applyEncoder {numHeads} {headDim} layers hEmb
+  hEnc <- applyEncoder {numHeads} {headDim} layers (map (\m => m.tensorPtr) mask) hEmb
   applyMlmHead head emb.wordEmb.weight hEnc

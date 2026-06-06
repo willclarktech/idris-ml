@@ -163,7 +163,7 @@ runMaskDemo tok model sentence = do
                                  {intermediate = Intermediate}
                                  {maxPos       = MaxPos}
                                  {typeVocab    = TypeVocab}
-                                 model inputIds posIds typeIds
+                                 model inputIds posIds typeIds Nothing
       maskRow <- trowSelect logits (cast {to=Int} (finToNat maskFin))
       pairs   <- readLogits VocabSize maskRow.tensorPtr
       let top5     = topK 5 pairs
@@ -227,7 +227,7 @@ runPooledDump model = do
                        {intermediate = Intermediate}
                        {maxPos       = MaxPos}
                        {typeVocab    = TypeVocab}
-                       model.base inputIds posIds typeIds
+                       model.base inputIds posIds typeIds Nothing
   printPooled (cast {to=Int} Hidden) 0 out.tensorPtr
 
 

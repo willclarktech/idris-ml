@@ -240,7 +240,7 @@ testForwardShapeAndFinite = do
                                   {maxPos       = 4}
                                   {typeVocab    = 2}
                                   {numClasses   = 3}
-                                  model inputIds posIds typeIds
+                                  model inputIds posIds typeIds Nothing
   vals <- readOut {n=3} out.tensorPtr
   if length vals /= 3
     then do
