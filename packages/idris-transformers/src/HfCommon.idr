@@ -45,3 +45,37 @@ applyRmsNorm2dRaw : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutor
 applyRmsNorm2dRaw eps weight input = ioRerun (\_ =>
   let out = primRmsNorm2d {ex} input.tensorPtr weight.tensorPtr eps
   in MkTensor out Nothing)
+
+
+----------------------------------------------------------------------
+-- Pre-norm decoder block skeleton
+----------------------------------------------------------------------
+
+||| The standard Llama-shaped pre-norm decoder block:
+|||
+|||   x'  = x  + attn(preAttnNorm(x))
+|||   y   = x' + mlp(preMlpNorm(x'))
+|||
+||| Parameterised by the per-arch attention and MLP closures. Both
+||| HfLlama and HfBitNet's `applyBlock` reduce to this skeleton; the
+||| arch-specific bits (BitNet's `attn_sub_norm` / `ffn_sub_norm`,
+||| different linear primitives, GQA tiling) live entirely inside the
+||| `attn` / `mlp` closures the caller passes in.
+export
+decoderBlockPreNorm
+  : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+ => RuntimeDType dt => Linked ex => Compatible ex dt
+ => {seq, hidden : Nat}
+ -> (preAttnNorm : Tensor [seq, hidden] ex dt g -> IO (Tensor [seq, hidden] ex dt g))
+ -> (attn        : Tensor [seq, hidden] ex dt g -> IO (Tensor [seq, hidden] ex dt g))
+ -> (preMlpNorm  : Tensor [seq, hidden] ex dt g -> IO (Tensor [seq, hidden] ex dt g))
+ -> (mlp         : Tensor [seq, hidden] ex dt g -> IO (Tensor [seq, hidden] ex dt g))
+ -> Tensor [seq, hidden] ex dt g
+ -> IO (Tensor [seq, hidden] ex dt g)
+decoderBlockPreNorm preAttnNorm attn preMlpNorm mlp x = do
+  xLn1 <- preAttnNorm x
+  aOut <- attn xLn1
+  xMid <- tadd x aOut
+  xLn2 <- preMlpNorm xMid
+  mOut <- mlp xLn2
+  tadd xMid mOut

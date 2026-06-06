@@ -702,14 +702,14 @@ applyBlock : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
           -> Tensor [seq, hidden] ex dt g
           -> IO (Tensor [seq, hidden] ex dt g)
 applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} {intermediate}
-           eps blk tables x = do
-  xLn1   <- applyRmsNorm2d {seqLen=seq} {hidden} eps blk.inputNorm x
-  aOut   <- applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim}
-                           eps blk.attn tables xLn1
-  xMid   <- tadd x aOut
-  xLn2   <- applyRmsNorm2d {seqLen=seq} {hidden} eps blk.postAttnNorm xMid
-  mOut   <- applyMlp {seqLen=seq} {hidden} {intermediate} eps blk.mlp xLn2
-  tadd xMid mOut
+           eps blk tables x =
+  decoderBlockPreNorm
+    (applyRmsNorm2d {seqLen=seq} {hidden} eps blk.inputNorm)
+    (applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim}
+                    eps blk.attn tables)
+    (applyRmsNorm2d {seqLen=seq} {hidden} eps blk.postAttnNorm)
+    (applyMlp {seqLen=seq} {hidden} {intermediate} eps blk.mlp)
+    x
 
 
 applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
