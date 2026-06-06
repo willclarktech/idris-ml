@@ -30,7 +30,7 @@
 |||   fits in F16's mantissa, but the result type is different — only
 |||   the user knows whether the cast is semantically correct).
 |||
-||| `Compatible (0 d : Executor) (0 t : DType)` is the empty capability
+||| `Compatible (0 ex : Executor) (0 t : DType)` is the empty capability
 ||| marker — device d can store dtype t. Instance head IS the proof.
 |||
 ||| Design memo: `docs/develop/precision-parameter.md`.
@@ -227,7 +227,7 @@ IsDType Binary where
 -- instances are concrete-per-dtype: only dtypes with a working C
 -- runtime declare them. Backend asymmetry (e.g. mlx Metal has no F64,
 -- no half-precision, no integer storage) is expressed by which
--- `Compatible d dt` pairs hold — the unified dtag-dispatch create
+-- `Compatible ex dt` pairs hold — the unified dtag-dispatch create
 -- symbols are present on every backend, but the per-backend body
 -- aborts on unsupported dtags as defence-in-depth.
 --
@@ -567,4 +567,4 @@ LosslessTo from to => UpcastableTo from to where
 ----------------------------------------------------------------------
 
 public export
-interface Compatible (0 d : Executor) (0 t : DType) where
+interface Compatible (0 ex : Executor) (0 t : DType) where

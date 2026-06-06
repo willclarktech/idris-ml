@@ -66,7 +66,7 @@ single C op, batched FC forwards in DNC controller, etc.).
 
 > Older content below predates the Path C migration. Names like
 > `forwardVarTensor`, `applyVarTensor`, `Variable d` map to V2 as `forwardVar`,
-> `applyVar`, `Tensor [...] d`. See [path-c-migration.md](path-c-migration.md).
+> `applyVar`, `Tensor [...] ex`. See [path-c-migration.md](path-c-migration.md).
 
 ## 0. Batched Variable Forward for RL (2026-04-28)
 

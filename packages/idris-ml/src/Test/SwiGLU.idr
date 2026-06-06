@@ -24,7 +24,7 @@ readVec n p = go (cast {to=Int} n) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=TestExecutor} p i
+        else let v = primItem1d {ex=TestExecutor} p i
              in go end (i + 1) (v :: acc)
 
 
@@ -41,7 +41,7 @@ maxAbsDiff actual expected = go actual expected 0.0
 
 mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkInput xs =
-  let raw = bulkToTensor {d=TestExecutor} {dt=TestDType}
+  let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -104,7 +104,7 @@ testForwardAllOnesAt12 = do
 
 testShapeAndFinite : IO Bool
 testShapeAndFinite = do
-  sw <- swigluLayer {d=TestExecutor} {dt=TestDType}
+  sw <- swigluLayer {ex=TestExecutor} {dt=TestDType}
                     {hidden=4} {intermediate=11}  -- intermediate ≠ 4*hidden to catch hard-coded ratios
                     "sw_shape"
   let input = mkInput (the (Vect 4 Double) [0.5, -1.5, 2.0, -0.25])

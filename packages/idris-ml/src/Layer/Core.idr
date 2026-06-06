@@ -20,32 +20,32 @@ import Tensor
 
 public export
 interface LayerLike (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
-  ||| Array-level forward: `Tensor [i] d dt g-> Tensor [o] d dt g`, IO-typed
+  ||| Array-level forward: `Tensor [i] ex dt g-> Tensor [o] ex dt g`, IO-typed
   ||| because the forward pass triggers FFI side effects (tape append,
   ||| tensor allocation). IO sequencing controls when those fire —
   ||| critical for `withNoGrad` to correctly bracket eval-phase work.
   ||| Polymorphic in `g` so forwarding a `NoGrad` input through a
   ||| frozen layer yields a `NoGrad` output naturally.
-  applyVar : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} ->
-              l i o d dt g -> Tensor [i] d dt g -> IO (l i o d dt g, Tensor [o] d dt g)
+  applyVar : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} ->
+              l i o ex dt g -> Tensor [i] ex dt g -> IO (l i o ex dt g, Tensor [o] ex dt g)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
-  layerPrefix : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> l i o d dt g -> String
+  layerPrefix : {0 ex : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> l i o ex dt g -> String
   layerPrefix _ = ""
 
   ||| Reset per-sequence state (recurrent layers override; default = id).
   ||| Used by `resetNetwork` between sequences in recurrent training.
-  resetState : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> l i o d dt g -> l i o d dt g
+  resetState : {0 ex : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> l i o ex dt g -> l i o ex dt g
   resetState = id
 
-  ||| Batched tensor-level forward: `Tensor [b, i] d dt g-> Tensor [b, o] d dt g`.
+  ||| Batched tensor-level forward: `Tensor [b, i] ex dt g-> Tensor [b, o] ex dt g`.
   ||| Default crashes — layers that participate in batched training
   ||| (Linear, Activation, Dropout) MUST override. Stateful layers
   ||| (LSTM/RNN/GRU/NTM/DNC) keep the default; batched-cell semantics
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
-  applyVarBatch : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
-                   l i o d dt g -> Tensor [b, i] d dt g -> IO (l i o d dt g, Tensor [b, o] d dt g)
+  applyVarBatch : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+                   l i o ex dt g -> Tensor [b, i] ex dt g -> IO (l i o ex dt g, Tensor [b, o] ex dt g)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
 
@@ -55,14 +55,14 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _
   ||| value after the C-side flags have been mutated. Returns the
   ||| layer retyped as `NoGrad`. Optimizer steps won't update frozen
   ||| params (their gradients don't accumulate on rg=false leaves).
-  freezeLayer : {0 d : Executor} -> UserExecutorTraining d => {0 g : GradMode} -> {i, o : Nat} ->
-                (1 _ : l i o d dt g) -> IO (l i o d dt NoGrad)
+  freezeLayer : {0 ex : Executor} -> UserExecutorTraining ex => {0 g : GradMode} -> {i, o : Nat} ->
+                (1 _ : l i o ex dt g) -> IO (l i o ex dt NoGrad)
 
   ||| Inverse of `freezeLayer`. Sets `requires_grad=true` on every
   ||| parameter and retypes the layer as `WithGrad`. The result is
   ||| trainable again. Linear in input.
-  unfreezeLayer : {0 d : Executor} -> UserExecutorTraining d => {i, o : Nat} ->
-                  (1 _ : l i o d dt NoGrad) -> IO (l i o d dt WithGrad)
+  unfreezeLayer : {0 ex : Executor} -> UserExecutorTraining ex => {i, o : Nat} ->
+                  (1 _ : l i o ex dt NoGrad) -> IO (l i o ex dt WithGrad)
 
 
 ----------------------------------------------------------------------
@@ -72,33 +72,33 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _
 public export
 data AnyLayer : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkAnyLayer : (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) -> LayerLike l =>
-                 l i o d dt g -> AnyLayer i o d dt g
+                 l i o ex dt g -> AnyLayer i o ex dt g
 
 export
-applyVarAny : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} ->
-               AnyLayer i o d dt g -> Tensor [i] d dt g -> IO (AnyLayer i o d dt g, Tensor [o] d dt g)
+applyVarAny : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} ->
+               AnyLayer i o ex dt g -> Tensor [i] ex dt g -> IO (AnyLayer i o ex dt g, Tensor [o] ex dt g)
 applyVarAny (MkAnyLayer l @{dict} layer) input = do
   (layer', out) <- applyVar @{dict} layer input
   pure (MkAnyLayer l @{dict} layer', out)
 
 export
-applyVarBatchAny : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
-                    AnyLayer i o d dt g -> Tensor [b, i] d dt g ->
-                    IO (AnyLayer i o d dt g, Tensor [b, o] d dt g)
+applyVarBatchAny : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+                    AnyLayer i o ex dt g -> Tensor [b, i] ex dt g ->
+                    IO (AnyLayer i o ex dt g, Tensor [b, o] ex dt g)
 applyVarBatchAny (MkAnyLayer l @{dict} layer) input = do
   (layer', out) <- applyVarBatch @{dict} layer input
   pure (MkAnyLayer l @{dict} layer', out)
 
 export
-freezeAnyLayer : {0 d : Executor} -> UserExecutorTraining d => {0 g : GradMode} -> {i, o : Nat} ->
-                  (1 _ : AnyLayer i o d dt g) -> IO (AnyLayer i o d dt NoGrad)
+freezeAnyLayer : {0 ex : Executor} -> UserExecutorTraining ex => {0 g : GradMode} -> {i, o : Nat} ->
+                  (1 _ : AnyLayer i o ex dt g) -> IO (AnyLayer i o ex dt NoGrad)
 freezeAnyLayer (MkAnyLayer l @{dict} layer) = do
   layer' <- freezeLayer @{dict} layer
   pure (MkAnyLayer l @{dict} layer')
 
 export
-unfreezeAnyLayer : {0 d : Executor} -> UserExecutorTraining d => {i, o : Nat} ->
-                    (1 _ : AnyLayer i o d dt NoGrad) -> IO (AnyLayer i o d dt WithGrad)
+unfreezeAnyLayer : {0 ex : Executor} -> UserExecutorTraining ex => {i, o : Nat} ->
+                    (1 _ : AnyLayer i o ex dt NoGrad) -> IO (AnyLayer i o ex dt WithGrad)
 unfreezeAnyLayer (MkAnyLayer l @{dict} layer) = do
   layer' <- unfreezeLayer @{dict} layer
   pure (MkAnyLayer l @{dict} layer')
@@ -110,8 +110,8 @@ unfreezeAnyLayer (MkAnyLayer l @{dict} layer) = do
 
 public export
 data Network : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  OutputLayer : AnyLayer i o d dt g -> Network i [] o d dt g
-  (~~>) : AnyLayer i h d dt g -> Network h hs o d dt g -> Network i (h :: hs) o d dt g
+  OutputLayer : AnyLayer i o ex dt g -> Network i [] o ex dt g
+  (~~>) : AnyLayer i h ex dt g -> Network h hs o ex dt g -> Network i (h :: hs) o ex dt g
 
 export infixr 5 ~~>
 
@@ -119,8 +119,8 @@ export infixr 5 ~~>
 ||| forwarding a `NoGrad` input through a frozen network yields a
 ||| `NoGrad` output naturally.
 export
-forwardVar : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-              Network i hs o d dt g -> Tensor [i] d dt g -> IO (Network i hs o d dt g, Tensor [o] d dt g)
+forwardVar : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+              Network i hs o ex dt g -> Tensor [i] ex dt g -> IO (Network i hs o ex dt g, Tensor [o] ex dt g)
 forwardVar (OutputLayer l) input = do
   (l', out) <- applyVarAny l input
   pure (OutputLayer l', out)
@@ -140,8 +140,8 @@ forwardVar {hs = h :: _} (l ~~> rest) input = do
 ||| `g`) — output adopts `NoGrad` and the type system prevents feeding
 ||| it back to `runBackward` / `nativeTrainStep`.
 export
-freezeNetwork : {0 d : Executor} -> UserExecutorTraining d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-                 (1 _ : Network i hs o d dt g) -> IO (Network i hs o d dt NoGrad)
+freezeNetwork : {0 ex : Executor} -> UserExecutorTraining ex => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+                 (1 _ : Network i hs o ex dt g) -> IO (Network i hs o ex dt NoGrad)
 freezeNetwork (OutputLayer l) = do
   l' <- freezeAnyLayer l
   pure (OutputLayer l')
@@ -155,8 +155,8 @@ freezeNetwork {hs = h :: _} (l ~~> rest) = do
 ||| Use for progressive fine-tuning workflows (train head with backbone
 ||| frozen, then unfreeze backbone for joint fine-tuning).
 export
-unfreezeNetwork : {0 d : Executor} -> UserExecutorTraining d => {i, o : Nat} -> {hs : List Nat} ->
-                   (1 _ : Network i hs o d dt NoGrad) -> IO (Network i hs o d dt WithGrad)
+unfreezeNetwork : {0 ex : Executor} -> UserExecutorTraining ex => {i, o : Nat} -> {hs : List Nat} ->
+                   (1 _ : Network i hs o ex dt NoGrad) -> IO (Network i hs o ex dt WithGrad)
 unfreezeNetwork (OutputLayer l) = do
   l' <- unfreezeAnyLayer l
   pure (OutputLayer l')
@@ -169,8 +169,8 @@ unfreezeNetwork {hs = h :: _} (l ~~> rest) = do
 ||| between training sequences for recurrent layers (Lstm, Rnn,
 ||| Gru). Stateless layers' default `resetState` is identity.
 export
-resetNetwork : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-                 Network i hs o d dt g -> Network i hs o d dt g
+resetNetwork : {0 ex : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+                 Network i hs o ex dt g -> Network i hs o ex dt g
 resetNetwork (OutputLayer (MkAnyLayer l @{dict} layer)) =
   OutputLayer (MkAnyLayer l @{dict} (resetState @{dict} layer))
 resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
@@ -181,10 +181,10 @@ resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
 ||| Activation / Dropout override; other layers crash via the
 ||| interface default.
 export
-forwardVarBatch : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+forwardVarBatch : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
-                   Network i hs o d dt g -> Tensor [b, i] d dt g ->
-                   IO (Network i hs o d dt g, Tensor [b, o] d dt g)
+                   Network i hs o ex dt g -> Tensor [b, i] ex dt g ->
+                   IO (Network i hs o ex dt g, Tensor [b, o] ex dt g)
 forwardVarBatch (OutputLayer l) input = do
   (l', out) <- applyVarBatchAny l input
   pure (OutputLayer l', out)
@@ -217,19 +217,19 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input = do
 |||     epoch5:1 min=-0.234 max=0.567 mean=0.099
 |||     epoch5:out min=-0.300 max=0.700 mean=0.150  [NaN]
 export
-forwardVarTraced : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVarTraced : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                    (label : String) ->
-                   Network i hs o d dt g -> Tensor [i] d dt g ->
-                   IO (Network i hs o d dt g, Tensor [o] d dt g)
+                   Network i hs o ex dt g -> Tensor [i] ex dt g ->
+                   IO (Network i hs o ex dt g, Tensor [o] ex dt g)
 forwardVarTraced label net input = go 0 net input
   where
     -- Take the raw AnyPtr so we don't have to thread `d` through
     -- the implicit-binding nest. The reductions are non-grad anyway.
     summarize : (idxLabel : String) -> AnyPtr -> IO ()
     summarize idxLabel ptr = do
-      let mn = primItem {d} (primTensorMin {d} ptr)
-          mx = primItem {d} (primTensorMax {d} ptr)
-          me = primItem {d} (primMean {d} ptr)
+      let mn = primItem {ex} (primTensorMin {ex} ptr)
+          mx = primItem {ex} (primTensorMax {ex} ptr)
+          me = primItem {ex} (primMean {ex} ptr)
           isNaN : Double -> Bool
           isNaN x = x /= x
           tag = if isNaN mn || isNaN mx || isNaN me then "  [NaN]" else ""
@@ -239,10 +239,10 @@ forwardVarTraced label net input = go 0 net input
           ++ " max=" ++ show mx
           ++ " mean=" ++ show me ++ tag
 
-    go : {0 d : Executor} -> UserExecutorTraining d => Linked d => Compatible d dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+    go : {0 ex : Executor} -> UserExecutorTraining ex => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
          Nat ->
-         Network i hs o d dt g -> Tensor [i] d dt g ->
-         IO (Network i hs o d dt g, Tensor [o] d dt g)
+         Network i hs o ex dt g -> Tensor [i] ex dt g ->
+         IO (Network i hs o ex dt g, Tensor [o] ex dt g)
     go idx (OutputLayer l) inp = do
       (l', out) <- applyVarAny l inp
       summarize (show idx ++ "(out)") out.tensorPtr

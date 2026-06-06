@@ -12,16 +12,16 @@ import System.File
 import Executor
 import Tensor
 
--- SafeTensors I/O dispatches per-backend through `UserExecutorTraining d`:
--- each backend's param/optimizer registry is TU-local, so `{d}`
+-- SafeTensors I/O dispatches per-backend through `UserExecutorTraining ex`:
+-- each backend's param/optimizer registry is TU-local, so `{ex}`
 -- selects which one is serialized.
 
 ||| Save all registered parameters to a .safetensors file.
 ||| Returns True on success.
 export
-saveModel : UserExecutorTraining d => String -> IO Bool
+saveModel : UserExecutorTraining ex => String -> IO Bool
 saveModel path = do
-  rc <- primIO (primParamSave {d} path)
+  rc <- primIO (primParamSave {ex} path)
   pure (rc == 0)
 
 ||| Load parameters from a .safetensors file into the existing registry.
@@ -35,9 +35,9 @@ saveModel path = do
 ||| model), use `loadModelAllowCast` to opt in to silent precision
 ||| conversion at load time.
 export
-loadModel : UserExecutorTraining d => String -> IO Bool
+loadModel : UserExecutorTraining ex => String -> IO Bool
 loadModel path = do
-  rc <- primIO (primParamLoad {d} path)
+  rc <- primIO (primParamLoad {ex} path)
   pure (rc == 0)
 
 ||| Same as `loadModel` but routes through `param_load_with_policy`
@@ -48,25 +48,25 @@ loadModel path = do
 ||| as needed). F32 -> F64 is lossless; F64 -> F32 incurs precision
 ||| loss but is well-defined.
 export
-loadModelAllowCast : UserExecutorTraining d => String -> IO Bool
+loadModelAllowCast : UserExecutorTraining ex => String -> IO Bool
 loadModelAllowCast path = do
-  rc <- primIO (primParamLoadWithPolicy {d} path 1)
+  rc <- primIO (primParamLoadWithPolicy {ex} path 1)
   pure (rc == 0)
 
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
 ||| Returns True on success.
 export
-saveOptimizer : UserExecutorTraining d => String -> NativeOptimizer d -> IO Bool
+saveOptimizer : UserExecutorTraining ex => String -> NativeOptimizer ex -> IO Bool
 saveOptimizer path opt = do
-  rc <- primIO (primOptimizerSave {d} opt.handle path)
+  rc <- primIO (primOptimizerSave {ex} opt.handle path)
   pure (rc == 0)
 
 ||| Load optimizer state from a .safetensors file.
 ||| Returns True on success.
 export
-loadOptimizer : UserExecutorTraining d => String -> NativeOptimizer d -> IO Bool
+loadOptimizer : UserExecutorTraining ex => String -> NativeOptimizer ex -> IO Bool
 loadOptimizer path opt = do
-  rc <- primIO (primOptimizerLoad {d} opt.handle path)
+  rc <- primIO (primOptimizerLoad {ex} opt.handle path)
   pure (rc == 0)
 
 
@@ -148,23 +148,23 @@ record CheckpointPolicy where
   saveState : String -> Nat -> Double -> IO Bool
   loadState : String -> IO (Maybe (Nat, Double))
 
-saveCheckpointFiles : UserExecutorTraining d => NativeOptimizer d -> String -> String -> Nat -> Double -> IO Bool
+saveCheckpointFiles : UserExecutorTraining ex => NativeOptimizer ex -> String -> String -> Nat -> Double -> IO Bool
 saveCheckpointFiles opt dir pfx ep best = do
   _   <- createDir dir
-  ok1 <- saveModel {d} (pfx ++ ".model.safetensors")
-  ok2 <- saveOptimizer {d} (pfx ++ ".opt.safetensors") opt
+  ok1 <- saveModel {ex} (pfx ++ ".model.safetensors")
+  ok2 <- saveOptimizer {ex} (pfx ++ ".opt.safetensors") opt
   ok3 <- writeTrainerState (pfx ++ ".trainer_state.json") ep best
   pure (ok1 && ok2 && ok3)
 
-loadCheckpointFiles : UserExecutorTraining d =>
-  NativeOptimizer d -> String -> IO (Maybe (Nat, Double))
+loadCheckpointFiles : UserExecutorTraining ex =>
+  NativeOptimizer ex -> String -> IO (Maybe (Nat, Double))
 loadCheckpointFiles opt pfx = do
   st <- readTrainerState (pfx ++ ".trainer_state.json")
   case st of
     Nothing     => pure Nothing
     Just epBest => do
-      _ <- loadModel {d} (pfx ++ ".model.safetensors")
-      _ <- loadOptimizer {d} (pfx ++ ".opt.safetensors") opt
+      _ <- loadModel {ex} (pfx ++ ".model.safetensors")
+      _ <- loadOptimizer {ex} (pfx ++ ".opt.safetensors") opt
       pure (Just epBest)
 
 ||| Build a file-backed checkpoint policy. The param registry is global,
@@ -173,9 +173,9 @@ loadCheckpointFiles opt pfx = do
 ||| `<dir>/best` — so a periodic save never clobbers the best one.
 ||| Override `monitor` via record update to keep-best on a val metric.
 export
-fileCheckpoint : UserExecutorTraining d =>
+fileCheckpoint : UserExecutorTraining ex =>
   (dir : String) -> (everyN : Nat) -> (keepBest : Bool) ->
-  NativeOptimizer d -> CheckpointPolicy
+  NativeOptimizer ex -> CheckpointPolicy
 fileCheckpoint dir everyN keepBest opt =
   MkCheckpointPolicy dir everyN keepBest Nothing
     (saveCheckpointFiles opt dir)

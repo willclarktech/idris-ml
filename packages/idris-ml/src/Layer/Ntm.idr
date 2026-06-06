@@ -52,17 +52,17 @@ data NtmState :
   Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkNtm :
-    LstmState (m + i) h d dt g ->
-    LinearState h (ReadParamWidth m) d dt g ->
-    LinearState h (WriteParamWidth m) d dt g ->
-    LinearState (h + m) o d dt g ->
-    TVec (m * n) d dt g ->                          -- memoryInit (LEARNED, raw flat)
-    TVec m d dt g ->                                -- initialReadOut (Kaiming, NON-learned)
-    Maybe (Tensor [n, m] d dt g) ->                          -- memory state
-    Maybe (TVec n d dt g) ->                               -- read addr
-    Maybe (TVec n d dt g) ->                               -- write addr
-    Maybe (TVec m d dt g) ->                               -- last read output
-    NtmState n m h i o d dt g
+    LstmState (m + i) h ex dt g ->
+    LinearState h (ReadParamWidth m) ex dt g ->
+    LinearState h (WriteParamWidth m) ex dt g ->
+    LinearState (h + m) o ex dt g ->
+    TVec (m * n) ex dt g ->                          -- memoryInit (LEARNED, raw flat)
+    TVec m ex dt g ->                                -- initialReadOut (Kaiming, NON-learned)
+    Maybe (Tensor [n, m] ex dt g) ->                          -- memory state
+    Maybe (TVec n ex dt g) ->                               -- read addr
+    Maybe (TVec n ex dt g) ->                               -- write addr
+    Maybe (TVec m ex dt g) ->                               -- last read output
+    NtmState n m h i o ex dt g
 
 
 ----------------------------------------------------------------------
@@ -76,45 +76,45 @@ data NtmState :
 -- Idris-wrapped Tensor handle is alive; freed once both let go. Without
 -- this management the per-sequence state leaks unboundedly across eval-
 -- phase forwards on mlx (see docs/develop/tensor-lifecycle.md).
-zeroState1d : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
+  in dtCreateState1d {ex} {t=dt} nI buf (deviceStreamTag {ex})
 
-zeroState2d : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n, m : Nat) -> AnyPtr
+zeroState2d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (n, m : Nat) -> AnyPtr
 zeroState2d n m =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       buf = prim__allocDoubles (nI * mI)
-  in dtCreateState2d {d} {t=dt} nI mI buf (deviceStreamTag {d})
+  in dtCreateState2d {ex} {t=dt} nI mI buf (deviceStreamTag {ex})
 
 -- NTM read head decomposition (Graves et al. 2014, §3.3).
 -- Returns (newReadAddr [n], readOutput [m]) given memory [n,m],
 -- prevWeights [n], key [m], beta [], g [], gamma [], shift [k].
 %inline
-ntmReadHeadIdris : {0 d : Executor} -> UserExecutorTraining d =>
+ntmReadHeadIdris : {0 ex : Executor} -> UserExecutorTraining ex =>
                    (memT, prevWT, keyT, betaT, gT, gammaT, shiftT : AnyPtr) ->
                    (AnyPtr, AnyPtr)
 ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
   let -- 1. Content addressing: cosine sim per memory row vs key.
-      keyT2d        = primUnsqueeze {d} keyT 0           -- [1, m]
-      cosScoresT    = primCosineSimilarity {d} memT keyT2d 1   -- [n]
-      scaledScoresT = primMul {d} betaT cosScoresT       -- broadcast [] × [n]
-      contentWT     = primSoftmax {d} scaledScoresT 0    -- [n]
+      keyT2d        = primUnsqueeze {ex} keyT 0           -- [1, m]
+      cosScoresT    = primCosineSimilarity {ex} memT keyT2d 1   -- [n]
+      scaledScoresT = primMul {ex} betaT cosScoresT       -- broadcast [] × [n]
+      contentWT     = primSoftmax {ex} scaledScoresT 0    -- [n]
       -- 2. Interpolation: g · content + (1 - g) · prev
-      oneMinusG     = primAddScalar {d} (primNeg {d} gT) 1.0
-      interpT       = primAdd {d} (primMul {d} gT contentWT)
-                                (primMul {d} oneMinusG prevWT)
+      oneMinusG     = primAddScalar {ex} (primNeg {ex} gT) 1.0
+      interpT       = primAdd {ex} (primMul {ex} gT contentWT)
+                                (primMul {ex} oneMinusG prevWT)
       -- 3. Circular shift convolution.
-      shiftedT      = primConv1dCircular {d} interpT shiftT
+      shiftedT      = primConv1dCircular {ex} interpT shiftT
       -- 4. Sharpening: pow(max(x, 1e-10), gamma); then normalize.
-      shiftedClampedT = primClampMin {d} shiftedT 1.0e-10
-      poweredT      = primPow {d} shiftedClampedT gammaT
-      normSumT      = primAddScalar {d} (primSum {d} poweredT) 1.0e-10
-      focusedT      = primDiv {d} poweredT normSumT
+      shiftedClampedT = primClampMin {ex} shiftedT 1.0e-10
+      poweredT      = primPow {ex} shiftedClampedT gammaT
+      normSumT      = primAddScalar {ex} (primSum {ex} poweredT) 1.0e-10
+      focusedT      = primDiv {ex} poweredT normSumT
       -- 5. Read: focused [n] @ memory [n,m] -> [m]
-      readOutT      = primMatmul {d} focusedT memT
+      readOutT      = primMatmul {ex} focusedT memT
   in (focusedT, readOutT)
 
 -- NTM interpolation write (Graves et al. 2014, §3.3, with the Collier &
@@ -128,38 +128,38 @@ ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
 --
 -- Mirrors `torch_ref/ntm/memory.py:write_memory`.
 %inline
-ntmInterpWriteIdris : {0 d : Executor} -> UserExecutorTraining d => {n : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
+ntmInterpWriteIdris : {0 ex : Executor} -> UserExecutorTraining ex => {n : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
 ntmInterpWriteIdris {n} memT weightsT addVecT =
-  let writeAdd = primOuter {d} weightsT addVecT              -- (n,m) — w[i]*a[j]
-      wCol     = primReshape2d {d} weightsT (cast n) 1       -- (n,1) view of w
-      keep     = primAddScalar {d} (primNeg {d} wCol) 1.0      -- (n,1) — 1-w[i]
-      kept     = primMul {d} keep memT                       -- (n,m) — (n,1)·(n,m) bcast
-  in primAdd {d} kept writeAdd
+  let writeAdd = primOuter {ex} weightsT addVecT              -- (n,m) — w[i]*a[j]
+      wCol     = primReshape2d {ex} weightsT (cast n) 1       -- (n,1) view of w
+      keep     = primAddScalar {ex} (primNeg {ex} wCol) 1.0      -- (n,1) — 1-w[i]
+      kept     = primMul {ex} keep memT                       -- (n,m) — (n,1)·(n,m) bcast
+  in primAdd {ex} kept writeAdd
 
 export
-applyNtm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
-             NtmState n m h i o d dt g ->
-             TVec i d dt g ->
-             IO (NtmState n m h i o d dt g, TVec o d dt g)
+applyNtm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n, m, h, i, o : Nat} ->
+             NtmState n m h i o ex dt g ->
+             TVec i ex dt g ->
+             IO (NtmState n m h i o ex dt g, TVec o ex dt g)
 applyNtm {n} {m} {h} {i} {o}
            (MkNtm lstm readFc writeFc outputFc memInitT initReadOutT memT raT waT roT) input = do
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
-      initMemPtr = primReshape2d {d} (primSigmoid {d} memInitT.tensorPtr) nI mI
+      initMemPtr = primReshape2d {ex} (primSigmoid {ex} memInitT.tensorPtr) nI mI
       memTPtr = case memT of
                   Just t => t.tensorPtr
                   Nothing => initMemPtr
       raTPtr = case raT of
                  Just t => t.tensorPtr
-                 Nothing => zeroState1d {d} {dt} n
+                 Nothing => zeroState1d {ex} {dt} n
       waTPtr = case waT of
                  Just t => t.tensorPtr
-                 Nothing => zeroState1d {d} {dt} n
+                 Nothing => zeroState1d {ex} {dt} n
       roTPtr = case roT of
                  Just t => t.tensorPtr
                  Nothing => initReadOutT.tensorPtr
-      lstmInputPtr = primCat2 {d} roTPtr input.tensorPtr
-      lstmInputV = the (TVec (m + i) d dt g) (MkTensor lstmInputPtr Nothing)
+      lstmInputPtr = primCat2 {ex} roTPtr input.tensorPtr
+      lstmInputV = the (TVec (m + i) ex dt g) (MkTensor lstmInputPtr Nothing)
   -- 2. LSTM forward (IO)
   (updLstm, hiddenV) <- applyLstm lstm lstmInputV
   let cellPtr = case updLstm.cellT of
@@ -172,27 +172,27 @@ applyNtm {n} {m} {h} {i} {o}
       ofcW = outputFc.weightT.tensorPtr
       ofcB = outputFc.biasT.tensorPtr
       skI = cast {to=Int} ShiftKernelSize
-      readResultT = primLinear {d} rfcW cellPtr rfcB
-      keyT = primNarrow {d} readResultT 0 0 mI
-      shiftT = primSoftmax {d} (primNarrow {d} readResultT 0 mI skI) 0
-      betaT = primSoftplus {d} (primSelect {d} readResultT 0 (mI + skI))
-      gT = primSigmoid {d} (primSelect {d} readResultT 0 (mI + skI + 1))
-      gammaT = primAddScalar {d} (primSoftplus {d}
-                  (primSelect {d} readResultT 0 (mI + skI + 2))) 1.0
-      (newReadAddrT, newReadOutT) = ntmReadHeadIdris {d} memTPtr raTPtr keyT betaT gT gammaT shiftT
-      writeResultT = primLinear {d} wfcW cellPtr wfcB
+      readResultT = primLinear {ex} rfcW cellPtr rfcB
+      keyT = primNarrow {ex} readResultT 0 0 mI
+      shiftT = primSoftmax {ex} (primNarrow {ex} readResultT 0 mI skI) 0
+      betaT = primSoftplus {ex} (primSelect {ex} readResultT 0 (mI + skI))
+      gT = primSigmoid {ex} (primSelect {ex} readResultT 0 (mI + skI + 1))
+      gammaT = primAddScalar {ex} (primSoftplus {ex}
+                  (primSelect {ex} readResultT 0 (mI + skI + 2))) 1.0
+      (newReadAddrT, newReadOutT) = ntmReadHeadIdris {ex} memTPtr raTPtr keyT betaT gT gammaT shiftT
+      writeResultT = primLinear {ex} wfcW cellPtr wfcB
       rpw = cast {to=Int} (ReadParamWidth m)
-      wKeyT = primNarrow {d} writeResultT 0 0 mI
-      wShiftT = primSoftmax {d} (primNarrow {d} writeResultT 0 mI skI) 0
-      wBetaT = primSoftplus {d} (primSelect {d} writeResultT 0 (mI + skI))
-      wGT = primSigmoid {d} (primSelect {d} writeResultT 0 (mI + skI + 1))
-      wGammaT = primAddScalar {d} (primSoftplus {d}
-                   (primSelect {d} writeResultT 0 (mI + skI + 2))) 1.0
-      (newWriteAddrT, _) = ntmReadHeadIdris {d} memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
-      addT = primNarrow {d} writeResultT 0 rpw mI
-      newMemT = ntmInterpWriteIdris {d} {n} memTPtr newWriteAddrT addT
-      concatPtr = primCat2 {d} hiddenV.tensorPtr newReadOutT
-      outputPtr = primLinear {d} ofcW concatPtr ofcB
+      wKeyT = primNarrow {ex} writeResultT 0 0 mI
+      wShiftT = primSoftmax {ex} (primNarrow {ex} writeResultT 0 mI skI) 0
+      wBetaT = primSoftplus {ex} (primSelect {ex} writeResultT 0 (mI + skI))
+      wGT = primSigmoid {ex} (primSelect {ex} writeResultT 0 (mI + skI + 1))
+      wGammaT = primAddScalar {ex} (primSoftplus {ex}
+                   (primSelect {ex} writeResultT 0 (mI + skI + 2))) 1.0
+      (newWriteAddrT, _) = ntmReadHeadIdris {ex} memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
+      addT = primNarrow {ex} writeResultT 0 rpw mI
+      newMemT = ntmInterpWriteIdris {ex} {n} memTPtr newWriteAddrT addT
+      concatPtr = primCat2 {ex} hiddenV.tensorPtr newReadOutT
+      outputPtr = primLinear {ex} ofcW concatPtr ofcB
   pure ( MkNtm updLstm readFc writeFc outputFc memInitT initReadOutT
           (Just (MkTensor newMemT Nothing))
           (Just (MkTensor newReadAddrT Nothing))
@@ -218,9 +218,9 @@ applyNtm {n} {m} {h} {i} {o}
 ||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
 |||                           sampled once at construction
 export
-ntmLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
+ntmLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (NtmState n m h i o d dt WithGrad)
+             IO (NtmState n m h i o ex dt WithGrad)
 ntmLayer pfx = do
   lstm <- lstmLayer {i = m + i} {o = h} (pfx ++ "_lstm")
   -- xavierGain 1.4 uniform → equivalent normal std = 1.4 * sqrt(2/(i+o)).
@@ -246,8 +246,8 @@ ntmLayer pfx = do
   iroVals <- traverse (\_ => randomRIO (-iroBound, iroBound)) (Vect.replicate m ())
   let iroBuf = prim__allocDoubles mI
       iroBuf' = packDoubles iroBuf 0 iroVals
-      initReadOutT : TVec m d dt WithGrad
-      initReadOutT = MkTensor (dtCreateState1d {d} {t=dt} mI iroBuf' (deviceStreamTag {d})) Nothing
+      initReadOutT : TVec m ex dt WithGrad
+      initReadOutT = MkTensor (dtCreateState1d {ex} {t=dt} mI iroBuf' (deviceStreamTag {ex})) Nothing
   -- Per-sequence runtime state starts as Nothing — applyNtm computes the
   -- actual initial memT and roT from memInitT/initReadOutT on first call.
   pure $ MkNtm lstm rfc wfc ofc memInitT initReadOutT
@@ -257,7 +257,7 @@ ntmLayer pfx = do
 ||| Kaiming-fixed `initReadOutT` parameters; clears per-sequence runtime
 ||| state so the next `applyNtm` re-derives initial memory + read output.
 export
-resetNtmState : {n, m, h : Nat} -> {0 g : GradMode} -> NtmState n m h i o d dt g -> NtmState n m h i o d dt g
+resetNtmState : {n, m, h : Nat} -> {0 g : GradMode} -> NtmState n m h i o ex dt g -> NtmState n m h i o ex dt g
 resetNtmState (MkNtm lstm rfc wfc ofc memInitT initReadOutT _ _ _ _) =
   MkNtm (resetLstmState lstm) rfc wfc ofc memInitT initReadOutT
         Nothing Nothing Nothing Nothing
@@ -300,28 +300,28 @@ public export
     rfc'    <- unfreezeLayer rfc
     wfc'    <- unfreezeLayer wfc
     ofc'    <- unfreezeLayer ofc
-    primIO (primSetRequiresGrad {d} memInit.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} iro.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} memInit.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} iro.tensorPtr 1)
     case mem of
       Nothing => pure ()
-      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {ex} t.tensorPtr 1)
     case ra of
       Nothing => pure ()
-      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {ex} t.tensorPtr 1)
     case wa of
       Nothing => pure ()
-      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {ex} t.tensorPtr 1)
     case ro of
       Nothing => pure ()
-      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {ex} t.tensorPtr 1)
     pure (MkNtm lstm' rfc' wfc' ofc'
                 (retypeGrad memInit) (retypeGrad iro)
                 (map retypeGrad mem) (map retypeGrad ra)
                 (map retypeGrad wa) (map retypeGrad ro))
 
 export
-ntmLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
+ntmLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayer i o d dt WithGrad)
+                IO (AnyLayer i o ex dt WithGrad)
 ntmLayerAny pid =
   map (MkAnyLayer (NtmState n m h)) (ntmLayer {n} {m} {h} {i} {o} pid)

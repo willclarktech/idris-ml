@@ -30,7 +30,7 @@ import Test.Config
 -- from Test.RmsNorm / Test.SwiGLU.
 mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkInput xs =
-  let raw = bulkToTensor {d=TestExecutor} {dt=TestDType}
+  let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -42,7 +42,7 @@ mkInput xs =
 -- are covered by C-level cast_grad_propagation (A1).
 linearMixedForwardTypechecks : IO Bool
 linearMixedForwardTypechecks = do
-  lin <- mixedLinearLayerAny {d=TestExecutor} {paramDt=TestDType} {computeDt=TestDType}
+  lin <- mixedLinearLayerAny {ex=TestExecutor} {paramDt=TestDType} {computeDt=TestDType}
                              {i=4} {o=3} "lin_mixed_test"
   let netM : NetworkMixed 4 [] 3 TestExecutor TestDType TestDType WithGrad
       netM = OutputLayerMixed lin
@@ -91,12 +91,12 @@ bridgeFreezeUnfreezeRoundTrip = do
 -- tcast, nativeTrainStepScaled, GradScaler) is exercised in series.
 epochVarMixedSmoke : IO Bool
 epochVarMixedSmoke = do
-  lin <- mixedLinearLayerAny {d=TestExecutor} {paramDt=TestDType} {computeDt=TestDType}
+  lin <- mixedLinearLayerAny {ex=TestExecutor} {paramDt=TestDType} {computeDt=TestDType}
                              {i=2} {o=1} "epoch_mixed_smoke"
   let netM : NetworkMixed 2 [] 1 TestExecutor TestDType TestDType WithGrad
       netM = OutputLayerMixed lin
-  gs <- defaultGradScaler {d=TestExecutor} {dt=TestDType}
-  opt <- pure $ nativeSgd {d=TestExecutor} 0.01
+  gs <- defaultGradScaler {ex=TestExecutor} {dt=TestDType}
+  opt <- pure $ nativeSgd {ex=TestExecutor} 0.01
   let dataPoints : Vect 2 (DataPoint 2 1 Double)
       dataPoints =
         [ MkDataPoint (VArray [1.0, 0.0]) (VArray [1.0])

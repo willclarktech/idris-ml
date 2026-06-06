@@ -12,22 +12,22 @@ import Tensor
 ----------------------------------------------------------------------
 --
 -- All shape-arithmetic flows through the `TVec` / `TMat` aliases in
--- `Tensor.idr`. Direct `Tensor [4 * o, ...] d` triggers an Idris 2
+-- `Tensor.idr`. Direct `Tensor [4 * o, ...] ex` triggers an Idris 2
 -- type-checker hang; `TMat (4 * o) i d` works fine because the
 -- multiplication sits in a Nat-argument slot of the alias rather
 -- than inside a Vect literal.
 
 public export
-record LstmState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record LstmState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLstm
-  iwT : TMat (4 * o) i d dt g
-  rwT : TMat (4 * o) o d dt g
-  ihB : TVec (4 * o) d dt g        -- input-hidden bias [4*o] (b_ih)
-  hhB : TVec (4 * o) d dt g        -- hidden-hidden bias [4*o] (b_hh)
-  h0T : TVec o d dt g              -- learned initial hidden state (zero-init)
-  c0T : TVec o d dt g              -- learned initial cell state (zero-init)
-  hiddenT : Maybe (TVec o d dt g)
-  cellT   : Maybe (TVec o d dt g)
+  iwT : TMat (4 * o) i ex dt g
+  rwT : TMat (4 * o) o ex dt g
+  ihB : TVec (4 * o) ex dt g        -- input-hidden bias [4*o] (b_ih)
+  hhB : TVec (4 * o) ex dt g        -- hidden-hidden bias [4*o] (b_hh)
+  h0T : TVec o ex dt g              -- learned initial hidden state (zero-init)
+  c0T : TVec o ex dt g              -- learned initial cell state (zero-init)
+  hiddenT : Maybe (TVec o ex dt g)
+  cellT   : Maybe (TVec o ex dt g)
 
 
 ----------------------------------------------------------------------
@@ -40,10 +40,10 @@ record LstmState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : Grad
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
-              LstmState i o d dt g ->
-              TVec i d dt g ->
-              IO (LstmState i o d dt g, TVec o d dt g)
+applyLstm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {o : Nat} ->
+              LstmState i o ex dt g ->
+              TVec i ex dt g ->
+              IO (LstmState i o ex dt g, TVec o ex dt g)
 applyLstm {o} st input = do
   let h = case st.hiddenT of
             Just h => h
@@ -70,8 +70,8 @@ applyLstm {o} st input = do
 ||| `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`, `<prefix>_hb`,
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
-lstmLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
-              IO (LstmState i o d dt WithGrad)
+lstmLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) ->
+              IO (LstmState i o ex dt WithGrad)
 lstmLayer paramPrefix = do
   -- 4 gates (input, forget, gate, output) stacked along axis=0 →
   -- weights are [4*o, i] / [4*o, o]. Xavier-normal-via-uniform std =
@@ -97,7 +97,7 @@ lstmLayer paramPrefix = do
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
 ||| V1's `resetState`, where MLX trains correctly via this lazy path.
 export
-resetLstmState : {o : Nat} -> {0 d : Executor} -> {0 g : GradMode} -> LstmState i o d dt g -> LstmState i o d dt g
+resetLstmState : {o : Nat} -> {0 ex : Executor} -> {0 g : GradMode} -> LstmState i o ex dt g -> LstmState i o ex dt g
 resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
 
 
@@ -127,18 +127,18 @@ LayerLike LstmState where
     pure (MkLstm iw' rw' ihB' hhB' h0' c0' hid' cell')
 
   unfreezeLayer (MkLstm iw rw ihB hhB h0 c0 hid cell) = do
-    primIO (primSetRequiresGrad {d} iw.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} rw.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} ihB.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} hhB.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} h0.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} c0.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} iw.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} rw.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} ihB.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} hhB.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} h0.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} c0.tensorPtr 1)
     case hid of
       Nothing => pure ()
-      Just h  => primIO (primSetRequiresGrad {d} h.tensorPtr 1)
+      Just h  => primIO (primSetRequiresGrad {ex} h.tensorPtr 1)
     case cell of
       Nothing => pure ()
-      Just c  => primIO (primSetRequiresGrad {d} c.tensorPtr 1)
+      Just c  => primIO (primSetRequiresGrad {ex} c.tensorPtr 1)
     pure (MkLstm (retypeGrad iw) (retypeGrad rw)
                  (retypeGrad ihB) (retypeGrad hhB)
                  (retypeGrad h0) (retypeGrad c0)
@@ -146,5 +146,5 @@ LayerLike LstmState where
 
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+lstmLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)

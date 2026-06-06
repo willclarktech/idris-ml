@@ -154,14 +154,14 @@ main = do
   putStrLn header
 
   -- Reset C-side profile counters before the timed window
-  profileReset {d=ExampleExecutor}
+  profileReset {ex=ExampleExecutor}
 
   -- Profile: 10 epochs with timing
   finalModel <- profileLoop opt dataPoints warmModel 0 10
 
   putStrLn ""
   -- Backend per-op profile (top forward + backward) to stderr
-  profileReport {d=ExampleExecutor}
+  profileReport {ex=ExampleExecutor}
   putStrLn "Done."
 
   where

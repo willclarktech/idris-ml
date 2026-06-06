@@ -168,19 +168,19 @@ marker interface is the right shape; methods would be pure ceremony.
 
 ### Constraint on constructors, not every op
 
-`Compatible d dt =>` rides the construction boundary: the `dtCreate*`
+`Compatible ex dt =>` rides the construction boundary: the `dtCreate*`
 family in `Tensor.idr` (the lowest-level `(d, dt) → handle` mint),
 every smart constructor that calls them (`tparam1d`, `tparam2d`,
 `tconstScalar`, `tparamScalar`, `tcast`/`tcastUnsafe`, `bulkToTensor`,
 etc.), every layer constructor (`linearLayer`, `lstmLayer`, …), and
 `toDevice`'s destination. **Not** on a plain elementwise op like
-`tadd` — once a `Tensor dims d dt g` exists, its type already carries
+`tadd` — once a `Tensor dims ex dt g` exists, its type already carries
 `dt`; admissibility was checked when it was minted, and re-checking on
 every op would be redundant error-message noise.
 
 One deliberate exception: the `LayerLike` forward path (`applyVar`,
 `applyVarBatch`, and therefore `applyVarAny` / `forwardVar` /
-`forwardVarBatch` / `forwardVarTraced`) also carries `Compatible d dt`.
+`forwardVarBatch` / `forwardVarTraced`) also carries `Compatible ex dt`.
 The recurrent cells (RNN/LSTM/GRU/NTM/DNC) lazily construct their
 initial zero state *inside* `applyVar` on the first step
 (`prevOut = Nothing ⇒ tzeroState1d`), so the dispatch surface mints a
@@ -651,7 +651,7 @@ Adding a new dtype is local: one `RuntimeDType` instance for the
 Idris-side type, one `case` arm in each backend's dispatch
 (`st_for_dtag` on torch, the mlx F32/F64 fast-paths or
 `mlx_dtype_unsupported`, tape's `tape_tag_from_dtag`). Backend
-asymmetry is expressed via `Compatible d dt` — a type-level gate
+asymmetry is expressed via `Compatible ex dt` — a type-level gate
 that prevents constructing `Tensor [..] (MlxDev MGpu) F64` at
 compile time. The wire tag isn't a persistent format
 (`safetensors.c` uses the string dtype name on disk), so renumbers
@@ -809,7 +809,7 @@ BitNet b1.58 (#411)" for the full rationale. The summary table:
 | torch  | int8 with values in {-1, 0, +1}  | 8 |
 | mlx    | int8 with values in {-1, 0, +1}  | 8 |
 
-The Idris-side `Tensor [o, i] d Ternary g` type is the same
+The Idris-side `Tensor [o, i] ex Ternary g` type is the same
 everywhere. The 4× tape-vs-others byte-count difference is invisible
 above the FFI boundary and parallels the existing tape-side
 F64-lingua-franca for BF16 / F16 (where the asymmetry goes in the

@@ -37,7 +37,7 @@ import Tensor
 
 public export
 data RmsNormState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkRmsNorm : TVec n d dt g -> RmsNormState n n d dt g
+  MkRmsNorm : TVec n ex dt g -> RmsNormState n n ex dt g
 
 
 ----------------------------------------------------------------------
@@ -58,18 +58,18 @@ defaultRmsNormEps = 1.0e-5
 ||| smart constructors below pin `defaultRmsNormEps` for the LayerLike
 ||| instance; HfLlama uses this form directly with the config's eps.
 export
-applyRmsNormEps : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => {n : Nat} ->
-                  (eps : Double) -> RmsNormState n n d dt g ->
-                  TVec n d dt g -> IO (RmsNormState n n d dt g, TVec n d dt g)
+applyRmsNormEps : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => {n : Nat} ->
+                  (eps : Double) -> RmsNormState n n ex dt g ->
+                  TVec n ex dt g -> IO (RmsNormState n n ex dt g, TVec n ex dt g)
 applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
   let nD = cast {to=Double} n
-      sq = primMul {d} input.tensorPtr input.tensorPtr
-      tot = primSum {d} sq
-      mean = primMulScalar {d} tot (1.0 / nD)
-      meanEps = primAddScalar {d} mean eps
-      rms = primSqrt {d} meanEps
-      normed = primDiv {d} input.tensorPtr rms
-      scaled = primMul {d} normed weight.tensorPtr
+      sq = primMul {ex} input.tensorPtr input.tensorPtr
+      tot = primSum {ex} sq
+      mean = primMulScalar {ex} tot (1.0 / nD)
+      meanEps = primAddScalar {ex} mean eps
+      rms = primSqrt {ex} meanEps
+      normed = primDiv {ex} input.tensorPtr rms
+      scaled = primMul {ex} normed weight.tensorPtr
   in (st, MkTensor scaled Nothing))
 
 
@@ -82,12 +82,12 @@ applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
 ||| under `<prefix>_weight`. HF-aligned modules (HfLlama) re-bind the
 ||| name at registration to `<model.layers.i.input_layernorm.weight>`.
 export
-rmsNormLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+rmsNormLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
                {n : Nat} -> (paramPrefix : String) ->
-               IO (RmsNormState n n d dt WithGrad)
+               IO (RmsNormState n n ex dt WithGrad)
 rmsNormLayer paramPrefix = do
   let wName = paramPrefix ++ "_weight"
-  weight <- tparam1dConst {d} {dt} {n} wName 1.0
+  weight <- tparam1dConst {ex} {dt} {n} wName 1.0
   pure $ MkRmsNorm weight
 
 
@@ -105,12 +105,12 @@ LayerLike RmsNormState where
     pure (MkRmsNorm w')
 
   unfreezeLayer (MkRmsNorm w) = do
-    primIO (primSetRequiresGrad {d} w.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} w.tensorPtr 1)
     pure (MkRmsNorm (retypeGrad w))
 
 ||| Wrap an RmsNorm in `AnyLayer`.
 export
-rmsNormLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+rmsNormLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
                   {n : Nat} -> (paramPrefix : String) ->
-                  IO (AnyLayer n n d dt WithGrad)
+                  IO (AnyLayer n n ex dt WithGrad)
 rmsNormLayerAny pid = map (MkAnyLayer RmsNormState) (rmsNormLayer pid)

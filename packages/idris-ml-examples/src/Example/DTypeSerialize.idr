@@ -39,9 +39,9 @@ intVals = VArray [SArray 1.0, SArray (-2.0), SArray 1000.0, SArray (-42.0)]
 saveOne : RuntimeDType dt => Compatible ExampleExecutor dt =>
           String -> Vector 4 Double -> IO ()
 saveOne name vals = do
-  _ <- registerParam {d=ExampleExecutor} name
+  _ <- registerParam {ex=ExampleExecutor} name
          (the (TVec 4 ExampleExecutor dt NoGrad)
-              (MkTensor (bulkToTensor {d=ExampleExecutor} {dt} vals) Nothing))
+              (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt} vals) Nothing))
   pure ()
 
 
@@ -51,13 +51,13 @@ main = do
   let path = case args of
                (_ :: p :: _) => p
                _             => "/tmp/idrisml-dtypes.safetensors"
-  putStrLn $ "=== dtype serialize [" ++ backendName {d=ExampleExecutor} ++ "] -> " ++ path ++ " ==="
+  putStrLn $ "=== dtype serialize [" ++ backendName {ex=ExampleExecutor} ++ "] -> " ++ path ++ " ==="
 
   saveOne {dt=BF16} "w_bf16" floatVals
   saveOne {dt=F16}  "w_f16"  floatVals
   saveOne {dt=I32}  "w_i32"  intVals
 
-  ok <- saveModel {d=ExampleExecutor} path
+  ok <- saveModel {ex=ExampleExecutor} path
   if ok
     then putStrLn "PASS: wrote bf16/f16/i32 tensors"
     else do putStrLn "FAIL: saveModel returned False"

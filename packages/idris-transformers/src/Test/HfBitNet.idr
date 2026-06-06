@@ -14,7 +14,7 @@
 |||      Correctness against an HF reference is gated by the roundtrip
 |||      target landing in the follow-up commit.
 |||
-||| Pins `{d=TapeExecutor}`.
+||| Pins `{ex=TapeExecutor}`.
 module Test.HfBitNet
 
 import Data.List
@@ -153,14 +153,14 @@ testNamingConvention =
 
 readAllParamNames : IO (List String)
 readAllParamNames = do
-  count <- primIO (primParamCount {d=TapeExecutor})
+  count <- primIO (primParamCount {ex=TapeExecutor})
   go count 0
   where
     go : Int -> Int -> IO (List String)
     go end i = if i >= end
                  then pure []
                  else do
-                   name <- primIO (primParamName {d=TapeExecutor} i)
+                   name <- primIO (primParamName {ex=TapeExecutor} i)
                    rest <- go end (i + 1)
                    pure (name :: rest)
 
@@ -184,7 +184,7 @@ testConstructorRegistersHfNames = do
   -- BitNet names overwrite in-place rather than appending new slots.
   -- Validate by SET MEMBERSHIP (every expected name present in the
   -- registry post-construction), not by counting "newly added" entries.
-  _ <- hfBitnetModel {d=TapeExecutor} {dt=F64}
+  _ <- hfBitnetModel {ex=TapeExecutor} {dt=F64}
                      {vocab        = 8}
                      {hidden       = 4}
                      {numLayers    = 30}
@@ -227,7 +227,7 @@ testForwardLmSmoke = do
   -- Tiny config: vocab=8, hidden=4 (= numHeads*headDim = 2*2),
   -- intermediate=8, numKvHeads=1 (GQA 2:1), numLayers=2, maxPos=16.
   -- seq=2 (a two-token "prompt").
-  model <- hfBitnetModel {d=TapeExecutor} {dt=F64}
+  model <- hfBitnetModel {ex=TapeExecutor} {dt=F64}
                          {vocab        = 8}
                          {hidden       = 4}
                          {numLayers    = 2}
@@ -235,17 +235,17 @@ testForwardLmSmoke = do
                          {kvOut        = 2}
                          {intermediate = 8}
                          "bitnet_smoke"
-  tables <- buildLlamaRoPETables {d=TapeExecutor} {dt=F64}
+  tables <- buildLlamaRoPETables {ex=TapeExecutor} {dt=F64}
                                  {maxPos=16} {headDim=2}
                                  500000.0 bitnetRopeScaling
   -- Two-token input: token IDs 1 and 3 (both within vocab=8).
   let tokBuf  = prim__allocDoubles 2
       tokBuf' = prim__setDouble tokBuf 0 1.0
       tokBuf2 = prim__setDouble tokBuf' 1 3.0
-      tokPtr  = dtCreateState1d {d=TapeExecutor} {t=F64} 2 tokBuf2 (deviceStreamTag {d=TapeExecutor})
+      tokPtr  = dtCreateState1d {ex=TapeExecutor} {t=F64} 2 tokBuf2 (deviceStreamTag {ex=TapeExecutor})
       tokens  : Tensor [2] TapeExecutor F64 WithGrad
       tokens  = MkTensor tokPtr Nothing
-  logits <- hfBitnetForwardLm {d=TapeExecutor} {dt=F64}
+  logits <- hfBitnetForwardLm {ex=TapeExecutor} {dt=F64}
                               {seq=2} {vocab=8} {hidden=4} {numLayers=2}
                               {numHeads=2} {numKvHeads=1} {headDim=2}
                               {intermediate=8} {maxPos=16}
@@ -272,10 +272,10 @@ testForwardLmSmoke = do
         go 2 _ acc = reverse acc
         go r 8 acc = go (r + 1) 0 acc
         go r c acc =
-          let row1d  = primReshape1d {d=TapeExecutor}
-                         (primNarrow {d=TapeExecutor} t.tensorPtr 0 r 1) 8
-              scalar = primNarrow {d=TapeExecutor} row1d 0 c 1
-              v      = primItem {d=TapeExecutor} scalar
+          let row1d  = primReshape1d {ex=TapeExecutor}
+                         (primNarrow {ex=TapeExecutor} t.tensorPtr 0 r 1) 8
+              scalar = primNarrow {ex=TapeExecutor} row1d 0 c 1
+              v      = primItem {ex=TapeExecutor} scalar
           in go r (c + 1) (v :: acc)
 
 

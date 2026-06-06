@@ -3,7 +3,7 @@
 **Status: both halves implemented (2026-05-21).** Tracks the TODO row
 "Env-driven hardware-availability gating for backends".
 
-- **Done — compile-time linkage gate.** The `Linked d` capability
+- **Done — compile-time linkage gate.** The `Linked ex` capability
   (`Device.Core`) is wired into the construction + forward path alongside
   `Compatible`, with instances emitted per build by the generated
   `HwConfig` module (one per backend in `BACKEND`). Naming a device whose
@@ -36,7 +36,7 @@
     `availableDevices builtinDevices` needs no caller-supplied list. It's
     the value-level mirror of the generated `Linked` instances: a second
     generated module (`HwDevices.idr` from `HwDevices.idr.in` + the
-    Makefile `HWDEVICES_IDR` recipe), emitting one `someDevice {d} {dt}`
+    Makefile `HWDEVICES_IDR` recipe), emitting one `someDevice {ex} {dt}`
     per admissible cell of each linked backend. It lives *downstream* of
     `Tensor` (where `someDevice` is defined), not in `HwConfig` (which the
     Device barrel re-exports upstream of `Tensor`) — so it's a separate
@@ -70,7 +70,7 @@ But backend-scoping loses the **hardware commonality** across backends:
   reach `TorchDev TCpu`, `TorchDev (TCuda 0)`, `TorchDev (TCuda 1)` — and
   `TorchDev TMps` / any `MlxDev` should be prohibited.
 
-Today nothing gates this. The only capability gate is `Compatible d t`
+Today nothing gates this. The only capability gate is `Compatible ex t`
 (dtype admissibility, `DType/Core.idr`). A program can spell
 `TorchDev (TCuda 1)` on a CPU-only host and compiles fine, then SIGABRTs
 deep in libtorch at runtime.
@@ -122,7 +122,7 @@ runtime gate is EAFP, not LBYL" below for why.
 - Loses the "fails to compile" guarantee (that's the linkage half's job).
 
 **C — Hybrid (recommended).** Gate each fact where it actually lives:
-- *Linkage* → compile-time empty capability `Linked d`, emitted by a
+- *Linkage* → compile-time empty capability `Linked ex`, emitted by a
   generated `HwConfig.idr` from the `BACKEND` list. A torch-only build has
   no `Linked (MlxDev _)` instance → mlx devices are unspellable. Cheap,
   honest half. Mirrors the now-shipped `Compatible` machinery.
@@ -193,8 +193,8 @@ hardwareClass : HardwareClass
 -- compatible dtype is known); the descriptor keeps only what discovery
 -- needs, so it's dtype-agnostic and existential-free.
 record SomeDevice where
-  deviceLabel : String          -- deviceName {d}
-  hwClass     : HardwareClass    -- hardwareClass {d}
+  deviceLabel : String          -- deviceName {ex}
+  hwClass     : HardwareClass    -- hardwareClass {ex}
   probe       : IO Bool          -- attempt a 1-element alloc; True = usable
 
 availableDevices : List SomeDevice -> IO (List SomeDevice)
@@ -233,7 +233,7 @@ for `UserDeviceCore` / `UserDeviceTransfer` / `Compatible`:
 
 | Piece | Built-in | BYO backend |
 |---|---|---|
-| `Linked d` | generated `HwConfig.idr` *withholds* the instance when the backend isn't in `BACKEND` | author self-declares `Linked MyDev where` (they're compiling it in, so it's available by definition) |
+| `Linked ex` | generated `HwConfig.idr` *withholds* the instance when the backend isn't in `BACKEND` | author self-declares `Linked MyDev where` (they're compiling it in, so it's available by definition) |
 | runtime availability | construction shim wraps the alloc in `try/catch` and returns null on failure | nothing extra — if the backend's own construction throws on bad hardware, EAFP gating works for free; a backend whose alloc never fails simply never reports `Left` (degrades to no gating) |
 | `hardwareClass` | `AppleGpu` / `Nvidia n` / `HostCpu` | map to `Other "user/<name>"` (or a built-in class if it shares hardware) |
 | discovery | `builtinDevices : List SomeDevice` from the generated module | compose `builtinDevices ++ [MkSomeDevice MyDev]`; discovery attempts a 1-element alloc per candidate and keeps the survivors |

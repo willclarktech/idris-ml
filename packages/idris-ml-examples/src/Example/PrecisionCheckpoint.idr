@@ -96,13 +96,13 @@ specs =
 evalModel : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO Double
 evalModel model = do
   losses <- traverse (\dp => do
-        let inT  = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (x dp)
+        let inT  = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (x dp)
             inV  = the (TVec 2 ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
-            tgtT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (y dp)
+            tgtT = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (y dp)
             tgtV = the (TVec 3 ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
         (_, predV) <- forwardVar model inV
         lossT <- tnllLoss predV tgtV
-        pure (primItem {d=ExampleExecutor} lossT.tensorPtr)) dataPoints
+        pure (primItem {ex=ExampleExecutor} lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
 
@@ -114,12 +114,12 @@ doSave : Config -> Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO Bo
 doSave cfg model = do
   let opt = nativeSgd cfg.lr
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs"
-  (trained, _, _) <- runTraining {d=ExampleExecutor}
+  (trained, _, _) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
-  trainedLoss <- withNoGrad {d=ExampleExecutor} (evalModel trained)
+  trainedLoss <- withNoGrad {ex=ExampleExecutor} (evalModel trained)
   putStrLn $ "Trained eval loss: " ++ show trainedLoss
-  ok <- saveModel {d=ExampleExecutor} cfg.path
+  ok <- saveModel {ex=ExampleExecutor} cfg.path
   putStrLn $ (if ok then "Saved to " else "FAILED to save to ") ++ cfg.path
   pure ok
 
@@ -127,16 +127,16 @@ doLoad : (allowCast : Bool) -> Config ->
          Network 2 [] 3 ExampleExecutor ExampleDType WithGrad -> IO Bool
 doLoad allowCast cfg model = do
   -- Initial eval — captures the untrained / random-init baseline.
-  initLoss <- withNoGrad {d=ExampleExecutor} (evalModel model)
+  initLoss <- withNoGrad {ex=ExampleExecutor} (evalModel model)
   putStrLn $ "Pre-load eval loss: " ++ show initLoss
-  ok <- if allowCast then loadModelAllowCast {d=ExampleExecutor} cfg.path
-                     else loadModel {d=ExampleExecutor} cfg.path
+  ok <- if allowCast then loadModelAllowCast {ex=ExampleExecutor} cfg.path
+                     else loadModel {ex=ExampleExecutor} cfg.path
   let label : String
       label = if allowCast then "load-cast" else "load-strict"
   putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path
   if ok
     then do
-      loadedLoss <- withNoGrad {d=ExampleExecutor} (evalModel model)
+      loadedLoss <- withNoGrad {ex=ExampleExecutor} (evalModel model)
       putStrLn $ "Post-load eval loss: " ++ show loadedLoss
     else pure ()
   pure ok
@@ -164,7 +164,7 @@ main = do
   let model : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad
       model = OutputLayer llAny
 
-  putStrLn $ "=== PrecisionCheckpoint [" ++ backendName {d=ExampleExecutor}
+  putStrLn $ "=== PrecisionCheckpoint [" ++ backendName {ex=ExampleExecutor}
            ++ "] mode=" ++ cfg.mode ++ " ==="
 
   result <- case cfg.mode of

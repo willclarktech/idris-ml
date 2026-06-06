@@ -41,4 +41,4 @@ public export data Cuda : Nat -> Type where MkCuda : (idx : Nat) -> Cuda idx
 ||| methods. Each backend declares which of its hardware variants map
 ||| to which Hardware kind.
 public export
-interface RunsOn (0 d : Executor) (0 h : Hardware) where
+interface RunsOn (0 ex : Executor) (0 h : Hardware) where

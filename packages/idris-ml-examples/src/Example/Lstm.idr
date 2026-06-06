@@ -76,7 +76,7 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, finalLoss) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochRecurrentVar opt d tbceLoss m)
     (pure (patternData 8))
     trainCfg

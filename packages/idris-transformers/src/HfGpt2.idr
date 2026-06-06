@@ -169,15 +169,15 @@ fillConst buf off n v =
 ||| At forward time: `y = x @ W + b` (`x` is `[batch, in]`, `W` is
 ||| `[in, out]`, `b` is `[out]`, result is `[batch, out]`).
 public export
-record Gpt2Conv1D (i, o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record Gpt2Conv1D (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Conv1D
-  weight : Tensor [i, o] d dt g  -- HF-native storage shape
-  bias   : Tensor [o] d dt g
+  weight : Tensor [i, o] ex dt g  -- HF-native storage shape
+  bias   : Tensor [o] ex dt g
 
-makeConv1D : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeConv1D : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {i, o : Nat}
           -> (paramPrefix : String)
-          -> IO (Gpt2Conv1D i o d dt WithGrad)
+          -> IO (Gpt2Conv1D i o ex dt WithGrad)
 makeConv1D pfx = do
   -- HF GPT-2 uses normal(0, 0.02) init for Conv1D weights, zero bias.
   -- Fused C-side init via tparam2dNormal / tparam1dConst (commit
@@ -193,15 +193,15 @@ makeConv1D pfx = do
 ||| LayerNorms with affine params (unlike Llama's RMSNorm which only
 ||| has a weight).
 public export
-record Gpt2LN (n : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record Gpt2LN (n : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2LN
-  gamma : Tensor [n] d dt g
-  beta  : Tensor [n] d dt g
+  gamma : Tensor [n] ex dt g
+  beta  : Tensor [n] ex dt g
 
-makeGpt2LN : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeGpt2LN : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {n : Nat}
           -> (paramPrefix : String)
-          -> IO (Gpt2LN n d dt WithGrad)
+          -> IO (Gpt2LN n ex dt WithGrad)
 makeGpt2LN pfx = do
   -- Fused C-side const fill (γ = 1.0, β = 0.0); replaces fillConst /
   -- zeroBuf host-side loops.
@@ -212,14 +212,14 @@ makeGpt2LN pfx = do
 
 ||| Token / positional embedding: `[count, hidden]`.
 public export
-record Gpt2Embedding (count, hidden : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record Gpt2Embedding (count, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Embedding
-  weight : Tensor [count, hidden] d dt g
+  weight : Tensor [count, hidden] ex dt g
 
-makeGpt2Embedding : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeGpt2Embedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                  => {count, hidden : Nat}
                  -> (paramPrefix : String)
-                 -> IO (Gpt2Embedding count hidden d dt WithGrad)
+                 -> IO (Gpt2Embedding count hidden ex dt WithGrad)
 makeGpt2Embedding pfx = do
   -- Fused C-side normal(0, 0.02) init.
   w <- tparam2dNormal {o=count} {i=hidden} (pfx ++ ".weight") 0.0 0.02
@@ -233,66 +233,66 @@ makeGpt2Embedding pfx = do
 public export
 record Gpt2AttentionState
         (hidden : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Attention
-  cAttn : Gpt2Conv1D hidden (3 * hidden) d dt g  -- fused QKV
-  cProj : Gpt2Conv1D hidden hidden d dt g
+  cAttn : Gpt2Conv1D hidden (3 * hidden) ex dt g  -- fused QKV
+  cProj : Gpt2Conv1D hidden hidden ex dt g
 
 public export
 record Gpt2MlpState
         (hidden, intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Mlp
-  cFc   : Gpt2Conv1D hidden intermediate d dt g
-  cProj : Gpt2Conv1D intermediate hidden d dt g
+  cFc   : Gpt2Conv1D hidden intermediate ex dt g
+  cProj : Gpt2Conv1D intermediate hidden ex dt g
 
 public export
 record Gpt2BlockState
         (hidden, intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Block
-  ln1  : Gpt2LN hidden d dt g
-  attn : Gpt2AttentionState hidden d dt g
-  ln2  : Gpt2LN hidden d dt g
-  mlp  : Gpt2MlpState hidden intermediate d dt g
+  ln1  : Gpt2LN hidden ex dt g
+  attn : Gpt2AttentionState hidden ex dt g
+  ln2  : Gpt2LN hidden ex dt g
+  mlp  : Gpt2MlpState hidden intermediate ex dt g
 
 public export
 record Gpt2ModelState
         (vocab, hidden, numLayers, intermediate, maxPos : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Model
-  wte    : Gpt2Embedding vocab hidden d dt g
-  wpe    : Gpt2Embedding maxPos hidden d dt g
-  blocks : Vect numLayers (Gpt2BlockState hidden intermediate d dt g)
-  lnF    : Gpt2LN hidden d dt g
+  wte    : Gpt2Embedding vocab hidden ex dt g
+  wpe    : Gpt2Embedding maxPos hidden ex dt g
+  blocks : Vect numLayers (Gpt2BlockState hidden intermediate ex dt g)
+  lnF    : Gpt2LN hidden ex dt g
 
 
 ----------------------------------------------------------------------
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeAttention : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
              => {hidden : Nat}
              -> (paramPrefix : String)
-             -> IO (Gpt2AttentionState hidden d dt WithGrad)
+             -> IO (Gpt2AttentionState hidden ex dt WithGrad)
 makeAttention pfx = do
   ca <- makeConv1D {i=hidden} {o=3 * hidden} (pfx ++ ".c_attn")
   cp <- makeConv1D {i=hidden} {o=hidden}     (pfx ++ ".c_proj")
   pure (MkGpt2Attention ca cp)
 
-makeMlp : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeMlp : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
        => {hidden, intermediate : Nat}
        -> (paramPrefix : String)
-       -> IO (Gpt2MlpState hidden intermediate d dt WithGrad)
+       -> IO (Gpt2MlpState hidden intermediate ex dt WithGrad)
 makeMlp pfx = do
   cf <- makeConv1D {i=hidden}       {o=intermediate} (pfx ++ ".c_fc")
   cp <- makeConv1D {i=intermediate} {o=hidden}       (pfx ++ ".c_proj")
   pure (MkGpt2Mlp cf cp)
 
-makeBlock : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlock : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
          => {hidden, intermediate : Nat}
          -> (paramPrefix : String)
-         -> IO (Gpt2BlockState hidden intermediate d dt WithGrad)
+         -> IO (Gpt2BlockState hidden intermediate ex dt WithGrad)
 makeBlock pfx = do
   l1 <- makeGpt2LN {n=hidden} (pfx ++ ".ln_1")
   at <- makeAttention {hidden} (pfx ++ ".attn")
@@ -301,12 +301,12 @@ makeBlock pfx = do
   pure (MkGpt2Block l1 at l2 mp)
 
 
-makeBlocks : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {hidden, intermediate : Nat}
           -> (paramPrefix : String)
           -> (n : Nat)
           -> (offset : Nat)
-          -> IO (Vect n (Gpt2BlockState hidden intermediate d dt WithGrad))
+          -> IO (Vect n (Gpt2BlockState hidden intermediate ex dt WithGrad))
 makeBlocks _   Z     _       = pure []
 makeBlocks pfx (S k) offset  = do
   b  <- makeBlock {hidden} {intermediate} (blockPrefix pfx offset)
@@ -319,11 +319,11 @@ makeBlocks pfx (S k) offset  = do
 ||| registered names are exactly HF's on-disk names — `transformer.wte.weight`,
 ||| `transformer.h.0.attn.c_attn.weight`, etc.).
 public export
-hfGpt2Model : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+hfGpt2Model : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
            => {vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
            -> {auto prfH : hidden = numHeads * headDim}
            -> (paramPrefix : String)
-           -> IO (Gpt2ModelState vocab hidden numLayers intermediate maxPos d dt WithGrad)
+           -> IO (Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt WithGrad)
 hfGpt2Model pfx = do
   let pfx_t = if pfx == "" then "transformer" else pfx ++ ".transformer"
   wte    <- makeGpt2Embedding {count=vocab}  {hidden} (pfx_t ++ ".wte")
@@ -342,25 +342,25 @@ hfGpt2Model pfx = do
 gpt2LnEps : Double
 gpt2LnEps = 1.0e-5
 
-applyLN2d : {0 d : Executor} -> UserExecutorTraining d =>
-            Gpt2LN hidden d dt g
-         -> Tensor [seqLen, hidden] d dt g
-         -> IO (Tensor [seqLen, hidden] d dt g)
+applyLN2d : {0 ex : Executor} -> UserExecutorTraining ex =>
+            Gpt2LN hidden ex dt g
+         -> Tensor [seqLen, hidden] ex dt g
+         -> IO (Tensor [seqLen, hidden] ex dt g)
 applyLN2d (MkGpt2LN g b) input = ioRerun (\_ =>
-  MkTensor (primLayerNorm2d {d} input.tensorPtr g.tensorPtr b.tensorPtr gpt2LnEps)
+  MkTensor (primLayerNorm2d {ex} input.tensorPtr g.tensorPtr b.tensorPtr gpt2LnEps)
            Nothing)
 
 
 ||| Conv1D forward on `[seqLen, i] -> [seqLen, o]`. Bias broadcasts
 ||| `[o]` across the seqLen axis via `primAdd`'s standard
 ||| numpy-style broadcasting (verified on all three backends).
-applyConv1D2d : {0 d : Executor} -> UserExecutorTraining d =>
-                Gpt2Conv1D i o d dt g
-             -> Tensor [seqLen, i] d dt g
-             -> IO (Tensor [seqLen, o] d dt g)
+applyConv1D2d : {0 ex : Executor} -> UserExecutorTraining ex =>
+                Gpt2Conv1D i o ex dt g
+             -> Tensor [seqLen, i] ex dt g
+             -> IO (Tensor [seqLen, o] ex dt g)
 applyConv1D2d (MkGpt2Conv1D w b) x = ioRerun (\_ =>
-  let mm = primMm {d} x.tensorPtr w.tensorPtr           -- [seqLen, o]
-      withBias = primAdd {d} mm b.tensorPtr             -- + [o] broadcast
+  let mm = primMm {ex} x.tensorPtr w.tensorPtr           -- [seqLen, o]
+      withBias = primAdd {ex} mm b.tensorPtr             -- + [o] broadcast
   in MkTensor withBias Nothing)
 
 
@@ -377,33 +377,33 @@ writeCausalMask buf i j n =
 -- Per-head attention math (causal, with multi-head split via
 -- axis=1 narrow). Caller supplies the prebuilt causal mask pointer.
 -- Returns AnyPtr to a `[seqLen, headDim]` block.
-oneHeadCausalCtx : {0 d : Executor} -> UserExecutorTraining d =>
+oneHeadCausalCtx : {0 ex : Executor} -> UserExecutorTraining ex =>
                    (qFull, kFull, vFull : AnyPtr)
                 -> (causalMask : AnyPtr)
                 -> (startI, headDimI : Int)
                 -> (scale : Double)
                 -> AnyPtr
 oneHeadCausalCtx qFull kFull vFull causalMask startI headDimI scale =
-  let qh     = primNarrow {d} qFull 1 startI headDimI
-      kh     = primNarrow {d} kFull 1 startI headDimI
-      vh     = primNarrow {d} vFull 1 startI headDimI
-      kT     = primTranspose2d {d} kh
-      scores = primMulScalar {d} (primMm {d} qh kT) scale
-      masked = primMaskedFill {d} scores causalMask (-1.0e20)
-      attn   = primSoftmax2d {d} masked
-  in primMm {d} attn vh
+  let qh     = primNarrow {ex} qFull 1 startI headDimI
+      kh     = primNarrow {ex} kFull 1 startI headDimI
+      vh     = primNarrow {ex} vFull 1 startI headDimI
+      kT     = primTranspose2d {ex} kh
+      scores = primMulScalar {ex} (primMm {ex} qh kT) scale
+      masked = primMaskedFill {ex} scores causalMask (-1.0e20)
+      attn   = primSoftmax2d {ex} masked
+  in primMm {ex} attn vh
 
 -- Concatenate per-head outputs along axis=1 to recover `[seqLen, hidden]`.
-buildCausalHeads : {0 d : Executor} -> UserExecutorTraining d =>
+buildCausalHeads : {0 ex : Executor} -> UserExecutorTraining ex =>
                    (qFull, kFull, vFull, causalMask : AnyPtr)
                 -> (headDimI : Int) -> (scale : Double)
                 -> (remaining : Nat) -> (startI : Int) -> (acc : AnyPtr)
                 -> AnyPtr
 buildCausalHeads _ _ _ _ _ _ Z _ acc = acc
 buildCausalHeads qFull kFull vFull causalMask headDimI scale (S k) startI acc =
-  let nextCtx = oneHeadCausalCtx {d} qFull kFull vFull causalMask startI headDimI scale
-      newAcc  = primConcat2dAxis1 {d} acc nextCtx
-  in buildCausalHeads {d} qFull kFull vFull causalMask headDimI scale k (startI + headDimI) newAcc
+  let nextCtx = oneHeadCausalCtx {ex} qFull kFull vFull causalMask startI headDimI scale
+      newAcc  = primConcat2dAxis1 {ex} acc nextCtx
+  in buildCausalHeads {ex} qFull kFull vFull causalMask headDimI scale k (startI + headDimI) newAcc
 
 
 ||| GPT-2 self-attention. Pre-norm caller already applied `ln_1`.
@@ -415,13 +415,13 @@ buildCausalHeads qFull kFull vFull causalMask headDimI scale (S k) startI acc =
 ||| loop (one less narrow + concat round trip); `numHeads = S (S _)`
 ||| goes through the full multi-head path which exercises the
 ||| commit-1 narrow-axis-1 fix on torch/mlx.
-applySelfAttn : {0 d : Executor} -> UserExecutorTraining d =>
+applySelfAttn : {0 ex : Executor} -> UserExecutorTraining ex =>
                 {seqLen, hidden, numHeads, headDim : Nat}
              -> {auto prf : hidden = numHeads * headDim}
-             -> Gpt2AttentionState hidden d dt g
+             -> Gpt2AttentionState hidden ex dt g
              -> (causalMask : AnyPtr)
-             -> Tensor [seqLen, hidden] d dt g
-             -> IO (Tensor [seqLen, hidden] d dt g)
+             -> Tensor [seqLen, hidden] ex dt g
+             -> IO (Tensor [seqLen, hidden] ex dt g)
 applySelfAttn {numHeads = Z} _ _ input = pure input
 applySelfAttn {numHeads = S Z} {hidden} {headDim} sa causalMask input = do
   -- Single head: still need fused-QKV split (the storage doesn't
@@ -429,15 +429,15 @@ applySelfAttn {numHeads = S Z} {hidden} {headDim} sa causalMask input = do
   qkv <- applyConv1D2d sa.cAttn input  -- [seq, 3*hidden]
   ctxT <- ioRerun (\_ =>
     let hI = cast {to=Int} hidden
-        q  = primNarrow {d} qkv.tensorPtr 1 0       hI
-        k' = primNarrow {d} qkv.tensorPtr 1 hI      hI
-        v  = primNarrow {d} qkv.tensorPtr 1 (2*hI)  hI
+        q  = primNarrow {ex} qkv.tensorPtr 1 0       hI
+        k' = primNarrow {ex} qkv.tensorPtr 1 hI      hI
+        v  = primNarrow {ex} qkv.tensorPtr 1 (2*hI)  hI
         scale = 1.0 / sqrt (cast {to=Double} headDim)
-        kT     = primTranspose2d {d} k'
-        scores = primMulScalar {d} (primMm {d} q kT) scale
-        masked = primMaskedFill {d} scores causalMask (-1.0e20)
-        attn   = primSoftmax2d {d} masked
-        ctx    = primMm {d} attn v
+        kT     = primTranspose2d {ex} k'
+        scores = primMulScalar {ex} (primMm {ex} q kT) scale
+        masked = primMaskedFill {ex} scores causalMask (-1.0e20)
+        attn   = primSoftmax2d {ex} masked
+        ctx    = primMm {ex} attn v
     in MkTensor ctx Nothing)
   applyConv1D2d sa.cProj ctxT
 applySelfAttn {numHeads = S (S k)} {hidden} {headDim} sa causalMask input = do
@@ -446,20 +446,20 @@ applySelfAttn {numHeads = S (S k)} {hidden} {headDim} sa causalMask input = do
       hdI   = cast {to=Int} headDim
       scale = 1.0 / sqrt (cast {to=Double} headDim)
   ctxT <- ioRerun (\_ =>
-    let qFull = primNarrow {d} qkv.tensorPtr 1 0       hI
-        kFull = primNarrow {d} qkv.tensorPtr 1 hI      hI
-        vFull = primNarrow {d} qkv.tensorPtr 1 (2*hI)  hI
-        h0    = oneHeadCausalCtx {d} qFull kFull vFull causalMask 0 hdI scale
-        full  = buildCausalHeads {d} qFull kFull vFull causalMask hdI scale (S k) hdI h0
+    let qFull = primNarrow {ex} qkv.tensorPtr 1 0       hI
+        kFull = primNarrow {ex} qkv.tensorPtr 1 hI      hI
+        vFull = primNarrow {ex} qkv.tensorPtr 1 (2*hI)  hI
+        h0    = oneHeadCausalCtx {ex} qFull kFull vFull causalMask 0 hdI scale
+        full  = buildCausalHeads {ex} qFull kFull vFull causalMask hdI scale (S k) hdI h0
     in MkTensor full Nothing)
   applyConv1D2d sa.cProj ctxT
 
 
 ||| MLP: c_proj(gelu(c_fc(x))).
-applyMlp : {0 d : Executor} -> UserExecutorTraining d =>
-           Gpt2MlpState hidden intermediate d dt g
-        -> Tensor [seqLen, hidden] d dt g
-        -> IO (Tensor [seqLen, hidden] d dt g)
+applyMlp : {0 ex : Executor} -> UserExecutorTraining ex =>
+           Gpt2MlpState hidden intermediate ex dt g
+        -> Tensor [seqLen, hidden] ex dt g
+        -> IO (Tensor [seqLen, hidden] ex dt g)
 applyMlp mlp x = do
   hFc  <- applyConv1D2d mlp.cFc x
   -- HF GPT-2 uses gelu_new (tanh approximation); tgelu matches.
@@ -469,13 +469,13 @@ applyMlp mlp x = do
 
 ||| One decoder block. Pre-norm + residual on both attention and MLP
 ||| sublayers. (Contrast HfBert which is post-norm.)
-applyBlock : {0 d : Executor} -> UserExecutorTraining d =>
+applyBlock : {0 ex : Executor} -> UserExecutorTraining ex =>
              {seqLen, hidden, numHeads, headDim, intermediate : Nat}
           -> {auto prf : hidden = numHeads * headDim}
-          -> Gpt2BlockState hidden intermediate d dt g
+          -> Gpt2BlockState hidden intermediate ex dt g
           -> (causalMask : AnyPtr)
-          -> Tensor [seqLen, hidden] d dt g
-          -> IO (Tensor [seqLen, hidden] d dt g)
+          -> Tensor [seqLen, hidden] ex dt g
+          -> IO (Tensor [seqLen, hidden] ex dt g)
 applyBlock {hidden} {numHeads} {headDim} blk causalMask x = do
   -- Attention sublayer
   xLn1   <- applyLN2d blk.ln1 x
@@ -487,13 +487,13 @@ applyBlock {hidden} {numHeads} {headDim} blk causalMask x = do
   tadd xMid mOut
 
 
-applyBlocks : {0 d : Executor} -> UserExecutorTraining d =>
+applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex =>
               {seqLen, hidden, numHeads, headDim, intermediate, n : Nat}
            -> {auto prf : hidden = numHeads * headDim}
-           -> Vect n (Gpt2BlockState hidden intermediate d dt g)
+           -> Vect n (Gpt2BlockState hidden intermediate ex dt g)
            -> (causalMask : AnyPtr)
-           -> Tensor [seqLen, hidden] d dt g
-           -> IO (Tensor [seqLen, hidden] d dt g)
+           -> Tensor [seqLen, hidden] ex dt g
+           -> IO (Tensor [seqLen, hidden] ex dt g)
 applyBlocks []        _ x = pure x
 applyBlocks (b :: bs) cm x = do
   x' <- applyBlock {numHeads} {headDim} b cm x
@@ -502,15 +502,15 @@ applyBlocks (b :: bs) cm x = do
 
 -- Embedding lookup returning `[seqLen, hidden]`. Same wrapping pattern
 -- as HfBert's `applyEmbedLookup2d`.
-applyEmbedLookup2d : {0 d : Executor} -> UserExecutorTraining d =>
+applyEmbedLookup2d : {0 ex : Executor} -> UserExecutorTraining ex =>
                      {seqLen, vocab, hidden : Nat}
-                  -> Gpt2Embedding vocab hidden d dt g
-                  -> Tensor [seqLen] d dt g
-                  -> IO (Tensor [seqLen, hidden] d dt g)
+                  -> Gpt2Embedding vocab hidden ex dt g
+                  -> Tensor [seqLen] ex dt g
+                  -> IO (Tensor [seqLen, hidden] ex dt g)
 applyEmbedLookup2d {seqLen} {hidden} (MkGpt2Embedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI = cast {to=Int} hidden
-      out = primEmbedding2d {d} w.tensorPtr tokens.tensorPtr sI hI
+      out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
 
@@ -526,13 +526,13 @@ applyEmbedLookup2d {seqLen} {hidden} (MkGpt2Embedding w) tokens = ioRerun (\_ =>
 ||| (matching the convention used by HfBert's `posIds`). The caller
 ||| materialises `[0, 1, ..., seqLen-1]`.
 public export
-hfGpt2Forward : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+hfGpt2Forward : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
                 {seqLen, vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
              -> {auto prf : hidden = numHeads * headDim}
-             -> Gpt2ModelState vocab hidden numLayers intermediate maxPos d dt g
-             -> Tensor [seqLen] d dt g  -- token IDs
-             -> Tensor [seqLen] d dt g  -- position IDs (0, 1, ..., seqLen-1)
-             -> IO (Tensor [seqLen, hidden] d dt g)
+             -> Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt g
+             -> Tensor [seqLen] ex dt g  -- token IDs
+             -> Tensor [seqLen] ex dt g  -- position IDs (0, 1, ..., seqLen-1)
+             -> IO (Tensor [seqLen, hidden] ex dt g)
 hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
   -- Embedding lookups
   hTok <- applyEmbedLookup2d model.wte tokenIds
@@ -547,7 +547,7 @@ hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
   let sI = cast {to=Int} seqLen
       maskBuf  = prim__allocDoubles (sI * sI)
       maskBuf' = writeCausalMask maskBuf 0 1 sI
-      mask = dtCreateState2d {d} {t=dt} sI sI maskBuf' (deviceStreamTag {d})
+      mask = dtCreateState2d {ex} {t=dt} sI sI maskBuf' (deviceStreamTag {ex})
   -- Decoder stack
   hMid <- applyBlocks {numHeads} {headDim} model.blocks mask hEmb
   -- Final LayerNorm
@@ -558,13 +558,13 @@ hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
 ||| logits for each position. Same reconstitution pattern as HfBert's
 ||| `applyMlmHead`.
 public export
-hfGpt2ForwardLm : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+hfGpt2ForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
                   {seqLen, vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
                -> {auto prf : hidden = numHeads * headDim}
-               -> Gpt2ModelState vocab hidden numLayers intermediate maxPos d dt g
-               -> Tensor [seqLen] d dt g  -- token IDs
-               -> Tensor [seqLen] d dt g  -- position IDs
-               -> IO (Tensor [seqLen, vocab] d dt g)
+               -> Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt g
+               -> Tensor [seqLen] ex dt g  -- token IDs
+               -> Tensor [seqLen] ex dt g  -- position IDs
+               -> IO (Tensor [seqLen, vocab] ex dt g)
 hfGpt2ForwardLm {hidden} {vocab} {numHeads} {headDim} model tokenIds posIds = do
   hFinal <- hfGpt2Forward {numHeads} {headDim} model tokenIds posIds  -- [seqLen, hidden]
   -- LM head: x @ wte.weight^T → [seqLen, vocab]. wte.weight is
@@ -574,6 +574,6 @@ hfGpt2ForwardLm {hidden} {vocab} {numHeads} {headDim} model tokenIds posIds = do
   -- tape_reset across grad calls.
   let vI = cast {to=Int} vocab
       zBuf = prim__allocDoubles vI  -- calloc-backed; already zero
-      zeroBias : Tensor [vocab] d dt g
-      zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
+      zeroBias : Tensor [vocab] ex dt g
+      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
   tlinear2d model.wte.weight hFinal zeroBias

@@ -59,7 +59,7 @@ from an open, potentially-infinite set, *and* on which the type
 system can compute (proofs, arithmetic, etc.).
 
 ```idris
-matmul : Tensor [m, k] d -> Tensor [k, n] d -> Tensor [m, n] d
+matmul : Tensor [m, k] ex -> Tensor [k, n] ex -> Tensor [m, n] ex
 ```
 
 Here `m`, `k`, `n` are arbitrary `Nat`s and the type system has to
@@ -332,7 +332,7 @@ direct analogue of PyTorch's `with torch.no_grad():` and is what you
 want around inference / RL rollout / eval forward passes for perf.
 The types of tensors created inside the block don't change.
 
-**`weakenGrad : (1 _ : Tensor dims d g) -> IO (Tensor dims d NoGrad)`** —
+**`weakenGrad : (1 _ : Tensor dims d g) -> IO (Tensor dims ex NoGrad)`** —
 type-level cast that also flips the C-side `requires_grad` flag.
 After this, the tensor's *type* says `NoGrad`; passing it to
 `runBackward` or `nativeTrainStep` is a compile error. The mechanism
@@ -350,7 +350,7 @@ guarantee, or either alone where one fits the situation:
 -- Inference: combine for runtime perf + static promise.
 result <- withNoGrad $ do
   let (_, pred) = forwardVar net input
-  predNG <- weakenGrad pred              -- predNG : Tensor [o] d NoGrad
+  predNG <- weakenGrad pred              -- predNG : Tensor [o] ex NoGrad
   let probs = tsoftmax1d predNG          -- still NoGrad
   pure (tensorItem (telemSelect probs 0))
 
@@ -382,14 +382,14 @@ instead.
 For the "load pretrained backbone, train only the new head" workflow,
 idris-ml provides two more linear operations on Networks:
 
-**`freezeNetwork : (1 _ : Network i hs o d g) -> IO (Network i hs o d NoGrad)`** —
+**`freezeNetwork : (1 _ : Network i hs o d g) -> IO (Network i hs o ex NoGrad)`** —
 walks every parameter in the network, flips its C-side
 `requires_grad` to false, and retypes the result as `NoGrad`. Frozen
 params don't get updated by `optimizer.step()` (their gradient
 buffers stay at zero) and the type system prevents accidentally
 training the network end-to-end.
 
-**`unfreezeNetwork : (1 _ : Network i hs o d NoGrad) -> IO (Network i hs o d WithGrad)`** —
+**`unfreezeNetwork : (1 _ : Network i hs o ex NoGrad) -> IO (Network i hs o ex WithGrad)`** —
 the inverse. Used for *progressive fine-tuning*: train head first
 with backbone frozen, then unfreeze the backbone for joint
 fine-tuning at a lower learning rate.
@@ -424,7 +424,7 @@ so a frozen network is fully usable for inference:
 let (_, pred) = forwardVar backboneFrozen input
 --                          ^^^^^^^^^^^^^^^
 --                          Network ... NoGrad
--- pred : Tensor [o] d NoGrad — type-tracked through the forward
+-- pred : Tensor [o] ex NoGrad — type-tracked through the forward
 ```
 
 The `NoGrad` propagates naturally through the result, and `pred`

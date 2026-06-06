@@ -13,9 +13,9 @@
 ||| (2) Layer-forward smoke: builds a `LinearState 4 4 (MlxExecutor MGpu) F32`
 |||     and runs its `applyVar` on a `MlxGpu F32` input. Exercises the
 |||     full L59 op cascade *and* the L60 creation cascade —
-|||     `linearLayer` allocates weights/biases via `tparam2d {d} {dt}`
+|||     `linearLayer` allocates weights/biases via `tparam2d {ex} {dt}`
 |||     which dispatches through the (now stream-aware) `RuntimeDType`
-|||     interface, threading `deviceStreamTag {d=MlxExecutor MGpu} = 1`
+|||     interface, threading `deviceStreamTag {ex=MlxExecutor MGpu} = 1`
 |||     into `tensor_create_param_2d_f32_mlx_streamed`. Pre-L60 the
 |||     param allocation hit the env stream regardless of the
 |||     type-level `d`; pre-L59 the forward ops similarly hit the env
@@ -23,7 +23,7 @@
 |||
 ||| (3) `bulkToTensor` round-trip: explicitly stream-routes the
 |||     state-tensor creation path used by data marshalling. Reads
-|||     back values via `primItem1d {d}` — also stream-routed.
+|||     back values via `primItem1d {ex}` — also stream-routed.
 |||
 ||| Pre-L60: both `MlxCpu F64` and `MlxGpu F32` collapsed to whatever
 ||| stream `MLX_DEVICE` selected at process start for the typeclass-
@@ -59,11 +59,11 @@ inputGpu : Vector 4 Double
 inputGpu = VArray [SArray 5.0, SArray 6.0, SArray 7.0, SArray 8.0]
 
 
-readVec4 : {0 d : Executor} -> UserExecutorCore d => Tensor [4] d dt g -> Vect 4 Double
-readVec4 v = [ primItem1d {d} v.tensorPtr 0
-             , primItem1d {d} v.tensorPtr 1
-             , primItem1d {d} v.tensorPtr 2
-             , primItem1d {d} v.tensorPtr 3
+readVec4 : {0 ex : Executor} -> UserExecutorCore ex => Tensor [4] ex dt g -> Vect 4 Double
+readVec4 v = [ primItem1d {ex} v.tensorPtr 0
+             , primItem1d {ex} v.tensorPtr 1
+             , primItem1d {ex} v.tensorPtr 2
+             , primItem1d {ex} v.tensorPtr 3
              ]
 
 
@@ -78,7 +78,7 @@ main = do
 
   -- CPU-stream tensor at F64. `UserExecutorCore (MlxExecutor MCpu)`'s
   -- `primNeg` derives `streamTag MCpu = 0` and threads it.
-  let aCpuPtr = bulkToTensor {d=MlxCpu} {dt=F64} inputCpu
+  let aCpuPtr = bulkToTensor {ex=MlxCpu} {dt=F64} inputCpu
       aCpu    = the (Tensor [4] MlxCpu F64 WithGrad) (MkTensor aCpuPtr Nothing)
   negCpu <- tneg aCpu
   putStrLn $ "MlxCpu F64  input  : " ++ showVec (readVec4 aCpu)
@@ -86,20 +86,20 @@ main = do
 
   -- GPU-stream tensor at F32. `UserExecutorCore (MlxExecutor MGpu)`'s
   -- `primNeg` derives `streamTag MGpu = 1` and threads it.
-  let bGpuPtr = bulkToTensor {d=MlxGpu} {dt=F32} inputGpu
+  let bGpuPtr = bulkToTensor {ex=MlxGpu} {dt=F32} inputGpu
       bGpu    = the (Tensor [4] MlxGpu F32 WithGrad) (MkTensor bGpuPtr Nothing)
   negGpu <- tneg bGpu
   putStrLn $ "MlxGpu F32  input  : " ++ showVec (readVec4 bGpu)
   putStrLn $ "MlxGpu F32  -input : " ++ showVec (readVec4 negGpu)
 
   -- Layer forward: a Linear on MlxGpu F32. Every `prim__*` inside
-  -- `tlinear` now routes through `primLinear {d=MlxExecutor MGpu}`, which
+  -- `tlinear` now routes through `primLinear {ex=MlxExecutor MGpu}`, which
   -- threads `streamTag MGpu = 1` into `tensor_linear_mlx_streamed`.
   -- Pre-L59 the call collapsed to the env stream regardless of the
   -- type-level d.
   putStrLn ""
   putStrLn "=== layer forward on MlxGpu F32 ==="
-  linGpu <- linearLayer {d = MlxExecutor MGpu} {dt = F32} {i = 4} {o = 4} "lin_gpu_demo"
+  linGpu <- linearLayer {ex=MlxExecutor MGpu} {dt = F32} {i = 4} {o = 4} "lin_gpu_demo"
   (_, linOutGpu) <- applyVar linGpu bGpu
   putStrLn $ "MlxGpu F32  linOut : " ++ showVec (readVec4 linOutGpu)
 

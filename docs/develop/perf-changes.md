@@ -1308,7 +1308,7 @@ was inflated).
 
 **Change**: realign both sides to `nn.RNNCell`'s shape:
 - Idris `Layer.Rnn` gets two biases (`ihB`, `hhB`) and a generic
-  `activation : TVec o d -> TVec o d` field (more flexible than
+  `activation : TVec o ex -> TVec o ex` field (more flexible than
   `nn.RNN`'s tanh/relu enum — pass any unary tensor function).
 - `rnnLayerAny` defaults activation to `ttanh`, matching `nn.RNN`'s
   default.
@@ -2536,7 +2536,7 @@ Nat operations each = the billions of Nat operations we see in the profile.
 **Two compounding bugs, two orthogonal fixes**:
 
 1. **Cache PE on `TransformerState`**. Build once at `transformerLayer`
-   construction, store as a `TMat seqLen dModel d NoGrad` field on
+   construction, store as a `TMat seqLen dModel ex NoGrad` field on
    `MkTransformer`. Forward passes use the cached tensor. Removes the
    per-step writePE entirely. Single-batch case is trivial broadcast;
    batched case needs the reshape-add-reshape dance (or a fresh
@@ -2586,7 +2586,7 @@ proposed in the immediately-preceding `perf-changes.md` entry
 ("Chez source profile localises 7.6 ms-per-op cost..."):
 
 1. **Fix A — cache positional encoding** on `TransformerState`. New
-   field `peCached : TMat seqLen dModel d g`, built once in
+   field `peCached : TMat seqLen dModel ex g`, built once in
    `transformerLayer`, reused by `applyTransformer` (direct add) and
    `applyTransformerBatch` (reshape-to-3D, broadcast-add, reshape-back).
    `freezeLayer` / `unfreezeLayer` thread it through unchanged.
@@ -3126,7 +3126,7 @@ variants of all 22 per-dtype `tensor_create_*` and `tensor_cast_*`
 primitives; ~50 direct `prim__createParam*` / `prim__createState*` /
 `prim__createScalar` / `prim__create1d` call sites in Layer/Backprop
 were rewritten to `dtCreate*` typeclass calls threading
-`(deviceStreamTag {d})`.
+`(deviceStreamTag {ex})`.
 
 **Change**: routing-only. Every `tensor_*` C call on mlx now opens an
 `mx::StreamContext` from the cached cpu/gpu stream rather than

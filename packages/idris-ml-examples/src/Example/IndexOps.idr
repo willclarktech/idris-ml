@@ -36,14 +36,14 @@ weightVals = VArray [SArray 1.0, SArray 2.0, SArray 3.0, SArray 4.0]
 
 ||| Build a [4] NoGrad tensor at the example dtype from a 4-vector.
 mkVec : Vector 4 Double -> TVec 4 ExampleExecutor ExampleDType NoGrad
-mkVec vals = MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} vals) Nothing
+mkVec vals = MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} vals) Nothing
 
 ||| Reduce a [4] vector to its scalar sum and read it out.
 scalarSum : TVec 4 ExampleExecutor ExampleDType NoGrad -> Double
 scalarSum v =
-  tensorItem {d=ExampleExecutor}
+  tensorItem {ex=ExampleExecutor}
     (the (Tensor [] ExampleExecutor ExampleDType NoGrad)
-         (MkTensor (primSum {d=ExampleExecutor} v.tensorPtr) Nothing))
+         (MkTensor (primSum {ex=ExampleExecutor} v.tensorPtr) Nothing))
 
 ||| Order-sensitive scalar readout: sum(v * weights).
 dotWeights : TVec 4 ExampleExecutor ExampleDType NoGrad -> IO Double
@@ -57,11 +57,11 @@ approxEq a b = abs (a - b) < 1.0e-9
 
 main : IO ()
 main = do
-  putStrLn $ "=== index ops [" ++ backendName {d=ExampleExecutor} ++ "] ==="
+  putStrLn $ "=== index ops [" ++ backendName {ex=ExampleExecutor} ++ "] ==="
   let src = mkVec srcVals
 
   -- argsort ascending: [3,1,4,1.5] -> indices [1,3,0,2]
-  idx <- targsort {d=ExampleExecutor} 0 False src
+  idx <- targsort {ex=ExampleExecutor} 0 False src
 
   -- gather: sorted ascending [1.0, 1.5, 3.0, 4.0]; dot [1,2,3,4] = 29.0
   sorted    <- tgather src idx

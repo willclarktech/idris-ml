@@ -67,9 +67,9 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 -- Argmax on a TVec (read three values via prim__item1d).
 evalPrediction : TVec 3 ExampleExecutor ExampleDType WithGrad -> Nat
 evalPrediction outV =
-  let v0 = primItem1d {d=ExampleExecutor} outV.tensorPtr 0
-      v1 = primItem1d {d=ExampleExecutor} outV.tensorPtr 1
-      v2 = primItem1d {d=ExampleExecutor} outV.tensorPtr 2
+  let v0 = primItem1d {ex=ExampleExecutor} outV.tensorPtr 0
+      v1 = primItem1d {ex=ExampleExecutor} outV.tensorPtr 1
+      v2 = primItem1d {ex=ExampleExecutor} outV.tensorPtr 2
   in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
 
 %default partial
@@ -87,7 +87,7 @@ evalOneDefault :
   (Nat, DataPoint 2 3 Double) -> IO Nat
 evalOneDefault trained (_, dp) = do
   let inV = the (TVec 2 ExampleExecutor ExampleDType WithGrad)
-                (MkTensor (vectorToTensorPersistent {d=ExampleExecutor} {dt=ExampleDType} (x dp)) Nothing)
+                (MkTensor (vectorToTensorPersistent {ex=ExampleExecutor} {dt=ExampleDType} (x dp)) Nothing)
   (_, predV) <- forwardVar trained inV
   let predClass = evalPrediction predV
       targetClass = evalPredictionTarget (y dp)
@@ -105,7 +105,7 @@ runDefault cfg opt = do
       model = OutputLayer llAny
   putStrLn ""
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, finalLoss) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochVar opt d tnllLoss m)
     (pure dataPoints)
     (simpleConfig cfg.epochs)
@@ -138,7 +138,7 @@ evalOneMixed :
   (Nat, DataPoint 2 3 Double) -> IO Nat
 evalOneMixed trained (_, dp) = do
   let inV = the (TVec 2 ExampleExecutor ExampleDType WithGrad)
-                (MkTensor (vectorToTensorPersistent {d=ExampleExecutor} {dt=ExampleDType} (x dp)) Nothing)
+                (MkTensor (vectorToTensorPersistent {ex=ExampleExecutor} {dt=ExampleDType} (x dp)) Nothing)
   (_, predV) <- forwardVarMixed trained inV
   let predClass = evalPrediction predV
       targetClass = evalPredictionTarget (y dp)
@@ -164,11 +164,11 @@ runMixedGeneric cfg opt mkLayer modeLabel = do
   llAny <- mkLayer
   let model : NetworkMixed 2 [] 3 ExampleExecutor pDt ExampleDType WithGrad
       model = OutputLayerMixed llAny
-  gs <- defaultGradScaler {d=ExampleExecutor} {dt=ExampleDType}
+  gs <- defaultGradScaler {ex=ExampleExecutor} {dt=ExampleDType}
   putStrLn modeLabel
   putStrLn ""
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, finalLoss) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochVarMixed opt gs d tnllLoss m)
     (pure dataPoints)
     (simpleConfig cfg.epochs)

@@ -156,9 +156,9 @@ genOneStep model tables toksList = do
       -- Plain withNoGrad here (not Keep): the step's result is a
       -- Maybe (Fin VocabSize), no Tensor needs to survive the
       -- bracket exit.
-      withNoGrad {d=ExampleExecutor} $ do
+      withNoGrad {ex=ExampleExecutor} $ do
         let inputIds = mkIds idDoubles
-        logits <- hfBitnetForwardLm {d=ExampleExecutor} {dt=ExampleDType}
+        logits <- hfBitnetForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
                                     {seq          = curLen}
                                     {vocab        = VocabSize}
                                     {hidden       = Hidden}
@@ -188,7 +188,7 @@ genLoop model tables tokens (S k) = do
       putStrLn "  (argmax produced out-of-range token; stopping)"
       pure tokens
     Just next => do
-      resetForEval {d=ExampleExecutor}
+      resetForEval {ex=ExampleExecutor}
       genLoop model tables (tokens ++ [next]) k
 
 
@@ -252,7 +252,7 @@ main = do
 
   putStrLn ("[stage] hfBitnetModel — constructing 542-param state ("
             ++ "embed/norms/scales + ternary placeholders)...")
-  model <- hfBitnetModel {d=ExampleExecutor} {dt=ExampleDType}
+  model <- hfBitnetModel {ex=ExampleExecutor} {dt=ExampleDType}
                          {vocab        = VocabSize}
                          {hidden       = Hidden}
                          {numLayers    = NumLayers}
@@ -265,7 +265,7 @@ main = do
   putStrLn ("[stage] loadHfBitnetCheckpoint — reading "
             ++ hfWeightsPath ++ " (~1.18 GB)...")
   (loaded, (tnLoaded, tnExpected, floatOk)) <-
-    loadHfBitnetCheckpoint {d=ExampleExecutor} {dt=ExampleDType}
+    loadHfBitnetCheckpoint {ex=ExampleExecutor} {dt=ExampleDType}
                            {vocab        = VocabSize}
                            {hidden       = Hidden}
                            {numLayers    = NumLayers}
@@ -284,7 +284,7 @@ main = do
   stageStamp "loadHfBitnetCheckpoint ok" t0
 
   putStrLn "[stage] buildLlamaRoPETables — precomputing cos/sin tables..."
-  tables <- buildLlamaRoPETables {d=ExampleExecutor} {dt=ExampleDType}
+  tables <- buildLlamaRoPETables {ex=ExampleExecutor} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
                                   {headDim = HeadDim}
                                   RopeBase bitnetRopeScaling
@@ -322,8 +322,8 @@ main = do
       let vI = cast {to=Int} VocabSize
           zBuf = prim__allocDoubles vI
           zeroBias : Tensor [VocabSize] ExampleExecutor ExampleDType WithGrad
-          zeroBias = MkTensor (dtCreateState1d {d=ExampleExecutor} {t=ExampleDType}
-                                vI zBuf (deviceStreamTag {d=ExampleExecutor})) Nothing
+          zeroBias = MkTensor (dtCreateState1d {ex=ExampleExecutor} {t=ExampleDType}
+                                vI zBuf (deviceStreamTag {ex=ExampleExecutor})) Nothing
       logits <- tlinear2d loaded.embedTokens.weight hFinal zeroBias
       lastRow <- trowSelect logits 1
       dumpFn "logits" lastRow.tensorPtr vI
@@ -336,8 +336,8 @@ main = do
         -- logits one per line so compare_inference.py can read them back.
         let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
         putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
-        logits <- withNoGradKeep {d=ExampleExecutor} $
-          hfBitnetForwardLm {d=ExampleExecutor} {dt=ExampleDType}
+        logits <- withNoGradKeep {ex=ExampleExecutor} $
+          hfBitnetForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
                             {seq          = 2}
                             {vocab        = VocabSize}
                             {hidden       = Hidden}

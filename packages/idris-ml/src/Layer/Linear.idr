@@ -19,10 +19,10 @@ import Tensor
 -- Bias and weight are registered C params at construction time.
 
 public export
-record LinearState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record LinearState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLinear
-  weightT : Tensor [o, i] d dt g
-  biasT   : Tensor [o] d dt g
+  weightT : Tensor [o, i] ex dt g
+  biasT   : Tensor [o] ex dt g
 
 
 ----------------------------------------------------------------------
@@ -49,8 +49,8 @@ LayerLike LinearState where
     pure (MkLinear w' b')
 
   unfreezeLayer (MkLinear w b) = do
-    primIO (primSetRequiresGrad {d} w.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} w.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkLinear (retypeGrad w) (retypeGrad b))
 
 
@@ -84,18 +84,18 @@ zeroBuf buf off n =
 ||| pair; callers wanting other distributions wire the underlying
 ||| FFI directly.
 export
-mkLinearWith : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat}
+mkLinearWith : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat}
             -> (paramPrefix : String)
             -> (weightStd : Double)
             -> (biasStd : Double)
-            -> IO (LinearState i o d dt WithGrad)
+            -> IO (LinearState i o ex dt WithGrad)
 mkLinearWith pfx wStd bStd = do
   let wName = pfx ++ "_weights"
       bName = pfx ++ "_biases"
-  w <- tparam2dNormal {d} {dt} {o} {i} wName 0.0 wStd
+  w <- tparam2dNormal {ex} {dt} {o} {i} wName 0.0 wStd
   b <- if bStd == 0.0
-         then tparam1dConst  {d} {dt} {n=o} bName 0.0
-         else tparam1dNormal {d} {dt} {n=o} bName 0.0 bStd
+         then tparam1dConst  {ex} {dt} {n=o} bName 0.0
+         else tparam1dNormal {ex} {dt} {n=o} bName 0.0 bStd
   pure $ MkLinear w b
 
 ||| Build a `LinearState i o` with PyTorch's default `nn.Linear` init
@@ -104,11 +104,11 @@ mkLinearWith pfx wStd bStd = do
 ||| match the new fused-init primitive surface — see plan P3 lock-in.
 ||| Registers under `<paramPrefix>_weights` / `<paramPrefix>_biases`.
 export
-linearLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o d dt WithGrad)
+linearLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o ex dt WithGrad)
 linearLayer paramPrefix =
   mkLinearWith paramPrefix (1.0 / sqrt (cast {to=Double} i)) 0.0
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export
-linearLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+linearLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 linearLayerAny pid = map (MkAnyLayer LinearState) (linearLayer pid)

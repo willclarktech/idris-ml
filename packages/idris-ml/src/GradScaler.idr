@@ -30,7 +30,7 @@ import Tensor
 
 
 public export
-record GradScaler (0 d : Executor) (0 dt : DType) where
+record GradScaler (0 ex : Executor) (0 dt : DType) where
   constructor MkGradScaler
   scaleRef       : IORef Double
   consecutiveRef : IORef Nat
@@ -48,7 +48,7 @@ record GradScaler (0 d : Executor) (0 dt : DType) where
 export
 gradScaler : (initScale, growthFactor, backoffFactor : Double) ->
              (growthInterval : Nat) ->
-             IO (GradScaler d dt)
+             IO (GradScaler ex dt)
 gradScaler initScale gf bf gi = do
   s <- newIORef initScale
   c <- newIORef Z
@@ -60,13 +60,13 @@ gradScaler initScale gf bf gi = do
 ||| need scaling (its 8-bit exponent matches F32's range), so for
 ||| BF16 use `gradScaler 1.0 1.0 1.0 1000000` for a no-op scaler.
 export
-defaultGradScaler : IO (GradScaler d dt)
+defaultGradScaler : IO (GradScaler ex dt)
 defaultGradScaler = gradScaler 65536.0 2.0 0.5 2000
 
 ||| Read the scaler's current scale (after any growth/backoff updates
 ||| from prior steps).
 export
-currentScale : GradScaler d dt -> IO Double
+currentScale : GradScaler ex dt -> IO Double
 currentScale gs = readIORef gs.scaleRef
 
 ||| Apply the scaler's current scale to a loss tensor (multiplies
@@ -75,9 +75,9 @@ currentScale gs = readIORef gs.scaleRef
 ||| Named `applyScale` rather than `scaleLoss` to avoid clashing
 ||| with Backprop.idr's `scaleLoss` (the mean-reduction helper).
 export
-applyScale : {0 d : Executor} -> UserExecutorCore d =>
-             GradScaler d dt -> Tensor [] d dt WithGrad ->
-             IO (Tensor [] d dt WithGrad)
+applyScale : {0 ex : Executor} -> UserExecutorCore ex =>
+             GradScaler ex dt -> Tensor [] ex dt WithGrad ->
+             IO (Tensor [] ex dt WithGrad)
 applyScale gs loss = do
   s <- readIORef gs.scaleRef
   tmulScalar loss s
@@ -100,9 +100,9 @@ isNaN x = x /= x
 ||| NaN for skipped steps, the unscaled loss otherwise. Callers
 ||| that want to distinguish should check `isNaN` themselves.
 export
-trainStepScaled : {0 d : Executor} -> UserExecutorTraining d => IsFloating dt =>
-                  NativeOptimizer d -> GradScaler d dt ->
-                  Tensor [] d dt WithGrad -> IO Double
+trainStepScaled : {0 ex : Executor} -> UserExecutorTraining ex => IsFloating dt =>
+                  NativeOptimizer ex -> GradScaler ex dt ->
+                  Tensor [] ex dt WithGrad -> IO Double
 trainStepScaled opt gs scaledLoss = do
   scale <- readIORef gs.scaleRef
   result <- nativeTrainStepScaled opt scaledLoss scale

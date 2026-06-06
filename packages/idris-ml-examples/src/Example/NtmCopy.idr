@@ -183,7 +183,7 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation: forwardTwoPhase produces per-step Vector predictions
@@ -191,7 +191,7 @@ main = do
   -- Eval doesn't need gradients; each evalOne runs in its own
   -- withNoGrad bracket so the exit drain fires per-sequence on mlx.
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = withNoGrad {d=ExampleExecutor} $ do
+      evalOne dp = withNoGrad {ex=ExampleExecutor} $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 
@@ -205,7 +205,7 @@ main = do
   putStrLn ""
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  withNoGrad {d=ExampleExecutor} $ traverse_ (\dp => do
+  withNoGrad {ex=ExampleExecutor} $ traverse_ (\dp => do
     (_, preds) <- forwardTwoPhase trained dp
     putStr "  Input:  "
     putStrLn $ unwords (map showBinaryVec (encodingInputs dp))

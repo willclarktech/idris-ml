@@ -16,7 +16,7 @@ import Tensor
 
 public export
 data ResidualState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkResidual : AnyLayer n n d dt g -> ResidualState n n d dt g
+  MkResidual : AnyLayer n n ex dt g -> ResidualState n n ex dt g
 
 
 ----------------------------------------------------------------------
@@ -26,10 +26,10 @@ data ResidualState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : G
 %default partial
 
 export
-applyResidual : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
-                  ResidualState n n d dt g ->
-                  TVec n d dt g ->
-                  IO (ResidualState n n d dt g, TVec n d dt g)
+applyResidual : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} ->
+                  ResidualState n n ex dt g ->
+                  TVec n ex dt g ->
+                  IO (ResidualState n n ex dt g, TVec n ex dt g)
 applyResidual (MkResidual inner) input = do
   (inner', innerOut) <- applyVarAny inner input
   sumT <- tadd input innerOut
@@ -63,10 +63,10 @@ LayerLike ResidualState where
 
 ||| Wrap a same-dim AnyLayer in a residual connection.
 export
-residualLayer : {n : Nat} -> AnyLayer n n d dt g -> ResidualState n n d dt g
+residualLayer : {n : Nat} -> AnyLayer n n ex dt g -> ResidualState n n ex dt g
 residualLayer inner = MkResidual inner
 
 ||| Same, wrapped in `AnyLayer`.
 export
-residualLayerAny : {n : Nat} -> AnyLayer n n d dt g -> AnyLayer n n d dt g
+residualLayerAny : {n : Nat} -> AnyLayer n n ex dt g -> AnyLayer n n ex dt g
 residualLayerAny inner = MkAnyLayer ResidualState (MkResidual inner)

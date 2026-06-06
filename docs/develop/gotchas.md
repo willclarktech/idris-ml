@@ -128,7 +128,7 @@ The Ord-instance comparators (`<`, `<=`, etc.) route through `compare_Ord_Intege
 
 ### Polymorphic type-parameter slot vs concrete value in method body — exponential metavar accumulation
 
-If a record carries a polymorphic type-parameter slot (`record Tensor ... (0 dt : DType) ...`) but the interface methods that operate on values of that record hardcode a concrete value in the slot (`applyVar : ... -> Tensor [i] d F64 g -> ...`), Idris-2's elaborator allocates a fresh unification variable for `dt` at every Tensor reference and keeps it alive across the module to support cross-method elaboration. The variable always unifies to F64 trivially — but the metavar state isn't released until the module compiles.
+If a record carries a polymorphic type-parameter slot (`record Tensor ... (0 dt : DType) ...`) but the interface methods that operate on values of that record hardcode a concrete value in the slot (`applyVar : ... -> Tensor [i] ex F64 g -> ...`), Idris-2's elaborator allocates a fresh unification variable for `dt` at every Tensor reference and keeps it alive across the module to support cross-method elaboration. The variable always unifies to F64 trivially — but the metavar state isn't released until the module compiles.
 
 For a small module this is invisible. For a layer with hundreds of Tensor references (`Layer/Dnc.idr` is the canonical case — DNC's memory + temporal-link matrix + read/write heads = many nested record-update chains), the kept-alive metavars accumulate. Observed on this codebase: 33+ GB resident in Chez Scheme on a single `idris-ml` build, climbing as Layer.Dnc elaboration proceeded. Four parallel idris2 builds during iteration drove the host (iTerm2 + spawned processes) to 99 GB.
 
@@ -140,12 +140,12 @@ For a small module this is invisible. For a layer with hundreds of Tensor refere
 -- ❌ Polymorphic record slot, concrete method body:
 record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode)
 interface LayerLike (l : Nat -> Nat -> Device -> DType -> GradMode -> Type) where
-  applyVar : ... -> l i o d F64 g -> Tensor [i] d F64 g -> ...
+  applyVar : ... -> l i o ex F64 g -> Tensor [i] ex F64 g -> ...
 
 -- ✓ Polymorphic record slot, polymorphic method body:
 record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode)
 interface LayerLike (l : Nat -> Nat -> Device -> DType -> GradMode -> Type) where
-  applyVar : {0 dt : DType} -> ... -> l i o d dt g -> Tensor [i] d dt g -> ...
+  applyVar : {0 dt : DType} -> ... -> l i o ex dt g -> Tensor [i] ex dt g -> ...
 ```
 
 The polymorphic version binds `dt` once per function call instead of per Tensor reference, so each call site allocates one metavar regardless of how many Tensor references the function body contains. Build memory drops back to baseline.
@@ -178,7 +178,7 @@ Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated on
 
 ### `PrimIO Bits64` FFI returns corrupt state in tight loops — use `PrimIO Int`
 
-The `primPerfOpCount` FFI (introduced commit `e9763d0` for the #393 op-submission counter) originally declared `PrimIO Bits64`. The C side returns `long`, which is `int64_t` on macOS — fits both `Bits64` and `Int`. Calling the typeclass-routed `perfOpCount {d=ExampleDevice}` in a tight loop (once per decode step in HfLlama's `genLoop`) reliably crashed tape F32 inference with `Exception: invalid memory reference` / `Illegal instruction: 4` after ~8 iterations (#401). Switching the FFI declaration to `PrimIO Int` (and the `Tensor.idr` wrapper to `IO Int`) eliminated the crash — same C function, same workload, full 13-step decode. The exact failure mode of Idris-2's chez codegen for `unsigned-64` returns in a typeclass-dispatched `PrimIO` is unresolved (the other documented hypotheses — typeclass dispatch, FFI marshalling — weren't independently isolated), but the working code uses `Int`. Lesson: for FFI counters / sizes / handle indices returning values that fit in `Int64`, default to `PrimIO Int` not `PrimIO Bits64`. Reserve `Bits64` for cases where the unsigned semantics genuinely matter and the call frequency is low.
+The `primPerfOpCount` FFI (introduced commit `e9763d0` for the #393 op-submission counter) originally declared `PrimIO Bits64`. The C side returns `long`, which is `int64_t` on macOS — fits both `Bits64` and `Int`. Calling the typeclass-routed `perfOpCount {ex=ExampleDevice}` in a tight loop (once per decode step in HfLlama's `genLoop`) reliably crashed tape F32 inference with `Exception: invalid memory reference` / `Illegal instruction: 4` after ~8 iterations (#401). Switching the FFI declaration to `PrimIO Int` (and the `Tensor.idr` wrapper to `IO Int`) eliminated the crash — same C function, same workload, full 13-step decode. The exact failure mode of Idris-2's chez codegen for `unsigned-64` returns in a typeclass-dispatched `PrimIO` is unresolved (the other documented hypotheses — typeclass dispatch, FFI marshalling — weren't independently isolated), but the working code uses `Int`. Lesson: for FFI counters / sizes / handle indices returning values that fit in `Int64`, default to `PrimIO Int` not `PrimIO Bits64`. Reserve `Bits64` for cases where the unsigned semantics genuinely matter and the call frequency is low.
 
 ### Wrapped-handle ABI — new Tensor FFIs must use the wrap-on-return template
 
@@ -204,14 +204,14 @@ Concretely, this `makeVec4` form crashed with `pointer being freed was not alloc
 
 ```idris
 makeVec4 (a, b, c, d) = do
-  let buf  = primAllocHost {d} 4          -- side effect
+  let buf  = primAllocHost {ex} 4          -- side effect
   let buf1 = prim__setDouble buf 0 a      -- side effect
   -- ... more sets
-  let sh   = primAllocIntHost {d} 1       -- side effect
-  let sh1  = primSetIntHost {d} sh 0 4
-  let ptr  = primCreateFromHost {d} buf4 sh1 1 1
-  primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
-  primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+  let sh   = primAllocIntHost {ex} 1       -- side effect
+  let sh1  = primSetIntHost {ex} sh 0 4
+  let ptr  = primCreateFromHost {ex} buf4 sh1 1 1
+  primIO (\w => MkIORes (primFreeIntHost {ex} sh1)  w)
+  primIO (\w => MkIORes (primFreeHost    {ex} buf4) w)
   pure (MkTensor ptr Nothing)
 ```
 
@@ -221,12 +221,12 @@ The generated Scheme bound `u--buf`, `u--sh`, `u--ptr`, etc. as `let` values **o
 
 ```idris
 makeVec4 (a, b, c, d) = do
-  buf  <- primIO (\w => MkIORes (primAllocHost {d} 4) w)
+  buf  <- primIO (\w => MkIORes (primAllocHost {ex} 4) w)
   buf1 <- primIO (\w => MkIORes (prim__setDouble buf 0 a) w)
   -- ...
-  ptr  <- primIO (\w => MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
-  primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
-  primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+  ptr  <- primIO (\w => MkIORes (primCreateFromHost {ex} buf4 sh1 1 1) w)
+  primIO (\w => MkIORes (primFreeIntHost {ex} sh1)  w)
+  primIO (\w => MkIORes (primFreeHost    {ex} buf4) w)
   pure (MkTensor ptr Nothing)
 ```
 
@@ -252,7 +252,7 @@ The `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` helper that 
 
 Inference programs that complete with hundreds of MB of live tensor handles hit a 14-22 minute post-main C-side cleanup tail on the CPU lanes (torch-cpu, mlx-cpu). The work is libtorch's per-`at::Tensor` destructor cascade (`~at::Tensor → ~Storage → CPUAllocator-free`) walking the ~146 params + ~600 forward intermediates accumulated across an 8-token no-cache greedy decode. The GPU lanes (`torch-mps`, `mlx-gpu`) don't show this — MTLBuffer release is async.
 
-Fix: call `releaseAllPersistent {d=ExampleDevice}` after `runGenerate` and before `pure ()`. On torch this `free_intermediates()` + walks `param_registry_arr` deleting each `at::Tensor*`; cascade runs inside `main` where it's timed + bounded. Measured on HfLlama-1.2B BF16 torch-cpu (commit `84cd1b5`): **wall 23m22s → 1m21s**.
+Fix: call `releaseAllPersistent {ex=ExampleDevice}` after `runGenerate` and before `pure ()`. On torch this `free_intermediates()` + walks `param_registry_arr` deleting each `at::Tensor*`; cascade runs inside `main` where it's timed + bounded. Measured on HfLlama-1.2B BF16 torch-cpu (commit `84cd1b5`): **wall 23m22s → 1m21s**.
 
 Pair with `drainManagedHandles + forceMajorGc` immediately before (the standard `withNoGrad` cleanup pair) so any guardian-tracked wraps from the run are popped before the explicit release. mlx-cpu's `releaseAllPersistent` is a no-op today — `mlx_sweep_generation` is static-scoped in `autograd.cpp` and the simpler `param_clear + mx::clear_cache` regressed the mlx-cpu wall; exposing the sweep + walking `all_tensors` is the proper fix and a deferred follow-up.
 
@@ -332,7 +332,7 @@ prev' <- case prev of
   Just p  => Just <$> weakenGrad p
 
 -- For Vect, manual recursion:
-freezeLinearVec : Vect k (LinearState i o d g) -> IO (Vect k (LinearState i o d NoGrad))
+freezeLinearVec : Vect k (LinearState i o d g) -> IO (Vect k (LinearState i o ex NoGrad))
 freezeLinearVec [] = pure []
 freezeLinearVec (l :: ls) = do
   l' <- freezeLayer l
@@ -368,7 +368,7 @@ When a record stores a function value (e.g. `RnnState.activation`) that needs to
 -- Field is at the record's g; activation fixed once at construction
 record RnnState (i o : Nat) (0 d : Device) (0 g : GradMode) where
   ...
-  activation : TVec o d g -> TVec o d g     -- ❌ fixed
+  activation : TVec o ex g -> TVec o ex g     -- ❌ fixed
   ...
 ```
 
@@ -377,7 +377,7 @@ vs.
 ```idris
 record RnnState (i o : Nat) (0 d : Device) (0 g : GradMode) where
   ...
-  activation : {0 g' : GradMode} -> TVec o d g' -> TVec o d g'  -- ✓ usable at any g
+  activation : {0 g' : GradMode} -> TVec o ex g' -> TVec o ex g'  -- ✓ usable at any g
   ...
 ```
 
@@ -394,7 +394,7 @@ and (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
 
 The natural-looking `LayerLike l => LayerLikeMixed (\i, o, d, _, ct, g => l i o d ct g)` type-level-lambda instance head also doesn't work — the lambda body's argument types lose multiplicity the same way.
 
-Workaround: **wrap the higher-order type through an existing existential**. Instead of `LayerLikeMixed (LambdaOver l)`, define a concrete `data AsMixed` whose constructor takes an `AnyLayer i o d dt g` (which already has the multiplicity-annotated args bound correctly) and produces an `AsMixed i o d dt dt g`. Pattern-matching `MkAsMixed (MkAnyLayer l @{dict} layer)` recovers the inner `LayerLike` dict + layer, and your instance methods delegate. See `Layer/MixedCore.idr` (`AsMixed`) and the design-decisions "LayerLikeMixed bridge" section.
+Workaround: **wrap the higher-order type through an existing existential**. Instead of `LayerLikeMixed (LambdaOver l)`, define a concrete `data AsMixed` whose constructor takes an `AnyLayer i o ex dt g` (which already has the multiplicity-annotated args bound correctly) and produces an `AsMixed i o ex dt dt g`. Pattern-matching `MkAsMixed (MkAnyLayer l @{dict} layer)` recovers the inner `LayerLike` dict + layer, and your instance methods delegate. See `Layer/MixedCore.idr` (`AsMixed`) and the design-decisions "LayerLikeMixed bridge" section.
 
 Take-away: layer-kind-to-layer-kind bridges in Idris-2 default to **concrete wrapper data types**, not type-level lambdas.
 
@@ -822,7 +822,7 @@ HF transformers 5.9.0's `BitNetDeserialize.convert` (`src/transformers/integrati
 
 ### Idris-side `Compatible` admissibility doesn't track HF dtype storage quirks
 
-The Idris-side `Compatible d dt` typeclass admits storage on a backend (e.g. `Compatible (TorchDev TMps) F32`). What it does NOT track is whether the on-disk HF checkpoint encodes a tensor in some adapter-specific way that needs custom unmarshalling — the BitNet case (uint8 storage of packed ternary, JSON header reporting `U8` but Idris's `loadModel` expecting `Ternary`) is one example. The `safetensors_read_raw_bytes` keystone (added 2026-06-02) is the escape hatch: it returns raw bytes, and the per-architecture adapter (e.g. `HfBitNet.loadHfTernaryWeight`) feeds them through whatever decoder fits. If you hit a future HF model whose on-disk dtype differs from what idris-ml wants in memory, look for an existing `tCreate*FromHfPacked*` helper or add one — never try to coerce the standard `param_load*` path; it refuses dtype mismatches by design.
+The Idris-side `Compatible ex dt` typeclass admits storage on a backend (e.g. `Compatible (TorchDev TMps) F32`). What it does NOT track is whether the on-disk HF checkpoint encodes a tensor in some adapter-specific way that needs custom unmarshalling — the BitNet case (uint8 storage of packed ternary, JSON header reporting `U8` but Idris's `loadModel` expecting `Ternary`) is one example. The `safetensors_read_raw_bytes` keystone (added 2026-06-02) is the escape hatch: it returns raw bytes, and the per-architecture adapter (e.g. `HfBitNet.loadHfTernaryWeight`) feeds them through whatever decoder fits. If you hit a future HF model whose on-disk dtype differs from what idris-ml wants in memory, look for an existing `tCreate*FromHfPacked*` helper or add one — never try to coerce the standard `param_load*` path; it refuses dtype mismatches by design.
 
 ### HF transformers ships two BitLinear classes with different post-quant algebra
 
@@ -855,11 +855,11 @@ The `withNoGradKeep` story above was about MPS's 18 GB watermark. On torch-cpu (
 
 ### `applyBitLinearHf2d` row-loop lambdas — lift to top-level when surrounding function has heavy constraints
 
-`applyBitLinearHf2d` originally had two `let`-bound functions (`processRow` + `foldRows`) inside its `ioRerun` body. They closed over the constraint-rich outer scope (`UserDeviceLinear d` + `UserDeviceQuant d` + `Compatible d dt` + the `BitLinearHf i o d dt g` record), so every reference inside the lambda body re-instantiated those constraints. At BitNet 2B-4T's 210 call sites of `applyBitLinearHf2d` (and 480 sites of `applyRmsNorm2d` with the same pattern), that's a lot of constraint-resolution work — and was a meaningful contributor to the 26-min elaboration of `Example/HfBitNetInference.idr`. The refactor (`3b23ffa`) lifts each row-loop pair to top-level helpers taking all dependencies as plain `AnyPtr` / `Int` / `Double` args. The helpers elaborate ONCE at module compile, not per call site. Effect: torch-cpu example rebuild dropped from ~26 min to ~22 min (modest but real). Two traps when doing this kind of lift: (i) **picking the right interface for the constraint** — `primNarrow` / `primCat2` / `primReshape*` / `primSum` are on `UserDeviceLinear`, not `UserDeviceCore` (interface hierarchy at `Device/Core.idr:107-336`); the first attempt got it wrong and Idris emitted `Can't find an implementation for UserDeviceLinear d` on every `prim*` call site. (ii) **threading the erased `{0 d : Device}` through recursive calls** — even though `d` is erased, the recursive call body needs an explicit `{d}` so the elaborator's instance search has a name to bind. Without it: `Can't find an implementation for UserDeviceLinear ?d` at the recursive call site.
+`applyBitLinearHf2d` originally had two `let`-bound functions (`processRow` + `foldRows`) inside its `ioRerun` body. They closed over the constraint-rich outer scope (`UserDeviceLinear d` + `UserDeviceQuant d` + `Compatible ex dt` + the `BitLinearHf i o ex dt g` record), so every reference inside the lambda body re-instantiated those constraints. At BitNet 2B-4T's 210 call sites of `applyBitLinearHf2d` (and 480 sites of `applyRmsNorm2d` with the same pattern), that's a lot of constraint-resolution work — and was a meaningful contributor to the 26-min elaboration of `Example/HfBitNetInference.idr`. The refactor (`3b23ffa`) lifts each row-loop pair to top-level helpers taking all dependencies as plain `AnyPtr` / `Int` / `Double` args. The helpers elaborate ONCE at module compile, not per call site. Effect: torch-cpu example rebuild dropped from ~26 min to ~22 min (modest but real). Two traps when doing this kind of lift: (i) **picking the right interface for the constraint** — `primNarrow` / `primCat2` / `primReshape*` / `primSum` are on `UserDeviceLinear`, not `UserDeviceCore` (interface hierarchy at `Device/Core.idr:107-336`); the first attempt got it wrong and Idris emitted `Can't find an implementation for UserDeviceLinear d` on every `prim*` call site. (ii) **threading the erased `{0 d : Device}` through recursive calls** — even though `d` is erased, the recursive call body needs an explicit `{ex}` so the elaborator's instance search has a name to bind. Without it: `Can't find an implementation for UserDeviceLinear ?d` at the recursive call site.
 
 ### `Example/HfBitNetInference.idr` elaboration takes 22-26 min on torch-cpu
 
-Cold (or near-cold) builds of `Example/HfBitNetInference.idr` take **22 minutes** post-`3b23ffa` refactor; **26 minutes** pre-refactor. The Llama-equivalent (`Example/HfLlamaInference.idr` with the same `genOneStep` / `genLoop` / `runGenerate` pattern) takes 5-7 min on the same machine. The 3-4× gap reflects BitNet's heavier elaboration surface: (a) one extra typeclass constraint (`UserDeviceQuant d`) per `hfBitnetForwardLm` call site; (b) `BitLinearHf.weightT : Tensor [o, i] d Ternary NoGrad` triggering `LosslessTo Ternary dt` / `UpcastableTo Ternary dt` resolution at every BitLinear use (210 sites for the 2B-4T config); (c) the `applyBitLinearHf2d` body being 25+ lines with multiple FFI calls vs Llama's 2-line `applyLinear2d`. Idris emits zero output during the elaboration — silently appearing to hang. Two earlier attempts to add `genOneStep` / `genLoop` / `runGenerate` to the example were killed at the 45-min and 29-min marks under the assumption that the silence was a true hang; the third attempt (commit `2ae8e15`) was left to run and completed in 22-26 min. Lesson: if a future BitNet-style adapter takes >15 min in `idris2` with no output, give it up to 45 min before assuming a real bug. The `genOneStep` / `genLoop` / `runGenerate` pattern works; it's just slow to elaborate. A potential bigger win is captured on the `idris-transformers` adapter DRY-up TODO row (share the inference scaffolding so it elaborates once, not per adapter).
+Cold (or near-cold) builds of `Example/HfBitNetInference.idr` take **22 minutes** post-`3b23ffa` refactor; **26 minutes** pre-refactor. The Llama-equivalent (`Example/HfLlamaInference.idr` with the same `genOneStep` / `genLoop` / `runGenerate` pattern) takes 5-7 min on the same machine. The 3-4× gap reflects BitNet's heavier elaboration surface: (a) one extra typeclass constraint (`UserDeviceQuant d`) per `hfBitnetForwardLm` call site; (b) `BitLinearHf.weightT : Tensor [o, i] ex Ternary NoGrad` triggering `LosslessTo Ternary dt` / `UpcastableTo Ternary dt` resolution at every BitLinear use (210 sites for the 2B-4T config); (c) the `applyBitLinearHf2d` body being 25+ lines with multiple FFI calls vs Llama's 2-line `applyLinear2d`. Idris emits zero output during the elaboration — silently appearing to hang. Two earlier attempts to add `genOneStep` / `genLoop` / `runGenerate` to the example were killed at the 45-min and 29-min marks under the assumption that the silence was a true hang; the third attempt (commit `2ae8e15`) was left to run and completed in 22-26 min. Lesson: if a future BitNet-style adapter takes >15 min in `idris2` with no output, give it up to 45 min before assuming a real bug. The `genOneStep` / `genLoop` / `runGenerate` pattern works; it's just slow to elaborate. A potential bigger win is captured on the `idris-transformers` adapter DRY-up TODO row (share the inference scaffolding so it elaborates once, not per adapter).
 
 ## C Tape Backend (backend_tape.c)
 
@@ -1232,7 +1232,7 @@ torch-cpu/tape (everything is F64) but a hard crash on MPS, which
 rejects F64 at construction. Three layers bit us on 2026-05-20:
 
 - **Idris creators**: `primCreateState2d` / `primCreateState1d` etc. are
-  F64. Use the dtype-aware `dtCreateState2d {t=ExampleDType} … (deviceStreamTag {d})`
+  F64. Use the dtype-aware `dtCreateState2d {t=ExampleDType} … (deviceStreamTag {ex})`
   / `dtCastFrom {t=ExampleDType} …` instead, which route through
   `RuntimeDType` to pick F32/F64. (matmul-bench, mnist failures.)
 - **C ops with hardcoded accumulators**: `tensor_scatter_add` allocated
@@ -1356,14 +1356,14 @@ during the cross-backend `toDevice` work:
 
 ```idris
 -- Looks like it frees the buffer. Doesn't.
-let _ = primFreeHost {d=d1} dataBuf  -- elided
+let _ = primFreeHost {ex=d1} dataBuf  -- elided
 ```
 
 Fix: thread the call through `primIO` so the IO monad's sequencing
 forces evaluation:
 
 ```idris
-primIO (\w => MkIORes (primFreeHost {d=d1} dataBuf) w)
+primIO (\w => MkIORes (primFreeHost {ex=d1} dataBuf) w)
 ```
 
 Or use `ioRerun` (`Tensor.idr`) inside a `do`-block once it's
@@ -1410,7 +1410,7 @@ quantity:
 record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode)
 ```
 
-But when a function signature mentions `Tensor dims d dt g` without
+But when a function signature mentions `Tensor dims ex dt g` without
 explicitly binding `dims` and `rank`, Idris auto-binds them at
 quantity 0 (the function-binder default). The body then can't
 observe `dims` at runtime — e.g. `product dims` fails with "dims is

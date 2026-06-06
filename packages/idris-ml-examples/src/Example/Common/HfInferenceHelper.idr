@@ -39,7 +39,7 @@ public export
 mkIds : {n : Nat} -> Vect n Double
      -> Tensor [n] ExampleExecutor ExampleDType WithGrad
 mkIds xs =
-  let raw = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType}
+  let raw = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -64,7 +64,7 @@ printRow end i p =
   if i >= end
     then pure ()
     else do
-      let v = primItem1d {d=ExampleExecutor} p i
+      let v = primItem1d {ex=ExampleExecutor} p i
       putStrLn (show v)
       printRow end (i + 1) p
 
@@ -84,7 +84,7 @@ argmaxRow vocab p = go (cast {to=Int} vocab) 0 0 (-1.0e300)
     go end i bestI bestV =
       if i >= end
         then pure (cast {to=Nat} bestI)
-        else let v = primItem1d {d=ExampleExecutor} p i
+        else let v = primItem1d {ex=ExampleExecutor} p i
              in if v > bestV
                   then go end (i + 1) i v
                   else go end (i + 1) bestI bestV
@@ -107,7 +107,7 @@ collectShown end startIdx ptr = go startIdx []
       if i >= end
         then pure (reverse acc)
         else do
-          let v = primItem1d {d=ExampleExecutor} ptr i
+          let v = primItem1d {ex=ExampleExecutor} ptr i
           go (i + 1) (show v :: acc)
 
 ||| Write a 1D row of `nElems` floats from `ptr` to `path`, one float

@@ -193,7 +193,7 @@ public export Compatible (MlxDev MGpu) F32 where  -- ✓ Metal GPU supports f32
 -- DELIBERATELY NO `Compatible (MlxDev MGpu) F64` instance
 ```
 
-The `Tensor` record has a 0-quantity dtype slot, and every tensor-construction smart constructor carries `Compatible d t =>`. So:
+The `Tensor` record has a 0-quantity dtype slot, and every tensor-construction smart constructor carries `Compatible ex t =>`. So:
 
 ```idris
 gpuF32 : IO (Tensor [4] (MlxDev MGpu) F32 WithGrad)

@@ -49,31 +49,31 @@ import Tensor
 ||| (and so `appendKV` can compute the next-step `len + s` without
 ||| inspecting the new Tensor's implicit `s`).
 public export
-data KVCache : (kvOut : Nat) -> (0 d : Executor) -> (0 dt : DType) -> Type where
+data KVCache : (kvOut : Nat) -> (0 ex : Executor) -> (0 dt : DType) -> Type where
   ||| Seed state: no tokens cached. Constructed at the start of
   ||| generation (one per layer).
-  Empty  : KVCache kvOut d dt
+  Empty  : KVCache kvOut ex dt
   ||| Populated cache: K and V each `[len, kvOut]`, with `len > 0` by
   ||| construction (callers always reach this via `appendKV`).
   Filled : (len : Nat) ->
-           (k : Tensor [len, kvOut] d dt NoGrad) ->
-           (v : Tensor [len, kvOut] d dt NoGrad) ->
-           KVCache kvOut d dt
+           (k : Tensor [len, kvOut] ex dt NoGrad) ->
+           (v : Tensor [len, kvOut] ex dt NoGrad) ->
+           KVCache kvOut ex dt
 
 
 ||| Empty cache constructor — used when seeding a per-layer cache at
 ||| the start of generation. The `kvOut` parameter is left to be
-||| inferred from context (e.g. a `Vect numLayers (KVCache kvOut d dt)`
+||| inferred from context (e.g. a `Vect numLayers (KVCache kvOut ex dt)`
 ||| ascription).
 public export
-emptyKVCache : KVCache kvOut d dt
+emptyKVCache : KVCache kvOut ex dt
 emptyKVCache = Empty
 
 
 ||| Current cached prefix length. Returns 0 for `Empty`, the stored
 ||| `len` for `Filled`.
 public export
-cacheLen : KVCache kvOut d dt -> Nat
+cacheLen : KVCache kvOut ex dt -> Nat
 cacheLen Empty            = 0
 cacheLen (Filled len _ _) = len
 
@@ -89,12 +89,12 @@ cacheLen (Filled len _ _) = len
 ||| before append). The cache stores the post-RoPE values; reading
 ||| them back during SDPA is the consumer's path.
 public export
-appendKV : {0 d : Executor} -> UserExecutorTraining d =>
+appendKV : {0 ex : Executor} -> UserExecutorTraining ex =>
            {s, kvOut : Nat} ->
-           KVCache kvOut d dt ->
-           (newK : Tensor [s, kvOut] d dt NoGrad) ->
-           (newV : Tensor [s, kvOut] d dt NoGrad) ->
-           IO (KVCache kvOut d dt)
+           KVCache kvOut ex dt ->
+           (newK : Tensor [s, kvOut] ex dt NoGrad) ->
+           (newV : Tensor [s, kvOut] ex dt NoGrad) ->
+           IO (KVCache kvOut ex dt)
 appendKV Empty newK newV = pure (Filled s newK newV)
 appendKV (Filled len k v) newK newV = do
   k' <- tconcat2dAxis0 k newK

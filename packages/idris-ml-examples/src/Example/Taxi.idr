@@ -190,7 +190,7 @@ main = do
   putStrLn ""
 
   metrics <- newRLMetricsState 1000
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
     (\m, d => do
        let (m', loss) = epochQLearning cfg m d
        recordReturn metrics (negate loss)

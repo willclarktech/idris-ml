@@ -2,7 +2,7 @@
 
 NTM-specific design decisions for the Neural Turing Machine implementation. For general autograd, optimizer, and infrastructure decisions, see [design-decisions.md](design-decisions.md).
 
-> **Note:** V1 internals referenced below (`Variable d`, `forwardVarTensor`, `applyVarTensor`, `Memory.idr`) are pre-Path-C names. The NTM design — head parameters, addressing pipeline, two-phase training, simplex projection — is unchanged post-migration; the names map to V2 as `Tensor [...] d` / `forwardVar` / `applyVar`, with the NTM-specific addressing fused into `prim__ntmReadHead` and `prim__ntmInterpWrite` (still on the tech-debt list per `TODO.md`). See [path-c-migration.md](path-c-migration.md).
+> **Note:** V1 internals referenced below (`Variable d`, `forwardVarTensor`, `applyVarTensor`, `Memory.idr`) are pre-Path-C names. The NTM design — head parameters, addressing pipeline, two-phase training, simplex projection — is unchanged post-migration; the names map to V2 as `Tensor [...] ex` / `forwardVar` / `applyVar`, with the NTM-specific addressing fused into `prim__ntmReadHead` and `prim__ntmInterpWrite` (still on the tech-debt list per `TODO.md`). See [path-c-migration.md](path-c-migration.md).
 
 ## NTM head parameters: gamma sharpening
 

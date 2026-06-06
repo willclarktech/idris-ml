@@ -75,12 +75,12 @@ not at storage time:
 
 ```idris
 -- Stored: one [d_model, d_model] linear, HF-aligned.
-q : Tensor [seq, dModel] d dt g
+q : Tensor [seq, dModel] ex dt g
 q = qProj <> x  -- standard matmul, no per-head awareness
 
 -- Forward-time view: reshape [seq, dModel] -> [seq, nHeads, headDim]
 -- -> transpose to [nHeads, seq, headDim] for the attention math.
-qHeads : Tensor [nHeads, seq, headDim] d dt g
+qHeads : Tensor [nHeads, seq, headDim] ex dt g
 qHeads = transpose [0, 1] (reshape q [seq, nHeads, headDim])
 ```
 
@@ -116,10 +116,10 @@ source.
 
 ```idris
 hfBertLayerAny : UserDeviceTraining d => RuntimeDType dt
-              => Linked d => Compatible d dt
+              => Linked ex => Compatible ex dt
               => (config : BertConfig)
               -> (paramPrefix : String)
-              -> IO (BertModel ... d dt WithGrad)
+              -> IO (BertModel ... ex dt WithGrad)
 ```
 
 Mirrors core `idris-ml`'s `*LayerAny` pattern (`linearLayerAny`,
@@ -188,17 +188,17 @@ record BertLayerState (hidden, nHeads, intermediate : Nat)
   constructor MkBertLayer
   -- attention.self.{query,key,value} — three separate linears,
   -- NOT fused. BERT does not fuse QKV.
-  q : LinearState hidden hidden d dt g  -- `.weight`,.bias suffixes
-  k : LinearState hidden hidden d dt g
-  v : LinearState hidden hidden d dt g
+  q : LinearState hidden hidden ex dt g  -- `.weight`,.bias suffixes
+  k : LinearState hidden hidden ex dt g
+  v : LinearState hidden hidden ex dt g
   -- attention.output.dense + .LayerNorm
-  attnOut    : LinearState hidden hidden d dt g
-  attnOutLN  : LayerNormState hidden d dt g
+  attnOut    : LinearState hidden hidden ex dt g
+  attnOutLN  : LayerNormState hidden ex dt g
   -- intermediate.dense + activation
-  ffn1       : LinearState hidden intermediate d dt g  -- (GELU at forward)
+  ffn1       : LinearState hidden intermediate ex dt g  -- (GELU at forward)
   -- output.dense + .LayerNorm
-  ffn2       : LinearState intermediate hidden d dt g
-  ffnOutLN   : LayerNormState hidden d dt g
+  ffn2       : LinearState intermediate hidden ex dt g
+  ffnOutLN   : LayerNormState hidden ex dt g
 
 -- ...
 ```

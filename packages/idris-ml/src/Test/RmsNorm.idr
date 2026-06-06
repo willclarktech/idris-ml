@@ -45,7 +45,7 @@ readVec n p = go (cast {to=Int} n) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=TestExecutor} p i
+        else let v = primItem1d {ex=TestExecutor} p i
              in go end (i + 1) (v :: acc)
 
 
@@ -67,14 +67,14 @@ maxAbsDiff actual expected = go actual (toList expected) 0.0
 -- scope at runtime for the `tinput1d {n}` call below.
 mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkInput xs =
-  let raw = bulkToTensor {d=TestExecutor} {dt=TestDType}
+  let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
 
 testForwardValueAt1234 : IO Bool
 testForwardValueAt1234 = do
-  rms <- rmsNormLayer {d=TestExecutor} {dt=TestDType} {n=4} "rms_test"
+  rms <- rmsNormLayer {ex=TestExecutor} {dt=TestDType} {n=4} "rms_test"
   let input = mkInput (the (Vect 4 Double) [1.0, 2.0, 3.0, 4.0])
   (_, out) <- applyRmsNormEps 1.0e-5 rms input
   vals <- readVec 4 out.tensorPtr
@@ -91,7 +91,7 @@ testForwardValueAt1234 = do
 
 testShapeAndFinite : IO Bool
 testShapeAndFinite = do
-  rms <- rmsNormLayer {d=TestExecutor} {dt=TestDType} {n=8} "rms_shape"
+  rms <- rmsNormLayer {ex=TestExecutor} {dt=TestDType} {n=8} "rms_shape"
   let input = mkInput (the (Vect 8 Double)
                            [0.5, -1.5, 2.0, -0.25, 3.0, 0.0, 1.0, -2.5])
   (_, out) <- applyRmsNormEps 1.0e-5 rms input

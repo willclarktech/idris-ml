@@ -12,12 +12,12 @@ out of the box.
 import HfBert
 import Checkpoint
 
-model <- hfBertModel {d=ExampleDevice} {dt=ExampleDType}
+model <- hfBertModel {ex=ExampleDevice} {dt=ExampleDType}
                      {vocab=30522} {hidden=128} {numLayers=2}
                      {numHeads=2}  {intermediate=512}
                      {maxPos=512}  {typeVocab=2}
                      "bert"
-True <- loadModelAllowCast {d=ExampleDevice}
+True <- loadModelAllowCast {ex=ExampleDevice}
           "model.safetensors"
 ```
 

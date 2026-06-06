@@ -49,70 +49,70 @@ data Conv2DState :
   Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkConv2D :
-    Tensor [outC, inC, kH, kW] d dt g ->                       -- kernel
-    TVec outC d dt g ->                                      -- bias
+    Tensor [outC, inC, kH, kW] ex dt g ->                       -- kernel
+    TVec outC ex dt g ->                                      -- bias
     Conv2DState inC outC h w kH kW padH padW
                   (inC * (h * w))
                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                  d dt g
+                  ex dt g
 
 %default partial
 
 export
-applyConv2D : {0 d : Executor} -> UserExecutorTraining d => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+applyConv2D : {0 ex : Executor} -> UserExecutorTraining ex => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 Conv2DState inC outC h w kH kW padH padW
                               (inC * (h * w))
                               (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                              d dt g ->
-                TVec (inC * (h * w)) d dt g->
-                TVec (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)) d dt g
+                              ex dt g ->
+                TVec (inC * (h * w)) ex dt g->
+                TVec (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)) ex dt g
 applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
               (MkConv2D ker bias) input =
   let inCI = cast {to=Int} inC
       hI = cast {to=Int} h
       wI = cast {to=Int} w
-      inp3d = primReshape3d {d} input.tensorPtr inCI hI wI
+      inp3d = primReshape3d {ex} input.tensorPtr inCI hI wI
       padHI = cast {to=Int} padH
       padWI = cast {to=Int} padW
-      outT = primConv2d {d} inp3d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
+      outT = primConv2d {ex} inp3d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
       outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
-      flatPtr = primReshape1d {d} outT (cast {to=Int} outFlat)
+      flatPtr = primReshape1d {ex} outT (cast {to=Int} outFlat)
   in MkTensor flatPtr Nothing
 
 -- Batched forward: input [b, inC * h * w], reshape to [b, inC, h, w] for
 -- the batched primitive, then flatten back. One conv2d call per batched
 -- forward (vs B single-sample calls in `applyConv2D`).
 export
-applyConv2DBatched : {0 d : Executor} -> UserExecutorTraining d => {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
+applyConv2DBatched : {0 ex : Executor} -> UserExecutorTraining ex => {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
                        Conv2DState inC outC h w kH kW padH padW
                                      (inC * (h * w))
                                      (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                     d dt g ->
-                       Tensor [b, inC * (h * w)] d dt g ->
-                       Tensor [b, outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)] d dt g
+                                     ex dt g ->
+                       Tensor [b, inC * (h * w)] ex dt g ->
+                       Tensor [b, outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)] ex dt g
 applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
                      (MkConv2D ker bias) input =
   let bI    = cast {to=Int} b
       inCI  = cast {to=Int} inC
       hI    = cast {to=Int} h
       wI    = cast {to=Int} w
-      inp4d = primReshape4d {d} input.tensorPtr bI inCI hI wI
+      inp4d = primReshape4d {ex} input.tensorPtr bI inCI hI wI
       padHI = cast {to=Int} padH
       padWI = cast {to=Int} padW
-      outT  = primConv2dBatched {d} inp4d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
+      outT  = primConv2dBatched {ex} inp4d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
       outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
-      out2d = primReshape2d {d} outT bI (cast {to=Int} outFlat)
+      out2d = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
   in MkTensor out2d Nothing
 
 
 ||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
-conv2dLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv2DState inC outC h w kH kW padH padW
                                   (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                  d dt WithGrad)
+                                  ex dt WithGrad)
 conv2dLayer paramPrefix = do
   -- He-normal kernel init: std = sqrt(2 / fan_in) where fan_in for a
   -- conv kernel is inC * kH * kW. Zero bias.
@@ -136,16 +136,16 @@ public export
     pure (MkConv2D k' b')
 
   unfreezeLayer (MkConv2D k b) = do
-    primIO (primSetRequiresGrad {d} k.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} k.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkConv2D (retypeGrad k) (retypeGrad b))
 
 export
-conv2dLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                  d dt WithGrad)
+                                  ex dt WithGrad)
 conv2dLayerAny pid =
   map (MkAnyLayer (Conv2DState inC outC h w kH kW padH padW))
       (conv2dLayer {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} pid)
@@ -161,34 +161,34 @@ data Conv1DState :
   Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkConv1D :
-    Tensor [outC, inC, kL] d dt g ->
-    TVec outC d dt g ->
+    Tensor [outC, inC, kL] ex dt g ->
+    TVec outC ex dt g ->
     Conv1DState inC outC len kL pad
                   (inC * len)
                   (outC * ConvOutDim len kL pad)
-                  d dt g
+                  ex dt g
 
 export
-applyConv1D : {0 d : Executor} -> UserExecutorTraining d => {inC, outC, len, kL, pad : Nat} ->
+applyConv1D : {0 ex : Executor} -> UserExecutorTraining ex => {inC, outC, len, kL, pad : Nat} ->
                 Conv1DState inC outC len kL pad
                               (inC * len)
-                              (outC * ConvOutDim len kL pad) d dt g ->
-                TVec (inC * len) d dt g ->
-                TVec (outC * ConvOutDim len kL pad) d dt g
+                              (outC * ConvOutDim len kL pad) ex dt g ->
+                TVec (inC * len) ex dt g ->
+                TVec (outC * ConvOutDim len kL pad) ex dt g
 applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
   let inCI = cast {to=Int} inC
       lenI = cast {to=Int} len
-      inp2d = primReshape2d {d} input.tensorPtr inCI lenI
-      outT = primConv1d {d} inp2d ker.tensorPtr bias.tensorPtr (cast {to=Int} pad) 1
+      inp2d = primReshape2d {ex} input.tensorPtr inCI lenI
+      outT = primConv1d {ex} inp2d ker.tensorPtr bias.tensorPtr (cast {to=Int} pad) 1
       outFlat = outC * ConvOutDim len kL pad
-  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {ex} outT (cast {to=Int} outFlat)) Nothing
 
 export
-conv1dLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, len, kL, pad : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv1DState inC outC len kL pad
                                   (inC * len)
-                                  (outC * ConvOutDim len kL pad) d dt WithGrad)
+                                  (outC * ConvOutDim len kL pad) ex dt WithGrad)
 conv1dLayer paramPrefix = do
   -- He-normal kernel init: std = sqrt(2 / fan_in) with fan_in = inC * kL.
   -- Zero bias.
@@ -211,14 +211,14 @@ public export
     pure (MkConv1D k' b')
 
   unfreezeLayer (MkConv1D k b) = do
-    primIO (primSetRequiresGrad {d} k.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} k.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkConv1D (retypeGrad k) (retypeGrad b))
 
 export
-conv1dLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, len, kL, pad : Nat} ->
                    (paramPrefix : String) ->
-                   IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) d dt WithGrad)
+                   IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) ex dt WithGrad)
 conv1dLayerAny pid =
   map (MkAnyLayer (Conv1DState inC outC len kL pad))
       (conv1dLayer {inC} {outC} {len} {kL} {pad} pid)
@@ -238,46 +238,46 @@ data MaxPool2DState :
     MaxPool2DState c inH inW poolH poolW strH strW
                      (c * (inH * inW))
                      (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                     d dt g
+                     ex dt g
 
 export
-applyMaxPool2D : {0 d : Executor} -> UserExecutorTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+applyMaxPool2D : {0 ex : Executor} -> UserExecutorTraining ex => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    MaxPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                                    d dt g ->
-                   TVec (c * (inH * inW)) d dt g->
-                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d dt g
+                                    ex dt g ->
+                   TVec (c * (inH * inW)) ex dt g->
+                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) ex dt g
 applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
   let cI = cast {to=Int} c
       hI = cast {to=Int} inH
       wI = cast {to=Int} inW
-      inp3d = primReshape3d {d} input.tensorPtr cI hI wI
-      outT = primMaxPool2d {d} inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
+      inp3d = primReshape3d {ex} input.tensorPtr cI hI wI
+      outT = primMaxPool2d {ex} inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                    (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {ex} outT (cast {to=Int} outFlat)) Nothing
 
 -- Batched: input [b, c * inH * inW], reshape to [b, c, inH, inW], pool,
 -- flatten back to [b, c * outH * outW].
 export
-applyMaxPool2DBatched : {0 d : Executor} -> UserExecutorTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Nat} ->
+applyMaxPool2DBatched : {0 ex : Executor} -> UserExecutorTraining ex => {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Nat} ->
                           MaxPool2DState c inH inW poolH poolW strH strW
                                            (c * (inH * inW))
                                            (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                                           d dt g ->
-                          Tensor [b, c * (inH * inW)] d dt g ->
-                          Tensor [b, c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)] d dt g
+                                           ex dt g ->
+                          Tensor [b, c * (inH * inW)] ex dt g ->
+                          Tensor [b, c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)] ex dt g
 applyMaxPool2DBatched {c} {inH} {inW} {poolH} {poolW} {strH} {strW} {b} _ input =
   let bI = cast {to=Int} b
       cI = cast {to=Int} c
       hI = cast {to=Int} inH
       wI = cast {to=Int} inW
-      inp4d = primReshape4d {d} input.tensorPtr bI cI hI wI
-      outT = primMaxPool2dBatched {d} inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
+      inp4d = primReshape4d {ex} input.tensorPtr bI cI hI wI
+      outT = primMaxPool2dBatched {ex} inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                           (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-      out2d = primReshape2d {d} outT bI (cast {to=Int} outFlat)
+      out2d = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
   in MkTensor out2d Nothing
 
 public export
@@ -295,7 +295,7 @@ export
 maxPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AnyLayer (c * (inH * inW))
                               (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                              d dt g
+                              ex dt g
 maxPool2dLayer =
   MkAnyLayer (MaxPool2DState c inH inW poolH poolW strH strW)
                MkMaxPool2D
@@ -310,25 +310,25 @@ data AvgPool2DState :
     AvgPool2DState c inH inW poolH poolW strH strW
                      (c * (inH * inW))
                      (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                     d dt g
+                     ex dt g
 
 export
-applyAvgPool2D : {0 d : Executor} -> UserExecutorTraining d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+applyAvgPool2D : {0 ex : Executor} -> UserExecutorTraining ex => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AvgPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                                    d dt g ->
-                   TVec (c * (inH * inW)) d dt g->
-                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d dt g
+                                    ex dt g ->
+                   TVec (c * (inH * inW)) ex dt g->
+                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) ex dt g
 applyAvgPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
   let cI = cast {to=Int} c
       hI = cast {to=Int} inH
       wI = cast {to=Int} inW
-      inp3d = primReshape3d {d} input.tensorPtr cI hI wI
-      outT = primAvgPool2d {d} inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
+      inp3d = primReshape3d {ex} input.tensorPtr cI hI wI
+      outT = primAvgPool2d {ex} inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                    (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {ex} outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
@@ -343,7 +343,7 @@ export
 avgPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AnyLayer (c * (inH * inW))
                               (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                              d dt g
+                              ex dt g
 avgPool2dLayer =
   MkAnyLayer (AvgPool2DState c inH inW poolH poolW strH strW)
                MkAvgPool2D
@@ -361,21 +361,21 @@ data MaxPool1DState :
   MkMaxPool1D :
     MaxPool1DState c len poolK str
                      (c * len)
-                     (c * PoolOutDim len poolK str) d dt g
+                     (c * PoolOutDim len poolK str) ex dt g
 
 export
-applyMaxPool1D : {0 d : Executor} -> UserExecutorTraining d => {c, len, poolK, str : Nat} ->
+applyMaxPool1D : {0 ex : Executor} -> UserExecutorTraining ex => {c, len, poolK, str : Nat} ->
                    MaxPool1DState c len poolK str
-                                    (c * len) (c * PoolOutDim len poolK str) d dt g ->
-                   TVec (c * len) d dt g ->
-                   TVec (c * PoolOutDim len poolK str) d dt g
+                                    (c * len) (c * PoolOutDim len poolK str) ex dt g ->
+                   TVec (c * len) ex dt g ->
+                   TVec (c * PoolOutDim len poolK str) ex dt g
 applyMaxPool1D {c} {len} {poolK} {str} _ input =
   let cI = cast {to=Int} c
       lenI = cast {to=Int} len
-      inp2d = primReshape2d {d} input.tensorPtr cI lenI
-      outT = primMaxPool1d {d} inp2d (cast {to=Int} poolK) (cast {to=Int} str)
+      inp2d = primReshape2d {ex} input.tensorPtr cI lenI
+      outT = primMaxPool1d {ex} inp2d (cast {to=Int} poolK) (cast {to=Int} str)
       outFlat = c * PoolOutDim len poolK str
-  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {ex} outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, len, poolK, str : Nat} ->
@@ -388,7 +388,7 @@ public export
 
 export
 maxPool1dLayer : {c, len, poolK, str : Nat} ->
-                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d dt g
+                   AnyLayer (c * len) (c * PoolOutDim len poolK str) ex dt g
 maxPool1dLayer =
   MkAnyLayer (MaxPool1DState c len poolK str) MkMaxPool1D
 
@@ -400,21 +400,21 @@ data AvgPool1DState :
   MkAvgPool1D :
     AvgPool1DState c len poolK str
                      (c * len)
-                     (c * PoolOutDim len poolK str) d dt g
+                     (c * PoolOutDim len poolK str) ex dt g
 
 export
-applyAvgPool1D : {0 d : Executor} -> UserExecutorTraining d => {c, len, poolK, str : Nat} ->
+applyAvgPool1D : {0 ex : Executor} -> UserExecutorTraining ex => {c, len, poolK, str : Nat} ->
                    AvgPool1DState c len poolK str
-                                    (c * len) (c * PoolOutDim len poolK str) d dt g ->
-                   TVec (c * len) d dt g ->
-                   TVec (c * PoolOutDim len poolK str) d dt g
+                                    (c * len) (c * PoolOutDim len poolK str) ex dt g ->
+                   TVec (c * len) ex dt g ->
+                   TVec (c * PoolOutDim len poolK str) ex dt g
 applyAvgPool1D {c} {len} {poolK} {str} _ input =
   let cI = cast {to=Int} c
       lenI = cast {to=Int} len
-      inp2d = primReshape2d {d} input.tensorPtr cI lenI
-      outT = primAvgPool1d {d} inp2d (cast {to=Int} poolK) (cast {to=Int} str)
+      inp2d = primReshape2d {ex} input.tensorPtr cI lenI
+      outT = primAvgPool1d {ex} inp2d (cast {to=Int} poolK) (cast {to=Int} str)
       outFlat = c * PoolOutDim len poolK str
-  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {ex} outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, len, poolK, str : Nat} ->
@@ -427,6 +427,6 @@ public export
 
 export
 avgPool1dLayer : {c, len, poolK, str : Nat} ->
-                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d dt g
+                   AnyLayer (c * len) (c * PoolOutDim len poolK str) ex dt g
 avgPool1dLayer =
   MkAnyLayer (AvgPool1DState c len poolK str) MkAvgPool1D

@@ -39,31 +39,31 @@ import Tensor
 ||| tripped libsystem_malloc's "pointer being freed was not
 ||| allocated" abort.
 makeVec4 : {0 d : Type} -> {0 dt : DType} ->
-           UserExecutorTransfer d => Compatible d dt =>
+           UserExecutorTransfer ex => Compatible ex dt =>
            (Double, Double, Double, Double) ->
-           IO (Tensor [4] d dt WithGrad)
+           IO (Tensor [4] ex dt WithGrad)
 makeVec4 (a, b, c, dd) = do
-  buf  <- primIO (\w => MkIORes (primAllocHost   {d} 4)        w)
+  buf  <- primIO (\w => MkIORes (primAllocHost   {ex} 4)        w)
   buf1 <- primIO (\w => MkIORes (prim__setDouble buf  0 a)     w)
   buf2 <- primIO (\w => MkIORes (prim__setDouble buf1 1 b)     w)
   buf3 <- primIO (\w => MkIORes (prim__setDouble buf2 2 c)     w)
   buf4 <- primIO (\w => MkIORes (prim__setDouble buf3 3 dd)    w)
-  sh   <- primIO (\w => MkIORes (primAllocIntHost {d} 1)       w)
-  sh1  <- primIO (\w => MkIORes (primSetIntHost   {d} sh 0 4)  w)
+  sh   <- primIO (\w => MkIORes (primAllocIntHost {ex} 1)       w)
+  sh1  <- primIO (\w => MkIORes (primSetIntHost   {ex} sh 0 4)  w)
   ptr  <- primIO (\w =>
-            MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
-  _ <- primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
-  _ <- primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+            MkIORes (primCreateFromHost {ex} buf4 sh1 1 1) w)
+  _ <- primIO (\w => MkIORes (primFreeIntHost {ex} sh1)  w)
+  _ <- primIO (\w => MkIORes (primFreeHost    {ex} buf4) w)
   pure (MkTensor ptr Nothing)
 
-read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore d =>
-        Tensor [4] d dt WithGrad ->
+read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
+        Tensor [4] ex dt WithGrad ->
         (Double, Double, Double, Double)
 read4 t =
-  ( primItem1d {d} t.tensorPtr 0
-  , primItem1d {d} t.tensorPtr 1
-  , primItem1d {d} t.tensorPtr 2
-  , primItem1d {d} t.tensorPtr 3 )
+  ( primItem1d {ex} t.tensorPtr 0
+  , primItem1d {ex} t.tensorPtr 1
+  , primItem1d {ex} t.tensorPtr 2
+  , primItem1d {ex} t.tensorPtr 3 )
 
 expected : (Double, Double, Double, Double)
 expected = (1.0, 2.0, 3.0, 4.0)
@@ -87,7 +87,7 @@ matchesExpected (a, b, c, d) =
 ||| any build that includes tape).
 intraTapeSmoke : IO Bool
 intraTapeSmoke = do
-  src <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  src <- makeVec4 {ex=TapeExecutor} {dt = F64} expected
   dst <- toExecutor TapeExecutor src
   check "intra-backend TapeExecutor→TapeExecutor preserves value"
         (matchesExpected (read4 dst))
@@ -101,7 +101,7 @@ intraTorchHwSmoke : IO Bool
 intraTorchHwSmoke = do
   -- Build F64 (today's primCreateFromHost on torch is F64-only),
   -- narrow to F32 for MPS compatibility.
-  src64 <- makeVec4 {d = TorchExecutor TCpu} {dt = F64} expected
+  src64 <- makeVec4 {ex=TorchExecutor TCpu} {dt = F64} expected
   src   <- tcastUnsafe F32 src64
   dst   <- toExecutor (TorchExecutor TMps) src
   check "intra-torch TorchExecutor TCpu→TMps preserves value"
@@ -124,7 +124,7 @@ intraTorchHwSmoke = do
 ||| throughout; both ends admit F64.
 crossTapeToTorchSmoke : IO Bool
 crossTapeToTorchSmoke = do
-  src <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  src <- makeVec4 {ex=TapeExecutor} {dt = F64} expected
   dst <- toExecutor (TorchExecutor TCpu) src
   check "cross-backend TapeExecutor→TorchExecutor TCpu preserves value"
         (matchesExpected (read4 dst))
@@ -132,7 +132,7 @@ crossTapeToTorchSmoke = do
 ||| TorchExecutor TCpu → MlxExecutor MCpu. F64 round-trip through host buffer.
 crossTorchToMlxSmoke : IO Bool
 crossTorchToMlxSmoke = do
-  src <- makeVec4 {d = TorchExecutor TCpu} {dt = F64} expected
+  src <- makeVec4 {ex=TorchExecutor TCpu} {dt = F64} expected
   dst <- toExecutor (MlxExecutor MCpu) src
   check "cross-backend TorchExecutor TCpu→MlxExecutor MCpu preserves value"
         (matchesExpected (read4 dst))
@@ -141,7 +141,7 @@ crossTorchToMlxSmoke = do
 ||| crossTorchToMlxSmoke's perspective.
 crossMlxToTapeSmoke : IO Bool
 crossMlxToTapeSmoke = do
-  src <- makeVec4 {d = MlxExecutor MCpu} {dt = F64} expected
+  src <- makeVec4 {ex=MlxExecutor MCpu} {dt = F64} expected
   dst <- toExecutor TapeExecutor src
   check "cross-backend MlxExecutor MCpu→TapeExecutor preserves value"
         (matchesExpected (read4 dst))
@@ -151,7 +151,7 @@ crossMlxToTapeSmoke = do
 ||| round-trips.
 roundtripF64Smoke : IO Bool
 roundtripF64Smoke = do
-  v0 <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  v0 <- makeVec4 {ex=TapeExecutor} {dt = F64} expected
   v1 <- toExecutor (TorchExecutor TCpu) v0
   v2 <- toExecutor (MlxExecutor MCpu) v1
   v3 <- toExecutor TapeExecutor v2

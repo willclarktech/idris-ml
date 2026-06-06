@@ -3,8 +3,8 @@
 ||| `HwConfig.idr.in` template; the `Linked` instance block underneath is
 ||| appended per build by the Makefile's HWCONFIG_IDR recipe.
 |||
-||| `Linked d` (declared in `Executor.Core`) gates which device tags are
-||| spellable at any constructor carrying the `Linked d =>` constraint: a
+||| `Linked ex` (declared in `Executor.Core`) gates which device tags are
+||| spellable at any constructor carrying the `Linked ex =>` constraint: a
 ||| torch-only build emits no `Linked (MlxExecutor _)`, so spelling `MlxExecutor`
 ||| at a constructor fails to typecheck. This is the compile-time
 ||| *linkage* half of device availability; the runtime

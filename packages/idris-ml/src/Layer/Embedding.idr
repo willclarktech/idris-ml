@@ -20,9 +20,9 @@ import Tensor
 -- Type` interface.
 
 public export
-record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkEmbedding
-  weightT : TMat vocab embedDim d dt g
+  weightT : TMat vocab embedDim ex dt g
 
 
 ----------------------------------------------------------------------
@@ -31,18 +31,18 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Executor) (0 dt : DT
 
 %default partial
 
-||| Embedding lookup forward. Indices `tokens : TVec seqLen d` are
+||| Embedding lookup forward. Indices `tokens : TVec seqLen ex` are
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
-||| the flattened embedding vectors. Wraps `primEmbedding {d}`.
+||| the flattened embedding vectors. Wraps `primEmbedding {ex}`.
 export
-applyEmbedding : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {seqLen, embedDim, vocab : Nat} ->
-                   EmbeddingState vocab embedDim d dt g ->
-                   TVec seqLen d dt g ->
-                   IO (TVec (seqLen * embedDim) d dt g)
+applyEmbedding : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {seqLen, embedDim, vocab : Nat} ->
+                   EmbeddingState vocab embedDim ex dt g ->
+                   TVec seqLen ex dt g ->
+                   IO (TVec (seqLen * embedDim) ex dt g)
 applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
   let nI = cast {to=Int} seqLen
       dI = cast {to=Int} embedDim
-      outPtr = primEmbedding {d} w.tensorPtr tokens.tensorPtr nI dI
+      outPtr = primEmbedding {ex} w.tensorPtr tokens.tensorPtr nI dI
   in MkTensor outPtr Nothing)
 
 
@@ -54,11 +54,11 @@ applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
 ||| sampled from N(0, 0.02) — HF default for token / position embeddings.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
-embeddingLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
-                   IO (EmbeddingState vocab embedDim d dt WithGrad)
+embeddingLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
+                   IO (EmbeddingState vocab embedDim ex dt WithGrad)
 embeddingLayer paramPrefix = do
   let wName = paramPrefix ++ "_weight"
-  weight <- tparam2dNormal {d} {dt} {o=vocab} {i=embedDim} wName 0.0 0.02
+  weight <- tparam2dNormal {ex} {dt} {o=vocab} {i=embedDim} wName 0.0 0.02
   pure $ MkEmbedding weight
 
 
@@ -79,8 +79,8 @@ embeddingLayer paramPrefix = do
 public export
 data EmbeddingWrap : (vocab : Nat) -> (embedDim : Nat) ->
                       Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkEmbeddingWrap : EmbeddingState vocab embedDim d dt g ->
-                     EmbeddingWrap vocab embedDim seqLen (seqLen * embedDim) d dt g
+  MkEmbeddingWrap : EmbeddingState vocab embedDim ex dt g ->
+                     EmbeddingWrap vocab embedDim seqLen (seqLen * embedDim) ex dt g
 
 public export
 {vocab, embedDim : Nat} ->
@@ -95,14 +95,14 @@ public export
     pure (MkEmbeddingWrap (MkEmbedding w'))
 
   unfreezeLayer (MkEmbeddingWrap (MkEmbedding w)) = do
-    primIO (primSetRequiresGrad {d} w.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} w.tensorPtr 1)
     pure (MkEmbeddingWrap (MkEmbedding (retypeGrad w)))
 
 ||| Wrap a fresh embedding into `AnyLayer` for a specific seqLen.
 export
-embeddingLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {vocab, embedDim, seqLen : Nat} ->
+embeddingLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
-                      IO (AnyLayer seqLen (seqLen * embedDim) d dt WithGrad)
+                      IO (AnyLayer seqLen (seqLen * embedDim) ex dt WithGrad)
 embeddingLayerAny pid = do
   st <- embeddingLayer {vocab} {embedDim} pid
   pure $ MkAnyLayer (EmbeddingWrap vocab embedDim) (MkEmbeddingWrap st)

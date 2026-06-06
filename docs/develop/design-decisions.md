@@ -104,7 +104,7 @@ PyTorch's silent footgun: a loss tensor that came from inside `with torch.no_gra
 
 **Key decisions**:
 1. **State records polymorphic in `g`.** Every layer's state (Linear, Lstm, Rnn, Gru, Ntm, Dnc, BatchNorm, …) carries `(0 g : GradMode)` and its param fields are typed at the same `g`. This eliminates the `believe_me` requirement that an earlier attempt — keeping state at hardcoded WithGrad while threading `g` through forwards — would have forced at every layer-impl call site.
-2. **Function-valued fields use their own polymorphic `g'`.** `RnnState.activation` is `{0 g' : GradMode} -> TVec o d g' -> TVec o d g'`. Standard activations (`ttanh`, `trelu`, etc.) are already polymorphic post-Phase-3, so they store at the polymorphic field type and apply at whatever `g` the state happens to be at.
+2. **Function-valued fields use their own polymorphic `g'`.** `RnnState.activation` is `{0 g' : GradMode} -> TVec o ex g' -> TVec o ex g'`. Standard activations (`ttanh`, `trelu`, etc.) are already polymorphic post-Phase-3, so they store at the polymorphic field type and apply at whatever `g` the state happens to be at.
 3. **No `believe_me` in user-facing surface.** Coercion between gs is one internal helper, `retypeGrad : Tensor dims d g1 -> Tensor dims d g2`, defined as pure destructure-reconstruct via the polymorphic `MkTensor` constructor. Because `g` is 0-quantity the runtime is identical and Idris's type-checker accepts the cast directly — no type-system bypass.
 4. **`weakenGrad` couples Idris-side type with C-side flag.** Flips `requires_grad` in C and retypes the handle as `NoGrad`. The runtime promise and the static promise stay in sync.
 5. **Linear consumption on `weakenGrad` / `freezeNetwork` / `unfreezeNetwork`.** Closes the aliasing footgun: after the call, the original Idris reference is consumed at compile time. You can't accidentally keep using the WithGrad-typed name once its C-side flag has been mutated.
@@ -114,7 +114,7 @@ PyTorch's silent footgun: a loss tensor that came from inside `with torch.no_gra
 9. **`Network` constructors polymorphic in `g`, no requirement on whole-network freezing being all-or-nothing.** Coarse approximation for transfer learning is fine for the current example set; per-parameter or per-sub-network freezing is filed as future work.
 
 **Alternatives explored and discarded**:
-- *Asymmetric `tlinear` sig* (`Tensor d WithGrad -> Tensor d g -> Tensor d WithGrad -> Tensor d g`) — works for `Linear.applyVar` but breaks `Rnn`'s accumulator pattern where the bias slot holds a `g`-typed running sum, not a parameter.
+- *Asymmetric `tlinear` sig* (`Tensor ex WithGrad -> Tensor d g -> Tensor ex WithGrad -> Tensor d g`) — works for `Linear.applyVar` but breaks `Rnn`'s accumulator pattern where the bias slot holds a `g`-typed running sum, not a parameter.
 - *Hardcoded-WithGrad state records + `believe_me` casts in every layer impl* — works but undermines the "type system enforces it" claim with ~40 unaudited `believe_me`s.
 - *`mx::compile`-style type-level enable/disable scopes* — Idris 2 doesn't have ambient effects of this shape; would require either threading explicit witnesses or higher-rank polymorphism. State polymorphism turned out simpler.
 
@@ -1009,7 +1009,7 @@ now materializes `kLong` instead of `.to(kFloat64)` — which also kills a
 latent MPS abort (Metal has no F64) and the >2^53 precision loss; `gather`/
 `scatter_add` already coerce to `kLong`, so the untyped DNC path is
 unaffected. The surface is *torch-only by construction* (an integer tensor
-only exists where `Compatible d I64` holds — `TorchDev TCpu`/`TCuda`; Metal
+only exists where `Compatible ex I64` holds — `TorchDev TCpu`/`TCuda`; Metal
 has no F64/int and mlx stores F32/F64 only; tape has the integer dtypes
 as inference-only storage via the lingua franca, but no integer
 *kernels*, so a typed `I64` index handle is still torch-shaped in
@@ -1118,7 +1118,7 @@ Full design memo and decision log: `docs/develop/dtype-parameter.md`.
 **Why a kind alias rather than a real sub-type (same answer as for
 `Device`)**: the alias is pure documentation — `(0 dt : DType)` reads
 "this is a dtype tag" but compiles to `(0 dt : Type)` underneath. The
-real constraint is delivered by `Compatible d dt =>` (and
+real constraint is delivered by `Compatible ex dt =>` (and
 `IsDType dt =>`) on tensor-constructing functions; a non-DType `dt`
 can be declared but never inhabited.
 
@@ -1220,7 +1220,7 @@ This criterion replaces the looser "is it dead code?" framing the original audit
 
 Backend-scoping (`TapeDev` / `TorchDev d` / `MlxDev s`) says *which backend* a tensor lives on, but said nothing about *whether that backend is compiled in* or *whether the hardware exists*. A program could spell `TorchDev (TCuda 1)` on a CPU-only host, compile fine, then SIGABRT deep in libtorch. Closed in two gates, each placed where the fact actually lives (full rationale in [`device-availability-gating.md`](device-availability-gating.md)):
 
-1. **Linkage → compile-time.** `Linked d` is an empty capability marker (sibling to `Compatible (device, dtype)`), wired into the construction + forward path. Its instances are *not* hardcoded — the generated `HwConfig` module emits one per backend in `BACKEND`, so a tape-only build has no `Linked (MlxDev _)` and any constructor naming an mlx device fails to compile. Consequence: inherently-cross-backend modules (Transfer, MlxStreamDemo) can't compile under a single-backend build and live outside the always-compiled examples ipkg.
+1. **Linkage → compile-time.** `Linked ex` is an empty capability marker (sibling to `Compatible (device, dtype)`), wired into the construction + forward path. Its instances are *not* hardcoded — the generated `HwConfig` module emits one per backend in `BACKEND`, so a tape-only build has no `Linked (MlxDev _)` and any constructor naming an mlx device fails to compile. Consequence: inherently-cross-backend modules (Transfer, MlxStreamDemo) can't compile under a single-backend build and live outside the always-compiled examples ipkg.
 
 2. **Hardware presence → runtime, EAFP not LBYL.** We answer "is this *linked* device backed by real hardware right now" by *attempting* the allocation and catching, not by a pre-probe. `tensor_to_device` (torch) wraps `.to()` in `try/catch` → NULL handle; `prim__handleIsNull` + `attemptOn` lift NULL → `Left DeviceError`. One source of truth (the real alloc), no TOCTOU, no `is_available` surface to drift. The fear that drove an earlier LBYL draft — "spelling `cuda:1` SIGABRTs" — was an *uncaught*, not *uncatchable*, exception; the guard makes it catchable. `HardwareClass` + `HardwareClassed` recover the cross-backend silicon commonality as runtime data (for grouping/reporting only — never unifying tensor types), and `availableDevices` runs the same EAFP probe over a candidate list.
 
@@ -1558,7 +1558,7 @@ The working design wraps a concrete data type:
 data AsMixed : Nat -> Nat -> (0 _ : Device) ->
                (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) ->
                Type where
-  MkAsMixed : AnyLayer i o d dt g -> AsMixed i o d dt dt g
+  MkAsMixed : AnyLayer i o ex dt g -> AsMixed i o ex dt dt g
 ```
 
 `AsMixed` is concrete (no higher-order type parameter), and its
@@ -1581,7 +1581,7 @@ A second-order problem: `LayerLikeMixed`'s `applyVarMixed` has both
 cDt}`. The `AsMixed` bridge collapses `pDt = cDt`, so both dicts
 type-match the inner `LayerLike.applyVar` call's single `RuntimeDType
 dt` constraint — and Idris-2's typeclass resolver can't pick one of
-the two. Same problem for `Compatible d pDt` vs `Compatible d cDt`.
+the two. Same problem for `Compatible ex pDt` vs `Compatible ex cDt`.
 
 Fix: name the auto-implicits in the interface signature, then pass
 them explicitly at the call site, position-pinning the others with
@@ -1605,7 +1605,7 @@ type.
 PyTorch's `torch.autocast(dtype=bf16)` is a thread-local context
 manager + monkey-patched op dispatch — efficient, but it gives up
 the property "the tensor's type tells you its dtype." idris-ml takes
-the opposite stance: the dtype shows up in `Tensor [..] d dt g`'s
+the opposite stance: the dtype shows up in `Tensor [..] ex dt g`'s
 fourth type parameter, mixed-precision layers carry both
 `paramDt` and `computeDt` in their type, and the lossy cast (F32
 master → BF16 compute) is visible inside the layer's forward as a
@@ -1643,7 +1643,7 @@ shape does "a Ternary tensor" actually take in memory on each?
 | torch  | int8 tensor with values in {-1, 0, +1} | 8 | `[o, i]` | C-wrapper tag `DT_TERNARY`; underlying `at::Tensor` is `at::ScalarType::Char` |
 | mlx    | int8 tensor with values in {-1, 0, +1} | 8 | `[o, i]` | C-wrapper tag `DT_TERNARY`; underlying `mlx::array` is `int8` |
 
-The Idris type system sees `Tensor [o, i] d Ternary NoGrad` on every
+The Idris type system sees `Tensor [o, i] ex Ternary NoGrad` on every
 backend. The 4× storage difference between tape and the others is
 invisible at the type level — it's purely a backend implementation
 choice, mirrored by the existing pattern where BF16 / F16 on tape

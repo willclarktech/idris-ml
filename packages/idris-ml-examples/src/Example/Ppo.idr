@@ -105,18 +105,18 @@ record RollStep where
 
 criticValue : Critic -> Vect ObsDim Double -> IO Double
 criticValue critic obs = do
-  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar critic stateV
-  pure (primItem1d {d=ExampleExecutor} outV.tensorPtr 0)
+  pure (primItem1d {ex=ExampleExecutor} outV.tensorPtr 0)
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
-  let stateV  = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV  = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logitsV) <- forwardVar actor stateV
-  let logPT   = primLogSoftmax {d=ExampleExecutor} logitsV.tensorPtr 0
-      lp0     = primItem1d {d=ExampleExecutor} logPT 0
-      lp1     = primItem1d {d=ExampleExecutor} logPT 1
-      lp2     = primItem1d {d=ExampleExecutor} logPT 2
+  let logPT   = primLogSoftmax {ex=ExampleExecutor} logitsV.tensorPtr 0
+      lp0     = primItem1d {ex=ExampleExecutor} logPT 0
+      lp1     = primItem1d {ex=ExampleExecutor} logPT 1
+      lp2     = primItem1d {ex=ExampleExecutor} logPT 2
   v <- criticValue critic obs
   u <- randomRIO (the Double 0.0, 1.0)
   let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
@@ -140,7 +140,7 @@ rollout actor critic st stepsLeft (S k) = do
   -- immediately. The whole rollout is RolloutLen (e.g. 1024) steps; a
   -- single outer withNoGrad would accumulate all of them past the
   -- paravirt-Metal ceiling. The step result is plain data (Nat/Double).
-  triple <- withNoGrad {d=ExampleExecutor} (sampleActionIO actor critic obs)
+  triple <- withNoGrad {ex=ExampleExecutor} (sampleActionIO actor critic obs)
   let a  = fst triple
       lp = fst (snd triple)
       v  = snd (snd triple)
@@ -210,11 +210,11 @@ perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] ExampleExecutor Exa
 perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) = do
   logitsRow <- trowSelect logitsB rowIdx
   let logPT = the (Tensor [NumActions] ExampleExecutor ExampleDType WithGrad)
-                  (MkTensor (primLogSoftmax {d=ExampleExecutor} logitsRow.tensorPtr 0) Nothing)
+                  (MkTensor (primLogSoftmax {ex=ExampleExecutor} logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
   lpNew <- telemSelect logPT aIdx
-  let lpVal = primItem1d {d=ExampleExecutor} logPT.tensorPtr aIdx
+  let lpVal = primItem1d {ex=ExampleExecutor} logPT.tensorPtr aIdx
   valueRow <- trowSelect valueB rowIdx
   valueV   <- telemSelect valueRow 0
   oldLPT   <- tconstScalar step.oldLogProb
@@ -239,20 +239,20 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
   p1V  <- texp lp1V
   p2V  <- texp lp2V
   let negEntV = the (Tensor [] ExampleExecutor ExampleDType WithGrad)
-                    (MkTensor (primAdd {d=ExampleExecutor}
-                              (primAdd {d=ExampleExecutor} (primMul {d=ExampleExecutor} p0V.tensorPtr lp0V.tensorPtr)
-                                         (primMul {d=ExampleExecutor} p1V.tensorPtr lp1V.tensorPtr))
-                              (primMul {d=ExampleExecutor} p2V.tensorPtr lp2V.tensorPtr))
+                    (MkTensor (primAdd {ex=ExampleExecutor}
+                              (primAdd {ex=ExampleExecutor} (primMul {ex=ExampleExecutor} p0V.tensorPtr lp0V.tensorPtr)
+                                         (primMul {ex=ExampleExecutor} p1V.tensorPtr lp1V.tensorPtr))
+                              (primMul {ex=ExampleExecutor} p2V.tensorPtr lp2V.tensorPtr))
                             Nothing)
   entTerm <- tmulScalar negEntV entropyCoef
-  pure (MkTensor (primAdd {d=ExampleExecutor} (primAdd {d=ExampleExecutor} policyT.tensorPtr valueTerm.tensorPtr)
+  pure (MkTensor (primAdd {ex=ExampleExecutor} (primAdd {ex=ExampleExecutor} policyT.tensorPtr valueTerm.tensorPtr)
                        entTerm.tensorPtr) Nothing)
 
 
 meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 
@@ -326,7 +326,7 @@ prepareRollout critic cfg steps finalSt = do
 -- the [B, NumActions] / [B, 1] tensors.
 runBatch : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
            List (RollStep, Double, Double) -> IO ()
-runBatch opt actor critic cfg batch = withGenFree {d=ExampleExecutor} $ do
+runBatch opt actor critic cfg batch = withGenFree {ex=ExampleExecutor} $ do
   -- Per-minibatch generation bracket: free this update's grad
   -- intermediates immediately. PPO runs K (e.g. 10) epochs × minibatches
   -- of batched forward+loss over the whole rollout; without per-step
@@ -336,7 +336,7 @@ runBatch opt actor critic cfg batch = withGenFree {d=ExampleExecutor} $ do
       n = length batch
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
-      stackedT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} obsBatch
+      stackedT = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsBatch
       stackedV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor stackedT Nothing)
   (_, logitsB) <- forwardVarBatch actor stackedV
   (_, valueB)  <- forwardVarBatch critic stackedV
@@ -396,7 +396,7 @@ ppoEpoch opt cfg st = do
 
   -- prepareRollout calls computeBootstrap which does one critic
   -- forward — also grad-free.
-  prepped <- withNoGrad {d=ExampleExecutor} (prepareRollout st.critic cfg steps finalSt)
+  prepped <- withNoGrad {ex=ExampleExecutor} (prepareRollout st.critic cfg steps finalSt)
   kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
   let episodeReturns = computeEpisodeReturns steps
@@ -422,11 +422,11 @@ ppoEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> IO Nat
 greedyAct actor obs = do
-  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logits) <- forwardVar actor stateV
-  let l0 = primItem1d {d=ExampleExecutor} logits.tensorPtr 0
-      l1 = primItem1d {d=ExampleExecutor} logits.tensorPtr 1
-      l2 = primItem1d {d=ExampleExecutor} logits.tensorPtr 2
+  let l0 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 0
+      l1 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 1
+      l2 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 2
   pure (if l0 >= l1 && l0 >= l2 then 0
         else if l1 >= l2 then 1
         else 2)
@@ -492,7 +492,7 @@ main = do
   let trainCfg : TrainConfig PPOState
       trainCfg = mkTrainConfig cfg.epochs 10 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
     (\s, _ => do
        (s', loss) <- ppoEpoch opt cfg s
        recordReturn metrics (negate loss)
@@ -502,7 +502,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 20
-  evalSum <- withNoGrad {d=ExampleExecutor} (evalN trained.actor nEval 0.0)
+  evalSum <- withNoGrad {ex=ExampleExecutor} (evalN trained.actor nEval 0.0)
   let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

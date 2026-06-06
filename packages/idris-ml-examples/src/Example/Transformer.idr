@@ -104,14 +104,14 @@ catCELossVar predV targetV = ioRerun (\_ =>
       -- an empty array, then the downstream `primReshape2d ... revLen
       -- vsI` aborts with "Cannot reshape array of size 0 into shape
       -- (6, 8)". Fix: row indices instead of flat indices.
-      logitsFull = primReshape2d {d=ExampleExecutor} predV.tensorPtr sI vsI
-      targetFull = primReshape2d {d=ExampleExecutor} targetV.tensorPtr sI vsI
-      logitsR = primNarrow {d=ExampleExecutor} logitsFull 0 skip revLen
-      logProbs = primLogSoftmax2d {d=ExampleExecutor} logitsR
-      tgtsR = primNarrow {d=ExampleExecutor} targetFull 0 skip revLen
-      product = primMul {d=ExampleExecutor} logProbs tgtsR
-      totalSum = primSum {d=ExampleExecutor} product
-      loss = primMulScalar {d=ExampleExecutor} (primNeg {d=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
+      logitsFull = primReshape2d {ex=ExampleExecutor} predV.tensorPtr sI vsI
+      targetFull = primReshape2d {ex=ExampleExecutor} targetV.tensorPtr sI vsI
+      logitsR = primNarrow {ex=ExampleExecutor} logitsFull 0 skip revLen
+      logProbs = primLogSoftmax2d {ex=ExampleExecutor} logitsR
+      tgtsR = primNarrow {ex=ExampleExecutor} targetFull 0 skip revLen
+      product = primMul {ex=ExampleExecutor} logProbs tgtsR
+      totalSum = primSum {ex=ExampleExecutor} product
+      loss = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
   in MkTensor loss Nothing)
 
 
@@ -133,7 +133,7 @@ argmaxAtPtr vocabSize t pos =
   let scan : Int -> Nat -> Double -> Nat
       scan k bestI bestV =
         if k >= cast {to=Int} vocabSize then bestI
-        else let v = primItem1d {d=ExampleExecutor} t (cast pos * cast vocabSize + k)
+        else let v = primItem1d {ex=ExampleExecutor} t (cast pos * cast vocabSize + k)
              in if v > bestV
                   then assert_total $ scan (k + 1) (cast k) v
                   else assert_total $ scan (k + 1) bestI bestV
@@ -237,7 +237,7 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, finalLoss) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochVarTensorBatch opt d catCELossVar m) genBatch trainCfg model
 
   -- Single-sample eval
@@ -248,7 +248,7 @@ main = do
       inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor (inputTensor tdp) Nothing)
   (_, predV) <- forwardVar trained inV
   let inpT = inputTensor tdp
-      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {d=ExampleExecutor} inpT (cast p)))) positions
+      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {ex=ExampleExecutor} inpT (cast p)))) positions
       targetDecoded = map (argmaxAtPtr VocabSize (targetTensor tdp)) positions
       predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
       sortCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)

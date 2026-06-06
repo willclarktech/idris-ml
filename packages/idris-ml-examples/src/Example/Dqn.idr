@@ -73,11 +73,11 @@ epsilonAt step start end decaySteps =
 -- Argmax over Q(s, *) from the online net.
 greedyAction : QNet -> Vect ObsDim Double -> IO Nat
 greedyAction online obs = do
-  let stateT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)
+  let stateT = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)
       stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar online stateV
-  let q0 = primItem1d {d=ExampleExecutor} qV.tensorPtr 0
-      q1 = primItem1d {d=ExampleExecutor} qV.tensorPtr 1
+  let q0 = primItem1d {ex=ExampleExecutor} qV.tensorPtr 0
+      q1 = primItem1d {ex=ExampleExecutor} qV.tensorPtr 1
   pure (if q0 >= q1 then 0 else 1)
 
 epsGreedyIO : QNet -> Vect ObsDim Double -> Double -> IO Nat
@@ -101,13 +101,13 @@ epsGreedyIO online obs eps = do
 -- Max over a 1D tensor pointer (read NumActions scalars, take max).
 vectorMaxPtr : AnyPtr -> Double
 vectorMaxPtr t =
-  let v0 = primItem1d {d=ExampleExecutor} t 0
-      v1 = primItem1d {d=ExampleExecutor} t 1
+  let v0 = primItem1d {ex=ExampleExecutor} t 0
+      v1 = primItem1d {ex=ExampleExecutor} t 1
   in if v0 >= v1 then v0 else v1
 
 computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> IO Double
 computeTargetVal target gamma t = do
-  let stateT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor t.nextObs)
+  let stateT = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor t.nextObs)
       stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar target stateV
   let nextMax = vectorMaxPtr qV.tensorPtr
@@ -130,7 +130,7 @@ perSampleLoss qOutB t tv k = do
 meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
@@ -138,7 +138,7 @@ batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
 batchLossBatched n online target gamma batch = do
   targetVals <- traverse (computeTargetVal target gamma) batch
   let obsTensors = map (\t => obsTensor t.obs) batch
-      obsBT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} obsTensors
+      obsBT = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsTensors
       obsBV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor obsBT Nothing)
   (_, qOutB) <- forwardVarBatch online obsBV
   losses <- go qOutB (toList batch) (toList targetVals) 0
@@ -206,7 +206,7 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
       -- Action selection forward: no grad needed (just extracting
       -- Q values as Doubles for argmax). Loss-side forward in
       -- trainIfReady runs separately under normal grad tracking.
-      action <- withNoGrad {d=ExampleExecutor} (epsGreedyIO st.qNet obs eps)
+      action <- withNoGrad {ex=ExampleExecutor} (epsGreedyIO st.qNet obs eps)
       case cpStep envState action of
         (reward, envState', outcome, _) => do
           let isDone = done outcome
@@ -220,7 +220,7 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
 
           -- Hard-sync target ← online via polyak-blend with tau=1.0
           when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
-            _ <- polyakUpdate {d=ExampleExecutor} 1.0 "online_" "target_"
+            _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "online_" "target_"
             pure ()
 
           if isDone
@@ -307,7 +307,7 @@ main = do
   qNet0 <- mkQNet "online_"
   target0 <- mkQNet "target_"
   -- Initial hard sync: target ← online (tau=1.0).
-  _ <- polyakUpdate {d=ExampleExecutor} 1.0 "online_" "target_"
+  _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "online_" "target_"
 
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
@@ -332,7 +332,7 @@ main = do
   let trainCfg : TrainConfig DqnState
       trainCfg = mkTrainConfig cfg.epochs 25 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
     (\st, _ => do
        (st', ret) <- runEpisode opt st
        recordReturn metrics ret
@@ -342,7 +342,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 30
-  totalReturn <- withNoGrad {d=ExampleExecutor} (evalN trained.qNet nEval 0.0)
+  totalReturn <- withNoGrad {ex=ExampleExecutor} (evalN trained.qNet nEval 0.0)
   let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

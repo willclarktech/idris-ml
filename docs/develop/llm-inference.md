@@ -77,15 +77,15 @@ The headline forward function:
 ```idris
 hfLlamaForwardLm
   : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-  => RuntimeDType dt => Linked d => Compatible d dt
+  => RuntimeDType dt => Linked ex => Compatible ex dt
   => {seq, vocab, hidden, numLayers, numHeads, numKvHeads,
       headDim, intermediate, maxPos : Nat}
   -> (eps : Double)
   -> LlamaModelState vocab hidden numLayers (numHeads * headDim)
-                     (numKvHeads * headDim) intermediate d dt g
-  -> RoPETables maxPos headDim d dt g
-  -> Tensor [seq] d dt g                -- input token IDs
-  -> IO (Tensor [seq, vocab] d dt g)    -- per-position logits
+                     (numKvHeads * headDim) intermediate ex dt g
+  -> RoPETables maxPos headDim ex dt g
+  -> Tensor [seq] ex dt g                -- input token IDs
+  -> IO (Tensor [seq, vocab] ex dt g)    -- per-position logits
 ```
 
 What's load-bearing in that signature:
@@ -96,10 +96,10 @@ What's load-bearing in that signature:
   `(BACKEND, *_DEVICE)` cell (`TapeDev`, `TorchDev TMps`, `MlxDev
   MGpu`, …). See `docs/develop/design-decisions.md` "Open `d`
   parameter".
-- **`dt : DType`** is the open dtype kind. `Compatible d dt` gates
+- **`dt : DType`** is the open dtype kind. `Compatible ex dt` gates
   admissible pairs at construction — e.g. `Compatible (MlxDev MGpu)
   F64` deliberately doesn't exist (Metal F32-only).
-- **`Linked d`** is the compile-time linkage gate: a tape-only build
+- **`Linked ex`** is the compile-time linkage gate: a tape-only build
   cannot even spell `MlxDev _` here, because no `Linked (MlxDev _)`
   instance is emitted by that build's `HwConfig`. See
   `docs/develop/device-availability-gating.md`.
@@ -172,7 +172,7 @@ What the type system *does* catch:
 ## RoPE: tables built once, applied per layer
 
 ```idris
-buildLlamaRoPETables : … -> IO (RoPETables maxPos headDim d dt g)
+buildLlamaRoPETables : … -> IO (RoPETables maxPos headDim ex dt g)
 ```
 
 builds `[maxPos, headDim/2]` cos/sin tables at model construction
@@ -199,14 +199,14 @@ The decode loop in `Example/HfLlamaInference.idr` is just:
 ```idris
 genLoop _ _ tokens Z       = pure tokens
 genLoop model tables tokens (S k) = do
-  perfReset  {d=ExampleDevice}
+  perfReset  {ex=ExampleDevice}
   mNext <- genOneStep model tables tokens
-  ops   <- perfOpCount {d=ExampleDevice}
+  ops   <- perfOpCount {ex=ExampleDevice}
   putStrLn ("[perf] step " ++ show (length tokens) ++ ": " ++ show ops ++ " ops")
   case mNext of
     Nothing   => …
     Just next => do
-      resetForEval {d=ExampleDevice}
+      resetForEval {ex=ExampleDevice}
       genLoop model tables (tokens ++ [next]) k
 ```
 

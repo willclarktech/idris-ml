@@ -161,7 +161,7 @@ main = do
                    (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
                    evalMetrics (\_ => pure ())
 
-  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
@@ -172,13 +172,13 @@ main = do
   k2Batch <- recallTaskBinaryBatchVect {w = W} TestSize 2 2 SeqLen
   k4Batch <- recallTaskBinaryBatchVect {w = W} TestSize 4 4 SeqLen
   k6Batch <- recallTaskBinaryBatchVect {w = W} TestSize 6 6 SeqLen
-  k2Acc <- withNoGrad {d=ExampleExecutor} $ do
+  k2Acc <- withNoGrad {ex=ExampleExecutor} $ do
     accs <- traverse evalOne k2Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k4Acc <- withNoGrad {d=ExampleExecutor} $ do
+  k4Acc <- withNoGrad {ex=ExampleExecutor} $ do
     accs <- traverse evalOne k4Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k6Acc <- withNoGrad {d=ExampleExecutor} $ do
+  k6Acc <- withNoGrad {ex=ExampleExecutor} $ do
     accs <- traverse evalOne k6Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
 

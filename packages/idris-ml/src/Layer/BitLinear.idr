@@ -31,12 +31,12 @@ import Tensor
 -- argument kind: i, o, d, paramDt, computeDt, g).
 
 public export
-record BitLinearState (i : Nat) (o : Nat) (0 d : Executor)
+record BitLinearState (i : Nat) (o : Nat) (0 ex : Executor)
                       (0 paramDt : DType) (0 computeDt : DType) (0 g : GradMode) where
   constructor MkBitLinear
-  weightT : Tensor [o, i] d Ternary NoGrad
-  scaleT  : Tensor [o] d computeDt NoGrad
-  biasT   : Tensor [o] d computeDt g
+  weightT : Tensor [o, i] ex Ternary NoGrad
+  scaleT  : Tensor [o] ex computeDt NoGrad
+  biasT   : Tensor [o] ex computeDt g
 
 
 ----------------------------------------------------------------------
@@ -44,7 +44,7 @@ record BitLinearState (i : Nat) (o : Nat) (0 d : Executor)
 ----------------------------------------------------------------------
 --
 -- `applyVarMixed` is generic over paramDt at the interface level,
--- but `tBitlinearFwd`'s signature pins `Tensor [o, i] d Ternary
+-- but `tBitlinearFwd`'s signature pins `Tensor [o, i] ex Ternary
 -- NoGrad` as the weight slot — so the BitLinear instance only
 -- typechecks when callers instantiate `paramDt = Ternary`. The
 -- type-level guard is the field annotation in `BitLinearState`'s
@@ -65,7 +65,7 @@ LayerLikeMixed BitLinearState where
     pure (MkBitLinear w s b')
 
   unfreezeLayerMixed (MkBitLinear w s b) = do
-    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkBitLinear w s (retypeGrad b))
 
 
@@ -73,7 +73,7 @@ LayerLikeMixed BitLinearState where
 -- Constructors
 ----------------------------------------------------------------------
 
-||| Build a `BitLinearState i o d Ternary computeDt g` from already-
+||| Build a `BitLinearState i o ex Ternary computeDt g` from already-
 ||| materialised weight + scale + bias tensors. Pre-packed weight bytes
 ||| come from `prim__allocBytes` + `prim__setByte`; the typical caller
 ||| is HF BitNet checkpoint loading (B4) or the oracle test (B2/#424).
@@ -85,11 +85,11 @@ LayerLikeMixed BitLinearState where
 ||| Filed under the #411 follow-up.
 export
 bitLinearFromTensors :
-  {i, o : Nat} -> {0 d : Executor} -> {0 cDt : DType} -> {0 g : GradMode} ->
-  Tensor [o, i] d Ternary NoGrad ->
-  Tensor [o] d cDt NoGrad ->
-  Tensor [o] d cDt g ->
-  BitLinearState i o d Ternary cDt g
+  {i, o : Nat} -> {0 ex : Executor} -> {0 cDt : DType} -> {0 g : GradMode} ->
+  Tensor [o, i] ex Ternary NoGrad ->
+  Tensor [o] ex cDt NoGrad ->
+  Tensor [o] ex cDt g ->
+  BitLinearState i o ex Ternary cDt g
 bitLinearFromTensors w s b = MkBitLinear w s b
 
 ||| Wrap a `BitLinearState` in `AnyLayerMixed` for use in a
@@ -98,10 +98,10 @@ bitLinearFromTensors w s b = MkBitLinear w s b
 ||| `mixedLinearLayerAny` etc.
 export
 bitLinearFromTensorsAny :
-  {i, o : Nat} -> {0 d : Executor} -> {0 cDt : DType} -> {0 g : GradMode} ->
-  Tensor [o, i] d Ternary NoGrad ->
-  Tensor [o] d cDt NoGrad ->
-  Tensor [o] d cDt g ->
-  AnyLayerMixed i o d Ternary cDt g
+  {i, o : Nat} -> {0 ex : Executor} -> {0 cDt : DType} -> {0 g : GradMode} ->
+  Tensor [o, i] ex Ternary NoGrad ->
+  Tensor [o] ex cDt NoGrad ->
+  Tensor [o] ex cDt g ->
+  AnyLayerMixed i o ex Ternary cDt g
 bitLinearFromTensorsAny w s b =
   MkAnyLayerMixed BitLinearState (bitLinearFromTensors w s b)

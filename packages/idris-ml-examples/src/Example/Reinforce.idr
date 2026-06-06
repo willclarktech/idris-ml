@@ -44,14 +44,14 @@ rolloutEp : {hs : List Nat} ->
 rolloutEp _ _ _ Z acc = pure (reverse acc)
 rolloutEp _ _ [] _ acc = pure (reverse acc)
 rolloutEp model st (r :: rs) (S k) acc = do
-  let stateT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (observe st)
+  let stateT = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (observe st)
       stateV = the (TVec 4 ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
-  let logProbsT = primLogSoftmax {d=ExampleExecutor} predV.tensorPtr 0
-      lp0 = primItem1d {d=ExampleExecutor} logProbsT 0
-      lp1 = primItem1d {d=ExampleExecutor} logProbsT 1
+  let logProbsT = primLogSoftmax {ex=ExampleExecutor} predV.tensorPtr 0
+      lp0 = primItem1d {ex=ExampleExecutor} logProbsT 0
+      lp1 = primItem1d {ex=ExampleExecutor} logProbsT 1
       action = categoricalSample [exp lp0, exp lp1] r
-      selLP = primSelect {d=ExampleExecutor} logProbsT 0 (cast {to=Int} action)
+      selLP = primSelect {ex=ExampleExecutor} logProbsT 0 (cast {to=Int} action)
       selLPVal = if action == 0 then lp0 else lp1
   case cpStep st action of
     (reward, st', outcome, _) =>
@@ -91,11 +91,11 @@ rolloutEpBatched model states0 rss0 maxSteps = do
     perEnv _         _ st []  _     acc = (st, [], True, acc)
     perEnv logProbsV i st (r :: rs) False acc =
       let logProbsT = logProbsV.tensorPtr
-          lp0       = primItem2d {d=ExampleExecutor} logProbsT i 0
-          lp1       = primItem2d {d=ExampleExecutor} logProbsT i 1
+          lp0       = primItem2d {ex=ExampleExecutor} logProbsT i 0
+          lp1       = primItem2d {ex=ExampleExecutor} logProbsT i 1
           action    = categoricalSample [exp lp0, exp lp1] r
-          rowPtr    = primSelect {d=ExampleExecutor} logProbsT 0 i
-          selLP     = primSelect {d=ExampleExecutor} rowPtr 0 (cast {to=Int} action)
+          rowPtr    = primSelect {ex=ExampleExecutor} logProbsT 0 i
+          selLP     = primSelect {ex=ExampleExecutor} rowPtr 0 (cast {to=Int} action)
           selLPVal  = if action == 0 then lp0 else lp1
       in case cpStep st action of
            (reward, st', outcome, _) =>
@@ -124,12 +124,12 @@ rolloutEpBatched model states0 rss0 maxSteps = do
       else do
         let obsRows : Vect n (Vector 4 Double)
             obsRows = map observe sts
-            batchPtr = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} obsRows
+            batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
             stateV : Tensor [n, 4] ExampleExecutor ExampleDType WithGrad
             stateV = MkTensor batchPtr Nothing
         (_, predV) <- forwardVarBatch model stateV
         let logProbsV : Tensor [n, 2] ExampleExecutor ExampleDType WithGrad
-            logProbsV = MkTensor (primLogSoftmax2d {d=ExampleExecutor} predV.tensorPtr) Nothing
+            logProbsV = MkTensor (primLogSoftmax2d {ex=ExampleExecutor} predV.tensorPtr) Nothing
         case stepAllEnvs logProbsV 0 sts rss dones accs of
           (sts', rss', dones', accs') => go k sts' rss' dones' accs'
 
@@ -152,7 +152,7 @@ epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
   in zipWith (\(lp, _, _), gt =>
-       the (Tensor [] ExampleExecutor ExampleDType WithGrad) (MkTensor (primMulScalar {d=ExampleExecutor} lp (baseline - gt)) Nothing))
+       the (Tensor [] ExampleExecutor ExampleDType WithGrad) (MkTensor (primMulScalar {ex=ExampleExecutor} lp (baseline - gt)) Nothing))
      steps rets
 
 export
@@ -163,13 +163,13 @@ sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 -- fresh zero scalar (degenerate; runs only if the rollout produced no
 -- steps).
 averageLoss : List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> Tensor [] ExampleExecutor ExampleDType WithGrad
-averageLoss [] = MkTensor (dtCreateScalar {d=ExampleExecutor} {t=ExampleDType} 0.0 0 (deviceStreamTag {d=ExampleExecutor})) Nothing
+averageLoss [] = MkTensor (dtCreateScalar {ex=ExampleExecutor} {t=ExampleDType} 0.0 0 (deviceStreamTag {ex=ExampleExecutor})) Nothing
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
       addT : Tensor [] ExampleExecutor ExampleDType WithGrad -> Tensor [] ExampleExecutor ExampleDType WithGrad -> Tensor [] ExampleExecutor ExampleDType WithGrad
-      addT a b = MkTensor (primAdd {d=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing
+      addT a b = MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing
       s = foldl addT x xs
-  in MkTensor (primMulScalar {d=ExampleExecutor} s.tensorPtr (1.0 / n)) Nothing
+  in MkTensor (primMulScalar {ex=ExampleExecutor} s.tensorPtr (1.0 / n)) Nothing
 
 computeLoss : {hs : List Nat} -> Double ->
               Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> List (List Double) ->
@@ -257,11 +257,11 @@ evalEp : {hs : List Nat} ->
          Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> CPState -> Nat -> Double -> IO Double
 evalEp _ _ Z acc = pure acc
 evalEp model st (S k) acc = do
-  let stateT = bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (observe st)
+  let stateT = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (observe st)
       stateV = the (TVec 4 ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
   let logitsT = predV.tensorPtr
-      action = if primItem1d {d=ExampleExecutor} logitsT 0 >= primItem1d {d=ExampleExecutor} logitsT 1 then the Nat 0 else 1
+      action = if primItem1d {ex=ExampleExecutor} logitsT 0 >= primItem1d {ex=ExampleExecutor} logitsT 1 then the Nat 0 else 1
   case cpStep st action of
     (reward, st', outcome, _) =>
       if done outcome then pure (acc + reward)
@@ -337,7 +337,7 @@ main = do
       modelType : Type = Network 4 [128, 128] 2 ExampleExecutor ExampleDType WithGrad
   (trained, epochsDone, _) <- (
     if cfg.batched
-      then runTrainingIO {d=ExampleExecutor} {dp = Vect n (List Double)}
+      then runTrainingIO {ex=ExampleExecutor} {dp = Vect n (List Double)}
              (\m, d => do
                 (m', loss, avgRet) <- epochRLBatched opt cfg.gamma m d
                 recordReturn metrics avgRet
@@ -346,7 +346,7 @@ main = do
              ({ metrics := \_ => readRLMetrics "recent_100" metrics }
                 (simpleConfig {model = modelType} cfg.epochs))
              model
-      else runTrainingIO {d=ExampleExecutor} {dp = List (List Double)}
+      else runTrainingIO {ex=ExampleExecutor} {dp = List (List Double)}
              (\m, d => do
                 (m', loss, avgRet) <- epochRL opt cfg.gamma m d
                 recordReturn metrics avgRet
@@ -359,7 +359,7 @@ main = do
   putStrLn ""
   putStrLn "Eval (100 episodes, greedy):"
   let nEval = the Nat 100
-  totalReturn <- withNoGrad {d=ExampleExecutor} (evalN trained nEval 0.0)
+  totalReturn <- withNoGrad {ex=ExampleExecutor} (evalN trained nEval 0.0)
   let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "  avg_return=" ++ show avgReturn
 

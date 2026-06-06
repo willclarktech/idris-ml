@@ -15,7 +15,7 @@ import Tensor
 --
 --   h_t = activation( W_ih · x_t + b_ih + W_hh · h_{t-1} + b_hh )
 --
--- The `activation` field is a generic `TVec o d -> TVec o d` so any
+-- The `activation` field is a generic `TVec o ex -> TVec o ex` so any
 -- unary tensor function works — typically `ttanh` (default) or `trelu`,
 -- but `id` for a linear-recurrence variant or any custom nonlinearity.
 -- PyTorch's `nn.RNN` only takes `'tanh'`/`'relu'`; we're more flexible.
@@ -29,14 +29,14 @@ import Tensor
 -- though shape arithmetic isn't needed here (no `4 *`).
 
 public export
-record RnnState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record RnnState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkRnn
-  iwT : TMat o i d dt g         -- W_ih [o, i]
-  rwT : TMat o o d dt g         -- W_hh [o, o]
-  ihB : TVec o d dt g           -- input-hidden bias [o]
-  hhB : TVec o d dt g           -- hidden-hidden bias [o]
-  activation : {0 g' : GradMode} -> TVec o d dt g' -> IO (TVec o d dt g')
-  prevOutT : Maybe (TVec o d dt g)
+  iwT : TMat o i ex dt g         -- W_ih [o, i]
+  rwT : TMat o o ex dt g         -- W_hh [o, o]
+  ihB : TVec o ex dt g           -- input-hidden bias [o]
+  hhB : TVec o ex dt g           -- hidden-hidden bias [o]
+  activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')
+  prevOutT : Maybe (TVec o ex dt g)
 
 
 ----------------------------------------------------------------------
@@ -46,10 +46,10 @@ record RnnState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradM
 %default partial
 
 export
-applyRnn : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
-             RnnState i o d dt g ->
-             TVec i d dt g ->
-             IO (RnnState i o d dt g, TVec o d dt g)
+applyRnn : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {o : Nat} ->
+             RnnState i o ex dt g ->
+             TVec i ex dt g ->
+             IO (RnnState i o ex dt g, TVec o ex dt g)
 applyRnn {o} st input = do
   p <- case st.prevOutT of
          Just po => pure po
@@ -75,10 +75,10 @@ applyRnn {o} st input = do
 ||| Common activations: `ttanh` (default for `nn.RNN`), `trelu`,
 ||| `id` for a linear-recurrence variant.
 export
-rnnLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} ->
+rnnLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} ->
              (paramPrefix : String) ->
-             (activation : {0 g' : GradMode} -> TVec o d dt g' -> IO (TVec o d dt g')) ->
-             IO (RnnState i o d dt WithGrad)
+             (activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')) ->
+             IO (RnnState i o ex dt WithGrad)
 rnnLayer paramPrefix activation = do
   -- Xavier-normal-via-uniform for weights:
   --   input weight  W_ih: fan_in=i, fan_out=o → std = sqrt(2/(i+o))
@@ -98,7 +98,7 @@ rnnLayer paramPrefix activation = do
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetRnnState : {o : Nat} -> {0 d : Executor} -> {0 g : GradMode} -> RnnState i o d dt g -> RnnState i o d dt g
+resetRnnState : {o : Nat} -> {0 ex : Executor} -> {0 g : GradMode} -> RnnState i o ex dt g -> RnnState i o ex dt g
 resetRnnState st = { prevOutT := Nothing } st
 
 
@@ -124,13 +124,13 @@ LayerLike RnnState where
     pure (MkRnn iw' rw' ihB' hhB' act prev')
 
   unfreezeLayer (MkRnn iw rw ihB hhB act prev) = do
-    primIO (primSetRequiresGrad {d} iw.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} rw.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} ihB.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} hhB.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} iw.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} rw.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} ihB.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} hhB.tensorPtr 1)
     case prev of
       Nothing => pure ()
-      Just p  => primIO (primSetRequiresGrad {d} p.tensorPtr 1)
+      Just p  => primIO (primSetRequiresGrad {ex} p.tensorPtr 1)
     pure (MkRnn (retypeGrad iw) (retypeGrad rw)
                 (retypeGrad ihB) (retypeGrad hhB)
                 act
@@ -140,6 +140,6 @@ LayerLike RnnState where
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
-              {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+rnnLayerAny : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+              {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

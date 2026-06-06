@@ -25,11 +25,11 @@ module Executor.Core
 -- `Executor` kind alias
 --
 -- `Executor` is a 0-quantity alias for `Type`. Tensor's `d` phantom is
--- declared as `(0 d : Executor)`, which is exactly `(0 d : Type)`
+-- declared as `(0 ex : Executor)`, which is exactly `(0 d : Type)`
 -- underneath but reads as "d is a device tag" at every kind-binder
 -- site. No type-system enforcement: nothing stops a caller writing
 -- `Tensor [4] Bool`. But construction (`primCreate*`) and operations
--- (`tadd` etc.) both require `UserExecutorCore d =>`, so non-device
+-- (`tadd` etc.) both require `UserExecutorCore ex =>`, so non-device
 -- `d`s can be declared but never inhabited or operated on.
 --
 -- See `docs/develop/design-decisions.md` "Open `d` kind: why
@@ -46,11 +46,11 @@ Executor = Type
 -- Linked — backend-linkage capability
 --
 -- Empty capability marker, sibling to `Compatible (device, dtype)`.
--- `Linked d` declares "device `d`'s backend is compiled into this
+-- `Linked ex` declares "device `d`'s backend is compiled into this
 -- `libidrisml`." Instances are NOT hardcoded here — they're emitted by
 -- the generated `HwConfig` module from the build's `BACKEND` list, so a
 -- torch-only build has no `Linked (MlxExecutor _)` instance and `MlxExecutor`
--- becomes unspellable at any constructor carrying the `Linked d =>`
+-- becomes unspellable at any constructor carrying the `Linked ex =>`
 -- constraint. This is the compile-time *linkage* half of device
 -- availability; the runtime *hardware-presence* half is EAFP (attempt
 -- construction, catch the backend's exception). See
@@ -62,7 +62,7 @@ Executor = Type
 ----------------------------------------------------------------------
 
 public export
-interface Linked (0 d : Executor) where
+interface Linked (0 ex : Executor) where
 
 
 ----------------------------------------------------------------------
@@ -104,7 +104,7 @@ Show HardwareClass where
 ||| elementwise arithmetic. Later phases add `UserExecutorLinear`,
 ||| `UserExecutorNN`, `UserExecutorConv`, `UserExecutorTraining` slices.
 public export
-interface UserExecutorCore (0 d : Executor) where
+interface UserExecutorCore (0 ex : Executor) where
   ||| Human-readable device tag: "tape", "torch", "mlx", "mybackend".
   ||| Used in logs and `Show Executor`-style stringification.
   deviceName : String
@@ -175,7 +175,7 @@ interface UserExecutorCore (0 d : Executor) where
 ||| sort/scan (argsort, cumprod). ~30 ops.
 |||
 ||| Subclass of `UserExecutorCore`: an implementer also provides
-||| lifecycle + arithmetic ops, so a single `UserExecutorLinear d =>`
+||| lifecycle + arithmetic ops, so a single `UserExecutorLinear ex =>`
 ||| constraint in scope is enough to use both slices' methods. The
 ||| convention scales as later slices (`UserExecutorNN`, `Conv`,
 ||| `Tape`) layer on top.
@@ -187,11 +187,11 @@ interface UserExecutorCore (0 d : Executor) where
 ||| no cascade on existing instances and BYO authors implement it only
 ||| if they want discovery/grouping.
 public export
-interface UserExecutorCore d => HardwareClassed (0 d : Executor) where
+interface UserExecutorCore ex => HardwareClassed (0 ex : Executor) where
   hardwareClass : HardwareClass
 
 public export
-interface UserExecutorCore d => UserExecutorLinear (0 d : Executor) where
+interface UserExecutorCore ex => UserExecutorLinear (0 ex : Executor) where
   -- Linear algebra ----------------------------------------------------
   primMv          : AnyPtr -> AnyPtr -> AnyPtr
   primMm          : AnyPtr -> AnyPtr -> AnyPtr
@@ -248,7 +248,7 @@ interface UserExecutorCore d => UserExecutorLinear (0 d : Executor) where
 ||| cells, embeddings, and the loss surfaces. Subclass of
 ||| `UserExecutorLinear` (transitively `UserExecutorCore`).
 public export
-interface UserExecutorLinear d => UserExecutorNN (0 d : Executor) where
+interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   -- Activations -------------------------------------------------------
   primGelu        : AnyPtr -> AnyPtr
   primLeakyRelu   : AnyPtr -> Double -> AnyPtr
@@ -295,7 +295,7 @@ interface UserExecutorLinear d => UserExecutorNN (0 d : Executor) where
 ||| The fourth slice. Covers 1D and 2D convolution + pooling (~9
 ||| ops). Subclass of `UserExecutorNN` (transitively Linear + Core).
 public export
-interface UserExecutorNN d => UserExecutorConv (0 d : Executor) where
+interface UserExecutorNN ex => UserExecutorConv (0 ex : Executor) where
   -- 1D conv + pool
   primConv1d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
   primConv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
@@ -332,9 +332,9 @@ interface UserExecutorNN d => UserExecutorConv (0 d : Executor) where
 ||| seen the bindings sit unused. The methods retained below operate
 ||| on a backend-specific Tensor handle or autograd state, so they
 ||| are the dispatch surface that can grow live as layers gain
-||| `UserExecutorTraining d =>` constraints.
+||| `UserExecutorTraining ex =>` constraints.
 public export
-interface UserExecutorConv d => UserExecutorTraining (0 d : Executor) where
+interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   -- Autograd flag --------------------------------------------------
   primRequiresGrad      : AnyPtr -> Int
   primSetRequiresGrad   : AnyPtr -> Int -> PrimIO ()
@@ -563,7 +563,7 @@ interface UserExecutorConv d => UserExecutorTraining (0 d : Executor) where
 
 ||| Cross-backend transfer surface. See module-level docs above.
 public export
-interface UserExecutorCore d => UserExecutorTransfer (0 d : Executor) where
+interface UserExecutorCore ex => UserExecutorTransfer (0 ex : Executor) where
   ||| Globally unique string identifying the backend (NOT the
   ||| hardware variant). Built-ins reserve "tape", "torch", "mlx".
   ||| BYO backends should namespace with "user/<name>". `toExecutor`
@@ -640,7 +640,7 @@ interface UserExecutorCore d => UserExecutorTransfer (0 d : Executor) where
 ||| produces a Ternary tensor in our layout. One-shot at safetensors
 ||| load.
 public export
-interface UserExecutorCore d => UserExecutorQuant (0 d : Executor) where
+interface UserExecutorCore ex => UserExecutorQuant (0 ex : Executor) where
   primCreateTernaryPacked2d       : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
   primBitlinearFwd                : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
   primAbsmeanPerRow2d             : AnyPtr -> AnyPtr

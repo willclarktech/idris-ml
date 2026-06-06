@@ -153,7 +153,7 @@ genStepCached model tables caches toksList = do
     (curLen ** idDoubles) => do
       let inputIds = mkIds idDoubles
       (caches', logits) <- hfLlamaForwardLmStep
-                                 {d=ExampleExecutor} {dt=ExampleDType}
+                                 {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seq          = curLen}
                                  {vocab        = VocabSize}
                                  {hidden       = Hidden}
@@ -208,9 +208,9 @@ genLoopCached model tables prompt remaining =
       -> IO (List (Fin VocabSize))
     go _      acc _    Z         = pure acc
     go caches acc feed (S k)     = do
-      perfReset {d=ExampleExecutor}
+      perfReset {ex=ExampleExecutor}
       (caches', mNext) <- genStepCached model tables caches feed
-      ops <- perfOpCount {d=ExampleExecutor}
+      ops <- perfOpCount {ex=ExampleExecutor}
       putStrLn ("[perf] step " ++ show (length acc) ++ ": " ++ show ops ++ " ops")
       case mNext of
         Nothing => do
@@ -232,7 +232,7 @@ runDumpHidden model tables = do
   -- save_oracle_llama.py if/when added). Single token to keep the
   -- compute cheap on the first run.
   let inputIds = mkIds (the (Vect 1 Double) [9906.0])
-  out <- hfLlamaForward {d=ExampleExecutor} {dt=ExampleDType}
+  out <- hfLlamaForward {ex=ExampleExecutor} {dt=ExampleDType}
                         {seq          = 1}
                         {vocab        = VocabSize}
                         {hidden       = Hidden}
@@ -345,7 +345,7 @@ main = do
   -- that to ~5 GB; that's the practical config for this VM. Tape
   -- (F64-only) doesn't fit in 16 GB; the example skips that lane.
   putStrLn "[stage] hfLlamaModel — constructing 146-param state (~5 GB at F32 / 10 GB at F64)..."
-  model <- hfLlamaModel {d=ExampleExecutor} {dt=ExampleDType}
+  model <- hfLlamaModel {ex=ExampleExecutor} {dt=ExampleDType}
                         {vocab        = VocabSize}
                         {hidden       = Hidden}
                         {numLayers    = NumLayers}
@@ -360,7 +360,7 @@ main = do
   -- cast-on-load widens to F32 / F64 depending on backend.
   putStrLn ("[stage] loadModelAllowCast — reading " ++ hfWeightsPath ++ " (~2.5 GB BF16, casting to "
             ++ "F32/F64 host-side)...")
-  ok <- loadModelAllowCast {d=ExampleExecutor} hfWeightsPath
+  ok <- loadModelAllowCast {ex=ExampleExecutor} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
@@ -371,7 +371,7 @@ main = do
   -- Build RoPE tables once (reused across all forward passes /
   -- decode steps).
   putStrLn "[stage] buildLlamaRoPETables — precomputing cos/sin tables..."
-  tables <- buildLlamaRoPETables {d=ExampleExecutor} {dt=ExampleDType}
+  tables <- buildLlamaRoPETables {ex=ExampleExecutor} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
                                   {headDim = HeadDim}
                                   RopeBase llama3Scaling
@@ -402,7 +402,7 @@ main = do
             forceMajorGc
             _ <- drainManagedHandles
             stageStamp "drain + GC done" t0
-            releaseAllPersistent {d=ExampleExecutor}
+            releaseAllPersistent {ex=ExampleExecutor}
             stageStamp "releaseAllPersistent done" t0
             pure ()
           else do
@@ -429,6 +429,6 @@ main = do
             forceMajorGc
             _ <- drainManagedHandles
             stageStamp "drain + GC done" t0
-            releaseAllPersistent {d=ExampleExecutor}
+            releaseAllPersistent {ex=ExampleExecutor}
             stageStamp "releaseAllPersistent done" t0
             pure ()

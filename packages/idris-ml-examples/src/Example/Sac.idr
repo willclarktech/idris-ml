@@ -95,16 +95,16 @@ squashCorrection u =
 
 actorMean : ActorNet -> Vect ObsDim Double -> IO Double
 actorMean actor obs = do
-  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar actor stateV
-  pure (primItem1d {d=ExampleExecutor} outV.tensorPtr 0)
+  pure (primItem1d {ex=ExampleExecutor} outV.tensorPtr 0)
 
 qValue : QNet -> Vect ObsDim Double -> Double -> IO Double
 qValue q obs action = do
   let inV = the (TVec QInputDim ExampleExecutor ExampleDType WithGrad)
-                (MkTensor (bulkToTensor {d=ExampleExecutor} {dt=ExampleDType} (qInputTensor (qInput obs action))) Nothing)
+                (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (qInputTensor (qInput obs action))) Nothing)
   (_, outV) <- forwardVar q inV
-  pure (primItem1d {d=ExampleExecutor} outV.tensorPtr 0)
+  pure (primItem1d {ex=ExampleExecutor} outV.tensorPtr 0)
 
 
 -- Sample a squashed Gaussian action — pure-Double, used for rollout.
@@ -112,7 +112,7 @@ sampleActionIO : ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad -> 
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
   mean <- actorMean actor obs
-  let logStd = primItem {d=ExampleExecutor} logStdV.tensorPtr
+  let logStd = primItem {ex=ExampleExecutor} logStdV.tensorPtr
       std = Prelude.exp logStd
   eps <- normalSample
   let u = mean + std * eps
@@ -207,7 +207,7 @@ perSampleQLoss qOutB tv k = do
 meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
@@ -217,7 +217,7 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
   targetVals <- traverse (computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha) batch
   let qInputs = the (Vect n (Vector QInputDim Double))
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)
-      qInputBT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} qInputs
+      qInputBT = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} qInputs
       qInputV = the (Tensor [n, QInputDim] ExampleExecutor ExampleDType WithGrad) (MkTensor qInputBT Nothing)
   (_, qOutB) <- forwardVarBatch qOnline qInputV
   losses <- go qOutB (toList targetVals) 0
@@ -239,7 +239,7 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad
 buildScalarColumn {n} xs =
   let rows = the (Vect n (Vector 1 Double)) (map (\x => VArray [SArray x]) xs)
-      ptr = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} rows
+      ptr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} rows
   in MkTensor ptr Nothing
 
 actorPerStepLoss : {n : Nat} ->
@@ -251,16 +251,16 @@ actorPerStepLoss : {n : Nat} ->
 actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   q1Row <- trowSelect q1B rowIdx
   q1S   <- telemSelect q1Row 0
-  let q1Val = primItem1d {d=ExampleExecutor} q1Row.tensorPtr 0
+  let q1Val = primItem1d {ex=ExampleExecutor} q1Row.tensorPtr 0
   q2Row <- trowSelect q2B rowIdx
   q2S   <- telemSelect q2Row 0
-  let q2Val = primItem1d {d=ExampleExecutor} q2Row.tensorPtr 0
+  let q2Val = primItem1d {ex=ExampleExecutor} q2Row.tensorPtr 0
       minQS = if q1Val <= q2Val then q1S else q2S
   meanRow <- trowSelect meanB rowIdx
   meanS   <- telemSelect meanRow 0
   uRow    <- trowSelect uBT rowIdx
   uS      <- telemSelect uRow 0
-  let uVal = primItem1d {d=ExampleExecutor} uRow.tensorPtr 0
+  let uVal = primItem1d {ex=ExampleExecutor} uRow.tensorPtr 0
   diffM    <- tsub uS meanS
   negTwoLs <- tmulScalar logStdV (-2.0)
   varInv   <- texp negTwoLs
@@ -279,11 +279,11 @@ actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
 actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
                  Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
-  let logStd = primItem {d=ExampleExecutor} logStdV.tensorPtr
+  let logStd = primItem {ex=ExampleExecutor} logStdV.tensorPtr
       stdVal = Prelude.exp logStd
   epses <- traverse (\_ => normalSample) obsBatch
   let obsTensors = the (Vect n (Vector ObsDim Double)) (map obsTensor obsBatch)
-      obsBT = bulkToTensor2d {d=ExampleExecutor} {dt=ExampleDType} obsTensors
+      obsBT = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsTensors
       obsBV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor obsBT Nothing)
   (_, meanB) <- forwardVarBatch actor obsBV
   let epsScales = map (\e => stdVal * e) epses
@@ -339,7 +339,7 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
 
   action <- if stepCount < cfg.warmupSteps
               then randomRIO (the Double (negate MaxAction), MaxAction)
-              else withNoGrad {d=ExampleExecutor} $ do
+              else withNoGrad {ex=ExampleExecutor} $ do
                 -- Rollout-phase forward: just samples an action.
                 -- Gradients come from the separate q1/q2/actor losses
                 -- below; no need to track grad here.
@@ -371,8 +371,8 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
                  Nothing => pure ()
                  Just batch => do
                    runBatchUpdate q1Opt q2Opt actorOpt st cfg batch
-                   _ <- polyakUpdate {d=ExampleExecutor} cfg.tau "q1_" "q1tgt_"
-                   _ <- polyakUpdate {d=ExampleExecutor} cfg.tau "q2_" "q2tgt_"
+                   _ <- polyakUpdate {ex=ExampleExecutor} cfg.tau "q1_" "q1tgt_"
+                   _ <- polyakUpdate {ex=ExampleExecutor} cfg.tau "q2_" "q2tgt_"
                    pure ()
              else pure ()
 
@@ -427,8 +427,8 @@ main = do
   logStdV <- the (IO (Tensor [] ExampleExecutor ExampleDType WithGrad)) (tparamScalar "actor_log_std" 0.0)
 
   -- Hard-copy online → target at init.
-  _ <- polyakUpdate {d=ExampleExecutor} 1.0 "q1_" "q1tgt_"
-  _ <- polyakUpdate {d=ExampleExecutor} 1.0 "q2_" "q2tgt_"
+  _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "q1_" "q1tgt_"
+  _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "q2_" "q2tgt_"
 
   buffer <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
@@ -453,7 +453,7 @@ main = do
       trainCfg = mkTrainConfig cfg.epochs 2000
                             (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
                             (\_ => readRLMetrics "recent_20" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
     (\s, _ => do
        (s', loss) <- sacStep q1Opt q2Opt actorOpt cfg s
        recordReturn metrics (negate loss)
@@ -463,7 +463,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 20
-  evalSum <- withNoGrad {d=ExampleExecutor} (evalN trained.actor nEval 0.0)
+  evalSum <- withNoGrad {ex=ExampleExecutor} (evalN trained.actor nEval 0.0)
   let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

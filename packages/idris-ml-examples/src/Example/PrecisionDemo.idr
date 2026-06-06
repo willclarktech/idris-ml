@@ -55,33 +55,33 @@ import Tensor
 ||| module-level constant whose lambda still references buffers
 ||| allocated at module load, double-freeing on the next call.
 makeVec3 : {0 d : Type} -> {0 dt : DType} ->
-           UserExecutorTransfer d => Compatible d dt =>
+           UserExecutorTransfer ex => Compatible ex dt =>
            (Double, Double, Double) ->
-           IO (Tensor [3] d dt WithGrad)
+           IO (Tensor [3] ex dt WithGrad)
 makeVec3 (a, b, c) = do
-  buf  <- primIO (\w => MkIORes (primAllocHost   {d} 3)        w)
+  buf  <- primIO (\w => MkIORes (primAllocHost   {ex} 3)        w)
   buf1 <- primIO (\w => MkIORes (prim__setDouble buf  0 a)     w)
   buf2 <- primIO (\w => MkIORes (prim__setDouble buf1 1 b)     w)
   buf3 <- primIO (\w => MkIORes (prim__setDouble buf2 2 c)     w)
-  sh   <- primIO (\w => MkIORes (primAllocIntHost {d} 1)       w)
-  sh1  <- primIO (\w => MkIORes (primSetIntHost   {d} sh 0 3)  w)
+  sh   <- primIO (\w => MkIORes (primAllocIntHost {ex} 1)       w)
+  sh1  <- primIO (\w => MkIORes (primSetIntHost   {ex} sh 0 3)  w)
   ptr  <- primIO (\w =>
-            MkIORes (primCreateFromHost {d} buf3 sh1 1 1) w)
-  primIO (primFreeIntHost {d} sh1)
-  primIO (primFreeHost    {d} buf3)
+            MkIORes (primCreateFromHost {ex} buf3 sh1 1 1) w)
+  primIO (primFreeIntHost {ex} sh1)
+  primIO (primFreeHost    {ex} buf3)
   pure (MkTensor ptr Nothing)
 
 ||| Read all three values out via the backend's `primItem1d`.
 ||| Returns F64 doubles regardless of storage dtype — the C side
-||| promotes F32 to double on readback. `{d}` pins the typeclass
+||| promotes F32 to double on readback. `{ex}` pins the typeclass
 ||| dispatch (Idris can't infer it from a bare `AnyPtr`).
-read3 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore d =>
-        Tensor [3] d dt WithGrad ->
+read3 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
+        Tensor [3] ex dt WithGrad ->
         (Double, Double, Double)
 read3 t =
-  ( primItem1d {d} t.tensorPtr 0
-  , primItem1d {d} t.tensorPtr 1
-  , primItem1d {d} t.tensorPtr 2 )
+  ( primItem1d {ex} t.tensorPtr 0
+  , primItem1d {ex} t.tensorPtr 1
+  , primItem1d {ex} t.tensorPtr 2 )
 
 ||| F64 source values chosen to exhibit F32 precision artifacts —
 ||| transcendental-ish constants whose F32 nearest differs from
@@ -123,7 +123,7 @@ f32RelTol = 1.0e-6
 partOne_F32LossyCast : IO Bool
 partOne_F32LossyCast = do
   putStrLn "=== Part 1: F64 → F32 narrowing on TapeExecutor ==="
-  src <- makeVec3 {d = TapeExecutor} {dt = F64} sourceF64
+  src <- makeVec3 {ex=TapeExecutor} {dt = F64} sourceF64
   let srcVals = read3 src
   putStrLn $ "  " ++ padN 22 "F64 source:"          ++ showTriple srcVals
 
@@ -150,7 +150,7 @@ partTwo_F32ToF64Upcast : IO Bool
 partTwo_F32ToF64Upcast = do
   putStrLn ""
   putStrLn "=== Part 2: F32 → F64 widening on TapeExecutor ==="
-  src    <- makeVec3 {d = TapeExecutor} {dt = F64} sourceF64
+  src    <- makeVec3 {ex=TapeExecutor} {dt = F64} sourceF64
   narrow <- tcastUnsafe F32 src
   let f32Vals = read3 narrow
   putStrLn $ "  " ++ padN 22 "F32 storage:"   ++ showTriple f32Vals
@@ -181,7 +181,7 @@ partThree_F32Hop : IO Bool
 partThree_F32Hop = do
   putStrLn ""
   putStrLn "=== Part 3: F32 hop TapeExecutor → TorchExecutor TCpu → MlxExecutor MCpu → TapeExecutor ==="
-  src_f64 <- makeVec3 {d = TapeExecutor} {dt = F64} sourceF64
+  src_f64 <- makeVec3 {ex=TapeExecutor} {dt = F64} sourceF64
   v_tape  <- tcastUnsafe F32 src_f64
   let startVals = read3 v_tape
   putStrLn $ "  " ++ padN 30 "TapeExecutor F32:"          ++ showTriple startVals

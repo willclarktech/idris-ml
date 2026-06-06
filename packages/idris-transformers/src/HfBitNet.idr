@@ -33,7 +33,7 @@
 |||   - Storage shapes match HF on disk. Notably:
 |||       - BitLinear weights are packed uint8 axis-0:
 |||         `[(out + 3) / 4, in]` raw on disk; we materialise them as
-|||         `Tensor [out, in] d Ternary NoGrad` via
+|||         `Tensor [out, in] ex Ternary NoGrad` via
 |||         `tCreateTernaryFromHfPacked2d`.
 |||       - `weight_scale` is a scalar `[1]` tensor in the model's
 |||         compute dtype (F32 / F16 / BF16 — single value per linear).
@@ -203,10 +203,10 @@ fillBytesZero buf off n =
 ||| the scalar out of `weightScaleT` and passes it as a `Double` to
 ||| `tBitlinearFwdHfQuant`.
 public export
-record BitLinearHf (i, o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record BitLinearHf (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitLinearHf
-  weightT      : Tensor [o, i] d Ternary NoGrad
-  weightScaleT : Tensor [1] d dt NoGrad
+  weightT      : Tensor [o, i] ex Ternary NoGrad
+  weightScaleT : Tensor [1] ex dt NoGrad
 
 
 -- Build a synthetic placeholder BitLinear. Ternary weight is all-zero
@@ -221,12 +221,12 @@ record BitLinearHf (i, o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode)
 -- machinery assumes float-dtype storage. `weightName` is unused here
 -- but kept in the signature so callers thread the HF param name and
 -- the loader follow-up can pick it up without re-plumbing call sites.
-makeBitLinearHf : UserExecutorTraining d => UserExecutorQuant d
-               => RuntimeDType dt => Linked d => Compatible d dt
+makeBitLinearHf : UserExecutorTraining ex => UserExecutorQuant ex
+               => RuntimeDType dt => Linked ex => Compatible ex dt
                => {i, o : Nat}
                -> (weightName : String)
                -> (weightScaleName : String)
-               -> IO (BitLinearHf i o d dt WithGrad)
+               -> IO (BitLinearHf i o ex dt WithGrad)
 makeBitLinearHf weightName weightScaleName = do
   -- Ternary placeholder via zero-filled HF-packed buffer. The HF
   -- format is axis-0 packed `[(o+3)/4, i]`, so `((o+3) `div` 4) * i`
@@ -247,7 +247,7 @@ makeBitLinearHf weightName weightScaleName = do
       totalBytes : Int
       totalBytes = oPackedI * iI
   bytesPtr <- ioRerun (\_ => prim__allocBytes totalBytes)
-  w <- tCreateTernaryFromHfPacked2d {d} {o} {i} bytesPtr
+  w <- tCreateTernaryFromHfPacked2d {ex} {o} {i} bytesPtr
   -- Scalar weight_scale, registered under HF's `…weight_scale` name
   -- so `loadModel` populates it. Init to 1.0 (the post-load value
   -- will overwrite). Weaken to NoGrad — BitNet freezes weight_scale.
@@ -262,14 +262,14 @@ makeBitLinearHf weightName weightScaleName = do
 ||| RmsNorms per block (input_layernorm, post_attention_layernorm,
 ||| attn_sub_norm, ffn_sub_norm) plus the top-level `model.norm`.
 public export
-record BitNetRmsNorm (n : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record BitNetRmsNorm (n : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetRmsNorm
-  weight : Tensor [n] d dt g
+  weight : Tensor [n] ex dt g
 
-makeBitNetRmsNorm : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBitNetRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                  => {n : Nat}
                  -> (paramFullName : String)
-                 -> IO (BitNetRmsNorm n d dt WithGrad)
+                 -> IO (BitNetRmsNorm n ex dt WithGrad)
 makeBitNetRmsNorm paramFullName = do
   w <- tparam1dConst {n} paramFullName 1.0
   pure (MkBitNetRmsNorm w)
@@ -280,14 +280,14 @@ makeBitNetRmsNorm paramFullName = do
 ||| LM-head projection in `hfBitnetForwardLm`
 ||| (`tie_word_embeddings=True` — no separate `lm_head.weight`).
 public export
-record BitNetEmbedding (vocab, hidden : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record BitNetEmbedding (vocab, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetEmbedding
-  weight : Tensor [vocab, hidden] d dt g
+  weight : Tensor [vocab, hidden] ex dt g
 
-makeBitNetEmbedding : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBitNetEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                    => {vocab, hidden : Nat}
                    -> (paramFullName : String)
-                   -> IO (BitNetEmbedding vocab hidden d dt WithGrad)
+                   -> IO (BitNetEmbedding vocab hidden ex dt WithGrad)
 makeBitNetEmbedding paramFullName = do
   w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
   pure (MkBitNetEmbedding w)
@@ -309,11 +309,11 @@ makeBitNetEmbedding paramFullName = do
 public export
 record BitNetAttentionState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetAttention
-  qProj       : BitLinearHf hidden qOut  d dt g
-  kProj       : BitLinearHf hidden kvOut d dt g
-  vProj       : BitLinearHf hidden kvOut d dt g
+  qProj       : BitLinearHf hidden qOut ex dt g
+  kProj       : BitLinearHf hidden kvOut ex dt g
+  vProj       : BitLinearHf hidden kvOut ex dt g
   -- `attn_sub_norm` is applied to the post-SDPA `[seq, qOut]` tensor,
   -- so it's sized to `qOut` here, NOT `hidden`. For HF BitNet the
   -- config invariant is `hidden = numHeads * headDim = qOut`, so the
@@ -321,8 +321,8 @@ record BitNetAttentionState
   -- either typing — `qOut` is the one that makes the type-checked
   -- apply work without a proof. Same trick as HfLlama's `qOut` in
   -- `oProj : LlamaLinearNoBias qOut hidden`.
-  attnSubNorm : BitNetRmsNorm qOut d dt g
-  oProj       : BitLinearHf qOut hidden d dt g
+  attnSubNorm : BitNetRmsNorm qOut ex dt g
+  oProj       : BitLinearHf qOut hidden ex dt g
 
 
 ||| MLP sublayer state. Three BitLinears (gate/up/down) + the BitNet-
@@ -335,12 +335,12 @@ record BitNetAttentionState
 public export
 record BitNetMlpState
         (hidden : Nat) (intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetMlp
-  gateProj   : BitLinearHf hidden intermediate d dt g
-  upProj     : BitLinearHf hidden intermediate d dt g
-  ffnSubNorm : BitNetRmsNorm intermediate d dt g
-  downProj   : BitLinearHf intermediate hidden d dt g
+  gateProj   : BitLinearHf hidden intermediate ex dt g
+  upProj     : BitLinearHf hidden intermediate ex dt g
+  ffnSubNorm : BitNetRmsNorm intermediate ex dt g
+  downProj   : BitLinearHf intermediate hidden ex dt g
 
 
 ||| One decoder block: pre-norm + attention (with attn_sub_norm) +
@@ -348,12 +348,12 @@ record BitNetMlpState
 public export
 record BitNetBlockState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetBlock
-  inputNorm    : BitNetRmsNorm hidden d dt g
-  attn         : BitNetAttentionState hidden qOut kvOut d dt g
-  postAttnNorm : BitNetRmsNorm hidden d dt g
-  mlp          : BitNetMlpState hidden intermediate d dt g
+  inputNorm    : BitNetRmsNorm hidden ex dt g
+  attn         : BitNetAttentionState hidden qOut kvOut ex dt g
+  postAttnNorm : BitNetRmsNorm hidden ex dt g
+  mlp          : BitNetMlpState hidden intermediate ex dt g
 
 
 ||| Full BitNet model state: token embedding + N decoder blocks +
@@ -362,11 +362,11 @@ public export
 record BitNetModelState
         (vocab : Nat) (hidden : Nat) (numLayers : Nat)
         (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetModel
-  embedTokens : BitNetEmbedding vocab hidden d dt g
-  blocks      : Vect numLayers (BitNetBlockState hidden qOut kvOut intermediate d dt g)
-  finalNorm   : BitNetRmsNorm hidden d dt g
+  embedTokens : BitNetEmbedding vocab hidden ex dt g
+  blocks      : Vect numLayers (BitNetBlockState hidden qOut kvOut intermediate ex dt g)
+  finalNorm   : BitNetRmsNorm hidden ex dt g
   -- No `lmHead` field — `tie_word_embeddings=True` means the embed
   -- weight is also the LM-head projection (see `hfBitnetForwardLm`).
 
@@ -375,11 +375,11 @@ record BitNetModelState
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserExecutorTraining d => UserExecutorQuant d
-             => RuntimeDType dt => Linked d => Compatible d dt
+makeAttention : UserExecutorTraining ex => UserExecutorQuant ex
+             => RuntimeDType dt => Linked ex => Compatible ex dt
              => {hidden, qOut, kvOut : Nat}
              -> (layerPfx : String)
-             -> IO (BitNetAttentionState hidden qOut kvOut d dt WithGrad)
+             -> IO (BitNetAttentionState hidden qOut kvOut ex dt WithGrad)
 makeAttention layerPfx = do
   q  <- makeBitLinearHf {i=hidden} {o=qOut}
           (layerPfx ++ ".self_attn.q_proj.weight")
@@ -397,11 +397,11 @@ makeAttention layerPfx = do
           (layerPfx ++ ".self_attn.o_proj.weight_scale")
   pure (MkBitNetAttention q k v sn o)
 
-makeMlp : UserExecutorTraining d => UserExecutorQuant d
-       => RuntimeDType dt => Linked d => Compatible d dt
+makeMlp : UserExecutorTraining ex => UserExecutorQuant ex
+       => RuntimeDType dt => Linked ex => Compatible ex dt
        => {hidden, intermediate : Nat}
        -> (layerPfx : String)
-       -> IO (BitNetMlpState hidden intermediate d dt WithGrad)
+       -> IO (BitNetMlpState hidden intermediate ex dt WithGrad)
 makeMlp layerPfx = do
   g  <- makeBitLinearHf {i=hidden} {o=intermediate}
           (layerPfx ++ ".mlp.gate_proj.weight")
@@ -416,11 +416,11 @@ makeMlp layerPfx = do
           (layerPfx ++ ".mlp.down_proj.weight_scale")
   pure (MkBitNetMlp g u fn dn)
 
-makeBlock : UserExecutorTraining d => UserExecutorQuant d
-         => RuntimeDType dt => Linked d => Compatible d dt
+makeBlock : UserExecutorTraining ex => UserExecutorQuant ex
+         => RuntimeDType dt => Linked ex => Compatible ex dt
          => {hidden, qOut, kvOut, intermediate : Nat}
          -> (layerPfx : String)
-         -> IO (BitNetBlockState hidden qOut kvOut intermediate d dt WithGrad)
+         -> IO (BitNetBlockState hidden qOut kvOut intermediate ex dt WithGrad)
 makeBlock layerPfx = do
   ln1 <- makeBitNetRmsNorm {n=hidden} (layerPfx ++ ".input_layernorm.weight")
   at  <- makeAttention {hidden} {qOut} {kvOut} layerPfx
@@ -428,11 +428,11 @@ makeBlock layerPfx = do
   mp  <- makeMlp {hidden} {intermediate} layerPfx
   pure (MkBitNetBlock ln1 at ln2 mp)
 
-makeBlocks : UserExecutorTraining d => UserExecutorQuant d
-          => RuntimeDType dt => Linked d => Compatible d dt
+makeBlocks : UserExecutorTraining ex => UserExecutorQuant ex
+          => RuntimeDType dt => Linked ex => Compatible ex dt
           => {hidden, qOut, kvOut, intermediate : Nat}
           -> (modelPfx : String) -> (n : Nat) -> (offset : Nat)
-          -> IO (Vect n (BitNetBlockState hidden qOut kvOut intermediate d dt WithGrad))
+          -> IO (Vect n (BitNetBlockState hidden qOut kvOut intermediate ex dt WithGrad))
 makeBlocks _   Z     _      = pure []
 makeBlocks pfx (S k) offset = do
   b  <- makeBlock {hidden} {qOut} {kvOut} {intermediate}
@@ -461,11 +461,11 @@ makeBlocks pfx (S k) offset = do
 ||| the standard
 ||| safetensors path.
 public export
-hfBitnetModel : UserExecutorTraining d => UserExecutorQuant d
-             => RuntimeDType dt => Linked d => Compatible d dt
+hfBitnetModel : UserExecutorTraining ex => UserExecutorQuant ex
+             => RuntimeDType dt => Linked ex => Compatible ex dt
              => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
              -> (modelPrefix : String)
-             -> IO (BitNetModelState vocab hidden numLayers qOut kvOut intermediate d dt WithGrad)
+             -> IO (BitNetModelState vocab hidden numLayers qOut kvOut intermediate ex dt WithGrad)
 hfBitnetModel pfx = do
   emb    <- makeBitNetEmbedding {vocab} {hidden} (pfx ++ ".embed_tokens.weight")
   blocks <- makeBlocks {hidden} {qOut} {kvOut} {intermediate} pfx numLayers 0
@@ -494,12 +494,12 @@ bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
 ||| / `primMul` / `primSum` / scale) lives in `HfCommon.idr` and is
 ||| shared with HfLlama.
 export
-applyRmsNorm2d : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
-                 BitNetRmsNorm hidden d dt g ->
-                 Tensor [seqLen, hidden] d dt g ->
-                 IO (Tensor [seqLen, hidden] d dt g)
+                 BitNetRmsNorm hidden ex dt g ->
+                 Tensor [seqLen, hidden] ex dt g ->
+                 IO (Tensor [seqLen, hidden] ex dt g)
 applyRmsNorm2d eps (MkBitNetRmsNorm weight) input =
   applyRmsNorm2dRaw eps weight input
 
@@ -523,26 +523,26 @@ applyRmsNorm2d eps (MkBitNetRmsNorm weight) input =
 ||| call sites on BitNet 2B-4T). Takes all dependencies (weight,
 ||| scale, bias, rms placeholder, input pointers + shapes) as plain
 ||| AnyPtr / Int / Double args so the body doesn't close over the
-||| constraint-heavy `BitLinearHf i o d dt g` record type.
+||| constraint-heavy `BitLinearHf i o ex dt g` record type.
 private
-bitlinearHfProcessRow : {0 d : Executor} -> UserExecutorLinear d
-                     => UserExecutorQuant d =>
+bitlinearHfProcessRow : {0 ex : Executor} -> UserExecutorLinear ex
+                     => UserExecutorQuant ex =>
                      (weightTPtr : AnyPtr) -> (scaleVal : Double) ->
                      (biasTPtr : AnyPtr) -> (rmsTPtr : AnyPtr) ->
                      (xPtr : AnyPtr) -> (iI : Int) -> (oI : Int) ->
                      (r : Int) -> AnyPtr
 bitlinearHfProcessRow weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI r =
-  let row2d  = primNarrow {d} xPtr 0 r 1                              -- [1, i]
-      row1d  = primReshape1d {d} row2d iI                             -- [i]
-      rowOut = primBitlinearFwdHfQuant {d} weightTPtr scaleVal
+  let row2d  = primNarrow {ex} xPtr 0 r 1                              -- [1, i]
+      row1d  = primReshape1d {ex} row2d iI                             -- [i]
+      rowOut = primBitlinearFwdHfQuant {ex} weightTPtr scaleVal
                  row1d biasTPtr 0 rmsTPtr 0.0
-  in primReshape2d {d} rowOut 1 oI
+  in primReshape2d {ex} rowOut 1 oI
 
 ||| Row-folding helper for `applyBitLinearHf2d`. Lifted to top-level
 ||| (see `bitlinearHfProcessRow`).
 private
-bitlinearHfFoldRows : {0 d : Executor} -> UserExecutorLinear d
-                   => UserExecutorQuant d =>
+bitlinearHfFoldRows : {0 ex : Executor} -> UserExecutorLinear ex
+                   => UserExecutorQuant ex =>
                    (weightTPtr : AnyPtr) -> (scaleVal : Double) ->
                    (biasTPtr : AnyPtr) -> (rmsTPtr : AnyPtr) ->
                    (xPtr : AnyPtr) -> (iI : Int) -> (oI : Int) ->
@@ -550,31 +550,31 @@ bitlinearHfFoldRows : {0 d : Executor} -> UserExecutorLinear d
 bitlinearHfFoldRows weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI seqLenI r acc =
   if r >= seqLenI
     then acc
-    else bitlinearHfFoldRows {d} weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI seqLenI (r + 1)
-           (primCat2 {d} acc
-             (bitlinearHfProcessRow {d} weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI r))
+    else bitlinearHfFoldRows {ex} weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI seqLenI (r + 1)
+           (primCat2 {ex} acc
+             (bitlinearHfProcessRow {ex} weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI r))
 
-applyBitLinearHf2d : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-                  => UserExecutorQuant d => RuntimeDType dt
-                  => Linked d => Compatible d dt
+applyBitLinearHf2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+                  => UserExecutorQuant ex => RuntimeDType dt
+                  => Linked ex => Compatible ex dt
                   => {seqLen, i, o : Nat} ->
-                  BitLinearHf i o d dt g ->
-                  Tensor [seqLen, i] d dt g ->
-                  IO (Tensor [seqLen, o] d dt g)
+                  BitLinearHf i o ex dt g ->
+                  Tensor [seqLen, i] ex dt g ->
+                  IO (Tensor [seqLen, o] ex dt g)
 applyBitLinearHf2d {seqLen} {i} {o} bl x = do
   let scaleVal : Double
-      scaleVal = primItem {d} bl.weightScaleT.tensorPtr
+      scaleVal = primItem {ex} bl.weightScaleT.tensorPtr
       oI       = cast {to=Int} o
       iI       = cast {to=Int} i
       -- Zero bias placeholder ([out], NoGrad). Calloc-backed buffer
       -- + dt-streamed creation, identical to HfLlama's LM head trick.
       zBuf     = prim__allocDoubles oI
-      biasPtr  = dtCreateState1d {d} {t=dt} oI zBuf (deviceStreamTag {d})
+      biasPtr  = dtCreateState1d {ex} {t=dt} oI zBuf (deviceStreamTag {ex})
       -- Placeholder rmsNormWeight ([in], NoGrad). C side won't read it
       -- since useRmsNorm=False, but the kernel signature still requires
       -- a non-null handle. Allocate a tiny zero buffer.
       rBuf     = prim__allocDoubles iI
-      rmsPtr   = dtCreateState1d {d} {t=dt} iI rBuf (deviceStreamTag {d})
+      rmsPtr   = dtCreateState1d {ex} {t=dt} iI rBuf (deviceStreamTag {ex})
       wTPtr    = bl.weightT.tensorPtr
       xPtr     = x.tensorPtr
       seqLenI  = cast {to=Int} seqLen
@@ -585,53 +585,53 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
   ioRerun (\_ =>
     let out = if seqLen == 0
                 then xPtr  -- impossible at well-typed call sites
-                else bitlinearHfFoldRows {d} wTPtr scaleVal biasPtr rmsPtr xPtr iI oI seqLenI 1
-                       (bitlinearHfProcessRow {d} wTPtr scaleVal biasPtr rmsPtr xPtr iI oI 0)
+                else bitlinearHfFoldRows {ex} wTPtr scaleVal biasPtr rmsPtr xPtr iI oI seqLenI 1
+                       (bitlinearHfProcessRow {ex} wTPtr scaleVal biasPtr rmsPtr xPtr iI oI 0)
     in MkTensor out Nothing)
 
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`.
 ||| Same pattern as HfLlama's `applyEmbedLookup`.
 export
-applyEmbedLookup : {0 d : Executor} -> UserExecutorTraining d =>
+applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seqLen, vocab, hidden : Nat} ->
-                   BitNetEmbedding vocab hidden d dt g ->
-                   Tensor [seqLen] d dt g ->
-                   IO (Tensor [seqLen, hidden] d dt g)
+                   BitNetEmbedding vocab hidden ex dt g ->
+                   Tensor [seqLen] ex dt g ->
+                   IO (Tensor [seqLen, hidden] ex dt g)
 applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI = cast {to=Int} hidden
-      out = primEmbedding2d {d} w.tensorPtr tokens.tensorPtr sI hI
+      out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
 
 -- All-heads RoPE helper — same shape as HfLlama's `ropeAllHeadsFlat`.
 ropeAllHeadsFlat :
-     {0 d : Executor} -> UserExecutorTraining d =>
+     {0 ex : Executor} -> UserExecutorTraining ex =>
      {seq, numH, headDim, maxPos : Nat} ->
-     RoPETables maxPos headDim d dt g ->
+     RoPETables maxPos headDim ex dt g ->
      (full : AnyPtr) ->
      (sI, nHI, hdI : Int) ->
      IO AnyPtr
-ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = do
+ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = do
   full3 <- ioRerun (\_ =>
-            the (Tensor [seq, numH, headDim] d dt g)
-                (MkTensor (primReshape3d {d} full sI nHI hdI) Nothing))
+            the (Tensor [seq, numH, headDim] ex dt g)
+                (MkTensor (primReshape3d {ex} full sI nHI hdI) Nothing))
   rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables 0 full3
-  ioRerun (\_ => primReshape2d {d} rot3.tensorPtr sI (nHI * hdI))
+  ioRerun (\_ => primReshape2d {ex} rot3.tensorPtr sI (nHI * hdI))
 
 
 ||| Full multi-head causal self-attention with GQA + RoPE +
 ||| BitNet-specific `attn_sub_norm` between context aggregation and
 ||| `o_proj`.
-applyAttention : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-              => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyAttention : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+              => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt
               => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
               (eps : Double) ->
-              BitNetAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g ->
-              RoPETables maxPos headDim d dt g ->
-              Tensor [seq, hidden] d dt g ->
-              IO (Tensor [seq, hidden] d dt g)
+              BitNetAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) ex dt g ->
+              RoPETables maxPos headDim ex dt g ->
+              Tensor [seq, hidden] ex dt g ->
+              IO (Tensor [seq, hidden] ex dt g)
 applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
                eps attn tables input = do
   q <- applyBitLinearHf2d {seqLen=seq} attn.qProj input
@@ -641,12 +641,12 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
       hdI   = cast {to=Int} headDim
       nHI   = cast {to=Int} numHeads
       nKvHI = cast {to=Int} numKvHeads
-  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}
+  qRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numHeads}
                                 {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI
-  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads}
+  kRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numKvHeads}
                                 {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI
   ctxPtr <- ioRerun (\_ =>
-              primSdpa2d {d} qRopedPtr kRopedPtr v.tensorPtr
+              primSdpa2d {ex} qRopedPtr kRopedPtr v.tensorPtr
                          nHI nKvHI hdI 1)
   ctxT <- ioRerun (\_ => MkTensor ctxPtr Nothing)
   -- attn_sub_norm: BitNet-specific RmsNorm over the post-SDPA tensor,
@@ -660,10 +660,10 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
 
 -- BitNet's hidden_act is `relu2` — squared ReLU (`relu(x) ** 2`).
 -- Composes from existing primitives. Element-wise.
-applyRelu2 : {0 d : Executor} -> UserExecutorCore d =>
+applyRelu2 : {0 ex : Executor} -> UserExecutorCore ex =>
              {seqLen, n : Nat} ->
-             Tensor [seqLen, n] d dt g ->
-             IO (Tensor [seqLen, n] d dt g)
+             Tensor [seqLen, n] ex dt g ->
+             IO (Tensor [seqLen, n] ex dt g)
 applyRelu2 x = do
   r <- trelu x
   tmul r r
@@ -673,13 +673,13 @@ applyRelu2 x = do
 ||| down BitLinear. Mirrors HF `BitNetMLP.forward`:
 |||
 |||   y = down_proj(ffn_sub_norm(act_fn(gate_proj(x)) * up_proj(x)))
-applyMlp : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-        => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyMlp : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+        => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt
         => {seqLen, hidden, intermediate : Nat} ->
         (eps : Double) ->
-        BitNetMlpState hidden intermediate d dt g ->
-        Tensor [seqLen, hidden] d dt g ->
-        IO (Tensor [seqLen, hidden] d dt g)
+        BitNetMlpState hidden intermediate ex dt g ->
+        Tensor [seqLen, hidden] ex dt g ->
+        IO (Tensor [seqLen, hidden] ex dt g)
 applyMlp {seqLen} {intermediate} eps mlp x = do
   g <- applyBitLinearHf2d {seqLen} mlp.gateProj x       -- [seq, intermediate]
   u <- applyBitLinearHf2d {seqLen} mlp.upProj   x       -- [seq, intermediate]
@@ -693,14 +693,14 @@ applyMlp {seqLen} {intermediate} eps mlp x = do
 ||| One BitNet decoder block: pre-norm + attn (with attn_sub_norm) +
 ||| residual; pre-norm + MLP (with ffn_sub_norm) + residual.
 export
-applyBlock : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-          => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyBlock : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+          => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
           -> (eps : Double)
-          -> BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-          -> RoPETables maxPos headDim d dt g
-          -> Tensor [seq, hidden] d dt g
-          -> IO (Tensor [seq, hidden] d dt g)
+          -> BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+          -> RoPETables maxPos headDim ex dt g
+          -> Tensor [seq, hidden] ex dt g
+          -> IO (Tensor [seq, hidden] ex dt g)
 applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} {intermediate}
            eps blk tables x = do
   xLn1   <- applyRmsNorm2d {seqLen=seq} {hidden} eps blk.inputNorm x
@@ -712,14 +712,14 @@ applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} {intermediate}
   tadd xMid mOut
 
 
-applyBlocks : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-           => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
+applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+           => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
            -> (eps : Double)
-           -> Vect n (BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
-           -> RoPETables maxPos headDim d dt g
-           -> Tensor [seq, hidden] d dt g
-           -> IO (Tensor [seq, hidden] d dt g)
+           -> Vect n (BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g)
+           -> RoPETables maxPos headDim ex dt g
+           -> Tensor [seq, hidden] ex dt g
+           -> IO (Tensor [seq, hidden] ex dt g)
 applyBlocks _   []        _      x = pure x
 applyBlocks eps (b :: bs) tables x = do
   x' <- applyBlock {numHeads} {numKvHeads} {headDim} {intermediate} eps b tables x
@@ -731,14 +731,14 @@ applyBlocks eps (b :: bs) tables x = do
 ||| tensor (NOT tied to `embed_tokens.weight`), applied via
 ||| `hfBitnetForwardLm`.
 public export
-hfBitnetForward : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-              => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
+hfBitnetForward : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+              => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt
               => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
               -> (eps : Double)
-              -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-              -> RoPETables maxPos headDim d dt g
-              -> Tensor [seq] d dt g
-              -> IO (Tensor [seq, hidden] d dt g)
+              -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+              -> RoPETables maxPos headDim ex dt g
+              -> Tensor [seq] ex dt g
+              -> IO (Tensor [seq, hidden] ex dt g)
 hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model tables tokens = do
   emb   <- applyEmbedLookup model.embedTokens tokens
   hMid  <- applyBlocks {numHeads} {numKvHeads} {headDim} {intermediate}
@@ -750,21 +750,21 @@ hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model table
 ||| Output `[seq, vocab]` logits per position. Bias-free, so we feed
 ||| a zero placeholder bias the same way HfLlama does.
 public export
-hfBitnetForwardLm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-                => UserExecutorQuant d => RuntimeDType dt => Linked d => Compatible d dt
+hfBitnetForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+                => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt
                 => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
                 -> (eps : Double)
-                -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-                -> RoPETables maxPos headDim d dt g
-                -> Tensor [seq] d dt g
-                -> IO (Tensor [seq, vocab] d dt g)
+                -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+                -> RoPETables maxPos headDim ex dt g
+                -> Tensor [seq] ex dt g
+                -> IO (Tensor [seq, vocab] ex dt g)
 hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tables tokens = do
   hFinal <- hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate}
                             eps model tables tokens
   let vI = cast {to=Int} vocab
       zBuf = prim__allocDoubles vI
-      zeroBias : Tensor [vocab] d dt g
-      zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
+      zeroBias : Tensor [vocab] ex dt g
+      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
   -- Tied LM head: HF's `tie_word_embeddings=True` means the embedding
   -- weight IS the LM-head projection. No separate `lm_head.weight`
   -- exists in the safetensors file for `microsoft/bitnet-b1.58-2B-4T`.
@@ -796,13 +796,13 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
 ||| Load one HF-packed-uint8 ternary BitLinear weight by name. The
 ||| on-disk layout is `[(out+3)/4, in]` uint8 = `((out+3)/4) * in`
 ||| bytes; we allocate that, read the bytes, and route them through
-||| `tCreateTernaryFromHfPacked2d` to get a `Tensor [o, i] d Ternary
+||| `tCreateTernaryFromHfPacked2d` to get a `Tensor [o, i] ex Ternary
 ||| NoGrad`. Returns `Nothing` if the file/key is missing or the byte
 ||| count doesn't match — the caller keeps the placeholder weight.
-loadHfTernaryWeight : {0 d : Executor} -> UserExecutorQuant d => Linked d
+loadHfTernaryWeight : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                    => {o, i : Nat}
                    -> (path : String) -> (key : String)
-                   -> IO (Maybe (Tensor [o, i] d Ternary NoGrad))
+                   -> IO (Maybe (Tensor [o, i] ex Ternary NoGrad))
 loadHfTernaryWeight path key = do
   let oPackedI : Int
       oPackedI = cast {to=Int} ((o + 3) `div` 4)
@@ -815,27 +815,27 @@ loadHfTernaryWeight path key = do
   if got /= expected
     then pure Nothing
     else do
-      w <- tCreateTernaryFromHfPacked2d {d} {o} {i} buf
+      w <- tCreateTernaryFromHfPacked2d {ex} {o} {i} buf
       pure (Just w)
 
 
-loadBitLinearTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
+loadBitLinearTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                     => {i, o : Nat}
                     -> (path : String) -> (key : String)
-                    -> BitLinearHf i o d dt g
-                    -> IO (BitLinearHf i o d dt g, Bool)
+                    -> BitLinearHf i o ex dt g
+                    -> IO (BitLinearHf i o ex dt g, Bool)
 loadBitLinearTernary path key bl = do
-  mw <- loadHfTernaryWeight {d} {o} {i} path key
+  mw <- loadHfTernaryWeight {ex} {o} {i} path key
   case mw of
     Nothing => pure (bl, False)
     Just w  => pure (MkBitLinearHf w bl.weightScaleT, True)
 
 
-loadAttentionTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
+loadAttentionTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                     => {hidden, qOut, kvOut : Nat}
                     -> (path : String) -> (layerPfx : String)
-                    -> BitNetAttentionState hidden qOut kvOut d dt g
-                    -> IO (BitNetAttentionState hidden qOut kvOut d dt g, Nat)
+                    -> BitNetAttentionState hidden qOut kvOut ex dt g
+                    -> IO (BitNetAttentionState hidden qOut kvOut ex dt g, Nat)
 loadAttentionTernary path lp (MkBitNetAttention q k v sn o) = do
   (q', okQ) <- loadBitLinearTernary {i=hidden} {o=qOut}  path (lp ++ ".self_attn.q_proj.weight") q
   (k', okK) <- loadBitLinearTernary {i=hidden} {o=kvOut} path (lp ++ ".self_attn.k_proj.weight") k
@@ -846,11 +846,11 @@ loadAttentionTernary path lp (MkBitNetAttention q k v sn o) = do
   pure (MkBitNetAttention q' k' v' sn o', ok)
 
 
-loadMlpTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
+loadMlpTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
               => {hidden, intermediate : Nat}
               -> (path : String) -> (layerPfx : String)
-              -> BitNetMlpState hidden intermediate d dt g
-              -> IO (BitNetMlpState hidden intermediate d dt g, Nat)
+              -> BitNetMlpState hidden intermediate ex dt g
+              -> IO (BitNetMlpState hidden intermediate ex dt g, Nat)
 loadMlpTernary path lp (MkBitNetMlp g u fn dn) = do
   (g',  okG) <- loadBitLinearTernary {i=hidden}       {o=intermediate} path (lp ++ ".mlp.gate_proj.weight") g
   (u',  okU) <- loadBitLinearTernary {i=hidden}       {o=intermediate} path (lp ++ ".mlp.up_proj.weight")   u
@@ -859,11 +859,11 @@ loadMlpTernary path lp (MkBitNetMlp g u fn dn) = do
   pure (MkBitNetMlp g' u' fn dn', ok)
 
 
-loadBlockTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
+loadBlockTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                 => {hidden, qOut, kvOut, intermediate : Nat}
                 -> (path : String) -> (modelPfx : String) -> (idx : Nat)
-                -> BitNetBlockState hidden qOut kvOut intermediate d dt g
-                -> IO (BitNetBlockState hidden qOut kvOut intermediate d dt g, Nat)
+                -> BitNetBlockState hidden qOut kvOut intermediate ex dt g
+                -> IO (BitNetBlockState hidden qOut kvOut intermediate ex dt g, Nat)
 loadBlockTernary path pfx idx (MkBitNetBlock ln1 at ln2 mp) = do
   let lp = layerPrefix pfx idx
   (at', nA) <- loadAttentionTernary {hidden} {qOut} {kvOut} path lp at
@@ -871,12 +871,12 @@ loadBlockTernary path pfx idx (MkBitNetBlock ln1 at ln2 mp) = do
   pure (MkBitNetBlock ln1 at' ln2 mp', nA + nM)
 
 
-loadBlocksTernary : {0 d : Executor} -> UserExecutorQuant d => Linked d
+loadBlocksTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                  => {hidden, qOut, kvOut, intermediate : Nat}
                  -> (path : String) -> (modelPfx : String)
                  -> (offset : Nat)
-                 -> Vect n (BitNetBlockState hidden qOut kvOut intermediate d dt g)
-                 -> IO (Vect n (BitNetBlockState hidden qOut kvOut intermediate d dt g), Nat)
+                 -> Vect n (BitNetBlockState hidden qOut kvOut intermediate ex dt g)
+                 -> IO (Vect n (BitNetBlockState hidden qOut kvOut intermediate ex dt g), Nat)
 loadBlocksTernary _    _   _      []        = pure ([], 0)
 loadBlocksTernary path pfx offset (b :: bs) = do
   (b',  nB)  <- loadBlockTernary {hidden} {qOut} {kvOut} {intermediate} path pfx offset b
@@ -900,13 +900,13 @@ loadBlocksTernary path pfx offset (b :: bs) = do
 ||| just check `ternaryLoaded == ternaryExpected && floatLoadOk`.
 public export
 loadHfBitnetCheckpoint :
-  {0 d : Executor} -> UserExecutorTraining d => UserExecutorQuant d
-  => RuntimeDType dt => Linked d => Compatible d dt
+  {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorQuant ex
+  => RuntimeDType dt => Linked ex => Compatible ex dt
   => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
   -> (modelPrefix : String)
   -> (path : String)
-  -> BitNetModelState vocab hidden numLayers qOut kvOut intermediate d dt g
-  -> IO ( BitNetModelState vocab hidden numLayers qOut kvOut intermediate d dt g
+  -> BitNetModelState vocab hidden numLayers qOut kvOut intermediate ex dt g
+  -> IO ( BitNetModelState vocab hidden numLayers qOut kvOut intermediate ex dt g
         , (Nat, Nat, Bool))
 loadHfBitnetCheckpoint pfx path model = do
   -- 1. Ternary BitLinear weights — read raw bytes per weight.
@@ -919,6 +919,6 @@ loadHfBitnetCheckpoint pfx path model = do
   -- mutates the existing param registry slots in place (the model
   -- record's float-typed Tensor fields keep their handles; their
   -- underlying C-side storage is overwritten).
-  floatOk <- loadModelAllowCast {d} path
+  floatOk <- loadModelAllowCast {ex} path
   let newModel = MkBitNetModel model.embedTokens blocks' model.finalNorm
   pure (newModel, (tnLoaded, tnExpected, floatOk))

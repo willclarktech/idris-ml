@@ -214,7 +214,7 @@ main = do
   let trainCfg : TrainConfig QTable
       trainCfg = mkTrainConfig cfg.epochs 1000 NoEarlyStop
                    (\_ => readRLMetrics "recent_1000" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
     (\m, d => do
        let (m', loss) = epochQLearning cfg m d
        recordReturn metrics (negate loss)

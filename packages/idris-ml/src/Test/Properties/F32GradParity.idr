@@ -50,12 +50,12 @@ runRung : (dt : DType) ->
           Compatible TapeExecutor dt =>
           String -> Double -> IO Double
 runRung dt pidPrefix x = do
-  countBefore <- getParamCount {d = TapeExecutor}
+  countBefore <- getParamCount {ex=TapeExecutor}
   let pid = pidPrefix ++ "_" ++ show countBefore
-  p <- tparamScalar {d = TapeExecutor} {dt} pid x
+  p <- tparamScalar {ex=TapeExecutor} {dt} pid x
   loss <- tmul p p
   runBackward loss
-  getParamGradAt {d = TapeExecutor} countBefore 0
+  getParamGradAt {ex=TapeExecutor} countBefore 0
 
 prop_f32_grad_matches_f64_body : Double -> IO Bool
 prop_f32_grad_matches_f64_body x = do

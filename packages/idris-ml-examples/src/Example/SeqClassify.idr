@@ -204,7 +204,7 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, finalLoss) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochVar opt d tnllLoss m) genBatch trainCfg model
 
   putStrLn ""

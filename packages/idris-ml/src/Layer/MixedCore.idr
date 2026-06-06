@@ -39,60 +39,60 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) ->
   ||| call `tcastUnsafe` to materialise the paramDt → computeDt cast
   ||| inside their forward.
   |||
-  ||| `UserExecutorQuant d` is in the constraint list so quantization-
+  ||| `UserExecutorQuant ex` is in the constraint list so quantization-
   ||| aware layers (BitLinear under #411) can call `tBitlinearFwd`
   ||| from their `applyVarMixed`. All three built-in backends
   ||| implement `UserExecutorQuant`; BYO backends that want to slot
   ||| layers into a `NetworkMixed` must implement it too (stub the
   ||| methods with `idris_crash` if they don't ship BitNet kernels).
-  applyVarMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
-                  UserExecutorQuant d =>
+  applyVarMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+                  UserExecutorQuant ex =>
                   IsDType pDt => IsDType cDt =>
                   {auto rdtP : RuntimeDType pDt} ->
                   {auto rdtC : RuntimeDType cDt} ->
-                  Linked d =>
-                  {auto cmpP : Compatible d pDt} ->
-                  {auto cmpC : Compatible d cDt} ->
+                  Linked ex =>
+                  {auto cmpP : Compatible ex pDt} ->
+                  {auto cmpC : Compatible ex cDt} ->
                   {0 g : GradMode} -> {i, o : Nat} ->
-                  l i o d pDt cDt g -> Tensor [i] d cDt g ->
-                  IO (l i o d pDt cDt g, Tensor [o] d cDt g)
+                  l i o ex pDt cDt g -> Tensor [i] ex cDt g ->
+                  IO (l i o ex pDt cDt g, Tensor [o] ex cDt g)
 
   ||| Auto-naming prefix (mirrors `LayerLike.layerPrefix`).
-  layerPrefixMixed : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} ->
-                     l i o d pDt cDt g -> String
+  layerPrefixMixed : {0 ex : Executor} -> {0 g : GradMode} -> {i, o : Nat} ->
+                     l i o ex pDt cDt g -> String
   layerPrefixMixed _ = ""
 
   ||| Reset per-sequence state. Default = id; recurrent layers override.
-  resetStateMixed : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} ->
-                    l i o d pDt cDt g -> l i o d pDt cDt g
+  resetStateMixed : {0 ex : Executor} -> {0 g : GradMode} -> {i, o : Nat} ->
+                    l i o ex pDt cDt g -> l i o ex pDt cDt g
   resetStateMixed = id
 
   ||| Batched forward (default crashes; layers participating in
   ||| batched training override).
-  applyVarBatchMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
-                       UserExecutorQuant d =>
+  applyVarBatchMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+                       UserExecutorQuant ex =>
                        IsDType pDt => IsDType cDt =>
                        {auto rdtP : RuntimeDType pDt} ->
                        {auto rdtC : RuntimeDType cDt} ->
-                       Linked d =>
-                       {auto cmpP : Compatible d pDt} ->
-                       {auto cmpC : Compatible d cDt} ->
+                       Linked ex =>
+                       {auto cmpP : Compatible ex pDt} ->
+                       {auto cmpC : Compatible ex cDt} ->
                        {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
-                       l i o d pDt cDt g -> Tensor [b, i] d cDt g ->
-                       IO (l i o d pDt cDt g, Tensor [b, o] d cDt g)
+                       l i o ex pDt cDt g -> Tensor [b, i] ex cDt g ->
+                       IO (l i o ex pDt cDt g, Tensor [b, o] ex cDt g)
   applyVarBatchMixed _ _ =
     idris_crash "applyVarBatchMixed: layer does not support batched forward"
 
   ||| Freeze the layer's parameters. Linear in input (mirrors
   ||| `LayerLike.freezeLayer`).
-  freezeLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
+  freezeLayerMixed : {0 ex : Executor} -> UserExecutorTraining ex =>
                      {0 g : GradMode} -> {i, o : Nat} ->
-                     (1 _ : l i o d pDt cDt g) -> IO (l i o d pDt cDt NoGrad)
+                     (1 _ : l i o ex pDt cDt g) -> IO (l i o ex pDt cDt NoGrad)
 
   ||| Inverse of `freezeLayerMixed`. Linear in input.
-  unfreezeLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
+  unfreezeLayerMixed : {0 ex : Executor} -> UserExecutorTraining ex =>
                        {i, o : Nat} ->
-                       (1 _ : l i o d pDt cDt NoGrad) -> IO (l i o d pDt cDt WithGrad)
+                       (1 _ : l i o ex pDt cDt NoGrad) -> IO (l i o ex pDt cDt WithGrad)
 
 
 ----------------------------------------------------------------------
@@ -112,7 +112,7 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) ->
 
 public export
 data AsMixed : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkAsMixed : AnyLayer i o d dt g -> AsMixed i o d dt dt g
+  MkAsMixed : AnyLayer i o ex dt g -> AsMixed i o ex dt dt g
 
 public export
 LayerLikeMixed AsMixed where
@@ -149,48 +149,48 @@ public export
 data AnyLayerMixed : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkAnyLayerMixed : (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) ->
                     LayerLikeMixed l =>
-                    l i o d pDt cDt g -> AnyLayerMixed i o d pDt cDt g
+                    l i o ex pDt cDt g -> AnyLayerMixed i o ex pDt cDt g
 
 export
-applyVarAnyMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
-                   UserExecutorQuant d =>
+applyVarAnyMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+                   UserExecutorQuant ex =>
                    IsDType pDt => IsDType cDt =>
                    RuntimeDType pDt => RuntimeDType cDt =>
-                   Linked d => Compatible d pDt => Compatible d cDt =>
+                   Linked ex => Compatible ex pDt => Compatible ex cDt =>
                    {0 g : GradMode} -> {i, o : Nat} ->
-                   AnyLayerMixed i o d pDt cDt g -> Tensor [i] d cDt g ->
-                   IO (AnyLayerMixed i o d pDt cDt g, Tensor [o] d cDt g)
+                   AnyLayerMixed i o ex pDt cDt g -> Tensor [i] ex cDt g ->
+                   IO (AnyLayerMixed i o ex pDt cDt g, Tensor [o] ex cDt g)
 applyVarAnyMixed (MkAnyLayerMixed l @{dict} layer) input = do
   (layer', out) <- applyVarMixed @{dict} layer input
   pure (MkAnyLayerMixed l @{dict} layer', out)
 
 export
-applyVarBatchAnyMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
-                        UserExecutorQuant d =>
+applyVarBatchAnyMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+                        UserExecutorQuant ex =>
                         IsDType pDt => IsDType cDt =>
                         RuntimeDType pDt => RuntimeDType cDt =>
-                        Linked d => Compatible d pDt => Compatible d cDt =>
+                        Linked ex => Compatible ex pDt => Compatible ex cDt =>
                         {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
-                        AnyLayerMixed i o d pDt cDt g -> Tensor [b, i] d cDt g ->
-                        IO (AnyLayerMixed i o d pDt cDt g, Tensor [b, o] d cDt g)
+                        AnyLayerMixed i o ex pDt cDt g -> Tensor [b, i] ex cDt g ->
+                        IO (AnyLayerMixed i o ex pDt cDt g, Tensor [b, o] ex cDt g)
 applyVarBatchAnyMixed (MkAnyLayerMixed l @{dict} layer) input = do
   (layer', out) <- applyVarBatchMixed @{dict} layer input
   pure (MkAnyLayerMixed l @{dict} layer', out)
 
 export
-freezeAnyLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
+freezeAnyLayerMixed : {0 ex : Executor} -> UserExecutorTraining ex =>
                       {0 g : GradMode} -> {i, o : Nat} ->
-                      (1 _ : AnyLayerMixed i o d pDt cDt g) ->
-                      IO (AnyLayerMixed i o d pDt cDt NoGrad)
+                      (1 _ : AnyLayerMixed i o ex pDt cDt g) ->
+                      IO (AnyLayerMixed i o ex pDt cDt NoGrad)
 freezeAnyLayerMixed (MkAnyLayerMixed l @{dict} layer) = do
   layer' <- freezeLayerMixed @{dict} layer
   pure (MkAnyLayerMixed l @{dict} layer')
 
 export
-unfreezeAnyLayerMixed : {0 d : Executor} -> UserExecutorTraining d =>
+unfreezeAnyLayerMixed : {0 ex : Executor} -> UserExecutorTraining ex =>
                         {i, o : Nat} ->
-                        (1 _ : AnyLayerMixed i o d pDt cDt NoGrad) ->
-                        IO (AnyLayerMixed i o d pDt cDt WithGrad)
+                        (1 _ : AnyLayerMixed i o ex pDt cDt NoGrad) ->
+                        IO (AnyLayerMixed i o ex pDt cDt WithGrad)
 unfreezeAnyLayerMixed (MkAnyLayerMixed l @{dict} layer) = do
   layer' <- unfreezeLayerMixed @{dict} layer
   pure (MkAnyLayerMixed l @{dict} layer')
@@ -202,21 +202,21 @@ unfreezeAnyLayerMixed (MkAnyLayerMixed l @{dict} layer) = do
 
 public export
 data NetworkMixed : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  OutputLayerMixed : AnyLayerMixed i o d pDt cDt g -> NetworkMixed i [] o d pDt cDt g
-  (~~~>) : AnyLayerMixed i h d pDt cDt g -> NetworkMixed h hs o d pDt cDt g -> NetworkMixed i (h :: hs) o d pDt cDt g
+  OutputLayerMixed : AnyLayerMixed i o ex pDt cDt g -> NetworkMixed i [] o ex pDt cDt g
+  (~~~>) : AnyLayerMixed i h ex pDt cDt g -> NetworkMixed h hs o ex pDt cDt g -> NetworkMixed i (h :: hs) o ex pDt cDt g
 
 export infixr 5 ~~~>
 
 ||| Array-level forward through a NetworkMixed.
 export
-forwardVarMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
-                  UserExecutorQuant d =>
+forwardVarMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+                  UserExecutorQuant ex =>
                   IsDType pDt => IsDType cDt =>
                   RuntimeDType pDt => RuntimeDType cDt =>
-                  Linked d => Compatible d pDt => Compatible d cDt =>
+                  Linked ex => Compatible ex pDt => Compatible ex cDt =>
                   {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-                  NetworkMixed i hs o d pDt cDt g -> Tensor [i] d cDt g ->
-                  IO (NetworkMixed i hs o d pDt cDt g, Tensor [o] d cDt g)
+                  NetworkMixed i hs o ex pDt cDt g -> Tensor [i] ex cDt g ->
+                  IO (NetworkMixed i hs o ex pDt cDt g, Tensor [o] ex cDt g)
 forwardVarMixed (OutputLayerMixed l) input = do
   (l', out) <- applyVarAnyMixed l input
   pure (OutputLayerMixed l', out)
@@ -227,10 +227,10 @@ forwardVarMixed {hs = h :: _} (l ~~~> rest) input = do
 
 ||| Freeze a NetworkMixed. Linear in input.
 export
-freezeNetworkMixed : {0 d : Executor} -> UserExecutorTraining d =>
+freezeNetworkMixed : {0 ex : Executor} -> UserExecutorTraining ex =>
                      {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-                     (1 _ : NetworkMixed i hs o d pDt cDt g) ->
-                     IO (NetworkMixed i hs o d pDt cDt NoGrad)
+                     (1 _ : NetworkMixed i hs o ex pDt cDt g) ->
+                     IO (NetworkMixed i hs o ex pDt cDt NoGrad)
 freezeNetworkMixed (OutputLayerMixed l) = do
   l' <- freezeAnyLayerMixed l
   pure (OutputLayerMixed l')
@@ -241,10 +241,10 @@ freezeNetworkMixed {hs = h :: _} (l ~~~> rest) = do
 
 ||| Inverse of `freezeNetworkMixed`. Linear in input.
 export
-unfreezeNetworkMixed : {0 d : Executor} -> UserExecutorTraining d =>
+unfreezeNetworkMixed : {0 ex : Executor} -> UserExecutorTraining ex =>
                        {i, o : Nat} -> {hs : List Nat} ->
-                       (1 _ : NetworkMixed i hs o d pDt cDt NoGrad) ->
-                       IO (NetworkMixed i hs o d pDt cDt WithGrad)
+                       (1 _ : NetworkMixed i hs o ex pDt cDt NoGrad) ->
+                       IO (NetworkMixed i hs o ex pDt cDt WithGrad)
 unfreezeNetworkMixed (OutputLayerMixed l) = do
   l' <- unfreezeAnyLayerMixed l
   pure (OutputLayerMixed l')
@@ -255,8 +255,8 @@ unfreezeNetworkMixed {hs = h :: _} (l ~~~> rest) = do
 
 ||| Reset per-sequence state on every layer.
 export
-resetNetworkMixed : {0 d : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-                    NetworkMixed i hs o d pDt cDt g -> NetworkMixed i hs o d pDt cDt g
+resetNetworkMixed : {0 ex : Executor} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+                    NetworkMixed i hs o ex pDt cDt g -> NetworkMixed i hs o ex pDt cDt g
 resetNetworkMixed (OutputLayerMixed (MkAnyLayerMixed l @{dict} layer)) =
   OutputLayerMixed (MkAnyLayerMixed l @{dict} (resetStateMixed @{dict} layer))
 resetNetworkMixed ((MkAnyLayerMixed l @{dict} layer) ~~~> rest) =
@@ -264,15 +264,15 @@ resetNetworkMixed ((MkAnyLayerMixed l @{dict} layer) ~~~> rest) =
 
 ||| Batched tensor-level forward through a NetworkMixed.
 export
-forwardVarBatchMixed : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
-                       UserExecutorQuant d =>
+forwardVarBatchMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+                       UserExecutorQuant ex =>
                        IsDType pDt => IsDType cDt =>
                        RuntimeDType pDt => RuntimeDType cDt =>
-                       Linked d => Compatible d pDt => Compatible d cDt =>
+                       Linked ex => Compatible ex pDt => Compatible ex cDt =>
                        {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                        {hs : List Nat} ->
-                       NetworkMixed i hs o d pDt cDt g -> Tensor [b, i] d cDt g ->
-                       IO (NetworkMixed i hs o d pDt cDt g, Tensor [b, o] d cDt g)
+                       NetworkMixed i hs o ex pDt cDt g -> Tensor [b, i] ex cDt g ->
+                       IO (NetworkMixed i hs o ex pDt cDt g, Tensor [b, o] ex cDt g)
 forwardVarBatchMixed (OutputLayerMixed l) input = do
   (l', out) <- applyVarBatchAnyMixed l input
   pure (OutputLayerMixed l', out)
@@ -292,12 +292,12 @@ forwardVarBatchMixed {hs = h :: _} (l ~~~> rest) input = do
 ||| stores the underlying layer and the `LayerLikeMixed AsMixed`
 ||| instance delegates each method back to the wrapped `AnyLayer`.
 public export
-liftAnyLayer : AnyLayer i o d dt g -> AnyLayerMixed i o d dt dt g
+liftAnyLayer : AnyLayer i o ex dt g -> AnyLayerMixed i o ex dt dt g
 liftAnyLayer al = MkAnyLayerMixed AsMixed (MkAsMixed al)
 
 ||| Lift an entire `Network` into a `NetworkMixed` with both dtype
 ||| slots identified.
 public export
-liftNetwork : Network i hs o d dt g -> NetworkMixed i hs o d dt dt g
+liftNetwork : Network i hs o ex dt g -> NetworkMixed i hs o ex dt dt g
 liftNetwork (OutputLayer l) = OutputLayerMixed (liftAnyLayer l)
 liftNetwork (l ~~> rest) = liftAnyLayer l ~~~> liftNetwork rest

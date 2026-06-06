@@ -108,7 +108,7 @@ readLogits vocab p = go (cast {to=Int} vocab) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=ExampleExecutor} p i
+        else let v = primItem1d {ex=ExampleExecutor} p i
              in go end (i + 1) ((cast {to=Nat} i, v) :: acc)
 
 -- O(n log n) sort by descending logit + take 5. With vocab=30522 and
@@ -153,7 +153,7 @@ runMaskDemo tok model sentence = do
           inputIds  = mkIds idDoubles
           posIds    = mkIds (arangeVect seqLen)
           typeIds   = mkIds (zerosVect seqLen)
-      logits <- hfBertMlmForward {d=ExampleExecutor} {dt=ExampleDType}
+      logits <- hfBertMlmForward {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seqLen}
                                  {vocab        = VocabSize}
                                  {hidden       = Hidden}
@@ -204,7 +204,7 @@ printPooled end i p =
   if i >= end
     then pure ()
     else do
-      let v = primItem1d {d=ExampleExecutor} p i
+      let v = primItem1d {ex=ExampleExecutor} p i
       putStrLn (show v)
       printPooled end (i + 1) p
 
@@ -217,7 +217,7 @@ runPooledDump model = do
   let inputIds = mkIds (the (Vect 3 Double) [101.0, 7592.0, 102.0])
       posIds   = mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0])
       typeIds  = mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0])
-  out <- hfBertForward {d=ExampleExecutor} {dt=ExampleDType}
+  out <- hfBertForward {ex=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 3}
                        {vocab        = VocabSize}
                        {hidden       = Hidden}
@@ -242,7 +242,7 @@ main = do
   t0 <- clockTime Monotonic
 
   -- Build the full BertForMaskedLM (encoder + pooler + MLM head, 44 params).
-  model <- hfBertForMaskedLm {d=ExampleExecutor} {dt=ExampleDType}
+  model <- hfBertForMaskedLm {ex=ExampleExecutor} {dt=ExampleDType}
                              {vocab        = VocabSize}
                              {hidden       = Hidden}
                              {numLayers    = NumLayers}
@@ -252,7 +252,7 @@ main = do
                              {typeVocab    = TypeVocab}
                              "bert"
   stageStamp "hfBertForMaskedLm ok" t0
-  ok <- loadModelAllowCast {d=ExampleExecutor} hfWeightsPath
+  ok <- loadModelAllowCast {ex=ExampleExecutor} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)

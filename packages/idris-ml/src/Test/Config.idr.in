@@ -14,8 +14,8 @@
 ||| test-compile with clear "no instance Preset …" / "no instance
 ||| Provides …" errors.
 |||
-||| Pre-existing unit tests used to pin `{d=TapeExecutor}` directly,
-||| binding them to the tape backend. Tests now spell `{d=TestExecutor}`
+||| Pre-existing unit tests used to pin `{ex=TapeExecutor}` directly,
+||| binding them to the tape backend. Tests now spell `{ex=TestExecutor}`
 ||| and resolve to the active primary at build time.
 |||
 ||| Idris-2 cannot drive type-level selection from a runtime env var —

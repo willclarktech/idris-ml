@@ -856,8 +856,8 @@ $(HWCONFIG_IDR): $(HWCONFIG_IN) $(BUILD)/.hwconfig-stamp
 # Emit `builtinExecutors` as `[] ++ <per-backend candidate lists>`. Seeding
 # with `[]` keeps every backend fragment a uniform `++ [...]`, so a
 # tape-only build is `[] ++ [TapeExecutor/F64]` and the empty BACKEND case is a
-# well-typed `[]`. Each `someExecutor {d} {dt}` resolves its Linked /
-# Compatible / HardwareClassed / UserDeviceTape constraints from the
+# well-typed `[]`. Each `someExecutor {ex} {dt}` resolves its Linked /
+# Compatible / HardwareClassed / UserExecutorTape constraints from the
 # instances brought in via `import Executor` / `import Tensor`. torch lists
 # all three hw variants (TCpu/TMps/TCuda 0) — EAFP filters to what's
 # present (multi-GPU `TCuda n` enumeration via cuda_device_count is a
@@ -867,9 +867,9 @@ $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 	   printf 'public export\nbuiltinExecutors : List SomeExecutor\nbuiltinExecutors = []\n'; \
 	   for b in $(BACKEND_LIST); do \
 	     case $$b in \
-	       tape)  printf '  ++ [someExecutor {d = TapeExecutor} {dt = F64}]\n' ;; \
-	       torch) printf '  ++ [ someExecutor {d = TorchExecutor TCpu} {dt = F64}\n     , someExecutor {d = TorchExecutor TMps} {dt = F32}\n     , someExecutor {d = TorchExecutor (TCuda 0)} {dt = F64} ]\n' ;; \
-	       mlx)   printf '  ++ [ someExecutor {d = MlxExecutor MCpu} {dt = F64}\n     , someExecutor {d = MlxExecutor MGpu} {dt = F32} ]\n' ;; \
+	       tape)  printf '  ++ [someExecutor {ex = TapeExecutor} {dt = F64}]\n' ;; \
+	       torch) printf '  ++ [ someExecutor {ex = TorchExecutor TCpu} {dt = F64}\n     , someExecutor {ex = TorchExecutor TMps} {dt = F32}\n     , someExecutor {ex = TorchExecutor (TCuda 0)} {dt = F64} ]\n' ;; \
+	       mlx)   printf '  ++ [ someExecutor {ex = MlxExecutor MCpu} {dt = F64}\n     , someExecutor {ex = MlxExecutor MGpu} {dt = F32} ]\n' ;; \
 	     esac; \
 	   done; \
 	 } > $@.tmp

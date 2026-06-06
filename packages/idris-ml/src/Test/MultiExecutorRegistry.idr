@@ -1,9 +1,9 @@
 ||| Acceptance test for the per-device parameter registry.
 |||
 ||| Each backend keeps its own `static param_registry` in its
-||| translation unit. `tparamScalar {d}` registers through
-||| `primParamRegister {d}` (→ `param_register_return_<b>`) and
-||| `getParamCount {d}` queries `param_count_<b>`, so a param
+||| translation unit. `tparamScalar {ex}` registers through
+||| `primParamRegister {ex}` (→ `param_register_return_<b>`) and
+||| `getParamCount {ex}` queries `param_count_<b>`, so a param
 ||| registered on one device must be invisible to another device's
 ||| registry.
 |||
@@ -34,11 +34,11 @@ import Tensor
 ||| dispatches on the type-level device, not the link-time primary.
 registryIsolation : IO Bool
 registryIsolation = do
-  tapeBefore  <- getParamCount {d = TapeExecutor}
-  torchBefore <- getParamCount {d = TorchExecutor TCpu}
-  _ <- tparamScalar {d = TorchExecutor TCpu} {dt = F64} "mdr_torch_only" 0.5
-  tapeAfter   <- getParamCount {d = TapeExecutor}
-  torchAfter  <- getParamCount {d = TorchExecutor TCpu}
+  tapeBefore  <- getParamCount {ex=TapeExecutor}
+  torchBefore <- getParamCount {ex=TorchExecutor TCpu}
+  _ <- tparamScalar {ex=TorchExecutor TCpu} {dt = F64} "mdr_torch_only" 0.5
+  tapeAfter   <- getParamCount {ex=TapeExecutor}
+  torchAfter  <- getParamCount {ex=TorchExecutor TCpu}
   ok1 <- check "torch registry grew by 1" (torchAfter == torchBefore + 1)
   ok2 <- check "tape registry unaffected" (tapeAfter == tapeBefore)
   pure (ok1 && ok2)
@@ -47,11 +47,11 @@ registryIsolation = do
 ||| registry either.
 registryIsolationTape : IO Bool
 registryIsolationTape = do
-  tapeBefore  <- getParamCount {d = TapeExecutor}
-  torchBefore <- getParamCount {d = TorchExecutor TCpu}
-  _ <- tparamScalar {d = TapeExecutor} {dt = F64} "mdr_tape_only" 0.5
-  tapeAfter   <- getParamCount {d = TapeExecutor}
-  torchAfter  <- getParamCount {d = TorchExecutor TCpu}
+  tapeBefore  <- getParamCount {ex=TapeExecutor}
+  torchBefore <- getParamCount {ex=TorchExecutor TCpu}
+  _ <- tparamScalar {ex=TapeExecutor} {dt = F64} "mdr_tape_only" 0.5
+  tapeAfter   <- getParamCount {ex=TapeExecutor}
+  torchAfter  <- getParamCount {ex=TorchExecutor TCpu}
   ok1 <- check "tape registry grew by 1" (tapeAfter == tapeBefore + 1)
   ok2 <- check "torch registry unaffected" (torchAfter == torchBefore)
   pure (ok1 && ok2)

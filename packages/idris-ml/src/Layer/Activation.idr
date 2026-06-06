@@ -28,7 +28,7 @@ data ActivationKind
 
 public export
 data ActivationState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkActivation : ActivationKind -> ActivationState n n d dt g
+  MkActivation : ActivationKind -> ActivationState n n ex dt g
 
 
 ----------------------------------------------------------------------
@@ -48,7 +48,7 @@ LayerLike ActivationState where
 
   -- Activation primitives are shape-polymorphic (operate elementwise),
   -- so the batched forward is identical to the single-sample form —
-  -- just typed at `Tensor [b, n] d` instead of `Tensor [n] d`.
+  -- just typed at `Tensor [b, n] ex` instead of `Tensor [n] ex`.
   applyVarBatch st@(MkActivation ATanh)         input = do out <- ttanh input;         pure (st, out)
   applyVarBatch st@(MkActivation ASigmoid)      input = do out <- tsigmoid input;      pure (st, out)
   applyVarBatch st@(MkActivation ARelu)         input = do out <- trelu input;         pure (st, out)
@@ -68,50 +68,50 @@ LayerLike ActivationState where
 ----------------------------------------------------------------------
 
 export
-tanhLayer : ActivationState n n d dt g
+tanhLayer : ActivationState n n ex dt g
 tanhLayer = MkActivation ATanh
 
 export
-sigmoidLayer : ActivationState n n d dt g
+sigmoidLayer : ActivationState n n ex dt g
 sigmoidLayer = MkActivation ASigmoid
 
 export
-reluLayer : ActivationState n n d dt g
+reluLayer : ActivationState n n ex dt g
 reluLayer = MkActivation ARelu
 
 export
-geluLayer : ActivationState n n d dt g
+geluLayer : ActivationState n n ex dt g
 geluLayer = MkActivation AGelu
 
 export
-siluLayer : ActivationState n n d dt g
+siluLayer : ActivationState n n ex dt g
 siluLayer = MkActivation ASilu
 
 export
-leakyReluLayer : Double -> ActivationState n n d dt g
+leakyReluLayer : Double -> ActivationState n n ex dt g
 leakyReluLayer slope = MkActivation (ALeakyRelu slope)
 
 ||| Wrap an activation in `AnyLayer` for use in a `Network` chain.
 export
-tanhLayerAny : AnyLayer n n d dt g
+tanhLayerAny : AnyLayer n n ex dt g
 tanhLayerAny = MkAnyLayer ActivationState tanhLayer
 
 export
-sigmoidLayerAny : AnyLayer n n d dt g
+sigmoidLayerAny : AnyLayer n n ex dt g
 sigmoidLayerAny = MkAnyLayer ActivationState sigmoidLayer
 
 export
-reluLayerAny : AnyLayer n n d dt g
+reluLayerAny : AnyLayer n n ex dt g
 reluLayerAny = MkAnyLayer ActivationState reluLayer
 
 export
-geluLayerAny : AnyLayer n n d dt g
+geluLayerAny : AnyLayer n n ex dt g
 geluLayerAny = MkAnyLayer ActivationState geluLayer
 
 export
-siluLayerAny : AnyLayer n n d dt g
+siluLayerAny : AnyLayer n n ex dt g
 siluLayerAny = MkAnyLayer ActivationState siluLayer
 
 export
-leakyReluLayerAny : Double -> AnyLayer n n d dt g
+leakyReluLayerAny : Double -> AnyLayer n n ex dt g
 leakyReluLayerAny slope = MkAnyLayer ActivationState (leakyReluLayer slope)

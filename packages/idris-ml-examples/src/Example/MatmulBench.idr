@@ -55,7 +55,7 @@ buildMatrix n =
   let nI = the Int (cast n)
       buf = prim__allocDoubles (nI * nI)
       buf' = prim__setDouble buf 0 0.5
-  in dtCreateState2d {d=ExampleExecutor} {t=ExampleDType} nI nI buf' (deviceStreamTag {d=ExampleExecutor})
+  in dtCreateState2d {ex=ExampleExecutor} {t=ExampleDType} nI nI buf' (deviceStreamTag {ex=ExampleExecutor})
 
 
 -- Elapsed milliseconds between two monotonic clock readings.
@@ -79,7 +79,7 @@ fmt2 x =
 -- scalar result of `sum` walks the graph.
 forceEval : AnyPtr -> IO ()
 forceEval h = do
-  let v = primItem {d=ExampleExecutor} (primSum {d=ExampleExecutor} h)
+  let v = primItem {ex=ExampleExecutor} (primSum {ex=ExampleExecutor} h)
   ignore (pure v)
 
 
@@ -89,7 +89,7 @@ forceEval h = do
 loopMatmul : Nat -> AnyPtr -> AnyPtr -> IO ()
 loopMatmul Z _ _ = pure ()
 loopMatmul (S k) a b = do
-  let c = primMm {d=ExampleExecutor} a b
+  let c = primMm {ex=ExampleExecutor} a b
   forceEval c
   loopMatmul k a b
 
@@ -109,7 +109,7 @@ main = do
 
   -- Warmup pass — flushes any one-time backend setup (Metal pipeline
   -- cache, BLAS thread spin-up, etc.).
-  forceEval (primMm {d=ExampleExecutor} a b)
+  forceEval (primMm {ex=ExampleExecutor} a b)
 
   t0 <- clockTime Monotonic
   loopMatmul cfg.iters a b

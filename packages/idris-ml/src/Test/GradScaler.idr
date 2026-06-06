@@ -25,14 +25,14 @@ import Test.Config
 runOneStep : NativeOptimizer TestExecutor -> GradScaler TestExecutor TestDType ->
              IO Double
 runOneStep opt gs = do
-  let wptr = primCreateScalar {d=TestExecutor} 0.5 1
+  let wptr = primCreateScalar {ex=TestExecutor} 0.5 1
   let wT = the (Tensor [] TestExecutor TestDType WithGrad)
               (MkTensor wptr (Just "w_state_machine_test"))
-  _ <- pure $ primParamRegister {d=TestExecutor} "w_state_machine_test" wptr
-  let xptr = primCreateScalar {d=TestExecutor} 3.0 0
+  _ <- pure $ primParamRegister {ex=TestExecutor} "w_state_machine_test" wptr
+  let xptr = primCreateScalar {ex=TestExecutor} 3.0 0
   let xT = the (Tensor [] TestExecutor TestDType WithGrad)
               (MkTensor xptr Nothing)
-  loss <- pure $ MkTensor (primMul {d=TestExecutor} wT.tensorPtr xT.tensorPtr) Nothing
+  loss <- pure $ MkTensor (primMul {ex=TestExecutor} wT.tensorPtr xT.tensorPtr) Nothing
   scaled <- applyScale gs (the (Tensor [] TestExecutor TestDType WithGrad) loss)
   trainStepScaled opt gs scaled
 
@@ -40,7 +40,7 @@ runOneStep opt gs = do
 -- (a) Initial scale matches what `gradScaler` was constructed with.
 initialScaleIsExact : IO Bool
 initialScaleIsExact = do
-  gs <- gradScaler {d=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 5
+  gs <- gradScaler {ex=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 5
   s <- currentScale gs
   check ("initial scale is 100.0 (got " ++ show s ++ ")") (s == 100.0)
 
@@ -49,8 +49,8 @@ initialScaleIsExact = do
 -- grown by growthFactor=2 to 200.
 scaleGrowsAfterOneSuccessfulStep : IO Bool
 scaleGrowsAfterOneSuccessfulStep = do
-  gs <- gradScaler {d=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 1
-  opt <- pure $ nativeSgd {d=TestExecutor} 0.001
+  gs <- gradScaler {ex=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 1
+  opt <- pure $ nativeSgd {ex=TestExecutor} 0.001
   _ <- runOneStep opt gs
   s <- currentScale gs
   check ("scale grew 100 → 200 after one step (got " ++ show s ++ ")") (s == 200.0)
@@ -61,8 +61,8 @@ scaleGrowsAfterOneSuccessfulStep = do
 -- yet triggering growth).
 scaleStaysBeforeIntervalReached : IO Bool
 scaleStaysBeforeIntervalReached = do
-  gs <- gradScaler {d=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 5
-  opt <- pure $ nativeSgd {d=TestExecutor} 0.001
+  gs <- gradScaler {ex=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 5
+  opt <- pure $ nativeSgd {ex=TestExecutor} 0.001
   _ <- runOneStep opt gs
   s <- currentScale gs
   check ("scale stays at 100 before growth interval (got " ++ show s ++ ")") (s == 100.0)

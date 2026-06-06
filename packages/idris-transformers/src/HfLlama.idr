@@ -174,14 +174,14 @@ fillConst buf off n v =
 ||| k_proj / v_proj / o_proj and the SwiGLU sublayer's gate / up /
 ||| down projections.
 public export
-record LlamaLinearNoBias (i, o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record LlamaLinearNoBias (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaLinear
-  weight : Tensor [o, i] d dt g
+  weight : Tensor [o, i] ex dt g
 
-makeLlamaLinear : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeLlamaLinear : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                => {i, o : Nat}
                -> (paramFullName : String)
-               -> IO (LlamaLinearNoBias i o d dt WithGrad)
+               -> IO (LlamaLinearNoBias i o ex dt WithGrad)
 makeLlamaLinear paramFullName = do
   -- Fused C-side normal(0, 0.02) init (commit 085348d). Replaces the
   -- `traverse normalSample` + `packDs` chain that, at Llama-3.2-1B's
@@ -198,14 +198,14 @@ makeLlamaLinear paramFullName = do
 ||| `…post_attention_layernorm.weight`). The eps comes from the model
 ||| config (1e-5 for Llama 3).
 public export
-record LlamaRmsNorm (n : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record LlamaRmsNorm (n : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaRmsNorm
-  weight : Tensor [n] d dt g
+  weight : Tensor [n] ex dt g
 
-makeLlamaRmsNorm : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeLlamaRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                 => {n : Nat}
                 -> (paramFullName : String)
-                -> IO (LlamaRmsNorm n d dt WithGrad)
+                -> IO (LlamaRmsNorm n ex dt WithGrad)
 makeLlamaRmsNorm paramFullName = do
   -- Fused C-side const fill (weight = 1.0). Replaces fillConst loop
   -- + per-element FFI.
@@ -216,14 +216,14 @@ makeLlamaRmsNorm paramFullName = do
 ||| Token embedding: `[vocab, hidden]`. Used for both the input
 ||| embedding lookup AND the (tied) LM head at forward time.
 public export
-record LlamaEmbedding (vocab, hidden : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record LlamaEmbedding (vocab, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaEmbedding
-  weight : Tensor [vocab, hidden] d dt g
+  weight : Tensor [vocab, hidden] ex dt g
 
-makeLlamaEmbedding : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeLlamaEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                   => {vocab, hidden : Nat}
                   -> (paramFullName : String)
-                  -> IO (LlamaEmbedding vocab hidden d dt WithGrad)
+                  -> IO (LlamaEmbedding vocab hidden ex dt WithGrad)
 makeLlamaEmbedding paramFullName = do
   -- Fused C-side normal(0, 0.02) init. Llama 3.2's embed_tokens is
   -- [128256, 2048] = 263M elements — the single largest tensor in
@@ -245,12 +245,12 @@ makeLlamaEmbedding paramFullName = do
 public export
 record LlamaAttentionState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaAttention
-  qProj : LlamaLinearNoBias hidden qOut  d dt g     -- [numHeads * headDim, hidden]
-  kProj : LlamaLinearNoBias hidden kvOut d dt g     -- [numKvHeads * headDim, hidden]
-  vProj : LlamaLinearNoBias hidden kvOut d dt g     -- [numKvHeads * headDim, hidden]
-  oProj : LlamaLinearNoBias qOut hidden d dt g      -- [hidden, numHeads * headDim]
+  qProj : LlamaLinearNoBias hidden qOut ex dt g     -- [numHeads * headDim, hidden]
+  kProj : LlamaLinearNoBias hidden kvOut ex dt g     -- [numKvHeads * headDim, hidden]
+  vProj : LlamaLinearNoBias hidden kvOut ex dt g     -- [numKvHeads * headDim, hidden]
+  oProj : LlamaLinearNoBias qOut hidden ex dt g      -- [hidden, numHeads * headDim]
 
 
 ||| SwiGLU MLP sublayer. All three projections are bias-free. Mirrors
@@ -259,11 +259,11 @@ record LlamaAttentionState
 public export
 record LlamaMlpState
         (hidden : Nat) (intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaMlp
-  gateProj : LlamaLinearNoBias hidden intermediate d dt g
-  upProj   : LlamaLinearNoBias hidden intermediate d dt g
-  downProj : LlamaLinearNoBias intermediate hidden d dt g
+  gateProj : LlamaLinearNoBias hidden intermediate ex dt g
+  upProj   : LlamaLinearNoBias hidden intermediate ex dt g
+  downProj : LlamaLinearNoBias intermediate hidden ex dt g
 
 
 ||| One decoder block: pre-norm + attention + residual; pre-norm +
@@ -271,12 +271,12 @@ record LlamaMlpState
 public export
 record LlamaBlockState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaBlock
-  inputNorm    : LlamaRmsNorm hidden d dt g
-  attn         : LlamaAttentionState hidden qOut kvOut d dt g
-  postAttnNorm : LlamaRmsNorm hidden d dt g
-  mlp          : LlamaMlpState hidden intermediate d dt g
+  inputNorm    : LlamaRmsNorm hidden ex dt g
+  attn         : LlamaAttentionState hidden qOut kvOut ex dt g
+  postAttnNorm : LlamaRmsNorm hidden ex dt g
+  mlp          : LlamaMlpState hidden intermediate ex dt g
 
 
 ||| Full Llama model state: token embedding + N decoder blocks +
@@ -286,21 +286,21 @@ public export
 record LlamaModelState
         (vocab : Nat) (hidden : Nat) (numLayers : Nat)
         (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaModel
-  embedTokens : LlamaEmbedding vocab hidden d dt g
-  blocks      : Vect numLayers (LlamaBlockState hidden qOut kvOut intermediate d dt g)
-  finalNorm   : LlamaRmsNorm hidden d dt g
+  embedTokens : LlamaEmbedding vocab hidden ex dt g
+  blocks      : Vect numLayers (LlamaBlockState hidden qOut kvOut intermediate ex dt g)
+  finalNorm   : LlamaRmsNorm hidden ex dt g
 
 
 ----------------------------------------------------------------------
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeAttention : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
              => {hidden, qOut, kvOut : Nat}
              -> (layerPfx : String)
-             -> IO (LlamaAttentionState hidden qOut kvOut d dt WithGrad)
+             -> IO (LlamaAttentionState hidden qOut kvOut ex dt WithGrad)
 makeAttention layerPfx = do
   q <- makeLlamaLinear {i=hidden} {o=qOut}  (layerPfx ++ ".self_attn.q_proj.weight")
   k <- makeLlamaLinear {i=hidden} {o=kvOut} (layerPfx ++ ".self_attn.k_proj.weight")
@@ -308,20 +308,20 @@ makeAttention layerPfx = do
   o <- makeLlamaLinear {i=qOut}   {o=hidden} (layerPfx ++ ".self_attn.o_proj.weight")
   pure (MkLlamaAttention q k v o)
 
-makeMlp : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeMlp : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
        => {hidden, intermediate : Nat}
        -> (layerPfx : String)
-       -> IO (LlamaMlpState hidden intermediate d dt WithGrad)
+       -> IO (LlamaMlpState hidden intermediate ex dt WithGrad)
 makeMlp layerPfx = do
   g  <- makeLlamaLinear {i=hidden}       {o=intermediate} (layerPfx ++ ".mlp.gate_proj.weight")
   u  <- makeLlamaLinear {i=hidden}       {o=intermediate} (layerPfx ++ ".mlp.up_proj.weight")
   dn <- makeLlamaLinear {i=intermediate} {o=hidden}       (layerPfx ++ ".mlp.down_proj.weight")
   pure (MkLlamaMlp g u dn)
 
-makeBlock : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlock : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
          => {hidden, qOut, kvOut, intermediate : Nat}
          -> (layerPfx : String)
-         -> IO (LlamaBlockState hidden qOut kvOut intermediate d dt WithGrad)
+         -> IO (LlamaBlockState hidden qOut kvOut intermediate ex dt WithGrad)
 makeBlock layerPfx = do
   ln1 <- makeLlamaRmsNorm {n=hidden} (layerPfx ++ ".input_layernorm.weight")
   at  <- makeAttention {hidden} {qOut} {kvOut} layerPfx
@@ -329,10 +329,10 @@ makeBlock layerPfx = do
   mp  <- makeMlp {hidden} {intermediate} layerPfx
   pure (MkLlamaBlock ln1 at ln2 mp)
 
-makeBlocks : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+makeBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {hidden, qOut, kvOut, intermediate : Nat}
           -> (modelPfx : String) -> (n : Nat) -> (offset : Nat)
-          -> IO (Vect n (LlamaBlockState hidden qOut kvOut intermediate d dt WithGrad))
+          -> IO (Vect n (LlamaBlockState hidden qOut kvOut intermediate ex dt WithGrad))
 makeBlocks _   Z     _      = pure []
 makeBlocks pfx (S k) offset = do
   b  <- makeBlock {hidden} {qOut} {kvOut} {intermediate}
@@ -350,10 +350,10 @@ makeBlocks pfx (S k) offset = do
 ||| system catches dimension mismatches at construction time. For
 ||| `llama32_1B_Config`: qOut=2048, kvOut=512.
 public export
-hfLlamaModel : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+hfLlamaModel : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
             => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
             -> (modelPrefix : String)
-            -> IO (LlamaModelState vocab hidden numLayers qOut kvOut intermediate d dt WithGrad)
+            -> IO (LlamaModelState vocab hidden numLayers qOut kvOut intermediate ex dt WithGrad)
 hfLlamaModel pfx = do
   emb    <- makeLlamaEmbedding {vocab} {hidden} (pfx ++ ".embed_tokens.weight")
   blocks <- makeBlocks {hidden} {qOut} {kvOut} {intermediate} pfx numLayers 0
@@ -372,39 +372,39 @@ hfLlamaModel pfx = do
 ||| `LlamaRmsNorm` wrapper. The body lives in `HfCommon.idr` so
 ||| HfBitNet (and any future adapter using the same per-row fold)
 ||| shares the implementation.
-applyRmsNorm2d : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
-                 LlamaRmsNorm hidden d dt g ->
-                 Tensor [seqLen, hidden] d dt g ->
-                 IO (Tensor [seqLen, hidden] d dt g)
+                 LlamaRmsNorm hidden ex dt g ->
+                 Tensor [seqLen, hidden] ex dt g ->
+                 IO (Tensor [seqLen, hidden] ex dt g)
 applyRmsNorm2d eps (MkLlamaRmsNorm weight) input =
   applyRmsNorm2dRaw eps weight input
 
 
 ||| Bias-free Linear forward on `[seqLen, in] -> [seqLen, out]`.
 ||| Plain matmul `x @ W^T`. Used for q/k/v/o_proj and gate/up/down_proj.
-applyLinear2d : {0 d : Executor} -> UserExecutorTraining d =>
-                LlamaLinearNoBias i o d dt g ->
-                Tensor [seqLen, i] d dt g ->
-                IO (Tensor [seqLen, o] d dt g)
+applyLinear2d : {0 ex : Executor} -> UserExecutorTraining ex =>
+                LlamaLinearNoBias i o ex dt g ->
+                Tensor [seqLen, i] ex dt g ->
+                IO (Tensor [seqLen, o] ex dt g)
 applyLinear2d (MkLlamaLinear w) x = ioRerun (\_ =>
-  let wT  = primTranspose2d {d} w.tensorPtr        -- [i, o]
-      out = primMm {d} x.tensorPtr wT              -- [seqLen, o]
+  let wT  = primTranspose2d {ex} w.tensorPtr        -- [i, o]
+      out = primMm {ex} x.tensorPtr wT              -- [seqLen, o]
   in MkTensor out Nothing)
 
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`. Same
 ||| pattern as HfBert.idr's applyEmbedLookup2d.
-applyEmbedLookup : {0 d : Executor} -> UserExecutorTraining d =>
+applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seqLen, vocab, hidden : Nat} ->
-                   LlamaEmbedding vocab hidden d dt g ->
-                   Tensor [seqLen] d dt g ->
-                   IO (Tensor [seqLen, hidden] d dt g)
+                   LlamaEmbedding vocab hidden ex dt g ->
+                   Tensor [seqLen] ex dt g ->
+                   IO (Tensor [seqLen, hidden] ex dt g)
 applyEmbedLookup {seqLen} {hidden} (MkLlamaEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI = cast {to=Int} hidden
-      out = primEmbedding2d {d} w.tensorPtr tokens.tensorPtr sI hI
+      out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
 
@@ -431,23 +431,23 @@ writeCausalMask buf i j n =
 -- All-heads RoPE collapses that to ~7 ops per Q or K per layer
 -- (broadcast muls + narrow + reshape + 1 concat for the rotate-half).
 ropeAllHeadsFlat :
-     {0 d : Executor} -> UserExecutorTraining d =>
+     {0 ex : Executor} -> UserExecutorTraining ex =>
      {seq, numH, headDim, maxPos : Nat} ->
-     RoPETables maxPos headDim d dt g ->
+     RoPETables maxPos headDim ex dt g ->
      (full : AnyPtr) ->                     -- [seq, numH * headDim]
      (sI, nHI, hdI : Int) ->
      (positionOffset : Nat) ->
      IO AnyPtr
-ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI offset = do
+ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI offset = do
   full3 <- ioRerun (\_ =>
-            the (Tensor [seq, numH, headDim] d dt g)
-                (MkTensor (primReshape3d {d} full sI nHI hdI) Nothing))
+            the (Tensor [seq, numH, headDim] ex dt g)
+                (MkTensor (primReshape3d {ex} full sI nHI hdI) Nothing))
   rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables offset full3
-  ioRerun (\_ => primReshape2d {d} rot3.tensorPtr sI (nHI * hdI))
+  ioRerun (\_ => primReshape2d {ex} rot3.tensorPtr sI (nHI * hdI))
 
 
 ||| Full multi-head causal self-attention with GQA + RoPE.
-applyAttention : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+applyAttention : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
                  {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
                  -- NB: previously had `{auto qPrf : hidden = numHeads * headDim}`
                  -- and `{auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}`.
@@ -456,10 +456,10 @@ applyAttention : {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt =
                  -- gotchas.md). Dropped — caller is responsible for
                  -- passing coherent dims; misconfigured ratios become
                  -- runtime issues (garbage logits, no crash). -->
-                 LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g ->
-                 RoPETables maxPos headDim d dt g ->
-                 Tensor [seq, hidden] d dt g ->
-                 IO (Tensor [seq, hidden] d dt g)
+                 LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) ex dt g ->
+                 RoPETables maxPos headDim ex dt g ->
+                 Tensor [seq, hidden] ex dt g ->
+                 IO (Tensor [seq, hidden] ex dt g)
 applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn tables input = do
   q <- applyLinear2d attn.qProj input  -- [seq, numHeads   * headDim]
   k <- applyLinear2d attn.kProj input  -- [seq, numKvHeads * headDim]
@@ -473,15 +473,15 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
   -- ~62 per-layer `primConcat2dAxis1` calls that were ~80% of the
   -- forward op count post-SDPA. Net per layer drops from ~518 RoPE ops
   -- to ~15 (rank-3 broadcast cos/sin over [seq, numH, headDim] halves).
-  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}   {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI 0
-  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads} {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI 0
+  qRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numHeads}   {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI 0
+  kRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numKvHeads} {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI 0
   -- ONE fused SDPA call replaces the per-head matmul/scale/mask/
   -- softmax/matmul loop. On torch-mps this routes to MPSGraph's fused
   -- attention kernel (~1 op/layer vs ~5/head/layer = 160/layer prior);
   -- mlx routes to its fast::sdpa; tape composes the existing kernels
   -- in one C call (saves Idris↔C FFI hops, same math).
   ctxPtr <- ioRerun (\_ =>
-              primSdpa2d {d} qRopedPtr kRopedPtr v.tensorPtr
+              primSdpa2d {ex} qRopedPtr kRopedPtr v.tensorPtr
                          nHI nKvHI hdI 1)  -- isCausal=1
   ctxT <- ioRerun (\_ => MkTensor ctxPtr Nothing)
   applyLinear2d attn.oProj ctxT
@@ -490,30 +490,30 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
 ||| SwiGLU MLP on `[seq, hidden]`. Three bias-free linears plus a
 ||| fused `primSwiGlu2d` (silu(gate) * up) middle stage — collapses the
 ||| previous `tsilu` + `tmul` pair into one FFI call per block.
-applyMlp : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
-           LlamaMlpState hidden intermediate d dt g ->
-           Tensor [seqLen, hidden] d dt g ->
-           IO (Tensor [seqLen, hidden] d dt g)
+applyMlp : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+           LlamaMlpState hidden intermediate ex dt g ->
+           Tensor [seqLen, hidden] ex dt g ->
+           IO (Tensor [seqLen, hidden] ex dt g)
 applyMlp mlp x = do
   g <- applyLinear2d mlp.gateProj x       -- [seq, intermediate]
   u <- applyLinear2d mlp.upProj   x       -- [seq, intermediate]
   mid <- ioRerun (\_ =>
-           let out = primSwiGlu2d {d} g.tensorPtr u.tensorPtr
+           let out = primSwiGlu2d {ex} g.tensorPtr u.tensorPtr
            in MkTensor out Nothing)        -- [seq, intermediate]
   applyLinear2d mlp.downProj mid
 
 
 ||| One Llama decoder block: pre-norm + attn + residual; pre-norm +
 ||| MLP + residual.
-applyBlock : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-          => RuntimeDType dt => Linked d => Compatible d dt
+applyBlock : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+          => RuntimeDType dt => Linked ex => Compatible ex dt
           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
           -- qPrf / ratio proofs dropped — see applyAttention. -->
           -> (eps : Double)
-          -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-          -> RoPETables maxPos headDim d dt g
-          -> Tensor [seq, hidden] d dt g
-          -> IO (Tensor [seq, hidden] d dt g)
+          -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+          -> RoPETables maxPos headDim ex dt g
+          -> Tensor [seq, hidden] ex dt g
+          -> IO (Tensor [seq, hidden] ex dt g)
 applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} eps blk tables x = do
   xLn1   <- applyRmsNorm2d eps blk.inputNorm x
   aOut   <- applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} blk.attn tables xLn1
@@ -523,15 +523,15 @@ applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} eps blk tables x = d
   tadd xMid mOut
 
 
-applyBlocks : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-           => RuntimeDType dt => Linked d => Compatible d dt
+applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+           => RuntimeDType dt => Linked ex => Compatible ex dt
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
            -- qPrf / ratio proofs dropped — see applyAttention. -->
            -> (eps : Double)
-           -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
-           -> RoPETables maxPos headDim d dt g
-           -> Tensor [seq, hidden] d dt g
-           -> IO (Tensor [seq, hidden] d dt g)
+           -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g)
+           -> RoPETables maxPos headDim ex dt g
+           -> Tensor [seq, hidden] ex dt g
+           -> IO (Tensor [seq, hidden] ex dt g)
 applyBlocks _   []        _      x = pure x
 applyBlocks eps (b :: bs) tables x = do
   x' <- applyBlock {numHeads} {numKvHeads} {headDim} eps b tables x
@@ -542,15 +542,15 @@ applyBlocks eps (b :: bs) tables x = do
 ||| post-`model.norm`. The LM head (tied to embed_tokens) is applied
 ||| separately via `hfLlamaForwardLm`.
 public export
-hfLlamaForward : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-              => RuntimeDType dt => Linked d => Compatible d dt
+hfLlamaForward : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+              => RuntimeDType dt => Linked ex => Compatible ex dt
               => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
               -- qPrf / ratio proofs dropped — see applyAttention. -->
               -> (eps : Double)
-              -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-              -> RoPETables maxPos headDim d dt g
-              -> Tensor [seq] d dt g
-              -> IO (Tensor [seq, hidden] d dt g)
+              -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+              -> RoPETables maxPos headDim ex dt g
+              -> Tensor [seq] ex dt g
+              -> IO (Tensor [seq, hidden] ex dt g)
 hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
   emb   <- applyEmbedLookup model.embedTokens tokens
   hMid  <- applyBlocks {numHeads} {numKvHeads} {headDim} eps model.blocks tables emb
@@ -561,23 +561,23 @@ hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
 ||| logits per position. Reuses the embedding tensor as the LM
 ||| projection weight (same pattern as HfBert's applyMlmHead).
 public export
-hfLlamaForwardLm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-                => RuntimeDType dt => Linked d => Compatible d dt
+hfLlamaForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+                => RuntimeDType dt => Linked ex => Compatible ex dt
                 => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
                 -- qPrf / ratio proofs dropped — see applyAttention. -->
                 -> (eps : Double)
-                -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-                -> RoPETables maxPos headDim d dt g
-                -> Tensor [seq] d dt g
-                -> IO (Tensor [seq, vocab] d dt g)
+                -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+                -> RoPETables maxPos headDim ex dt g
+                -> Tensor [seq] ex dt g
+                -> IO (Tensor [seq, vocab] ex dt g)
 hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
   hFinal <- hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens
   -- LM head via the tied embed_tokens.weight (shape [vocab, hidden]).
   -- tlinear2d expects weight [out, in] = [vocab, hidden] which matches.
   let vI = cast {to=Int} vocab
       zBuf = prim__allocDoubles vI  -- calloc-backed → already zeros
-      zeroBias : Tensor [vocab] d dt g
-      zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
+      zeroBias : Tensor [vocab] ex dt g
+      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
   tlinear2d model.embedTokens.weight hFinal zeroBias
 
 
@@ -604,13 +604,13 @@ hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
 ||| full cached prefix, and returns the updated cache + projected
 ||| output.
 applyAttentionCached :
-       {0 d : Executor} -> UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt
+       {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
     => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat}
-    -> LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g
-    -> RoPETables maxPos headDim d dt g
-    -> KVCache (numKvHeads * headDim) d dt
-    -> Tensor [seq, hidden] d dt g
-    -> IO (KVCache (numKvHeads * headDim) d dt, Tensor [seq, hidden] d dt g)
+    -> LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) ex dt g
+    -> RoPETables maxPos headDim ex dt g
+    -> KVCache (numKvHeads * headDim) ex dt
+    -> Tensor [seq, hidden] ex dt g
+    -> IO (KVCache (numKvHeads * headDim) ex dt, Tensor [seq, hidden] ex dt g)
 applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
                      attn tables cache input = do
   q <- applyLinear2d attn.qProj input  -- [seq, numHeads   * headDim]
@@ -621,17 +621,17 @@ applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
       nHI    = cast {to=Int} numHeads
       nKvHI  = cast {to=Int} numKvHeads
       offset = cacheLen cache
-  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}   {headDim} {maxPos}
+  qRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numHeads}   {headDim} {maxPos}
                                  tables q.tensorPtr sI nHI   hdI offset
-  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads} {headDim} {maxPos}
+  kRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numKvHeads} {headDim} {maxPos}
                                  tables k.tensorPtr sI nKvHI hdI offset
   -- Wrap post-RoPE K and pre-RoPE V as NoGrad for the cache. Grad
   -- mode is a phantom type; the underlying Chez vector is shared
   -- (no extra retain or copy — Idris's refcount handles multi-
   -- reference correctly).
-  let kNewNoGrad : Tensor [seq, numKvHeads * headDim] d dt NoGrad
+  let kNewNoGrad : Tensor [seq, numKvHeads * headDim] ex dt NoGrad
       kNewNoGrad = MkTensor kRopedPtr Nothing
-      vNewNoGrad : Tensor [seq, numKvHeads * headDim] d dt NoGrad
+      vNewNoGrad : Tensor [seq, numKvHeads * headDim] ex dt NoGrad
       vNewNoGrad = MkTensor v.tensorPtr Nothing
   -- Pattern-match on the input cache (Empty | Filled). Two cases
   -- produce the result cache + the SDPA inputs.
@@ -648,26 +648,26 @@ applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
   -- of the enclosing function (notably `numKvHeads * headDim`).
   case cache of
     Empty => do
-      let cache' : KVCache (numKvHeads * headDim) d dt
+      let cache' : KVCache (numKvHeads * headDim) ex dt
           cache' = Filled seq kNewNoGrad vNewNoGrad
       ctxPtr <- ioRerun (\_ =>
-                  primSdpa2d {d} qRopedPtr kRopedPtr v.tensorPtr
+                  primSdpa2d {ex} qRopedPtr kRopedPtr v.tensorPtr
                              nHI nKvHI hdI 1)  -- isCausal=1
       ctxT <- ioRerun (\_ =>
-                the (Tensor [seq, numHeads * headDim] d dt g)
+                the (Tensor [seq, numHeads * headDim] ex dt g)
                     (MkTensor ctxPtr Nothing))
       oOut <- applyLinear2d attn.oProj ctxT
       pure (cache', oOut)
     Filled len kCached vCached => do
       kFull <- tconcat2dAxis0 kCached kNewNoGrad
       vFull <- tconcat2dAxis0 vCached vNewNoGrad
-      let cache' : KVCache (numKvHeads * headDim) d dt
+      let cache' : KVCache (numKvHeads * headDim) ex dt
           cache' = Filled (len + seq) kFull vFull
       ctxPtr <- ioRerun (\_ =>
-                  primSdpa2d {d} qRopedPtr kFull.tensorPtr vFull.tensorPtr
+                  primSdpa2d {ex} qRopedPtr kFull.tensorPtr vFull.tensorPtr
                              nHI nKvHI hdI 1)  -- isCausal=1
       ctxT <- ioRerun (\_ =>
-                the (Tensor [seq, numHeads * headDim] d dt g)
+                the (Tensor [seq, numHeads * headDim] ex dt g)
                     (MkTensor ctxPtr Nothing))
       oOut <- applyLinear2d attn.oProj ctxT
       pure (cache', oOut)
@@ -675,15 +675,15 @@ applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
 
 ||| One Llama decoder block with KV cache threading.
 applyBlockCached :
-       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-    => RuntimeDType dt => Linked d => Compatible d dt
+       {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+    => RuntimeDType dt => Linked ex => Compatible ex dt
     => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
-    -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-    -> RoPETables maxPos headDim d dt g
-    -> KVCache (numKvHeads * headDim) d dt
-    -> Tensor [seq, hidden] d dt g
-    -> IO (KVCache (numKvHeads * headDim) d dt, Tensor [seq, hidden] d dt g)
+    -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+    -> RoPETables maxPos headDim ex dt g
+    -> KVCache (numKvHeads * headDim) ex dt
+    -> Tensor [seq, hidden] ex dt g
+    -> IO (KVCache (numKvHeads * headDim) ex dt, Tensor [seq, hidden] ex dt g)
 applyBlockCached {seq} {hidden} {numHeads} {numKvHeads} {headDim}
                  eps blk tables cache x = do
   xLn1            <- applyRmsNorm2d eps blk.inputNorm x
@@ -698,15 +698,15 @@ applyBlockCached {seq} {hidden} {numHeads} {numKvHeads} {headDim}
 
 ||| Thread a Vect of per-layer KV caches through the decoder stack.
 applyBlocksCached :
-       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-    => RuntimeDType dt => Linked d => Compatible d dt
+       {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+    => RuntimeDType dt => Linked ex => Compatible ex dt
     => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
     -> (eps : Double)
-    -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
-    -> RoPETables maxPos headDim d dt g
-    -> Vect n (KVCache (numKvHeads * headDim) d dt)
-    -> Tensor [seq, hidden] d dt g
-    -> IO (Vect n (KVCache (numKvHeads * headDim) d dt), Tensor [seq, hidden] d dt g)
+    -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g)
+    -> RoPETables maxPos headDim ex dt g
+    -> Vect n (KVCache (numKvHeads * headDim) ex dt)
+    -> Tensor [seq, hidden] ex dt g
+    -> IO (Vect n (KVCache (numKvHeads * headDim) ex dt), Tensor [seq, hidden] ex dt g)
 applyBlocksCached _   []        _      []        x = pure ([], x)
 applyBlocksCached eps (b :: bs) tables (c :: cs) x = do
   (c', x')        <- applyBlockCached {numHeads} {numKvHeads} {headDim} eps b tables c x
@@ -721,15 +721,15 @@ applyBlocksCached eps (b :: bs) tables (c :: cs) x = do
 ||| generation.
 public export
 hfLlamaForwardStep :
-       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-    => RuntimeDType dt => Linked d => Compatible d dt
+       {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+    => RuntimeDType dt => Linked ex => Compatible ex dt
     => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
-    -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-    -> RoPETables maxPos headDim d dt g
-    -> Vect numLayers (KVCache (numKvHeads * headDim) d dt)
-    -> Tensor [seq] d dt g
-    -> IO (Vect numLayers (KVCache (numKvHeads * headDim) d dt), Tensor [seq, hidden] d dt g)
+    -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+    -> RoPETables maxPos headDim ex dt g
+    -> Vect numLayers (KVCache (numKvHeads * headDim) ex dt)
+    -> Tensor [seq] ex dt g
+    -> IO (Vect numLayers (KVCache (numKvHeads * headDim) ex dt), Tensor [seq, hidden] ex dt g)
 hfLlamaForwardStep {numHeads} {numKvHeads} {headDim} eps model tables caches tokens = do
   emb              <- applyEmbedLookup model.embedTokens tokens
   (caches', hMid)  <- applyBlocksCached {numHeads} {numKvHeads} {headDim}
@@ -742,22 +742,22 @@ hfLlamaForwardStep {numHeads} {numKvHeads} {headDim} eps model tables caches tok
 ||| logits `[seq, vocab]`. Companion to `hfLlamaForwardLm`.
 public export
 hfLlamaForwardLmStep :
-       {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d
-    => RuntimeDType dt => Linked d => Compatible d dt
+       {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+    => RuntimeDType dt => Linked ex => Compatible ex dt
     => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
-    -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
-    -> RoPETables maxPos headDim d dt g
-    -> Vect numLayers (KVCache (numKvHeads * headDim) d dt)
-    -> Tensor [seq] d dt g
-    -> IO (Vect numLayers (KVCache (numKvHeads * headDim) d dt), Tensor [seq, vocab] d dt g)
+    -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+    -> RoPETables maxPos headDim ex dt g
+    -> Vect numLayers (KVCache (numKvHeads * headDim) ex dt)
+    -> Tensor [seq] ex dt g
+    -> IO (Vect numLayers (KVCache (numKvHeads * headDim) ex dt), Tensor [seq, vocab] ex dt g)
 hfLlamaForwardLmStep {numHeads} {numKvHeads} {headDim} eps model tables caches tokens = do
   (caches', hFinal) <- hfLlamaForwardStep {numHeads} {numKvHeads} {headDim}
                                           eps model tables caches tokens
   let vI = cast {to=Int} vocab
       zBuf = prim__allocDoubles vI  -- calloc-backed → already zeros
-      zeroBias : Tensor [vocab] d dt g
-      zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
+      zeroBias : Tensor [vocab] ex dt g
+      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
   logits <- tlinear2d model.embedTokens.weight hFinal zeroBias
   pure (caches', logits)
 
@@ -766,5 +766,5 @@ hfLlamaForwardLmStep {numHeads} {numKvHeads} {headDim} eps model tables caches t
 ||| dimensions. Use this to seed the per-layer caches at the start of
 ||| a generation loop, before the first `hfLlamaForwardStep` call.
 public export
-emptyKVCaches : {numLayers, kvOut : Nat} -> Vect numLayers (KVCache kvOut d dt)
+emptyKVCaches : {numLayers, kvOut : Nat} -> Vect numLayers (KVCache kvOut ex dt)
 emptyKVCaches = replicate numLayers emptyKVCache

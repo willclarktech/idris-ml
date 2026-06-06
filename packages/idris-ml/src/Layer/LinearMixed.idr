@@ -33,11 +33,11 @@ import Tensor
 -- effectively free, and torch/mlx handle it via their native cast.
 
 public export
-record LinearMixedState (i : Nat) (o : Nat) (0 d : Executor)
+record LinearMixedState (i : Nat) (o : Nat) (0 ex : Executor)
                         (0 paramDt : DType) (0 computeDt : DType) (0 g : GradMode) where
   constructor MkLinearMixed
-  weightT : Tensor [o, i] d paramDt g
-  biasT   : Tensor [o] d paramDt g
+  weightT : Tensor [o, i] ex paramDt g
+  biasT   : Tensor [o] ex paramDt g
 
 
 ----------------------------------------------------------------------
@@ -67,8 +67,8 @@ LayerLikeMixed LinearMixedState where
     pure (MkLinearMixed w' b')
 
   unfreezeLayerMixed (MkLinearMixed w b) = do
-    primIO (primSetRequiresGrad {d} w.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} w.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkLinearMixed (retypeGrad w) (retypeGrad b))
 
 
@@ -76,7 +76,7 @@ LayerLikeMixed LinearMixedState where
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build a `LinearMixedState i o d paramDt computeDt` with PyTorch's
+||| Build a `LinearMixedState i o ex paramDt computeDt` with PyTorch's
 ||| default `nn.Linear` init (normal approximation): weight ~ N(0,
 ||| 1/sqrt(fan_in)), zero bias. Both weight and bias are stored in
 ||| `paramDt` and registered under `<paramPrefix>_weights` /
@@ -88,28 +88,28 @@ LayerLikeMixed LinearMixedState where
 ||| doesn't influence construction. The forward cast happens per-call
 ||| via `tcastUnsafe`.
 export
-mixedLinearLayer : UserExecutorTraining d =>
+mixedLinearLayer : UserExecutorTraining ex =>
                    RuntimeDType paramDt => RuntimeDType computeDt =>
-                   Linked d =>
-                   Compatible d paramDt => Compatible d computeDt =>
+                   Linked ex =>
+                   Compatible ex paramDt => Compatible ex computeDt =>
                    {i, o : Nat} -> (paramPrefix : String) ->
-                   IO (LinearMixedState i o d paramDt computeDt WithGrad)
+                   IO (LinearMixedState i o ex paramDt computeDt WithGrad)
 mixedLinearLayer pfx = do
   let wName = pfx ++ "_weights"
       bName = pfx ++ "_biases"
       wStd  = 1.0 / sqrt (cast {to=Double} i)
-  w <- tparam2dNormal {d} {dt=paramDt} {o} {i} wName 0.0 wStd
-  b <- tparam1dConst  {d} {dt=paramDt} {n=o} bName 0.0
+  w <- tparam2dNormal {ex} {dt=paramDt} {o} {i} wName 0.0 wStd
+  b <- tparam1dConst  {ex} {dt=paramDt} {n=o} bName 0.0
   pure $ MkLinearMixed w b
 
 ||| Wrap a `LinearMixedState` in `AnyLayerMixed` for use in a
 ||| `NetworkMixed`.
 export
-mixedLinearLayerAny : UserExecutorTraining d =>
+mixedLinearLayerAny : UserExecutorTraining ex =>
                       RuntimeDType paramDt => RuntimeDType computeDt =>
-                      Linked d =>
-                      Compatible d paramDt => Compatible d computeDt =>
+                      Linked ex =>
+                      Compatible ex paramDt => Compatible ex computeDt =>
                       {i, o : Nat} -> (paramPrefix : String) ->
-                      IO (AnyLayerMixed i o d paramDt computeDt WithGrad)
+                      IO (AnyLayerMixed i o ex paramDt computeDt WithGrad)
 mixedLinearLayerAny pid =
   map (MkAnyLayerMixed LinearMixedState) (mixedLinearLayer pid)

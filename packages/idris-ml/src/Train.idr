@@ -221,7 +221,7 @@ mkTrainConfig e l es m b = MkTrainConfig e l es m b Nothing
 ||| `TrainConfig` via the `beforeEpoch` field:
 |||   `let cfg = { beforeEpoch := applySchedule sched opt } (simpleConfig 1000)`
 export
-applySchedule : UserExecutorTraining d => Schedule -> NativeOptimizer d -> Nat -> IO ()
+applySchedule : UserExecutorTraining ex => Schedule -> NativeOptimizer ex -> Nat -> IO ()
 applySchedule sched opt ep = setLearningRate opt (sched ep)
 
 
@@ -234,7 +234,7 @@ applySchedule sched opt ep = setLearningRate opt (sched ep)
 ||| a vectorised env rollout). For pure epochs, use `runTraining`.
 export
 runTrainingIO :
-  {0 d : Executor} -> UserExecutorTraining d => UserExecutorTransfer d =>
+  {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
   {0 model : Type} -> {0 dp : Type} ->
   (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->
@@ -243,7 +243,7 @@ runTrainingIO :
   IO (model, Nat, Double)
 runTrainingIO {model} epochFn dataSrc cfg model0 = do
   tStart <- clockTime Monotonic
-  putStrLn $ "Training... [backend=" ++ backendName {d} ++ "]"
+  putStrLn $ "Training... [backend=" ++ backendName {ex} ++ "]"
   bestRef <- newIORef (the Double (1.0/0.0))
   startEp <- case cfg.checkpoint of
     Nothing  => pure 0
@@ -275,9 +275,9 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
   putStrLn $ formatPerfMsPerEp tStart tEnd epochsDone
   putStrLn $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
           ++ "\tCurrent RSS: " ++ show (getCurrentRssMB 0) ++ " MB"
-          ++ "\tLive handles: " ++ show (primLiveCount {d} (cast epochsDone))
-          ++ "\tPeak handles: " ++ show (primPeakLiveCount {d} (cast epochsDone))
-  profileReport {d}
+          ++ "\tLive handles: " ++ show (primLiveCount {ex} (cast epochsDone))
+          ++ "\tPeak handles: " ++ show (primPeakLiveCount {ex} (cast epochsDone))
+  profileReport {ex}
   pure (finalModel, epochsDone, loss)
   where
     shouldLog : Nat -> Bool
@@ -306,13 +306,13 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       -- bracket (see `forceMetrics`). A grad-mode metrics pass leaves a
       -- live tape whose tensors the epoch-end generation sweep then frees,
       -- crashing the next epoch on mlx (use-after-free).
-      extra <- withNoGrad {d} $ do
+      extra <- withNoGrad {ex} $ do
                  e <- cfg.metrics m
                  if forceMetrics e then pure e else pure e
       let memSuffix = "\tpeak=" ++ show (getRssMB 0) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
-                   ++ "\thandles=" ++ show (primLiveCount {d} (cast ep))
-                   ++ "\tpeakhandles=" ++ show (primPeakLiveCount {d} (cast ep))
+                   ++ "\thandles=" ++ show (primLiveCount {ex} (cast ep))
+                   ++ "\tpeakhandles=" ++ show (primPeakLiveCount {ex} (cast ep))
       putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 
@@ -323,7 +323,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     -- bounds eval. No-op on tape/torch (no buffer ceiling). Defined here so
     -- they capture the device `d` (the loops shadow it with `d <- dataSrc`).
     epochBegin : IO ()
-    epochBegin = primIO (primEpochBegin {d})
+    epochBegin = primIO (primEpochBegin {ex})
     -- On mlx, force a major GC + drain the managed-handle guardian *before*
     -- the sweep, mirroring withNoGrad. The epoch's grad intermediates are
     -- only reachable until the epoch fn returns, so the per-step
@@ -336,11 +336,11 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     -- per-epoch full GC would be pure overhead.
     epochEnd : IO ()
     epochEnd = do
-      when (backendTag {d} == "mlx") $ do
+      when (backendTag {ex} == "mlx") $ do
         forceMajorGc
         _ <- drainManagedHandles
         pure ()
-      primIO (primEpochEnd {d})
+      primIO (primEpochEnd {ex})
 
     divisibleBy : Nat -> Nat -> Bool
     divisibleBy _ Z     = False
@@ -361,7 +361,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
           when pol.keepBest $ do
             cur <- case pol.monitor of
                      Nothing => pure loss
-                     Just f  => withNoGrad {d} f
+                     Just f  => withNoGrad {ex} f
             b <- readIORef bestRef
             when (cur < b) $ do
               writeIORef bestRef cur
@@ -527,11 +527,11 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
 ||| `runTrainingIO`.
 export
 runTraining :
-  {0 d : Executor} -> UserExecutorTraining d => UserExecutorTransfer d =>
+  {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
   {0 model : Type} -> {0 dp : Type} ->
   (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->
   TrainConfig model ->
   model ->
   IO (model, Nat, Double)
-runTraining = runTrainingIO {d}
+runTraining = runTrainingIO {ex}

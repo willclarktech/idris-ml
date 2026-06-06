@@ -33,11 +33,11 @@ import Tensor
 public export
 record SwiGLUState
         (hidden : Nat) (intermediate : Nat)
-        (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+        (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkSwiGLU
-  gateW : Tensor [intermediate, hidden] d dt g
-  upW   : Tensor [intermediate, hidden] d dt g
-  downW : Tensor [hidden, intermediate] d dt g
+  gateW : Tensor [intermediate, hidden] ex dt g
+  upW   : Tensor [intermediate, hidden] ex dt g
+  downW : Tensor [hidden, intermediate] ex dt g
 
 
 ----------------------------------------------------------------------
@@ -51,11 +51,11 @@ record SwiGLUState
 ||| on this manually for now (a 2D batched version would compose
 ||| `tlinear2d` + `tsilu` + `tmul` + `tlinear2d` instead of `tmv`).
 export
-applySwiGLU : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+applySwiGLU : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
               {hidden, intermediate : Nat} ->
-              SwiGLUState hidden intermediate d dt g ->
-              Tensor [hidden] d dt g ->
-              IO (SwiGLUState hidden intermediate d dt g, Tensor [hidden] d dt g)
+              SwiGLUState hidden intermediate ex dt g ->
+              Tensor [hidden] ex dt g ->
+              IO (SwiGLUState hidden intermediate ex dt g, Tensor [hidden] ex dt g)
 applySwiGLU st@(MkSwiGLU gateW upW downW) input = do
   gate <- tmv gateW input               -- [intermediate]
   up   <- tmv upW   input               -- [intermediate]
@@ -77,9 +77,9 @@ applySwiGLU st@(MkSwiGLU gateW upW downW) input = do
 ||| HF-aligned modules (HfLlama) re-bind at construction to e.g.
 ||| `model.layers.{i}.mlp.gate_proj.weight`.
 export
-swigluLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+swigluLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
               {hidden, intermediate : Nat} -> (paramPrefix : String) ->
-              IO (SwiGLUState hidden intermediate d dt WithGrad)
+              IO (SwiGLUState hidden intermediate ex dt WithGrad)
 swigluLayer paramPrefix = do
   -- fan_in is hidden for gate/up (W: [intermediate, hidden]) and
   -- intermediate for down (W: [hidden, intermediate]).
@@ -103,10 +103,10 @@ swigluLayer paramPrefix = do
 -- shape as Dropout / LayerNorm / RmsNorm which all use i = o = n.
 public export
 data SwiGLUStateAnyI : (hidden : Nat) -> (sameHidden : Nat) ->
-                      (0 d : Executor) -> (0 dt : DType) -> (0 g : GradMode) -> Type where
+                      (0 ex : Executor) -> (0 dt : DType) -> (0 g : GradMode) -> Type where
   MkSwiGLUAnyI : (intermediate : Nat) ->
-                 SwiGLUState hidden intermediate d dt g ->
-                 SwiGLUStateAnyI hidden hidden d dt g
+                 SwiGLUState hidden intermediate ex dt g ->
+                 SwiGLUStateAnyI hidden hidden ex dt g
 
 
 public export
@@ -123,17 +123,17 @@ LayerLike SwiGLUStateAnyI where
     pure (MkSwiGLUAnyI intermediate (MkSwiGLU g' u' d'))
 
   unfreezeLayer (MkSwiGLUAnyI intermediate (MkSwiGLU g u dn)) = do
-    primIO (primSetRequiresGrad {d} g.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} u.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} dn.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} g.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} u.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} dn.tensorPtr 1)
     pure (MkSwiGLUAnyI intermediate (MkSwiGLU (retypeGrad g) (retypeGrad u) (retypeGrad dn)))
 
 ||| Wrap a SwiGLU in `AnyLayer`. The `intermediate` knob is fixed at
 ||| construction; the LayerLike surface only sees (hidden, hidden).
 export
-swigluLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+swigluLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
                  {hidden, intermediate : Nat} -> (paramPrefix : String) ->
-                 IO (AnyLayer hidden hidden d dt WithGrad)
+                 IO (AnyLayer hidden hidden ex dt WithGrad)
 swigluLayerAny {intermediate} pid = do
   sw <- swigluLayer {hidden} {intermediate} pid
   pure (MkAnyLayer SwiGLUStateAnyI (MkSwiGLUAnyI intermediate sw))

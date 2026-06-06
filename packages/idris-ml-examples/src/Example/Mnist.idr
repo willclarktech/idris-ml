@@ -120,11 +120,11 @@ mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
 mnistItem ds idx = do
   let -- mnist_get_image / one_hot are dtype-aware: pass ExampleDType's tag so
       -- both yield ExampleDType directly (no cast on any build).
-      imgT = primMnistGetImage {d=ExampleExecutor} ds (cast {to=Int} (natToInteger idx)) (dtypeTag {t=ExampleDType})
+      imgT = primMnistGetImage {ex=ExampleExecutor} ds (cast {to=Int} (natToInteger idx)) (dtypeTag {t=ExampleDType})
       lbl = prim__mnistGetLabel ds (cast {to=Int} (natToInteger idx))
-      flatImg = primReshape1d {d=ExampleExecutor} imgT (cast {to=Int} InputDim)
+      flatImg = primReshape1d {ex=ExampleExecutor} imgT (cast {to=Int} InputDim)
       lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
-      tgtT = primOneHot {d=ExampleExecutor} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
+      tgtT = primOneHot {ex=ExampleExecutor} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
   pure (MkTensorDataPoint flatImg tgtT)
 
 
@@ -142,7 +142,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
     argmax : AnyPtr -> Double -> Int -> Int -> Int
     argmax outT best bestI idx =
       if idx >= cast {to=Int} NumClasses then bestI
-      else let v = primItem1d {d=ExampleExecutor} outT idx
+      else let v = primItem1d {ex=ExampleExecutor} outT idx
            in if v > best then assert_total $ argmax outT v idx (idx + 1)
                           else assert_total $ argmax outT best bestI (idx + 1)
 
@@ -152,9 +152,9 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
       in pure (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
     go (S k) correct totalLoss = do
       let pos = cast {to=Int} (k * cast numImages `div` nSamples)
-          imgT = primMnistGetImage {d=ExampleExecutor} ds pos (dtypeTag {t=ExampleDType})
+          imgT = primMnistGetImage {ex=ExampleExecutor} ds pos (dtypeTag {t=ExampleDType})
           lbl = prim__mnistGetLabel ds pos
-          flatImg = primReshape1d {d=ExampleExecutor} imgT (cast {to=Int} InputDim)
+          flatImg = primReshape1d {ex=ExampleExecutor} imgT (cast {to=Int} InputDim)
           inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor flatImg Nothing)
       (_, predV) <- forwardVar model inV
       let outT = predV.tensorPtr
@@ -162,10 +162,10 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           correct' = if pred == lbl then S correct else correct
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
-          tgtT = primOneHot {d=ExampleExecutor} lblBuf' 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
+          tgtT = primOneHot {ex=ExampleExecutor} lblBuf' 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
           tgtV = the (TVec NumClasses ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
       lossT <- tnllLoss predV tgtV
-      let lossVal = primItem {d=ExampleExecutor} lossT.tensorPtr
+      let lossVal = primItem {ex=ExampleExecutor} lossT.tensorPtr
       go k correct' (totalLoss + lossVal)
 
 
@@ -204,7 +204,7 @@ mnistMetrics : {hs : List Nat} ->
                Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad ->
                IO (List (String, String))
 mnistMetrics testDs testCount m = do
-  pair <- withNoGrad {d=ExampleExecutor} (evalAccuracy m testDs testCount 200)
+  pair <- withNoGrad {ex=ExampleExecutor} (evalAccuracy m testDs testCount 200)
   pure [("test_acc", show (fst pair)),
         ("test_loss", show (snd pair))]
 
@@ -304,12 +304,12 @@ main = do
   let trainCfg = mkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
                    (mnistMetrics testDs testCount) (\_ => pure ())
 
-  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleExecutor}
+  (trained, epochsDone, finalLoss) <- runTrainingIO {ex=ExampleExecutor}
     (\m, _ => trainOneFullPass opt genBatch batchesPerEpoch m)
     (pure ()) trainCfg model
 
   putStrLn ""
-  finalPair <- withNoGrad {d=ExampleExecutor} (evalAccuracy trained testDs testCount 1000)
+  finalPair <- withNoGrad {ex=ExampleExecutor} (evalAccuracy trained testDs testCount 1000)
   let finalAcc = fst finalPair
       finalTestLoss = snd finalPair
   putStrLn $ "Final accuracy (1000 test samples): " ++ show (finalAcc * 100.0) ++ "%"

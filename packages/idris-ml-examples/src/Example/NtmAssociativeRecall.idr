@@ -157,7 +157,7 @@ main = do
                    (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
                    evalMetrics (\_ => pure ())
 
-  (trained, epochsDone, _) <- runTraining {d=ExampleExecutor}
+  (trained, epochsDone, _) <- runTraining {ex=ExampleExecutor}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation
@@ -165,7 +165,7 @@ main = do
   -- forwardTwoPhase on mlx (one batch-level bracket can pile up
   -- TestSize × seq-len mlx buffers before draining).
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = withNoGrad {d=ExampleExecutor} $ do
+      evalOne dp = withNoGrad {ex=ExampleExecutor} $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 

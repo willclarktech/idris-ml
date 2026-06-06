@@ -35,4 +35,4 @@ public export data MlxBackend : Type where MkMlxBackend : MlxBackend
 ||| methods. Each backend's `Executor/<Name>.idr` declares the instance
 ||| linking its `Executor` type(s) to its `Backend` tag.
 public export
-interface RunsVia (0 d : Executor) (0 b : Backend) where
+interface RunsVia (0 ex : Executor) (0 b : Backend) where

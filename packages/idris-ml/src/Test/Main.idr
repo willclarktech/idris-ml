@@ -29,7 +29,7 @@ import Test.SwiGLU
 -- the source tree but isn't wired into this default `tests` list:
 -- it deliberately references TapeExecutor / TorchExecutor / MlxExecutor by name to
 -- exercise cross-backend hops, so it crashes under any single-backend
--- build. The other buckets above use `{d=TestExecutor}` (resolved at
+-- build. The other buckets above use `{ex=TestExecutor}` (resolved at
 -- build time from the active PRIMARY via the Makefile-generated
 -- TestConfig.idr — same trick as BuildConfig for the examples), so
 -- `make BACKEND=<b> test` works on every backend. Run the multi-

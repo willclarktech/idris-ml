@@ -144,9 +144,9 @@ gptTensorPoint corpus corpusLen = do
       targetToks = Data.List.take SeqLen (drop 1 window)
       sI = cast {to=Int} SeqLen
       vI = cast {to=Int} VocabSize
-      inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleExecutor})
+      inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
       tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
+  pure $ MkTensorDataPoint inT (primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 gptBatchVect : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) ->
                IO (Vect n (TensorDataPoint InputDim OutputDim))
@@ -168,12 +168,12 @@ allPositionsCELoss : TVec OutputDim ExampleExecutor ExampleDType WithGrad -> TVe
 allPositionsCELoss predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
-      logitsR = primReshape2d {d=ExampleExecutor} predV.tensorPtr sI vsI
-      logProbs = primLogSoftmax2d {d=ExampleExecutor} logitsR
-      tgtsR = primReshape2d {d=ExampleExecutor} targetV.tensorPtr sI vsI
-      product = primMul {d=ExampleExecutor} logProbs tgtsR
-      totalSum = primSum {d=ExampleExecutor} product
-      loss = primMulScalar {d=ExampleExecutor} (primNeg {d=ExampleExecutor} totalSum) (1.0 / cast {to=Double} SeqLen)
+      logitsR = primReshape2d {ex=ExampleExecutor} predV.tensorPtr sI vsI
+      logProbs = primLogSoftmax2d {ex=ExampleExecutor} logitsR
+      tgtsR = primReshape2d {ex=ExampleExecutor} targetV.tensorPtr sI vsI
+      product = primMul {ex=ExampleExecutor} logProbs tgtsR
+      totalSum = primSum {ex=ExampleExecutor} product
+      loss = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
 
 
@@ -204,9 +204,9 @@ generateText model seed genLen temperature = do
     sampleAt outT pos =
       let vsI = cast {to=Int} VocabSize
           sI = cast {to=Int} SeqLen
-          logitsR = primReshape2d {d=ExampleExecutor} outT sI vsI
+          logitsR = primReshape2d {ex=ExampleExecutor} outT sI vsI
           posI = cast {to=Int} (natToInteger pos)
-      in map (\j => exp (primItem2d {d=ExampleExecutor} logitsR posI (cast j) / temperature))
+      in map (\j => exp (primItem2d {ex=ExampleExecutor} logitsR posI (cast j) / temperature))
              vocabIdxs
 
     argmax : List Double -> Int
@@ -220,7 +220,7 @@ generateText model seed genLen temperature = do
     go _ _ Z acc = pure (reverse acc)
     go m ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
-          inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0 (deviceStreamTag {d=ExampleExecutor})
+          inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0 (deviceStreamTag {ex=ExampleExecutor})
           inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
       (_, predV) <- forwardVar m inV
       let unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
@@ -247,14 +247,14 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           targetToks = Data.List.take SeqLen (drop 1 window)
           sI = cast {to=Int} SeqLen
           vI = cast {to=Int} VocabSize
-          inT = dtCreate1d {d=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleExecutor})
+          inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-          tgtT = primOneHot {d=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
+          tgtT = primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
           inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
           tgtV = the (TVec OutputDim ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
       (_, predV) <- forwardVar model inV
       lossT <- allPositionsCELoss predV tgtV
-      pure (primItem {d=ExampleExecutor} lossT.tensorPtr / log 2.0)
+      pure (primItem {ex=ExampleExecutor} lossT.tensorPtr / log 2.0)
 
     go : Nat -> Double -> IO Double
     go Z acc = pure acc
@@ -301,7 +301,7 @@ trainValSplit valFrac idx =
 
 setLRAll : NativeOptimizer ExampleExecutor -> Double -> IO ()
 setLRAll opt lr = do
-  n <- getParamCount {d=ExampleExecutor}
+  n <- getParamCount {ex=ExampleExecutor}
   go 0 n
   where
     go : Int -> Int -> IO ()
@@ -309,7 +309,7 @@ setLRAll opt lr = do
       if i >= n
         then pure ()
         else do
-          nm <- getParamName {d=ExampleExecutor} i
+          nm <- getParamName {ex=ExampleExecutor} i
           setParamLR opt nm lr
           go (i + 1) n
 
@@ -428,7 +428,7 @@ main = do
         writeIORef epochRef (S ep)
         epochVarTensorBatch opt d allPositionsCELoss m
 
-  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleExecutor} stepFn genBatch trainCfg model
+  (trained, epochsDone, finalLoss) <- runTrainingIO {ex=ExampleExecutor} stepFn genBatch trainCfg model
 
   putStrLn ""
   valBpc <- evalBPC trained valIndices valLen 50
@@ -438,12 +438,12 @@ main = do
 
   putStrLn ""
   putStrLn "Generation (seed='to be or '):"
-  sample1 <- withNoGrad {d=ExampleExecutor} (generateText trained "to be or " 200 1.0)
+  sample1 <- withNoGrad {ex=ExampleExecutor} (generateText trained "to be or " 200 1.0)
   putStrLn $ "  " ++ show sample1
 
   putStrLn ""
   putStrLn "Generation (seed='the '):"
-  sample2 <- withNoGrad {d=ExampleExecutor} (generateText trained "the " 200 1.0)
+  sample2 <- withNoGrad {ex=ExampleExecutor} (generateText trained "the " 200 1.0)
   putStrLn $ "  " ++ show sample2
 
   putStrLn ""

@@ -27,16 +27,16 @@ public export
 data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
                         Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkBatchNorm :
-    TVec channels d dt g ->          -- gamma (learnable)
-    TVec channels d dt g ->          -- beta (learnable)
-    TVec channels d dt g ->          -- running mean (state)
-    TVec channels d dt g ->          -- running var (state)
+    TVec channels ex dt g ->          -- gamma (learnable)
+    TVec channels ex dt g ->          -- beta (learnable)
+    TVec channels ex dt g ->          -- running mean (state)
+    TVec channels ex dt g ->          -- running var (state)
     (training : Bool) ->
     (momentum : Double) ->
     (eps : Double) ->
     BatchNormState channels spatialDim
                      (channels * spatialDim)
-                     (channels * spatialDim) d dt g
+                     (channels * spatialDim) ex dt g
 
 
 ----------------------------------------------------------------------
@@ -46,15 +46,15 @@ data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
 %default partial
 
 export
-applyBatchNorm : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
+applyBatchNorm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {channels, spatialDim : Nat} ->
                    BatchNormState channels spatialDim
                      (channels * spatialDim)
-                     (channels * spatialDim) d dt g ->
-                   TVec (channels * spatialDim) d dt g ->
+                     (channels * spatialDim) ex dt g ->
+                   TVec (channels * spatialDim) ex dt g ->
                    IO ( BatchNormState channels spatialDim
                           (channels * spatialDim)
-                          (channels * spatialDim) d dt g
-                      , TVec (channels * spatialDim) d dt g )
+                          (channels * spatialDim) ex dt g
+                      , TVec (channels * spatialDim) ex dt g )
 applyBatchNorm {channels} {spatialDim}
                  st@(MkBatchNorm gamma beta mean var training momentum eps)
                  input = ioRerun (\_ =>
@@ -62,7 +62,7 @@ applyBatchNorm {channels} {spatialDim}
       sI = cast {to=Int} spatialDim
       tFlag : Int
       tFlag = if training then 1 else 0
-      outPtr = primBatchNorm {d} input.tensorPtr gamma.tensorPtr beta.tensorPtr
+      outPtr = primBatchNorm {ex} input.tensorPtr gamma.tensorPtr beta.tensorPtr
                               mean.tensorPtr var.tensorPtr
                               cI sI tFlag momentum eps
   in (st, MkTensor outPtr Nothing))
@@ -84,36 +84,36 @@ fillConst buf off n v =
 ||| Params register as `<prefix>_gamma` / `<prefix>_beta`; state
 ||| tensors are persistent C tensors (non-learnable).
 export
-batchNormLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
+batchNormLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
-                         (channels * spatialDim) d dt WithGrad)
+                         (channels * spatialDim) ex dt WithGrad)
 batchNormLayer paramPrefix = do
   let cI = cast {to=Int} channels
       gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
   -- Learnable params (γ=1, β=0) via fused C-side init.
-  gamma <- tparam1dConst {d} {dt} {n=channels} gName 1.0
-  beta  <- tparam1dConst {d} {dt} {n=channels} bName 0.0
+  gamma <- tparam1dConst {ex} {dt} {n=channels} gName 1.0
+  beta  <- tparam1dConst {ex} {dt} {n=channels} bName 0.0
   -- Non-learnable state (running mean=0, running var=1). State tensors
   -- keep the old fill-then-create pattern — no tstate1dConst surface
   -- yet (deferred to a follow-up).
   let mBuf = fillConst (prim__allocDoubles cI) 0 cI 0.0
       vBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
-      mPtr = dtCreateState1d {d} {t=dt} cI mBuf (deviceStreamTag {d})
-      vPtr = dtCreateState1d {d} {t=dt} cI vBuf (deviceStreamTag {d})
-      mTV : TVec channels d dt WithGrad
+      mPtr = dtCreateState1d {ex} {t=dt} cI mBuf (deviceStreamTag {ex})
+      vPtr = dtCreateState1d {ex} {t=dt} cI vBuf (deviceStreamTag {ex})
+      mTV : TVec channels ex dt WithGrad
       mTV = MkTensor mPtr Nothing
-      vTV : TVec channels d dt WithGrad
+      vTV : TVec channels ex dt WithGrad
       vTV = MkTensor vPtr Nothing
   pure $ MkBatchNorm gamma beta mTV vTV True 0.1 1.0e-5
 
 ||| Toggle training/eval mode.
 export
 setBatchNormTraining : Bool ->
-  BatchNormState channels spatialDim i o d dt g ->
-  BatchNormState channels spatialDim i o d dt g
+  BatchNormState channels spatialDim i o ex dt g ->
+  BatchNormState channels spatialDim i o ex dt g
 setBatchNormTraining mode (MkBatchNorm g b m v _ mom eps) =
   MkBatchNorm g b m v mode mom eps
 
@@ -136,18 +136,18 @@ public export
     pure (MkBatchNorm g' b' m' v' t mo e)
 
   unfreezeLayer (MkBatchNorm g b m v t mo e) = do
-    primIO (primSetRequiresGrad {d} g.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} m.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} v.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} g.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} m.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} v.tensorPtr 1)
     pure (MkBatchNorm (retypeGrad g) (retypeGrad b)
                       (retypeGrad m) (retypeGrad v) t mo e)
 
 ||| Wrap in `AnyLayer`.
 export
-batchNormLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {channels, spatialDim : Nat} ->
+batchNormLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
-                      IO (AnyLayer (channels * spatialDim) (channels * spatialDim) d dt WithGrad)
+                      IO (AnyLayer (channels * spatialDim) (channels * spatialDim) ex dt WithGrad)
 batchNormLayerAny pid =
   map (MkAnyLayer (BatchNormState channels spatialDim))
       (batchNormLayer {channels} {spatialDim} pid)

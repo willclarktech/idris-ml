@@ -32,9 +32,9 @@ make BACKEND=tape,torch backend           # Multi-link: both built into one dyli
 make BACKEND=tape,torch,mlx backend       # macOS full build (all three)
 make BACKEND=torch backend                # Torch-only build (CI lane)
 make BACKEND=mlx MLX_SITE=... backend     # MLX-only (Apple Metal)
-make BACKEND=mlx MLX_DEVICE=gpu install   # F32 mode: examples target Tensor [..] (MlxDev MGpu) F32
-make BACKEND=torch TORCH_DEVICE=mps install # F32 on Metal via libtorch: Tensor [..] (TorchDev TMps) F32
-make BACKEND=torch TORCH_DEVICE=cuda install # CUDA (when on a CUDA box): Tensor [..] (TorchDev (TCuda 0)) F64
+make BACKEND=mlx MLX_DEVICE=gpu install   # F32 mode: examples target Tensor [..] (MlxExecutor MGpu) F32
+make BACKEND=torch TORCH_DEVICE=mps install # F32 on Metal via libtorch: Tensor [..] (TorchExecutor TMps) F32
+make BACKEND=torch TORCH_DEVICE=cuda install # CUDA (when on a CUDA box): Tensor [..] (TorchExecutor (TCuda 0)) F64
 make rename-headers                       # Regen packages/backends/rename_<b>.h from backend.h
 make check-rename-headers                 # CI gate: errors if regen would change anything
 make install                              # Install core lib + gym (required for examples/tests)
@@ -85,9 +85,9 @@ Matrix r c   = Array [r, c]
 0 Device : Type
 Device = Type
 -- Built-in backend tags:
---   TapeDev               — tape backend (CPU only, no hardware variants)
---   TorchDev d            — libtorch; d : TorchHwDev = TCpu | TMps | TCuda Nat
---   MlxDev s              — mlx; s : MlxStream = MCpu | MGpu
+--   TapeExecutor               — tape backend (CPU only, no hardware variants)
+--   TorchExecutor d            — libtorch; d : TorchHwDev = TCpu | TMps | TCuda Nat
+--   MlxExecutor s              — mlx; s : MlxStream = MCpu | MGpu
 -- `UserDeviceTransfer` makes the generic `toDevice` work between any
 -- pair: matching backendTag → fast intra-backend HW migration; differing
 -- → host buffer round-trip. Declare your own backend by adding a tag type
@@ -97,9 +97,9 @@ Device = Type
 -- Availability gating (design-decisions.md "Device-availability gating";
 -- full doc device-availability-gating.md). Two gates, each where the fact
 -- lives:
---   • Linkage (compile-time): empty `Linked d` marker gates construction;
+--   • Linkage (compile-time): empty `Linked ex` marker gates construction;
 --     instances emitted per build by the generated `HwConfig`, so a
---     tape-only build can't even spell `MlxDev _`.
+--     tape-only build can't even spell `MlxExecutor _`.
 --   • Hardware presence (runtime, EAFP): construction shims catch the
 --     backend's exception → NULL handle; `toDeviceChecked` / `attemptOn`
 --     lift NULL → `Left DeviceError`; `availableDevices builtinDevices`
@@ -112,17 +112,17 @@ Device = Type
 DType = Type
 -- Float n / BFloat n / IntN n / UInt n / Bool are types with built-in
 -- IsDType instances. Aliases F32 = Float 32, F64 = Float 64, etc.
--- `Compatible d t` gates admissible (device, dtype) pairs at construction.
--- `Compatible (MlxDev MGpu) F64` and `Compatible (TorchDev TMps) F64`
+-- `Compatible ex t` gates admissible (device, dtype) pairs at construction.
+-- `Compatible (MlxExecutor MGpu) F64` and `Compatible (TorchExecutor TMps) F64`
 -- deliberately don't exist — Metal GPU is F32-only (mlx 0.31; libtorch
 -- rejects F64 at MPS *construction*). See design-decisions.md "Open `dt`".
 
 -- Tensor.idr (autograd handle — backend-agnostic)
-record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr      -- wrapped handle: Chez vector #(tensor-handle-v2 tag raw)
   paramId   : Maybe String  -- parameter name (Nothing = intermediate)
--- Aliases TVec n d dt g / TMat m n d dt g dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
+-- Aliases TVec n ex dt g / TMat m n ex dt g dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
 ```
 
 `Array` is the structural type used for input-data marshalling and Math.idr's pure-Idris ops; it is NOT the autograd type. `Tensor` is the daily user-facing autograd handle.
@@ -131,12 +131,12 @@ The library is **fully polymorphic in dt** — every interface method, smart con
 
 Examples don't hardcode device or dtype. They reference `ExampleDevice` / `ExampleDType` from `packages/idris-ml-examples/src/BuildConfig.idr` — a Makefile-generated source file (template at `BuildConfig.idr.in`, version-controlled). The generator reads `BACKEND` + `MLX_DEVICE` + `TORCH_DEVICE` at build time and picks the right `(ExampleDevice, ExampleDType)` cell:
 
-  - `BACKEND=tape`                       → `TapeDev`, `F64`
-  - `BACKEND=torch TORCH_DEVICE=cpu`      → `TorchDev TCpu`, `F64`
-  - `BACKEND=torch TORCH_DEVICE=mps`      → `TorchDev TMps`, `F32`
-  - `BACKEND=torch TORCH_DEVICE=cuda`     → `TorchDev (TCuda 0)`, `F64`
-  - `BACKEND=mlx MLX_DEVICE=cpu`          → `MlxDev MCpu`, `F64`
-  - `BACKEND=mlx MLX_DEVICE=gpu`          → `MlxDev MGpu`, `F32`
+  - `BACKEND=tape`                       → `TapeExecutor`, `F64`
+  - `BACKEND=torch TORCH_DEVICE=cpu`      → `TorchExecutor TCpu`, `F64`
+  - `BACKEND=torch TORCH_DEVICE=mps`      → `TorchExecutor TMps`, `F32`
+  - `BACKEND=torch TORCH_DEVICE=cuda`     → `TorchExecutor (TCuda 0)`, `F64`
+  - `BACKEND=mlx MLX_DEVICE=cpu`          → `MlxExecutor MCpu`, `F64`
+  - `BACKEND=mlx MLX_DEVICE=gpu`          → `MlxExecutor MGpu`, `F32`
 
 Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked into `BuildConfig.idr`. Switching modes is just a different `make install` — no source edits. (Same trick generates the per-build `Linked` instances in `HwConfig.idr`.)
 
@@ -207,7 +207,7 @@ The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it t
 - Nat arithmetic: prefer `Tensor.splitAt` for reshape/flatten; route multiplicative shape arithmetic through `TVec`/`TMat` aliases (raw `Tensor [4 * o] d` hangs the type-checker).
 - `decEq`+`Refl` to unify a generic `{n : Nat}` with a specific value in a branch.
 - `rewrite sym prf in expr` to convert between provably-equal types.
-- Device phantom: `Tensor dims (0 d : Device)` is erased at runtime; `toDevice` (or `toDeviceChecked` for the EAFP-gated variant) is the only intentional device bridge.
+- Device phantom: `Tensor dims (0 ex : Executor)` is erased at runtime; `toExecutor` (or `toExecutorChecked` for the EAFP-gated variant) is the only intentional device bridge.
 
 ## Workflows
 

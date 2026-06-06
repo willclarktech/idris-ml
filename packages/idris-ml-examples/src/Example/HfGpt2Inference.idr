@@ -112,7 +112,7 @@ runDumpHidden model = do
   -- BPE("Hello world") = [15496, 995]. Same as save_oracle_gpt2.py.
   let inputIds = mkIds (the (Vect 2 Double) [15496.0, 995.0])
       posIds   = mkIds (arangeVect 2)
-  out <- hfGpt2Forward {d=ExampleExecutor} {dt=ExampleDType}
+  out <- hfGpt2Forward {ex=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 2}
                        {vocab        = VocabSize}
                        {hidden       = Hidden}
@@ -151,7 +151,7 @@ genOneStep model toksList = do
     (curLen ** idDoubles) => do
       let inputIds = mkIds idDoubles
           posIds   = mkIds (arangeVect curLen)
-      logits <- hfGpt2ForwardLm {d=ExampleExecutor} {dt=ExampleDType}
+      logits <- hfGpt2ForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
                                 {seqLen       = curLen}
                                 {vocab        = VocabSize}
                                 {hidden       = Hidden}
@@ -229,7 +229,7 @@ main = do
 
   -- Build a distilgpt2 model. Each param registers under the literal
   -- HF name (`transformer.wte.weight`, etc.).
-  model <- hfGpt2Model {d=ExampleExecutor} {dt=ExampleDType}
+  model <- hfGpt2Model {ex=ExampleExecutor} {dt=ExampleDType}
                        {vocab        = VocabSize}
                        {hidden       = Hidden}
                        {numLayers    = NumLayers}
@@ -243,7 +243,7 @@ main = do
   -- widening at the loader; distilgpt2 is F32 on disk so the cost is
   -- a copy on F32 backends (mlx-gpu / torch-mps) and a widen on F64
   -- backends (tape).
-  ok <- loadModelAllowCast {d=ExampleExecutor} hfWeightsPath
+  ok <- loadModelAllowCast {ex=ExampleExecutor} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)

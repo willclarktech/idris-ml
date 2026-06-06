@@ -28,7 +28,7 @@ dropoutSeed : Int -> Int
 
 public export
 data DropoutState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d dt g
+  MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n ex dt g
 
 
 ----------------------------------------------------------------------
@@ -38,15 +38,15 @@ data DropoutState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : Gr
 %default partial
 
 export
-applyDropout : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
-                 DropoutState n n d dt g ->
-                 TVec n d dt g ->
-                 IO (DropoutState n n d dt g, TVec n d dt g)
+applyDropout : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} ->
+                 DropoutState n n ex dt g ->
+                 TVec n ex dt g ->
+                 IO (DropoutState n n ex dt g, TVec n ex dt g)
 applyDropout st@(MkDropout p training) input = ioRerun (\_ =>
   if training
     then
       let seed = dropoutSeed 0
-          outPtr = primDropout {d} input.tensorPtr p 1 seed
+          outPtr = primDropout {ex} input.tensorPtr p 1 seed
       in (st, MkTensor outPtr Nothing)
     else (st, input))
 
@@ -58,12 +58,12 @@ applyDropout st@(MkDropout p training) input = ioRerun (\_ =>
 ||| Create a Dropout with given drop probability. Starts in training
 ||| mode; flip to eval via `setTraining False`.
 export
-dropoutLayer : {n : Nat} -> (p : Double) -> DropoutState n n d dt g
+dropoutLayer : {n : Nat} -> (p : Double) -> DropoutState n n ex dt g
 dropoutLayer p = MkDropout p True
 
 ||| Toggle training/eval mode.
 export
-setTraining : Bool -> DropoutState n n d dt g -> DropoutState n n d dt g
+setTraining : Bool -> DropoutState n n ex dt g -> DropoutState n n ex dt g
 setTraining mode (MkDropout p _) = MkDropout p mode
 
 
@@ -82,7 +82,7 @@ LayerLike DropoutState where
   applyVarBatch st@(MkDropout p training) input = ioRerun (\_ =>
     if training
       then let seed = dropoutSeed 0
-               outPtr = primDropout {d} input.tensorPtr p 1 seed
+               outPtr = primDropout {ex} input.tensorPtr p 1 seed
            in (st, MkTensor outPtr Nothing)
       else (st, input))
 
@@ -94,5 +94,5 @@ LayerLike DropoutState where
 
 ||| Wrap a Dropout in `AnyLayer`.
 export
-dropoutLayerAny : {n : Nat} -> (p : Double) -> AnyLayer n n d dt g
+dropoutLayerAny : {n : Nat} -> (p : Double) -> AnyLayer n n ex dt g
 dropoutLayerAny p = MkAnyLayer DropoutState (dropoutLayer p)

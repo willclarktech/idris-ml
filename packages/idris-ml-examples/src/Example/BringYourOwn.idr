@@ -155,25 +155,25 @@ Linked BYO where
 
 
 ----------------------------------------------------------------------
--- Step 4: use it. Any function that's generic in `UserExecutorCore d`
--- resolves to your instance when called with `{d = BYO}` (or with
+-- Step 4: use it. Any function that's generic in `UserExecutorCore ex`
+-- resolves to your instance when called with `{ex=BYO}` (or with
 -- `BYO`-typed Tensor arguments that drive the inference).
 ----------------------------------------------------------------------
 
 ||| Compute `(a + b) * c` using only `UserExecutorCore` methods.
 ||| Polymorphic in `d`; works with any backend that implements the
 ||| interface.
-fma : (0 d : Type) -> UserExecutorCore d => Double -> Double -> Double -> Double
+fma : (0 d : Type) -> UserExecutorCore ex => Double -> Double -> Double -> Double
 fma d a b c =
-  primItem {d}
-    (primMul {d}
-      (primAdd {d} (primCreateScalar {d} a 0) (primCreateScalar {d} b 0))
-      (primCreateScalar {d} c 0))
+  primItem {ex}
+    (primMul {ex}
+      (primAdd {ex} (primCreateScalar {ex} a 0) (primCreateScalar {ex} b 0))
+      (primCreateScalar {ex} c 0))
 
 main : IO ()
 main = do
   putStrLn "=== BringYourOwn: dispatch demo ==="
-  putStrLn ("device tag: " ++ deviceName {d = BYO})
+  putStrLn ("device tag: " ++ deviceName {ex=BYO})
   putStrLn ""
   putStrLn "Computing (2 + 3) * 5 on the BYO backend — watch stderr"
   putStrLn "for the per-op log lines libbyo emits as ops fire."
@@ -188,4 +188,4 @@ main = do
   putStrLn ""
   let viaPrimary = fma ExampleExecutor 2.0 3.0 5.0
   putStrLn ""
-  putStrLn ("(2 + 3) * 5 on " ++ deviceName {d = ExampleExecutor} ++ " = " ++ show viaPrimary)
+  putStrLn ("(2 + 3) * 5 on " ++ deviceName {ex=ExampleExecutor} ++ " = " ++ show viaPrimary)

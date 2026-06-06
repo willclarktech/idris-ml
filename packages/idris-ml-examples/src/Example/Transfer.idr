@@ -57,36 +57,36 @@ import Util
 ||| "pointer being freed was not allocated" abort. The same
 ||| structure exists (and is tested) in `Test.Transfer.makeVec4`.
 makeVec4 : {0 d : Type} -> {0 dt : DType} ->
-           UserExecutorTransfer d => Compatible d dt =>
+           UserExecutorTransfer ex => Compatible ex dt =>
            (Double, Double, Double, Double) ->
-           IO (Tensor [4] d dt WithGrad)
+           IO (Tensor [4] ex dt WithGrad)
 makeVec4 (a, b, c, dd) = do
-  buf  <- primIO (\w => MkIORes (primAllocHost   {d} 4)        w)
+  buf  <- primIO (\w => MkIORes (primAllocHost   {ex} 4)        w)
   buf1 <- primIO (\w => MkIORes (prim__setDouble buf  0 a)     w)
   buf2 <- primIO (\w => MkIORes (prim__setDouble buf1 1 b)     w)
   buf3 <- primIO (\w => MkIORes (prim__setDouble buf2 2 c)     w)
   buf4 <- primIO (\w => MkIORes (prim__setDouble buf3 3 dd)    w)
-  sh   <- primIO (\w => MkIORes (primAllocIntHost {d} 1)       w)
-  sh1  <- primIO (\w => MkIORes (primSetIntHost   {d} sh 0 4)  w)
+  sh   <- primIO (\w => MkIORes (primAllocIntHost {ex} 1)       w)
+  sh1  <- primIO (\w => MkIORes (primSetIntHost   {ex} sh 0 4)  w)
   ptr  <- primIO (\w =>
-            MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
-  primIO (primFreeIntHost {d} sh1)
-  primIO (primFreeHost    {d} buf4)
+            MkIORes (primCreateFromHost {ex} buf4 sh1 1 1) w)
+  primIO (primFreeIntHost {ex} sh1)
+  primIO (primFreeHost    {ex} buf4)
   pure (MkTensor ptr Nothing)
 
 ||| Read all four values out via the backend's `primItem1d`. Returns
 ||| F64 doubles regardless of the tensor's storage dtype (the C side
-||| promotes F32 to double on readback). The `{d}` annotations
+||| promotes F32 to double on readback). The `{ex}` annotations
 ||| pin the typeclass dispatch — without them, Idris can't infer
 ||| which backend's `primItem1d` to call from a bare `AnyPtr`.
-read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore d =>
-        Tensor [4] d dt WithGrad ->
+read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
+        Tensor [4] ex dt WithGrad ->
         (Double, Double, Double, Double)
 read4 t =
-  ( primItem1d {d} t.tensorPtr 0
-  , primItem1d {d} t.tensorPtr 1
-  , primItem1d {d} t.tensorPtr 2
-  , primItem1d {d} t.tensorPtr 3 )
+  ( primItem1d {ex} t.tensorPtr 0
+  , primItem1d {ex} t.tensorPtr 1
+  , primItem1d {ex} t.tensorPtr 2
+  , primItem1d {ex} t.tensorPtr 3 )
 
 expected : (Double, Double, Double, Double)
 expected = (1.0, 2.0, 3.0, 4.0)
@@ -130,7 +130,7 @@ hopF64 = do
   putStrLn "    a backendTag-mismatch → host-buffer round-trip."
   putStrLn ""
 
-  v_tape <- makeVec4 {d = TapeExecutor} {dt = F64} expected
+  v_tape <- makeVec4 {ex=TapeExecutor} {dt = F64} expected
   ok1 <- reportStep "TapeExecutor:"          (read4 v_tape)
 
   v_torch <- toExecutor (TorchExecutor TCpu) v_tape
@@ -174,7 +174,7 @@ hopF32 = do
   -- gap on the torch backend (always lands F64) — once the cascade
   -- threads dt through tensor_create_torch, makeVec4 {dt=F32} will
   -- work directly and this tcastUnsafe step can go.
-  v_torch_cpu64 <- makeVec4 {d = TorchExecutor TCpu} {dt = F64} expected
+  v_torch_cpu64 <- makeVec4 {ex=TorchExecutor TCpu} {dt = F64} expected
   v_torch_cpu   <- tcastUnsafe F32 v_torch_cpu64
   ok1 <- reportStep "TorchExecutor TCpu (F32):"  (read4 v_torch_cpu)
 

@@ -192,10 +192,10 @@ writeSinTable buf halfDim sLen freqs pos i =
 ||| per table. Both manageable.
 public export
 record RoPETables (maxPos : Nat) (headDim : Nat)
-                  (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+                  (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkRoPETables
-  cosTable : Tensor [maxPos, div headDim 2] d dt g
-  sinTable : Tensor [maxPos, div headDim 2] d dt g
+  cosTable : Tensor [maxPos, div headDim 2] ex dt g
+  sinTable : Tensor [maxPos, div headDim 2] ex dt g
 
 ||| Construct Llama-3 RoPE tables.
 |||   `maxPos`   : maximum sequence position the tables cover (rows).
@@ -203,12 +203,12 @@ record RoPETables (maxPos : Nat) (headDim : Nat)
 |||   `base`     : rope_theta (Llama 3 = 500000).
 |||   `scaling`  : NTK scaling params (use `llama3Scaling` for default).
 export
-buildLlamaRoPETables : {0 d : Executor} -> UserExecutorTraining d =>
-                       RuntimeDType dt => Linked d => Compatible d dt
+buildLlamaRoPETables : {0 ex : Executor} -> UserExecutorTraining ex =>
+                       RuntimeDType dt => Linked ex => Compatible ex dt
                     => {maxPos, headDim : Nat}
                     -> (base : Double)
                     -> (scaling : LlamaRopeScaling)
-                    -> IO (RoPETables maxPos headDim d dt WithGrad)
+                    -> IO (RoPETables maxPos headDim ex dt WithGrad)
 buildLlamaRoPETables base scaling = ioRerun (\_ =>
   let halfDimI = cast {to=Int} (div headDim 2)
       sLenI    = cast {to=Int} maxPos
@@ -218,8 +218,8 @@ buildLlamaRoPETables base scaling = ioRerun (\_ =>
       sinBuf   = prim__allocDoubles nElts
       cosBuf'  = writeCosTable cosBuf halfDimI sLenI freqs 0 0
       sinBuf'  = writeSinTable sinBuf halfDimI sLenI freqs 0 0
-      cosPtr   = dtCreateState2d {d} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {d})
-      sinPtr   = dtCreateState2d {d} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {d})
+      cosPtr   = dtCreateState2d {ex} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {ex})
+      sinPtr   = dtCreateState2d {ex} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {ex})
   in MkRoPETables (MkTensor cosPtr Nothing) (MkTensor sinPtr Nothing))
 
 
@@ -250,12 +250,12 @@ buildLlamaRoPETables base scaling = ioRerun (\_ =>
 ||| Idris's type system can't catch this today without a runtime
 ||| bounds-check.
 public export
-applyRope : {0 d : Executor} -> UserExecutorTraining d =>
+applyRope : {0 ex : Executor} -> UserExecutorTraining ex =>
             {seq, headDim, maxPos : Nat} ->
-            RoPETables maxPos headDim d dt g ->
+            RoPETables maxPos headDim ex dt g ->
             (positionOffset : Nat) ->
-            Tensor [seq, headDim] d dt g ->
-            IO (Tensor [seq, headDim] d dt g)
+            Tensor [seq, headDim] ex dt g ->
+            IO (Tensor [seq, headDim] ex dt g)
 applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
   let halfDimI = cast {to=Int} (div headDim 2)
       seqI     = cast {to=Int} seq
@@ -264,20 +264,20 @@ applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioReru
       cosPtr   = cosT.tensorPtr
       sinPtr   = sinT.tensorPtr
       -- Split the input along axis=1 (head_dim) into the two halves.
-      firstHalf  = primNarrow {d} inPtr 1 0        halfDimI
-      secondHalf = primNarrow {d} inPtr 1 halfDimI halfDimI
+      firstHalf  = primNarrow {ex} inPtr 1 0        halfDimI
+      secondHalf = primNarrow {ex} inPtr 1 halfDimI halfDimI
       -- Slice cos/sin tables to [seq, halfDim] starting at offset.
-      cosSlice = primNarrow {d} cosPtr 0 offsetI seqI
-      sinSlice = primNarrow {d} sinPtr 0 offsetI seqI
+      cosSlice = primNarrow {ex} cosPtr 0 offsetI seqI
+      sinSlice = primNarrow {ex} sinPtr 0 offsetI seqI
       -- Rotation per pair (firstHalf[m, i], secondHalf[m, i]).
-      firstCos  = primMul {d} firstHalf  cosSlice
-      secondSin = primMul {d} secondHalf sinSlice
-      firstOut  = primSub {d} firstCos secondSin
-      secondCos = primMul {d} secondHalf cosSlice
-      firstSin  = primMul {d} firstHalf  sinSlice
-      secondOut = primAdd {d} secondCos firstSin
+      firstCos  = primMul {ex} firstHalf  cosSlice
+      secondSin = primMul {ex} secondHalf sinSlice
+      firstOut  = primSub {ex} firstCos secondSin
+      secondCos = primMul {ex} secondHalf cosSlice
+      firstSin  = primMul {ex} firstHalf  sinSlice
+      secondOut = primAdd {ex} secondCos firstSin
       -- Concat halves back to [seq, headDim].
-      result    = primConcat2dAxis1 {d} firstOut secondOut
+      result    = primConcat2dAxis1 {ex} firstOut secondOut
   in MkTensor result Nothing)
 
 
@@ -308,12 +308,12 @@ applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioReru
 ||| via the same cos/sin tables broadcast across the head axis.
 ||| Caller's responsibility: `seq + positionOffset <= maxPos`.
 public export
-applyRopeAllHeads : {0 d : Executor} -> UserExecutorTraining d =>
+applyRopeAllHeads : {0 ex : Executor} -> UserExecutorTraining ex =>
                     {seq, numHeads, headDim, maxPos : Nat} ->
-                    RoPETables maxPos headDim d dt g ->
+                    RoPETables maxPos headDim ex dt g ->
                     (positionOffset : Nat) ->
-                    Tensor [seq, numHeads, headDim] d dt g ->
-                    IO (Tensor [seq, numHeads, headDim] d dt g)
+                    Tensor [seq, numHeads, headDim] ex dt g ->
+                    IO (Tensor [seq, numHeads, headDim] ex dt g)
 applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
   let halfDimI = cast {to=Int} (div headDim 2)
       seqI     = cast {to=Int} seq
@@ -324,29 +324,29 @@ applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOf
       cosPtr   = cosT.tensorPtr
       sinPtr   = sinT.tensorPtr
       -- Split [seq, numHeads, headDim] along axis=2 into halves
-      firstHalf  = primNarrow {d} inPtr 2 0        halfDimI  -- [seq, nH, halfDim]
-      secondHalf = primNarrow {d} inPtr 2 halfDimI halfDimI
+      firstHalf  = primNarrow {ex} inPtr 2 0        halfDimI  -- [seq, nH, halfDim]
+      secondHalf = primNarrow {ex} inPtr 2 halfDimI halfDimI
       -- Slice cos/sin tables to [seq, halfDim] starting at offset
-      cosSlice2  = primNarrow {d} cosPtr 0 offsetI seqI
-      sinSlice2  = primNarrow {d} sinPtr 0 offsetI seqI
+      cosSlice2  = primNarrow {ex} cosPtr 0 offsetI seqI
+      sinSlice2  = primNarrow {ex} sinPtr 0 offsetI seqI
       -- Unsqueeze cos/sin to [seq, 1, halfDim] for broadcast against
       -- [seq, numHeads, halfDim] halves.
-      cosSlice   = primReshape3d {d} cosSlice2 seqI 1 halfDimI
-      sinSlice   = primReshape3d {d} sinSlice2 seqI 1 halfDimI
+      cosSlice   = primReshape3d {ex} cosSlice2 seqI 1 halfDimI
+      sinSlice   = primReshape3d {ex} sinSlice2 seqI 1 halfDimI
       -- Rotation per pair (cos/sin broadcast across head axis).
-      firstCos   = primMul {d} firstHalf  cosSlice
-      secondSin  = primMul {d} secondHalf sinSlice
-      firstOut   = primSub {d} firstCos secondSin
-      secondCos  = primMul {d} secondHalf cosSlice
-      firstSin   = primMul {d} firstHalf  sinSlice
-      secondOut  = primAdd {d} secondCos firstSin
+      firstCos   = primMul {ex} firstHalf  cosSlice
+      secondSin  = primMul {ex} secondHalf sinSlice
+      firstOut   = primSub {ex} firstCos secondSin
+      secondCos  = primMul {ex} secondHalf cosSlice
+      firstSin   = primMul {ex} firstHalf  sinSlice
+      secondOut  = primAdd {ex} secondCos firstSin
       -- Concat halves back along axis=2. No rank-3 concat primitive
       -- today — flatten to 2D, use primConcat2dAxis1, reshape back.
       flat       = seqI * numHI
-      firstOut2  = primReshape2d {d} firstOut  flat halfDimI
-      secondOut2 = primReshape2d {d} secondOut flat halfDimI
-      concat2    = primConcat2dAxis1 {d} firstOut2 secondOut2  -- [seq*nH, headDim]
-      result     = primReshape3d {d} concat2 seqI numHI headDI
+      firstOut2  = primReshape2d {ex} firstOut  flat halfDimI
+      secondOut2 = primReshape2d {ex} secondOut flat halfDimI
+      concat2    = primConcat2dAxis1 {ex} firstOut2 secondOut2  -- [seq*nH, headDim]
+      result     = primReshape3d {ex} concat2 seqI numHI headDI
   in MkTensor result Nothing)
 
 
@@ -374,12 +374,12 @@ applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOf
 ||| Caller's responsibility: same `seq + positionOffset <= maxPos`
 ||| bound as `applyRope`.
 public export
-applyRopeInverse : {0 d : Executor} -> UserExecutorTraining d =>
+applyRopeInverse : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seq, headDim, maxPos : Nat} ->
-                   RoPETables maxPos headDim d dt g ->
+                   RoPETables maxPos headDim ex dt g ->
                    (positionOffset : Nat) ->
-                   Tensor [seq, headDim] d dt g ->
-                   IO (Tensor [seq, headDim] d dt g)
+                   Tensor [seq, headDim] ex dt g ->
+                   IO (Tensor [seq, headDim] ex dt g)
 applyRopeInverse {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
   let halfDimI = cast {to=Int} (div headDim 2)
       seqI     = cast {to=Int} seq
@@ -387,30 +387,30 @@ applyRopeInverse {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input =
       inPtr    = input.tensorPtr
       cosPtr   = cosT.tensorPtr
       sinPtr   = sinT.tensorPtr
-      firstHalf  = primNarrow {d} inPtr 1 0        halfDimI
-      secondHalf = primNarrow {d} inPtr 1 halfDimI halfDimI
-      cosSlice = primNarrow {d} cosPtr 0 offsetI seqI
-      sinSlice = primNarrow {d} sinPtr 0 offsetI seqI
+      firstHalf  = primNarrow {ex} inPtr 1 0        halfDimI
+      secondHalf = primNarrow {ex} inPtr 1 halfDimI halfDimI
+      cosSlice = primNarrow {ex} cosPtr 0 offsetI seqI
+      sinSlice = primNarrow {ex} sinPtr 0 offsetI seqI
       -- Inverse rotation: sign-flipped relative to `applyRope`.
-      firstCos  = primMul {d} firstHalf  cosSlice
-      secondSin = primMul {d} secondHalf sinSlice
-      firstOut  = primAdd {d} firstCos secondSin       -- forward: primSub
-      secondCos = primMul {d} secondHalf cosSlice
-      firstSin  = primMul {d} firstHalf  sinSlice
-      secondOut = primSub {d} secondCos firstSin       -- forward: primAdd
-      result    = primConcat2dAxis1 {d} firstOut secondOut
+      firstCos  = primMul {ex} firstHalf  cosSlice
+      secondSin = primMul {ex} secondHalf sinSlice
+      firstOut  = primAdd {ex} firstCos secondSin       -- forward: primSub
+      secondCos = primMul {ex} secondHalf cosSlice
+      firstSin  = primMul {ex} firstHalf  sinSlice
+      secondOut = primSub {ex} secondCos firstSin       -- forward: primAdd
+      result    = primConcat2dAxis1 {ex} firstOut secondOut
   in MkTensor result Nothing)
 
 ||| All-heads variant of `applyRopeInverse`. Same inverse rotation,
 ||| lifted across `[seq, numHeads, headDim]` via cos/sin broadcast on
 ||| the head axis.
 public export
-applyRopeInverseAllHeads : {0 d : Executor} -> UserExecutorTraining d =>
+applyRopeInverseAllHeads : {0 ex : Executor} -> UserExecutorTraining ex =>
                            {seq, numHeads, headDim, maxPos : Nat} ->
-                           RoPETables maxPos headDim d dt g ->
+                           RoPETables maxPos headDim ex dt g ->
                            (positionOffset : Nat) ->
-                           Tensor [seq, numHeads, headDim] d dt g ->
-                           IO (Tensor [seq, numHeads, headDim] d dt g)
+                           Tensor [seq, numHeads, headDim] ex dt g ->
+                           IO (Tensor [seq, numHeads, headDim] ex dt g)
 applyRopeInverseAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
   let halfDimI = cast {to=Int} (div headDim 2)
       seqI     = cast {to=Int} seq
@@ -420,22 +420,22 @@ applyRopeInverseAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) pos
       inPtr    = input.tensorPtr
       cosPtr   = cosT.tensorPtr
       sinPtr   = sinT.tensorPtr
-      firstHalf  = primNarrow {d} inPtr 2 0        halfDimI
-      secondHalf = primNarrow {d} inPtr 2 halfDimI halfDimI
-      cosSlice2  = primNarrow {d} cosPtr 0 offsetI seqI
-      sinSlice2  = primNarrow {d} sinPtr 0 offsetI seqI
-      cosSlice   = primReshape3d {d} cosSlice2 seqI 1 halfDimI
-      sinSlice   = primReshape3d {d} sinSlice2 seqI 1 halfDimI
+      firstHalf  = primNarrow {ex} inPtr 2 0        halfDimI
+      secondHalf = primNarrow {ex} inPtr 2 halfDimI halfDimI
+      cosSlice2  = primNarrow {ex} cosPtr 0 offsetI seqI
+      sinSlice2  = primNarrow {ex} sinPtr 0 offsetI seqI
+      cosSlice   = primReshape3d {ex} cosSlice2 seqI 1 halfDimI
+      sinSlice   = primReshape3d {ex} sinSlice2 seqI 1 halfDimI
       -- Inverse rotation: sign-flipped relative to `applyRopeAllHeads`.
-      firstCos   = primMul {d} firstHalf  cosSlice
-      secondSin  = primMul {d} secondHalf sinSlice
-      firstOut   = primAdd {d} firstCos secondSin      -- forward: primSub
-      secondCos  = primMul {d} secondHalf cosSlice
-      firstSin   = primMul {d} firstHalf  sinSlice
-      secondOut  = primSub {d} secondCos firstSin      -- forward: primAdd
+      firstCos   = primMul {ex} firstHalf  cosSlice
+      secondSin  = primMul {ex} secondHalf sinSlice
+      firstOut   = primAdd {ex} firstCos secondSin      -- forward: primSub
+      secondCos  = primMul {ex} secondHalf cosSlice
+      firstSin   = primMul {ex} firstHalf  sinSlice
+      secondOut  = primSub {ex} secondCos firstSin      -- forward: primAdd
       flat       = seqI * numHI
-      firstOut2  = primReshape2d {d} firstOut  flat halfDimI
-      secondOut2 = primReshape2d {d} secondOut flat halfDimI
-      concat2    = primConcat2dAxis1 {d} firstOut2 secondOut2
-      result     = primReshape3d {d} concat2 seqI numHI headDI
+      firstOut2  = primReshape2d {ex} firstOut  flat halfDimI
+      secondOut2 = primReshape2d {ex} secondOut flat halfDimI
+      concat2    = primConcat2dAxis1 {ex} firstOut2 secondOut2
+      result     = primReshape3d {ex} concat2 seqI numHI headDI
   in MkTensor result Nothing)

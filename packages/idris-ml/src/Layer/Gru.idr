@@ -14,20 +14,20 @@ import Tensor
 -- Mirrors `Layer/Gru.idr`'s `applyVarTensor` path with the simplified
 -- GRU variant the C kernel implements (`tensor_gru_cell`):
 --   combined = (W_ih · x + b_ih) + (W_hh · h + b_hh)
---   h_t = `primGruCell {d}` combined h_{t-1} o
+--   h_t = `primGruCell {ex}` combined h_{t-1} o
 --
 -- Three gate paths (z, r, n) are computed inside the C op; the
 -- combined vector has shape [3 * o]. Static type safety via
 -- `TMat (3 * o) ...` and `TVec (3 * o) ...` aliases.
 
 public export
-record GruState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradMode) where
+record GruState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGru
-  iwT : TMat (3 * o) i d dt g         -- W_ih [3*o, i]
-  ihB : TVec (3 * o) d dt g           -- b_ih [3*o]
-  hwT : TMat (3 * o) o d dt g         -- W_hh [3*o, o]
-  hhB : TVec (3 * o) d dt g           -- b_hh [3*o]
-  hiddenT : Maybe (TVec o d dt g)
+  iwT : TMat (3 * o) i ex dt g         -- W_ih [3*o, i]
+  ihB : TVec (3 * o) ex dt g           -- b_ih [3*o]
+  hwT : TMat (3 * o) o ex dt g         -- W_hh [3*o, o]
+  hhB : TVec (3 * o) ex dt g           -- b_hh [3*o]
+  hiddenT : Maybe (TVec o ex dt g)
 
 
 ----------------------------------------------------------------------
@@ -37,10 +37,10 @@ record GruState (i : Nat) (o : Nat) (0 d : Executor) (0 dt : DType) (0 g : GradM
 %default partial
 
 export
-applyGru : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
-             GruState i o d dt g ->
-             TVec i d dt g ->
-             IO (GruState i o d dt g, TVec o d dt g)
+applyGru : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {o : Nat} ->
+             GruState i o ex dt g ->
+             TVec i ex dt g ->
+             IO (GruState i o ex dt g, TVec o ex dt g)
 applyGru {o} st input = do
   h <- case st.hiddenT of
          Just h => pure h
@@ -59,8 +59,8 @@ applyGru {o} st input = do
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
-gruLayer : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
-             IO (GruState i o d dt WithGrad)
+gruLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) ->
+             IO (GruState i o ex dt WithGrad)
 gruLayer paramPrefix = do
   -- GRU has 3 gates (reset, update, new); weights are stacked along
   -- axis=0 → [3*o, i] for W_ih and [3*o, o] for W_hh. Xavier-normal-
@@ -80,7 +80,7 @@ gruLayer paramPrefix = do
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetGruState : {o : Nat} -> {0 d : Executor} -> {0 g : GradMode} -> GruState i o d dt g -> GruState i o d dt g
+resetGruState : {o : Nat} -> {0 ex : Executor} -> {0 g : GradMode} -> GruState i o ex dt g -> GruState i o ex dt g
 resetGruState st = { hiddenT := Nothing } st
 
 
@@ -106,18 +106,18 @@ LayerLike GruState where
     pure (MkGru iw' ihB' hw' hhB' hid')
 
   unfreezeLayer (MkGru iw ihB hw hhB hid) = do
-    primIO (primSetRequiresGrad {d} iw.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} ihB.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} hw.tensorPtr 1)
-    primIO (primSetRequiresGrad {d} hhB.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} iw.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} ihB.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} hw.tensorPtr 1)
+    primIO (primSetRequiresGrad {ex} hhB.tensorPtr 1)
     case hid of
       Nothing => pure ()
-      Just h  => primIO (primSetRequiresGrad {d} h.tensorPtr 1)
+      Just h  => primIO (primSetRequiresGrad {ex} h.tensorPtr 1)
     pure (MkGru (retypeGrad iw) (retypeGrad ihB)
                 (retypeGrad hw) (retypeGrad hhB)
                 (map retypeGrad hid))
 
 ||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerAny : UserExecutorTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+gruLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

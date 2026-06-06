@@ -26,7 +26,7 @@ V1 had two related problems:
 | V1 | V2 |
 |---|---|
 | `record Variable (0 d : Device)` (shape-erased) | `record Tensor (dims : Vect rank Nat) (0 d : Device)` |
-| `Vector n (Variable d)`, `Matrix m n (Variable d)` (Vect of Variable) | `Tensor [n] d`, `Tensor [m, n] d` |
+| `Vector n (Variable d)`, `Matrix m n (Variable d)` (Vect of Variable) | `Tensor [n] ex`, `Tensor [m, n] ex` |
 | `data Tensor : Vect rank Nat -> Type -> Type` (structural Vect-of-Vect with `Functor`/`Num` instances) | renamed to `Array` (same shape, freed the `Tensor` namespace) |
 | `STensor x` / `VTensor xs` (constructors of structural type) | `SArray x` / `VArray xs` |
 | `Var ptr (Just pid) value` (autograd constructor with cached value) | `MkTensor ptr (Just pid)` (no cached value — read via `tensorItem`) |
@@ -84,9 +84,9 @@ The migration shipped over five logical commits:
 For grep-replacing notebook code or external docs:
 
 ```
-Variable d                       → Tensor [...] d   (and pick the right shape)
-Vector n (Variable d)            → Tensor [n] d
-Matrix m n (Variable d)          → Tensor [m, n] d
+Variable d                       → Tensor [...] ex   (and pick the right shape)
+Vector n (Variable d)            → Tensor [n] ex
+Matrix m n (Variable d)          → Tensor [m, n] ex
 the (Vector n (Variable CPU)) (VTensor [...])
                                  → MkTensor (bulkToTensor (VArray [...])) Nothing
 linearLayer {ty = Variable CPU} {i=I, o=O}
@@ -118,7 +118,7 @@ The branch is a Pareto improvement over `main`:
   with same type signatures; V2 has one fast path)
 - No `refreshValue` cache-staleness, no `autoName` double-init footgun
 - ~5,000 fewer lines
-- Modern PyTorch-aligned naming (`Tensor [dims] d` ≅ `torch.Tensor`)
+- Modern PyTorch-aligned naming (`Tensor [dims] ex` ≅ `torch.Tensor`)
 
 **Same**
 - All examples bit-identical at seed=42

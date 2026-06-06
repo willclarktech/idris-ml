@@ -17,27 +17,27 @@ import Executor.Tape
 ||| to resolve `UserExecutorCore TapeExecutor` and the runtime to actually
 ||| call `_tensor_add_tape` via the interface dispatch.
 addViaInterface :
-  (0 d : Type) -> UserExecutorCore d =>
+  (0 d : Type) -> UserExecutorCore ex =>
   Double -> Double -> Double
 addViaInterface d a b =
-  primItem {d}
-    (primAdd {d} (primCreateScalar {d} a 0) (primCreateScalar {d} b 0))
+  primItem {ex}
+    (primAdd {ex} (primCreateScalar {ex} a 0) (primCreateScalar {ex} b 0))
 
 main : IO ()
 main = do
-  putStrLn ("device: " ++ deviceName {d = TapeExecutor})
+  putStrLn ("device: " ++ deviceName {ex=TapeExecutor})
   putStrLn ("3 + 4         = " ++ show (addViaInterface TapeExecutor 3.0 4.0))
   putStrLn ("(2 + 3) * 5   = "
     ++ show
-        (primItem {d = TapeExecutor}
-          (primMul {d = TapeExecutor}
-            (primAdd {d = TapeExecutor}
-              (primCreateScalar {d = TapeExecutor} 2.0 0)
-              (primCreateScalar {d = TapeExecutor} 3.0 0))
-            (primCreateScalar {d = TapeExecutor} 5.0 0))))
+        (primItem {ex=TapeExecutor}
+          (primMul {ex=TapeExecutor}
+            (primAdd {ex=TapeExecutor}
+              (primCreateScalar {ex=TapeExecutor} 2.0 0)
+              (primCreateScalar {ex=TapeExecutor} 3.0 0))
+            (primCreateScalar {ex=TapeExecutor} 5.0 0))))
   putStrLn ("clampMin 1.5 of -2.0 = "
     ++ show
-        (primItem {d = TapeExecutor}
-          (primClampMin {d = TapeExecutor}
-            (primCreateScalar {d = TapeExecutor} (-2.0) 0)
+        (primItem {ex=TapeExecutor}
+          (primClampMin {ex=TapeExecutor}
+            (primCreateScalar {ex=TapeExecutor} (-2.0) 0)
             1.5)))

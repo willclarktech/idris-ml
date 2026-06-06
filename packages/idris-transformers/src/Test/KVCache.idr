@@ -6,7 +6,7 @@
 ||| cache length is 3 and the row-major data is exactly what
 ||| concat-along-axis-0 should produce.
 |||
-||| Pins `{d=TapeExecutor}` directly (same shape as `Test.HfLlama` — it's a
+||| Pins `{ex=TapeExecutor}` directly (same shape as `Test.HfLlama` — it's a
 ||| FFI-level test and tape's C arena is the predictable lane).
 module Test.KVCache
 
@@ -27,16 +27,16 @@ import Tensor
 
 mkRow2 : {n : Nat} -> Vect n Double -> IO (Tensor [1, n] TapeExecutor F64 NoGrad)
 mkRow2 xs = do
-  raw <- ioRerun (\_ => bulkToTensor2d {d=TapeExecutor} {dt=F64} {b=1} {i=n}
+  raw <- ioRerun (\_ => bulkToTensor2d {ex=TapeExecutor} {dt=F64} {b=1} {i=n}
                                        [VArray (map SArray xs)])
-  weakenGrad {d=TapeExecutor} (tinput2d {m=1} {n} raw)
+  weakenGrad {ex=TapeExecutor} (tinput2d {m=1} {n} raw)
 
 mkRows2 : {m, n : Nat} -> Vect m (Vect n Double) ->
           IO (Tensor [m, n] TapeExecutor F64 NoGrad)
 mkRows2 xss = do
-  raw <- ioRerun (\_ => bulkToTensor2d {d=TapeExecutor} {dt=F64} {b=m} {i=n}
+  raw <- ioRerun (\_ => bulkToTensor2d {ex=TapeExecutor} {dt=F64} {b=m} {i=n}
                                        (map (\row => VArray (map SArray row)) xss))
-  weakenGrad {d=TapeExecutor} (tinput2d {m} {n} raw)
+  weakenGrad {ex=TapeExecutor} (tinput2d {m} {n} raw)
 
 
 -- Read a [m, n] tensor's raw buffer into row-major List Double via
@@ -48,7 +48,7 @@ readMat m n p = go (cast {to=Int} (m * n)) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {d=TapeExecutor} p i
+        else let v = primItem1d {ex=TapeExecutor} p i
              in go end (i + 1) (v :: acc)
 
 

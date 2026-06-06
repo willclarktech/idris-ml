@@ -78,7 +78,7 @@ buildDummyVector n =
   let nI   = the Int (cast n)
       buf  = prim__allocDoubles nI
       buf' = prim__setDouble buf 0 0.1
-  in dtCreateState1d {d=ExampleExecutor} {t=ExampleDType} nI buf' (deviceStreamTag {d=ExampleExecutor})
+  in dtCreateState1d {ex=ExampleExecutor} {t=ExampleDType} nI buf' (deviceStreamTag {ex=ExampleExecutor})
 
 
 ----------------------------------------------------------------------

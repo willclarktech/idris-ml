@@ -36,12 +36,12 @@ import Tensor
 |||     rstd_i = 1 / sqrt(mean(input[i, :]^2) + eps)
 |||     out[i, j] = input[i, j] * rstd_i * weight[j]
 export
-applyRmsNorm2dRaw : {0 d : Executor} -> UserExecutorTraining d => UserExecutorCore d =>
+applyRmsNorm2dRaw : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                     {seqLen, hidden : Nat} ->
                     (eps : Double) ->
-                    Tensor [hidden] d dt g ->
-                    Tensor [seqLen, hidden] d dt g ->
-                    IO (Tensor [seqLen, hidden] d dt g)
+                    Tensor [hidden] ex dt g ->
+                    Tensor [seqLen, hidden] ex dt g ->
+                    IO (Tensor [seqLen, hidden] ex dt g)
 applyRmsNorm2dRaw eps weight input = ioRerun (\_ =>
-  let out = primRmsNorm2d {d} input.tensorPtr weight.tensorPtr eps
+  let out = primRmsNorm2d {ex} input.tensorPtr weight.tensorPtr eps
   in MkTensor out Nothing)

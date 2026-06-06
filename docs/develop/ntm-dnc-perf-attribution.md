@@ -86,7 +86,7 @@ This matches the pre-Path-C-vs-post-Path-C story:
   intermediate state passed as flat values. Per-FFI-call glue
   was small.
 - Post-Path-C tensor path: typed `LstmState` / `NtmState` records
-  with `Maybe (Tensor [n,m] d)` fields. Each access path through
+  with `Maybe (Tensor [n,m] ex)` fields. Each access path through
   the typed surface adds Idris-side work.
 
 The 2× forward regression (228 → 488 ms/epoch) ≈ the increased
