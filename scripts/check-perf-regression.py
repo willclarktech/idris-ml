@@ -81,13 +81,11 @@ RUN_BASELINE_WINDOW = 10
 
 # Per-mode wiring: how to filter, group, and extract the metric.
 def _key_op_bench(entry: dict) -> tuple[str, str, str]:
-    return (entry.get("axis", ""), entry.get("label", ""),
-            entry.get("runtime", ""))
+    return (entry.get("axis", ""), entry.get("label", ""), entry.get("runtime", ""))
 
 
 def _key_run(entry: dict) -> tuple[str, str, str]:
-    return (entry.get("example", ""), entry.get("backend", ""),
-            entry.get("args", ""))
+    return (entry.get("example", ""), entry.get("backend", ""), entry.get("args", ""))
 
 
 MODES = {
@@ -151,14 +149,25 @@ def classify(current: float, baseline: float, fail_pct: float) -> tuple[str, flo
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--mode", choices=list(MODES.keys()), default="op_bench",
-                   help="Which kind of entries to gate over "
-                        "(default: op_bench).")
-    p.add_argument("--log", type=Path, default=DEFAULT_LOG,
-                   help=f"Path to perf-log.jsonl (default: {DEFAULT_LOG})")
-    p.add_argument("--baseline-window", type=int, default=None,
-                   help="How many prior entries to median for baseline "
-                        "(mode-specific default: 5 for op_bench, 10 for run).")
+    p.add_argument(
+        "--mode",
+        choices=list(MODES.keys()),
+        default="op_bench",
+        help="Which kind of entries to gate over (default: op_bench).",
+    )
+    p.add_argument(
+        "--log",
+        type=Path,
+        default=DEFAULT_LOG,
+        help=f"Path to perf-log.jsonl (default: {DEFAULT_LOG})",
+    )
+    p.add_argument(
+        "--baseline-window",
+        type=int,
+        default=None,
+        help="How many prior entries to median for baseline "
+        "(mode-specific default: 5 for op_bench, 10 for run).",
+    )
     args = p.parse_args()
 
     mode_cfg = MODES[args.mode]
@@ -170,14 +179,13 @@ def main() -> int:
     if not entries:
         print(f"# Perf regression gate ({args.mode})")
         print()
-        print(f"_No `kind: \"{args.mode}\"` entries in {args.log} yet._")
+        print(f'_No `kind: "{args.mode}"` entries in {args.log} yet._')
         return 0
 
     cells = group_by_cell(entries, mode_cfg["key_fn"])
 
     rows = []
-    counts = {"OK": 0, "WARN": 0, "FAIL": 0,
-              "INSUFFICIENT": 0, "INDETERMINATE": 0}
+    counts = {"OK": 0, "WARN": 0, "FAIL": 0, "INSUFFICIENT": 0, "INDETERMINATE": 0}
     for key in sorted(cells.keys()):
         cell_entries = cells[key]
         if len(cell_entries) < N + 1:
@@ -187,24 +195,27 @@ def main() -> int:
             delta_str = "—"
             counts["INSUFFICIENT"] += 1
         else:
-            window = cell_entries[-(N + 1):-1]
+            window = cell_entries[-(N + 1) : -1]
             current_entry = cell_entries[-1]
             current = current_entry[metric]
             baseline = statistics.median(e[metric] for e in window)
             verdict, delta_pct = classify(current, baseline, fail_pct)
-            baseline_str = (f"{baseline:.4f}" if args.mode == "op_bench"
-                            else f"{baseline:.0f}")
+            baseline_str = f"{baseline:.4f}" if args.mode == "op_bench" else f"{baseline:.0f}"
             sign = "+" if delta_pct >= 0 else ""
             delta_str = f"{sign}{delta_pct:.1f}%"
             counts[verdict] = counts.get(verdict, 0) + 1
-        rows.append({
-            "k0": key[0], "k1": key[1], "k2": key[2],
-            "current": current,
-            "baseline": baseline_str,
-            "delta": delta_str,
-            "verdict": verdict,
-            "commit": cell_entries[-1].get("commit", "?"),
-        })
+        rows.append(
+            {
+                "k0": key[0],
+                "k1": key[1],
+                "k2": key[2],
+                "current": current,
+                "baseline": baseline_str,
+                "delta": delta_str,
+                "verdict": verdict,
+                "commit": cell_entries[-1].get("commit", "?"),
+            }
+        )
 
     # Markdown verdict table.
     print(f"# Perf regression gate ({args.mode})")
@@ -213,21 +224,26 @@ def main() -> int:
     print(f"Baseline window: median of prior {N} entries per cell.")
     print(f"Thresholds: ±{WARN_PCT:g}% (OK), > {WARN_PCT:g}% (WARN), > {fail_pct:g}% (FAIL).")
     print()
-    print(f"Counts: OK={counts['OK']}, WARN={counts['WARN']}, "
-          f"FAIL={counts['FAIL']}, "
-          f"INSUFFICIENT-HISTORY={counts['INSUFFICIENT']}.")
+    print(
+        f"Counts: OK={counts['OK']}, WARN={counts['WARN']}, "
+        f"FAIL={counts['FAIL']}, "
+        f"INSUFFICIENT-HISTORY={counts['INSUFFICIENT']}."
+    )
     print()
     k0_label, k1_label, k2_label = mode_cfg["key_labels"]
-    metric_col = (f"Baseline ({mode_cfg['metric_label']})",
-                  f"Current ({mode_cfg['metric_label']})")
+    metric_col = (f"Baseline ({mode_cfg['metric_label']})", f"Current ({mode_cfg['metric_label']})")
     cur_fmt = "{:.4f}" if args.mode == "op_bench" else "{:.0f}"
-    print(f"| {k0_label} | {k1_label} | {k2_label} | {metric_col[0]} "
-          f"| {metric_col[1]} | Delta | Verdict | Commit |")
+    print(
+        f"| {k0_label} | {k1_label} | {k2_label} | {metric_col[0]} "
+        f"| {metric_col[1]} | Delta | Verdict | Commit |"
+    )
     print("|---|---|---|---:|---:|---:|---|---|")
     for r in rows:
-        print(f"| {r['k0']} | {r['k1']} | {r['k2']} "
-              f"| {r['baseline']} | {cur_fmt.format(r['current'])} | {r['delta']} "
-              f"| {r['verdict']} | `{r['commit']}` |")
+        print(
+            f"| {r['k0']} | {r['k1']} | {r['k2']} "
+            f"| {r['baseline']} | {cur_fmt.format(r['current'])} | {r['delta']} "
+            f"| {r['verdict']} | `{r['commit']}` |"
+        )
     print()
 
     # In gating modes (op_bench always; run only when PERF_GATE=1) a

@@ -47,8 +47,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from ffi_manifest import (
-    MANIFEST, SKIP, WRAP_HANDLE_FILES, ANY_FFI_RE,
-    parse_args, scheme_type, strip_suffix, backend_tag_of,
+    MANIFEST,
+    SKIP,
+    WRAP_HANDLE_FILES,
+    ANY_FFI_RE,
+    parse_args,
+    scheme_type,
+    strip_suffix,
+    backend_tag_of,
 )
 
 # Inside a scheme body, foreign-procedure names appear as \"name\" — the
@@ -67,12 +73,11 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
 
     # 1. Locate the foreign-procedure call for cname.
     fp_re = re.compile(
-        r'\(foreign-procedure\s+\\"' + re.escape(cname) +
-        r'\\"\s*\(([^)]*)\)\s+([a-zA-Z*_]+)\s*\)'
+        r'\(foreign-procedure\s+\\"' + re.escape(cname) + r'\\"\s*\(([^)]*)\)\s+([a-zA-Z*_]+)\s*\)'
     )
     m = fp_re.search(body)
     if not m:
-        return [f"missing (foreign-procedure \"{cname}\" ...) call in body"]
+        return [f'missing (foreign-procedure "{cname}" ...) call in body']
 
     typespec = m.group(1).split()
     fp_ret = m.group(2)
@@ -89,8 +94,7 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
     expected_ret = scheme_type(manifest_ret)
     if fp_ret != expected_ret:
         issues.append(
-            f"foreign-procedure return type {fp_ret!r} != expected "
-            f"{expected_ret!r} (from manifest)"
+            f"foreign-procedure return type {fp_ret!r} != expected {expected_ret!r} (from manifest)"
         )
 
     # 4. Every T arg at position i must be unwrapped via (vector-ref a<i> 2)
@@ -98,7 +102,7 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
     # symbol and backend-tag string).
     for i, cls in enumerate(manifest_args):
         if cls == "T":
-            ref_re = re.compile(rf'\(vector-ref\s+a{i}\s+2\)')
+            ref_re = re.compile(rf"\(vector-ref\s+a{i}\s+2\)")
             if not ref_re.search(body):
                 issues.append(
                     f"T arg at position {i}: missing (vector-ref a{i} 2) — "
@@ -113,7 +117,7 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
         issues.append(
             "legacy v1 wrap sentinel `'tensor-handle` detected — "
             "every wrap must use the v2 layout "
-            "(vector 'tensor-handle-v2 \"TAG\" raw)"
+            '(vector \'tensor-handle-v2 "TAG" raw)'
         )
 
     # 5. T return → wrap + retain + register; non-T return → no wrap.
@@ -133,9 +137,7 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
                 "result must be wrapped before returning to Idris"
             )
         # Check the wrap carries the right backend tag.
-        tag_re = re.compile(
-            r"vector\s+'tensor-handle-v2\s+\\\"([a-zA-Z_/]+)\\\""
-        )
+        tag_re = re.compile(r"vector\s+'tensor-handle-v2\s+\\\"([a-zA-Z_/]+)\\\"")
         m_tag = tag_re.search(body)
         if m_tag and m_tag.group(1) != expected_tag:
             issues.append(
@@ -179,8 +181,8 @@ def first_manifest_call(body):
 def check_file(path, errors):
     text = Path(path).read_text()
     for m in ANY_FFI_RE.finditer(text):
-        kind = m.group(2)          # "C" or "scheme"
-        spec = m.group(3)          # body without surrounding "C:" / "scheme:"
+        kind = m.group(2)  # "C" or "scheme"
+        spec = m.group(3)  # body without surrounding "C:" / "scheme:"
         sig_line = m.group(5).strip()
         try:
             name, idris_args, idris_ret = parse_args(sig_line)
@@ -201,7 +203,7 @@ def check_file(path, errors):
                 touches_tensor = entry.ret == "T" or "T" in entry.args
                 if touches_tensor:
                     errors.append(
-                        f"{path}: {name} uses %foreign \"C:{cname}\" but "
+                        f'{path}: {name} uses %foreign "C:{cname}" but '
                         f"base {base!r} is in MANIFEST — should have been "
                         f"converted to wrap-on-return scheme template. "
                         f"Run scripts/codegen/ffi-convert-to-scheme.py."
@@ -254,10 +256,7 @@ def main(argv):
         )
         sys.exit(1)
 
-    print(
-        f"FFI wrap-template lint: clean. "
-        f"{len(files)} files, {n_decls} FFI decls scanned."
-    )
+    print(f"FFI wrap-template lint: clean. {len(files)} files, {n_decls} FFI decls scanned.")
 
 
 if __name__ == "__main__":

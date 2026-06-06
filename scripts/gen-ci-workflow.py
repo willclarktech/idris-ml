@@ -99,11 +99,7 @@ def splice_workflow(workflow_text: str, generated_block: str) -> str:
     line_start_of_begin = workflow_text.rfind("\n", 0, begin_idx) + 1
     line_end_of_begin = workflow_text.find("\n", begin_idx) + 1
     line_start_of_end = workflow_text.rfind("\n", 0, end_idx) + 1
-    return (
-        workflow_text[:line_end_of_begin]
-        + generated_block
-        + workflow_text[line_start_of_end:]
-    )
+    return workflow_text[:line_end_of_begin] + generated_block + workflow_text[line_start_of_end:]
 
 
 def main():

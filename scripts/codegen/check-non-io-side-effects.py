@@ -110,7 +110,11 @@ KNOWN_DEAD_PRIMS = {
     # binding doesn't fire on a fixed schedule — keeping it `()` is
     # intentional. The unit-arg ABI surface is identical across all
     # backends.
-    "prim__freeMlx", "prim__freeTape", "prim__freeTorch", "prim__freeUnified", "prim__freeBYO",
+    "prim__freeMlx",
+    "prim__freeTape",
+    "prim__freeTorch",
+    "prim__freeUnified",
+    "prim__freeBYO",
 }
 
 
@@ -202,7 +206,7 @@ def lint_decl(path, name, cname, args, ret_type, errors):
     # Rule 1: unit return on a non-IO body is always wrong.
     if cls == "unit-non-io":
         errors.append(
-            f"{path}:{name} `%foreign \"C:{cname}\"` returns bare `()` "
+            f'{path}:{name} `%foreign "C:{cname}"` returns bare `()` '
             f"(should be `PrimIO ()`). Unit-typed bodies are evaluated "
             f"at IO-value construction and dropped from `let _ =` "
             f"bindings; the side effect won't fire at the sequencing "
@@ -215,7 +219,7 @@ def lint_decl(path, name, cname, args, ret_type, errors):
     # Rule 2: known side-effecting C symbol with non-IO Idris return.
     if base in KNOWN_SIDE_EFFECTING and cls != "io":
         errors.append(
-            f"{path}:{name} `%foreign \"C:{cname}\"` is known to "
+            f'{path}:{name} `%foreign "C:{cname}"` is known to '
             f"mutate state but returns non-IO `{ret_type.strip()}`. "
             f"Type it `PrimIO {ret_type.strip()}` and call via "
             f"`primIO`. C symbols on the side-effecting list: "
@@ -274,10 +278,7 @@ def main(argv):
         )
         sys.exit(1)
 
-    print(
-        f"Non-IO side-effects lint: clean. "
-        f"{files_scanned} files, {n_decls} FFI decls scanned."
-    )
+    print(f"Non-IO side-effects lint: clean. {files_scanned} files, {n_decls} FFI decls scanned.")
 
 
 if __name__ == "__main__":

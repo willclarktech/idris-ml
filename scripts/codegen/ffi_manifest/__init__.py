@@ -67,9 +67,22 @@ from .families import (
 
 
 _FAMILY_MODULES = (
-    core, linear, nn, conv, tensor_create, transfer, autograd, optimizer,
-    optimizations, serialize, quant, param_registry, memory_hygiene,
-    profiling, diagnostics, internal,
+    core,
+    linear,
+    nn,
+    conv,
+    tensor_create,
+    transfer,
+    autograd,
+    optimizer,
+    optimizations,
+    serialize,
+    quant,
+    param_registry,
+    memory_hygiene,
+    profiling,
+    diagnostics,
+    internal,
 )
 
 MANIFEST: dict[str, Entry] = {}

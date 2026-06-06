@@ -11,6 +11,7 @@ Python parse: ast.parse, walk for `parser.add_argument(...)` calls.
 
 Exit 0 = clean, 1 = drift, 2 = parse failure.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,82 +32,118 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # lr_find machinery wired on the Idris side. Mostly the supervised/RNN-family
 # ones. Adding it is a separate small task per example, tracked elsewhere.
 EXAMPLES: list[dict] = [
-    {"name": "supervised",
-     "idris": "packages/idris-ml-examples/src/Example/Supervised.idr",
-     "python": "packages/pytorch/torch_ref/scripts/supervised.py",
-     "python_only": ["--lr-find"]},
-    {"name": "rnn",
-     "idris": "packages/idris-ml-examples/src/Example/Rnn.idr",
-     "python": "packages/pytorch/torch_ref/scripts/rnn.py",
-     "idris_only": ["--patience"],   # idris-side windowed-avg ES; py runs fixed-epoch
-     "python_only": ["--lr-find"]},
-    {"name": "lstm",
-     "idris": "packages/idris-ml-examples/src/Example/Lstm.idr",
-     "python": "packages/pytorch/torch_ref/scripts/lstm.py",
-     "python_only": ["--lr-find"]},
-    {"name": "gru",
-     "idris": "packages/idris-ml-examples/src/Example/Gru.idr",
-     "python": "packages/pytorch/torch_ref/scripts/gru.py",
-     "python_only": ["--lr-find"]},
-    {"name": "mnist",
-     "idris": "packages/idris-ml-examples/src/Example/Mnist.idr",
-     "python": "packages/pytorch/torch_ref/scripts/mnist.py",
-     "idris_only": ["--data"],            # idris loads from local path; py uses torchvision
-     "python_only": ["--batch-size"]},    # py exposes batch knob; idris bakes it
-    {"name": "seq-classify",
-     "idris": "packages/idris-ml-examples/src/Example/SeqClassify.idr",
-     "python": "packages/pytorch/torch_ref/scripts/seq_classify.py",
-     "idris_only": ["--patience"]},
-    {"name": "transformer",
-     "idris": "packages/idris-ml-examples/src/Example/Transformer.idr",
-     "python": "packages/pytorch/torch_ref/scripts/transformer.py",
-     "python_only": ["--blocks"]},        # py parameterises blocks; idris bakes it
-    {"name": "gpt",
-     "idris": "packages/idris-ml-examples/src/Example/Gpt.idr",
-     "python": "packages/pytorch/torch_ref/scripts/gpt.py"},
+    {
+        "name": "supervised",
+        "idris": "packages/idris-ml-examples/src/Example/Supervised.idr",
+        "python": "packages/pytorch/torch_ref/scripts/supervised.py",
+        "python_only": ["--lr-find"],
+    },
+    {
+        "name": "rnn",
+        "idris": "packages/idris-ml-examples/src/Example/Rnn.idr",
+        "python": "packages/pytorch/torch_ref/scripts/rnn.py",
+        "idris_only": ["--patience"],  # idris-side windowed-avg ES; py runs fixed-epoch
+        "python_only": ["--lr-find"],
+    },
+    {
+        "name": "lstm",
+        "idris": "packages/idris-ml-examples/src/Example/Lstm.idr",
+        "python": "packages/pytorch/torch_ref/scripts/lstm.py",
+        "python_only": ["--lr-find"],
+    },
+    {
+        "name": "gru",
+        "idris": "packages/idris-ml-examples/src/Example/Gru.idr",
+        "python": "packages/pytorch/torch_ref/scripts/gru.py",
+        "python_only": ["--lr-find"],
+    },
+    {
+        "name": "mnist",
+        "idris": "packages/idris-ml-examples/src/Example/Mnist.idr",
+        "python": "packages/pytorch/torch_ref/scripts/mnist.py",
+        "idris_only": ["--data"],  # idris loads from local path; py uses torchvision
+        "python_only": ["--batch-size"],
+    },  # py exposes batch knob; idris bakes it
+    {
+        "name": "seq-classify",
+        "idris": "packages/idris-ml-examples/src/Example/SeqClassify.idr",
+        "python": "packages/pytorch/torch_ref/scripts/seq_classify.py",
+        "idris_only": ["--patience"],
+    },
+    {
+        "name": "transformer",
+        "idris": "packages/idris-ml-examples/src/Example/Transformer.idr",
+        "python": "packages/pytorch/torch_ref/scripts/transformer.py",
+        "python_only": ["--blocks"],
+    },  # py parameterises blocks; idris bakes it
+    {
+        "name": "gpt",
+        "idris": "packages/idris-ml-examples/src/Example/Gpt.idr",
+        "python": "packages/pytorch/torch_ref/scripts/gpt.py",
+    },
     # NTM/DNC family: alpha/eps/momentum are RMSprop tuning. Idris exposes
     # them as CLI flags; Python bakes them into `torch.optim.RMSprop(...)`.
     # Same values used on both sides (verified at call site).
-    {"name": "ntm-copy",
-     "idris": "packages/idris-ml-examples/src/Example/NtmCopy.idr",
-     "python": "packages/pytorch/torch_ref/scripts/ntm_copy.py",
-     "idris_only": ["--alpha", "--eps", "--momentum"]},
-    {"name": "ntm-recall",
-     "idris": "packages/idris-ml-examples/src/Example/NtmAssociativeRecall.idr",
-     "python": "packages/pytorch/torch_ref/scripts/ntm_recall.py",
-     "idris_only": ["--alpha", "--eps", "--momentum"]},
-    {"name": "dnc-copy",
-     "idris": "packages/idris-ml-examples/src/Example/DncCopy.idr",
-     "python": "packages/pytorch/torch_ref/scripts/dnc_copy.py",
-     "idris_only": ["--alpha", "--eps", "--momentum"]},
-    {"name": "dnc-recall",
-     "idris": "packages/idris-ml-examples/src/Example/DncAssociativeRecall.idr",
-     "python": "packages/pytorch/torch_ref/scripts/dnc_recall.py",
-     "idris_only": ["--alpha", "--eps", "--momentum"]},
-    {"name": "reinforce",
-     "idris": "packages/idris-ml-examples/src/Example/Reinforce.idr",
-     "python": "packages/pytorch/torch_ref/scripts/reinforce.py",
-     "idris_only": ["--batched"]},        # Job 4 Phase B; py doesn't have it
-    {"name": "a2c",
-     "idris": "packages/idris-ml-examples/src/Example/A2c.idr",
-     "python": "packages/pytorch/torch_ref/scripts/a2c.py",
-     "python_only": ["--rollout"]},       # rollout len exposed py-side; baked idris-side
-    {"name": "ppo",
-     "idris": "packages/idris-ml-examples/src/Example/Ppo.idr",
-     "python": "packages/pytorch/torch_ref/scripts/ppo.py",
-     "idris_only": ["--value-coef"],
-     "python_only": ["--batch-size", "--max-ep-len", "--rollout"]},
-    {"name": "dqn",
-     "idris": "packages/idris-ml-examples/src/Example/Dqn.idr",
-     "python": "packages/pytorch/torch_ref/scripts/dqn.py",
-     "idris_only": ["--eps-start", "--eps-end", "--eps-decay"]},
-    {"name": "mountain-car",
-     "idris": "packages/idris-ml-examples/src/Example/MountainCar.idr",
-     "python": "packages/pytorch/torch_ref/scripts/mountain_car.py"},
-    {"name": "mountain-car-cont",
-     "idris": "packages/idris-ml-examples/src/Example/MountainCarCont.idr",
-     "python": "packages/pytorch/torch_ref/scripts/mountain_car_cont.py",
-     "idris_only": ["--clip", "--es-threshold", "--es-window", "--es-patience"]},
+    {
+        "name": "ntm-copy",
+        "idris": "packages/idris-ml-examples/src/Example/NtmCopy.idr",
+        "python": "packages/pytorch/torch_ref/scripts/ntm_copy.py",
+        "idris_only": ["--alpha", "--eps", "--momentum"],
+    },
+    {
+        "name": "ntm-recall",
+        "idris": "packages/idris-ml-examples/src/Example/NtmAssociativeRecall.idr",
+        "python": "packages/pytorch/torch_ref/scripts/ntm_recall.py",
+        "idris_only": ["--alpha", "--eps", "--momentum"],
+    },
+    {
+        "name": "dnc-copy",
+        "idris": "packages/idris-ml-examples/src/Example/DncCopy.idr",
+        "python": "packages/pytorch/torch_ref/scripts/dnc_copy.py",
+        "idris_only": ["--alpha", "--eps", "--momentum"],
+    },
+    {
+        "name": "dnc-recall",
+        "idris": "packages/idris-ml-examples/src/Example/DncAssociativeRecall.idr",
+        "python": "packages/pytorch/torch_ref/scripts/dnc_recall.py",
+        "idris_only": ["--alpha", "--eps", "--momentum"],
+    },
+    {
+        "name": "reinforce",
+        "idris": "packages/idris-ml-examples/src/Example/Reinforce.idr",
+        "python": "packages/pytorch/torch_ref/scripts/reinforce.py",
+        "idris_only": ["--batched"],
+    },  # Job 4 Phase B; py doesn't have it
+    {
+        "name": "a2c",
+        "idris": "packages/idris-ml-examples/src/Example/A2c.idr",
+        "python": "packages/pytorch/torch_ref/scripts/a2c.py",
+        "python_only": ["--rollout"],
+    },  # rollout len exposed py-side; baked idris-side
+    {
+        "name": "ppo",
+        "idris": "packages/idris-ml-examples/src/Example/Ppo.idr",
+        "python": "packages/pytorch/torch_ref/scripts/ppo.py",
+        "idris_only": ["--value-coef"],
+        "python_only": ["--batch-size", "--max-ep-len", "--rollout"],
+    },
+    {
+        "name": "dqn",
+        "idris": "packages/idris-ml-examples/src/Example/Dqn.idr",
+        "python": "packages/pytorch/torch_ref/scripts/dqn.py",
+        "idris_only": ["--eps-start", "--eps-end", "--eps-decay"],
+    },
+    {
+        "name": "mountain-car",
+        "idris": "packages/idris-ml-examples/src/Example/MountainCar.idr",
+        "python": "packages/pytorch/torch_ref/scripts/mountain_car.py",
+    },
+    {
+        "name": "mountain-car-cont",
+        "idris": "packages/idris-ml-examples/src/Example/MountainCarCont.idr",
+        "python": "packages/pytorch/torch_ref/scripts/mountain_car_cont.py",
+        "idris_only": ["--clip", "--es-threshold", "--es-window", "--es-patience"],
+    },
 ]
 
 
@@ -178,7 +215,7 @@ def _tokenise_mkconfig_values(rest: str) -> list[str]:
                     j += 2
                 else:
                     j += 1
-            tokens.append(rest[i:j + 1])
+            tokens.append(rest[i : j + 1])
             i = j + 1
         else:
             j = i
@@ -288,9 +325,7 @@ def parse_python(path: Path) -> dict[str, FlagInfo]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if not (
-            isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument"
-        ):
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument"):
             continue
         if not node.args:
             continue
@@ -307,9 +342,11 @@ def parse_python(path: Path) -> dict[str, FlagInfo]:
             if kw.arg == "default":
                 if isinstance(kw.value, ast.Constant):
                     default_value = kw.value.value
-                elif isinstance(kw.value, ast.UnaryOp) and isinstance(
-                    kw.value.op, ast.USub
-                ) and isinstance(kw.value.operand, ast.Constant):
+                elif (
+                    isinstance(kw.value, ast.UnaryOp)
+                    and isinstance(kw.value.op, ast.USub)
+                    and isinstance(kw.value.operand, ast.Constant)
+                ):
                     default_value = -kw.value.operand.value
             elif kw.arg == "action":
                 if isinstance(kw.value, ast.Constant):
@@ -354,9 +391,7 @@ def compare_example(spec: dict) -> ExampleReport:
     for flag, idris_info in idris_flags.items():
         if flag in python_flags:
             if not _values_match(idris_info.default, python_flags[flag].default):
-                value_mismatches.append(
-                    (flag, idris_info.default, python_flags[flag].default)
-                )
+                value_mismatches.append((flag, idris_info.default, python_flags[flag].default))
 
     actual_idris_only = sorted(set(idris_flags) - set(python_flags) - expected_idris_only)
     actual_python_only = sorted(set(python_flags) - set(idris_flags) - expected_python_only)
@@ -424,8 +459,7 @@ def main() -> int:
                 {
                     "name": r.name,
                     "value_mismatches": [
-                        {"flag": f, "idris": i, "python": py}
-                        for f, i, py in r.value_mismatches
+                        {"flag": f, "idris": i, "python": py} for f, i, py in r.value_mismatches
                     ],
                     "idris_only": r.idris_only,
                     "python_only": r.python_only,
@@ -453,9 +487,13 @@ def main() -> int:
             for flag, iv, pv in r.value_mismatches:
                 print(f"    DRIFT  {flag}  idris={format_value(iv)}  python={format_value(pv)}")
             for flag in r.idris_only:
-                print(f"    idris-only  {flag}  (idris={format_value(r.idris_flags[flag].default)})")
+                print(
+                    f"    idris-only  {flag}  (idris={format_value(r.idris_flags[flag].default)})"
+                )
             for flag in r.python_only:
-                print(f"    python-only {flag}  (python={format_value(r.python_flags[flag].default)})")
+                print(
+                    f"    python-only {flag}  (python={format_value(r.python_flags[flag].default)})"
+                )
 
         for name, err in parse_errors:
             print(f"{name:<20} [PARSE ERROR] {err}")

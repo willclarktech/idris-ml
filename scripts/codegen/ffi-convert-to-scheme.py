@@ -28,18 +28,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from ffi_manifest import (
-    MANIFEST, SKIP,
+    MANIFEST,
+    SKIP,
     ANY_FFI_RE,
-    gen_scheme_wrapper, parse_args, idris_type_to_class, strip_suffix,
+    gen_scheme_wrapper,
+    parse_args,
+    idris_type_to_class,
+    strip_suffix,
 )
 
 
 # Locate the first foreign-procedure call inside a scheme: body. Inside the
 # body the surrounding `%foreign "scheme:..."` literal escapes `"` as `\"`,
 # so foreign-procedure names appear as `\"name\"`.
-_FP_RE = re.compile(
-    r'\(foreign-procedure\s+\\"([a-zA-Z_0-9]+)\\"\s*\([^)]*\)\s+[a-zA-Z*_]+\s*\)'
-)
+_FP_RE = re.compile(r'\(foreign-procedure\s+\\"([a-zA-Z_0-9]+)\\"\s*\([^)]*\)\s+[a-zA-Z*_]+\s*\)')
 
 
 def _first_manifest_call(body):
@@ -62,8 +64,8 @@ def convert_file(path):
     stats = {"converted": 0, "regenerated": 0, "skipped": 0}
 
     def replace(m):
-        kind = m.group(2)             # "C" or "scheme"
-        spec = m.group(3)             # body without "C:" / "scheme:" prefix
+        kind = m.group(2)  # "C" or "scheme"
+        spec = m.group(3)  # body without "C:" / "scheme:" prefix
         export_line = m.group(4)
         sig_line = m.group(5)
 
@@ -133,6 +135,7 @@ if __name__ == "__main__":
     if not args:
         # Default to the wrap-handle file set when no args given.
         from ffi_manifest import WRAP_HANDLE_FILES
+
         args = WRAP_HANDLE_FILES
     for f in args:
         stats = convert_file(f)

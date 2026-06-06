@@ -20,9 +20,22 @@ sys.path.insert(0, str(ROOT / "scripts" / "codegen"))
 
 from ffi_manifest import MANIFEST, Entry  # noqa: E402
 from ffi_manifest.families import (  # noqa: E402
-    core, linear, nn, conv, tensor_create, transfer, autograd, optimizer,
-    optimizations, serialize, quant, param_registry, memory_hygiene,
-    profiling, diagnostics, internal,
+    core,
+    linear,
+    nn,
+    conv,
+    tensor_create,
+    transfer,
+    autograd,
+    optimizer,
+    optimizations,
+    serialize,
+    quant,
+    param_registry,
+    memory_hygiene,
+    profiling,
+    diagnostics,
+    internal,
 )
 
 
@@ -94,8 +107,7 @@ def test_slice_consistency_per_family() -> None:
         want = expected_slices[fam]
         for key, entry in mod.ENTRIES.items():
             assert entry.slice == want, (
-                f"families/{fam}.py: {key!r} has slice={entry.slice!r}, "
-                f"expected {want!r}"
+                f"families/{fam}.py: {key!r} has slice={entry.slice!r}, expected {want!r}"
             )
 
 

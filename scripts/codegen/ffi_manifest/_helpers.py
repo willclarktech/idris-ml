@@ -25,7 +25,7 @@ def parse_args(idris_sig):
     """Parse 'export prim__foo : T1 -> T2 -> ... -> Tn' into (name, [T1..T_{n-1}], Tn)."""
     s = idris_sig.strip()
     if s.startswith("export"):
-        s = s[len("export"):].strip()
+        s = s[len("export") :].strip()
     name, _, rest = s.partition(":")
     name = name.strip()
     parts = [p.strip() for p in rest.split("->")]
@@ -106,7 +106,7 @@ def backend_tag_of(cname):
     # Streamed variants like `tensor_add_mlx_streamed` — strip the trailing
     # `_streamed` infix first (only mlx ever carries it) so the backend
     # suffix is at the tail of the name.
-    base = cname[:-len("_streamed")] if cname.endswith("_streamed") else cname
+    base = cname[: -len("_streamed")] if cname.endswith("_streamed") else cname
     for suf, tag in (("_tape", "tape"), ("_torch", "torch"), ("_mlx", "mlx")):
         if base.endswith(suf):
             return tag
@@ -163,30 +163,26 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
     init_main = (
         f" (when (not (top-level-bound? '{main_var}))"
         f" (set-top-level-value! '{main_var}"
-        f" (foreign-procedure \\\"{cname}\\\" ({fp_arg_types}) {fp_ret_type})))"
+        f' (foreign-procedure \\"{cname}\\" ({fp_arg_types}) {fp_ret_type})))'
     )
     call_main = f"((top-level-value '{main_var}) {call_args_str})"
 
     if ret_class == "T":
         tag = backend_tag_of(cname)
-        retain_sym = (
-            "tensor_retain_handle"
-            if tag == "primary"
-            else f"tensor_retain_handle_{tag}"
-        )
+        retain_sym = "tensor_retain_handle" if tag == "primary" else f"tensor_retain_handle_{tag}"
         # Lazy-init for the per-backend retain symbol (mirrors the main
         # FFI cache; one top-level binding per distinct retain symbol).
         retain_var = cache_var(retain_sym)
         init_retain = (
             f" (when (not (top-level-bound? '{retain_var}))"
             f" (set-top-level-value! '{retain_var}"
-            f" (foreign-procedure \\\"{retain_sym}\\\" (void*) void)))"
+            f' (foreign-procedure \\"{retain_sym}\\" (void*) void)))'
         )
         call_retain = f"((top-level-value '{retain_var}) raw_r)"
         ffi_init = init_main + init_retain
         body = (
             f" (let ((raw_r {call_main}))"
-            f" (let ((wr (vector 'tensor-handle-v2 \\\"{tag}\\\" raw_r)))"
+            f' (let ((wr (vector \'tensor-handle-v2 \\"{tag}\\" raw_r)))'
             f" ((top-level-value 'idris-tensor-guardian) wr)"
             f" {call_retain}"
             f" wr))"

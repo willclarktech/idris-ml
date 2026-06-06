@@ -19,6 +19,7 @@ CI wiring: invoked by `make check-executor-method-drift`, run in the
 existing `make check-*` group alongside `check-rename-headers` and
 `check-ffi-wrap-template`.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,9 +30,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EXECUTOR_FILES = {
-    "tape":  ROOT / "packages/idris-ml/src/Executor/Tape.idr",
+    "tape": ROOT / "packages/idris-ml/src/Executor/Tape.idr",
     "torch": ROOT / "packages/idris-ml/src/Executor/Torch.idr",
-    "mlx":   ROOT / "packages/idris-ml/src/Executor/Mlx.idr",
+    "mlx": ROOT / "packages/idris-ml/src/Executor/Mlx.idr",
 }
 
 # Methods that are legitimately allowed to differ. Empty for now; populate
@@ -67,9 +68,9 @@ OPT_IN_SLICES: set[str] = {
 
 
 INTERFACE_HEAD_RE = re.compile(
-    r"^(?:\{[^}]*\}\s*->\s*)?"               # optional implicit binder
-    r"UserExecutor(?P<slice>\w+)\s+"          # UserExecutorCore / Linear / etc.
-    r"\([^)]*\)",                              # (TapeExecutor) / (TorchExecutor d) / ...
+    r"^(?:\{[^}]*\}\s*->\s*)?"  # optional implicit binder
+    r"UserExecutor(?P<slice>\w+)\s+"  # UserExecutorCore / Linear / etc.
+    r"\([^)]*\)",  # (TapeExecutor) / (TorchExecutor d) / ...
     re.MULTILINE,
 )
 
@@ -82,11 +83,11 @@ INSTANCE_HEAD_RE = re.compile(
 )
 
 METHOD_RE = re.compile(
-    r"^\s+"                                    # indented (inside instance block)
+    r"^\s+"  # indented (inside instance block)
     r"(?P<method>prim\w+|backendTag|hardwareClass|deviceName|deviceStreamTag)"
-    r"\b"                                      # word boundary (not part of larger ident)
-    r"[\s\w]*"                                 # optional args (space-separated names)
-    r"=",                                      # method definition (= for impl, : for sig)
+    r"\b"  # word boundary (not part of larger ident)
+    r"[\s\w]*"  # optional args (space-separated names)
+    r"=",  # method definition (= for impl, : for sig)
     re.MULTILINE,
 )
 
@@ -137,16 +138,19 @@ def main() -> int:
             drift.append((slice_name, method, missing))
 
     if drift:
-        print("Drift detected: method present in some Executor backends but not all.\n",
-              file=sys.stderr)
+        print(
+            "Drift detected: method present in some Executor backends but not all.\n",
+            file=sys.stderr,
+        )
         for slice_name, method, missing in drift:
-            print(f"  UserExecutor{slice_name}.{method} missing from: {', '.join(missing)}",
-                  file=sys.stderr)
+            print(
+                f"  UserExecutor{slice_name}.{method} missing from: {', '.join(missing)}",
+                file=sys.stderr,
+            )
         print(f"\nTotal: {len(drift)} drift(s).", file=sys.stderr)
         return 1
 
-    print(f"OK — no method drift across {len(EXECUTOR_FILES)} Executor backends.",
-          file=sys.stderr)
+    print(f"OK — no method drift across {len(EXECUTOR_FILES)} Executor backends.", file=sys.stderr)
     return 0
 
 

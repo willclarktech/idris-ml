@@ -75,9 +75,15 @@ def test_mlx_ops_covered_by_cross_backend_tests() -> None:
     backends = ROOT / "packages" / "backends"
     all_trees = [backends / d for d in ("backend_tape", "backend_torch", "backend_mlx")]
     all_trees.append(ROOT / "packages" / "idris-test-c" / "src")
-    for sym in ("tensor_avg_pool2d", "tensor_gelu", "tensor_masked_fill",
-                "tensor_rms_norm_2d", "tensor_swiglu_2d", "tensor_tile_2d",
-                "tensor_max_pool2d_batched"):
+    for sym in (
+        "tensor_avg_pool2d",
+        "tensor_gelu",
+        "tensor_masked_fill",
+        "tensor_rms_norm_2d",
+        "tensor_swiglu_2d",
+        "tensor_tile_2d",
+        "tensor_max_pool2d_batched",
+    ):
         hits = grep_word_in_dirs(sym, all_trees)
         assert hits, f"{sym} has no test hits — cross-backend tree search is broken"
 

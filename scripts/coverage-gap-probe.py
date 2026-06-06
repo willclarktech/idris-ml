@@ -179,8 +179,9 @@ def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
     path.write_text(buf.getvalue())
 
 
-def print_summary(ops_rows: list[dict], symbols_rows: list[dict],
-                  ops_csv: Path, symbols_csv: Path) -> int:
+def print_summary(
+    ops_rows: list[dict], symbols_rows: list[dict], ops_csv: Path, symbols_csv: Path
+) -> int:
     missing = [r for r in ops_rows if r["status"] == "MISSING"]
     tape_missing = sum(1 for r in missing if r["backend"] == "tape")
     mlx_missing = sum(1 for r in missing if r["backend"] == "mlx")
@@ -188,7 +189,9 @@ def print_summary(ops_rows: list[dict], symbols_rows: list[dict],
 
     print()
     print("=== Coverage gap probe ===")
-    print(f"OP_* without any FFI test hit: {len(missing)}  (tape={tape_missing}, mlx={mlx_missing})")
+    print(
+        f"OP_* without any FFI test hit: {len(missing)}  (tape={tape_missing}, mlx={mlx_missing})"
+    )
     print(f"FFI symbols with 0 test hits:  {len(symbols_zero)}")
     print()
     print("Reports:")
@@ -199,7 +202,9 @@ def print_summary(ops_rows: list[dict], symbols_rows: list[dict],
         print()
         print("Missing OP_* tests (sample):")
         for r in missing[:20]:
-            print(f"  {r['backend']}  {r['op']}  (source: {r['source_file']}, symbols: {r['ffi_symbols']})")
+            print(
+                f"  {r['backend']}  {r['op']}  (source: {r['source_file']}, symbols: {r['ffi_symbols']})"
+            )
         if len(missing) > 20:
             print(f"  ... and {len(missing) - 20} more — see CSV")
 
@@ -224,7 +229,9 @@ def main(argv: list[str]) -> int:
     ops_rows = build_ops_rows()
     symbols_rows = build_symbols_rows()
 
-    write_csv(ops_csv, ops_rows, ["backend", "op", "source_file", "ffi_symbols", "test_file", "status"])
+    write_csv(
+        ops_csv, ops_rows, ["backend", "op", "source_file", "ffi_symbols", "test_file", "status"]
+    )
     write_csv(symbols_csv, symbols_rows, ["symbol", "test_hits"])
 
     return print_summary(ops_rows, symbols_rows, ops_csv, symbols_csv)

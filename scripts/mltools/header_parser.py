@@ -98,9 +98,7 @@ def extract_backend_h_symbols(header_text: str) -> set[str]:
     return set(_BACKEND_H_DECL_RE.findall(header_text))
 
 
-def find_op_source(
-    op: str, backend_dir: Path, anchor: str
-) -> Optional[Path]:
+def find_op_source(op: str, backend_dir: Path, anchor: str) -> Optional[Path]:
     """Return the first C/C++ source under `backend_dir` containing the
     registration anchor `<anchor>(<op>,`. Returns None on miss.
     """

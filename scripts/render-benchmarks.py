@@ -56,19 +56,27 @@ def select_op_bench_latest(entries):
 
 
 AXIS_BLURBS = {
-    "A": ("Wall-clock per iteration on the C backend (tape) vs the same\n"
-          "kernel in PyTorch on the same hardware. Both measured in-process\n"
-          "after a warmup. Lower ratios are better; ≈1.0 means parity."),
-    "B": ("Wall-clock per layer-scope fwd+bwd+step on idris-ml's typed-layer\n"
-          "API (tape backend, F64) vs an equivalent PyTorch reference at the\n"
-          "same shape. Captures FFI + tape wrap + autograd graph overhead\n"
-          "that Axis A's pure C-kernel timings don't see."),
-    "C": ("Wall-clock per epoch on a representative end-to-end training\n"
-          "workload per training mode (supervised / RNN / transformer /\n"
-          "NTM-class / RL). One entry per distinct compute pattern."),
-    "D": ("Per-token wall-clock on HuggingFace inference workloads (encoder\n"
-          "fwd / decoder fwd / cached-decode generation) vs HF transformers\n"
-          "Python on the same hardware."),
+    "A": (
+        "Wall-clock per iteration on the C backend (tape) vs the same\n"
+        "kernel in PyTorch on the same hardware. Both measured in-process\n"
+        "after a warmup. Lower ratios are better; ≈1.0 means parity."
+    ),
+    "B": (
+        "Wall-clock per layer-scope fwd+bwd+step on idris-ml's typed-layer\n"
+        "API (tape backend, F64) vs an equivalent PyTorch reference at the\n"
+        "same shape. Captures FFI + tape wrap + autograd graph overhead\n"
+        "that Axis A's pure C-kernel timings don't see."
+    ),
+    "C": (
+        "Wall-clock per epoch on a representative end-to-end training\n"
+        "workload per training mode (supervised / RNN / transformer /\n"
+        "NTM-class / RL). One entry per distinct compute pattern."
+    ),
+    "D": (
+        "Per-token wall-clock on HuggingFace inference workloads (encoder\n"
+        "fwd / decoder fwd / cached-decode generation) vs HF transformers\n"
+        "Python on the same hardware."
+    ),
 }
 
 
@@ -100,7 +108,9 @@ def render_axis_table(latest, axis):
         if section:
             out.append(f"### {section}")
             out.append("")
-        out.append("| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |")
+        out.append(
+            "| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |"
+        )
         out.append("|---|---:|---:|---:|---:|---|")
         for label, runtimes in sorted(rows):
             tape = runtimes.get("tape")
@@ -120,12 +130,14 @@ def render_axis_table(latest, axis):
 
 def render_placeholder_axis(axis):
     title = AXIS_TITLES.get(axis, f"Axis {axis}")
-    return "\n".join([
-        f"## {title}",
-        "",
-        f"_No entries yet — Axis {axis} benches not yet wired up._",
-        "",
-    ])
+    return "\n".join(
+        [
+            f"## {title}",
+            "",
+            f"_No entries yet — Axis {axis} benches not yet wired up._",
+            "",
+        ]
+    )
 
 
 def render():
@@ -169,16 +181,19 @@ def main():
     old_text = OUT_PATH.read_text() if OUT_PATH.exists() else ""
     if check:
         if new_text != old_text:
-            print(f"FAIL: {OUT_PATH.relative_to(ROOT)} disagrees with log "
-                  f"({LOG_PATH.relative_to(ROOT)}). Run scripts/render-benchmarks.py.",
-                  file=sys.stderr)
+            print(
+                f"FAIL: {OUT_PATH.relative_to(ROOT)} disagrees with log "
+                f"({LOG_PATH.relative_to(ROOT)}). Run scripts/render-benchmarks.py.",
+                file=sys.stderr,
+            )
             sys.exit(1)
         print(f"OK: {OUT_PATH.relative_to(ROOT)} is in sync with log.")
         return
     if new_text != old_text:
         OUT_PATH.write_text(new_text)
-        print(f"Wrote {OUT_PATH.relative_to(ROOT)} "
-              f"({sum(1 for _ in new_text.splitlines())} lines).")
+        print(
+            f"Wrote {OUT_PATH.relative_to(ROOT)} ({sum(1 for _ in new_text.splitlines())} lines)."
+        )
     else:
         print(f"No changes; {OUT_PATH.relative_to(ROOT)} already up to date.")
 

@@ -24,11 +24,12 @@ class Entry:
     key stays distinct (one per Idris-level method), but `c_symbol` points
     to the actual C function called by the wrap-template.
     """
-    args: tuple              # arg-class tuple ("T", "i", "d", "s", "R", or "v")
-    ret: str                 # ret-class
-    slice: str = None        # None when the FFI is not bound to any instance method
-    idris_method: str = None # typeclass method name (`primX`); set iff slice is set
-    c_symbol: str = None     # canonical C name; None = use the manifest key
-    tape: str = "direct"     # direct | bespoke
-    torch: str = "direct"    # direct | bespoke
-    mlx: str = "streamed"    # streamed | direct | bespoke
+
+    args: tuple  # arg-class tuple ("T", "i", "d", "s", "R", or "v")
+    ret: str  # ret-class
+    slice: str = None  # None when the FFI is not bound to any instance method
+    idris_method: str = None  # typeclass method name (`primX`); set iff slice is set
+    c_symbol: str = None  # canonical C name; None = use the manifest key
+    tape: str = "direct"  # direct | bespoke
+    torch: str = "direct"  # direct | bespoke
+    mlx: str = "streamed"  # streamed | direct | bespoke

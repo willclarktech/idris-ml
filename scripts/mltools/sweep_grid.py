@@ -104,7 +104,7 @@ def to_csv(
 
 
 def first_nonempty_result_keys(
-    configs_with_results: Iterable[tuple[dict[str, str], dict[str, object]]]
+    configs_with_results: Iterable[tuple[dict[str, str], dict[str, object]]],
 ) -> list[str]:
     """Mimics the bash version's "sample the first RESULT line's keys".
 

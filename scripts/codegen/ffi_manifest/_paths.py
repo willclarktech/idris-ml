@@ -19,19 +19,19 @@ WRAP_HANDLE_FILES = [
 # immediately-following Idris signature line.
 C_FFI_RE = re.compile(
     r'(%foreign\s+"C:([a-zA-Z_0-9]+),libidrisml"\s*\n)'
-    r'((?:[ \t]*export[ \t]*\n)?)'
-    r'([ \t]*(?:export[ \t]+)?'
-    r'[a-zA-Z_][a-zA-Z_0-9\']*'
-    r'\s*:\s*[^\n]+\n)',
+    r"((?:[ \t]*export[ \t]*\n)?)"
+    r"([ \t]*(?:export[ \t]+)?"
+    r"[a-zA-Z_][a-zA-Z_0-9\']*"
+    r"\s*:\s*[^\n]+\n)",
     re.MULTILINE,
 )
 
 # Matches any `%foreign "..."` declaration + its signature.
 ANY_FFI_RE = re.compile(
     r'(%foreign\s+"(C|scheme):([^"]*(?:\\"[^"]*)*)"\s*\n)'
-    r'((?:[ \t]*export[ \t]*\n)?)'
-    r'([ \t]*(?:export[ \t]+)?'
-    r'[a-zA-Z_][a-zA-Z_0-9\']*'
-    r'\s*:\s*[^\n]+\n)',
+    r"((?:[ \t]*export[ \t]*\n)?)"
+    r"([ \t]*(?:export[ \t]+)?"
+    r"[a-zA-Z_][a-zA-Z_0-9\']*"
+    r"\s*:\s*[^\n]+\n)",
     re.MULTILINE,
 )

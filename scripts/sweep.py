@@ -86,9 +86,7 @@ def _setup_idris_paths() -> None:
     m = re.search(r'Installation Prefix\s*=\s*"([^"]+)"', out)
     sys_prefix = m.group(1) if m else ""
     if sys_prefix:
-        os.environ["IDRIS2_PACKAGE_PATH"] = (
-            f"{idris2_local}/idris2-0.8.0:{sys_prefix}/idris2-0.8.0"
-        )
+        os.environ["IDRIS2_PACKAGE_PATH"] = f"{idris2_local}/idris2-0.8.0:{sys_prefix}/idris2-0.8.0"
     else:
         os.environ["IDRIS2_PACKAGE_PATH"] = f"{idris2_local}/idris2-0.8.0"
 
@@ -108,11 +106,16 @@ def _build_idris(exec_name: str, src: str) -> None:
             "idris2",
             "--source-dir",
             "packages/idris-ml-examples/src",
-            "-p", "contrib",
-            "-p", "idris-ml",
-            "-p", "idris-gym",
-            "-p", "idris-ml-examples",
-            "-o", exec_name,
+            "-p",
+            "contrib",
+            "-p",
+            "idris-ml",
+            "-p",
+            "idris-gym",
+            "-p",
+            "idris-ml-examples",
+            "-o",
+            exec_name,
             src,
         ],
         check=True,
@@ -120,9 +123,9 @@ def _build_idris(exec_name: str, src: str) -> None:
 
 
 def _stage_dylib(exec_name: str) -> None:
-    candidates = sorted(
-        Path("build").glob("libidrisml.dylib")
-    ) + sorted(Path("build").glob("libidrisml*.dylib"))
+    candidates = sorted(Path("build").glob("libidrisml.dylib")) + sorted(
+        Path("build").glob("libidrisml*.dylib")
+    )
     dylib = candidates[0] if candidates else None
     app_dir = Path(f"build/exec/{exec_name}_app")
     if dylib and app_dir.is_dir():
@@ -130,7 +133,7 @@ def _stage_dylib(exec_name: str) -> None:
 
 
 def _run_one(
-    args: tuple[str, dict[str, str], int, int, list[str], str]
+    args: tuple[str, dict[str, str], int, int, list[str], str],
 ) -> tuple[dict[str, str], dict[str, object]]:
     """Worker: run the binary for one config; return (cfg, parsed RESULT).
 
@@ -164,8 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--random", type=int, default=None, dest="random_n")
     p.add_argument("--grid", default=None)
     p.add_argument("--task", default=None)
-    p.add_argument("--seed", type=int, default=None,
-                   help="Sampler seed (only used with --random).")
+    p.add_argument("--seed", type=int, default=None, help="Sampler seed (only used with --random).")
     args = p.parse_args(argv)
     if args.quick:
         args.epochs = 2000
@@ -208,10 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     with tempfile.TemporaryDirectory(prefix="sweep-") as tmpdir:
-        work = [
-            (exe, cfg, args.epochs, args.patience, fixed_flags, tmpdir)
-            for cfg in configs
-        ]
+        work = [(exe, cfg, args.epochs, args.patience, fixed_flags, tmpdir) for cfg in configs]
         configs_with_results: list[tuple[dict[str, str], dict[str, object]]] = []
         with ProcessPoolExecutor(max_workers=args.parallel) as pool:
             futures = [pool.submit(_run_one, w) for w in work]
@@ -221,9 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     # Preserve grid order in the output (re-sort by enumerating the
     # original cartesian-product order).
     cfg_to_idx = {tuple(sorted(c.items())): i for i, c in enumerate(configs)}
-    configs_with_results.sort(
-        key=lambda pair: cfg_to_idx.get(tuple(sorted(pair[0].items())), 0)
-    )
+    configs_with_results.sort(key=lambda pair: cfg_to_idx.get(tuple(sorted(pair[0].items())), 0))
 
     grid_keys = list(grid.keys())
     result_keys = first_nonempty_result_keys(configs_with_results)

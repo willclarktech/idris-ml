@@ -35,15 +35,15 @@ from ffi_manifest import MANIFEST, Entry  # noqa: E402
 
 EXEC_DIR = REPO_ROOT / "packages" / "idris-ml" / "src" / "Executor"
 FILES = {
-    "tape":  EXEC_DIR / "Tape.idr",
+    "tape": EXEC_DIR / "Tape.idr",
     "torch": EXEC_DIR / "Torch.idr",
-    "mlx":   EXEC_DIR / "Mlx.idr",
+    "mlx": EXEC_DIR / "Mlx.idr",
 }
 
 BACKEND_SUFFIX = {"tape": "Tape", "torch": "Torch", "mlx": "Mlx"}
 
 BEGIN_MARKER = "  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>"
-END_MARKER   = "  -- <<< END GENERATED <<<"
+END_MARKER = "  -- <<< END GENERATED <<<"
 
 # Match an instance block head, capturing the slice name.
 #   `UserExecutorCore TapeExecutor where`
@@ -79,7 +79,7 @@ def base_camel_for(entry: Entry, manifest_key: str) -> str:
     base = manifest_key
     for prefix in ("tensor_",):
         if base.startswith(prefix):
-            base = base[len(prefix):]
+            base = base[len(prefix) :]
             break
     parts = base.split("_")
     return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:])
@@ -102,8 +102,10 @@ def emit_method_line(entry: Entry, manifest_key: str, backend: str) -> str | Non
         n_args = len(entry.args)
         arg_names = " ".join(f"a{i}" for i in range(n_args))
         arg_passthrough = " ".join(f"a{i}" for i in range(n_args))
-        return (f"  {method} {arg_names} = "
-                f"prim__{base_camel}MlxStreamed {arg_passthrough} (streamTag s)")
+        return (
+            f"  {method} {arg_names} = "
+            f"prim__{base_camel}MlxStreamed {arg_passthrough} (streamTag s)"
+        )
     raise ValueError(f"Unknown flavor {flavor!r} for {manifest_key}/{backend}")
 
 
@@ -154,8 +156,7 @@ def rewrite_file(path: Path, backend: str, dry_run: bool = False) -> tuple[str, 
             while j < n and lines[j].rstrip() != END_MARKER.rstrip():
                 j += 1
             if j >= n:
-                raise RuntimeError(
-                    f"{path.name}: BEGIN marker at line {i+1} has no matching END")
+                raise RuntimeError(f"{path.name}: BEGIN marker at line {i + 1} has no matching END")
             # Inject generated lines
             generated = generate_block(current_slice, backend)
             out.extend(generated)
@@ -176,8 +177,9 @@ def rewrite_file(path: Path, backend: str, dry_run: bool = False) -> tuple[str, 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--check", action="store_true",
-                    help="Exit 1 if regeneration would change any file.")
+    ap.add_argument(
+        "--check", action="store_true", help="Exit 1 if regeneration would change any file."
+    )
     args = ap.parse_args()
 
     diffs = []

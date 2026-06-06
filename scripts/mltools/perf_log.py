@@ -213,6 +213,7 @@ def extract_run_lines(blob: str) -> dict:
 # Timestamp helpers
 # ----------------------------------------------------------------------
 
+
 def now_ts(_clock=None) -> tuple[str, str]:
     """(ISO timestamp, ISO date) in UTC.
 
@@ -225,6 +226,7 @@ def now_ts(_clock=None) -> tuple[str, str]:
 # ----------------------------------------------------------------------
 # Path resolution + append
 # ----------------------------------------------------------------------
+
 
 def resolve_log_path(path: Optional[str | Path] = None) -> Path:
     if path is not None:
@@ -246,6 +248,7 @@ def _append(entry: dict, log_path: Optional[str | Path]) -> Path:
 # ----------------------------------------------------------------------
 # Writers
 # ----------------------------------------------------------------------
+
 
 def append_run(
     *,
@@ -404,6 +407,7 @@ def append_op_bench(
 # Reader
 # ----------------------------------------------------------------------
 
+
 def iter_entries(log_path: Optional[str | Path] = None) -> Iterator[dict]:
     """Yield each JSONL entry. Skips blank lines + JSON-decode errors."""
     path = resolve_log_path(log_path)
@@ -422,6 +426,7 @@ def iter_entries(log_path: Optional[str | Path] = None) -> Iterator[dict]:
 # ----------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------
+
 
 def _cmd_append_run(args: argparse.Namespace) -> int:
     append_run(
