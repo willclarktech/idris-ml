@@ -377,6 +377,16 @@ prim__pairFirstMlxStreamed : AnyPtr -> Int -> AnyPtr
 prim__pairSecondMlxStreamed : AnyPtr -> Int -> AnyPtr
 
 
+-- Fused inference ops (used by `UserExecutorNN` below; FFI decls
+-- moved up from the legacy `Training` slice region so they
+-- precede their first use in the NN instance.)
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-mlx (foreign-procedure \"tensor_sdpa_2d_mlx\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-mlx) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
+prim__sdpa2dMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-rms-norm-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-rms-norm-2d-mlx (foreign-procedure \"tensor_rms_norm_2d_mlx\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-rms-norm-2d-mlx) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
+prim__rmsNorm2dMlx : AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-mlx (foreign-procedure \"tensor_swiglu_2d_mlx\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-mlx) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
+prim__swiGlu2dMlx : AnyPtr -> AnyPtr -> AnyPtr
+
 public export
 {s : MlxStream} -> UserExecutorNN (MlxExecutor s) where
   primGelu a = prim__geluMlxStreamed a (streamTag s)
@@ -402,6 +412,11 @@ public export
   primLstmGatesPair a b c = prim__lstmGatesPairMlxStreamed a b c (streamTag s)
   primPairFirst a = prim__pairFirstMlxStreamed a (streamTag s)
   primPairSecond a = prim__pairSecondMlxStreamed a (streamTag s)
+
+  -- Fused inference ops (lifted from legacy Training slice)
+  primSdpa2d                   = prim__sdpa2dMlx
+  primRmsNorm2d                = prim__rmsNorm2dMlx
+  primSwiGlu2d                 = prim__swiGlu2dMlx
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (mlx-suffixed)
 ----------------------------------------------------------------------
@@ -519,14 +534,8 @@ prim__peakLiveCountMlx : Int -> Int
 prim__perfResetMlx : PrimIO ()
 %foreign "C:tensor_perf_op_count_mlx,libidrisml"
 prim__perfOpCountMlx : PrimIO Int
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-mlx (foreign-procedure \"tensor_sdpa_2d_mlx\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-mlx) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
-prim__sdpa2dMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-rms-norm-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-rms-norm-2d-mlx (foreign-procedure \"tensor_rms_norm_2d_mlx\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-rms-norm-2d-mlx) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
-prim__rmsNorm2dMlx : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-mlx (foreign-procedure \"tensor_swiglu_2d_mlx\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-mlx) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
-prim__swiGlu2dMlx : AnyPtr -> AnyPtr -> AnyPtr
 
 
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-streamed-mlx (foreign-procedure \"tensor_create_scalar_streamed_mlx\" (double int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-streamed-mlx) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
@@ -576,7 +585,59 @@ prim__createParam4dConstStreamedMlx : Int -> Int -> Int -> Int -> Double -> Int 
 prim__setInitSeedStreamedMlx : Bits64 -> Int -> PrimIO ()
 
 public export
-{s : MlxStream} -> UserExecutorTraining (MlxExecutor s) where
+{s : MlxStream} -> UserExecutorAutograd (MlxExecutor s) where
+  primRequiresGrad         = prim__requiresGradMlx
+  primSetRequiresGrad      = prim__setRequiresGradMlx
+  primBackward             = prim__backwardMlx
+  primNoGradBegin          = prim__noGradBeginMlx
+  primNoGradEnd            = prim__noGradEndMlx
+  primDetach a             = prim__detachMlxStreamed a (streamTag s)
+  primWithGrad a           = prim__withGradMlxStreamed a (streamTag s)
+
+public export
+{s : MlxStream} -> UserExecutorParamRegistry (MlxExecutor s) where
+  primParamRegister        = prim__paramRegisterMlx
+  primPolyakBlend          = prim__polyakBlendMlx
+  primParamCount           = prim__paramCountMlx
+  primParamName            = prim__paramNameMlx
+  primParamGradItemAt      = prim__paramGradItemAtMlx
+  primParamZeroAll         = prim__paramZeroAllMlx
+
+public export
+{s : MlxStream} -> UserExecutorOptimizer (MlxExecutor s) where
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdMlx
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropMlx
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamMlx
+  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupMlx
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWMlx
+  primOptimizerSetLr           = prim__optimizerSetLrMlx
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
+  primNativeTrainStep          = prim__nativeTrainStepMlx
+  primNativeTrainStepScaled    = prim__nativeTrainStepScaledMlx
+
+public export
+{s : MlxStream} -> UserExecutorSerialize (MlxExecutor s) where
+  primParamSave                = prim__paramSaveMlx
+  primParamLoad                = prim__paramLoadMlx
+  primParamLoadWithPolicy      = prim__paramLoadWithPolicyMlx
+  primOptimizerSave            = prim__optimizerSaveMlx
+  primOptimizerLoad            = prim__optimizerLoadMlx
+
+public export
+{s : MlxStream} -> UserExecutorProfiling (MlxExecutor s) where
+  primProfileReset             = prim__profileResetMlx
+  primProfileReport            = prim__profileReportMlx
+  primEpochBegin               = prim__epochBeginMlx
+  primEpochEnd                 = prim__epochEndMlx
+  primReleaseAllPersistent     = prim__releaseAllPersistentMlx
+  primResetForEval             = prim__resetForEvalMlx
+  primLiveCount                = prim__liveCountMlx
+  primPeakLiveCount            = prim__peakLiveCountMlx
+  primPerfReset                = prim__perfResetMlx
+  primPerfOpCount              = prim__perfOpCountMlx
+
+public export
+{s : MlxStream} -> UserExecutorTensorCreate (MlxExecutor s) where
   primCreateScalarStreamed        = prim__createScalarStreamedMlx
   primCreateStreamed              = prim__createStreamedMlx
   primCreate1dStreamed            = prim__create1dStreamedMlx
@@ -597,53 +658,14 @@ public export
   primCreateParam3dConstStreamed  = prim__createParam3dConstStreamedMlx
   primCreateParam4dConstStreamed  = prim__createParam4dConstStreamedMlx
   primSetInitSeedStreamed         = prim__setInitSeedStreamedMlx
-  primRequiresGrad         = prim__requiresGradMlx
-  primSetRequiresGrad      = prim__setRequiresGradMlx
-  primBackward             = prim__backwardMlx
-  primNoGradBegin          = prim__noGradBeginMlx
-  primNoGradEnd            = prim__noGradEndMlx
-  primDetach a = prim__detachMlxStreamed a (streamTag s)
-  primWithGrad a = prim__withGradMlxStreamed a (streamTag s)
   primTensorDim            = prim__tensorDimMlx
   primTensorSizeAt         = prim__tensorSizeAtMlx
-  primParamRegister        = prim__paramRegisterMlx
   primItem2d               = prim__item2dMlx
   primMnistGetImage        = prim__mnistGetImageMlx
   primOneHot               = prim__oneHotMlx
-  primPolyakBlend          = prim__polyakBlendMlx
-  primParamCount           = prim__paramCountMlx
-  primParamName            = prim__paramNameMlx
-  primParamGradItemAt      = prim__paramGradItemAtMlx
-  primParamZeroAll         = prim__paramZeroAllMlx
-  primOptimizerCreateSgd       = prim__optimizerCreateSgdMlx
-  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropMlx
-  primOptimizerCreateAdam      = prim__optimizerCreateAdamMlx
-  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupMlx
-  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWMlx
-  primOptimizerSetLr           = prim__optimizerSetLrMlx
-  primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
-  primNativeTrainStep          = prim__nativeTrainStepMlx
-  primNativeTrainStepScaled    = prim__nativeTrainStepScaledMlx
-  primParamSave                = prim__paramSaveMlx
-  primParamLoad                = prim__paramLoadMlx
-  primParamLoadWithPolicy      = prim__paramLoadWithPolicyMlx
-  primOptimizerSave            = prim__optimizerSaveMlx
-  primOptimizerLoad            = prim__optimizerLoadMlx
-  primProfileReset             = prim__profileResetMlx
-  primProfileReport            = prim__profileReportMlx
-  primEpochBegin               = prim__epochBeginMlx
-  primEpochEnd                 = prim__epochEndMlx
-  primReleaseAllPersistent     = prim__releaseAllPersistentMlx
-  primResetForEval             = prim__resetForEvalMlx
-  primLiveCount                = prim__liveCountMlx
-  primPeakLiveCount            = prim__peakLiveCountMlx
-  primPerfReset                = prim__perfResetMlx
-  primPerfOpCount              = prim__perfOpCountMlx
-  primSdpa2d                   = prim__sdpa2dMlx
-  primRmsNorm2d                = prim__rmsNorm2dMlx
-  primSwiGlu2d                 = prim__swiGlu2dMlx
 
-
+public export
+{s : MlxStream} -> UserExecutorTraining (MlxExecutor s) where
 ----------------------------------------------------------------------
 -- Compatible (device, dtype) instances
 --

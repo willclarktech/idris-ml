@@ -287,6 +287,33 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   primPairFirst      : AnyPtr -> AnyPtr
   primPairSecond     : AnyPtr -> AnyPtr
 
+  -- Fused inference ops (lifted from the legacy `Training` slice;
+  -- belong here because they are forward-pass compute kernels, not
+  -- training-only machinery).
+  ||| TODO #399 Commit B — fused scaled-dot-product attention.
+  ||| Q : [seq, numHeads * headDim] (flat layout, axis-1 = nH*hd)
+  ||| K : [seq, numKvHeads * headDim]
+  ||| V : [seq, numKvHeads * headDim]
+  ||| Result: [seq, numHeads * headDim].
+  ||| Caller's responsibility: Q and K must already have RoPE applied
+  ||| per-head before this call.
+  primSdpa2d : AnyPtr -> AnyPtr -> AnyPtr
+            -> Int -> Int -> Int  -- numHeads, numKvHeads, headDim
+            -> Int                 -- isCausal (0/1)
+            -> AnyPtr
+
+  ||| Fused row-wise RMSNorm (HF LlamaRMSNorm formula).
+  ||| input  : [seqLen, hidden]
+  ||| weight : [hidden]
+  ||| eps    : scalar
+  ||| Per row i: rstd_i = 1 / sqrt(mean(input[i, :]^2) + eps);
+  |||            out[i, j] = input[i, j] * rstd_i * weight[j].
+  primRmsNorm2d : AnyPtr -> AnyPtr -> Double -> AnyPtr
+
+  ||| Fused SwiGLU activation core: silu(gate) * up. Both inputs share
+  ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
+  primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- UserExecutorConv — convolution + pooling slice
@@ -310,32 +337,43 @@ interface UserExecutorNN ex => UserExecutorConv (0 ex : Executor) where
 
 
 ----------------------------------------------------------------------
--- UserExecutorTraining — autograd + param registry + IO + misc slice
+-- Training surface: six cohesive sub-slices + an aggregate
+--
+-- What used to be `UserExecutorTraining` (~57 methods, the legacy
+-- monolith covering autograd + param registry + optimizer + serialize
+-- + profiling + dtype-streamed creators + 3 fused inference ops) is
+-- split into six small interfaces that group by *responsibility*:
+--
+--   UserExecutorAutograd       — grad flag + no-grad bracket + backward
+--   UserExecutorParamRegistry  — C-side param table + Polyak blend
+--   UserExecutorOptimizer      — SGD/RMSProp/Adam/AdamW + native train step
+--   UserExecutorSerialize      — SafeTensors param + optimizer round-trip
+--   UserExecutorProfiling      — op counters + epoch hooks + live/peak
+--   UserExecutorTensorCreate   — shape queries + item reads + dtype-
+--                                streamed creators + fused param-init
+--
+-- `UserExecutorTraining ex` is now an aggregate constraint defined
+-- below: every backend that wants the legacy surface declares trivial
+-- empty instances of the six sub-interfaces (one per `primX = ...`
+-- block) plus a one-liner `UserExecutorTraining FooExec where`. All
+-- existing `UserExecutorTraining ex =>` callsites continue to
+-- elaborate unchanged.
+--
+-- `UserExecutorInference ex` is a parallel aggregate documenting the
+-- *minimum* surface a third-party inference-only backend needs:
+-- `(Conv + TensorCreate + Transfer + Quant)`. Skipping the four
+-- training-only sub-slices (Autograd / ParamRegistry / Optimizer /
+-- Serialize) is a real reduction; an inference-only adapter sheds
+-- 27 methods of stub work.
+--
+-- The 3 fused inference ops (`primSdpa2d`, `primRmsNorm2d`,
+-- `primSwiGlu2d`) moved to `UserExecutorNN`. They are inference-side
+-- compute kernels, not training-only machinery.
 ----------------------------------------------------------------------
 
-||| The fifth and final slice. Closes the chain
-||| `Core <- Linear <- NN <- Conv <- Tape`. Covers autograd
-||| (requiresGrad, noGradBegin/End, detach, withGrad), tensor-handle
-||| shape queries, param/state allocation, and the doubles-array
-||| scratch helpers.
-|||
-||| Methods that read or mutate process-global state which the
-||| optimizer accesses via direct unaliased FFI (the param registry's
-||| `param_count` / `param_name` / `param_grad_item*` /
-||| `param_zero_all_grads` / `param_subtract_delta`, plus the global
-||| `tensor_print` / `tensor_write_double` debug paths) were removed
-||| from the interface. Their dispatch was a fiction: every built-in
-||| forwarded them to the same `*Unified` C symbol, and the consumer
-||| of that state (`native_train_step`, the layers' direct
-||| `prim__paramRegister` call) bypasses the interface entirely. A
-||| BYO author binding those methods to their own backend would have
-||| seen the bindings sit unused. The methods retained below operate
-||| on a backend-specific Tensor handle or autograd state, so they
-||| are the dispatch surface that can grow live as layers gain
-||| `UserExecutorTraining ex =>` constraints.
+||| Reverse-mode autodiff control surface.
 public export
-interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
-  -- Autograd flag --------------------------------------------------
+interface UserExecutorCore ex => UserExecutorAutograd (0 ex : Executor) where
   primRequiresGrad      : AnyPtr -> Int
   primSetRequiresGrad   : AnyPtr -> Int -> PrimIO ()
   primNoGradBegin       : PrimIO ()
@@ -345,36 +383,19 @@ interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   ||| Run reverse-mode autodiff from a scalar loss tensor.
   primBackward          : AnyPtr -> PrimIO ()
 
-  -- Shape / info queries -------------------------------------------
-  primTensorDim         : AnyPtr -> Int
-  primTensorSizeAt      : AnyPtr -> Int -> Int
-
-  -- Scalar reads / host-buffer creation / data loading ------------
-  -- (kept off `UserExecutorCore` so minimal BYO backends needn't
-  -- implement them; full backends provide them here.)
-  ||| Read element `(r, c)` from a 2-D tensor as a host Double.
-  primItem2d            : AnyPtr -> Int -> Int -> Double
-  ||| Load image `idx` from an MNIST dataset handle into a tensor of the
-  ||| dtype selected by the trailing `dtypeTag`. Args: (handle, idx, dtypeTag).
-  primMnistGetImage     : AnyPtr -> Int -> Int -> AnyPtr
-  ||| One-hot encode an int-index buffer into a [len, classes]
-  ||| matrix in the dtype selected by the trailing `dtypeTag` (so the
-  ||| produced tensor honestly matches the Idris `dt`; 0/1 is exact in
-  ||| every dtype). Args: (index buffer, len, classes, dtypeTag).
-  primOneHot            : AnyPtr -> Int -> Int -> Int -> AnyPtr
-
-  -- Param registry (optimizer-side) --------------------------------
+||| C-side parameter registry. Tracks named tensors so the optimizer
+||| can step them, the serializer can save/load them, and the EMA can
+||| blend them. Per-backend; the registry IS the canonical bind from
+||| paramId → tensor handle.
+public export
+interface UserExecutorAutograd ex => UserExecutorParamRegistry (0 ex : Executor) where
   primParamRegister     : String -> AnyPtr -> AnyPtr
-
   ||| Polyak / EMA blend across the registry: for every pair of
   ||| params whose paramIds share the (onlineScope, targetScope)
   ||| pair (`<onlineScope><suffix>` and `<targetScope><suffix>`),
   ||| set target ← (1 - τ)·target + τ·online. Per-backend because
-  ||| the registry is per-backend. Returns the count of pairs
-  ||| updated.
+  ||| the registry is per-backend. Returns the count of pairs updated.
   primPolyakBlend       : Double -> String -> String -> PrimIO Int
-
-  -- Registry queries (optimizer-side) ------------------------------
   ||| Number of params registered in this backend's registry.
   primParamCount        : PrimIO Int
   ||| paramId of the `i`th registered param.
@@ -384,7 +405,11 @@ interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   ||| Zero every registered param's gradient.
   primParamZeroAll      : PrimIO ()
 
-  -- Optimizer creation + mutation ----------------------------------
+||| Optimizers built over the param registry. Each backend owns the
+||| state buffers; `primNativeTrainStep` fuses zero_grad + backward +
+||| clip + step into one FFI call per training step.
+public export
+interface UserExecutorParamRegistry ex => UserExecutorOptimizer (0 ex : Executor) where
   ||| Create a backend-specific optimizer over this backend's
   ||| registry. The returned handle is opaque and backend-bound; it
   ||| is consumed by `primNativeTrainStep` / the LR setters below.
@@ -406,11 +431,13 @@ interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   ||| → unscale grads (divide by `scale`, check non-finite) → clip →
   ||| step → return the *unscaled* loss. NaN return = non-finite grad
   ||| detected, step was skipped (caller halves the scale state).
-  ||| Wired on all three backends — tape via shared/training/optimizer.c,
-  ||| torch + mlx via per-backend optimizer.cpp ports.
   primNativeTrainStepScaled : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
 
-  -- SafeTensors serialization (registry + optimizer state) ---------
+||| SafeTensors round-trip for the param registry + optimizer state.
+||| Layered on Optimizer because the optimizer state buffers it
+||| serializes belong to the optimizer instance.
+public export
+interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) where
   ||| Save every registered param to a .safetensors file (rc 0 = ok).
   primParamSave           : String -> PrimIO Int
   ||| Load params from file into the registry, strict dtype.
@@ -422,7 +449,11 @@ interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   ||| Load optimizer state buffers from a file.
   primOptimizerLoad       : AnyPtr -> String -> PrimIO Int
 
-  -- Profiling (per-backend op-timing counters) --------------------
+||| Op-timing counters + epoch hooks + live/peak-handle reporting.
+||| Orthogonal to autograd; sits next to `Core` because it observes,
+||| doesn't mutate, the training surface.
+public export
+interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
   ||| Reset this backend's op-timing profile counters.
   primProfileReset        : PrimIO ()
   ||| Print this backend's profile breakdown to stderr.
@@ -459,14 +490,12 @@ interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   ||| that determines whether a backend hits its handle/buffer ceiling.
   ||| Ignored arg defeats constant-folding; pass a varying value.
   primPeakLiveCount       : Int -> Int
-
   ||| TODO #393 op-submission diagnostic. Bumped at every from_tensor()
   ||| wrap on torch (counts graph nodes per forward); no-op on tape
   ||| and mlx (their per-op submission story is different — tape is
   ||| eager-CPU, mlx is lazy-batched via mx::array). Use bracketed
   ||| `primPerfReset` + `primPerfOpCount` at example sites to extract
-  ||| per-forward op counts without instrumenting every kernel
-  ||| wrapper.
+  ||| per-forward op counts without instrumenting every kernel wrapper.
   primPerfReset           : PrimIO ()
   ||| Returns `Int` (not `Bits64`) — `PrimIO Bits64` triggered a
   ||| cumulative-state crash on tape F32 HfLlama (#401, 2026-05-31).
@@ -476,35 +505,26 @@ interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   ||| codepath used by every other counter FFI in the codebase.
   primPerfOpCount         : PrimIO Int
 
-  ||| TODO #399 Commit B — fused scaled-dot-product attention.
-  ||| Q : [seq, numHeads * headDim] (flat layout, axis-1 = nH*hd)
-  ||| K : [seq, numKvHeads * headDim]
-  ||| V : [seq, numKvHeads * headDim]
-  ||| Result: [seq, numHeads * headDim].
-  ||| Caller's responsibility: Q and K must already have RoPE applied
-  ||| per-head before this call.
-  primSdpa2d : AnyPtr -> AnyPtr -> AnyPtr
-            -> Int -> Int -> Int  -- numHeads, numKvHeads, headDim
-            -> Int                 -- isCausal (0/1)
-            -> AnyPtr
+||| Tensor creation surface: shape queries + host item reads + dtype-
+||| streamed creators + fused param-init. Inference-only adapters
+||| implement this *without* the four training sub-slices above.
+public export
+interface UserExecutorCore ex => UserExecutorTensorCreate (0 ex : Executor) where
+  -- Shape / info queries -------------------------------------------
+  primTensorDim         : AnyPtr -> Int
+  primTensorSizeAt      : AnyPtr -> Int -> Int
 
-  ||| Fused row-wise RMSNorm (HF LlamaRMSNorm formula).
-  ||| input  : [seqLen, hidden]
-  ||| weight : [hidden]
-  ||| eps    : scalar
-  ||| Per row i: rstd_i = 1 / sqrt(mean(input[i, :]^2) + eps);
-  |||            out[i, j] = input[i, j] * rstd_i * weight[j].
-  ||| Replaces the per-row 7-primitive chain (narrow / mul / sum /
-  ||| mul_scalar / add_scalar / sqrt / div / mul) in
-  ||| `HfCommon.applyRmsNorm2dRaw` with one FFI call.
-  primRmsNorm2d : AnyPtr -> AnyPtr -> Double -> AnyPtr
-
-  ||| Fused SwiGLU activation core: silu(gate) * up. Both inputs share
-  ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
-  ||| Replaces the tsilu + tmul pair in HfLlama.applyMlp with one FFI
-  ||| call. The decomposed chain emits two tape entries; this op emits
-  ||| one (tape) or composes into a smaller subgraph (torch / mlx).
-  primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
+  -- Scalar reads / data loading
+  ||| Read element `(r, c)` from a 2-D tensor as a host Double.
+  primItem2d            : AnyPtr -> Int -> Int -> Double
+  ||| Load image `idx` from an MNIST dataset handle into a tensor of the
+  ||| dtype selected by the trailing `dtypeTag`. Args: (handle, idx, dtypeTag).
+  primMnistGetImage     : AnyPtr -> Int -> Int -> AnyPtr
+  ||| One-hot encode an int-index buffer into a [len, classes]
+  ||| matrix in the dtype selected by the trailing `dtypeTag` (so the
+  ||| produced tensor honestly matches the Idris `dt`; 0/1 is exact in
+  ||| every dtype). Args: (index buffer, len, classes, dtypeTag).
+  primOneHot            : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
   -- dtype-streamed creation -----------------------------------------
   -- Each takes a trailing (streamTag, dtypeTag) pair; the backend's
@@ -539,6 +559,22 @@ interface UserExecutorConv ex => UserExecutorTraining (0 ex : Executor) where
   -- Seed the backend's init RNG (torch::manual_seed equivalent). No-op
   -- on backends without a seedable init-RNG.
   primSetInitSeedStreamed : Bits64 -> Int -> PrimIO ()
+
+||| Legacy training aggregate. Holds the full pre-split surface for
+||| backwards compatibility with all `UserExecutorTraining ex =>`
+||| callsites. Per-backend instances are one-liner `UserExecutorTraining
+||| FooExec where` declarations — the actual prim* assignments live
+||| in the six sub-instance blocks above. Resolving this constraint
+||| transitively brings in everything an existing layer needs.
+public export
+interface (UserExecutorConv ex,
+           UserExecutorSerialize ex,
+           UserExecutorProfiling ex,
+           UserExecutorTensorCreate ex) =>
+          UserExecutorTraining (0 ex : Executor) where
+
+-- `UserExecutorInference` aggregate moved to end of file (after
+-- `UserExecutorTransfer` + `UserExecutorQuant` are declared).
 
 
 ----------------------------------------------------------------------
@@ -647,3 +683,24 @@ interface UserExecutorCore ex => UserExecutorQuant (0 ex : Executor) where
   primTernaryQuantWithScale2d     : AnyPtr -> AnyPtr -> AnyPtr
   primCreateTernaryFromHfPacked2d : AnyPtr -> Int -> Int -> AnyPtr
   primBitlinearFwdHfQuant         : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> AnyPtr -> Double -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserExecutorInference — inference-only aggregate
+----------------------------------------------------------------------
+
+||| Inference-only aggregate. Documents the minimum surface a third-
+||| party backend that ships only forward-pass + checkpoint-load (no
+||| optimizer, no autograd) needs to implement: `Conv` (transitively
+||| pulls in Core + Linear + NN, which now hosts the fused inference
+||| ops `primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d`), `TensorCreate`
+||| (data loading + dtype-streamed creators), `Transfer` (cross-backend
+||| handles), and `Quant` (BitNet ternary surface). Skipping Autograd /
+||| ParamRegistry / Optimizer / Serialize is a real reduction — those
+||| four sub-slices together hold 27 of the 57 legacy Training methods.
+public export
+interface (UserExecutorConv ex,
+           UserExecutorTensorCreate ex,
+           UserExecutorTransfer ex,
+           UserExecutorQuant ex) =>
+          UserExecutorInference (0 ex : Executor) where

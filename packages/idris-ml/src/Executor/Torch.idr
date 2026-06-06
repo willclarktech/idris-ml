@@ -359,6 +359,16 @@ prim__pairFirstTorch : AnyPtr -> AnyPtr
 prim__pairSecondTorch : AnyPtr -> AnyPtr
 
 
+-- Fused inference ops (used by `UserExecutorNN` below; FFI decls
+-- moved up from the legacy `Training` slice region so they
+-- precede their first use in the NN instance.)
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-torch (foreign-procedure \"tensor_sdpa_2d_torch\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-torch) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__sdpa2dTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-rms-norm-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-rms-norm-2d-torch (foreign-procedure \"tensor_rms_norm_2d_torch\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-rms-norm-2d-torch) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__rmsNorm2dTorch : AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-torch (foreign-procedure \"tensor_swiglu_2d_torch\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-torch) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__swiGlu2dTorch : AnyPtr -> AnyPtr -> AnyPtr
+
 public export
 {d : TorchHwDev} -> UserExecutorNN (TorchExecutor d) where
   primGelu             = prim__geluTorch
@@ -384,6 +394,11 @@ public export
   primLstmGatesPair    = prim__lstmGatesPairTorch
   primPairFirst        = prim__pairFirstTorch
   primPairSecond       = prim__pairSecondTorch
+
+  -- Fused inference ops (lifted from legacy Training slice)
+  primSdpa2d                   = prim__sdpa2dTorch
+  primRmsNorm2d                = prim__rmsNorm2dTorch
+  primSwiGlu2d                 = prim__swiGlu2dTorch
 
 
 ----------------------------------------------------------------------
@@ -505,14 +520,8 @@ prim__peakLiveCountTorch : Int -> Int
 prim__perfResetTorch : PrimIO ()
 %foreign "C:tensor_perf_op_count_torch,libidrisml"
 prim__perfOpCountTorch : PrimIO Int
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-torch (foreign-procedure \"tensor_sdpa_2d_torch\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-torch) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
-prim__sdpa2dTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-rms-norm-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-rms-norm-2d-torch (foreign-procedure \"tensor_rms_norm_2d_torch\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-rms-norm-2d-torch) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
-prim__rmsNorm2dTorch : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-torch (foreign-procedure \"tensor_swiglu_2d_torch\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-torch) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
-prim__swiGlu2dTorch : AnyPtr -> AnyPtr -> AnyPtr
 
 
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-streamed-torch)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-streamed-torch (foreign-procedure \"tensor_create_scalar_streamed_torch\" (double int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-streamed-torch) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
@@ -564,7 +573,59 @@ prim__createParam4dConstStreamedTorch : Int -> Int -> Int -> Int -> Double -> In
 prim__setInitSeedStreamedTorch : Bits64 -> Int -> PrimIO ()
 
 public export
-{d : TorchHwDev} -> UserExecutorTraining (TorchExecutor d) where
+{d : TorchHwDev} -> UserExecutorAutograd (TorchExecutor d) where
+  primRequiresGrad         = prim__requiresGradTorch
+  primSetRequiresGrad      = prim__setRequiresGradTorch
+  primBackward             = prim__backwardTorch
+  primNoGradBegin          = prim__noGradBeginTorch
+  primNoGradEnd            = prim__noGradEndTorch
+  primDetach               = prim__detachTorch
+  primWithGrad             = prim__withGradTorch
+
+public export
+{d : TorchHwDev} -> UserExecutorParamRegistry (TorchExecutor d) where
+  primParamRegister        = prim__paramRegisterTorch
+  primPolyakBlend          = prim__polyakBlendTorch
+  primParamCount           = prim__paramCountTorch
+  primParamName            = prim__paramNameTorch
+  primParamGradItemAt      = prim__paramGradItemAtTorch
+  primParamZeroAll         = prim__paramZeroAllTorch
+
+public export
+{d : TorchHwDev} -> UserExecutorOptimizer (TorchExecutor d) where
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdTorch
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTorch
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamTorch
+  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTorch
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTorch
+  primOptimizerSetLr           = prim__optimizerSetLrTorch
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
+  primNativeTrainStep          = prim__nativeTrainStepTorch
+  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTorch
+
+public export
+{d : TorchHwDev} -> UserExecutorSerialize (TorchExecutor d) where
+  primParamSave                = prim__paramSaveTorch
+  primParamLoad                = prim__paramLoadTorch
+  primParamLoadWithPolicy      = prim__paramLoadWithPolicyTorch
+  primOptimizerSave            = prim__optimizerSaveTorch
+  primOptimizerLoad            = prim__optimizerLoadTorch
+
+public export
+{d : TorchHwDev} -> UserExecutorProfiling (TorchExecutor d) where
+  primProfileReset             = prim__profileResetTorch
+  primProfileReport            = prim__profileReportTorch
+  primEpochBegin               = prim__epochBeginTorch
+  primEpochEnd                 = prim__epochEndTorch
+  primReleaseAllPersistent     = prim__releaseAllPersistentTorch
+  primResetForEval             = prim__resetForEvalTorch
+  primLiveCount                = prim__liveCountTorch
+  primPeakLiveCount            = prim__peakLiveCountTorch
+  primPerfReset                = prim__perfResetTorch
+  primPerfOpCount              = prim__perfOpCountTorch
+
+public export
+{d : TorchHwDev} -> UserExecutorTensorCreate (TorchExecutor d) where
   primCreateScalarStreamed        = prim__createScalarStreamedTorch
   primCreateStreamed              = prim__createStreamedTorch
   primCreate1dStreamed            = prim__create1dStreamedTorch
@@ -585,53 +646,14 @@ public export
   primCreateParam3dConstStreamed  = prim__createParam3dConstStreamedTorch
   primCreateParam4dConstStreamed  = prim__createParam4dConstStreamedTorch
   primSetInitSeedStreamed         = prim__setInitSeedStreamedTorch
-  primRequiresGrad         = prim__requiresGradTorch
-  primSetRequiresGrad      = prim__setRequiresGradTorch
-  primBackward             = prim__backwardTorch
-  primNoGradBegin          = prim__noGradBeginTorch
-  primNoGradEnd            = prim__noGradEndTorch
-  primDetach               = prim__detachTorch
-  primWithGrad             = prim__withGradTorch
   primTensorDim            = prim__tensorDimTorch
   primTensorSizeAt         = prim__tensorSizeAtTorch
-  primParamRegister        = prim__paramRegisterTorch
   primItem2d               = prim__item2dTorch
   primMnistGetImage        = prim__mnistGetImageTorch
   primOneHot               = prim__oneHotTorch
-  primPolyakBlend          = prim__polyakBlendTorch
-  primParamCount           = prim__paramCountTorch
-  primParamName            = prim__paramNameTorch
-  primParamGradItemAt      = prim__paramGradItemAtTorch
-  primParamZeroAll         = prim__paramZeroAllTorch
-  primOptimizerCreateSgd       = prim__optimizerCreateSgdTorch
-  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTorch
-  primOptimizerCreateAdam      = prim__optimizerCreateAdamTorch
-  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTorch
-  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTorch
-  primOptimizerSetLr           = prim__optimizerSetLrTorch
-  primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
-  primNativeTrainStep          = prim__nativeTrainStepTorch
-  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTorch
-  primParamSave                = prim__paramSaveTorch
-  primParamLoad                = prim__paramLoadTorch
-  primParamLoadWithPolicy      = prim__paramLoadWithPolicyTorch
-  primOptimizerSave            = prim__optimizerSaveTorch
-  primOptimizerLoad            = prim__optimizerLoadTorch
-  primProfileReset             = prim__profileResetTorch
-  primProfileReport            = prim__profileReportTorch
-  primEpochBegin               = prim__epochBeginTorch
-  primEpochEnd                 = prim__epochEndTorch
-  primReleaseAllPersistent     = prim__releaseAllPersistentTorch
-  primResetForEval             = prim__resetForEvalTorch
-  primLiveCount                = prim__liveCountTorch
-  primPeakLiveCount            = prim__peakLiveCountTorch
-  primPerfReset                = prim__perfResetTorch
-  primPerfOpCount              = prim__perfOpCountTorch
-  primSdpa2d                   = prim__sdpa2dTorch
-  primRmsNorm2d                = prim__rmsNorm2dTorch
-  primSwiGlu2d                 = prim__swiGlu2dTorch
 
-
+public export
+{d : TorchHwDev} -> UserExecutorTraining (TorchExecutor d) where
 ----------------------------------------------------------------------
 -- Compatible (TorchExecutor, dt).
 --

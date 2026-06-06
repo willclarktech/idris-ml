@@ -328,6 +328,16 @@ prim__pairFirstTape : AnyPtr -> AnyPtr
 prim__pairSecondTape : AnyPtr -> AnyPtr
 
 
+-- Fused inference ops (used by `UserExecutorNN` below; FFI decls
+-- moved up from the legacy `Training` slice region so they
+-- precede their first use in the NN instance.)
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-tape (foreign-procedure \"tensor_sdpa_2d_tape\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-tape) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__sdpa2dTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-rms-norm-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-rms-norm-2d-tape (foreign-procedure \"tensor_rms_norm_2d_tape\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-rms-norm-2d-tape) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__rmsNorm2dTape : AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-tape (foreign-procedure \"tensor_swiglu_2d_tape\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-tape) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__swiGlu2dTape : AnyPtr -> AnyPtr -> AnyPtr
+
 public export
 UserExecutorNN TapeExecutor where
   primGelu             = prim__geluTape
@@ -353,6 +363,11 @@ UserExecutorNN TapeExecutor where
   primLstmGatesPair    = prim__lstmGatesPairTape
   primPairFirst        = prim__pairFirstTape
   primPairSecond       = prim__pairSecondTape
+
+  -- Fused inference ops (lifted from legacy Training slice)
+  primSdpa2d                   = prim__sdpa2dTape
+  primRmsNorm2d                = prim__rmsNorm2dTape
+  primSwiGlu2d                 = prim__swiGlu2dTape
 
 
 ----------------------------------------------------------------------
@@ -474,14 +489,8 @@ prim__peakLiveCountTape : Int -> Int
 prim__perfResetTape : PrimIO ()
 %foreign "C:tensor_perf_op_count_tape,libidrisml"
 prim__perfOpCountTape : PrimIO Int
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-tape (foreign-procedure \"tensor_sdpa_2d_tape\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-tape) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
-prim__sdpa2dTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-rms-norm-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-rms-norm-2d-tape (foreign-procedure \"tensor_rms_norm_2d_tape\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-rms-norm-2d-tape) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
-prim__rmsNorm2dTape : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-tape (foreign-procedure \"tensor_swiglu_2d_tape\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-tape) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
-prim__swiGlu2dTape : AnyPtr -> AnyPtr -> AnyPtr
 
 
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-streamed-tape)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-streamed-tape (foreign-procedure \"tensor_create_scalar_streamed_tape\" (double int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-streamed-tape) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
@@ -534,7 +543,59 @@ prim__createParam4dConstStreamedTape : Int -> Int -> Int -> Int -> Double -> Int
 prim__setInitSeedStreamedTape : Bits64 -> Int -> PrimIO ()
 
 public export
-UserExecutorTraining TapeExecutor where
+UserExecutorAutograd TapeExecutor where
+  primRequiresGrad         = prim__requiresGradTape
+  primSetRequiresGrad      = prim__setRequiresGradTape
+  primBackward             = prim__backwardTape
+  primNoGradBegin          = prim__noGradBeginTape
+  primNoGradEnd            = prim__noGradEndTape
+  primDetach               = prim__detachTape
+  primWithGrad             = prim__withGradTape
+
+public export
+UserExecutorParamRegistry TapeExecutor where
+  primParamRegister        = prim__paramRegisterTape
+  primPolyakBlend          = prim__polyakBlendTape
+  primParamCount           = prim__paramCountTape
+  primParamName            = prim__paramNameTape
+  primParamGradItemAt      = prim__paramGradItemAtTape
+  primParamZeroAll         = prim__paramZeroAllTape
+
+public export
+UserExecutorOptimizer TapeExecutor where
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdTape
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTape
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamTape
+  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTape
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTape
+  primOptimizerSetLr           = prim__optimizerSetLrTape
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrTape
+  primNativeTrainStep          = prim__nativeTrainStepTape
+  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTape
+
+public export
+UserExecutorSerialize TapeExecutor where
+  primParamSave                = prim__paramSaveTape
+  primParamLoad                = prim__paramLoadTape
+  primParamLoadWithPolicy      = prim__paramLoadWithPolicyTape
+  primOptimizerSave            = prim__optimizerSaveTape
+  primOptimizerLoad            = prim__optimizerLoadTape
+
+public export
+UserExecutorProfiling TapeExecutor where
+  primProfileReset             = prim__profileResetTape
+  primProfileReport            = prim__profileReportTape
+  primEpochBegin               = prim__epochBeginTape
+  primEpochEnd                 = prim__epochEndTape
+  primReleaseAllPersistent     = prim__releaseAllPersistentTape
+  primResetForEval             = prim__resetForEvalTape
+  primLiveCount                = prim__liveCountTape
+  primPeakLiveCount            = prim__peakLiveCountTape
+  primPerfReset                = prim__perfResetTape
+  primPerfOpCount              = prim__perfOpCountTape
+
+public export
+UserExecutorTensorCreate TapeExecutor where
   primCreateScalarStreamed        = prim__createScalarStreamedTape
   primCreateStreamed              = prim__createStreamedTape
   primCreate1dStreamed            = prim__create1dStreamedTape
@@ -555,53 +616,14 @@ UserExecutorTraining TapeExecutor where
   primCreateParam3dConstStreamed  = prim__createParam3dConstStreamedTape
   primCreateParam4dConstStreamed  = prim__createParam4dConstStreamedTape
   primSetInitSeedStreamed         = prim__setInitSeedStreamedTape
-  primRequiresGrad         = prim__requiresGradTape
-  primSetRequiresGrad      = prim__setRequiresGradTape
-  primBackward             = prim__backwardTape
-  primNoGradBegin          = prim__noGradBeginTape
-  primNoGradEnd            = prim__noGradEndTape
-  primDetach               = prim__detachTape
-  primWithGrad             = prim__withGradTape
   primTensorDim            = prim__tensorDimTape
   primTensorSizeAt         = prim__tensorSizeAtTape
-  primParamRegister        = prim__paramRegisterTape
   primItem2d               = prim__item2dTape
   primMnistGetImage        = prim__mnistGetImageTape
   primOneHot               = prim__oneHotTape
-  primPolyakBlend          = prim__polyakBlendTape
-  primParamCount           = prim__paramCountTape
-  primParamName            = prim__paramNameTape
-  primParamGradItemAt      = prim__paramGradItemAtTape
-  primParamZeroAll         = prim__paramZeroAllTape
-  primOptimizerCreateSgd       = prim__optimizerCreateSgdTape
-  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTape
-  primOptimizerCreateAdam      = prim__optimizerCreateAdamTape
-  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTape
-  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTape
-  primOptimizerSetLr           = prim__optimizerSetLrTape
-  primOptimizerSetParamLr      = prim__optimizerSetParamLrTape
-  primNativeTrainStep          = prim__nativeTrainStepTape
-  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTape
-  primParamSave                = prim__paramSaveTape
-  primParamLoad                = prim__paramLoadTape
-  primParamLoadWithPolicy      = prim__paramLoadWithPolicyTape
-  primOptimizerSave            = prim__optimizerSaveTape
-  primOptimizerLoad            = prim__optimizerLoadTape
-  primProfileReset             = prim__profileResetTape
-  primProfileReport            = prim__profileReportTape
-  primEpochBegin               = prim__epochBeginTape
-  primEpochEnd                 = prim__epochEndTape
-  primReleaseAllPersistent     = prim__releaseAllPersistentTape
-  primResetForEval             = prim__resetForEvalTape
-  primLiveCount                = prim__liveCountTape
-  primPeakLiveCount            = prim__peakLiveCountTape
-  primPerfReset                = prim__perfResetTape
-  primPerfOpCount              = prim__perfOpCountTape
-  primSdpa2d                   = prim__sdpa2dTape
-  primRmsNorm2d                = prim__rmsNorm2dTape
-  primSwiGlu2d                 = prim__swiGlu2dTape
 
-
+public export
+UserExecutorTraining TapeExecutor where
 ----------------------------------------------------------------------
 -- UserExecutorTransfer instance (cross-backend transfer surface)
 --
