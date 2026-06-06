@@ -655,10 +655,21 @@ public export
 -- `tensor_create_*_f64` symbols that allocate `mx::float64`; the
 -- corresponding 2026-05-31 mlx-bf16 + mlx-f16 work added the bf16/f16
 -- siblings. The type-level claim is honored at allocation.
--- Outstanding: ~72 hardcoded `mx::float32` constants in fused-op
--- kernels mix dtype with fp64/bf16/f16 inputs and produce wrong
--- math — being audited (see TODO row "Audit mlx fused-op + constant
--- pool dtype handling").
+-- Constant-pool audit (2026-06-06): the 28 `mx::float32` hits across
+-- `backend_mlx/` are all already correctly mixed-dtype-aware. The
+-- dropout F32 chain casts to operand dtype before multiply
+-- (`dropout.cpp:23`); the optimizer's `opt_dtype = mx::float32`
+-- default is overridden by the dtype-discovery loop at
+-- `optimizer.cpp:292-298`; `kF32_*` singletons in `precision.h:35-37`
+-- are only consumed by dropout + cast-replay (both correct); the F32
+-- stage in BF16/F16 narrowing constructors (`precision.h:79,92,104`)
+-- is intentional. The +62% mlx-gpu BF16 vs F32 wall on HfLlama-1B
+-- `runGenerate` (perf-changes.md 2026-05-31) therefore must come
+-- from somewhere outside the constant pool — `runGenerate` is
+-- inference, which bypasses dropout entirely (`dropout.cpp:17`).
+-- The likely real culprit is kernel-level mlx-Metal BF16
+-- performance vs F32 on Apple Silicon; tracked in the reframed
+-- TODO row "Audit mlx fused-op + constant pool dtype handling".
 --
 -- `MlxGpu` (`MlxDev MGpu`) supports F32, BF16, and F16. Metal GPUs
 -- dropped float64 support in mlx 0.31 (`Compatible (MlxDev MGpu) F64`
