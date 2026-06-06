@@ -10,6 +10,7 @@ import Compat.Random
 import Floating
 import Gym.ClassicControl.MountainCar
 import Gym.Env
+import Gym.Vector
 import Hpo.LrFinder
 import Layer.Activation
 import Layer.Core
@@ -40,6 +41,11 @@ ObsDim : Nat; ObsDim = 2
 Hidden : Nat; Hidden = 64
 NumActions : Nat; NumActions = 3
 MaxSteps : Nat; MaxSteps = 200
+
+||| Parallel envs collecting transitions in lockstep. Mirrors
+||| `Example.Dqn.NumEnvs`. env-0 is the primary; envs 1..N-1 auto-reset
+||| and continue feeding the buffer.
+NumEnvs : Nat; NumEnvs = 4
 
 QNet : Type
 QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions ExampleExecutor ExampleDType WithGrad
@@ -91,6 +97,33 @@ epsGreedyIO online obs eps = do
             else if u2 < (2.0 / 3.0) then 1
             else 2)
     else greedyAction online obs
+
+
+-- Batched epsilon-greedy across NumEnvs envs: one batched forward,
+-- then per-env eps-vs-greedy with independent random draws.
+epsGreedyBatched : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType g ->
+                   Vect n MCState -> Double -> IO (Vect n Nat)
+epsGreedyBatched qB envs eps = go 0 envs
+  where
+    go : Int -> Vect k MCState -> IO (Vect k Nat)
+    go _ [] = pure []
+    go i (_ :: rest) = do
+      u <- randomRIO (the Double 0.0, 1.0)
+      a <- if u < eps
+             then do
+               u2 <- randomRIO (the Double 0.0, 1.0)
+               pure (if u2 < (1.0 / 3.0) then 0
+                     else if u2 < (2.0 / 3.0) then 1
+                     else 2)
+             else do
+               let q0 = primItem2d {ex=ExampleExecutor} qB.tensorPtr i 0
+                   q1 = primItem2d {ex=ExampleExecutor} qB.tensorPtr i 1
+                   q2 = primItem2d {ex=ExampleExecutor} qB.tensorPtr i 2
+               pure (if q0 >= q1 && q0 >= q2 then 0
+                     else if q1 >= q2 then 1
+                     else 2)
+      as <- go (i + 1) rest
+      pure (a :: as)
 
 
 ----------------------------------------------------------------------
@@ -165,6 +198,7 @@ record DqnState where
   qNet      : QNet
   target    : QNet
   buffer    : ReplayBuffer ObsDim 1
+  envsRef   : IORef (VecEnv NumEnvs MCState)
   stepRef   : IORef Nat
   cfgEpsStart : Double
   cfgEpsEnd   : Double
@@ -237,6 +271,84 @@ runEpisode opt st0 = go st0 (MkMC (-0.5) 0.0) MaxSteps 0.0
           if isDone
             then pure (st', ret')
             else go st' envState' steps ret'
+
+
+----------------------------------------------------------------------
+-- Batched episode rollout: NumEnvs parallel envs collect transitions
+-- in lockstep; one batched action-selection forward per outer step.
+-- env-0 is the primary — its episode boundary marks the end of an
+-- epoch. Envs 1..N-1 auto-reset and continue filling buffer.
+-- Reward shaping is applied per-env using each env's old / new state.
+----------------------------------------------------------------------
+
+-- Step every env with its action; auto-reset on done. Returns next
+-- states, raw rewards, done flags. Per-env shaping applied by caller
+-- (needs the OLD state alongside the new state, like the sequential
+-- runEpisode's shapedReward helper).
+stepAllAutoResetMC : Vect n MCState -> Vect n Nat ->
+                     (Vect n MCState, Vect n Double, Vect n Bool)
+stepAllAutoResetMC [] [] = ([], [], [])
+stepAllAutoResetMC (s :: ss) (a :: as) =
+  case mcStep s a of
+    (r, s', outcome, _) =>
+      let isDone = done outcome
+          nextS  = if isDone then MkMC (-0.5) 0.0 else s'
+      in case stepAllAutoResetMC ss as of
+           (rest, rs, ds) => (nextS :: rest, r :: rs, isDone :: ds)
+
+-- Push N transitions to the replay buffer in order (env-0 first).
+-- Uses each env's own (oldState, action, shapedReward, newState, done)
+-- tuple; reward shaping is done here to keep callers simple.
+pushAllTransitionsMC : ReplayBuffer ObsDim 1 -> Double ->
+                       Vect n MCState -> Vect n Nat -> Vect n Double ->
+                       Vect n MCState -> Vect n Bool -> IO ()
+pushAllTransitionsMC _ _ [] [] [] [] [] = pure ()
+pushAllTransitionsMC buf shaping (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d :: ds) = do
+  let shapedR = r + shaping * abs s'.mcVel
+  push buf (MkTransition (mcObserve s) (actionToVec a) shapedR (mcObserve s') d)
+  pushAllTransitionsMC buf shaping ss as rs ss' ds
+
+runEpisodeBatched : NativeOptimizer ExampleExecutor -> DqnState -> IO (DqnState, Double)
+runEpisodeBatched opt st0 = do
+  startEnvs <- readIORef st0.envsRef
+  go st0 startEnvs.envs MaxSteps 0.0
+  where
+    go : DqnState -> Vect NumEnvs MCState -> Nat -> Double -> IO (DqnState, Double)
+    go st _ Z ret = do
+      writeIORef st.envsRef (MkVecEnv (replicate NumEnvs (MkMC (-0.5) 0.0)))
+      pure (st, ret)
+    go st envs (S steps) ret = do
+      stepCount <- readIORef st.stepRef
+      let eps = epsilonAt stepCount st.cfgEpsStart st.cfgEpsEnd st.cfgEpsDecay
+          obsRows : Vect NumEnvs (Vector ObsDim Double)
+          obsRows = map (\s => obsTensor (mcObserve s)) envs
+          batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
+          stateV : Tensor [NumEnvs, ObsDim] ExampleExecutor ExampleDType WithGrad
+          stateV = MkTensor batchPtr Nothing
+      actions <- withNoGrad {ex=ExampleExecutor} $ do
+        (_, qB) <- forwardVarBatch st.qNet stateV
+        epsGreedyBatched qB envs eps
+      case stepAllAutoResetMC envs actions of
+        (envs', rewards, dones) => do
+          pushAllTransitionsMC st.buffer st.cfgShaping envs actions rewards envs' dones
+          writeIORef st.stepRef (stepCount + 1)
+          let ret0 : Double
+              ret0 = head rewards
+              done0 : Bool
+              done0 = head dones
+              ret' = ret + ret0
+
+          st' <- trainIfReady opt st
+
+          when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
+            _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "online_" "target_"
+            pure ()
+
+          if done0
+            then do
+              writeIORef st'.envsRef (MkVecEnv envs')
+              pure (st', ret')
+            else go st' envs' steps ret'
 
 
 ----------------------------------------------------------------------
@@ -325,8 +437,11 @@ main = do
   _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "online_" "target_"
 
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
+  let initEnvs : VecEnv NumEnvs MCState
+      initEnvs = resetAll {state=MCState} {action=Nat} {obs=Vect 2 Double}
+  envsRef <- newIORef initEnvs
   stepRef <- newIORef (the Nat 0)
-  let st0 = MkDqnState qNet0 target0 buffer stepRef
+  let st0 = MkDqnState qNet0 target0 buffer envsRef stepRef
                        cfg.epsStart cfg.epsEnd cfg.epsDecay
                        cfg.targetSync cfg.batchSize cfg.gamma cfg.shaping
       opt = nativeAdamGroup "online_" cfg.lr 0.9 0.999 1.0e-8 10.0
@@ -337,7 +452,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 30 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\st, _ => do (st', ret) <- runEpisode opt st; pure (st', negate ret))
+      (\st, _ => do (st', ret) <- runEpisodeBatched opt st; pure (st', negate ret))
       (pure ()) opt st0
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
@@ -349,7 +464,7 @@ main = do
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
     (\st, _ => do
-       (st', ret) <- runEpisode opt st
+       (st', ret) <- runEpisodeBatched opt st
        recordReturn metrics ret
        pure (st', negate ret))
     (pure ())

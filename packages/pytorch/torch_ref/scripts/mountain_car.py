@@ -14,14 +14,16 @@ import random
 import sys
 import time
 
+import numpy as np
 import torch
 
 from torch_ref.models.mountain_car import (
+    NUM_ENVS,
     QNetwork,
     ReplayBuffer,
-    dqn_episode,
+    dqn_episode_batched,
     evaluate,
-    make_mountaincar_env,
+    make_mountaincar_vec_env,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix, set_device
@@ -70,13 +72,15 @@ def main() -> None:
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
-    env = make_mountaincar_env(args.seed)
+    vec_env = make_mountaincar_vec_env(args.seed, NUM_ENVS)
+    obs_state = [np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))]
     step_count = [0]
     print()
 
     def epoch_fn() -> float:
-        new_step, ep_return = dqn_episode(
-            env,
+        new_step, ep_return, new_obs = dqn_episode_batched(
+            vec_env,
+            obs_state[0],
             q,
             target,
             optimizer,
@@ -92,6 +96,7 @@ def main() -> None:
             rng,
         )
         step_count[0] = new_step
+        obs_state[0] = new_obs
         return -ep_return
 
     if args.lr_find:

@@ -35,6 +35,10 @@ from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem
 
 MAX_STEPS = 200  # gymnasium MountainCar-v0 default TimeLimit
 
+# Parallel envs collecting transitions in lockstep. Matches Idris-side
+# `Example.MountainCar.NumEnvs`.
+NUM_ENVS = 4
+
 
 def make_mountaincar_env(seed: int) -> gym.Env:
     """Create a seeded MountainCar-v0 env. Use `reset_to_center` to pin
@@ -98,6 +102,36 @@ def eps_greedy_action(q: QNetwork, obs: Tensor, epsilon: float, rng: random.Rand
         return rng.randrange(3)
     with torch.no_grad():
         return int(torch.argmax(q(obs)).item())
+
+
+def make_mountaincar_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+    """N MountainCar-v0 envs in a SyncVectorEnv, each reset to (-0.5, 0.0)."""
+    def _make(idx: int):
+        def _f():
+            return make_mountaincar_env(seed + idx)
+        return _f
+    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec.reset()
+    for sub in vec.envs:
+        reset_to_center(sub)
+    return vec
+
+
+def eps_greedy_batched(
+    q: QNetwork, obs_batch: Tensor, epsilon: float, rng: random.Random
+) -> np.ndarray:
+    """Batched epsilon-greedy across NUM_ENVS envs."""
+    n = obs_batch.shape[0]
+    with torch.no_grad():
+        q_vals = q(obs_batch)  # [N, 3]
+        greedy = torch.argmax(q_vals, dim=-1).cpu().numpy()
+    actions = np.zeros(n, dtype=np.int64)
+    for i in range(n):
+        if rng.random() < epsilon:
+            actions[i] = rng.randrange(3)
+        else:
+            actions[i] = int(greedy[i])
+    return actions
 
 
 def linear_epsilon(
@@ -174,6 +208,63 @@ def dqn_episode(
     return step_count, ep_return
 
 
+def dqn_episode_batched(
+    vec_env: gym.vector.SyncVectorEnv,
+    obs_np: np.ndarray,
+    q: QNetwork,
+    target: QNetwork,
+    optimizer: torch.optim.Optimizer,
+    buffer: ReplayBuffer,
+    step_count: int,
+    batch_size: int,
+    gamma: float,
+    target_sync_every: int,
+    eps_start: float,
+    eps_end: float,
+    eps_decay: int,
+    shaping: float,
+    rng: random.Random,
+) -> tuple[int, float, np.ndarray]:
+    """Batched DQN episode: NUM_ENVS parallel envs in lockstep. Each outer
+    step does one batched action-selection forward → N transitions pushed
+    → 1 gradient update. env-0 is primary; epoch terminates when env-0
+    done. Returns (new_step_count, env-0 raw episode return, new obs_np)."""
+    ep_return = 0.0
+    for _ in range(MAX_STEPS):
+        obs_t = obs_tensor(obs_np)
+        epsilon = linear_epsilon(step_count, eps_start, eps_end, eps_decay)
+        actions_np = eps_greedy_batched(q, obs_t, epsilon, rng)
+        next_obs_np, raw_rewards, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        next_obs_np = next_obs_np.astype(np.float64)
+        dones_np = np.logical_or(terms_np, truncs_np)
+        ep_return += float(raw_rewards[0])
+        for i in range(NUM_ENVS):
+            shaped_r = float(raw_rewards[i]) + shaping * abs(float(next_obs_np[i, 1]))
+            buffer.push(
+                obs_np[i].tolist(),
+                int(actions_np[i]),
+                shaped_r,
+                next_obs_np[i].tolist(),
+                bool(dones_np[i]),
+            )
+        for i in range(NUM_ENVS):
+            if dones_np[i]:
+                reset_to_center(vec_env.envs[i])
+                next_obs_np[i] = np.array([-0.5, 0.0], dtype=np.float64)
+        obs_np = next_obs_np
+        step_count += 1
+
+        if len(buffer) >= batch_size:
+            dqn_update(q, target, optimizer, buffer, batch_size, gamma, rng)
+
+        if step_count % target_sync_every == 0:
+            target.load_state_dict(q.state_dict())
+
+        if dones_np[0]:
+            break
+    return step_count, ep_return, obs_np
+
+
 def train_dqn(
     episodes: int = 1000,
     lr: float = 1e-3,
@@ -188,19 +279,23 @@ def train_dqn(
     seed: int = 42,
     log_every: int = 50,
 ) -> tuple[QNetwork, list[float]]:
+    """Batched DQN. NUM_ENVS envs collect transitions in lockstep via
+    `gym.vector.SyncVectorEnv`. Each "episode" = env-0's primary episode."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     q = QNetwork()
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
-    env = make_mountaincar_env(seed)
+    vec_env = make_mountaincar_vec_env(seed, NUM_ENVS)
+    obs_np = np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))
     history: list[float] = []
     step_count = 0
     t_start = time.monotonic()
     for ep in range(episodes):
-        step_count, ep_return = dqn_episode(
-            env,
+        step_count, ep_return, obs_np = dqn_episode_batched(
+            vec_env,
+            obs_np,
             q,
             target,
             optimizer,
