@@ -242,6 +242,22 @@ Commit at each step. PyTorch is the correctness oracle.
 
 **Coverage policy** — what "covered" means for the three backends, the principled-exclusion list, and the contributor checklist for adding new ops live in [`docs/develop/coverage-policy.md`](docs/develop/coverage-policy.md). Run `make coverage-gap-probe` to see current OP_* and FFI-symbol gaps. The three-axis target (symbol coverage + OP_* backward coverage + F32 paired oracle) is the yardstick; C-line % is advisory only.
 
+### Verification procedure on completion (cross-cutting — governs every landed change)
+
+**Every completed piece of work ends with an explicit, runnable verification procedure handed to the user.** Not "it should work" / "the tests passed" — the actual commands the user types to confirm the change does what was claimed, ordered cheapest-first, with the expected output called out for each layer.
+
+The procedure has three layers when applicable; pick the ones that match the change:
+
+- **Cheapest — automated gate already in CI**: name the `make test-*` / `scripts/check-*` target that exercises the change, and the expected pass line. If no existing target covers it, that's a hole — wire one in this commit (or file the gap as a follow-up row, not "skip verification"). Per `feedback_test_gates_must_run_in_ci`, test gates must run in CI; an unverified gate is not a gate.
+- **End-to-end — observable behavior**: the actual user-facing invocation (`make example-X` / a perf-run / a roundtrip test) with the env vars + flags that exercise the change, plus what to look for in stdout / on disk / in the perf log. Wrap heavy commands with `caffeinate -i nice -n 19 env MAKEFLAGS=-j2` per the heavy-command convention. If the run is more than a few seconds, include the paired `scripts/perf-run.sh` call per `feedback_no_expensive_run_without_log`.
+- **External-tool inspection** (when the change produces artifacts users will interrogate): the Python / shell snippet that loads the artifact and shows the expected shape / keys / values. Worked example: the activation-dump landing (2026-06-09, see CHANGELOG entry) — `python3 -c "from safetensors.numpy import load_file; ..."` showing the `__act/<label>/<i>` keys and per-layer shapes.
+
+**Don't conflate verification with TDD.** TDD's red-then-green is *during* implementation; verification is what the user runs *after* the landing. A passing test in CI is necessary, not sufficient — the verification block tells the user how to convince themselves the feature does what the commit message claims, not just that the tests didn't regress.
+
+**Don't outsource it.** "Run `make test`" is not a verification procedure for a new behavior; it's a regression check. Name the specific assertion / line / artifact that proves *this* change works, not a generic gate that would pass whether or not the change landed.
+
+**Tone**: terse, copy-paste ready, the user shouldn't have to assemble it. Three log levels / build flags / env vars get a table, not prose. Match the response shape the activation-dump "how do I test this?" answer used.
+
 ### Alignment policy (cross-cutting — governs all example work)
 
 **Identical defaults**: Idris examples and PyTorch references MUST use identical defaults for all hyperparameters (lr, batch size, epochs, seed, architecture, init). When a discrepancy is found, adopt the better practice in BOTH. When changing an example, always update both sides. See `docs/develop/reference-alignment.md`.
