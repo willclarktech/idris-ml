@@ -7,6 +7,7 @@ module Executor.Tape
 
 import Executor.Core
 import DType.Core
+import Backend
 import Hardware
 
 
@@ -751,3 +752,11 @@ HardwareClassed TapeExecutor where
 
 public export
 RunsOn TapeExecutor Cpu where
+
+
+----------------------------------------------------------------------
+-- Backend (type-level): tape is provided by TapeBackend.
+----------------------------------------------------------------------
+
+public export
+RunsVia TapeExecutor TapeBackend where

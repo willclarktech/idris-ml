@@ -7,6 +7,7 @@ module Executor.Torch
 
 import Executor.Core
 import DType.Core
+import Backend
 import Hardware
 
 
@@ -826,3 +827,12 @@ public export
 public export RunsOn (TorchExecutor TCpu)        Cpu       where
 public export RunsOn (TorchExecutor TMps)        AppleGpu  where
 public export {n : Nat} -> RunsOn (TorchExecutor (TCuda n)) (Cuda n) where
+
+
+----------------------------------------------------------------------
+-- Backend (type-level): every torch hardware variant is provided by
+-- TorchBackend.
+----------------------------------------------------------------------
+
+public export
+{hw : TorchHwDev} -> RunsVia (TorchExecutor hw) TorchBackend where

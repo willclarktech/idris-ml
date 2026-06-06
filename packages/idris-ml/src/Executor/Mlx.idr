@@ -7,6 +7,7 @@ module Executor.Mlx
 
 import Executor.Core
 import DType.Core
+import Backend
 import Hardware
 
 
@@ -844,3 +845,11 @@ public export
 
 public export RunsOn (MlxExecutor MCpu) Cpu      where
 public export RunsOn (MlxExecutor MGpu) AppleGpu where
+
+
+----------------------------------------------------------------------
+-- Backend (type-level): every mlx stream is provided by MlxBackend.
+----------------------------------------------------------------------
+
+public export
+{s : MlxStream} -> RunsVia (MlxExecutor s) MlxBackend where

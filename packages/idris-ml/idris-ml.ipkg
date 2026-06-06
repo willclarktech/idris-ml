@@ -6,6 +6,7 @@ depends = contrib
 
 modules = Compat.Random
         , Array
+        , Backend
         , Backprop
         , Checkpoint
         , Curriculum
