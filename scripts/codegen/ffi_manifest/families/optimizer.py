@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "native_train_step_scaled": Entry(
         args=("R", "i", "d", "T", "d", "d"),

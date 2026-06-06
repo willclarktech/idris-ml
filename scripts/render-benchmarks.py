@@ -109,7 +109,7 @@ def render_axis_table(latest, axis):
             out.append(f"### {section}")
             out.append("")
         out.append(
-            "| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |"
+            "| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |"  # noqa: E501
         )
         out.append("|---|---:|---:|---:|---:|---|")
         for label, runtimes in sorted(rows):

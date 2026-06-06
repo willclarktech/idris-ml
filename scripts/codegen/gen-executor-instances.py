@@ -191,7 +191,7 @@ def main():
     if args.check:
         if diffs:
             print(f"gen-executor-instances --check: {len(diffs)} file(s) would change:")
-            for backend, path in diffs:
+            for _backend, path in diffs:
                 print(f"  - {path.relative_to(REPO_ROOT)}")
             print("Re-run scripts/codegen/gen-executor-instances.py to update.")
             sys.exit(1)
@@ -199,7 +199,7 @@ def main():
     else:
         if diffs:
             print(f"gen-executor-instances: regenerated {len(diffs)} file(s):")
-            for backend, path in diffs:
+            for _backend, path in diffs:
                 print(f"  - {path.relative_to(REPO_ROOT)}")
         else:
             print("gen-executor-instances: no changes")

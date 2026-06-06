@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "optimizer_load": Entry(
         args=("R", "s"),

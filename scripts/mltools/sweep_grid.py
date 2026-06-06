@@ -31,7 +31,10 @@ from __future__ import annotations
 import csv
 import io
 import random
-from typing import Iterable, Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Re-export parse_result from perf_log so callers see one canonical
 # function. Both perf-log entries and sweep RESULT lines use the same
@@ -53,7 +56,7 @@ def expand_grid(grid: dict[str, list]) -> list[dict[str, str]]:
     # Stringify values up-front; the runner only cares about CLI form.
     value_lists = [[str(v) for v in grid[k]] for k in keys]
     out: list[dict[str, str]] = [{}]
-    for k, vs in zip(keys, value_lists):
+    for k, vs in zip(keys, value_lists, strict=True):
         out = [{**cfg, k: v} for cfg in out for v in vs]
     return out
 
@@ -61,7 +64,7 @@ def expand_grid(grid: dict[str, list]) -> list[dict[str, str]]:
 def random_sample(
     configs: list[dict[str, str]],
     n: int,
-    rng: Optional[random.Random] = None,
+    rng: random.Random | None = None,
 ) -> list[dict[str, str]]:
     """Uniform without-replacement subsample, deterministic if `rng`
     is supplied."""

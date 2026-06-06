@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_abs": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primAbs"),
     "tensor_add_scalar": Entry(

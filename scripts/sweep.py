@@ -145,7 +145,7 @@ def _run_one(
     tag = "_".join(f"{k.lstrip('-')}={v}" for k, v in cfg.items())
     out_path = Path(tmpdir) / f"{tag}.out"
     with out_path.open("w") as fh:
-        proc = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT, check=False)
+        subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT, check=False)
     result_line = ""
     for line in out_path.read_text().splitlines():
         if line.startswith("RESULT"):

@@ -36,13 +36,11 @@ Usage:
 Exit 0 on clean; 1 on any violation.
 """
 
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from ffi_manifest import ANY_FFI_RE, parse_args, strip_suffix
-
 
 # Files scanned by this lint. Larger set than WRAP_HANDLE_FILES because
 # this lint also covers Layer/*.idr and any other site that declares

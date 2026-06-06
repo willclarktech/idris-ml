@@ -28,12 +28,16 @@ followed by a newline; the log file is append-only by convention.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 LOG_PATH_REL = "docs/develop/perf-log.jsonl"
 
@@ -49,37 +53,31 @@ _OP_LINE_RE = re.compile(r"^([A-Za-z][^\t:]*?):\s*([0-9.]+)\s*ms\s*\((\d+)\s*ite
 _OP_SECTION_RE = re.compile(r"^---\s*(.+?)\s*---\s*$")
 
 
-def parse_perf_marker(text: str) -> Optional[float]:
+def parse_perf_marker(text: str) -> float | None:
     """Last `PERF_MS_PER_EP=<float>` value in text, or None."""
-    last: Optional[float] = None
+    last: float | None = None
     for line in text.splitlines():
         if line.startswith("PERF_MS_PER_EP="):
-            try:
+            with contextlib.suppress(ValueError):
                 last = float(line[len("PERF_MS_PER_EP=") :])
-            except ValueError:
-                pass
     return last
 
 
-def parse_axis_d_markers(text: str) -> tuple[Optional[int], Optional[float]]:
+def parse_axis_d_markers(text: str) -> tuple[int | None, float | None]:
     """Last `PERF_GENERATE_TOKENS=<int>` and `PERF_GENERATE_WALL_MS=<float>`."""
-    tokens: Optional[int] = None
-    wall: Optional[float] = None
+    tokens: int | None = None
+    wall: float | None = None
     for line in text.splitlines():
         if line.startswith("PERF_GENERATE_TOKENS="):
-            try:
+            with contextlib.suppress(ValueError):
                 tokens = int(line[len("PERF_GENERATE_TOKENS=") :])
-            except ValueError:
-                pass
         elif line.startswith("PERF_GENERATE_WALL_MS="):
-            try:
+            with contextlib.suppress(ValueError):
                 wall = float(line[len("PERF_GENERATE_WALL_MS=") :])
-            except ValueError:
-                pass
     return tokens, wall
 
 
-def parse_epoch(line: str) -> Optional[int]:
+def parse_epoch(line: str) -> int | None:
     """Pull `epoch N` out of a Converged/Diverged log line."""
     if not line:
         return None
@@ -219,7 +217,7 @@ def now_ts(_clock=None) -> tuple[str, str]:
 
     The `_clock` hook is for tests; production callers leave it None.
     """
-    n = _clock() if _clock else datetime.now(timezone.utc)
+    n = _clock() if _clock else datetime.now(UTC)
     return n.strftime("%Y-%m-%dT%H:%M:%SZ"), n.strftime("%Y-%m-%d")
 
 
@@ -228,7 +226,7 @@ def now_ts(_clock=None) -> tuple[str, str]:
 # ----------------------------------------------------------------------
 
 
-def resolve_log_path(path: Optional[str | Path] = None) -> Path:
+def resolve_log_path(path: str | Path | None = None) -> Path:
     if path is not None:
         return Path(path)
     here = Path(__file__).resolve()
@@ -236,7 +234,7 @@ def resolve_log_path(path: Optional[str | Path] = None) -> Path:
     return repo_root / LOG_PATH_REL
 
 
-def _append(entry: dict, log_path: Optional[str | Path]) -> Path:
+def _append(entry: dict, log_path: str | Path | None) -> Path:
     path = resolve_log_path(log_path)
     if not path.exists():
         path.touch()
@@ -261,11 +259,11 @@ def append_run(
     exit_code: int,
     wall_ms: int,
     wall_human: str,
-    parse_log: Optional[str | Path] = None,
-    torch_dtype: Optional[str] = None,
-    mlx_dtype: Optional[str] = None,
-    tape_dtype: Optional[str] = None,
-    log_path: Optional[str | Path] = None,
+    parse_log: str | Path | None = None,
+    torch_dtype: str | None = None,
+    mlx_dtype: str | None = None,
+    tape_dtype: str | None = None,
+    log_path: str | Path | None = None,
 ) -> dict:
     """Build a `kind="run"` entry and append it.
 
@@ -327,7 +325,7 @@ def append_baseline(
     ratio: str,
     n_long: int,
     seed: int,
-    log_path: Optional[str | Path] = None,
+    log_path: str | Path | None = None,
 ) -> dict:
     """Build a `kind="baseline"` entry from raw markers.
 
@@ -336,7 +334,7 @@ def append_baseline(
     """
     ts, date = now_ts()
 
-    def num(s: str) -> Optional[float]:
+    def num(s: str) -> float | None:
         try:
             return float(s)
         except (ValueError, TypeError):
@@ -383,7 +381,7 @@ def append_op_bench(
     wall_ms: float,
     iters: int,
     commit: str,
-    log_path: Optional[str | Path] = None,
+    log_path: str | Path | None = None,
 ) -> dict:
     ts, date = now_ts()
     entry = {
@@ -408,7 +406,7 @@ def append_op_bench(
 # ----------------------------------------------------------------------
 
 
-def iter_entries(log_path: Optional[str | Path] = None) -> Iterator[dict]:
+def iter_entries(log_path: str | Path | None = None) -> Iterator[dict]:
     """Yield each JSONL entry. Skips blank lines + JSON-decode errors."""
     path = resolve_log_path(log_path)
     if not path.exists():
@@ -496,7 +494,7 @@ def _cmd_append_axis_row(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="mltools.perf_log",
         description="Perf-log entry writer CLI (one subcommand per `kind`).",

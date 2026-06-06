@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_alloc_host": Entry(
         args=("i",),

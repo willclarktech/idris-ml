@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "idrisml_seq": Entry(args=("R", "R"), ret="R"),
     "param_register_return": Entry(args=("s", "T"), ret="T"),

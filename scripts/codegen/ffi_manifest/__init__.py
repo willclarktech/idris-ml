@@ -19,7 +19,7 @@ Each entry is an `Entry` dataclass:
 - `tape` / `torch` / `mlx`: per-backend generation flavor.
 
 Internal layout (underscore-prefixed modules are implementation detail;
-consumers import via this package's top-level surface):
+consumers import via this package's top-level surface — see `__all__`):
 
   _entry.py     — `Entry` dataclass + classifier alphabet
   _skip.py      — `SKIP`, `INIT_FFI`, guardian/drain initialization tuples
@@ -29,42 +29,48 @@ consumers import via this package's top-level surface):
 """
 
 from ._entry import Entry
-from ._skip import (
-    SKIP,
-    INIT_FFI,
-    GUARDIAN_ONLY_INIT,
-    DRAIN_ONCE_INSTALL,
-    GUARDIAN_LAZY_INIT,
-)
 from ._helpers import (
-    strip_suffix,
-    parse_args,
-    idris_type_to_class,
-    scheme_type,
-    cache_var,
     backend_tag_of,
     gen_scheme_wrapper,
+    idris_type_to_class,
+    parse_args,
+    scheme_type,
+    strip_suffix,
 )
-from ._paths import WRAP_HANDLE_FILES, C_FFI_RE, ANY_FFI_RE
+from ._paths import ANY_FFI_RE, WRAP_HANDLE_FILES
+from ._skip import SKIP
 from .families import (
-    core,
-    linear,
-    nn,
-    conv,
-    tensor_create,
-    transfer,
     autograd,
-    optimizer,
-    optimizations,
-    serialize,
-    quant,
-    param_registry,
-    memory_hygiene,
-    profiling,
+    conv,
+    core,
     diagnostics,
     internal,
+    linear,
+    memory_hygiene,
+    nn,
+    optimizations,
+    optimizer,
+    param_registry,
+    profiling,
+    quant,
+    serialize,
+    tensor_create,
+    transfer,
 )
 
+__all__ = [
+    "ANY_FFI_RE",
+    "MANIFEST",
+    "SKIP",
+    "WRAP_HANDLE_FILES",
+    "Entry",
+    "backend_tag_of",
+    "gen_scheme_wrapper",
+    "idris_type_to_class",
+    "parse_args",
+    "scheme_type",
+    "strip_suffix",
+]
 
 _FAMILY_MODULES = (
     core,

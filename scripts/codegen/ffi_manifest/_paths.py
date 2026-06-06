@@ -4,7 +4,6 @@ sources from, and how they recognise `%foreign` declarations in them.
 
 import re
 
-
 # Files in the wrap-handle FFI set — the linter and converter both
 # operate on these.
 WRAP_HANDLE_FILES = [

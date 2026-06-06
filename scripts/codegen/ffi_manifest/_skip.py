@@ -62,7 +62,7 @@ DRAIN_ONCE_INSTALL = (
     " (set-top-level-value! 'idris-tensor-guardian (make-guardian)))"
     " (let ((d ((top-level-value 'idris-tensor-guardian))))"
     " (if (not d) #f"
-    " (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache)))"
+    " (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache)))"  # noqa: E501
     " (let ((rel (or (hashtable-ref cache tag #f)"
     ' (let ((sym (if (string=? tag \\"primary\\") \\"tensor_release_handle\\"'
     ' (string-append \\"tensor_release_handle_\\" tag))))'

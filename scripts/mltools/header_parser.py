@@ -26,8 +26,11 @@ manifest-checking tools share the same parsing primitives:
 from __future__ import annotations
 
 import re
-from pathlib import Path
-from typing import Iterable, Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
 
 # Sentinels stripped from the OP_* enum scan.
 OP_ENUM_EXCLUDE = frozenset({"OP_COUNT", "OP_CONST"})
@@ -98,7 +101,7 @@ def extract_backend_h_symbols(header_text: str) -> set[str]:
     return set(_BACKEND_H_DECL_RE.findall(header_text))
 
 
-def find_op_source(op: str, backend_dir: Path, anchor: str) -> Optional[Path]:
+def find_op_source(op: str, backend_dir: Path, anchor: str) -> Path | None:
     """Return the first C/C++ source under `backend_dir` containing the
     registration anchor `<anchor>(<op>,`. Returns None on miss.
     """

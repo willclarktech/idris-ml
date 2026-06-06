@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_epoch_begin": Entry(
         args=(),

@@ -28,15 +28,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from ffi_manifest import (
+    ANY_FFI_RE,
     MANIFEST,
     SKIP,
-    ANY_FFI_RE,
     gen_scheme_wrapper,
-    parse_args,
     idris_type_to_class,
+    parse_args,
     strip_suffix,
 )
-
 
 # Locate the first foreign-procedure call inside a scheme: body. Inside the
 # body the surrounding `%foreign "scheme:..."` literal escapes `"` as `\"`,
@@ -108,7 +107,7 @@ def convert_file(path):
         ret_class = manifest_ret
 
         # Validate consistency with Idris signature.
-        for i, (idris_t, cls) in enumerate(zip(idris_args, arg_classes)):
+        for i, (idris_t, cls) in enumerate(zip(idris_args, arg_classes, strict=True)):
             expected = idris_type_to_class(idris_t, cls)
             if expected != cls:
                 print(

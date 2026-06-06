@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "polyak_blend": Entry(
         args=("d", "s", "s"),

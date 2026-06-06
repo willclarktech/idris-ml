@@ -1308,12 +1308,18 @@ test-integration-lint-paired-defaults:
 # only syncs --only-group dev to skip the heavy torch deps) doesn't
 # re-fetch the project deps; the CI workflow primes the venv up front.
 #
+# `scripts/` lives outside any pyproject.toml ancestor chain, so ruff
+# would otherwise apply its built-in defaults to those files (and miss
+# packages/pytorch/pyproject.toml's [tool.ruff] entirely). Pass
+# `--config pyproject.toml` and both paths so the same rules + line
+# length + format profile govern the whole Python surface.
+#
 # `lint-` is the fourth top-level verb in the codebase, alongside
 # check (compile) / test (behave) / bench (perf). Linting is
 # discrete from testing — it's static analysis, doesn't exercise
 # behaviour, doesn't need a backend.
 lint-py:
-	@cd packages/pytorch && uv run --no-sync --quiet ruff check . && uv run --no-sync --quiet ruff format --check . && uv run --no-sync --quiet vulture
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check . ../../scripts --config pyproject.toml && uv run --no-sync --quiet ruff format --check . ../../scripts --config pyproject.toml && uv run --no-sync --quiet vulture
 	@echo "lint-py OK (ruff check + format + vulture)"
 
 # Lint the C / C++ backend surface: cppcheck (unused functions +

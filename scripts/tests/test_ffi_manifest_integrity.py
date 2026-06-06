@@ -20,24 +20,23 @@ sys.path.insert(0, str(ROOT / "scripts" / "codegen"))
 
 from ffi_manifest import MANIFEST, Entry  # noqa: E402
 from ffi_manifest.families import (  # noqa: E402
-    core,
-    linear,
-    nn,
-    conv,
-    tensor_create,
-    transfer,
     autograd,
-    optimizer,
-    optimizations,
-    serialize,
-    quant,
-    param_registry,
-    memory_hygiene,
-    profiling,
+    conv,
+    core,
     diagnostics,
     internal,
+    linear,
+    memory_hygiene,
+    nn,
+    optimizations,
+    optimizer,
+    param_registry,
+    profiling,
+    quant,
+    serialize,
+    tensor_create,
+    transfer,
 )
-
 
 _FAMILIES = {
     "core": core,
@@ -69,7 +68,7 @@ def test_no_duplicate_keys_across_families() -> None:
     )
 
 
-def test_every_entry_is_an_Entry() -> None:
+def test_every_entry_is_an_entry() -> None:
     """Cheap sanity: a typo in a family file (e.g. accidentally writing
     `"foo": (args, ret)` instead of `Entry(...)`) would land a tuple
     here.
@@ -113,6 +112,6 @@ def test_slice_consistency_per_family() -> None:
 
 if __name__ == "__main__":
     test_no_duplicate_keys_across_families()
-    test_every_entry_is_an_Entry()
+    test_every_entry_is_an_entry()
     test_slice_consistency_per_family()
     print("OK")

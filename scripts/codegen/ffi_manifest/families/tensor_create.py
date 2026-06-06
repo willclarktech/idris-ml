@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_cast_streamed": Entry(
         args=("T", "i", "i"),

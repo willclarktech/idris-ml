@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_perf_reset": Entry(
         args=(), ret="v", slice="UserExecutorProfiling", idris_method="primPerfReset", mlx="direct"

@@ -172,7 +172,7 @@ def main() -> int:
 
     mode_cfg = MODES[args.mode]
     metric = mode_cfg["metric"]
-    N = args.baseline_window or mode_cfg["baseline_window"]
+    baseline_n = args.baseline_window or mode_cfg["baseline_window"]
     fail_pct = mode_cfg["fail_pct"]
 
     entries = load_entries(args.log, kind=args.mode, metric=metric)
@@ -188,14 +188,14 @@ def main() -> int:
     counts = {"OK": 0, "WARN": 0, "FAIL": 0, "INSUFFICIENT": 0, "INDETERMINATE": 0}
     for key in sorted(cells.keys()):
         cell_entries = cells[key]
-        if len(cell_entries) < N + 1:
+        if len(cell_entries) < baseline_n + 1:
             verdict = "INSUFFICIENT"
             current = cell_entries[-1][metric]
             baseline_str = f"n={len(cell_entries)}"
             delta_str = "—"
             counts["INSUFFICIENT"] += 1
         else:
-            window = cell_entries[-(N + 1) : -1]
+            window = cell_entries[-(baseline_n + 1) : -1]
             current_entry = cell_entries[-1]
             current = current_entry[metric]
             baseline = statistics.median(e[metric] for e in window)
@@ -221,7 +221,7 @@ def main() -> int:
     print(f"# Perf regression gate ({args.mode})")
     print()
     print(f"Source: `{args.log.relative_to(ROOT) if args.log.is_relative_to(ROOT) else args.log}`")
-    print(f"Baseline window: median of prior {N} entries per cell.")
+    print(f"Baseline window: median of prior {baseline_n} entries per cell.")
     print(f"Thresholds: ±{WARN_PCT:g}% (OK), > {WARN_PCT:g}% (WARN), > {fail_pct:g}% (FAIL).")
     print()
     print(
@@ -248,9 +248,8 @@ def main() -> int:
 
     # In gating modes (op_bench always; run only when PERF_GATE=1) a
     # FAIL means exit 1. Otherwise the report is informational.
-    if counts["FAIL"] > 0:
-        if mode_cfg["always_gates"] or os.environ.get("PERF_GATE") == "1":
-            return 1
+    if counts["FAIL"] > 0 and (mode_cfg["always_gates"] or os.environ.get("PERF_GATE") == "1"):
+        return 1
     return 0
 
 

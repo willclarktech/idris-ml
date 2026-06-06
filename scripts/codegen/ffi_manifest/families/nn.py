@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_batch_norm": Entry(
         args=("T", "T", "T", "T", "T", "i", "i", "i", "d", "d"),

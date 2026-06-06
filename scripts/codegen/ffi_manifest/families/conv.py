@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_avg_pool1d": Entry(
         args=("T", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primAvgPool1d"

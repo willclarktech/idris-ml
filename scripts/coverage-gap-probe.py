@@ -203,7 +203,8 @@ def print_summary(
         print("Missing OP_* tests (sample):")
         for r in missing[:20]:
             print(
-                f"  {r['backend']}  {r['op']}  (source: {r['source_file']}, symbols: {r['ffi_symbols']})"
+                f"  {r['backend']}  {r['op']}  "
+                f"(source: {r['source_file']}, symbols: {r['ffi_symbols']})"
             )
         if len(missing) > 20:
             print(f"  ... and {len(missing) - 20} more — see CSV")

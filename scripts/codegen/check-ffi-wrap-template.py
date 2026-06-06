@@ -47,14 +47,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from ffi_manifest import (
+    ANY_FFI_RE,
     MANIFEST,
     SKIP,
     WRAP_HANDLE_FILES,
-    ANY_FFI_RE,
+    backend_tag_of,
     parse_args,
     scheme_type,
     strip_suffix,
-    backend_tag_of,
 )
 
 # Inside a scheme body, foreign-procedure names appear as \"name\" — the

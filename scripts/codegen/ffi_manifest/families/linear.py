@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_argsort": Entry(
         args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primArgsort"

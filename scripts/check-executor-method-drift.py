@@ -22,7 +22,6 @@ existing `make check-*` group alongside `check-rename-headers` and
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 from collections import defaultdict
@@ -95,7 +94,6 @@ METHOD_RE = re.compile(
 def parse_methods(text: str) -> dict[str, set[str]]:
     """Return {slice_name → set[method_names]} for the given Executor file."""
     by_slice: dict[str, set[str]] = defaultdict(set)
-    pos = 0
     for m in INSTANCE_HEAD_RE.finditer(text):
         slice_name = m.group("slice")
         # Collect methods until the next top-level definition (blank line
@@ -106,7 +104,6 @@ def parse_methods(text: str) -> dict[str, set[str]]:
         block = text[start:end]
         for mm in METHOD_RE.finditer(block):
             by_slice[slice_name].add(mm.group("method"))
-        pos = end
     return dict(by_slice)
 
 

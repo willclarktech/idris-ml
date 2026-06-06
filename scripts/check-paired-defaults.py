@@ -282,7 +282,7 @@ def parse_idris(path: Path) -> dict[str, FlagInfo]:
             f"{path}: MkConfig has {len(tokens)} values but record has {len(fields)} fields"
         )
     field_defaults: dict[str, object] = {}
-    for fld, tok in zip(fields, tokens):
+    for fld, tok in zip(fields, tokens, strict=True):
         field_defaults[fld] = _parse_idris_literal(tok)
 
     # 3. Arg specs: capture (flag, field) pairs.
@@ -348,9 +348,8 @@ def parse_python(path: Path) -> dict[str, FlagInfo]:
                     and isinstance(kw.value.operand, ast.Constant)
                 ):
                     default_value = -kw.value.operand.value
-            elif kw.arg == "action":
-                if isinstance(kw.value, ast.Constant):
-                    action = kw.value.value
+            elif kw.arg == "action" and isinstance(kw.value, ast.Constant):
+                action = kw.value.value
 
         if default_value is None and action == "store_true":
             default_value = False
@@ -389,9 +388,10 @@ def compare_example(spec: dict) -> ExampleReport:
 
     value_mismatches: list[tuple[str, object, object]] = []
     for flag, idris_info in idris_flags.items():
-        if flag in python_flags:
-            if not _values_match(idris_info.default, python_flags[flag].default):
-                value_mismatches.append((flag, idris_info.default, python_flags[flag].default))
+        if flag in python_flags and not _values_match(
+            idris_info.default, python_flags[flag].default
+        ):
+            value_mismatches.append((flag, idris_info.default, python_flags[flag].default))
 
     actual_idris_only = sorted(set(idris_flags) - set(python_flags) - expected_idris_only)
     actual_python_only = sorted(set(python_flags) - set(idris_flags) - expected_python_only)

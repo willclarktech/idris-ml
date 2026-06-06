@@ -2,7 +2,6 @@
 
 from .._entry import Entry
 
-
 ENTRIES = {
     "tensor_absmean_per_row_2d": Entry(
         args=("T",),

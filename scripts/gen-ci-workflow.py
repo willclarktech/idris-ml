@@ -96,7 +96,6 @@ def splice_workflow(workflow_text: str, generated_block: str) -> str:
     # Find the start of the BEGIN line (rewind to preceding newline) and the
     # end of the END line (advance to following newline). Replace everything
     # between (exclusive of the marker lines themselves) with the block.
-    line_start_of_begin = workflow_text.rfind("\n", 0, begin_idx) + 1
     line_end_of_begin = workflow_text.find("\n", begin_idx) + 1
     line_start_of_end = workflow_text.rfind("\n", 0, end_idx) + 1
     return workflow_text[:line_end_of_begin] + generated_block + workflow_text[line_start_of_end:]
