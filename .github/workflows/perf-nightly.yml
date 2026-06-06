@@ -27,7 +27,7 @@ jobs:
       - name: Install chez + pip deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y chezscheme python3-pip
+          sudo apt-get install -y chezscheme python3-pip libopenblas-dev
           # transformers is needed for Axis D BERT + GPT-2 (Idris-side
           # tokenize subprocess + PyTorch ref). The Llama-generate cell
           # of Axis D is locally-gated (torch-mps) and naturally skips
