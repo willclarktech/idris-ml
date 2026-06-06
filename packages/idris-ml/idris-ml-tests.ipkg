@@ -13,6 +13,7 @@ depends = contrib
         , idris-test
 
 modules = Test.Main
+        , Test.ActivationDump
         , Test.Config
         , Test.Array
         , Test.BitLinear

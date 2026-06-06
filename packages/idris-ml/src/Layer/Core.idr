@@ -1,11 +1,15 @@
 module Layer.Core
 
+import Data.Maybe
+import Data.String
 import Data.Vect
 import System
+import System.Directory
 import System.File
 
 import Executor
 import Tensor
+import Util.Log
 
 
 ----------------------------------------------------------------------
@@ -195,36 +199,103 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input = do
 
 
 ----------------------------------------------------------------------
--- Lightweight forward tracer
+-- Lightweight forward tracer + activation dump
 ----------------------------------------------------------------------
+--
+-- `forwardVarTraced` is gated on `IDRISML_LOG_LEVEL`:
+--
+--   * < DEBUG  → fast pass-through to `forwardVar` (no summarise, no
+--                allocation, no IO overhead). Default user-facing build.
+--   * DEBUG    → per-layer min/max/mean/NaN summary via `logDebug`. The
+--                "where did the NaN come from?" debug workflow.
+--   * TRACE    → DEBUG output PLUS each per-layer activation tensor is
+--                registered under a synthetic paramId `__act/<label>/<i>`,
+--                flushed to a SafeTensors file at
+--                `${IDRISML_ACTIVATION_DIR:-./activations}/<label>-<seq>.safetensors`,
+--                then the synthetic entries are erased via
+--                `primParamEraseByPrefix` BEFORE `backward()` so the
+--                optimizer's full-registry walk never sees them.
+--                Frequency throttled by `IDRISML_ACTIVATION_EVERY_N`
+--                (default `1` — every forward).
+--
+-- The TRACE level requires the dylib to be built with
+-- `IDRISML_LOG=trace make backend install`; the build ceiling clamps
+-- the runtime cap (`log.c:30`).
 
-||| Walks the Network like `forwardVar`, printing each layer's output
-||| `min` / `max` / `mean` to stderr as it goes. Useful for "where
-||| did the NaN come from?" debugging without committing to a
-||| structured DebugEntry surface.
+-- Chez `top-level-value` counter; the world-arg keeps Idris-Chez from
+-- CSE-collapsing the body into a load-time constant (see the
+-- "Zero-arg %noinline defs are constants" gotcha).
+%foreign "scheme:(lambda (w) (when (not (top-level-bound? 'idrisml-act-seq)) (set-top-level-value! 'idrisml-act-seq 0)) (set-top-level-value! 'idrisml-act-seq (+ (top-level-value 'idrisml-act-seq) 1)) (top-level-value 'idrisml-act-seq))"
+prim__nextActivationSeq : PrimIO Int
+
+nextActivationSeq : IO Int
+nextActivationSeq = primIO prim__nextActivationSeq
+
+activationDir : IO String
+activationDir = do
+  mv <- getEnv "IDRISML_ACTIVATION_DIR"
+  pure (fromMaybe "./activations" mv)
+
+activationEveryN : IO Int
+activationEveryN = do
+  mv <- getEnv "IDRISML_ACTIVATION_EVERY_N"
+  case mv of
+    Nothing => pure 1
+    Just s => case parseInteger {a=Int} s of
+                Just n => if n <= 0 then pure 1 else pure n
+                Nothing => pure 1
+
+-- Replace label chars that aren't safe for a path segment. Keep
+-- alnum + dash + underscore; collapse everything else to '_'. The
+-- label is user-supplied (e.g. "epoch5") so this is defensive
+-- against accidental slashes / spaces / dots.
+sanitizeLabel : String -> String
+sanitizeLabel s = pack (map sanitize (unpack s))
+  where
+    sanitize : Char -> Char
+    sanitize c =
+      if isAlphaNum c || c == '-' || c == '_' then c else '_'
+
+||| Walks the Network like `forwardVar`. Behavior gated on
+||| `IDRISML_LOG_LEVEL` — see the module-level comment block.
 |||
-||| The autograd graph is preserved — this just adds side-effecting
-||| reads between layer applications. The returned Tensor is the same
-||| one a plain `forwardVar` would produce. The min / max / mean
-||| reductions create non-grad-tracking tape entries that get released
-||| at the next `tape_reset`; they don't affect training numerics.
+||| The autograd graph is preserved across all branches — this just
+||| adds side-effecting reads (DEBUG) and registry round-trips (TRACE)
+||| between layer applications. The returned Tensor is the same one a
+||| plain `forwardVar` would produce.
 |||
 ||| Usage: swap `forwardVar` for `forwardVarTraced "epoch5"` at any
-||| call site to get per-layer trace lines. Output goes to stderr so
-||| training stdout stays clean. Lines look like:
+||| call site. The `label` becomes the SafeTensors filename stem and
+||| the per-layer paramId prefix.
+|||
+||| DEBUG-level stderr lines look like:
 |||
 |||     epoch5:0 min=-0.123 max=0.456 mean=0.012
 |||     epoch5:1 min=-0.234 max=0.567 mean=0.099
 |||     epoch5:out min=-0.300 max=0.700 mean=0.150  [NaN]
+|||
+||| TRACE-level SafeTensors files contain keys
+||| `__act/epoch5/0`, `__act/epoch5/1`, ... readable in Python via
+||| `safetensors.numpy.load_file(path)`.
 export
 forwardVarTraced : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                    (label : String) ->
                    Network i hs o ex dt g -> Tensor [i] ex dt g ->
                    IO (Network i hs o ex dt g, Tensor [o] ex dt g)
-forwardVarTraced label net input = go 0 net input
+forwardVarTraced label net input = do
+  lvl <- getLogLevel
+  if lvl < levelDebug
+    then forwardVar net input
+    else do
+      -- TRACE branch decides up front whether THIS call dumps. The DEBUG
+      -- branch (and TRACE-but-throttled-out) still emits the summary.
+      everyN <- if lvl >= levelTrace then activationEveryN else pure 1
+      seq    <- if lvl >= levelTrace then nextActivationSeq else pure 0
+      let dump = lvl >= levelTrace && mod seq everyN == 0
+      (net', out, names) <- go dump 0 [] net input
+      when dump $ flushActivations seq names
+      pure (net', out)
   where
-    -- Take the raw AnyPtr so we don't have to thread `d` through
-    -- the implicit-binding nest. The reductions are non-grad anyway.
     summarize : (idxLabel : String) -> AnyPtr -> IO ()
     summarize idxLabel ptr = do
       let mn = primItem {ex} (primTensorMin {ex} ptr)
@@ -233,22 +304,48 @@ forwardVarTraced label net input = go 0 net input
           isNaN : Double -> Bool
           isNaN x = x /= x
           tag = if isNaN mn || isNaN mx || isNaN me then "  [NaN]" else ""
-      ignore $ fPutStrLn stderr $
+      logDebug $
         label ++ ":" ++ idxLabel
           ++ " min=" ++ show mn
           ++ " max=" ++ show mx
           ++ " mean=" ++ show me ++ tag
 
+    -- Synthetic paramId for the i-th layer's activation in this call.
+    actName : Nat -> String
+    actName idx = "__act/" ++ sanitizeLabel label ++ "/" ++ show idx
+
+    -- Register the activation under its synthetic name. `ioRerun`
+    -- forces evaluation of the pure-typed `primParamRegister` FFI
+    -- (see `feedback_pure_typed_ffi_reorders`).
+    registerAct : Nat -> AnyPtr -> IO ()
+    registerAct idx ptr =
+      ignore $ ioRerun (\_ => primParamRegister {ex} (actName idx) ptr)
+
+    flushActivations : Int -> List String -> IO ()
+    flushActivations seq names = do
+      dir <- activationDir
+      _   <- createDir dir   -- ignores "already exists"
+      let path = dir ++ "/" ++ sanitizeLabel label ++ "-" ++ show seq ++ ".safetensors"
+          namesNl = unlines names
+      _ <- primIO (primParamSaveByName {ex} path namesNl (cast (length names)))
+      primIO (primParamEraseByPrefix {ex} ("__act/" ++ sanitizeLabel label ++ "/"))
+
+    -- `dump` controls whether to register per-layer activations. The
+    -- accumulator `names` collects the synthetic paramIds for the
+    -- flush step. Names are pushed in walk order (idx 0 first) so the
+    -- on-disk safetensors header lists layers in network order.
     go : {0 ex : Executor} -> UserExecutorTraining ex => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-         Nat ->
+         (dump : Bool) -> Nat -> List String ->
          Network i hs o ex dt g -> Tensor [i] ex dt g ->
-         IO (Network i hs o ex dt g, Tensor [o] ex dt g)
-    go idx (OutputLayer l) inp = do
+         IO (Network i hs o ex dt g, Tensor [o] ex dt g, List String)
+    go dump idx names (OutputLayer l) inp = do
       (l', out) <- applyVarAny l inp
       summarize (show idx ++ "(out)") out.tensorPtr
-      pure (OutputLayer l', out)
-    go {hs = h :: _} idx (l ~~> rest) inp = do
+      when dump $ registerAct idx out.tensorPtr
+      pure (OutputLayer l', out, names ++ [actName idx])
+    go {hs = h :: _} dump idx names (l ~~> rest) inp = do
       (l', mid) <- applyVarAny l inp
       summarize (show idx) mid.tensorPtr
-      (rest', out) <- go (idx + 1) rest mid
-      pure (l' ~~> rest', out)
+      when dump $ registerAct idx mid.tensorPtr
+      (rest', out, names') <- go dump (idx + 1) (names ++ [actName idx]) rest mid
+      pure (l' ~~> rest', out, names')
