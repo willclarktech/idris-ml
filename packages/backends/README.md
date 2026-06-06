@@ -8,19 +8,17 @@ C/C++ backends + the shared training port that lets them share infrastructure.
 packages/backends/
 ├── backend.h                  # The single public C ABI declared to Idris.
 ├── shared_utils.{c,h}         # Backend-agnostic helpers (compile-once,
-│                              #   unified symbols: index arrays, RSS, MNIST
-│                              #   file loaders, dropout RNG, _wall_ms,
-│                              #   bf16/f16 bit-cast helpers).
+│                              #   unified symbols: index arrays, RSS,
+│                              #   dropout RNG, _wall_ms, bf16/f16
+│                              #   bit-cast helpers).
 ├── idx.{c,h}                  # IDX-format dataset loader (compile-once,
-│                              #   unified symbols). Separate from
-│                              #   shared_utils.c because it has its own
-│                              #   header (IdxDataset struct) and is the
-│                              #   replacement path for mnist.c — its
-│                              #   `idx_image_doubles` returns a borrowed
-│                              #   pointer into the loaded buffer so the
-│                              #   Idris side can call `primCreate3dStreamed`
-│                              #   directly, removing the per-backend
-│                              #   `mnist_get_image_<b>` symbol.
+│                              #   unified symbols). Lives outside the
+│                              #   per-backend dispatch surface (no
+│                              #   rename header, no backend.h decl):
+│                              #   the Idris side reaches it via plain
+│                              #   `%foreign "C:idx_*,libidrisml"`
+│                              #   bindings, not via UserExecutor*
+│                              #   methods.
 ├── shared/
 │   └── training/
 │       ├── port.h             # BackendPort dispatch table (39 methods).
@@ -61,7 +59,6 @@ packages/backends/
 │                              #   Adopts shared param_registry + ffi_shims.
 ├── safetensors.c              # Serialization (consumes shared registry).
 ├── cJSON.{c,h}                # JSON for safetensors metadata.
-├── mnist.c                    # MNIST tensor loaders.
 ├── refc_shims.c               # RefC compatibility shims.
 ├── rename_<b>.h               # Auto-generated symbol-rename header.
 └── test/
@@ -131,10 +128,11 @@ The per-TU compile rule force-includes the rename header
 (`-include rename_<b>.h`), so every backend-specific TU exports
 suffixed symbols and the dylib supports multi-link with no collisions.
 
-Shared TUs (`shared/training/*.c`, `safetensors.c`, `mnist.c`) compile
-per backend in their respective opt-in lists. `shared_utils.c` is the
-exception — compile-once with no rename, intentionally unified
-(`_wall_ms`, the bit-cast helpers, index-array helpers).
+Shared TUs (`shared/training/*.c`, `safetensors.c`) compile per
+backend in their respective opt-in lists. `shared_utils.c` and `idx.c`
+are the exceptions — compile-once with no rename, intentionally
+unified (`_wall_ms`, the bit-cast helpers, index-array helpers,
+IDX-format dataset loader).
 
 ## Adding a new op to an existing backend
 

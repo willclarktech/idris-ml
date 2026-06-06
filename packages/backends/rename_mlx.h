@@ -21,8 +21,6 @@
 #define backend_reset_for_eval_return backend_reset_for_eval_return_mlx
 #define g_active_port g_active_port_mlx
 #define idrisml_seq idrisml_seq_mlx
-#define mnist_free mnist_free_mlx
-#define mnist_get_image mnist_get_image_mlx
 #define native_train_step native_train_step_mlx
 #define native_train_step_scaled native_train_step_scaled_mlx
 #define optimizer_buf_count optimizer_buf_count_mlx

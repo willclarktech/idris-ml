@@ -790,14 +790,6 @@ TensorHandle tensor_argsort(TensorHandle t, int dim, int descending);
    out[i] = prod(input[0..i]). */
 TensorHandle tensor_cumprod(TensorHandle t, int dim);
 
-/* ---------- MNIST data loading ---------- */
-
-void* mnist_load(const char* images_path, const char* labels_path);
-int mnist_count(void* handle);
-TensorHandle mnist_get_image(void* handle, int index, int dtag);  /* [1, 28, 28] tensor in dtag's dtype */
-int mnist_get_label(void* handle, int index);            /* 0-9 */
-void mnist_free(void* handle);
-
 /* ---------- DataLoader ---------- */
 
 int* create_index_array(int n);

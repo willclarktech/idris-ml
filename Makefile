@@ -408,12 +408,12 @@ mlx_LDFLAGS_Linux :=
 LIB := $(BUILD)/libidrisml.$(LIB_EXT)
 
 # Primary backend's rename header. Drives the shared-source rename:
-# `safetensors.c` and `mnist.c` are compiled once with this header so
-# their internal tensor calls resolve to the primary's suffixed defs
-# (and they export the primary's suffixed `param_save_<p>` /
-# `mnist_get_image_<p>` symbols, which the corresponding device
-# instance methods call). cJSON.c and shared_utils.c are pure-C with
-# no tensor surface, so they compile without it.
+# `safetensors.c` is compiled once with this header so its internal
+# tensor calls resolve to the primary's suffixed defs (and it exports
+# the primary's suffixed `param_save_<p>` symbols, which the
+# corresponding device instance methods call). cJSON.c, shared_utils.c,
+# and idx.c are pure-C with no tensor surface, so they compile without
+# it.
 #
 # The former link-time unified-name alias machinery
 # (`-Wl,-alias_list` on macOS / `-Wl,--defsym=` on Linux) was deleted
@@ -631,16 +631,13 @@ else
   IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_INFO
 endif
 
-SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o $(BUILD)/idx.o $(BUILD)/log.o $(BUILD)/probes.o
+SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/shared_utils.o $(BUILD)/idx.o $(BUILD)/log.o $(BUILD)/probes.o
 
 $(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(CJSON_H) $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
 
 $(BUILD)/cJSON.o: $(CJSON_C) $(CJSON_H) | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
-
-$(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -c -o $@ $<
 
 $(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<

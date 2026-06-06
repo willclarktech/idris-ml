@@ -21,8 +21,6 @@
 #define backend_reset_for_eval_return backend_reset_for_eval_return_torch
 #define g_active_port g_active_port_torch
 #define idrisml_seq idrisml_seq_torch
-#define mnist_free mnist_free_torch
-#define mnist_get_image mnist_get_image_torch
 #define native_train_step native_train_step_torch
 #define native_train_step_scaled native_train_step_scaled_torch
 #define optimizer_buf_count optimizer_buf_count_torch

@@ -78,13 +78,14 @@ def extract_symbols(header_text: str) -> list[str]:
     # emerge under their unified names directly.
     EXCLUDE = {
         "TensorHandle", "TensorPair",
-        # Shared utilities (see packages/backends/shared_utils.c).
+        # Shared utilities (see packages/backends/shared_utils.c) +
+        # the IDX-format dataset surface (packages/backends/idx.c).
+        # IDX is intentionally NOT declared in backend.h so the
+        # generator won't see it anyway; the entries below cover the
+        # shared_utils.c surface that DOES still pass through the
+        # backend.h scan.
         "create_index_array", "shuffle_index_array", "index_array_get",
         "get_rss_mb", "get_current_rss_mb",
-        # Non-tensor MNIST helpers (also in shared_utils.c). The
-        # tensor-touching `mnist_get_image` + `mnist_free` stay
-        # per-backend.
-        "mnist_load", "mnist_count", "mnist_get_label",
         # C buffer helpers — byte-identical malloc wrappers across all
         # three backends; consolidated into shared_utils.c.
         "tensor_alloc_doubles", "tensor_free_doubles", "tensor_read_double",

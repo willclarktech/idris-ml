@@ -21,8 +21,6 @@
 #define backend_reset_for_eval_return backend_reset_for_eval_return_tape
 #define g_active_port g_active_port_tape
 #define idrisml_seq idrisml_seq_tape
-#define mnist_free mnist_free_tape
-#define mnist_get_image mnist_get_image_tape
 #define native_train_step native_train_step_tape
 #define native_train_step_scaled native_train_step_scaled_tape
 #define optimizer_buf_count optimizer_buf_count_tape

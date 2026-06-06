@@ -9,14 +9,6 @@
 
 #include <stdint.h>
 
-typedef struct {
-    double*  images;   /* [count * rows * cols], normalized to [0,1] */
-    uint8_t* labels;   /* [count] */
-    int count;
-    int rows;
-    int cols;
-} MnistDataset;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,10 +22,10 @@ int  index_array_get(int* arr, int i);
 int get_rss_mb(void);
 int get_current_rss_mb(void);
 
-/* MNIST file/dataset helpers that don't touch the Tensor surface. */
-void* mnist_load(const char* images_path, const char* labels_path);
-int   mnist_count(void* handle);
-int   mnist_get_label(void* handle, int index);
+/* IDX-format dataset helpers (MNIST + similar) live in idx.{c,h};
+ * they are deliberately outside this header because they have their
+ * own struct (IdxDataset) and live outside the per-backend dispatch
+ * surface (no rename header, no backend.h declaration). */
 
 /* Dropout RNG — drives the process-global rand(). */
 int dropout_random_seed(int x);
