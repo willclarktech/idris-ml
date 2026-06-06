@@ -147,7 +147,7 @@ MANIFEST = {
     "tensor_create_streamed": Entry(args=("R", "R", "i", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateStreamed", mlx="direct"),
     "tensor_create_ternary_from_hf_packed_2d": Entry(args=("R", "i", "i"), ret="T", slice="UserExecutorQuant", idris_method="primCreateTernaryFromHfPacked2d", mlx="bespoke"),
     "tensor_create_ternary_packed_2d": Entry(args=("R", "i", "i", "i", "i"), ret="T", slice="UserExecutorQuant", idris_method="primCreateTernaryPacked2d", mlx="bespoke"),
-    "tensor_cross_attention": Entry(args=("T", "T", "T", "T", "d"), ret="T", slice="UserExecutorNN", idris_method="primCrossAttention"),
+    "tensor_cross_attention": Entry(args=("T", "T", "T", "T", "d"), ret="T", slice="UserExecutorOptimizations", idris_method="primCrossAttention"),
     "tensor_cross_entropy": Entry(args=("T", "T"), ret="T"),
     "tensor_cumprod": Entry(args=("T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primCumprod"),
     "tensor_detach": Entry(args=("T",), ret="T", slice="UserExecutorAutograd", idris_method="primDetach"),

@@ -345,7 +345,6 @@ UserExecutorNN TapeExecutor where
   primBatchNorm = prim__batchNormTape
   primBceWithLogits = prim__bceWithLogitsTape
   primCosineSimilarity = prim__cosineSimilarityTape
-  primCrossAttention = prim__crossAttentionTape
   primDropout = prim__dropoutTape
   primEmbedding = prim__embeddingTape
   primEmbedding2d = prim__embedding2dTape
@@ -562,6 +561,7 @@ UserExecutorOptimizations TapeExecutor where
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTape
   primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTape
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTape
+  primCrossAttention = prim__crossAttentionTape
   primPolyakBlend = prim__polyakBlendTape
   primRmsNorm2d = prim__rmsNorm2dTape
   primSdpa2d = prim__sdpa2dTape

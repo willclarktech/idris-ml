@@ -380,7 +380,6 @@ public export
   primBatchNorm = prim__batchNormTorch
   primBceWithLogits = prim__bceWithLogitsTorch
   primCosineSimilarity = prim__cosineSimilarityTorch
-  primCrossAttention = prim__crossAttentionTorch
   primDropout = prim__dropoutTorch
   primEmbedding = prim__embeddingTorch
   primEmbedding2d = prim__embedding2dTorch
@@ -596,6 +595,7 @@ public export
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTorch
   primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTorch
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTorch
+  primCrossAttention = prim__crossAttentionTorch
   primPolyakBlend = prim__polyakBlendTorch
   primRmsNorm2d = prim__rmsNorm2dTorch
   primSdpa2d = prim__sdpa2dTorch

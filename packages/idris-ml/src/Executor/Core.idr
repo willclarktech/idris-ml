@@ -282,11 +282,10 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
                      Int -> Int -> Int -> Double -> Double -> AnyPtr
   primDropout     : AnyPtr -> Double -> Int -> Int -> AnyPtr
 
-  -- Embedding / similarity / attention -------------------------------
+  -- Embedding / similarity -------------------------------
   primEmbedding      : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
   primEmbedding2d    : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
   primCosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
-  primCrossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
   -- Loss --------------------------------------------------------------
   primBceWithLogits : AnyPtr -> AnyPtr -> AnyPtr
@@ -369,6 +368,14 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   ||| Fused SwiGLU activation core: silu(gate) * up. Both inputs share
   ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
   primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
+
+  ||| Fused cross-attention. Args: Q, K, V, mask (tensor), scale (scalar).
+  ||| Runs `(Q·K^T / scale) + mask → softmax → ·V`. Caller provides the
+  ||| precomputed Q/K/V + an additive mask tensor; this differs from
+  ||| `primSdpa2d` (which takes head dims + isCausal as Int parameters).
+  ||| Sibling fused op of `primSdpa2d`; placed in the same opt-in slice
+  ||| for consistency. Inference + training-side multi-head attention.
+  primCrossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
   ||| Polyak / EMA blend across the registry: for every pair of params
   ||| whose paramIds share the (onlineScope, targetScope) pair

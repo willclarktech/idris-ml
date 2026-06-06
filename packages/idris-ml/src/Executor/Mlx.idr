@@ -395,7 +395,6 @@ public export
   primBatchNorm a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 = prim__batchNormMlxStreamed a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 (streamTag s)
   primBceWithLogits a0 a1 = prim__bceWithLogitsMlxStreamed a0 a1 (streamTag s)
   primCosineSimilarity a0 a1 a2 = prim__cosineSimilarityMlxStreamed a0 a1 a2 (streamTag s)
-  primCrossAttention a0 a1 a2 a3 a4 = prim__crossAttentionMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
   primDropout a0 a1 a2 a3 = prim__dropoutMlxStreamed a0 a1 a2 a3 (streamTag s)
   primEmbedding a0 a1 a2 a3 = prim__embeddingMlxStreamed a0 a1 a2 a3 (streamTag s)
   primEmbedding2d a0 a1 a2 a3 = prim__embedding2dMlxStreamed a0 a1 a2 a3 (streamTag s)
@@ -607,6 +606,7 @@ public export
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedMlx
   primCreateParam4dConstStreamed = prim__createParam4dConstStreamedMlx
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedMlx
+  primCrossAttention a0 a1 a2 a3 a4 = prim__crossAttentionMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
   primPolyakBlend = prim__polyakBlendMlx
   primRmsNorm2d = prim__rmsNorm2dMlx
   primSdpa2d = prim__sdpa2dMlx
