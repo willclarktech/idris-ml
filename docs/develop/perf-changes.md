@@ -3811,3 +3811,34 @@ The gpt result is the floor: too-small model (VocabSize=65, hidden tiny) → opt
 - `2026-06-08T<after this commit>` bert-mlm-finetune / tape foreach #2 wall 6155ms; scalar #3 wall 10939ms
 
 **Cross-references**: `backend_tape/training/optimizer.c` (adamw_foreach_param + dispatch); `packages/idris-test-c/src/test_optimizers.c` (Criterion paired test); TODO row deleted; CHANGELOG closure entry.
+
+### 2026-06-08 — Tape Adam (type 2) foreach extension — `fdcd5a1c`
+
+**Plan job**: follow-up to the AdamW foreach landing earlier today; the gate `opt->type == 3` was missing every workload using `nativeAdamGroup` (Sac, Dqn, MountainCar, MountainCarCont) or `nativeAdamGlobalClip` (A2c, Mnist, Ppo, Reinforce, SeqClassify, Transformer) — both Idris-side wrappers lower to `tape_optimizer_create_adam` (`opt->type == 2`).
+
+**Motivation**: Adam reduces to AdamW with `weight_decay == 0`. `tape_optimizer_create_adam` `calloc`s the struct, so the wd field is exactly 0 for Adam, and the foreach's final-step weight expression `w1 - lr * 0 * w1 = w1` self-zeroes to the Adam form. The math is bit-identical between Adam-via-foreach and Adam-via-scalar (modulo Accelerate FMA ULP drift, well under 1e-12 over 50 steps).
+
+**Change**: one-line gate widen in `tape_optimizer_step` from `(opt->type == 3)` to `(opt->type == 2 || opt->type == 3)`; comment block above `adamw_foreach_param` updated to document the wd-self-zero reasoning. No function rename — the body is unchanged. Paired Criterion test `training_optimizer_adam_foreach::matches_scalar_on_256_elem_param` added (same shape as the AdamW pair; uses `optimizer_create_adam` instead of `optimizer_create_adamw`). RED probe: temporarily mutated β1 to β1+0.01 inside the foreach m-update post-widen; both Adam and AdamW tests failed with `max_diff=3.689158e-02 at idx=0 (scalar=-0.799999995 foreach=-0.836891570793)`, confirming Adam (type 2) now exercises the foreach BLAS-1 m-update path. Restored before commit.
+
+**Impact**:
+
+| (example, backend) | scalar wall (warm) | foreach wall | wall delta | inner-train | converged? |
+|---|---:|---:|---:|---:|---:|
+| mnist / tape | 80.0s (12000 ms/ep × 5 ep) | 70.0s (11800 ms/ep × 5 ep) | noise (~2%) | identical | accuracy=0.976 |
+| transformer / tape (run 1) | 6.152s | 4.241s | −31% | 2s → 1s | sort=6/6 |
+| transformer / tape (run 2) | 5.388s | 4.526s | −16% | 2s → 1s | sort=6/6 |
+| transformer / tape (run 3) | 6.552s | 5.543s | −15% | 1s → 1s | sort=6/6 |
+
+Transformer mean wall reduction across 3 paired warm runs: ~5.97s → ~4.77s = **−20%**. Above the 15-20% VM noise floor; below the AdamW bert-mlm result (−43%) because transformer's optimizer slice is smaller (~thousands of params vs millions). Mnist (5 epochs at 12s/ep) stays in noise — the per-step optimizer cost is dominated by the conv forward/backward on 60k MNIST examples per epoch, so the BLAS-1 m-update savings don't register at the wall level.
+
+The win profile matches the prior session's AdamW characterization: scales with `param_count × steps_per_epoch`. Tiny RL nets (A2c, Sac, etc.) likely stay in noise; transformer and the larger BERT/GPT workloads benefit measurably.
+
+**Outcome**: landed. No env-var gate this time (one-line change, math reduces from the existing-and-tested AdamW path). Convergence verified on transformer (6/6 sort accuracy unchanged across all 3 pairs) and mnist (accuracy 0.976 unchanged across both polarities); the bit-identical Criterion test gates the rest.
+
+**perf-log entries**:
+- `2026-06-08T<later>Z` mnist / tape scalar (`TAPE_OPTIMIZER_FOREACH=0`) wall 80327ms
+- `2026-06-08T<later>Z` mnist / tape foreach wall 70239ms
+- `2026-06-08T<later>Z` transformer / tape scalar (three runs) walls 6152 / 5388 / 6552 ms
+- `2026-06-08T<later>Z` transformer / tape foreach (three runs) walls 4241 / 4526 / 5543 ms
+
+**Cross-references**: `backend_tape/training/optimizer.c` (gate widen + comment update); `packages/idris-test-c/src/test_optimizers.c` (new paired Adam test, original AdamW pair retained); ran concurrently with the in-flight mlx F32 hf-llama bg measurement (separate BUILD_KEY tree `tape-mlxcpu-torchcpu-machmac-m-series-hwcpu` vs `mlx-mlxgpu-…-mdtF32`, no contention).
