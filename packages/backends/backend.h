@@ -668,6 +668,17 @@ const char* backend_name(void);
 /* Save all registered params to a .safetensors file. Returns 0 on success. */
 int param_save(const char* path);
 
+/* Save only the named subset to a .safetensors file. `names_nl` is a
+   newline-separated list of exact paramId names (no trailing newline
+   needed); `count` is the number of names. Each name is looked up by
+   linear strcmp in the registry; any miss fails with stderr diagnostic.
+   On-disk order matches the order in `names_nl` (NOT the registry
+   order), so callers control the layout. Used by the LoRA / PEFT
+   adapter-IO path to checkpoint only the trainable low-rank adapters
+   while leaving the multi-GB backbone untouched on disk. Returns 0
+   on success. */
+int param_save_by_name(const char* path, const char* names_nl, int count);
+
 /* Load params from a .safetensors file into the existing param registry.
    Matches by name. Skips tensors not in registry. Returns 0 on success.
    Strict mode: errors out if any tensor's on-disk dtype differs from

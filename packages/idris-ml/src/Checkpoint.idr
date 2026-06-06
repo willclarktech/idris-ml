@@ -74,6 +74,79 @@ loadModelPrefixAllowCast path pfx = do
   rc <- primIO (primParamLoadWithPrefix {ex} path 1 pfx)
   pure (rc == 0)
 
+
+----------------------------------------------------------------------
+-- Filtered save (adapter-only checkpoints)
+----------------------------------------------------------------------
+
+-- Join a list of strings with newlines (no trailing newline).
+joinNewlines : List String -> String
+joinNewlines []        = ""
+joinNewlines [x]       = x
+joinNewlines (x :: xs) = x ++ "\n" ++ joinNewlines xs
+
+-- Walk the registry and collect names matching the predicate. Order
+-- matches registry order (which the C-side preserves on disk via
+-- `param_save_by_name`). Returns the matched names as a single
+-- newline-joined String + the count — the shape `primParamSaveByName`
+-- accepts on the C side.
+collectMatchingNames : UserExecutorTraining ex =>
+  (String -> Bool) -> IO (String, Int)
+collectMatchingNames pred = do
+  n <- getParamCount {ex}
+  go n 0 []
+  where
+    -- `acc` accumulates kept names; we build the joined string at
+    -- the end so we don't repeatedly concat-with-newline mid-walk.
+    go : Int -> Int -> List String -> IO (String, Int)
+    go end i acc =
+      if i >= end
+        then pure (joinNewlines (reverse acc), cast (length acc))
+        else do
+          nm <- getParamName {ex} i
+          let acc' = if pred nm then nm :: acc else acc
+          go end (i + 1) acc'
+
+||| Save only those registered params whose paramId satisfies
+||| `predicate`. The C-side `param_save_by_name` builds a fresh
+||| safetensors file containing only the matching tensors; on-disk
+||| names are the registry names verbatim (no rename hook here —
+||| if you need name remapping, register your params under the
+||| target on-disk names directly).
+|||
+||| The order on disk matches registry order (not the order names
+||| would appear if iterated in any other way). Returns False if
+||| no params match (empty list is treated as an error by the C
+||| layer, matching `saveModel`'s "no params registered" guard).
+|||
+||| Use case: LoRA adapter-only checkpoints — call
+|||
+|||     saveModelMatching path (\nm => isSuffixOf "lora_A" nm
+|||                                 || isSuffixOf "lora_B" nm)
+|||
+||| to write a small `.safetensors` (~200KB for bert-tiny + r=8)
+||| containing just the trainable A / B matrices while the multi-MB
+||| backbone stays untouched on disk.
+export
+saveModelMatching : UserExecutorTraining ex =>
+  (path : String) -> (predicate : String -> Bool) -> IO Bool
+saveModelMatching path pred = do
+  (names, count) <- collectMatchingNames {ex} pred
+  if count == 0
+    then pure False
+    else do
+      rc <- primIO (primParamSaveByName {ex} path names count)
+      pure (rc == 0)
+
+||| Convenience wrapper: save only params whose paramId ends with
+||| any of the given suffixes. Common LoRA call: `saveModelSuffixes
+||| path ["lora_A", "lora_B"]`.
+export
+saveModelSuffixes : UserExecutorTraining ex =>
+  (path : String) -> (suffixes : List String) -> IO Bool
+saveModelSuffixes path sfxs =
+  saveModelMatching {ex} path (\nm => any (\s => isSuffixOf s nm) sfxs)
+
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
 ||| Returns True on success.
 export

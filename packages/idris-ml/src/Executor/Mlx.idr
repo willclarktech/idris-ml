@@ -512,6 +512,8 @@ prim__nativeTrainStepMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 prim__nativeTrainStepScaledMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
 %foreign "C:param_save_mlx,libidrisml"
 prim__paramSaveMlx : String -> PrimIO Int
+%foreign "C:param_save_by_name_mlx,libidrisml"
+prim__paramSaveByNameMlx : String -> String -> Int -> PrimIO Int
 %foreign "C:param_load_mlx,libidrisml"
 prim__paramLoadMlx : String -> PrimIO Int
 %foreign "C:param_load_with_policy_mlx,libidrisml"
@@ -638,6 +640,7 @@ public export
   primParamLoadWithPolicy = prim__paramLoadWithPolicyMlx
   primParamLoadWithPrefix = prim__paramLoadWithPrefixMlx
   primParamSave = prim__paramSaveMlx
+  primParamSaveByName = prim__paramSaveByNameMlx
   -- <<< END GENERATED <<<
 
 public export

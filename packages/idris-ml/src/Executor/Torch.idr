@@ -499,6 +499,8 @@ prim__nativeTrainStepTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Doub
 prim__nativeTrainStepScaledTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
 %foreign "C:param_save_torch,libidrisml"
 prim__paramSaveTorch : String -> PrimIO Int
+%foreign "C:param_save_by_name_torch,libidrisml"
+prim__paramSaveByNameTorch : String -> String -> Int -> PrimIO Int
 %foreign "C:param_load_torch,libidrisml"
 prim__paramLoadTorch : String -> PrimIO Int
 %foreign "C:param_load_with_policy_torch,libidrisml"
@@ -627,6 +629,7 @@ public export
   primParamLoadWithPolicy = prim__paramLoadWithPolicyTorch
   primParamLoadWithPrefix = prim__paramLoadWithPrefixTorch
   primParamSave = prim__paramSaveTorch
+  primParamSaveByName = prim__paramSaveByNameTorch
   -- <<< END GENERATED <<<
 
 public export

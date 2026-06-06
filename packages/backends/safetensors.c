@@ -67,16 +67,41 @@ static size_t dtype_byte_width(const char* name) {
    Save
    ================================================================ */
 
-int param_save(const char* path) {
-    int n = param_count();
-    if (n == 0) {
-        fprintf(stderr, "param_save: no parameters registered\n");
-        return -1;
+/* Shared core. When filter_indices is non-NULL, only those n_filter
+   indices into the registry are saved (in caller-given order); when
+   NULL, every registered param is saved. The on-disk name is taken
+   from the registry as-is (callers that need name remapping should
+   register adapter-friendly names directly — there's no rename hook
+   on the C side).
+*/
+static int param_save_core(const char* path, int n_filter,
+                           const int* filter_indices) {
+    int n_all = param_count();
+    int n;
+    int* identity = NULL;
+    const int* idx;
+    if (filter_indices == NULL) {
+        n = n_all;
+        if (n == 0) {
+            fprintf(stderr, "param_save: no parameters registered\n");
+            return -1;
+        }
+        identity = (int*)malloc((size_t)n * sizeof(int));
+        if (!identity) return -1;
+        for (int k = 0; k < n; k++) identity[k] = k;
+        idx = identity;
+    } else {
+        n = n_filter;
+        if (n == 0) {
+            fprintf(stderr, "param_save_by_name: empty filter list\n");
+            return -1;
+        }
+        idx = filter_indices;
     }
 
     /* Build JSON header */
     cJSON* root = cJSON_CreateObject();
-    if (!root) return -1;
+    if (!root) { free(identity); return -1; }
 
     /* First pass: compute per-tensor byte size (depends on dtype) +
        running data offsets. */
@@ -85,32 +110,35 @@ int param_save(const char* path) {
     size_t* sizes = (size_t*)calloc(n, sizeof(size_t));
     const char** dtypes = (const char**)calloc(n, sizeof(const char*));
     if (!offsets || !sizes || !dtypes) {
-        cJSON_Delete(root); free(offsets); free(sizes); free(dtypes); return -1;
+        cJSON_Delete(root); free(offsets); free(sizes); free(dtypes);
+        free(identity); return -1;
     }
 
-    for (int i = 0; i < n; i++) {
-        offsets[i] = data_offset;
+    for (int k = 0; k < n; k++) {
+        int i = idx[k];
+        offsets[k] = data_offset;
         TensorHandle t = param_tensor(i);
-        dtypes[i] = tensor_dtype_name(t);
-        size_t width = dtype_byte_width(dtypes[i]);
+        dtypes[k] = tensor_dtype_name(t);
+        size_t width = dtype_byte_width(dtypes[k]);
         if (width == 0) {
             fprintf(stderr, "param_save: unsupported dtype '%s' for '%s'\n",
-                    dtypes[i] ? dtypes[i] : "(null)", param_name(i));
+                    dtypes[k] ? dtypes[k] : "(null)", param_name(i));
             cJSON_Delete(root); free(offsets); free(sizes); free(dtypes);
-            return -1;
+            free(identity); return -1;
         }
-        sizes[i] = (size_t)tensor_numel(t) * width;
-        data_offset += sizes[i];
+        sizes[k] = (size_t)tensor_numel(t) * width;
+        data_offset += sizes[k];
     }
 
     /* Build JSON entries */
-    for (int i = 0; i < n; i++) {
+    for (int k = 0; k < n; k++) {
+        int i = idx[k];
         const char* name = param_name(i);
         TensorHandle t = param_tensor(i);
         int rank = tensor_dim(t);
 
         cJSON* entry = cJSON_CreateObject();
-        cJSON_AddStringToObject(entry, "dtype", dtypes[i]);
+        cJSON_AddStringToObject(entry, "dtype", dtypes[k]);
 
         cJSON* shape = cJSON_CreateArray();
         for (int d = 0; d < rank; d++) {
@@ -119,8 +147,8 @@ int param_save(const char* path) {
         cJSON_AddItemToObject(entry, "shape", shape);
 
         cJSON* data_off = cJSON_CreateArray();
-        cJSON_AddItemToArray(data_off, cJSON_CreateNumber((double)offsets[i]));
-        cJSON_AddItemToArray(data_off, cJSON_CreateNumber((double)(offsets[i] + sizes[i])));
+        cJSON_AddItemToArray(data_off, cJSON_CreateNumber((double)offsets[k]));
+        cJSON_AddItemToArray(data_off, cJSON_CreateNumber((double)(offsets[k] + sizes[k])));
         cJSON_AddItemToObject(entry, "data_offsets", data_off);
 
         cJSON_AddItemToObject(root, name, entry);
@@ -128,7 +156,9 @@ int param_save(const char* path) {
 
     char* json_str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    if (!json_str) { free(offsets); free(sizes); free(dtypes); return -1; }
+    if (!json_str) {
+        free(offsets); free(sizes); free(dtypes); free(identity); return -1;
+    }
 
     size_t json_len = strlen(json_str);
     /* Pad to 8-byte alignment */
@@ -139,7 +169,7 @@ int param_save(const char* path) {
     if (!f) {
         fprintf(stderr, "param_save: cannot open '%s' for writing\n", path);
         free(json_str); free(offsets); free(sizes); free(dtypes);
-        return -1;
+        free(identity); return -1;
     }
 
     /* 8-byte LE header size */
@@ -159,13 +189,17 @@ int param_save(const char* path) {
        2^53) survive the file write. Every other dtype uses the
        `double` lingua franca — bf16/f16 via the shared bit helpers,
        the small ints via plain casts (exact in their ranges). */
-    for (int i = 0; i < n; i++) {
+    for (int k = 0; k < n; k++) {
+        int i = idx[k];
         TensorHandle t = param_tensor(i);
         int numel = tensor_numel(t);
-        const char* dt = dtypes[i];
+        const char* dt = dtypes[k];
         if (strcmp(dt, "F32") == 0) {
             float* buf = (float*)malloc((size_t)numel * sizeof(float));
-            if (!buf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
+            if (!buf) {
+                fclose(f); free(offsets); free(sizes); free(dtypes);
+                free(identity); return -1;
+            }
             tensor_to_floats(t, buf);
             fwrite(buf, sizeof(float), numel, f);
             free(buf);
@@ -177,14 +211,20 @@ int param_save(const char* path) {
                still rounds through the lingua-franca buffer, matching
                the prior behaviour (no regression). */
             int64_t* ibuf = (int64_t*)malloc((size_t)numel * sizeof(int64_t));
-            if (!ibuf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
+            if (!ibuf) {
+                fclose(f); free(offsets); free(sizes); free(dtypes);
+                free(identity); return -1;
+            }
             tensor_to_int64(t, ibuf);
             fwrite(ibuf, sizeof(int64_t), numel, f);
             free(ibuf);
             continue;
         }
         double* dbuf = (double*)malloc((size_t)numel * sizeof(double));
-        if (!dbuf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
+        if (!dbuf) {
+            fclose(f); free(offsets); free(sizes); free(dtypes);
+            free(identity); return -1;
+        }
         tensor_to_doubles(t, dbuf);
         if (strcmp(dt, "F64") == 0) {
             fwrite(dbuf, sizeof(double), numel, f);
@@ -231,7 +271,67 @@ int param_save(const char* path) {
     free(offsets);
     free(sizes);
     free(dtypes);
+    free(identity);
     return 0;
+}
+
+int param_save(const char* path) {
+    return param_save_core(path, 0, NULL);
+}
+
+/* Save only the named subset. `names_nl` is a newline-separated list
+   of exact paramId names (no trailing newline required); `count` is
+   the number of names. Each name is looked up in the registry by
+   linear strcmp; any miss fails with stderr diagnostic.
+   The on-disk order matches the order of names in `names_nl` (NOT
+   the registry order), so callers can control the layout. */
+int param_save_by_name(const char* path, const char* names_nl, int count) {
+    if (!names_nl || count <= 0) {
+        fprintf(stderr, "param_save_by_name: empty name list (count=%d)\n", count);
+        return -1;
+    }
+
+    int n_reg = param_count();
+    int* indices = (int*)malloc((size_t)count * sizeof(int));
+    if (!indices) return -1;
+
+    const char* p = names_nl;
+    int parsed = 0;
+    while (*p && parsed < count) {
+        const char* end = p;
+        while (*end && *end != '\n') end++;
+        size_t len = (size_t)(end - p);
+
+        int found = -1;
+        for (int i = 0; i < n_reg; i++) {
+            const char* nm = param_name(i);
+            if (nm && strlen(nm) == len && memcmp(nm, p, len) == 0) {
+                found = i;
+                break;
+            }
+        }
+        if (found < 0) {
+            fprintf(stderr, "param_save_by_name: '%.*s' not in registry\n",
+                    (int)len, p);
+            free(indices);
+            return -1;
+        }
+        indices[parsed++] = found;
+
+        p = end;
+        if (*p == '\n') p++;
+    }
+
+    if (parsed != count) {
+        fprintf(stderr, "param_save_by_name: expected %d names, got %d\n",
+                count, parsed);
+        free(indices);
+        return -1;
+    }
+
+    int rc = param_save_core(path, count, indices);
+    free(indices);
+    return rc;
 }
 
 /* ================================================================

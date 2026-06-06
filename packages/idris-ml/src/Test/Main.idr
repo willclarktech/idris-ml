@@ -26,6 +26,7 @@ import Test.Properties.RoPE as Props.RoPE
 import Test.Properties.Softmax as Props.Softmax
 import Test.RmsNorm
 import Test.RoPE
+import Test.SaveModelMatching
 import Test.SwiGLU
 -- NOTE: Test.Transfer (UserExecutorTransfer / toExecutor smoke) lives in
 -- the source tree but isn't wired into this default `tests` list:
@@ -61,5 +62,6 @@ main = runAll
                                             ++ Props.F32GradParity.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
   , ("RoPE",            Test.RoPE.tests)
+  , ("SaveModelMatching", Test.SaveModelMatching.tests)
   , ("SwiGLU",          Test.SwiGLU.tests)
   ]

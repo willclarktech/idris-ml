@@ -61,6 +61,7 @@
 #define param_register param_register_mlx
 #define param_register_return param_register_return_mlx
 #define param_save param_save_mlx
+#define param_save_by_name param_save_by_name_mlx
 #define param_subtract_delta param_subtract_delta_mlx
 #define param_tensor param_tensor_mlx
 #define param_zero_all_grads param_zero_all_grads_mlx

@@ -61,6 +61,7 @@
 #define param_register param_register_tape
 #define param_register_return param_register_return_tape
 #define param_save param_save_tape
+#define param_save_by_name param_save_by_name_tape
 #define param_subtract_delta param_subtract_delta_tape
 #define param_tensor param_tensor_tape
 #define param_zero_all_grads param_zero_all_grads_tape

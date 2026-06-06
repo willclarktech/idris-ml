@@ -35,6 +35,7 @@ modules = Test.Main
         , Test.Properties.Softmax
         , Test.RmsNorm
         , Test.RoPE
+        , Test.SaveModelMatching
         , Test.SwiGLU
         , Test.RL.Gae
         , Test.RL.ReplayBuffer

@@ -440,6 +440,11 @@ public export
 interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) where
   ||| Save every registered param to a .safetensors file (rc 0 = ok).
   primParamSave           : String -> PrimIO Int
+  ||| Save only the named subset to a .safetensors file. `namesNl` is
+  ||| a newline-separated list of exact paramId names; `count` is the
+  ||| number of names. On-disk order matches `namesNl` order. Used by
+  ||| the LoRA adapter-only checkpoint path — see `Checkpoint.saveModelMatching`.
+  primParamSaveByName     : String -> String -> Int -> PrimIO Int
   ||| Load params from file into the registry, strict dtype.
   primParamLoad           : String -> PrimIO Int
   ||| Load params with a cast policy (`allowCast` = 0/1).
