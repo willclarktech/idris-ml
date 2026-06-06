@@ -166,6 +166,67 @@ Test(training_optimizer_adamw_foreach, matches_scalar_on_256_elem_param) {
         max_diff, max_idx, scalar_w[max_idx], foreach_w[max_idx]);
 }
 
+/* Adam (not AdamW) foreach vs scalar. Same shape as the AdamW pair above,
+   but using `optimizer_create_adam` (no weight-decay arg). Adam reduces to
+   AdamW with wd=0; the `calloc` in `tape_optimizer_create_adam` ensures
+   `opt->weight_decay == 0`, so the existing foreach math (wd term self-
+   zeroes) is correct for Adam without any flag plumbing. This test
+   exercises the gate-widening from `opt->type == 3` to `opt->type == 2 ||
+   opt->type == 3`. */
+Test(training_optimizer_adam_foreach, matches_scalar_on_256_elem_param) {
+    const int N = 256;
+    const int NSTEPS = 50;
+    double scalar_w[256], foreach_w[256];
+
+    /* Phase 1: scalar path (env opt-out). */
+    setenv("TAPE_OPTIMIZER_FOREACH", "0", 1);
+    param_clear();
+    double wdata1[256];
+    for (int i = 0; i < N; i++) wdata1[i] = (double)(i % 7) * 0.1 - 0.3;
+    TensorHandle W1 = tensor_create_param_2d_f64(16, 16, heap_copy(wdata1, N));
+    param_register("W", W1);
+    OptimizerHandle opt1 = optimizer_create_adam(0.01, 0.9, 0.999, 1e-8);
+    for (int step = 0; step < NSTEPS; step++) {
+        optimizer_zero_grad(opt1);
+        TensorHandle s = tensor_sum(W1);
+        tensor_backward(s);
+        optimizer_step(opt1);
+        tensor_free(s);
+    }
+    tensor_to_doubles(W1, scalar_w);
+    optimizer_free(opt1);
+    param_clear();
+
+    /* Phase 2: foreach path (default; env unset). */
+    unsetenv("TAPE_OPTIMIZER_FOREACH");
+    double wdata2[256];
+    for (int i = 0; i < N; i++) wdata2[i] = (double)(i % 7) * 0.1 - 0.3;
+    TensorHandle W2 = tensor_create_param_2d_f64(16, 16, heap_copy(wdata2, N));
+    param_register("W", W2);
+    OptimizerHandle opt2 = optimizer_create_adam(0.01, 0.9, 0.999, 1e-8);
+    for (int step = 0; step < NSTEPS; step++) {
+        optimizer_zero_grad(opt2);
+        TensorHandle s = tensor_sum(W2);
+        tensor_backward(s);
+        optimizer_step(opt2);
+        tensor_free(s);
+    }
+    tensor_to_doubles(W2, foreach_w);
+    optimizer_free(opt2);
+    param_clear();
+
+    /* Compare element-wise. */
+    double max_diff = 0.0;
+    int max_idx = -1;
+    for (int i = 0; i < N; i++) {
+        double d = fabs(scalar_w[i] - foreach_w[i]);
+        if (d > max_diff) { max_diff = d; max_idx = i; }
+    }
+    cr_assert(max_diff < 1e-12,
+        "Adam foreach diverged from scalar: max_diff=%.6e at idx=%d (scalar=%.12g foreach=%.12g)",
+        max_diff, max_idx, scalar_w[max_idx], foreach_w[max_idx]);
+}
+
 /* Fused MV with SGD: 5 epochs on a 2x3 W with constant input x=[1,0,-1].
    Forward y = W @ x, loss = sum(y) = W[0,0] - W[0,2] + W[1,0] - W[1,2].
    Each step subtracts 0.1 from W[i,0], adds 0.1 to W[i,2]; loss should

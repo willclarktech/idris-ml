@@ -169,16 +169,21 @@ void tape_optimizer_set_param_lr(void* h, const char* name, double lr) {
 }
 
 /* ----------------------------------------------------------------------
-   AdamW foreach fast path — default for F64-tagged params.
+   Adam/AdamW foreach fast path — default for F64-tagged params.
 
-   Replaces the per-element AdamW inner loop with a BLAS-1 moment update
+   Replaces the per-element Adam(W) inner loop with a BLAS-1 moment update
    for F64 params. Math sequence preserved: m ← β1·m + (1-β1)·g and
    v ← β2·v + (1-β2)·g² landed before the bias-correct + weight update.
    The BLAS-1 path may differ from the scalar path by ULP via Accelerate
-   FMA inside cblas_daxpy; the paired test in test_optimizers.c asserts
+   FMA inside cblas_daxpy; the paired tests in test_optimizers.c assert
    convergence within 1e-12, not bit-identical equality.
 
-   F32-tagged params fall through to the scalar inner switch's case 3
+   Adam (`opt->type == 2`) reuses this path: `tape_optimizer_create_adam`
+   `calloc`s the struct so `weight_decay == 0`, and the wd term in the
+   final weight update self-zeroes (`w1 - lr * 0 * w1 = w1`) to the Adam
+   expression.
+
+   F32-tagged params fall through to the scalar inner switch's case 2/3
    (mixed-dtype foreach is out of scope; the per-call BLAS overhead
    isn't worth a widen-narrow staging pass for the F32 case).
    ---------------------------------------------------------------------- */
@@ -231,16 +236,16 @@ void tape_optimizer_step(void* h) {
        in `_h0` / `_c0` (LSTM learned initial state). */
     int skip_lstm_init = getenv("SKIP_LSTM_INIT") != NULL;
 
-    /* AdamW foreach: default for F64 params; F32 params fall through to
-       the scalar inner switch's case 3 (mixed-dtype foreach is out of
-       scope). The paired test in test_optimizers.c uses the env-var
-       opt-out (`TAPE_OPTIMIZER_FOREACH=0`) to force scalar for one
-       phase so it can assert |scalar - foreach| < 1e-12 over 50
-       AdamW steps; the env var is otherwise an internal debug knob,
-       not a user-facing surface. */
-    int use_adamw_foreach = (opt->type == 3);
+    /* Adam/AdamW foreach: default for F64 params; F32 params fall through
+       to the scalar inner switch. Adam (type 2) and AdamW (type 3) share
+       the same foreach body — `tape_optimizer_create_adam` `calloc`s the
+       struct so `weight_decay == 0` for Adam, and the foreach's wd term
+       (`w1 - lr * 0 * w1 = w1`) self-zeroes to the Adam expression. The
+       paired tests in test_optimizers.c use the env-var opt-out
+       (`TAPE_OPTIMIZER_FOREACH=0`) to force scalar for one phase. */
+    int use_adam_foreach = (opt->type == 2 || opt->type == 3);
     const char* env = getenv("TAPE_OPTIMIZER_FOREACH");
-    if (env && env[0] == '0') use_adamw_foreach = 0;
+    if (env && env[0] == '0') use_adam_foreach = 0;
 
     for (int i = 0; i < param_count(); i++) {
         if (!opt_owns_param(opt, i)) continue;
@@ -260,7 +265,7 @@ void tape_optimizer_step(void* h) {
         if (opt->param_lr && i < opt->param_lr_count && opt->param_lr[i] >= 0)
             lr = opt->param_lr[i];
 
-        if (use_adamw_foreach && t->dtype_tag != DT_F32) {
+        if (use_adam_foreach && t->dtype_tag != DT_F32) {
             adamw_foreach_param(opt, t, base, lr);
             continue;
         }
