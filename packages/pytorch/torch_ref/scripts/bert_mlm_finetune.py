@@ -21,9 +21,7 @@ import time
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 from transformers import AutoModelForMaskedLM
-
 
 SEQ_LEN = 32
 
@@ -46,15 +44,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=5e-5)
     p.add_argument("--steps", type=int, default=100)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--max-start", type=int, default=0,
-                   help="Cap on the random start position (0 = full corpus).")
+    p.add_argument(
+        "--max-start",
+        type=int,
+        default=0,
+        help="Cap on the random start position (0 = full corpus).",
+    )
     return p.parse_args()
 
 
 def load_tokens(path: Path) -> list[int]:
     if not path.exists():
-        print(f"ERROR: {path} not found - run "
-              f"`make data-tinyshakespeare-bert-tiny`.", file=sys.stderr)
+        print(
+            f"ERROR: {path} not found - run `make data-tinyshakespeare-bert-tiny`.", file=sys.stderr
+        )
         sys.exit(1)
     with path.open() as f:
         text = f.read().strip()
@@ -95,7 +98,7 @@ def sample_window(tokens: list[int], cap_max_start: int) -> tuple[list[int], lis
     abs_max = max(0, len(tokens) - SEQ_LEN)
     cap = abs_max if cap_max_start == 0 else min(abs_max, cap_max_start)
     start = random.randint(0, cap)
-    window = tokens[start:start + SEQ_LEN]
+    window = tokens[start : start + SEQ_LEN]
     return apply_hf_masking(window)
 
 
@@ -105,16 +108,14 @@ def main() -> int:
     random.seed(args.seed)
 
     print("=== BertMlmFinetune (PyTorch ref) ===")
-    print(f"Config: lr={args.lr} steps={args.steps} seed={args.seed}"
-          f" max-start={args.max_start}")
+    print(f"Config: lr={args.lr} steps={args.steps} seed={args.seed} max-start={args.max_start}")
 
     print(f"Loading tokens from {TOKEN_PATH}...")
     tokens = load_tokens(TOKEN_PATH)
     print(f"Loaded {len(tokens)} tokens.")
 
     if len(tokens) < SEQ_LEN:
-        print(f"ERROR: corpus has only {len(tokens)} tokens"
-              f" (need >= {SEQ_LEN}).", file=sys.stderr)
+        print(f"ERROR: corpus has only {len(tokens)} tokens (need >= {SEQ_LEN}).", file=sys.stderr)
         return 1
 
     model = AutoModelForMaskedLM.from_pretrained(str(BACKBONE_DIR))
@@ -123,9 +124,9 @@ def main() -> int:
     model.train(True)
     print("bert-tiny backbone + MLM head warm-started.")
 
-    opt = torch.optim.AdamW(model.parameters(),
-                            lr=args.lr, betas=(0.9, 0.999), eps=1e-8,
-                            weight_decay=0.01)
+    opt = torch.optim.AdamW(
+        model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01
+    )
 
     start_time = time.time()
     acc_loss = 0.0
@@ -137,8 +138,9 @@ def main() -> int:
         # Match the Idris-side semantics: only masked positions
         # contribute to the loss.
         labels = torch.tensor(
-            [[tgt if flag else -100 for tgt, flag in zip(target, flags)]],
-            device=device)
+            [[tgt if flag else -100 for tgt, flag in zip(target, flags, strict=True)]],
+            device=device,
+        )
         opt.zero_grad()
         outputs = model(input_ids=input_ids, labels=labels)
         loss = outputs.loss
@@ -149,15 +151,11 @@ def main() -> int:
         acc_loss += last_loss
         if step % 10 == 0:
             ema = acc_loss / step
-            print(f"  step {step}/{args.steps}"
-                  f" loss={last_loss:.4f}  ema={ema:.4f}")
+            print(f"  step {step}/{args.steps} loss={last_loss:.4f}  ema={ema:.4f}")
     wall = time.time() - start_time
 
     print()
-    print(f"RESULT\tloss={last_loss:.4f}"
-          f"\tsteps={args.steps}"
-          f"\tseed={args.seed}"
-          f"\twall_s={wall:.1f}")
+    print(f"RESULT\tloss={last_loss:.4f}\tsteps={args.steps}\tseed={args.seed}\twall_s={wall:.1f}")
     return 0
 
 

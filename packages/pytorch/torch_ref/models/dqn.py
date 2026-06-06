@@ -42,10 +42,13 @@ NUM_ENVS = 4
 def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     """N independent CartPole envs in a SyncVectorEnv, each reset to all-zero
     to mirror idris-gym's `Gym.ClassicControl.CartPole.reset`."""
+
     def _make(idx: int):
         def _f():
             return make_cartpole_env(seed + idx)
+
         return _f
+
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
     for sub in vec.envs:

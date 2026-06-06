@@ -16,9 +16,8 @@ import argparse
 import sys
 import time
 
-import torch
-
 import numpy as np
+import torch
 
 from torch_ref.models.a2c import (
     NUM_ENVS,
@@ -94,8 +93,8 @@ def main() -> None:
             actor, critic, vec_env, obs_state[0], args.rollout
         )
         with torch.no_grad():
-            bootstrap_v = critic(obs_tensor(new_obs))           # [N]
-            last_done = dones[-1]                                # [N]
+            bootstrap_v = critic(obs_tensor(new_obs))  # [N]
+            last_done = dones[-1]  # [N]
             bootstraps = torch.where(
                 last_done > 0.5,
                 torch.zeros_like(bootstrap_v),
@@ -135,9 +134,7 @@ def main() -> None:
         obs_state[0] = new_obs
 
         sum_rew = float(rewards.sum().item()) / NUM_ENVS
-        reported = (
-            sum(ep_returns) / len(ep_returns) if ep_returns else sum_rew
-        )
+        reported = sum(ep_returns) / len(ep_returns) if ep_returns else sum_rew
         return -reported  # Idris reports `negate avg_return`
 
     if args.lr_find:

@@ -110,10 +110,13 @@ def eps_greedy_action(q: QNetwork, obs: Tensor, epsilon: float, rng: random.Rand
 def make_mountaincar_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     """N MountainCar-v0 envs in a SyncVectorEnv, seeded once at construction
     and randomized per Gymnasium on each reset."""
+
     def _make(idx: int):
         def _f():
             return make_mountaincar_env(seed + idx)
+
         return _f
+
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
     return vec

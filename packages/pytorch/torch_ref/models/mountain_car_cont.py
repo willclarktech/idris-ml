@@ -65,10 +65,13 @@ def make_mountaincarcont_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVec
     """N MountainCarContinuous-v0 envs in a SyncVectorEnv, seeded once at
     construction and randomized per Gymnasium on each reset (mirrors
     Idris-side `Gym.Vector.resetAll`)."""
+
     def _make(idx: int):
         def _f():
             return make_mountaincarcont_env(seed + idx)
+
         return _f
+
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
     return vec

@@ -89,9 +89,7 @@ def main() -> int:
     print("Running forward-pass smoke check...")
     try:
         tokenizer = AutoTokenizer.from_pretrained(args.base_model)
-        inputs = tokenizer(
-            "the quick brown fox jumps over the lazy dog", return_tensors="pt"
-        )
+        inputs = tokenizer("the quick brown fox jumps over the lazy dog", return_tensors="pt")
         outputs = peft_model(**inputs)
         logits = outputs.logits
         print(f"  forward produced logits of shape {tuple(logits.shape)}")

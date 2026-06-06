@@ -171,10 +171,13 @@ def make_acrobot_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     """N independent Acrobot envs in a SyncVectorEnv, seeded once at
     construction and randomized per Gymnasium on each reset (mirrors
     idris-gym's `Gym.Vector.resetAll`)."""
+
     def _make(idx: int):
         def _f():
             return make_acrobot_env(seed + idx)
+
         return _f
+
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
     return vec
@@ -190,15 +193,15 @@ def collect_rollout(
     max_ep_len: int,
     rng: random.Random,
 ) -> tuple[
-    Tensor,           # obs [T, N, 6]
-    Tensor,           # actions [T, N] long
-    Tensor,           # old_log_probs [T, N]
-    Tensor,           # rewards [T, N]
-    Tensor,           # values [T, N]
-    Tensor,           # dones [T, N]
-    np.ndarray,       # new_obs [N, 6]
-    np.ndarray,       # new_ep_lens [N]
-    list[float],      # completed episode returns
+    Tensor,  # obs [T, N, 6]
+    Tensor,  # actions [T, N] long
+    Tensor,  # old_log_probs [T, N]
+    Tensor,  # rewards [T, N]
+    Tensor,  # values [T, N]
+    Tensor,  # dones [T, N]
+    np.ndarray,  # new_obs [N, 6]
+    np.ndarray,  # new_ep_lens [N]
+    list[float],  # completed episode returns
 ]:
     """Batched rollout of `n_steps` steps across NUM_ENVS parallel envs with
     auto-reset on done OR per-env max_ep_len truncation. Returns `[T, N, ...]`
@@ -216,10 +219,10 @@ def collect_rollout(
     for _ in range(n_steps):
         obs_t = obs_tensor(obs_np)  # [N, 6]
         with torch.no_grad():
-            logits = actor(obs_t)            # [N, 3]
+            logits = actor(obs_t)  # [N, 3]
             log_probs_t = F.log_softmax(logits, dim=-1)
             probs_t = torch.exp(log_probs_t)
-            values_t = critic(obs_t)          # [N]
+            values_t = critic(obs_t)  # [N]
         # Per-env categorical sampling with the shared rng (matches Idris'
         # one-randomRIO-per-env-per-step convention).
         actions_np = np.zeros(n, dtype=np.int64)
@@ -262,14 +265,14 @@ def collect_rollout(
                 ep_lens[env_idx] = 0
         obs_np = next_obs_np
     return (
-        torch.stack(obs_list),     # [T, N, 6]
-        torch.stack(act_list),     # [T, N]
-        torch.stack(lp_list),      # [T, N]
-        torch.stack(rew_list),     # [T, N]
-        torch.stack(val_list),     # [T, N]
-        torch.stack(done_list),    # [T, N]
-        obs_np,                    # [N, 6]
-        ep_lens,                   # [N]
+        torch.stack(obs_list),  # [T, N, 6]
+        torch.stack(act_list),  # [T, N]
+        torch.stack(lp_list),  # [T, N]
+        torch.stack(rew_list),  # [T, N]
+        torch.stack(val_list),  # [T, N]
+        torch.stack(done_list),  # [T, N]
+        obs_np,  # [N, 6]
+        ep_lens,  # [N]
         ep_returns,
     )
 
@@ -347,9 +350,7 @@ def train_ppo(
     actor_opt = torch.optim.Adam(actor.parameters(), lr=lr)
     critic_opt = torch.optim.Adam(critic.parameters(), lr=lr)
     vec_env = make_acrobot_vec_env(seed, NUM_ENVS)
-    obs_np = np.tile(
-        np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1)
-    )
+    obs_np = np.tile(np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1))
     ep_lens = np.zeros(NUM_ENVS, dtype=np.int64)
     history: list[float] = []
     t_start = time.monotonic()
@@ -360,8 +361,8 @@ def train_ppo(
         # Per-env bootstrap: critic value at the post-rollout state,
         # zeroed for any env whose last step terminated.
         with torch.no_grad():
-            bootstrap_v = critic(obs_tensor(obs_np))   # [N]
-            last_done = done_t[-1]                      # [N]
+            bootstrap_v = critic(obs_tensor(obs_np))  # [N]
+            last_done = done_t[-1]  # [N]
             bootstraps = torch.where(
                 last_done > 0.5,
                 torch.zeros_like(bootstrap_v),

@@ -17,7 +17,6 @@ Reset state pinned to (0, 0, 0, 0) to mirror idris-gym's
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
 
 import gymnasium as gym
 import numpy as np
@@ -25,14 +24,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-
-if TYPE_CHECKING:
-    pass
-
-# Number of parallel envs run per a2c_update. Matches Idris-side
-# `Example.A2c.NumEnvs`. Compile-time on Idris (shape baked into the
-# autograd graph); module-level on Python (any-arg-compatible).
-NUM_ENVS = 4
 
 from torch_ref.models.reinforce import (
     MAX_STEPS,
@@ -47,6 +38,11 @@ from torch_ref.training.runner import (
     mem_suffix,
     multinomial_safe,
 )
+
+# Number of parallel envs run per a2c_update. Matches Idris-side
+# `Example.A2c.NumEnvs`. Compile-time on Idris (shape baked into the
+# autograd graph); module-level on Python (any-arg-compatible).
+NUM_ENVS = 4
 
 
 class Actor(nn.Module):
@@ -76,10 +72,13 @@ class Critic(nn.Module):
 def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     """N independent CartPole envs in a SyncVectorEnv, each reset to all-zero
     to mirror idris-gym's `Gym.ClassicControl.CartPole.reset`."""
+
     def _make(idx: int):
         def _f():
             return make_cartpole_env(seed + idx)
+
         return _f
+
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
     for sub in vec.envs:
@@ -107,8 +106,8 @@ def collect_rollout(
     for _ in range(rollout_len):
         obs_t = obs_tensor(obs_np)  # [N, 4]
         with torch.no_grad():
-            logits = actor(obs_t)    # [N, 2]
-            values = critic(obs_t)   # [N]
+            logits = actor(obs_t)  # [N, 2]
+            values = critic(obs_t)  # [N]
         probs = F.softmax(logits, dim=-1)
         actions_t = multinomial_safe(probs, 1).squeeze(-1)  # [N]
         actions_np = actions_t.cpu().numpy().astype(np.int64)
@@ -130,12 +129,12 @@ def collect_rollout(
                 next_obs_np[i] = 0.0
         obs_np = next_obs_np
     return (
-        torch.stack(obs_list),      # [T, N, 4]
-        torch.stack(act_list),      # [T, N]
-        torch.stack(rew_list),      # [T, N]
-        torch.stack(val_list),      # [T, N]
-        torch.stack(done_list),     # [T, N]
-        obs_np,                     # [N, 4]
+        torch.stack(obs_list),  # [T, N, 4]
+        torch.stack(act_list),  # [T, N]
+        torch.stack(rew_list),  # [T, N]
+        torch.stack(val_list),  # [T, N]
+        torch.stack(done_list),  # [T, N]
+        obs_np,  # [N, 4]
     )
 
 
@@ -157,7 +156,8 @@ def compute_advantages(
         v_next = float(bootstraps[env_idx].item())
         for t in reversed(range(t_len)):
             mask = 1.0 - float(dones[t, env_idx].item())
-            delta = float(rewards[t, env_idx].item()) + gamma * v_next * mask - float(values[t, env_idx].item())
+            v_t = float(values[t, env_idx].item())
+            delta = float(rewards[t, env_idx].item()) + gamma * v_next * mask - v_t
             gae_val = delta + gamma * lam * mask * gae_val
             advantages[t, env_idx] = gae_val
             v_next = float(values[t, env_idx].item())
@@ -229,7 +229,7 @@ def train_a2c(
         # zeroed for any env whose last step terminated.
         with torch.no_grad():
             bootstrap_v = critic(obs_tensor(obs_np))  # [N]
-            last_done = dones[-1]                     # [N]
+            last_done = dones[-1]  # [N]
             bootstraps = torch.where(
                 last_done > 0.5,
                 torch.zeros_like(bootstrap_v),

@@ -58,10 +58,13 @@ def _obs_tensor(obs: np.ndarray) -> Tensor:
 def make_pendulum_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     """N Pendulum-v1 envs in a SyncVectorEnv, seeded once at construction
     and randomized per Gymnasium on each reset."""
+
     def _make(idx: int):
         def _f():
             return gym.make("Pendulum-v1")
+
         return _f
+
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset(seed=seed)
     return vec

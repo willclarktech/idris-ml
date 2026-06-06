@@ -21,13 +21,11 @@ Usage:
 
 import argparse
 import random
-import sys
 import time
 
 import torch
 import torch.nn as nn
 from transformers import BertConfig, BertForSequenceClassification
-
 
 # Config (matches Idris-side BertClassifyFinetune.idr)
 VOCAB = 64

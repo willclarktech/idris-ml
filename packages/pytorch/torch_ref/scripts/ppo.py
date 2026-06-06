@@ -36,7 +36,6 @@ from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
     format_elapsed,
     format_result,
-    get_dtype,
     mem_suffix,
     set_device,
 )
@@ -92,31 +91,25 @@ def main() -> None:
     print()
 
     vec_env = make_acrobot_vec_env(args.seed, NUM_ENVS)
-    obs_state = [
-        np.tile(
-            np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1)
-        )
-    ]
+    obs_state = [np.tile(np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1))]
     ep_lens_state = [np.zeros(NUM_ENVS, dtype=np.int64)]
 
     def epoch_fn() -> float:
         """One batched PPO rollout + update across NUM_ENVS envs. Returns
         -avg_ep_return (matches Idris)."""
-        obs_t, act_t, lp_t, rew_t, val_t, done_t, new_obs, new_ep_lens, ep_rets = (
-            collect_rollout(
-                actor,
-                critic,
-                vec_env,
-                obs_state[0],
-                ep_lens_state[0],
-                args.rollout,
-                args.max_ep_len,
-                rng,
-            )
+        obs_t, act_t, lp_t, rew_t, val_t, done_t, new_obs, new_ep_lens, ep_rets = collect_rollout(
+            actor,
+            critic,
+            vec_env,
+            obs_state[0],
+            ep_lens_state[0],
+            args.rollout,
+            args.max_ep_len,
+            rng,
         )
         with torch.no_grad():
-            bootstrap_v = critic(obs_tensor(new_obs))   # [N]
-            last_done = done_t[-1]                       # [N]
+            bootstrap_v = critic(obs_tensor(new_obs))  # [N]
+            last_done = done_t[-1]  # [N]
             bootstraps = torch.where(
                 last_done > 0.5,
                 torch.zeros_like(bootstrap_v),
