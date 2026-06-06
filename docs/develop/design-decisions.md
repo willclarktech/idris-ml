@@ -494,7 +494,7 @@ The `applyLayerVar` function dispatches NormalizationLayer "softmax"/"logSoftmax
 Manual hyperparameter tuning is an anti-pattern that wastes hours on random adjustments. The correct order is:
 
 1. **Fix algorithmic issues first** — bounded gamma, global gradient clipping, efficient topoSort
-2. **Use systematic search** — `scripts/sweep.sh` grid search with parallel execution
+2. **Use systematic search** — `scripts/sweep.py` grid search with parallel execution
 3. **Never manually loop** — if a training run fails, check the algorithmic level before adjusting hyperparameters
 4. **Use schedules over manual phases** — one-cycle policy handles warmup + annealing automatically
 

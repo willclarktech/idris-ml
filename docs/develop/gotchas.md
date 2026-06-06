@@ -457,7 +457,7 @@ The max subtraction for numerical stability uses a detached constant (`fromDoubl
 
 ### Hyperparameter tuning
 
-Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.sh` for systematic grid search. Never manually loop over hyperparameters — see `design-decisions.md` for rationale.
+Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.py` for systematic grid search. Never manually loop over hyperparameters — see `design-decisions.md` for rationale.
 
 ### Periodic GC for long training
 

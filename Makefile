@@ -2186,10 +2186,10 @@ example-profile: install
 	./$(BUILD)/exec/profile
 
 sweep: backend
-	bash scripts/sweep.sh --parallel 4
+	python3 scripts/sweep.py --parallel 4
 
 sweep-quick: backend
-	bash scripts/sweep.sh --parallel 4 --quick
+	python3 scripts/sweep.py --parallel 4 --quick
 
 # PyTorch reference implementation (uv manages Python)
 ref-setup:

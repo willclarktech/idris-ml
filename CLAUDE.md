@@ -52,7 +52,7 @@ make bench-ops-compare          # Operator-level C backend vs PyTorch (raw speed
 # PyTorch reference
 make ref-setup / ref-test / ref-lint / ref-typecheck / ref-convergence
 
-bash scripts/sweep.sh --task copy --parallel 4 [--quick]  # hyperparameter sweep
+python3 scripts/sweep.py --task copy --parallel 4 [--quick]  # hyperparameter sweep
 ```
 
 See the `Makefile` for the full target list (jupyter, safetensors, ntm-grad, etc.).
@@ -284,7 +284,7 @@ Four files, each with a distinct role. Don't conflate them; updating the wrong o
 
 **No expensive run without a perf log.** Any inference or training run that takes more than a few seconds — whether you're verifying correctness, eyeballing output, comparing backends, debugging, or doing ad-hoc exploration — MUST land in `perf-log.jsonl`. Run via `scripts/perf-run.sh` (or the equivalent script) instead of `make example-*` directly; if the example isn't yet wired into `perf-run.sh`, wire it in first (case arms are one line each). Build-only invocations (`make install`, `make backend`) are exempt — only the *run* must be logged. The rule applies to correctness gates too: `test-hf-bert-roundtrip` etc. are correctness scaffolding, but the underlying inference run is expensive and a paired `perf-run.sh` entry is the cheapest way to keep "yesterday's wall" comparable. Re-running a measurement that's already in the log is fine; missing measurements are not.
 
-**Ad-hoc local exploration**: `make example-profile` → `make bench-compare` (same batch, currently 16) → `bash scripts/sweep.sh` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data. `bench-compare` is convenient for eyeballing but does *not* log to `perf-log.jsonl` — pair it with a `perf-run.sh` measurement if you're keeping the result.
+**Ad-hoc local exploration**: `make example-profile` → `make bench-compare` (same batch, currently 16) → `python3 scripts/sweep.py` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data. `bench-compare` is convenient for eyeballing but does *not* log to `perf-log.jsonl` — pair it with a `perf-run.sh` measurement if you're keeping the result.
 
 **Heavy-command convention — always wrap with caffeinate + nice + capped parallelism.** Any command that takes more than ~1 minute on this codebase (Idris elaboration of a real example, full backend rebuild, perf sweeps, multi-example test runs) is "heavy" and competes for CPU + holds the laptop awake. Wrap *every* such invocation:
 
