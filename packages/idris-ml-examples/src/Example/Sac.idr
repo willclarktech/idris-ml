@@ -9,6 +9,7 @@ import Compat.Random
 import Floating
 import Gym.ClassicControl.Pendulum
 import Gym.Env
+import Gym.Vector
 import Layer.Activation
 import Layer.Core
 import Layer.Linear
@@ -39,6 +40,11 @@ QInputDim : Nat; QInputDim = 4          -- ObsDim + ActDim
 Hidden : Nat; Hidden = 64
 EpisodeLen : Nat; EpisodeLen = 200
 MaxAction : Double; MaxAction = 2.0
+
+||| Parallel envs collecting transitions in lockstep. Each outer step
+||| advances NumEnvs envs through one batched actor forward + one
+||| batched gradient update on a sample drawn from the shared buffer.
+NumEnvs : Nat; NumEnvs = 4
 
 
 -- --- Architectures --------------------------------------------------
@@ -122,6 +128,34 @@ sampleActionIO actor logStdV obs = do
   pure (action, lp)
 
 
+-- Batched action sampling: one batched actor forward → N means, then N
+-- independent eps draws. Shared logStd scalar. Mirrors MountainCarCont's
+-- helper of the same name.
+sampleActionsBatched : {n : Nat} -> ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
+                       Vect n PState -> IO (Vect n Double)
+sampleActionsBatched actor logStdV envs = do
+  let obsRows : Vect n (Vector ObsDim Double)
+      obsRows = map (\s => obsTensor (observeVec s)) envs
+      batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
+      stateV : Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad
+      stateV = MkTensor batchPtr Nothing
+  (_, meanB) <- forwardVarBatch actor stateV
+  let logStd = primItem {ex=ExampleExecutor} logStdV.tensorPtr
+      std = Prelude.exp logStd
+  go meanB std 0 envs
+  where
+    go : {n : Nat} -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
+         Double -> Int -> Vect k PState -> IO (Vect k Double)
+    go _ _ _ [] = pure []
+    go meanB std i (_ :: rest) = do
+      let mean = primItem2d {ex=ExampleExecutor} meanB.tensorPtr i 0
+      eps <- normalSample
+      let u = mean + std * eps
+          action = Math.tanh u * MaxAction
+      as <- go meanB std (i + 1) rest
+      pure (action :: as)
+
+
 -- --- SAC state -------------------------------------------------------
 
 record SACState where
@@ -134,8 +168,9 @@ record SACState where
   logStdV : Tensor [] ExampleExecutor ExampleDType WithGrad
   buffer  : ReplayBuffer ObsDim ActDim
   stepRef : IORef Nat
-  envRef  : IORef PState
-  retRef  : IORef Double
+  envRef  : IORef (VecEnv NumEnvs PState)
+  epLenRef : IORef (Vect NumEnvs Nat)
+  retRef  : IORef (Vect NumEnvs Double)
   lastEpRef : IORef Double
 
 
@@ -316,52 +351,64 @@ runBatchUpdate : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecu
 runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
   q1LossV <- qLossBatch n st.q1 st.q1Tgt st.q2Tgt st.actor st.logStdV
                         cfg.gamma cfg.alpha batch
-  _ <- pure (nativeTrainStep q1Opt q1LossV)
+  _ <- nativeTrainStep q1Opt q1LossV
 
   q2LossV <- qLossBatch n st.q2 st.q1Tgt st.q2Tgt st.actor st.logStdV
                         cfg.gamma cfg.alpha batch
-  _ <- pure (nativeTrainStep q2Opt q2LossV)
+  _ <- nativeTrainStep q2Opt q2LossV
 
   let obsVec = the (Vect n (Vect ObsDim Double)) (map (\t => t.obs) batch)
   aLossV <- actorLossBatch n st.actor st.q1 st.q2 st.logStdV cfg.alpha obsVec
-  _ <- pure (nativeTrainStep actorOpt aLossV)
+  _ <- nativeTrainStep actorOpt aLossV
   pure ()
 
 
 -- --- Main loop -------------------------------------------------------
 
-sacStep : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
-          Config -> SACState -> IO (SACState, Double)
-sacStep q1Opt q2Opt actorOpt cfg st = do
+-- Step every env with its action; auto-reset on per-env EpisodeLen.
+-- Pendulum has no termination (continuous task), so we mark isDone
+-- purely on per-env step counter hitting EpisodeLen.
+stepAllAutoResetP : Vect n PState -> Vect n Double -> Vect n Nat ->
+                    (Vect n PState, Vect n Double, Vect n Bool, Vect n Nat)
+stepAllAutoResetP [] [] [] = ([], [], [], [])
+stepAllAutoResetP (s :: ss) (a :: as) (l :: ls) =
+  case pStep s a of
+    (r, s', _, _) =>
+      let isDone = (l + 1) >= EpisodeLen
+          nextS  = if isDone then MkP 3.141592653589793 0.0 else s'
+          nextL  = the Nat (if isDone then 0 else l + 1)
+      in case stepAllAutoResetP ss as ls of
+           (rest, rs, ds, restL) =>
+             (nextS :: rest, r :: rs, isDone :: ds, nextL :: restL)
+
+
+sacStepBatched : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
+                 Config -> SACState -> IO (SACState, Double)
+sacStepBatched q1Opt q2Opt actorOpt cfg st = do
   stepCount <- readIORef st.stepRef
-  envState <- readIORef st.envRef
-  let obs = observeVec envState
+  envs0 <- readIORef st.envRef
+  epLens <- readIORef st.epLenRef
+  oldRets <- readIORef st.retRef
 
-  action <- if stepCount < cfg.warmupSteps
-              then randomRIO (the Double (negate MaxAction), MaxAction)
-              else withNoGrad {ex=ExampleExecutor} $ do
-                -- Rollout-phase forward: just samples an action.
-                -- Gradients come from the separate q1/q2/actor losses
-                -- below; no need to track grad here.
-                pair <- sampleActionIO st.actor st.logStdV obs
-                pure (fst pair)
+  actions <- if stepCount < cfg.warmupSteps
+               then traverse (\_ => randomRIO (the Double (negate MaxAction), MaxAction)) envs0.envs
+               else withNoGrad {ex=ExampleExecutor} (sampleActionsBatched st.actor st.logStdV envs0.envs)
 
-  case pStep envState action of
-    (r, envState', _, _) => do
-      let nextObs = observeVec envState'
-          isDone = (stepCount + 1) `mod` EpisodeLen == 0
-          nextSt = if isDone then MkP 3.141592653589793 0.0 else envState'
-          trans = MkTransition obs [action] r nextObs isDone
-      push st.buffer trans
-      writeIORef st.envRef nextSt
+  case stepAllAutoResetP envs0.envs actions epLens of
+    (envs', rewards, isDones, newEpLens) => do
+      pushAll envs0.envs actions rewards envs' isDones
+      writeIORef st.envRef (MkVecEnv envs')
       writeIORef st.stepRef (stepCount + 1)
+      writeIORef st.epLenRef newEpLens
 
-      runRet <- readIORef st.retRef
-      let newRet = runRet + r
-      if isDone
-        then do writeIORef st.lastEpRef newRet
-                writeIORef st.retRef 0.0
-        else writeIORef st.retRef newRet
+      let newRets : Vect NumEnvs Double
+          newRets = zipWith3 (\old, r, d => if d then 0.0 else old + r) oldRets rewards isDones
+          completed : List Double
+          completed = getCompleted (toList oldRets) (toList rewards) (toList isDones)
+      writeIORef st.retRef newRets
+      case completed of
+        []        => pure ()
+        (e :: es) => writeIORef st.lastEpRef (last (e :: es))
 
       bufSz <- bufferSize st.buffer
       _ <- if bufSz >= cfg.batchSize && stepCount >= cfg.warmupSteps
@@ -378,6 +425,25 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
 
       lastEp <- readIORef st.lastEpRef
       pure (st, negate lastEp)
+  where
+    zipWith3 : (a -> b -> c -> d) -> Vect n a -> Vect n b -> Vect n c -> Vect n d
+    zipWith3 _ [] [] [] = []
+    zipWith3 f (x :: xs) (y :: ys) (z :: zs) = f x y z :: zipWith3 f xs ys zs
+
+    getCompleted : List Double -> List Double -> List Bool -> List Double
+    getCompleted [] _ _ = []
+    getCompleted _ [] _ = []
+    getCompleted _ _ [] = []
+    getCompleted (run :: rs) (rw :: rws) (d :: ds) =
+      let recur = getCompleted rs rws ds
+      in if d then (run + rw) :: recur else recur
+
+    pushAll : Vect n PState -> Vect n Double -> Vect n Double ->
+              Vect n PState -> Vect n Bool -> IO ()
+    pushAll [] [] [] [] [] = pure ()
+    pushAll (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d :: ds) = do
+      push st.buffer (MkTransition (observeVec s) [a] r (observeVec s') d)
+      pushAll ss as rs ss' ds
 
 
 -- --- Greedy evaluation ----------------------------------------------
@@ -433,11 +499,14 @@ main = do
 
   buffer <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
-  envRef <- newIORef (the PState (MkP 3.141592653589793 0.0))
-  retRef <- newIORef (the Double 0.0)
+  let initEnvs : VecEnv NumEnvs PState
+      initEnvs = resetAll {state=PState} {action=Double} {obs=Vect 3 Double}
+  envRef <- newIORef initEnvs
+  epLenRef <- newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs 0))
+  retRef <- newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0))
   lastEpRef <- newIORef (the Double 0.0)
 
-  let st0 = MkSAC actor q1 q2 q1Tgt q2Tgt logStdV buffer stepRef envRef retRef lastEpRef
+  let st0 = MkSAC actor q1 q2 q1Tgt q2Tgt logStdV buffer stepRef envRef epLenRef retRef lastEpRef
       actorOpt = nativeAdamGroup "actor_" cfg.lr 0.9 0.999 1.0e-8 cfg.clipNorm
       q1Opt    = nativeAdamGroup "q1_"    cfg.lr 0.9 0.999 1.0e-8 cfg.clipNorm
       q2Opt    = nativeAdamGroup "q2_"    cfg.lr 0.9 0.999 1.0e-8 cfg.clipNorm
@@ -456,7 +525,7 @@ main = do
                             (\_ => readRLMetrics "recent_20" metrics) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
     (\s, _ => do
-       (s', loss) <- sacStep q1Opt q2Opt actorOpt cfg s
+       (s', loss) <- sacStepBatched q1Opt q2Opt actorOpt cfg s
        recordReturn metrics (negate loss)
        pure (s', loss))
     (pure ())

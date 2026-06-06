@@ -37,6 +37,10 @@ from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem
 MAX_ACTION = 1.0
 MAX_STEPS = 999  # Gymnasium's MountainCarContinuous-v0 default TimeLimit
 
+# Parallel envs collecting transitions in lockstep. Matches Idris-side
+# `Example.MountainCarCont.NumEnvs`.
+NUM_ENVS = 4
+
 
 def make_mountaincarcont_env(seed: int) -> gym.Env:
     env = gym.make("MountainCarContinuous-v0")
@@ -52,6 +56,20 @@ def reset_to_center(env: gym.Env) -> np.ndarray:
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
     return torch.tensor(obs, dtype=get_dtype(), device=get_device())
+
+
+def make_mountaincarcont_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+    """N MountainCarContinuous-v0 envs in a SyncVectorEnv, each reset to
+    (-0.5, 0.0) (mirrors Idris-side `Gym.Vector.resetAll`)."""
+    def _make(idx: int):
+        def _f():
+            return make_mountaincarcont_env(seed + idx)
+        return _f
+    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec.reset()
+    for sub in vec.envs:
+        reset_to_center(sub)
+    return vec
 
 
 class Actor(nn.Module):
@@ -176,6 +194,9 @@ def train_sac(
     seed: int = 42,
     log_every: int = 2000,
 ) -> tuple[Actor, list[float]]:
+    """Batched SAC. NUM_ENVS parallel envs in lockstep — each outer step
+    pushes NUM_ENVS transitions to the buffer and does one gradient
+    update. Total env-steps per `total_steps` outer = total_steps * N."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     actor = Actor().to(get_device())
@@ -188,36 +209,47 @@ def train_sac(
     q2_opt = torch.optim.Adam(q2.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
 
-    env = make_mountaincarcont_env(seed)
-    obs_np = reset_to_center(env)
+    vec_env = make_mountaincarcont_vec_env(seed, NUM_ENVS)
+    obs_np = np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))
+    ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     history: list[float] = []
-    ep_return = 0.0
     t_start = time.monotonic()
     for step in range(total_steps):
-        obs = obs_tensor(obs_np)
         if step < warmup_steps:
-            action = rng.uniform(-MAX_ACTION, MAX_ACTION)
+            actions_np = np.array(
+                [rng.uniform(-MAX_ACTION, MAX_ACTION) for _ in range(NUM_ENVS)],
+                dtype=np.float64,
+            )
         else:
+            obs_t = obs_tensor(obs_np)
             with torch.no_grad():
-                a_t, _ = actor.sample(obs)
-                action = float(a_t.item())
-        next_obs_np, raw_reward, terminated, truncated, _ = env.step(
-            np.array([action], dtype=np.float32)
+                a_t, _ = actor.sample(obs_t)
+                actions_np = a_t.cpu().numpy().astype(np.float64)
+        next_obs_np, raw_rewards, terms_np, truncs_np, _ = vec_env.step(
+            actions_np.astype(np.float32).reshape(NUM_ENVS, 1)
         )
         next_obs_np = next_obs_np.astype(np.float64)
-        ep_return += float(raw_reward)
-        # Buffer's done flag reflects TRUE termination only (so the
-        # Q-target bootstrap continues at truncation boundaries).
-        buffer_done = bool(terminated)
-        shaped = float(raw_reward) + shaping * abs(float(next_obs_np[1]))
-        buffer.push(obs_np.tolist(), action, shaped, next_obs_np.tolist(), buffer_done)
-        is_done = bool(terminated or truncated)
+        is_dones = np.logical_or(terms_np, truncs_np)
+        ep_returns_running += raw_rewards.astype(np.float64)
+        # Per-env push with shaping; buffer done flag reflects TRUE
+        # termination only (Q-target bootstrap continues at truncation).
+        for i in range(NUM_ENVS):
+            shaped_r = float(raw_rewards[i]) + shaping * abs(float(next_obs_np[i, 1]))
+            buffer.push(
+                obs_np[i].tolist(),
+                float(actions_np[i]),
+                shaped_r,
+                next_obs_np[i].tolist(),
+                bool(terms_np[i]),
+            )
+        # Episode completion + reset.
+        for i in range(NUM_ENVS):
+            if is_dones[i]:
+                history.append(float(ep_returns_running[i]))
+                ep_returns_running[i] = 0.0
+                reset_to_center(vec_env.envs[i])
+                next_obs_np[i] = np.array([-0.5, 0.0], dtype=np.float64)
         obs_np = next_obs_np
-        if is_done:
-            history.append(ep_return)
-            ep_return = 0.0
-            env.reset()
-            obs_np = reset_to_center(env)
         if len(buffer) >= max(batch_size, warmup_steps):
             sac_update(
                 actor,

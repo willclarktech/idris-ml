@@ -18,11 +18,12 @@ import torch
 
 from torch_ref.models.mountain_car_cont import (
     MAX_ACTION,
+    NUM_ENVS,
     Actor,
     QNet,
     ReplayBuffer,
     evaluate,
-    make_mountaincarcont_env,
+    make_mountaincarcont_vec_env,
     obs_tensor,
     polyak_update,
     reset_to_center,
@@ -86,33 +87,43 @@ def main() -> None:
 
     print()
     history: list[float] = []
-    env = make_mountaincarcont_env(args.seed)
-    obs_np = reset_to_center(env)
-    ep_return = 0.0
+    vec_env = make_mountaincarcont_vec_env(args.seed, NUM_ENVS)
+    obs_np = np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))
+    ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     t_start = time.monotonic()
     for step in range(args.epochs):
-        obs = obs_tensor(obs_np)
         if step < args.warmup:
-            action = rng.uniform(-MAX_ACTION, MAX_ACTION)
+            actions_np = np.array(
+                [rng.uniform(-MAX_ACTION, MAX_ACTION) for _ in range(NUM_ENVS)],
+                dtype=np.float64,
+            )
         else:
+            obs_t = obs_tensor(obs_np)
             with torch.no_grad():
-                a_t, _ = actor.sample(obs)
-                action = float(a_t.item())
-        next_obs_np, raw_reward, terminated, truncated, _ = env.step(
-            np.array([action], dtype=np.float32)
+                a_t, _ = actor.sample(obs_t)
+                actions_np = a_t.cpu().numpy().astype(np.float64)
+        next_obs_np, raw_rewards, terms_np, truncs_np, _ = vec_env.step(
+            actions_np.astype(np.float32).reshape(NUM_ENVS, 1)
         )
         next_obs_np = next_obs_np.astype(np.float64)
-        ep_return += float(raw_reward)
-        buffer_done = bool(terminated)
-        shaped = float(raw_reward) + args.shaping * abs(float(next_obs_np[1]))
-        buffer.push(obs_np.tolist(), action, shaped, next_obs_np.tolist(), buffer_done)
-        is_done = bool(terminated or truncated)
+        is_dones = np.logical_or(terms_np, truncs_np)
+        ep_returns_running += raw_rewards.astype(np.float64)
+        for i in range(NUM_ENVS):
+            shaped_r = float(raw_rewards[i]) + args.shaping * abs(float(next_obs_np[i, 1]))
+            buffer.push(
+                obs_np[i].tolist(),
+                float(actions_np[i]),
+                shaped_r,
+                next_obs_np[i].tolist(),
+                bool(terms_np[i]),
+            )
+        for i in range(NUM_ENVS):
+            if is_dones[i]:
+                history.append(float(ep_returns_running[i]))
+                ep_returns_running[i] = 0.0
+                reset_to_center(vec_env.envs[i])
+                next_obs_np[i] = np.array([-0.5, 0.0], dtype=np.float64)
         obs_np = next_obs_np
-        if is_done:
-            history.append(ep_return)
-            ep_return = 0.0
-            env.reset()
-            obs_np = reset_to_center(env)
         if len(buffer) >= max(args.batch, args.warmup):
             sac_update(
                 actor,

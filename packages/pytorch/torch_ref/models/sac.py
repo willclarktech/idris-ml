@@ -33,6 +33,10 @@ from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem
 MAX_ACTION = 2.0  # Pendulum torque range
 MAX_STEPS = 200  # gymnasium Pendulum-v1 default TimeLimit
 
+# Parallel envs collecting transitions in lockstep. Matches Idris-side
+# `Example.Sac.NumEnvs`.
+NUM_ENVS = 4
+
 
 def _reset_to_pi(env: gym.Env) -> np.ndarray:
     """Pin env state to (theta=π, theta_dot=0) and return the obs.
@@ -49,6 +53,19 @@ def _reset_to_pi(env: gym.Env) -> np.ndarray:
 
 def _obs_tensor(obs: np.ndarray) -> Tensor:
     return torch.tensor(obs, dtype=get_dtype(), device=get_device())
+
+
+def make_pendulum_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+    """N Pendulum-v1 envs in a SyncVectorEnv, each pinned to (π, 0)."""
+    def _make(idx: int):
+        def _f():
+            return gym.make("Pendulum-v1")
+        return _f
+    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec.reset(seed=seed)
+    for sub in vec.envs:
+        _reset_to_pi(sub)
+    return vec
 
 
 # ---------------------------------------------------------------------------
@@ -225,32 +242,51 @@ def train_sac(
     q2_opt = torch.optim.Adam(q2.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
 
-    env = gym.make("Pendulum-v1")
-    env.reset(seed=seed)
-    obs_np = _reset_to_pi(env)
+    vec_env = make_pendulum_vec_env(seed, NUM_ENVS)
+    obs_np = np.tile(
+        np.array([math.cos(math.pi), math.sin(math.pi), 0.0], dtype=np.float64),
+        (NUM_ENVS, 1),
+    )
+    ep_lens = np.zeros(NUM_ENVS, dtype=np.int64)
+    ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     history: list[float] = []
-    ep_return = 0.0
     t_start = time.monotonic()
     for step in range(total_steps):
-        obs = _obs_tensor(obs_np)
         if step < warmup_steps:
-            action = rng.uniform(-MAX_ACTION, MAX_ACTION)
+            actions_np = np.array(
+                [rng.uniform(-MAX_ACTION, MAX_ACTION) for _ in range(NUM_ENVS)],
+                dtype=np.float64,
+            )
         else:
+            obs_t = _obs_tensor(obs_np)
             with torch.no_grad():
-                a_t, _ = actor.sample(obs)
-                action = float(a_t.item())
-        next_obs_np, reward, term, trunc, _ = env.step(np.array([action], dtype=np.float32))
+                a_t, _ = actor.sample(obs_t)
+                actions_np = a_t.cpu().numpy().astype(np.float64)
+        next_obs_np, rewards_np, _terms, _truncs, _ = vec_env.step(
+            actions_np.astype(np.float32).reshape(NUM_ENVS, 1)
+        )
         next_obs_np = next_obs_np.astype(np.float64)
-        reward_f = float(reward)
-        ep_return += reward_f
-        done = bool(term or trunc)
-        buffer.push(obs_np.tolist(), action, reward_f, next_obs_np.tolist(), done)
+        ep_lens += 1
+        is_dones = ep_lens >= MAX_STEPS  # Pendulum truncates; no termination
+        ep_returns_running += rewards_np.astype(np.float64)
+        for i in range(NUM_ENVS):
+            buffer.push(
+                obs_np[i].tolist(),
+                float(actions_np[i]),
+                float(rewards_np[i]),
+                next_obs_np[i].tolist(),
+                bool(is_dones[i]),
+            )
+        for i in range(NUM_ENVS):
+            if is_dones[i]:
+                history.append(float(ep_returns_running[i]))
+                ep_returns_running[i] = 0.0
+                ep_lens[i] = 0
+                _reset_to_pi(vec_env.envs[i])
+                next_obs_np[i] = np.array(
+                    [math.cos(math.pi), math.sin(math.pi), 0.0], dtype=np.float64
+                )
         obs_np = next_obs_np
-        if done:
-            history.append(ep_return)
-            ep_return = 0.0
-            env.reset()
-            obs_np = _reset_to_pi(env)
         if len(buffer) >= max(batch_size, warmup_steps):
             sac_update(
                 actor,
