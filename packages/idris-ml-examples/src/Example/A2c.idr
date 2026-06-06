@@ -9,6 +9,7 @@ import Compat.Random
 import Floating
 import Gym.ClassicControl.CartPole
 import Gym.Env
+import Gym.Vector
 import Hpo.LrFinder
 import Layer.Activation
 import Layer.Core
@@ -38,6 +39,14 @@ Hidden : Nat; Hidden = 64
 NumActions : Nat; NumActions = 2
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 RolloutLen : Nat; RolloutLen = 20
+
+||| Number of parallel envs run per a2cEpoch. Compile-time because the
+||| batched-forward shape `[NumEnvs, ObsDim]` is part of the autograd
+||| graph. PyTorch's `gym.vector.SyncVectorEnv` and our `Gym.Vector.VecEnv`
+||| share this semantic — N independent envs stepped in lockstep — and we
+||| use the same N on both sides to keep the cross-backend reference
+||| comparable.
+NumEnvs : Nat; NumEnvs = 4
 
 Actor : Type
 Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions ExampleExecutor ExampleDType WithGrad
@@ -116,6 +125,90 @@ rollout actor critic st (S k) = do
           nextSt = if isDone then MkCP 0 0 0 0 else st'
       recur <- rollout actor critic nextSt k
       pure (stepRec :: fst recur, snd recur)
+
+
+----------------------------------------------------------------------
+-- Batched rollout (NumEnvs parallel envs, one batched forward per step)
+----------------------------------------------------------------------
+
+-- Sample one action per env from a [n, NumActions] batched log-prob tensor.
+-- Threads the env index through and consumes one randomRIO call per env
+-- per timestep (matches the sequential rollout's one-rand-per-step rule).
+sampleActionFromBatch : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType g ->
+                        Vect n CPState -> IO (Vect n Nat, Vect n Double)
+sampleActionFromBatch logProbsB envs = go 0 envs
+  where
+    go : Int -> Vect k CPState -> IO (Vect k Nat, Vect k Double)
+    go _ [] = pure ([], [])
+    go i (_ :: rest) = do
+      let lp0 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 0
+          lp1 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 1
+      u <- randomRIO (the Double 0.0, 1.0)
+      let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1] u
+      (acts, lpVals) <- go (i + 1) rest
+      pure (a :: acts, (if a == 0 then lp0 else lp1) :: lpVals)
+
+-- Step every env with its action; auto-reset envs that terminate (matches
+-- the sequential `rollout`'s nextSt = if isDone then MkCP 0 0 0 0 else st').
+stepAllAutoReset : Vect n CPState -> Vect n Nat ->
+                   (Vect n CPState, Vect n Double, Vect n Bool)
+stepAllAutoReset [] [] = ([], [], [])
+stepAllAutoReset (s :: ss) (a :: as) =
+  case cpStep s a of
+    (r, s', outcome, _) =>
+      let isDone = done outcome
+          nextS  = if isDone then MkCP 0 0 0 0 else s'
+          (rest, rs, ds) = stepAllAutoReset ss as
+      in (nextS :: rest, r :: rs, isDone :: ds)
+
+-- Build per-env RollStep records given the rollout-step values.
+mkRollSteps : Vect n (Vect ObsDim Double) -> Vect n Nat -> Vect n Double ->
+              Vect n Double -> Vect n Bool -> Vect n RollStep
+mkRollSteps [] [] [] [] [] = []
+mkRollSteps (o :: os) (a :: as) (r :: rs) (v :: vs) (d :: ds) =
+  MkRS o a r v d :: mkRollSteps os as rs vs ds
+
+||| Batched per-env rollout. Each env steps RolloutLen times in lockstep;
+||| one batched (actor, critic) forward per timestep amortises the
+||| Idris-side per-op overhead across NumEnvs samples.
+|||
+||| Done envs auto-reset to `MkCP 0 0 0 0` so the [NumEnvs, ObsDim]
+||| observation shape stays constant timestep-to-timestep (mirrors
+||| `stepAutoReset` from `Gym.Vector` and PyTorch's `SyncVectorEnv`).
+rolloutBatched : {n : Nat} -> Actor -> Critic -> VecEnv n CPState ->
+                 Nat -> IO (Vect n (List RollStep), VecEnv n CPState)
+rolloutBatched actor critic v0 rolloutLen = do
+  (envs', stepLists) <- go rolloutLen v0.envs (replicate n [])
+  pure (map reverse stepLists, MkVecEnv envs')
+  where
+    -- Helper: map with index over a Vect.
+    mapIdx : (Nat -> a -> b) -> Vect k a -> Vect k b
+    mapIdx _ [] = []
+    mapIdx f (x :: xs) = f 0 x :: mapIdx (\i, v => f (S i) v) xs
+
+    go : Nat -> Vect n CPState -> Vect n (List RollStep) ->
+         IO (Vect n CPState, Vect n (List RollStep))
+    go Z envs accs = pure (envs, accs)
+    go (S k) envs accs = do
+      let obsRows : Vect n (Vector ObsDim Double)
+          obsRows = map (\s => obsTensor (observeVec s)) envs
+          batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
+          stateV : Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad
+          stateV = MkTensor batchPtr Nothing
+      (_, logitsV) <- forwardVarBatch actor stateV
+      let logProbsV = the (Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad)
+                        (MkTensor (primLogSoftmax2d {ex=ExampleExecutor} logitsV.tensorPtr) Nothing)
+      (_, valuesV) <- forwardVarBatch critic stateV
+      (acts, _) <- sampleActionFromBatch logProbsV envs
+      let valueRows : Vect n Double
+          valueRows = mapIdx (\i, _ => primItem2d {ex=ExampleExecutor} valuesV.tensorPtr (cast i) 0) envs
+          obsVects : Vect n (Vect ObsDim Double)
+          obsVects = map observeVec envs
+      case stepAllAutoReset envs acts of
+        (envs', rewards, dones) =>
+          let newSteps = mkRollSteps obsVects acts rewards valueRows dones
+              accs' = zipWith (\acc, s => s :: acc) accs newSteps
+          in go k envs' accs'
 
 
 ----------------------------------------------------------------------
@@ -205,19 +298,15 @@ aggregateLoss losses = do
   tmulScalar summed (1.0 / n)
 
 
--- Pair each rollout step (after GAE + advantage normalization) with its
--- batch row index, then build one batched actor + critic forward and
--- index into the resulting [B, NumActions] / [B, 1] tensors per-sample.
--- Caller supplies `bootstrap` precomputed (intended to be done in
--- withNoGrad — the bootstrap forward through critic doesn't need grad
--- tracking, the value is just a Double consumed by GAE).
-buildLoss : Actor -> Critic -> Double -> Double -> Double -> Double ->
-            Double -> List RollStep -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-buildLoss actor critic gamma lam entropyCoef valueCoef bootstrap steps = do
-  let triples = map stepTriple steps
-      gaeOut = gae gamma lam bootstrap triples
-      merged = map flattenTriple (zip steps gaeOut)
-      normalized = normAdvs merged
+-- Build the batched loss tensor from pre-normalized (RollStep, adv, ret)
+-- triples. One batched actor + critic forward over the flat batch, then
+-- per-sample policy/value/entropy losses indexed into the [B, NumActions]
+-- / [B, 1] outputs. Sequential and batched paths share this.
+buildLossFromMerged : Actor -> Critic -> Double -> Double ->
+                      List (RollStep, Double, Double) ->
+                      IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+buildLossFromMerged actor critic entropyCoef valueCoef merged = do
+  let normalized = normAdvs merged
       normVec = Data.Vect.fromList normalized
       n = length normalized
       obsBatch = the (Vect (length normalized) (Vector ObsDim Double))
@@ -239,6 +328,35 @@ buildLoss actor critic gamma lam entropyCoef valueCoef bootstrap steps = do
       ls <- enumeratedLosses lB vB rest (k + 1)
       pure (l :: ls)
 
+-- Sequential rollout's loss: one GAE chain off `bootstrap`, then the
+-- shared post-GAE machinery.
+buildLoss : Actor -> Critic -> Double -> Double -> Double -> Double ->
+            Double -> List RollStep -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+buildLoss actor critic gamma lam entropyCoef valueCoef bootstrap steps =
+  let triples = map stepTriple steps
+      gaeOut = gae gamma lam bootstrap triples
+      merged = map flattenTriple (zip steps gaeOut)
+  in buildLossFromMerged actor critic entropyCoef valueCoef merged
+
+-- Batched rollout's loss: per-env GAE off the env's own bootstrap, then
+-- concat into one flat triples list and normalize across the whole batch
+-- (matches PyTorch's SyncVectorEnv update where advantages are normalized
+-- over T*N samples, not per-env). Shared post-GAE machinery.
+buildLossBatched : {n : Nat} -> Actor -> Critic ->
+                   Double -> Double -> Double -> Double ->
+                   Vect n (List RollStep) -> Vect n Double ->
+                   IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+buildLossBatched actor critic gamma lam entropyCoef valueCoef stepLists bootstraps =
+  let mergedPerEnv : Vect n (List (RollStep, Double, Double))
+      mergedPerEnv = zipWith
+        (\steps, boot =>
+          let triples = map stepTriple steps
+              gaeOut = gae gamma lam boot triples
+          in map flattenTriple (zip steps gaeOut))
+        stepLists bootstraps
+      flatMerged = concat (toList mergedPerEnv)
+  in buildLossFromMerged actor critic entropyCoef valueCoef flatMerged
+
 
 ----------------------------------------------------------------------
 -- Config + epoch
@@ -248,8 +366,8 @@ record A2CState where
   constructor MkA2C
   actor  : Actor
   critic : Critic
-  envRef : IORef CPState
-  retRef : IORef Double
+  envRef : IORef (VecEnv NumEnvs CPState)
+  retRef : IORef (Vect NumEnvs Double)
 
 record Config where
   constructor MkConfig
@@ -281,33 +399,69 @@ lastTerminated steps = case last' steps of
   Just ls => ls.isDone
   Nothing => False
 
+-- Per-env bootstrap: critic forward on each env's final state. Skips
+-- envs whose last step terminated (those contribute 0 to GAE).
+computeBootstrapsBatched : Critic -> Vect n (List RollStep) -> VecEnv n CPState ->
+                           IO (Vect n Double)
+computeBootstrapsBatched critic stepLists v = batchOver stepLists v.envs
+  where
+    batchOver : Vect k (List RollStep) -> Vect k CPState -> IO (Vect k Double)
+    batchOver [] [] = pure []
+    batchOver (steps :: rest) (s :: ss) = do
+      b <- computeBootstrap critic steps s
+      bs <- batchOver rest ss
+      pure (b :: bs)
+
 a2cEpoch : NativeOptimizer ExampleExecutor -> Config -> A2CState -> IO (A2CState, Double)
 a2cEpoch opt cfg st = do
-  startSt <- readIORef st.envRef
-  -- Rollout-phase forward only extracts logits/values as Doubles
-  -- (for sampling + bootstrap). The grad path is rebuilt fresh in
-  -- buildLoss's batched forward, so the rollout's per-step forward
-  -- doesn't need autograd tracking. withNoGrad skips tape append
-  -- (tape/mlx) and disables libtorch's autograd graph (torch).
-  rolled <- withNoGrad {ex=ExampleExecutor} (rollout st.actor st.critic startSt RolloutLen)
-  let steps = fst rolled
-      finalSt = snd rolled
-  writeIORef st.envRef finalSt
-  -- Bootstrap forward (one critic forward on finalSt) doesn't need
-  -- grad either — GAE consumes the value as a Double. Pull it out
-  -- of buildLoss and run inside withNoGrad like the rollout.
-  bootstrap <- withNoGrad {ex=ExampleExecutor} (computeBootstrap st.critic steps finalSt)
-  loss <- buildLoss st.actor st.critic cfg.gamma cfg.lam
-                       cfg.entropyCoef cfg.valueCoef bootstrap steps
+  startEnvs <- readIORef st.envRef
+  -- Rollout-phase forward only extracts logits/values as Doubles (for
+  -- sampling + bootstrap). The grad path is rebuilt fresh in
+  -- buildLossBatched's batched forward, so the rollout's per-step
+  -- forward doesn't need autograd tracking. withNoGrad skips tape
+  -- append (tape/mlx) and disables libtorch's autograd graph (torch).
+  rolled <- withNoGrad {ex=ExampleExecutor} (rolloutBatched st.actor st.critic startEnvs RolloutLen)
+  let stepLists = fst rolled
+      finalEnvs = snd rolled
+  writeIORef st.envRef finalEnvs
+  bootstraps <- withNoGrad {ex=ExampleExecutor} (computeBootstrapsBatched st.critic stepLists finalEnvs)
+  loss <- buildLossBatched st.actor st.critic cfg.gamma cfg.lam
+                              cfg.entropyCoef cfg.valueCoef stepLists bootstraps
   _ <- nativeTrainStep opt loss
 
-  let sumRew = sum (map (\s => s.reward) steps)
-      wasDone = lastTerminated steps
-  runRet <- readIORef st.retRef
-  let newRet = runRet + sumRew
-      reported = if wasDone then newRet else sumRew
-  writeIORef st.retRef (if wasDone then 0.0 else newRet)
-  pure (st, negate reported)
+  -- Per-env running returns: each env independently accumulates its own
+  -- episodic return; on termination it adds to the reported list and
+  -- resets to 0. Reporting averages over completed episodes this epoch
+  -- (matches PyTorch SyncVectorEnv: any-env termination counts once).
+  oldRunRets <- readIORef st.retRef
+  case updateRetVect oldRunRets stepLists of
+    (newRuns, epReturns) => do
+      writeIORef st.retRef newRuns
+      let nEp = length epReturns
+          sumRew : Double
+          sumRew = sum (map (\steps => sum (map (\s => s.reward) steps)) stepLists)
+          reported = if nEp > 0
+                     then sum epReturns / cast (natToInteger nEp)
+                     else sumRew / cast (natToInteger NumEnvs)
+      pure (st, negate reported)
+  where
+    -- Walk one env's running return through its rollout, emitting any
+    -- completed episode returns and updating the running tally.
+    walkOne : Double -> List RollStep -> (Double, List Double)
+    walkOne run [] = (run, [])
+    walkOne run (s :: ss) =
+      let r' = run + s.reward
+      in case walkOne (if s.isDone then 0.0 else r') ss of
+           (final, eps) =>
+             if s.isDone then (final, r' :: eps) else (final, eps)
+
+    updateRetVect : Vect k Double -> Vect k (List RollStep) ->
+                    (Vect k Double, List Double)
+    updateRetVect [] [] = ([], [])
+    updateRetVect (r :: rs) (steps :: rest) =
+      case walkOne r steps of
+        (r', eps) => case updateRetVect rs rest of
+          (rs', restEps) => (r' :: rs', eps ++ restEps)
 
 
 ----------------------------------------------------------------------
@@ -360,8 +514,10 @@ main = do
 
   actor <- mkActor
   critic <- mkCritic
-  envRef <- newIORef (the CPState (MkCP 0 0 0 0))
-  retRef <- newIORef (the Double 0.0)
+  let initEnvs : VecEnv NumEnvs CPState
+      initEnvs = resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+  envRef <- newIORef initEnvs
+  retRef <- newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0))
   let st0 = MkA2C actor critic envRef retRef
       opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 0.5
 

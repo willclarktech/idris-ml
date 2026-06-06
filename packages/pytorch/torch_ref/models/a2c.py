@@ -2,8 +2,13 @@
 
 Aligned with `Example.A2c` (Idris). Separate actor and critic networks
 (Idris uses distinct paramId prefixes via `prefixParamId` + `emap` to
-register them in the same optimizer without name collisions). Sequential
-single-env rollouts with auto-reset, matching Idris.
+register them in the same optimizer without name collisions).
+
+Batched rollouts: `NUM_ENVS` independent CartPole envs stepped in
+lockstep via `gym.vector.SyncVectorEnv`, mirroring Idris'
+`Gym.Vector.VecEnv NumEnvs CPState`. One batched (actor, critic) forward
+per timestep amortises per-op overhead across the N samples. Both sides
+use the same N to keep the cross-backend reference comparable.
 
 Reset state pinned to (0, 0, 0, 0) to mirror idris-gym's
 `Gym.ClassicControl.CartPole.reset`.
@@ -14,6 +19,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
@@ -21,7 +27,12 @@ import torch.nn.functional as F
 from torch import Tensor
 
 if TYPE_CHECKING:
-    import gymnasium as gym
+    pass
+
+# Number of parallel envs run per a2c_update. Matches Idris-side
+# `Example.A2c.NumEnvs`. Compile-time on Idris (shape baked into the
+# autograd graph); module-level on Python (any-arg-compatible).
+NUM_ENVS = 4
 
 from torch_ref.models.reinforce import (
     MAX_STEPS,
@@ -62,47 +73,69 @@ class Critic(nn.Module):
         return self.head(h).squeeze(-1)
 
 
+def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+    """N independent CartPole envs in a SyncVectorEnv, each reset to all-zero
+    to mirror idris-gym's `Gym.ClassicControl.CartPole.reset`."""
+    def _make(idx: int):
+        def _f():
+            return make_cartpole_env(seed + idx)
+        return _f
+    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec.reset()
+    for sub in vec.envs:
+        reset_to_zero(sub)
+    return vec
+
+
 def collect_rollout(
     actor: Actor,
     critic: Critic,
-    env: gym.Env,
+    vec_env: gym.vector.SyncVectorEnv,
     obs_np: np.ndarray,
     rollout_len: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, np.ndarray]:
-    """Single-env sequential rollout of exactly `rollout_len` steps with
-    auto-reset on done. Matches Idris exactly."""
+    """Batched rollout of `rollout_len` steps across NUM_ENVS parallel envs
+    with auto-reset on done (each terminated sub-env resets to all-zero).
+    Returned tensors are shaped [T, N, ...]; new_obs is [N, 4]. Mirrors
+    Idris-side `rolloutBatched`."""
     obs_list: list[Tensor] = []
-    act_list: list[int] = []
-    rew_list: list[float] = []
-    val_list: list[float] = []
-    done_list: list[float] = []
+    act_list: list[Tensor] = []
+    rew_list: list[Tensor] = []
+    val_list: list[Tensor] = []
+    done_list: list[Tensor] = []
+    n = NUM_ENVS
     for _ in range(rollout_len):
-        obs = obs_tensor(obs_np)
+        obs_t = obs_tensor(obs_np)  # [N, 4]
         with torch.no_grad():
-            logits = actor(obs)
-            value = critic(obs)
+            logits = actor(obs_t)    # [N, 2]
+            values = critic(obs_t)   # [N]
         probs = F.softmax(logits, dim=-1)
-        action = int(multinomial_safe(probs, 1).item())
-        next_obs_np, reward, term, trunc, _ = env.step(action)
-        done = bool(term or trunc)
-        obs_list.append(obs)
-        act_list.append(action)
-        rew_list.append(float(reward))
-        val_list.append(float(value.item()))
-        done_list.append(1.0 if done else 0.0)
-        if done:
-            env.reset()
-            obs_np = reset_to_zero(env)
-        else:
-            obs_np = next_obs_np.astype(np.float64)
-    device, dtype = get_device(), get_dtype()
+        actions_t = multinomial_safe(probs, 1).squeeze(-1)  # [N]
+        actions_np = actions_t.cpu().numpy().astype(np.int64)
+        next_obs_np, rewards_np, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        dones_np = np.logical_or(terms_np, truncs_np)
+        device, dtype = get_device(), get_dtype()
+        obs_list.append(obs_t)
+        act_list.append(actions_t.long())
+        rew_list.append(torch.tensor(rewards_np, dtype=dtype, device=device))
+        val_list.append(values.detach().to(dtype))
+        done_list.append(torch.tensor(dones_np.astype(np.float64), dtype=dtype, device=device))
+        # Auto-reset: SyncVectorEnv auto-resets on its own but to a
+        # uniform-random state. Override each terminated sub-env back to
+        # all-zero so the Idris-side reset semantics match.
+        next_obs_np = next_obs_np.astype(np.float64)
+        for i in range(n):
+            if dones_np[i]:
+                reset_to_zero(vec_env.envs[i])
+                next_obs_np[i] = 0.0
+        obs_np = next_obs_np
     return (
-        torch.stack(obs_list),
-        torch.tensor(act_list, dtype=torch.long, device=device),
-        torch.tensor(rew_list, dtype=dtype, device=device),
-        torch.tensor(val_list, dtype=dtype, device=device),
-        torch.tensor(done_list, dtype=dtype, device=device),
-        obs_np,
+        torch.stack(obs_list),      # [T, N, 4]
+        torch.stack(act_list),      # [T, N]
+        torch.stack(rew_list),      # [T, N]
+        torch.stack(val_list),      # [T, N]
+        torch.stack(done_list),     # [T, N]
+        obs_np,                     # [N, 4]
     )
 
 
@@ -110,21 +143,24 @@ def compute_advantages(
     rewards: Tensor,
     values: Tensor,
     dones: Tensor,
-    bootstrap: float,
+    bootstraps: Tensor,
     gamma: float,
     lam: float,
 ) -> tuple[Tensor, Tensor]:
-    """GAE, single-env, inputs [T]. Returns (advantages[T], returns[T])."""
-    t_len = rewards.shape[0]
+    """Per-env GAE on batched inputs. rewards/values/dones are [T, N];
+    bootstraps is [N]. Returns advantages [T, N], returns [T, N]. Matches
+    Idris-side `buildLossBatched`'s per-env GAE chain."""
+    t_len, n = rewards.shape
     advantages = torch.zeros_like(rewards)
-    gae_val = 0.0
-    v_next = bootstrap
-    for t in reversed(range(t_len)):
-        mask = 1.0 - float(dones[t].item())
-        delta = float(rewards[t].item()) + gamma * v_next * mask - float(values[t].item())
-        gae_val = delta + gamma * lam * mask * gae_val
-        advantages[t] = gae_val
-        v_next = float(values[t].item())
+    for env_idx in range(n):
+        gae_val = 0.0
+        v_next = float(bootstraps[env_idx].item())
+        for t in reversed(range(t_len)):
+            mask = 1.0 - float(dones[t, env_idx].item())
+            delta = float(rewards[t, env_idx].item()) + gamma * v_next * mask - float(values[t, env_idx].item())
+            gae_val = delta + gamma * lam * mask * gae_val
+            advantages[t, env_idx] = gae_val
+            v_next = float(values[t, env_idx].item())
     returns = advantages + values
     return advantages, returns
 
@@ -161,7 +197,7 @@ def a2c_update(
 
 def train_a2c(
     total_updates: int = 5000,
-    rollout_len: int = 10,
+    rollout_len: int = 20,
     lr: float = 7e-4,
     gamma: float = 0.99,
     lam: float = 0.95,
@@ -171,7 +207,8 @@ def train_a2c(
     log_every: int = 500,
 ) -> tuple[Actor, Critic, list[float]]:
     """Hyperparameters match Idris `Example.A2c.defaultConfig`:
-    lr=7e-4, entropy=0.01, rollout=10, gamma=0.99, lam=0.95."""
+    lr=7e-4, entropy=0.01, rollout=20, gamma=0.99, lam=0.95. Batched
+    across NUM_ENVS parallel envs (mirrors Idris-side NumEnvs)."""
     torch.manual_seed(seed)
     actor = Actor().to(get_device())
     critic = Critic().to(get_device())
@@ -179,36 +216,49 @@ def train_a2c(
         list(actor.parameters()) + list(critic.parameters()),
         lr=lr,
     )
-    env = make_cartpole_env(seed)
-    env.reset()
-    obs_np = reset_to_zero(env)
+    vec_env = make_cartpole_vec_env(seed, NUM_ENVS)
+    obs_np = np.zeros((NUM_ENVS, 4), dtype=np.float64)
     history: list[float] = []
-    ep_return = 0.0
+    ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     t_start = time.monotonic()
     for update in range(total_updates):
         obs, actions, rewards, values, dones, obs_np = collect_rollout(
-            actor, critic, env, obs_np, rollout_len
+            actor, critic, vec_env, obs_np, rollout_len
         )
+        # Per-env bootstrap: critic value at the post-rollout state,
+        # zeroed for any env whose last step terminated.
         with torch.no_grad():
-            bootstrap_v = critic(obs_tensor(obs_np))
-            bootstrap = 0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
-        advantages, returns = compute_advantages(rewards, values, dones, bootstrap, gamma, lam)
+            bootstrap_v = critic(obs_tensor(obs_np))  # [N]
+            last_done = dones[-1]                     # [N]
+            bootstraps = torch.where(
+                last_done > 0.5,
+                torch.zeros_like(bootstrap_v),
+                bootstrap_v,
+            )
+        advantages, returns = compute_advantages(
+            rewards, values, dones, bootstraps, gamma, lam
+        )  # both [T, N]
+        # Flatten to [T*N, ...] for the update step.
         a2c_update(
             actor,
             critic,
             optimizer,
-            obs,
-            actions,
-            advantages,
-            returns,
+            obs.reshape(-1, 4),
+            actions.reshape(-1),
+            advantages.reshape(-1),
+            returns.reshape(-1),
             entropy_coef,
             value_coef,
         )
+        # Per-env episodic return tracking.
+        rewards_np = rewards.cpu().numpy()
+        dones_np = dones.cpu().numpy()
         for t in range(rollout_len):
-            ep_return += float(rewards[t].item())
-            if dones[t].item() > 0.5:
-                history.append(ep_return)
-                ep_return = 0.0
+            for env_idx in range(NUM_ENVS):
+                ep_returns_running[env_idx] += float(rewards_np[t, env_idx])
+                if dones_np[t, env_idx] > 0.5:
+                    history.append(float(ep_returns_running[env_idx]))
+                    ep_returns_running[env_idx] = 0.0
         if (update + 1) % log_every == 0:
             recent = history[-50:] or [0.0]
             last_ep = history[-1] if history else 0.0

@@ -18,15 +18,19 @@ import time
 
 import torch
 
+import numpy as np
+
 from torch_ref.models.a2c import (
+    NUM_ENVS,
     Actor,
     Critic,
     a2c_update,
     collect_rollout,
     compute_advantages,
     evaluate,
+    make_cartpole_vec_env,
 )
-from torch_ref.models.reinforce import make_cartpole_env, obs_tensor, reset_to_zero
+from torch_ref.models.reinforce import obs_tensor
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
     format_elapsed,
@@ -45,7 +49,7 @@ def main() -> None:
     parser.add_argument("--lambda", dest="lam", type=float, default=0.95)
     parser.add_argument("--entropy", type=float, default=0.01)
     parser.add_argument("--value-coef", type=float, default=0.5)
-    parser.add_argument("--rollout", type=int, default=10)
+    parser.add_argument("--rollout", type=int, default=20)
     parser.add_argument(
         "--lr-find",
         action="store_true",
@@ -77,24 +81,31 @@ def main() -> None:
     )
     print()
 
-    # Stateful epoch context: env + running observation + episodic return.
-    env = make_cartpole_env(args.seed)
-    obs_state = [reset_to_zero(env)]
-    running_return = [0.0]
+    # Stateful epoch context: NUM_ENVS parallel envs + per-env running
+    # episodic returns. Matches Idris-side `A2CState.{envRef, retRef}`.
+    vec_env = make_cartpole_vec_env(args.seed, NUM_ENVS)
+    obs_state = [np.zeros((NUM_ENVS, 4), dtype=np.float64)]
+    running_returns = [np.zeros(NUM_ENVS, dtype=np.float64)]
 
     def epoch_fn() -> float:
-        """One A2C update. Returns -avg_episodic_return (matches Idris loss)."""
+        """One batched A2C update across NUM_ENVS envs. Returns
+        -avg_episodic_return (matches Idris loss)."""
         obs, actions, rewards, values, dones, new_obs = collect_rollout(
-            actor, critic, env, obs_state[0], args.rollout
+            actor, critic, vec_env, obs_state[0], args.rollout
         )
         with torch.no_grad():
-            bootstrap_v = critic(obs_tensor(new_obs))
-            bootstrap = 0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
+            bootstrap_v = critic(obs_tensor(new_obs))           # [N]
+            last_done = dones[-1]                                # [N]
+            bootstraps = torch.where(
+                last_done > 0.5,
+                torch.zeros_like(bootstrap_v),
+                bootstrap_v,
+            )
         advantages, returns = compute_advantages(
             rewards,
             values,
             dones,
-            bootstrap,
+            bootstraps,
             args.gamma,
             args.lam,
         )
@@ -102,27 +113,31 @@ def main() -> None:
             actor,
             critic,
             optimizer,
-            obs,
-            actions,
-            advantages,
-            returns,
+            obs.reshape(-1, 4),
+            actions.reshape(-1),
+            advantages.reshape(-1),
+            returns.reshape(-1),
             args.entropy,
             args.value_coef,
         )
 
         ep_returns: list[float] = []
-        run = running_return[0]
+        run = running_returns[0]
+        rewards_np = rewards.cpu().numpy()
+        dones_np = dones.cpu().numpy()
         for t in range(args.rollout):
-            run += float(rewards[t].item())
-            if dones[t].item() > 0.5:
-                ep_returns.append(run)
-                run = 0.0
-        running_return[0] = run
+            for env_idx in range(NUM_ENVS):
+                run[env_idx] += float(rewards_np[t, env_idx])
+                if dones_np[t, env_idx] > 0.5:
+                    ep_returns.append(float(run[env_idx]))
+                    run[env_idx] = 0.0
+        running_returns[0] = run
         obs_state[0] = new_obs
 
-        last_terminated = dones[-1].item() > 0.5
-        sum_rew = float(rewards.sum().item())
-        reported = ep_returns[-1] if last_terminated and ep_returns else sum_rew
+        sum_rew = float(rewards.sum().item()) / NUM_ENVS
+        reported = (
+            sum(ep_returns) / len(ep_returns) if ep_returns else sum_rew
+        )
         return -reported  # Idris reports `negate avg_return`
 
     if args.lr_find:
