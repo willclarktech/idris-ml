@@ -291,6 +291,16 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
 
   -- Recurrent cells ---------------------------------------------------
   primGruCell        : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
+  -- TODO audit: `primLstmGatesPair` + `primPairFirst` + `primPairSecond`
+  -- are three interface methods (and nine `%foreign` bindings across
+  -- the three backends) that together unpack ONE fused C return at one
+  -- Idris call site (`Tensor.idr:tlstmGatesPair`). Collapse to a single
+  -- backend-dispatchable method requires either (a) a new per-backend C
+  -- entry-point with output-pointer semantics, or (b) a custom multi-
+  -- return Scheme wrapper outside the `ffi_manifest.py` template's
+  -- direct/streamed shape — both larger than the audit budget. Deferred
+  -- to a future LSTM/recurrent-cell refactor that already needs to
+  -- restructure the cell-state plumbing.
   primLstmGatesPair  : AnyPtr -> AnyPtr -> Int -> AnyPtr
   primPairFirst      : AnyPtr -> AnyPtr
   primPairSecond     : AnyPtr -> AnyPtr
