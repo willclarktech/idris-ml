@@ -1001,6 +1001,23 @@ The rationale is that the new joints are real ones, not artifact-of-evolution. A
 
 Drift across the split is enforced by `scripts/check-executor-method-drift.py` (CI gate): it unions all `(slice, method)` tuples across the 3 instance files and asserts no divergence. The earlier `UserExecutorCore` drift incident (commit `2d9490c9` added `primRound` + `primClamp` for BitNet, left `Example.BringYourOwn` silently out of sync, only failed `check-all` months later) was the motivating bug class; the drift script makes it a one-commit-cycle failure.
 
+### Opt-in slice pattern for asymmetric methods (2026-06-08 + 2026-06-09)
+
+Two audit waves following the sub-slice split refined the surface further with **opt-in interfaces** for methods that aren't load-bearing on every backend. The audit waves introduced four opt-in slices:
+
+- **`UserExecutorOptimizations`** (Round 1, 2026-06-08): fused multi-op kernels — `primSdpa2d`, `primRmsNorm2d`, `primSwiGlu2d`, the 8 streamed param-init kernels, `primPolyakBlend`. Round 2 added `primCrossAttention` and `primTile2d` to the same slice (both are fused fast-paths whose mandatory-slice presence was inconsistent with their nature). Backends with native kernels declare an instance; backends without are correctly rejected by callers' `UserExecutorOptimizations ex =>` constraint.
+- **`UserExecutorStreamed`** (Round 2, 2026-06-09): `deviceStreamTag`. BYO backends without a stream concept can omit the instance entirely; mlx-style backends with multi-stream dispatch implement it meaningfully.
+- **`UserExecutorMemoryHygiene`** (Round 2): `primEpochBegin/End`, `primReleaseAllPersistent`, `primResetForEval`. The four methods are asymmetric — mlx implements meaningfully (managed-handle pool drain across epoch boundaries); tape and torch keep cheap arena reset / `free_intermediates` bodies for backwards compatibility. The opt-in surface clarifies that these are managed-handle-pool hooks, not mandatory profiling primitives.
+- **`UserExecutorDiagnostics`** (Round 2): `primLiveCount`, `primPeakLiveCount`, `primPerfOpCount`. All three in-tree backends expose meaningful counters; BYO backends opt in only if they expose handle-count / op-submission tracking. `UserExecutorProfiling` is now down to its three genuine op-timing methods.
+
+The four new slices are listed in `scripts/check-executor-method-drift.py`'s `OPT_IN_SLICES` (landed in `f9dfd1aa`). Methods in opt-in slices skip the cross-backend union check (the drift gate's purpose is to enforce "every mandatory method on every backend," which doesn't apply to opt-ins). All four slices are superclasses of `UserExecutorTraining` (and the relevant ones of `UserExecutorInference`), so existing consumer code resolves unchanged — the changes are implementer-side.
+
+**Per-method `Int -> Int` constant-folding workaround retired** (Round 2). `primLiveCount` / `primPeakLiveCount` flipped from `Int -> Int` (with an ignored dummy arg) to `PrimIO Int`. The original shape was a workaround for Idris-Chez constant-folding the zero-arg FFI call, but the right answer was always `PrimIO Int` — the FFI return depends on backend mutable state, so it should never have been typed pure. C side dropped the matching `int dummy` parameter; the Idris call sites in `Train.idr` restructure into `liveH <- primIO (primLiveCount {ex})` before the `logInfo` string interpolation.
+
+**What stays mandatory**: `primOneHot` (in `UserExecutorTensorCreate`) and `primCosineSimilarity` (in `UserExecutorNN`) were considered for pure-Idris replacement but kept after call-site analysis. `primOneHot` would need N+1 FFI hops per call on the LLM training hot path; `primCosineSimilarity` would generate 8 lazy-graph nodes per call in NTM's per-timestep loop under `withNoGrad` on mlx. Neither is a fused multi-op kernel matching `UserExecutorOptimizations`'s pattern; both are individual primitives in their natural homes.
+
+**What stays deferred**: the LSTM-cell pair-handle plumbing (`primLstmGatesPair` + `primPairFirst` + `primPairSecond`) collapses to one method only with a per-backend C entry-point with output-pointer semantics OR a custom multi-return Scheme wrapper outside the manifest template — both larger than the audit's budget. Filed as a TODO-defer comment in `Executor/Core.idr` pointing at the future LSTM/recurrent-cell refactor.
+
 ### `Compatible` and `RuntimeDType` are orthogonal (2026-06-07)
 
 The original backlog row asked whether `Compatible (ex, dt)` (the empty marker interface gating admissible (Executor, DType) pairs at the type level) and `RuntimeDType t` (the value-level dispatch table carrying `dtypeTag : Int` for FFI selection) are "the same concept reified differently." Survey decided no — they sit on orthogonal axes:
