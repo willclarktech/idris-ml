@@ -1170,7 +1170,7 @@ test-coverage-backend-torch:
 # $(BUILD)/coverage-gap-{ops,symbols}.csv. Advisory exit; gating flip
 # tracked under W3+W4 in coverage-policy.md.
 test-coverage-gap-probe:
-	@bash scripts/coverage-gap-probe.sh $(BUILD)
+	@python3 scripts/coverage-gap-probe.py $(BUILD)
 
 # Specialized C test suites. The NTM + mlx-compile tests live under
 # packages/idris-test-c/src/ (cross-cutting integration; no 1:1 source

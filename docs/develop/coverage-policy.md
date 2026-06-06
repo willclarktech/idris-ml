@@ -55,7 +55,7 @@ canonical example — trivially "covered" by any forward call).
 
 ## Principled exclusions
 
-The gap probe (`scripts/coverage-gap-probe.sh`) applies the following
+The gap probe (`scripts/coverage-gap-probe.py`) applies the following
 exclusion list to FFI symbols. These paths do not need direct test
 coverage; including them would dilute the signal.
 
@@ -214,7 +214,7 @@ tests are the gate.
 
 ## Cross-references
 
-- `scripts/coverage-gap-probe.sh` — the probe itself
+- `scripts/coverage-gap-probe.py` — the probe itself
 - `feedback_tdd_default` (in MEMORY.md) — TDD commit shapes
 - `feedback_test_gates_must_run_in_ci` — CI must run the gates we
   build
