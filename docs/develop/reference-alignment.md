@@ -14,6 +14,32 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > referenced in the A2C/PPO entries is structurally impossible in V2 (each layer is named at
 > construction). See [path-c-migration.md](path-c-migration.md).
 
+## BERT classification fine-tune (2026-06-07)
+
+New paired example `bert-classify-finetune` ships with both sides aligned.
+
+| Side | File | Notes |
+|------|------|-------|
+| Idris | `packages/idris-ml-examples/src/Example/BertClassifyFinetune.idr` | `BertForSequenceClassification` at the FT2-introduced API |
+| PyTorch | `packages/pytorch/torch_ref/scripts/bert_classify_finetune.py` | `transformers.BertForSequenceClassification` w/ matched config |
+
+| Setting | Both sides |
+|---------|------------|
+| Vocab / Hidden / Layers / Heads / HeadDim / Intermediate / MaxPos / TypeVocab / NumClasses | 64 / 32 / 1 / 2 / 16 / 64 / 8 / 2 / 3 |
+| SeqLen / BatchSize | 8 / 16 |
+| Synthetic dataset | label-token at position 1: class 0→token 11, class 1→token 13, class 2→token 17. CLS=0, SEP=1, distractors random in [20, 60]. |
+| Optimizer | AdamW(lr=1e-3, β=(0.9, 0.999), ε=1e-8, weight_decay=0.01) + grad-norm clip 1.0 |
+| Default epochs / patience | 2000 / 500 (loss-improvement, minDelta=1e-3) |
+| Loss | per-example mean cross-entropy over a 3-element one-hot target (Idris `tnllLoss`; PyTorch `nn.CrossEntropyLoss` with integer labels) |
+| Eval | held-out 32-sample greedy-argmax accuracy |
+| LayerNorm ε / dropout | 1e-12 / 0.0 (both sides) |
+| Convergence (seed=42) | Idris tape: 1.000 acc, 1582 epochs. PyTorch CPU: 1.000 acc, ~1300-1700 epochs. |
+| Multi-seed (seeds 1-5, Idris tape) | 5/5 converge to 1.000 acc |
+
+The Idris-side classifier head omits the dropout HF interposes between pooler and classifier; the
+PyTorch ref sets `hidden_dropout_prob=0.0` to match. Adding fine-tune dropout back is a future
+tuning knob — see TODO for "Real-text fine-tuning of HF-loaded models".
+
 ## Alignment Changes (2026-04)
 
 ### Idris defaults changed to match PyTorch

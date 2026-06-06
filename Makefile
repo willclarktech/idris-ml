@@ -1531,6 +1531,17 @@ example-supervised: install
 	cp $(LIB) $(BUILD)/exec/supervised_app/
 	./$(BUILD)/exec/supervised $(SEED_FLAG) $(SUPERVISED_ARGS)
 
+# BERT classification fine-tune on a synthetic 3-class task. Demonstrates
+# the FT1+FT2 surface (`BertForSequenceClassification` head + optional
+# `freezeByPrefix`). Tiny config (vocab=64, hidden=32, layers=1) so the
+# example converges from-scratch in seconds without a pretrained
+# checkpoint; the real-text warm-start workflow is parked as a
+# follow-up TODO row.
+example-bert-classify-finetune: install install-transformers
+	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-finetune $(EXAMPLE_SRC)/Example/BertClassifyFinetune.idr
+	cp $(LIB) $(BUILD)/exec/bert-classify-finetune_app/
+	./$(BUILD)/exec/bert-classify-finetune $(SEED_FLAG) $(BERT_FINETUNE_ARGS)
+
 # HuggingFace BERT inference example. Loads google/bert_uncased_L-2_H-128_A-2
 # weights via the HF-aligned HfBert layer module (from idris-transformers)
 # and dumps the 128-dim pooled [CLS] output to stdout, one value per line.
@@ -2148,6 +2159,9 @@ bench-ops-compare:
 
 ref-supervised:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.supervised
+
+ref-bert-classify-finetune:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_finetune
 
 ref-rnn:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.rnn
