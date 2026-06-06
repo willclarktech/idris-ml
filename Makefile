@@ -648,6 +648,12 @@ $(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_u
 $(BUILD)/log.o: $(BACKENDS_DIR)/log.c $(BACKENDS_DIR)/log.h | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -c -o $@ $<
 
+# Drift detector: errors if any method is present in some Executor backend
+# files but not all three. Run alongside other check-* targets.
+.PHONY: check-executor-method-drift
+check-executor-method-drift:
+	@python3 scripts/check-executor-method-drift.py
+
 # Final link compiler: c++ if any C++ backend (torch/mlx) is in the
 # list, else cc. Picks the right runtime libraries automatically.
 ifneq ($(filter torch mlx,$(BACKEND_LIST)),)

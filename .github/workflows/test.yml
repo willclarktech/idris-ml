@@ -30,6 +30,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify paired Idris ↔ torch_ref defaults match
         run: python3 scripts/check-paired-defaults.py
+      - name: Verify Executor backend method sets are in sync
+        # Catches the drift bug class: someone wires a new method into
+        # Tape's instance block and silently forgets Torch / Mlx (or
+        # vice-versa). Compile-only coverage misses this — the missing
+        # backend stays unspellable until someone tries to use it.
+        run: make check-executor-method-drift
+
       - name: Verify FFI wrap-on-return template invariants
         # Catches: (a) new Tensor-touching %foreign decls written as
         # %foreign "C:..." instead of scheme-wrapped, (b) hand-edited
