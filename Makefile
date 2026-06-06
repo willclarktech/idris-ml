@@ -610,19 +610,43 @@ vendor-deps: $(CJSON_C) $(CJSON_H)
 # rename header. shared_utils.c hosts the `index_array_*` +
 # `get_rss_mb` symbols (intentionally unified — they don't dispatch
 # per backend).
-SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o
+# IDRISML_LOG: build-time level ceiling for the C/Idris log scheme.
+# Accepted: silent | error | warn | info | debug | trace. Default info.
+# Levels above this are #if-elided at compile time; the runtime env var
+# IDRISML_LOG_LEVEL can lower (but not raise) the active level.
+IDRISML_LOG ?= info
+ifeq ($(IDRISML_LOG),silent)
+  IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_SILENT
+else ifeq ($(IDRISML_LOG),error)
+  IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_ERROR
+else ifeq ($(IDRISML_LOG),warn)
+  IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_WARN
+else ifeq ($(IDRISML_LOG),info)
+  IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_INFO
+else ifeq ($(IDRISML_LOG),debug)
+  IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_DEBUG
+else ifeq ($(IDRISML_LOG),trace)
+  IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_TRACE
+else
+  IDRISML_LOG_CFLAG := -DIDRISML_LOG_LEVEL=IDRISML_LEVEL_INFO
+endif
+
+SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o $(BUILD)/log.o
 
 $(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(CJSON_H) $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
+	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
 
 $(BUILD)/cJSON.o: $(CJSON_C) $(CJSON_H) | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) -c -o $@ $<
+	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -c -o $@ $<
 
 $(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
+
+$(BUILD)/log.o: $(BACKENDS_DIR)/log.c $(BACKENDS_DIR)/log.h | $(BUILD)
+	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -c -o $@ $<
 
 # Final link compiler: c++ if any C++ backend (torch/mlx) is in the
 # list, else cc. Picks the right runtime libraries automatically.
