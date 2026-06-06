@@ -1,44 +1,69 @@
-||| Build-time selection of the (device, dtype) pair that examples
-||| target. Generated from this template by the Makefile rule at
+||| Build-time selection of the (Machine, Backend, Hardware) triple that
+||| examples target. Generated from this template by the Makefile rule at
 ||| `Makefile`'s BUILDCONFIG_IDR target, which observes `PRIMARY` +
-||| `MLX_DEVICE` + `TORCH_DEVICE` at build time and substitutes the
-||| chosen tags into this template via sed.
+||| `HARDWARE` + `MACHINE` at build time and substitutes the chosen type
+||| tags into this template via sed.
 |||
-||| Selection matrix (PRIMARY × hw-device env → ExampleExecutor, ExampleDType):
+||| The Executor and DType drop out of the chosen triple via the
+||| `Preset` typeclass: `Preset PrimaryBackend ChosenHardware` resolves
+||| to the `(presetExecutor, presetDType)` cell, and `Provides
+||| ChosenMachine ChosenHardware` enforces at compile time that the
+||| requested Hardware is actually reachable on the chosen Machine.
 |||
-|||   tape, *                     → TapeExecutor,              F64
-|||   torch, TORCH_DEVICE=cpu      → TorchExecutor TCpu,        F64
-|||   torch, TORCH_DEVICE=mps      → TorchExecutor TMps,        F32
-|||   torch, TORCH_DEVICE=cuda     → TorchExecutor (TCuda 0),   F64
-|||   mlx, MLX_DEVICE=cpu          → MlxExecutor MCpu,          F64
-|||   mlx, MLX_DEVICE=gpu          → MlxExecutor MGpu,          F32
-|||
-||| TMps + F64 deliberately doesn't exist — libtorch rejects F64 at
-||| MPS tensor construction. mlx GPU is F32-only too (Metal dropped
-||| F64 support in mlx 0.31). All other cells stay F64 for parity
-||| with the historical references.
+||| Mismatched combinations (e.g. PRIMARY=tape HARDWARE=metal, or
+||| MACHINE=mac-m-series HARDWARE=cuda) fail at example-compile with
+||| clear "no instance Preset …" / "no instance Provides …" errors —
+||| not at runtime.
 |||
 ||| Idris-2 cannot drive type-level selection from a runtime env var —
-||| types are fixed at elaboration time, before `main`. The generated
-||| `BuildConfig.idr` is in `.gitignore`.
+||| types are fixed at elaboration. The generated `BuildConfig.idr` is
+||| in `.gitignore`.
 |||
 ||| Do not edit `BuildConfig.idr` directly — your changes will be
 ||| clobbered on the next build. Edit this `.in` file instead.
 module BuildConfig
 
 import public Executor
-import public Executor.Tape
-import public Executor.Torch
-import public Executor.Mlx
+import Backend
+import Hardware
+import Machine
+import Preset
 
-||| Executor tag examples target. See the Selection matrix in the
-||| module docstring.
+||| The Machine the build targets, sed-substituted from $(MACHINE).
+public export
+ChosenMachine : Type
+ChosenMachine = @CHOSEN_MACHINE_TAG@
+
+||| The primary Backend, sed-substituted from $(PRIMARY).
+public export
+PrimaryBackend : Type
+PrimaryBackend = @PRIMARY_BACKEND_TAG@
+
+||| The Hardware the example default targets, sed-substituted from
+||| $(HARDWARE). Must satisfy Provides ChosenMachine ChosenHardware
+||| and Preset PrimaryBackend ChosenHardware.
+public export
+ChosenHardware : Type
+ChosenHardware = @CHOSEN_HARDWARE_TAG@
+
+||| Example default Executor — resolved via Preset.
 public export
 ExampleExecutor : Type
-ExampleExecutor = @DEVICE@
+ExampleExecutor = presetExecutor {b=PrimaryBackend} {h=ChosenHardware}
 
-||| DType examples target. See the Selection matrix in the module
-||| docstring.
+||| Example default DType — resolved via Preset.
 public export
-ExampleDType : DType
-ExampleDType = @DTYPE@
+ExampleDType : Type
+ExampleDType = presetDType {b=PrimaryBackend} {h=ChosenHardware}
+
+||| Compile-time coherence checks. Resolving these names at module-load
+||| forces typeclass resolution to fire — if either instance is missing,
+||| the build fails with a clear "no instance" message rather than at
+||| an arbitrary example use site.
+public export
+machineProvidesHardware : Provides ChosenMachine ChosenHardware
+machineProvidesHardware = %search
+
+public export
+backendHasPreset : Preset PrimaryBackend ChosenHardware
+backendHasPreset = %search
