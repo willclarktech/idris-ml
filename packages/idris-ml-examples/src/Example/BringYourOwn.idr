@@ -42,9 +42,6 @@ data BYO : Type where MkBYO : BYO
 %foreign "C:byo_tensor_create_scalar,libbyo"
 prim__createScalarBYO : Double -> Int -> AnyPtr
 
-%foreign "C:byo_tensor_create,libbyo"
-prim__createBYO : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-
 %foreign "C:byo_tensor_free,libbyo"
 prim__freeBYO : AnyPtr -> ()
 
@@ -122,7 +119,6 @@ UserExecutorCore BYO where
   deviceName       = "byo"
   deviceStreamTag  = 0      -- no stream concept (like tape/torch)
   primCreateScalar = prim__createScalarBYO
-  primCreate       = prim__createBYO
   primFree         = prim__freeBYO
   primItem         = prim__itemBYO
   primItem1d       = prim__item1dBYO

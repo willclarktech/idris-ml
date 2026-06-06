@@ -125,10 +125,6 @@ interface UserExecutorCore (0 ex : Executor) where
   ||| `requires_grad` is 0 or 1.
   primCreateScalar : Double -> Int -> AnyPtr
 
-  ||| Allocate a multi-dimensional tensor. Args: data buffer, shape
-  ||| buffer, rank, requires_grad.
-  primCreate : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-
   ||| Release a tensor handle. No-op on backends that GC.
   primFree : AnyPtr -> ()
 

@@ -25,9 +25,6 @@ import Preset
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar_mlx_streamed\" (double int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__createScalarMlxStreamed : Double -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (let ((raw_r ((foreign-procedure \"tensor_create_mlx_streamed\" (void* void* int int int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
-prim__createMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
-
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_free_mlx_streamed\" (void* int) void) (vector-ref a0 2) a1))"
 prim__freeMlxStreamed : AnyPtr -> Int -> ()
 
@@ -162,7 +159,6 @@ public export
   primClamp a0 a1 a2 = prim__clampMlxStreamed a0 a1 a2 (streamTag s)
   primClampMin a0 a1 = prim__clampMinMlxStreamed a0 a1 (streamTag s)
   primClone a0 = prim__cloneMlxStreamed a0 (streamTag s)
-  primCreate a0 a1 a2 a3 = prim__createMlxStreamed a0 a1 a2 a3 (streamTag s)
   primCreateScalar a0 a1 = prim__createScalarMlxStreamed a0 a1 (streamTag s)
   primDiv a0 a1 = prim__divMlxStreamed a0 a1 (streamTag s)
   primExp a0 = prim__expMlxStreamed a0 (streamTag s)

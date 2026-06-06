@@ -161,8 +161,6 @@ public export
   -- hardware via `tensor_to_device`. Self-move on `TCpu`.
   primCreateScalar val rg =
     prim__toDeviceTorch (prim__createScalarTorch val rg) (torchHwDevName d)
-  primCreate dat sh rank rg =
-    prim__toDeviceTorch (prim__createTorch dat sh rank rg) (torchHwDevName d)
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (torch-suffixed)
 ----------------------------------------------------------------------
@@ -799,9 +797,10 @@ prim__setIntHostTorch : AnyPtr -> Int -> Int -> AnyPtr
 ||| The closure here calls the rank-generic `tensor_create_torch`
 ||| (which lands on CPU by default in libtorch) then
 ||| `tensor_to_device_torch(handle, "mps"|"cuda:n")` so the returned
-||| tensor is on the right hardware variant. Matches the post-create
-||| migration the existing `primCreate` does in `UserExecutorCore
-||| (TorchExecutor d)`.
+||| tensor is on the right hardware variant. The non-streamed
+||| `prim__createTorch` FFI binding it wraps stays alive for this
+||| purpose (the typeclass method that used to drive it from
+||| `UserExecutorCore` was deleted as dead code).
 prim__createFromHostTorch : (d : TorchHwDev) -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 prim__createFromHostTorch d dat sh rank rg =
   prim__toDeviceTorch (prim__createTorch dat sh rank rg) (torchHwDevName d)
