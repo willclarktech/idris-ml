@@ -1579,6 +1579,16 @@ data/tinyshakespeare/input.distilgpt2.tokens: data/tinyshakespeare/input.txt
 
 data-tinyshakespeare-distilgpt2: data/tinyshakespeare/input.distilgpt2.tokens
 
+# Tokenize Tiny Shakespeare via google/bert_uncased_L-2_H-128_A-2's
+# WordPiece for use by the BERT MLM continued-pretraining example
+# (~289K tokens).
+data/tinyshakespeare/input.bert-tiny.tokens: data/tinyshakespeare/input.txt
+	bash packages/idris-transformers/scripts/tokenize-text-corpus.sh \
+		data/tinyshakespeare/input.txt google/bert_uncased_L-2_H-128_A-2 \
+		data/tinyshakespeare/input.bert-tiny.tokens
+
+data-tinyshakespeare-bert-tiny: data/tinyshakespeare/input.bert-tiny.tokens
+
 # GPT-2 LM continued pretraining: distilgpt2 backbone + sliding-window
 # next-token CE loss on Tiny Shakespeare. Deps on the distilgpt2
 # checkpoint (HF pattern rule) + the tokenized corpus.
@@ -1593,6 +1603,20 @@ example-gpt2-lm-finetune: install install-transformers \
 ref-gpt2-lm-finetune: models/distilgpt2/config.json \
 		data/tinyshakespeare/input.distilgpt2.tokens
 	cd packages/pytorch && uv run python -m torch_ref.scripts.gpt2_lm_finetune $(GPT2_LM_ARGS)
+
+# BERT MLM continued pretraining: bert-tiny backbone + MLM head; 80/10/10
+# masking + position-selective CE loss on Tiny Shakespeare-via-WordPiece.
+example-bert-mlm-finetune: install install-transformers \
+		models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		data/tinyshakespeare/input.bert-tiny.tokens
+	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-mlm-finetune \
+		$(EXAMPLE_SRC)/Example/BertMlmFinetune.idr
+	cp $(LIB) $(BUILD)/exec/bert-mlm-finetune_app/
+	./$(BUILD)/exec/bert-mlm-finetune $(SEED_FLAG) $(BERT_MLM_ARGS)
+
+ref-bert-mlm-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		data/tinyshakespeare/input.bert-tiny.tokens
+	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_mlm_finetune $(BERT_MLM_ARGS)
 
 # HuggingFace BERT inference example. Loads google/bert_uncased_L-2_H-128_A-2
 # weights via the HF-aligned HfBert layer module (from idris-transformers)
