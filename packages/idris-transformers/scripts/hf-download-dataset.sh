@@ -34,8 +34,8 @@
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "usage: $0 <dataset> <split> [<config>] [<tokenizer>]" >&2
-  exit 1
+	echo "usage: $0 <dataset> <split> [<config>] [<tokenizer>]" >&2
+	exit 1
 fi
 
 DATASET=$1
@@ -54,8 +54,8 @@ mkdir -p "$DEST_DIR"
 OUT_PATH="$DEST_DIR/$SPLIT.tsv"
 
 if [[ -s "$OUT_PATH" && "${HF_FORCE_REDOWNLOAD:-0}" != "1" ]]; then
-  echo "hf-download-dataset: $OUT_PATH already present (set HF_FORCE_REDOWNLOAD=1 to refresh)"
-  exit 0
+	echo "hf-download-dataset: $OUT_PATH already present (set HF_FORCE_REDOWNLOAD=1 to refresh)"
+	exit 0
 fi
 
 # Run inside the pytorch package's uv venv (same as `hf-download.sh`).
@@ -71,60 +71,60 @@ print(f"hf-download-dataset: load_dataset({dataset!r}, {config or '<no-config>'}
 
 ds_args = {"split": split}
 if config:
-    ds_args["name"] = config
+		ds_args["name"] = config
 
 # `datasets` >=3.0 requires fully-namespaced repo IDs (e.g. `nyu-mll/glue`
 # instead of `glue`). For the canonical short names — glue / squad / imdb
 # / etc. — fall back to the upstream maintainer's namespace automatically
 # so the user-facing CLI stays terse.
 NAMESPACE_FALLBACKS = {
-    "glue":   "nyu-mll/glue",
-    "squad":  "rajpurkar/squad",
-    "imdb":   "stanfordnlp/imdb",
-    "sst2":   "stanfordnlp/sst2",
+		"glue":   "nyu-mll/glue",
+		"squad":  "rajpurkar/squad",
+		"imdb":   "stanfordnlp/imdb",
+		"sst2":   "stanfordnlp/sst2",
 }
 candidates = [dataset]
 if dataset in NAMESPACE_FALLBACKS:
-    candidates.append(NAMESPACE_FALLBACKS[dataset])
+		candidates.append(NAMESPACE_FALLBACKS[dataset])
 ds = None
 for cand in candidates:
-    try:
-        ds = load_dataset(cand, token=os.environ.get("HF_TOKEN"), **ds_args)
-        if cand != dataset:
-            print(f"  (using namespaced repo {cand!r})")
-        break
-    except (HfUriError, ValueError) as exc:
-        last_exc = exc
-        continue
+		try:
+				ds = load_dataset(cand, token=os.environ.get("HF_TOKEN"), **ds_args)
+				if cand != dataset:
+						print(f"  (using namespaced repo {cand!r})")
+				break
+		except (HfUriError, ValueError) as exc:
+				last_exc = exc
+				continue
 if ds is None:
-    raise SystemExit(f"hf-download-dataset: failed to load {dataset!r}: {last_exc}")
+		raise SystemExit(f"hf-download-dataset: failed to load {dataset!r}: {last_exc}")
 
 # Identify the text + label columns. SST-2 uses `sentence` + `label`; IMDb
 # uses `text` + `label`. Fall back to the first string-ish column for text.
 text_col = None
 for cand in ("sentence", "text", "premise", "sentence1"):
-    if cand in ds.column_names:
-        text_col = cand
-        break
+		if cand in ds.column_names:
+				text_col = cand
+				break
 if text_col is None:
-    raise SystemExit(f"hf-download-dataset: no recognised text column in "
-                     f"{ds.column_names}")
+		raise SystemExit(f"hf-download-dataset: no recognised text column in "
+										 f"{ds.column_names}")
 if "label" not in ds.column_names:
-    raise SystemExit(f"hf-download-dataset: no 'label' column in "
-                     f"{ds.column_names}")
+		raise SystemExit(f"hf-download-dataset: no 'label' column in "
+										 f"{ds.column_names}")
 
 print(f"  text column: {text_col!r}, label column: 'label', N = {len(ds)}")
 print(f"  tokenizing via {tokenizer_id!r}")
 tok = AutoTokenizer.from_pretrained(tokenizer_id)
 
 with open(out_path, "w") as out:
-    for ex in ds:
-        text  = ex[text_col]
-        label = int(ex["label"])
-        # No truncation here — the Idris-side `padToSeqLen` decides the
-        # working seqLen and trims/pads per batch. Adds [CLS] / [SEP] via
-        # the tokenizer's default `add_special_tokens=True`.
-        ids = tok.encode(text)
-        out.write(f"{label}\t{','.join(str(i) for i in ids)}\n")
+		for ex in ds:
+				text  = ex[text_col]
+				label = int(ex["label"])
+				# No truncation here — the Idris-side `padToSeqLen` decides the
+				# working seqLen and trims/pads per batch. Adds [CLS] / [SEP] via
+				# the tokenizer's default `add_special_tokens=True`.
+				ids = tok.encode(text)
+				out.write(f"{label}\t{','.join(str(i) for i in ids)}\n")
 print(f"  -> {out_path}")
 PYEOF

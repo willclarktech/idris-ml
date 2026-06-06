@@ -39,8 +39,8 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <repo>" >&2
-  exit 1
+	echo "usage: $0 <repo>" >&2
+	exit 1
 fi
 
 REPO=$1
@@ -52,7 +52,7 @@ mkdir -p "$DEST_DIR"
 
 FORCE_FLAG=""
 if [[ "${HF_FORCE_REDOWNLOAD:-0}" == "1" ]]; then
-  FORCE_FLAG="force_download=True,"
+	FORCE_FLAG="force_download=True,"
 fi
 
 # Run via the pytorch package's uv venv (huggingface_hub lives there
@@ -66,32 +66,32 @@ from huggingface_hub import snapshot_download
 repo, dest = sys.argv[1], sys.argv[2]
 print(f"hf-download: snapshot_download({repo!r}, local_dir={dest!r})")
 path = snapshot_download(
-    repo,
-    local_dir=dest,
-    token=os.environ.get("HF_TOKEN"),
-    ${FORCE_FLAG}
-    # Allow-list (not deny-list): explicitly grab only what
-    # AutoModel.from_pretrained + AutoTokenizer.from_pretrained need.
-    # Anything else (PT pickled mirrors, ONNX, CoreML, TFLite, Rust
-    # tract .ot files, original/* PyTorch bundles, README, license)
-    # stays in the cloud. Adding ".bin" / ".h5" / etc. to a deny-list
-    # would still miss future formats; allow-list is forward-safe.
-    allow_patterns=[
-        # Weights — sharded or single-file.
-        "*.safetensors",
-        "*.safetensors.index.json",
-        # Model configs.
-        "config.json",
-        "generation_config.json",
-        # Tokenizer files (BERT WordPiece uses vocab.txt; GPT-2 BPE
-        # uses vocab.json + merges.txt; modern HF uses tokenizer.json).
-        "tokenizer.json",
-        "tokenizer_config.json",
-        "vocab.json",
-        "vocab.txt",
-        "merges.txt",
-        "special_tokens_map.json",
-    ],
+		repo,
+		local_dir=dest,
+		token=os.environ.get("HF_TOKEN"),
+		${FORCE_FLAG}
+		# Allow-list (not deny-list): explicitly grab only what
+		# AutoModel.from_pretrained + AutoTokenizer.from_pretrained need.
+		# Anything else (PT pickled mirrors, ONNX, CoreML, TFLite, Rust
+		# tract .ot files, original/* PyTorch bundles, README, license)
+		# stays in the cloud. Adding ".bin" / ".h5" / etc. to a deny-list
+		# would still miss future formats; allow-list is forward-safe.
+		allow_patterns=[
+				# Weights — sharded or single-file.
+				"*.safetensors",
+				"*.safetensors.index.json",
+				# Model configs.
+				"config.json",
+				"generation_config.json",
+				# Tokenizer files (BERT WordPiece uses vocab.txt; GPT-2 BPE
+				# uses vocab.json + merges.txt; modern HF uses tokenizer.json).
+				"tokenizer.json",
+				"tokenizer_config.json",
+				"vocab.json",
+				"vocab.txt",
+				"merges.txt",
+				"special_tokens_map.json",
+		],
 )
 print(f"  -> {path}")
 PYEOF
