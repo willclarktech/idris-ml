@@ -36,6 +36,14 @@ jobs:
         # vice-versa). Compile-only coverage misses this — the missing
         # backend stays unspellable until someone tries to use it.
         run: make check-executor-method-drift
+      - name: Verify generated instance method blocks match manifest
+        # Catches: someone hand-edits a marker-bounded GENERATED block
+        # in Executor/{Tape,Torch,Mlx}.idr without updating MANIFEST,
+        # or adds a MANIFEST entry without re-running gen-executor-instances.
+        # Pairs with check-executor-method-drift: that catches drift
+        # ACROSS backends; this catches drift between MANIFEST and the
+        # rendered instance bodies.
+        run: make check-executor-instances
 
       - name: Verify FFI wrap-on-return template invariants
         # Catches: (a) new Tensor-touching %foreign decls written as

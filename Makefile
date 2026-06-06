@@ -657,6 +657,21 @@ $(BUILD)/probes.o: $(BACKENDS_DIR)/probes.c $(BACKENDS_DIR)/probes.h | $(BUILD)
 check-executor-method-drift:
 	@python3 scripts/check-executor-method-drift.py
 
+# Regenerate per-backend instance method body lines from ffi_manifest.py
+# (Executor/{Tape,Torch,Mlx}.idr). Idempotent — no diff if MANIFEST and
+# the instance files are in sync. Hand-written overrides below
+# `-- <<< END GENERATED <<<` markers are preserved.
+.PHONY: gen-executor-instances
+gen-executor-instances:
+	@python3 scripts/lifecycle/gen-executor-instances.py
+
+# CI gate: fails if running gen-executor-instances would change any file
+# (i.e. someone hand-edited the marker-bounded blocks without updating
+# MANIFEST, or vice versa).
+.PHONY: check-executor-instances
+check-executor-instances:
+	@python3 scripts/lifecycle/gen-executor-instances.py --check
+
 # Final link compiler: c++ if any C++ backend (torch/mlx) is in the
 # list, else cc. Picks the right runtime libraries automatically.
 ifneq ($(filter torch mlx,$(BACKEND_LIST)),)
