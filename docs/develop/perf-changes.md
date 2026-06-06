@@ -3994,3 +3994,28 @@ Batched Idris tape wall is within noise of pre-batched per episode, but each bat
 ### 2026-06-08 — Note: `844a4e1b` commit-body impact claim was overbroad
 
 The fix-itself is correct (perf-run.sh's case arm for `hf-llama-generate` was renamed `test-e2e-hf-llama-generate-roundtrip` on 2026-05-24 in `5351a82e` but the script wasn't updated). However the commit body claimed "all hf-llama-generate perf-run measurements have been silently exit-2 / wall ~0.5s since 2026-05-24" — perf-log shows several successful runs between 2026-05-24 and the fix: `676830b9+dirty` (61.9s wall, exit 0, 2026-06-04 11:11), `2c7d371f` (28-37 min wall, exit 0, 2026-06-04 14:09 + 14:46), `1b268fed+dirty` (22 min wall, exit 0, 2026-06-04 15:12). The 2026-06-04 successes were the in-flight HfLlama measurements that continued working until something between `1b268fed+dirty` (succeeded) and `3e08ad3d` (failed 2026-06-08 12:16, triggering the fix) broke them. The script bug was real; the "silently broken for two weeks" framing was not. Noting here for future archeology — no code change.
+
+### 2026-06-08 — mlx-gpu BF16 vs F32 HfLlama-1B inference gap re-measured → closed — `e658faa9`
+
+**Plan job**: Task 2a (remeasure) — the open row in TODO.md was "Localize mlx-gpu BF16 vs F32 wall gap on HfLlama-1B inference (was: audit mlx fused-op constant pool)". Original reframe 2026-06-06 ruled out the fused-op constant-pool hypothesis and listed BF16-vs-F32 candidate causes (mlx Metal kernels, embedding gather, RoPE tables, attention scale, RMSNorm eps). Plan said: re-measure first on current commit, then Phase 2b per-op instrumentation only if the gap persists.
+
+**Motivation**: the +62% BF16-slower-than-F32 measurement that opened the row was at `6bf2ca8+dirty` ~2 weeks ago. Many changes since (SDPA, RMSNorm, SwiGLU, embedding fused ops landed in 2026-05-30..2026-06-03 — see "Match PyTorch's fused-op catalogue" row's shipped sub-items). The fused-op work was directly relevant: BF16 paths benefit from the same per-op-overhead reduction. Re-measure before instrumenting.
+
+**Change**: no code change — just measurement. Four runs on commit `e658faa9` via `MLX_DEVICE=gpu [MLX_DTYPE=BF16] bash scripts/perf-run-quiet.sh hf-llama-generate mlx`. The same commit also contains the only code touched this session: `perf-run.sh` tee'd output (this entry's prerequisite), since the earlier mktemp redirect hid visibility for the operator during cold elaboration runs.
+
+**Impact**:
+
+| Run | Tree | Wall | Pure decode (minus pytest oracle) |
+|---|---|---:|---:|
+| F32 cold | partially-cold mdtF32 (post off-policy HwConfig flip) | 29m 54s | (elaboration-dominated) |
+| F32 warm | warm mdtF32 | 1m 10s | ~48s (1m 10s − 22s pytest) |
+| BF16 cold | fresh mdtBF16 (full mlx C++ recompile + ttc) | 25m 16s | (elaboration-dominated) |
+| BF16 warm | warm mdtBF16 | 49.9s | ~43s (50s − 7s pytest) |
+
+Warm-vs-warm: BF16 ~43s vs F32 ~48s pure decode. **BF16 is now within ±10% of F32 on hf-llama-generate mlx-gpu — well inside the VM noise band (`feedback_vm_perf_noise`)**. The +62% gap from 2026-05-31 `6bf2ca8+dirty` is gone. Plausible attribution: the fused-op work (SDPA `6850366`, RMSNorm `416c011`, SwiGLU `24517c8`, embedding `ca6f9ab`) cut mlx-gpu wall on the F32 oracle from ~63s → ~49s (-22%) per the SwiGLU entry above, and proportionally helped BF16 just as much; combined with `c09d374`'s all-heads RoPE (op count 18,410 → 2,634/step, -86%), the per-op-overhead cost no longer dominates the F32-vs-BF16 delta.
+
+**Token sequence note**: BF16 generates different tokens than F32 from position 6 onward (BF16 picks `"a"`, F32 picks `"Paris"` — argmax flip at a close-runner-up logit). This is **expected** — BF16's 7-bit mantissa vs F32's 23-bit cannot deterministically match F32 sampling decisions. The model is not broken in BF16; the roundtrip test exits 2 because it compares against the F32-frozen oracle. For inference workloads where token-by-token F32 parity is required, F32 is the right choice; for those tolerating slight stochasticity, BF16 is now a viable equal-speed alternative.
+
+**Outcome**: row closed in TODO.md. Phase 2b (per-op instrumentation) and Phase 2c (upstream mlx issue) skipped — the trigger condition ("+60%+ gap persists") doesn't fire.
+
+**Cross-references**: perf-log.jsonl entries at `e658faa9` (F32 cold/warm + BF16 cold/warm, all 2026-06-08); the 2026-05-31 `6bf2ca8+dirty` entry that originally captured the +62% gap; the "Match PyTorch's fused-op catalogue" row in TODO.md (SDPA / RMSNorm / SwiGLU / embedding sub-items shipped 2026-05-30..2026-06-03 are the most-likely-attributed cause of the gap closure).
