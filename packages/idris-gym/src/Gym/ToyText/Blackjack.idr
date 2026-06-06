@@ -73,15 +73,17 @@ usableAce cards =
 isBust : Nat -> Bool
 isBust n = n > 21
 
-||| Deal initial hands (2 cards each).
+||| Deal initial hands (2 cards each). The input Seed both seeds the
+||| internal deck and produces an advanced caller-side Seed (the deck
+||| post-deal), so successive resets diverge.
 export
-initBJ : Seed -> BJState
+initBJ : Seed -> (BJState, Seed)
 initBJ seed =
   let (p1, s1) = drawCard seed
       (p2, s2) = drawCard s1
       (d1, s3) = drawCard s2
       (d2, s4) = drawCard s3
-  in MkBJ [p1, p2] [d1, d2] False s4
+  in (MkBJ [p1, p2] [d1, d2] False s4, s4)
 
 -- Dealer plays out: hits while sum < 17.
 dealerPlay : List Nat -> Seed -> (List Nat, Seed)
@@ -134,7 +136,7 @@ bjObserve s =
 
 public export
 Env BJState Nat (Vect 3 Double) where
-  reset = initBJ 0
+  reset = initBJ
   step = bjStep
   observe = bjObserve
   actionSpace = Discrete 2

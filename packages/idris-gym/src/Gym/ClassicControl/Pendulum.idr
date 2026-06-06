@@ -60,9 +60,19 @@ pObserve s = [ prim__doubleCos s.pTheta
              , s.pThetaDot
              ]
 
+||| Initial state with theta drawn uniformly from (-pi, pi) and
+||| theta_dot from (-1, 1), matching Gymnasium's Pendulum-v1 reset
+||| distribution.
+export
+pReset : Seed -> (PState, Seed)
+pReset s0 =
+  let (th,  s1) = nextUniform s0 (negate Pi) Pi
+      (dth, s2) = nextUniform s1 (-1.0) 1.0
+  in (MkP th dth, s2)
+
 public export
 Env PState Double (Vect 3 Double) where
-  reset = MkP Pi 0.0   -- hangs-down start (Gymnasium randomizes; we pick the extreme)
+  reset = pReset
   step = pStep
   observe = pObserve
   actionSpace = Box [negate MaxTorque] [MaxTorque]

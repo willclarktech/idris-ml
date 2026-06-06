@@ -420,8 +420,10 @@ main = do
   _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "online_" "target_"
 
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
+  resetSeedI <- randomInt32
   let initEnvs : VecEnv NumEnvs CPState
-      initEnvs = resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+      initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+                              (cast resetSeedI))
   envsRef <- newIORef initEnvs
   stepRef <- newIORef (the Nat 0)
   let st0 = MkDqnState qNet0 target0 buffer envsRef stepRef

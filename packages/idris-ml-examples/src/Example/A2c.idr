@@ -514,8 +514,10 @@ main = do
 
   actor <- mkActor
   critic <- mkCritic
+  resetSeedI <- randomInt32
   let initEnvs : VecEnv NumEnvs CPState
-      initEnvs = resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+      initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+                              (cast resetSeedI))
   envRef <- newIORef initEnvs
   retRef <- newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0))
   let st0 = MkA2C actor critic envRef retRef

@@ -48,9 +48,18 @@ export
 mccObserve : MCCState -> Vect 2 Double
 mccObserve s = [s.mccPos, s.mccVel]
 
+||| Initial state with position drawn uniformly from (-0.6, -0.4) and
+||| velocity 0, matching Gymnasium's MountainCarContinuous-v0 reset
+||| distribution.
+export
+mccReset : Seed -> (MCCState, Seed)
+mccReset s0 =
+  let (pos, s1) = nextUniform s0 (-0.6) (-0.4)
+  in (MkMCC pos 0.0, s1)
+
 public export
 Env MCCState Double (Vect 2 Double) where
-  reset = MkMCC (-0.5) 0.0
+  reset = mccReset
   step = mccStep
   observe = mccObserve
   actionSpace = Box [MinAction] [MaxAction]

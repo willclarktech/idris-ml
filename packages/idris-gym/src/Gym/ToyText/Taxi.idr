@@ -2,6 +2,7 @@ module Gym.ToyText.Taxi
 
 import Data.Vect
 import Gym.Env
+import Gym.Rng
 
 
 ----------------------------------------------------------------------
@@ -43,9 +44,23 @@ record TState where
   tRow, tCol, tPass, tDest : Nat
 
 ||| Default initial state: taxi at (2,2), passenger at R (0), dest at B (3).
+||| Kept for benchmark callers that want a fixed start.
 export
 defaultStart : TState
 defaultStart = MkT 2 2 0 3
+
+||| Randomized reset matching Gymnasium's Taxi-v3: taxi uniform over the
+||| 5x5 grid, passenger uniform over {R, G, Y, B}, destination uniform
+||| over the 3 non-passenger locations.
+export
+tReset : Seed -> (TState, Seed)
+tReset s0 =
+  let (r,  s1) = nextNat s0 5         -- row in [0,5)
+      (c,  s2) = nextNat s1 5         -- col in [0,5)
+      (p,  s3) = nextNat s2 4         -- passenger in [0,4)
+      (di, s4) = nextNat s3 3         -- index into 3 non-passenger locations
+      d        = if di < p then di else S di
+  in (MkT r c p d, s4)
 
 encode : TState -> Nat
 encode s = ((s.tRow * NumCols + s.tCol) * 5 + s.tPass) * 4 + s.tDest
@@ -114,7 +129,7 @@ tObserve = encode
 
 public export
 Env TState Nat Nat where
-  reset = defaultStart
+  reset = tReset
   step = tStep
   observe = tObserve
   actionSpace = Discrete 6

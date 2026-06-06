@@ -61,9 +61,20 @@ cpObsLow = [-4.8, -1.0e38, negate ThetaThresh * 2.0, -1.0e38]
 cpObsHigh : Vect 4 Double
 cpObsHigh = [4.8, 1.0e38, ThetaThresh * 2.0, 1.0e38]
 
+||| Initial state with each component drawn uniformly from
+||| (-0.05, 0.05), matching Gymnasium's CartPole-v1 reset distribution.
+export
+cpReset : Seed -> (CPState, Seed)
+cpReset s0 =
+  let (x,  s1) = nextUniform s0 (-0.05) 0.05
+      (xd, s2) = nextUniform s1 (-0.05) 0.05
+      (th, s3) = nextUniform s2 (-0.05) 0.05
+      (td, s4) = nextUniform s3 (-0.05) 0.05
+  in (MkCP x xd th td, s4)
+
 public export
 Env CPState Nat (Vect 4 Double) where
-  reset = MkCP 0 0 0 0
+  reset = cpReset
   step = cpStep
   observe = cpObserve
   actionSpace = Discrete 2

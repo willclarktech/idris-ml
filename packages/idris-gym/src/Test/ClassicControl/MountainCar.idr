@@ -23,10 +23,14 @@ mcInit = MkMC (-0.5) 0.0
 export
 tests : List (IO Bool)
 tests =
-  [ check "reset pos=-0.5 vel=0" $
-      let r : MCState
-          r = reset {state=MCState} {action=Nat} {obs=Vect 2 Double}
-      in r.mcPos == -0.5 && r.mcVel == 0.0
+  [ check "reset pos in Gymnasium U(-0.6, -0.4), vel=0" $
+      let (r, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} 42
+      in r.mcPos >= -0.6 && r.mcPos <= -0.4 && r.mcVel == 0.0
+
+  , check "reset differs across seeds" $
+      let (a, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} 0
+          (b, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} 1
+      in a.mcPos /= b.mcPos
 
   , check "step reward -1" $
       rewardOf (mcStep (mcInit) 2) == -1.0

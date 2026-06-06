@@ -499,8 +499,10 @@ main = do
 
   buffer <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
+  resetSeedI <- randomInt32
   let initEnvs : VecEnv NumEnvs PState
-      initEnvs = resetAll {state=PState} {action=Double} {obs=Vect 3 Double}
+      initEnvs = fst (resetAll {state=PState} {action=Double} {obs=Vect 3 Double}
+                              (cast resetSeedI))
   envRef <- newIORef initEnvs
   epLenRef <- newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs 0))
   retRef <- newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0))

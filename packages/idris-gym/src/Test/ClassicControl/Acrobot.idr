@@ -23,11 +23,16 @@ aInit = MkA 0.0 0.0 0.0 0.0
 export
 tests : List (IO Bool)
 tests =
-  [ check "reset all zero" $
-      let r : AState
-          r = reset {state=AState} {action=Nat} {obs=Vect 6 Double}
-      in r.aTh1 == 0.0 && r.aTh2 == 0.0
-         && r.aDth1 == 0.0 && r.aDth2 == 0.0
+  [ check "reset components in Gymnasium U(-0.1, 0.1)" $
+      let (r, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} 42
+      in abs r.aTh1 <= 0.1 && abs r.aTh2 <= 0.1
+         && abs r.aDth1 <= 0.1 && abs r.aDth2 <= 0.1
+
+  , check "reset differs across seeds" $
+      let (a, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} 0
+          (b, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} 1
+      in a.aTh1 /= b.aTh1 || a.aTh2 /= b.aTh2
+         || a.aDth1 /= b.aDth1 || a.aDth2 /= b.aDth2
 
   , check "observe length 6" $
       length (aObserve (aInit)) == 6
@@ -35,7 +40,7 @@ tests =
   , check "reward is -1 on non-goal" $
       rewardOf (aStep (aInit) 2) == -1.0
 
-  , check "at reset (hanging) does not terminate" $
+  , check "at all-zero hanging state does not terminate" $
       outcomeOf (aStep (aInit) 1) == Continue
 
   , check "obs has cos/sin structure" $

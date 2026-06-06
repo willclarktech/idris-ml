@@ -2,6 +2,7 @@ module Gym.Vector
 
 import Data.Vect
 import Gym.Env
+import Gym.Rng
 
 
 ----------------------------------------------------------------------
@@ -16,13 +17,18 @@ record VecEnv (n : Nat) state where
   constructor MkVecEnv
   envs : Vect n state
 
-||| Reset all environments to the Env's reset state.
+||| Reset all environments, threading the caller-side Seed through n
+||| sub-resets. Returns the populated VecEnv and the advanced Seed.
 export
 resetAll : {n : Nat} ->
            {state, action, obs : Type} ->
            Env state action obs =>
-           VecEnv n state
-resetAll = MkVecEnv (replicate n (reset {state} {action} {obs}))
+           Seed -> (VecEnv n state, Seed)
+resetAll {n=Z}   seed = (MkVecEnv [], seed)
+resetAll {n=S k} seed =
+  let (s,  seed')  = reset {state} {action} {obs} seed
+      (vk, seed'') = resetAll {n=k} {state} {action} {obs} seed'
+  in (MkVecEnv (s :: vk.envs), seed'')
 
 ||| Step every environment with its corresponding action.
 ||| Returns a Vect of per-env step tuples.
@@ -40,24 +46,27 @@ stepAll (MkVecEnv ss) acts =
 
 ||| Step every env and auto-reset any that ended. The "observation"
 ||| returned for a reset env is the observation of the newly-reset state.
+||| Threads a Seed through the per-env auto-resets (advanced once per
+||| terminated env).
 export
 stepAutoReset : {n : Nat} ->
                 {state, action, obs : Type} ->
                 Env state action obs =>
-                VecEnv n state -> Vect n action ->
-                (VecEnv n state, Vect n Double, Vect n obs, Vect n Outcome)
-stepAutoReset (MkVecEnv ss) acts =
+                Seed -> VecEnv n state -> Vect n action ->
+                (VecEnv n state, Vect n Double, Vect n obs, Vect n Outcome, Seed)
+stepAutoReset seed0 (MkVecEnv ss) acts =
   let tuples = zipWith (\s, a => step {state} {action} {obs} s a) ss acts
-      advanced = map resetIfDone tuples
-      newStates = map fst advanced
-      outs      = map (\(s, _, _) => observe {state} {action} {obs} s) advanced
-      rewards   = map (\(_, r, _) => r) advanced
-      outcomes  = map (\(_, _, o) => o) advanced
-  in (MkVecEnv newStates, rewards, outs, outcomes)
+      (newStates, outs, rewards, outcomes, seed') = walk seed0 tuples
+  in (MkVecEnv newStates, rewards, outs, outcomes, seed')
   where
-    resetIfDone : (Double, state, Outcome, Info) ->
-                  (state, Double, Outcome)
-    resetIfDone (r, s', out, _) =
-      case out of
-        Continue => (s', r, out)
-        _        => (reset {state} {action} {obs}, r, out)
+    walk : {k : Nat} -> Seed -> Vect k (Double, state, Outcome, Info) ->
+           (Vect k state, Vect k obs, Vect k Double, Vect k Outcome, Seed)
+    walk seed [] = ([], [], [], [], seed)
+    walk seed ((r, s', out, _) :: rest) =
+      let (s'', seedNext) =
+            case out of
+              Continue => (s', seed)
+              _        => reset {state} {action} {obs} seed
+          o = observe {state} {action} {obs} s''
+          (ss', os, rs, outs, seedEnd) = walk seedNext rest
+      in (s'' :: ss', o :: os, r :: rs, out :: outs, seedEnd)

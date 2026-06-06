@@ -1,6 +1,7 @@
 module Gym.ToyText.CliffWalking
 
 import Gym.Env
+import Gym.Rng
 
 
 ----------------------------------------------------------------------
@@ -77,7 +78,7 @@ cwObserve = encode
 
 public export
 Env CWState Nat Nat where
-  reset = startState
+  reset = \s => (startState, s)
   step = cwStep
   observe = cwObserve
   actionSpace = Discrete 4

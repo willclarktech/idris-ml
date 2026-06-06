@@ -135,9 +135,20 @@ aObserve s =
   , s.aDth2
   ]
 
+||| Initial state with each of the 4 components drawn uniformly from
+||| (-0.1, 0.1), matching Gymnasium's Acrobot-v1 reset distribution.
+export
+aReset : Seed -> (AState, Seed)
+aReset s0 =
+  let (th1,  s1) = nextUniform s0 (-0.1) 0.1
+      (th2,  s2) = nextUniform s1 (-0.1) 0.1
+      (dth1, s3) = nextUniform s2 (-0.1) 0.1
+      (dth2, s4) = nextUniform s3 (-0.1) 0.1
+  in (MkA th1 th2 dth1 dth2, s4)
+
 public export
 Env AState Nat (Vect 6 Double) where
-  reset = MkA 0.0 0.0 0.0 0.0
+  reset = aReset
   step = aStep
   observe = aObserve
   actionSpace = Discrete 3

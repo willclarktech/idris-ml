@@ -48,9 +48,13 @@ record FLState where
 
 
 ||| Reset from a caller-provided seed and slipperiness flag.
+||| The input Seed seeds the internal `flSeed` used by slip; the returned
+||| caller-side Seed is advanced one step so repeated resets diverge.
 export
-initFL : Bool -> Seed -> FLState
-initFL slip seed = MkFL 0 defaultMap seed slip
+initFL : Bool -> Seed -> (FLState, Seed)
+initFL slip seed =
+  let (_, seed') = splitMix64 seed
+  in (MkFL 0 defaultMap seed slip, seed')
 
 encodeRC : Nat -> Nat -> Nat
 encodeRC r c = r * NumCols + c
@@ -133,7 +137,7 @@ flObserve s = s.flPos
 
 public export
 Env FLState Nat Nat where
-  reset = initFL True 0
+  reset = initFL True
   step = flStep
   observe = flObserve
   actionSpace = Discrete 4

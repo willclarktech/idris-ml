@@ -187,7 +187,10 @@ computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
                      Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> Vect n (List Double) ->
                      IO (Tensor [] ExampleExecutor ExampleDType WithGrad, Double)
 computeLossBatched gamma model randomBatchV = do
-  let initEnvs : VecEnv n CPState = resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+  resetSeedI <- randomInt32
+  let initEnvs : VecEnv n CPState
+      initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
+                              (cast resetSeedI))
   epsV  <- rolloutEpBatched model initEnvs randomBatchV MaxSteps
   let eps   = toList epsV
       epReturns = map sumRewards eps

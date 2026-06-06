@@ -22,7 +22,7 @@ outcomeOf (_, _, o, _) = o
 countRights : Seed -> Nat -> Nat -> Nat
 countRights _ Z acc = acc
 countRights seed (S k) acc =
-  let st = initFL True seed
+  let (st, _) = initFL True seed
       r = flStep st 2
       s' = stateOf r
       acc' = if s'.flPos == 1 then S acc else acc
@@ -35,24 +35,24 @@ export
 tests : List (IO Bool)
 tests =
   [ check "non-slippery step right" $
-      let st = initFL False 42
+      let (st, _) = initFL False 42
           r  = flStep st 2
       in (stateOf r).flPos == 1
 
   , check "non-slippery left wall stays put" $
-      let st = initFL False 42
+      let (st, _) = initFL False 42
           r  = flStep st 0
       in (stateOf r).flPos == 0
 
   , check "step into hole terminates, 0 reward" $
       -- Hole at (1,1) = position 5. From (1,0) = position 4, move right.
-      let st = { flPos := 4 } (initFL False 42)
+      let st = { flPos := 4 } (fst (initFL False 42))
           r  = flStep st 2
       in outcomeOf r == Terminated && rewardOf r == 0.0
 
   , check "step into goal terminates, reward 1" $
       -- Goal at (3,3) = position 15. From (2,3) = 11, down.
-      let st = { flPos := 11 } (initFL False 42)
+      let st = { flPos := 11 } (fst (initFL False 42))
           r  = flStep st 1
       in outcomeOf r == Terminated && rewardOf r == 1.0
 

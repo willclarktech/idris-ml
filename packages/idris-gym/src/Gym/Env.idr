@@ -1,5 +1,6 @@
 module Gym.Env
 
+import public Gym.Rng
 import public Gym.Space
 
 
@@ -61,8 +62,12 @@ Info = List (String, String)
 ||| @obs    Observation type (what the agent sees).
 public export
 interface Env state action obs where
-  ||| Initial state for a new episode.
-  reset : state
+  ||| Initial state for a new episode. Takes a Seed and returns the
+  ||| initial state plus the advanced Seed. Matches Gymnasium's
+  ||| `env.reset(seed=...)` contract: each call consumes randomness
+  ||| from the caller-side PRNG and returns it advanced. Deterministic
+  ||| envs (e.g. CliffWalking) pass the Seed through unchanged.
+  reset : Seed -> (state, Seed)
   ||| Advance the environment by one step.
   ||| Returns (reward, next state, outcome, info).
   step : state -> action -> (Double, state, Outcome, Info)

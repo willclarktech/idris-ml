@@ -22,10 +22,15 @@ cwInit = MkCW 3 0
 export
 tests : List (IO Bool)
 tests =
-  [ check "reset at (3,0)" $
-      let r : CWState
-          r = reset {state=CWState} {action=Nat} {obs=Nat}
+  [ check "reset at (3,0) for any seed" $
+      let (r,  _) = reset {state=CWState} {action=Nat} {obs=Nat} 42
+          (r2, _) = reset {state=CWState} {action=Nat} {obs=Nat} 99
       in r.cwRow == 3 && r.cwCol == 0
+         && r2.cwRow == 3 && r2.cwCol == 0
+
+  , check "CliffWalking reset passes seed through unchanged" $
+      let (_, s') = reset {state=CWState} {action=Nat} {obs=Nat} 42
+      in s' == 42
 
   , check "observe encodes row*12+col" $
       cwObserve (MkCW 2 3) == 27

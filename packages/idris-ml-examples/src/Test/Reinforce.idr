@@ -11,6 +11,7 @@ import BuildConfig
 import Example.Reinforce
 import Executor
 import Gym.ClassicControl.CartPole
+import Gym.Vector
 import Layer.Activation
 import Layer.Core
 import Layer.Linear
@@ -62,7 +63,7 @@ testParityN1 : IO Bool
 testParityN1 = do
   model <- mkModel
   let rs : List Double = fakeRandomness testMaxSteps
-      states : Vect 1 CPState = [initState]
+      states : VecEnv 1 CPState = MkVecEnv [initState]
       rss : Vect 1 (List Double) = [rs]
 
   seqSteps <- rolloutEp model initState rs testMaxSteps []
@@ -80,7 +81,7 @@ testParityN2 = do
   model <- mkModel
   let rs1 = fakeRandomness testMaxSteps
       rs2 = drop 3 (fakeRandomness (testMaxSteps + 3))
-      states : Vect 2 CPState = [initState, initState]
+      states : VecEnv 2 CPState = MkVecEnv [initState, initState]
       rss : Vect 2 (List Double) = [rs1, rs2]
 
   seq1 <- rolloutEp model initState rs1 testMaxSteps []

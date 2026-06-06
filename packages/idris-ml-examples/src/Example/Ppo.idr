@@ -623,8 +623,10 @@ main = do
 
   actor  <- mkActor
   critic <- mkCritic
+  resetSeedI <- randomInt32
   let initEnvs : VecEnv NumEnvs AState
-      initEnvs = resetAll {state=AState} {action=Nat} {obs=Vect 6 Double}
+      initEnvs = fst (resetAll {state=AState} {action=Nat} {obs=Vect 6 Double}
+                              (cast resetSeedI))
   envRef   <- newIORef initEnvs
   stepsRef <- newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs EpisodeLen))
   let st0 = MkPPO actor critic envRef stepsRef
