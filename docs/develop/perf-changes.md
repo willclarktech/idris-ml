@@ -4019,3 +4019,22 @@ Warm-vs-warm: BF16 ~43s vs F32 ~48s pure decode. **BF16 is now within ±10% of F
 **Outcome**: row closed in TODO.md. Phase 2b (per-op instrumentation) and Phase 2c (upstream mlx issue) skipped — the trigger condition ("+60%+ gap persists") doesn't fire.
 
 **Cross-references**: perf-log.jsonl entries at `e658faa9` (F32 cold/warm + BF16 cold/warm, all 2026-06-08); the 2026-05-31 `6bf2ca8+dirty` entry that originally captured the +62% gap; the "Match PyTorch's fused-op catalogue" row in TODO.md (SDPA / RMSNorm / SwiGLU / embedding sub-items shipped 2026-05-30..2026-06-03 are the most-likely-attributed cause of the gap closure).
+
+### 2026-06-09 — `forwardVarTraced` activation-dump expansion: zero overhead at INFO, expected overhead at TRACE — `7bcf1237`
+
+**Change**: `forwardVarTraced` (`packages/idris-ml/src/Layer/Core.idr`) now branches on `IDRISML_LOG_LEVEL`: < DEBUG fast-path to `forwardVar`, DEBUG keeps existing min/max/mean stderr summary (now via `logDebug`), TRACE adds SafeTensors dump of per-layer activations.
+
+**Motivation**: covers the "I want to inspect activation distributions across training" debug workflow that the lightweight tracer alone couldn't serve. Gated by log level so any example author can opt-in by swapping `forwardVar` → `forwardVarTraced "<label>"` at one call site, then flip the env var.
+
+**Impact**:
+
+| Mode | MNIST tape (1k train, 5 epochs) | Δ vs INFO |
+|---|---:|---:|
+| INFO (default, fast-path) | 56s, 97.6% acc (commit `7bcf1237+dirty`, perf-log.jsonl) | baseline |
+| TRACE, `EVERY_N=200`, 6 dumps | ~95s, 45.0% acc (1 epoch only — verification run) | per-dump ~8 layer × (register + save_by_name + erase_by_prefix) on a [9216]+[2304]+[2048]+[512]+[10] activation set ≈ ~200KB file write + 8 paramRegister/paramErase calls |
+
+INFO is bit-identical to pre-change behavior — the only overhead is a single `getLogLevel` FFI call per `forwardVarTraced` invocation (one cached `int` load, ns-scale). DEBUG keeps existing summary cost (one min/max/mean + format per layer); TRACE adds per-dump file-write cost gated by `IDRISML_ACTIVATION_EVERY_N`.
+
+**Outcome**: shipped. The feature is debug-only, so the "INFO has zero regression" property is the load-bearing one; the TRACE overhead is the user's opt-in cost and they'll tune `EVERY_N` accordingly.
+
+**Cross-references**: commit `7bcf1237` (`feat(layer): log-level-gated activation dump in forwardVarTraced`); plumbing in `b21f7792` (`feat(param-registry): add param_erase_by_prefix`) + `f71c68f9` (manifest cleanup) + `5156ef51` (`getLogLevel` FFI); MNIST wire-up `<this commit>`. Default-fast-path verification via perf-log.jsonl `mnist tape` entry at 2026-06-09T11:46:45Z (`7bcf1237+dirty`, 56s wall, 97.6% accuracy — matches prior INFO baseline within VM noise band).

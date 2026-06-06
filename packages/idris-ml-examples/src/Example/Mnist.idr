@@ -157,7 +157,13 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           flatImg = idxImage {ex=ExampleExecutor} {t=ExampleDType} ds pos (cast {to=Int} InputDim)
           lbl = prim__idxLabel ds pos
           inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor flatImg Nothing)
-      (_, predV) <- forwardVar model inV
+      -- `forwardVarTraced` is `forwardVar` + a log-level switch: at
+      -- INFO (default) it's a passthrough, at DEBUG it emits a
+      -- per-layer min/max/mean line via `logDebug`, at TRACE it
+      -- additionally dumps each layer's activation to
+      -- `${IDRISML_ACTIVATION_DIR}/mnist_eval-<seq>.safetensors`.
+      -- See `Layer/Core.idr`'s `forwardVarTraced` doc.
+      (_, predV) <- forwardVarTraced "mnist_eval" model inV
       let outT = predV.tensorPtr
           pred = argmax outT (-1.0e30) 0 0
           correct' = if pred == lbl then S correct else correct

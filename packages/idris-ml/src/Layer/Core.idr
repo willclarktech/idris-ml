@@ -222,14 +222,16 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input = do
 -- `IDRISML_LOG=trace make backend install`; the build ceiling clamps
 -- the runtime cap (`log.c:30`).
 
--- Chez `top-level-value` counter; the world-arg keeps Idris-Chez from
--- CSE-collapsing the body into a load-time constant (see the
--- "Zero-arg %noinline defs are constants" gotcha).
-%foreign "scheme:(lambda (w) (when (not (top-level-bound? 'idrisml-act-seq)) (set-top-level-value! 'idrisml-act-seq 0)) (set-top-level-value! 'idrisml-act-seq (+ (top-level-value 'idrisml-act-seq) 1)) (top-level-value 'idrisml-act-seq))"
-prim__nextActivationSeq : PrimIO Int
+-- Chez `top-level-value` counter; the explicit dummy arg keeps
+-- Idris-Chez from CSE-collapsing the body into a load-time constant
+-- (see the "Zero-arg %noinline defs are constants" gotcha). The
+-- Scheme FFI for PrimIO doesn't auto-pass a world arg — the body
+-- must accept the dummy and discard it.
+%foreign "scheme:(lambda (dummy) (when (not (top-level-bound? 'idrisml-act-seq)) (set-top-level-value! 'idrisml-act-seq 0)) (set-top-level-value! 'idrisml-act-seq (+ (top-level-value 'idrisml-act-seq) 1)) (top-level-value 'idrisml-act-seq))"
+prim__nextActivationSeq : Int -> PrimIO Int
 
 nextActivationSeq : IO Int
-nextActivationSeq = primIO prim__nextActivationSeq
+nextActivationSeq = primIO (prim__nextActivationSeq 0)
 
 activationDir : IO String
 activationDir = do
