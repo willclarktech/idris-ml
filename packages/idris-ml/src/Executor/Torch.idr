@@ -303,7 +303,6 @@ public export
   primSumDim = prim__sumDimTorch
   primTensorMax = prim__tensorMaxTorch
   primTensorMin = prim__tensorMinTorch
-  primTile2d = prim__tile2dTorch
   primTranspose2d = prim__transpose2dTorch
   primTransposeLast2 = prim__transposeLast2Torch
   primUnsqueeze = prim__unsqueezeTorch
@@ -600,6 +599,7 @@ public export
   primRmsNorm2d = prim__rmsNorm2dTorch
   primSdpa2d = prim__sdpa2dTorch
   primSwiGlu2d = prim__swiGlu2dTorch
+  primTile2d = prim__tile2dTorch
   -- <<< END GENERATED <<<
 
 

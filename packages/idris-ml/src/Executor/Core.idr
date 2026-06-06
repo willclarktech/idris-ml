@@ -230,7 +230,6 @@ interface UserExecutorCore ex => UserExecutorLinear (0 ex : Executor) where
   primReshape2d   : AnyPtr -> Int -> Int -> AnyPtr
   primReshape3d   : AnyPtr -> Int -> Int -> Int -> AnyPtr
   primReshape4d   : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primTile2d      : AnyPtr -> Int -> Int -> AnyPtr
   primNarrow      : AnyPtr -> Int -> Int -> Int -> AnyPtr
   primTransposeLast2 : AnyPtr -> AnyPtr
   primTranspose2d : AnyPtr -> AnyPtr
@@ -376,6 +375,14 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   ||| Sibling fused op of `primSdpa2d`; placed in the same opt-in slice
   ||| for consistency. Inference + training-side multi-head attention.
   primCrossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+
+  ||| Tile a 2D tensor by `(rep0, rep1)`: input `[m, n]` → output
+  ||| `[m * rep0, n * rep1]`. Fused per-backend (`mx::tile` / `at::tile`
+  ||| / manual memcpy). Used at the Transformer batch-embed site to
+  ||| broadcast cached positional encodings across the batch dim;
+  ||| the earlier reshape3d → add → reshape2d alternative regressed
+  ||| mlx perf on small models (see `docs/develop/perf-changes.md`).
+  primTile2d : AnyPtr -> Int -> Int -> AnyPtr
 
   ||| Polyak / EMA blend across the registry: for every pair of params
   ||| whose paramIds share the (onlineScope, targetScope) pair

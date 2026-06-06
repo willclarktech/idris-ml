@@ -268,7 +268,6 @@ UserExecutorLinear TapeExecutor where
   primSumDim = prim__sumDimTape
   primTensorMax = prim__tensorMaxTape
   primTensorMin = prim__tensorMinTape
-  primTile2d = prim__tile2dTape
   primTranspose2d = prim__transpose2dTape
   primTransposeLast2 = prim__transposeLast2Tape
   primUnsqueeze = prim__unsqueezeTape
@@ -566,6 +565,7 @@ UserExecutorOptimizations TapeExecutor where
   primRmsNorm2d = prim__rmsNorm2dTape
   primSdpa2d = prim__sdpa2dTape
   primSwiGlu2d = prim__swiGlu2dTape
+  primTile2d = prim__tile2dTape
   -- <<< END GENERATED <<<
 
 

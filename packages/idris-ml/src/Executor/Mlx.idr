@@ -318,7 +318,6 @@ public export
   primSumDim a0 a1 a2 = prim__sumDimMlxStreamed a0 a1 a2 (streamTag s)
   primTensorMax a0 = prim__tensorMaxMlxStreamed a0 (streamTag s)
   primTensorMin a0 = prim__tensorMinMlxStreamed a0 (streamTag s)
-  primTile2d a0 a1 a2 = prim__tile2dMlxStreamed a0 a1 a2 (streamTag s)
   primTranspose2d a0 = prim__transpose2dMlxStreamed a0 (streamTag s)
   primTransposeLast2 a0 = prim__transposeLast2MlxStreamed a0 (streamTag s)
   primUnsqueeze a0 a1 = prim__unsqueezeMlxStreamed a0 a1 (streamTag s)
@@ -611,6 +610,7 @@ public export
   primRmsNorm2d = prim__rmsNorm2dMlx
   primSdpa2d = prim__sdpa2dMlx
   primSwiGlu2d = prim__swiGlu2dMlx
+  primTile2d a0 a1 a2 = prim__tile2dMlxStreamed a0 a1 a2 (streamTag s)
   -- <<< END GENERATED <<<
 
 

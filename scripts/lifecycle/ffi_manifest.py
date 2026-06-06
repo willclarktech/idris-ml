@@ -256,7 +256,7 @@ MANIFEST = {
     "tensor_tensor_min": Entry(args=("T",), ret="T", slice="UserExecutorLinear", idris_method="primTensorMin", c_symbol="tensor_min"),
     "tensor_tensor_size_at": Entry(args=("T", "i"), ret="i", slice="UserExecutorTensorCreate", idris_method="primTensorSizeAt", c_symbol="tensor_size", mlx="direct"),
     "tensor_ternary_quant_with_scale_2d": Entry(args=("T", "T"), ret="T", slice="UserExecutorQuant", idris_method="primTernaryQuantWithScale2d", mlx="bespoke"),
-    "tensor_tile_2d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primTile2d"),
+    "tensor_tile_2d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primTile2d"),
     "tensor_to_device": Entry(args=("T", "s"), ret="T"),
     "tensor_to_doubles": Entry(args=("T", "R"), ret="v"),
     "tensor_to_host": Entry(args=("T", "T"), ret="T", slice="UserExecutorTransfer", idris_method="primToHost", c_symbol="tensor_to_doubles", mlx="direct"),
