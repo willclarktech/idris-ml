@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+macOS CBLAS deprecation row closed as already-shipped (2026-06-08). Closes the Low "Investigate macOS CBLAS deprecation warnings" row. `Makefile:298` carries `tape_CFLAGS := -DACCELERATE_NEW_LAPACK` with the explanatory comment block at 296-297 ("ACCELERATE_NEW_LAPACK is a compile-time #define (gates BLAS API version); the framework flag is link-time."). The flag is applied unconditionally — safe on Linux/OpenBLAS where the define is a no-op (the symbol guards code only Accelerate exposes). All 29 `cblas_dgemm`/`cblas_dgemv` call sites across `backend_tape/linear/linalg/{mm,mv,linear,linear_2d,bmm,bmm_3x3}.c` + `backend_tape/conv/conv2d_batched.c` compile through the new-LAPACK API. Other backends (torch, mlx) don't directly use CBLAS — no transitive concern. Original row deleted from TODO.md.
+
+
 GRU standard reset-gate row closed as already-shipped (2026-06-08). Closes the Medium "GRU C kernel: implement standard reset gate" row. Investigation found all three C kernels and the PyTorch reference were already on the standard form `n = tanh(ih_n + r * hh_n)`; the row's claim that "both sides agree on the simplified variant" was stale (likely never updated after the 2026-05-09 alignment work). Verified directly at this commit: `backend_tape/nn/recurrent/gru_cell.c:65` (`nG[i] = tanh(tape_load_d(ih, 2*o+i) + rG[i] * tape_load_d(hh, 2*o+i))`); `backend_torch/nn/recurrent/gru_cell.cpp:16` (`torch::tanh(ih.slice(0, 2*o, 3*o) + r * hh.slice(0, 2*o, 3*o))`); `backend_mlx/nn/recurrent/gru_cell.cpp:27` (`mx::tanh(mx::add(ih_n, mx::multiply(r_gate, hh_n)))`); `packages/pytorch/torch_ref/models/rnn.py:154` (`n = torch.tanh(ih[2*o:3*o] + r * hh[2*o:3*o])`). `Layer/Gru.idr:50` routes through `tgruCell` and never re-implements the gate math itself. No code change required; row stays closed unless future divergence is detected. Original row deleted from TODO.md.
 
 
