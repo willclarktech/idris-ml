@@ -73,6 +73,10 @@ extern "C" TensorHandle tensor_create_1d_f16_mlx_streamed(int n, double* data, i
     WITH_STREAM(stream_tag);
     return tensor_create_1d_impl(n, data, requires_grad, mx::float16);
 }
+extern "C" TensorHandle tensor_create_1d_i32_mlx_streamed(int n, double* data, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_1d_impl(n, data, requires_grad, mx::int32);
+}
 extern "C" TensorHandle tensor_create_2d_f32_mlx_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_2d_impl(rows, cols, data, requires_grad, mx::float32);
@@ -94,6 +98,10 @@ extern "C" TensorHandle tensor_create_2d_bf16_mlx_streamed(int rows, int cols, d
 extern "C" TensorHandle tensor_create_2d_f16_mlx_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_2d_impl(rows, cols, data, requires_grad, mx::float16);
+}
+extern "C" TensorHandle tensor_create_2d_i32_mlx_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_2d_impl(rows, cols, data, requires_grad, mx::int32);
 }
 extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     return tensor_create_2d_f64(rows, cols, data, requires_grad);
@@ -128,6 +136,10 @@ extern "C" TensorHandle tensor_create_param_3d_bf16_mlx_streamed(int d0, int d1,
 extern "C" TensorHandle tensor_create_param_3d_f16_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_param_3d_impl(d0, d1, d2, data, mx::float16);
+}
+extern "C" TensorHandle tensor_create_param_3d_i32_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_param_3d_impl(d0, d1, d2, data, mx::int32);
 }
 
 /* ---------- 1d / 2d / 4d param creators ---------- */
@@ -173,6 +185,10 @@ extern "C" TensorHandle tensor_create_param_1d_f16_mlx_streamed(int n, double* d
     WITH_STREAM(stream_tag);
     return tensor_create_param_1d_impl(n, data, mx::float16);
 }
+extern "C" TensorHandle tensor_create_param_1d_i32_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_param_1d_impl(n, data, mx::int32);
+}
 extern "C" TensorHandle tensor_create_param_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_param_2d_impl(rows, cols, data, mx::float32);
@@ -195,6 +211,10 @@ extern "C" TensorHandle tensor_create_param_2d_f16_mlx_streamed(int rows, int co
     WITH_STREAM(stream_tag);
     return tensor_create_param_2d_impl(rows, cols, data, mx::float16);
 }
+extern "C" TensorHandle tensor_create_param_2d_i32_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_param_2d_impl(rows, cols, data, mx::int32);
+}
 extern "C" TensorHandle tensor_create_param_4d_f32_mlx_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_param_4d_impl(d0, d1, d2, d3, data, mx::float32);
@@ -216,6 +236,10 @@ extern "C" TensorHandle tensor_create_param_4d_bf16_mlx_streamed(int d0, int d1,
 extern "C" TensorHandle tensor_create_param_4d_f16_mlx_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_param_4d_impl(d0, d1, d2, d3, data, mx::float16);
+}
+extern "C" TensorHandle tensor_create_param_4d_i32_mlx_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_param_4d_impl(d0, d1, d2, d3, data, mx::int32);
 }
 
 
@@ -256,6 +280,10 @@ extern "C" TensorHandle tensor_create_state_1d_f16_mlx_streamed(int n, double* d
     WITH_STREAM(stream_tag);
     return tensor_create_state_1d_impl(n, data, mx::float16);
 }
+extern "C" TensorHandle tensor_create_state_1d_i32_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_state_1d_impl(n, data, mx::int32);
+}
 extern "C" TensorHandle tensor_create_state_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_state_2d_impl(rows, cols, data, mx::float32);
@@ -277,5 +305,9 @@ extern "C" TensorHandle tensor_create_state_2d_bf16_mlx_streamed(int rows, int c
 extern "C" TensorHandle tensor_create_state_2d_f16_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_state_2d_impl(rows, cols, data, mx::float16);
+}
+extern "C" TensorHandle tensor_create_state_2d_i32_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_state_2d_impl(rows, cols, data, mx::int32);
 }
 

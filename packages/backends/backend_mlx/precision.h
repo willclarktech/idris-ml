@@ -51,6 +51,9 @@ inline void mx_to_doubles(const mx::array& a, double* out) {
     } else if (a.dtype() == mx::float16) {
         const mx::float16_t* src = a.data<mx::float16_t>();
         for (int i = 0; i < n; i++) out[i] = (double)(float)src[i];
+    } else if (a.dtype() == mx::int32) {
+        const int32_t* src = a.data<int32_t>();
+        for (int i = 0; i < n; i++) out[i] = (double)src[i];
     } else {
         const float* src = a.data<float>();
         for (int i = 0; i < n; i++) out[i] = (double)src[i];
@@ -62,6 +65,7 @@ inline double mx_read_double(const mx::array& a, long idx) {
     if (a.dtype() == mx::float64)  return a.data<double>()[idx];
     if (a.dtype() == mx::bfloat16) return (double)(float)a.data<mx::bfloat16_t>()[idx];
     if (a.dtype() == mx::float16)  return (double)(float)a.data<mx::float16_t>()[idx];
+    if (a.dtype() == mx::int32)    return (double)a.data<int32_t>()[idx];
     return (double)a.data<float>()[idx];
 }
 
@@ -101,11 +105,25 @@ inline mx::array mx_f16_from_doubles(const double* data,
     return mx::astype(fp32, mx::float16);
 }
 
+/* Construct an int32 mx::array from a double buffer + shape. Truncates
+   each double to int32_t; out-of-range values follow C cast semantics
+   (implementation-defined for >INT_MAX inputs, but mlx never feeds
+   those — callers are expected to pass values already representable
+   as int32). */
+inline mx::array mx_i32_from_doubles(const double* data,
+                                     const mx::Shape& shape) {
+    int n = 1;
+    for (auto s : shape) n *= (int)s;
+    std::vector<int32_t> tmp((size_t)n);
+    for (int i = 0; i < n; i++) tmp[i] = (int32_t)data[i];
+    return mx::array(tmp.data(), shape, mx::int32);
+}
+
 /* Construct an mx::array of the requested dtype from a double buffer.
    For float64 storage, pass the buffer through unchanged (lossless).
    For float32 storage, convert per-element (lossy at allocation).
    For bfloat16/float16 storage, widen to F32 then narrow via astype.
-   Future dtypes (int*) plug in here. */
+   For int32 storage, truncate each double to int32_t. */
 inline mx::array mx_array_from_doubles(const double* data,
                                        const mx::Shape& shape,
                                        mx::Dtype dt) {
@@ -117,6 +135,9 @@ inline mx::array mx_array_from_doubles(const double* data,
     }
     if (dt == mx::float16) {
         return mx_f16_from_doubles(data, shape);
+    }
+    if (dt == mx::int32) {
+        return mx_i32_from_doubles(data, shape);
     }
     return mx_from_doubles(data, shape);
 }

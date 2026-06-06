@@ -689,12 +689,11 @@ Compatible (MlxDev MGpu) BF16 where
 public export
 Compatible (MlxDev MGpu) F16 where
 
--- I32 instances enabled so `check-examples` (elaborate-only) admits
--- `Example.DTypeSerialize` on mlx. The C-side dispatch
--- (`tensor_create_1d_streamed` in `backend_mlx/training/dtype_dispatch.cpp`)
--- handles F32/F64/BF16/F16 only — calling these at runtime currently
--- traps via `mlx_dtype_unsupported`. Wiring the C-side I32 path is
--- tracked as its own TODO row.
+-- I32 instances: bulk creation, cast, and readback all wired through
+-- `backend_mlx/training/dtype_dispatch.cpp` (dtag=10) and the
+-- precision.h `mx_to_doubles` / `mx_read_double` / `mx_i32_from_doubles`
+-- helpers. randn-init for I32 params is deliberately not wired
+-- (semantically meaningless); construct I32 tensors via the bulk path.
 public export
 Compatible (MlxDev MCpu) I32 where
 public export

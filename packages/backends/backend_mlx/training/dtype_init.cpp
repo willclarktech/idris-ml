@@ -48,10 +48,13 @@ mx::Dtype dt_for_dtag(const char* sym, int dtag) {
         case 17: return mx::bfloat16;
         default:
             fprintf(stderr,
-                "[mlx backend] %s called with dtag=%d. mlx storage supports "
-                "f16 (dtag=13), f32 (dtag=14), f64 (dtag=15), and bf16 (dtag=17); "
-                "int* + bool are not wired. Bind your code to one of those, or "
-                "build with BACKEND=torch for the wider dtype surface.\n", sym, dtag);
+                "[mlx backend] %s called with dtag=%d. This randn/const "
+                "init path supports floating dtags only (f16=13, f32=14, "
+                "f64=15, bf16=17). I32 (dtag=10) storage is wired for "
+                "bulk creation + serialization, but randn-initialised "
+                "I32 params don't have semantics; construct I32 tensors "
+                "via the bulk path instead, or build with BACKEND=torch "
+                "for the wider dtype surface.\n", sym, dtag);
             abort();
     }
 }

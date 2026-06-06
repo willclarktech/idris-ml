@@ -23,6 +23,7 @@ extern "C" double tensor_item_mlx_streamed(TensorHandle h, int stream_tag) {
     if (t->data.dtype() == mx::float64)  return t->data.item<double>();
     if (t->data.dtype() == mx::bfloat16) return (double)(float)t->data.item<mx::bfloat16_t>();
     if (t->data.dtype() == mx::float16)  return (double)(float)t->data.item<mx::float16_t>();
+    if (t->data.dtype() == mx::int32)    return (double)t->data.item<int32_t>();
     return (double)t->data.item<float>();
 }
 

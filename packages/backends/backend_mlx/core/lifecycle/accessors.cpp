@@ -10,9 +10,9 @@
  *     the 2^53 ceiling. Implemented for symbol completeness — the
  *     Idris-side `Compatible MlxDev I64` is closed, so the realistic
  *     reachable use is safetensors I/O on F32/F64/BF16-typed tensors.
- *   - tensor_dtype_name: F32, BF16, or F64; mlx storage supports those
- *     three. F16 + int* + bool are not wired (Idris `Compatible` gates
- *     each pair at the type level).
+ *   - tensor_dtype_name: F32, F64, BF16, F16, or I32. Other int* +
+ *     bool are not wired (Idris `Compatible` gates each pair at the
+ *     type level).
  *
  * `tensor_item` (scalar readout) lives in core/lifecycle/item.cpp.
  */
@@ -87,5 +87,6 @@ extern "C" const char* tensor_dtype_name(TensorHandle h) {
     if (dt == mx::float32)  return "F32";
     if (dt == mx::bfloat16) return "BF16";
     if (dt == mx::float16)  return "F16";
+    if (dt == mx::int32)    return "I32";
     return "F64";
 }
