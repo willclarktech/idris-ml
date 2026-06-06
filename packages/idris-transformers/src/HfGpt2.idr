@@ -335,6 +335,7 @@ gpt2LnEps : Double
 gpt2LnEps = 1.0e-5
 
 applyLN2d : {0 ex : Executor} -> UserExecutorTraining ex =>
+            {0 seqLen, hidden : Nat} ->
             Gpt2LN hidden ex dt g
          -> Tensor [seqLen, hidden] ex dt g
          -> IO (Tensor [seqLen, hidden] ex dt g)
@@ -449,6 +450,7 @@ applySelfAttn {numHeads = S (S k)} {hidden} {headDim} sa causalMask input = do
 
 ||| MLP: c_proj(gelu(c_fc(x))).
 applyMlp : {0 ex : Executor} -> UserExecutorTraining ex =>
+           {0 seqLen, hidden, intermediate : Nat} ->
            Gpt2MlpState hidden intermediate ex dt g
         -> Tensor [seqLen, hidden] ex dt g
         -> IO (Tensor [seqLen, hidden] ex dt g)

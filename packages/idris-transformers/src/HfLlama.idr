@@ -490,6 +490,7 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
 ||| fused `primSwiGlu2d` (silu(gate) * up) middle stage — collapses the
 ||| previous `tsilu` + `tmul` pair into one FFI call per block.
 applyMlp : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
+           {0 seqLen, hidden, intermediate : Nat} ->
            LlamaMlpState hidden intermediate ex dt g ->
            Tensor [seqLen, hidden] ex dt g ->
            IO (Tensor [seqLen, hidden] ex dt g)
