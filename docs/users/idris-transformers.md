@@ -153,17 +153,76 @@ Short version:
    amount, the bug is in the module — there's no separate
    translation table to blame.
 
+## Fine-tuning HF-loaded models
+
+As of 2026-06-07 the fine-tuning surface is in. Three primitives
+work together:
+
+1. **Subset-load** — `loadModelPrefix path pfx` in
+   [`packages/idris-ml/src/Checkpoint.idr`](../../packages/idris-ml/src/Checkpoint.idr)
+   loads only the safetensors keys whose name starts with `pfx`,
+   leaving every other registered param untouched. Use to warm-start
+   a backbone (`"bert."`) while keeping a fresh classification head
+   at its random init.
+2. **Freeze-by-prefix** — `freezeByPrefix opt pfx` /
+   `unfreezeByPrefix opt pfx` in
+   [`packages/idris-ml/src/Train/Freeze.idr`](../../packages/idris-ml/src/Train/Freeze.idr)
+   walks the registry and sets the per-param LR override to 0 for
+   every name starting with `pfx`. Composes with a single optimizer
+   — no two-optimizer plumbing.
+3. **Classification head** —
+   `hfBertForSequenceClassification bertPfx classifierPfx` in
+   [`HfBertForClassification.idr`](../../packages/idris-transformers/src/HfBertForClassification.idr)
+   returns a `BertForSequenceClassificationState` whose params
+   register under `<bertPfx>.*` (backbone) + `classifier.weight` /
+   `classifier.bias` (head, HF-canonical naming). The forward
+   composes `hfBertForward` (pooled `[CLS]`) with a 1-D `tlinear`
+   into `[numClasses]` logits.
+
+Putting it together:
+
+```idris
+model <- hfBertForSequenceClassification {numClasses=3} "bert" "classifier"
+_     <- loadModelPrefix "models/google/bert_uncased_L-2_H-128_A-2/model.safetensors" "bert."
+let opt = nativeAdamW lr 0.9 0.999 1.0e-8 0.01 1.0
+freezeByPrefix opt "bert."  -- optional: head-only training
+
+-- runTrainingIO with a custom epoch fn (HF models aren't Network-shaped)
+runTrainingIO (epochBert opt) genBatch trainCfg model
+```
+
+The full worked example is
+[`Example/BertClassifyFinetune.idr`](../../packages/idris-ml-examples/src/Example/BertClassifyFinetune.idr)
+(tiny BERT + synthetic 3-class task, converges to 100% accuracy in
+seconds on all three backends; multi-seed 5/5 on tape). The paired
+PyTorch reference is
+[`bert_classify_finetune.py`](../../packages/pytorch/torch_ref/scripts/bert_classify_finetune.py).
+
+### Today's limits + parked follow-ups
+
+- **Synthetic dataset only.** The worked example generates token IDs
+  at runtime. Real-text datasets (SST-2, IMDb, GLUE) need wiring the
+  existing `Tokenizer.idr` HF-subprocess wrapper into the data
+  pipeline. Tracked as a TODO row.
+- **No attention mask on `hfBertForward`.** Fine for fixed-length
+  synthetic batches; variable-length real-text fine-tuning needs a
+  mask wired through `applyEncoder`'s softmax. Tracked alongside the
+  real-text TODO row.
+- **Full fine-tune only.** LoRA / adapters are not in scope for
+  this round. Tracked as a follow-up TODO row.
+
 ## What's not supported yet
 
-- **Tokenizer integration.** The example feeds in pre-tokenized
-  IDs; building token IDs from a string requires a SentencePiece /
-  BPE / WordPiece implementation, which is gated on the LLM-class
-  example row (see `TODO.md`).
-- **Training / fine-tuning.** `saveModel` would write HF-native
-  names back out trivially, but no current use case drives a
-  fine-tuning workflow on HF-aligned modules. The forward pass is
-  the v1 deliverable.
-- **GPT-2 + Llama.** Follow-up rows tracked in `TODO.md`.
+- **Tokenizer integration in the worked fine-tune example.** The
+  inference examples use `Tokenizer.idr` (HF-subprocess); the
+  fine-tune example bypasses it via synthetic IDs. Real-text
+  fine-tuning + tokenizer-driven batch generation land together
+  (see TODO row).
+- **GPT-2 LM continued pretraining + BERT MLM continued
+  pretraining.** Both architectures + forward passes ship in
+  `idris-transformers`; only the worked fine-tune examples are
+  parked (TODO).
+- **LoRA / parameter-efficient fine-tuning.** TODO.
 
 ## Cross-references
 

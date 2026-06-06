@@ -329,6 +329,63 @@ deterministically, so data order continues approximately, not
 bit-exactly) and loading *foreign* HuggingFace checkpoints (needs key
 remapping + bf16/f16 read).
 
+## Fine-tuning HF-loaded models: prefix-based subset-load + freeze (2026-06-07)
+
+The fine-tuning API surface — `loadModelPrefix path pfx`,
+`freezeByPrefix opt pfx`, `BertForSequenceClassification` — leans on
+paramId-prefix filtering rather than introducing a parameter-mask
+record or a per-param explicit-trainable bool. The decision space and
+why prefix won:
+
+- **paramId is already the load-bearing axis.** Every HF model's
+  on-disk layout is a tree of dotted-prefix names
+  (`bert.embeddings.word_embeddings.weight`,
+  `bert.encoder.layer.0.attention.self.query.weight`, …). The
+  existing `nativeAdamGroup "prefix_" lr ...` already filters Adam's
+  step + clip by paramId prefix. Subset-load + freeze need to slice
+  the same registry on the same axis; introducing a second filter
+  axis (a `[String]` allow-list, a `Set String`, a regex) would have
+  no upside and would fragment the convention.
+- **Single-pass safetensors walk stays single-pass.** The C-side
+  load loop iterates the safetensors JSON header once;
+  `param_load_with_prefix(path, allow_cast, prefix)` adds a one-line
+  `strncmp` filter at the top of each iteration. An allow-list would
+  need a per-key set lookup (Bloom filter or hash table) for
+  comparable performance; not worth the complexity.
+- **Bulk-freeze as a thin Idris wrapper.** `freezeByPrefix` is pure
+  Idris over the existing `primParamCount` / `primParamName` /
+  `primOptimizerSetParamLr` FFIs — no new C primitive. It walks the
+  registry, calls `setParamLR opt name 0.0` for each matching name.
+  Composes with the existing single-optimizer training loop — no
+  two-optimizer plumbing required for "freeze backbone, train head."
+  A parameter-mask record on `NativeOptimizer` was rejected as
+  re-conflating the freeze axis (per-param) and the group-LR axis
+  (per-prefix, already handled by `nativeAdamGroup`).
+- **Composes with `loadModelPrefix`.** The fine-tune workflow's
+  three pieces — load only the backbone, leave the head at fresh
+  init, freeze the backbone — share the same prefix string.
+
+The classifier-head module
+(`HfBertForClassification.hfBertForSequenceClassification`) lives in
+`packages/idris-transformers/` rather than `packages/idris-ml/`
+because its naming (`classifier.weight` / `classifier.bias`) follows
+HF's `BertForSequenceClassification.classifier` convention exactly,
+matching the per-adapter rule in
+`packages/idris-transformers/CONVENTIONS.md`. Future heads (token
+classification, QA) follow the same shape: one Linear under the
+HF-canonical prefix, composed with the backbone's pooled output.
+
+The worked example (`Example/BertClassifyFinetune.idr`,
+commit `54b6bf43`) deliberately uses a TINY config (vocab=64,
+hidden=32, layers=1) and a synthetic dataset rather than the full
+bertTinyConfig + a real pretrained checkpoint. The trade-off:
+self-contained example that converges in seconds across all three
+backends (5/5 multi-seed on tape) at the cost of not exercising
+`loadModelPrefix` in the example body. The subset-load path is still
+covered by the FT1 unit test `Test.CheckpointSubset` (6 assertions,
+3 backends). The real-text fine-tune workflow needing the tokenizer
++ attention mask + LoRA / PEFT is parked as follow-up TODO rows.
+
 ## Composable weight initialization (Sampler + InitStrategy)
 
 Init methods define a target **variance** and the distribution shape is orthogonal. Previously these were conflated — `xavierInit` returned a uniform range limit, baking in both "Xavier variance formula" and "uniform distribution." The refactored design separates them into two composable pieces:
