@@ -1551,6 +1551,7 @@ test-unit-gym:
 # FFI registry calls land on the active backend's symbols (mirrors
 # the test-unit-idris-ml recipe).
 test-unit-idris-transformers: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(IDRIS_TRANSFORMERS_TESTCONFIG_IDR)
+	cd packages/idris-transformers && pack --no-prompt install-deps idris-transformers-tests.ipkg
 	cd packages/idris-transformers && pack --no-prompt build idris-transformers-tests.ipkg
 	cp $(LIB) packages/idris-transformers/build/exec/idris-transformers-test_app/
 	$(STDBUF) ./packages/idris-transformers/build/exec/idris-transformers-test
