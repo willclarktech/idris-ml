@@ -18,10 +18,17 @@ import random
 import sys
 import time
 
+import numpy as np
 import torch
 
-from torch_ref.models.dqn import QNetwork, ReplayBuffer, dqn_episode, evaluate
-from torch_ref.models.reinforce import make_cartpole_env
+from torch_ref.models.dqn import (
+    NUM_ENVS,
+    QNetwork,
+    ReplayBuffer,
+    dqn_episode_batched,
+    evaluate,
+    make_cartpole_vec_env,
+)
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix, set_device
 
@@ -63,14 +70,17 @@ def main() -> None:
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
-    env = make_cartpole_env(args.seed)
+    vec_env = make_cartpole_vec_env(args.seed, NUM_ENVS)
+    obs_state = [np.zeros((NUM_ENVS, 4), dtype=np.float64)]
     step_count = [0]
     print()
 
     def epoch_fn() -> float:
-        """One DQN episode. Returns -episode_return (matches Idris loss)."""
-        new_step, ep_return = dqn_episode(
-            env,
+        """One batched DQN episode. Returns -env-0_episode_return
+        (matches Idris loss)."""
+        new_step, ep_return, new_obs = dqn_episode_batched(
+            vec_env,
+            obs_state[0],
             q,
             target,
             optimizer,
@@ -82,6 +92,7 @@ def main() -> None:
             rng,
         )
         step_count[0] = new_step
+        obs_state[0] = new_obs
         return -ep_return  # Idris reports `negate ret`
 
     if args.lr_find:

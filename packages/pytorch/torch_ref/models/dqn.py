@@ -1,8 +1,12 @@
 """DQN (Mnih et al. 2015) on CartPole-v1.
 
 Deep Q-Network with experience replay and a target network. Uses
-`gym.make("CartPole-v1")` via the shared helper in `reinforce.py`,
-reset state pinned to (0, 0, 0, 0) to mirror idris-gym.
+`gym.vector.SyncVectorEnv` for NUM_ENVS parallel CartPole envs
+collecting transitions in lockstep (matches Idris-side
+`Gym.Vector.VecEnv NumEnvs CPState`). Each "epoch" = env-0's primary
+episode; the other envs auto-reset and continue feeding the buffer.
+
+Reset state pinned to (0, 0, 0, 0) to mirror idris-gym.
 
 Convergence target: greedy-evaluation return >= 150 on CartPole in 500
 episodes.
@@ -14,16 +18,13 @@ import copy
 import random
 import time
 from collections import deque
-from typing import TYPE_CHECKING
 
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-
-if TYPE_CHECKING:
-    import gymnasium as gym
 
 from torch_ref.models.reinforce import (
     MAX_STEPS,
@@ -32,6 +33,24 @@ from torch_ref.models.reinforce import (
     reset_to_zero,
 )
 from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem_suffix
+
+# Parallel envs collecting transitions in lockstep. Matches Idris-side
+# `Example.Dqn.NumEnvs`.
+NUM_ENVS = 4
+
+
+def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+    """N independent CartPole envs in a SyncVectorEnv, each reset to all-zero
+    to mirror idris-gym's `Gym.ClassicControl.CartPole.reset`."""
+    def _make(idx: int):
+        def _f():
+            return make_cartpole_env(seed + idx)
+        return _f
+    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec.reset()
+    for sub in vec.envs:
+        reset_to_zero(sub)
+    return vec
 
 
 class QNetwork(nn.Module):
@@ -78,6 +97,25 @@ def eps_greedy_action(q: QNetwork, obs: Tensor, epsilon: float, rng: random.Rand
         return rng.randrange(2)
     with torch.no_grad():
         return int(torch.argmax(q(obs)).item())
+
+
+def eps_greedy_batched(
+    q: QNetwork, obs_batch: Tensor, epsilon: float, rng: random.Random
+) -> np.ndarray:
+    """Batched epsilon-greedy across NUM_ENVS envs. One batched forward,
+    then per-env eps-vs-greedy with independent random draws (matches the
+    Idris-side one-randomRIO-per-env-per-step convention)."""
+    n = obs_batch.shape[0]
+    with torch.no_grad():
+        q_vals = q(obs_batch)  # [N, 2]
+        greedy = torch.argmax(q_vals, dim=-1).cpu().numpy()  # [N]
+    actions = np.zeros(n, dtype=np.int64)
+    for i in range(n):
+        if rng.random() < epsilon:
+            actions[i] = rng.randrange(2)
+        else:
+            actions[i] = int(greedy[i])
+    return actions
 
 
 def linear_epsilon(
@@ -149,6 +187,62 @@ def dqn_episode(
     return step_count, ep_return
 
 
+def dqn_episode_batched(
+    vec_env: gym.vector.SyncVectorEnv,
+    obs_np: np.ndarray,
+    q: QNetwork,
+    target: QNetwork,
+    optimizer: torch.optim.Optimizer,
+    buffer: ReplayBuffer,
+    step_count: int,
+    batch_size: int,
+    gamma: float,
+    target_sync_every: int,
+    rng: random.Random,
+) -> tuple[int, float, np.ndarray]:
+    """Batched DQN episode. NUM_ENVS envs collect transitions in lockstep
+    via one batched action-selection forward per outer step; NUM_ENVS
+    transitions get pushed per outer step; one gradient update per outer
+    step (replay-ratio shifts by N — same on both sides for alignment).
+    env-0 is the primary; epoch terminates when env-0 hits done.
+
+    Returns (new_step_count, env-0's episode return, new obs_np)."""
+    ep_return = 0.0
+    for _ in range(MAX_STEPS):
+        obs_t = obs_tensor(obs_np)  # [N, 4]
+        epsilon = linear_epsilon(step_count)
+        actions_np = eps_greedy_batched(q, obs_t, epsilon, rng)
+        next_obs_np, rewards_np, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        next_obs_np = next_obs_np.astype(np.float64)
+        dones_np = np.logical_or(terms_np, truncs_np)
+        for i in range(NUM_ENVS):
+            buffer.push(
+                obs_np[i].tolist(),
+                int(actions_np[i]),
+                float(rewards_np[i]),
+                next_obs_np[i].tolist(),
+                bool(dones_np[i]),
+            )
+        ep_return += float(rewards_np[0])
+        # Auto-reset terminated envs back to zero state.
+        for i in range(NUM_ENVS):
+            if dones_np[i]:
+                reset_to_zero(vec_env.envs[i])
+                next_obs_np[i] = 0.0
+        obs_np = next_obs_np
+        step_count += 1
+
+        if len(buffer) >= batch_size:
+            dqn_update(q, target, optimizer, buffer, batch_size, gamma, rng)
+
+        if step_count % target_sync_every == 0:
+            target.load_state_dict(q.state_dict())
+
+        if dones_np[0]:
+            break
+    return step_count, ep_return, obs_np
+
+
 def train_dqn(
     episodes: int = 300,
     lr: float = 5e-4,
@@ -159,19 +253,23 @@ def train_dqn(
     seed: int = 42,
     log_every: int = 50,
 ) -> tuple[QNetwork, list[float]]:
+    """Batched DQN. NUM_ENVS envs collect transitions in lockstep via
+    `gym.vector.SyncVectorEnv`. Each "episode" = env-0's primary episode."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     q = QNetwork()
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
-    env = make_cartpole_env(seed)
+    vec_env = make_cartpole_vec_env(seed, NUM_ENVS)
+    obs_np = np.zeros((NUM_ENVS, 4), dtype=np.float64)
     history: list[float] = []
     step_count = 0
     t_start = time.monotonic()
     for ep in range(episodes):
-        step_count, ep_return = dqn_episode(
-            env,
+        step_count, ep_return, obs_np = dqn_episode_batched(
+            vec_env,
+            obs_np,
             q,
             target,
             optimizer,
