@@ -274,10 +274,12 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
   tEnd <- clockTime Monotonic
   logInfo $ formatTimingSummary tStart tEnd epochsDone
   logInfo $ formatPerfMsPerEp tStart tEnd epochsDone
+  liveH <- primIO (primLiveCount {ex})
+  peakH <- primIO (primPeakLiveCount {ex})
   logInfo $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
           ++ "\tCurrent RSS: " ++ show (getCurrentRssMB 0) ++ " MB"
-          ++ "\tLive handles: " ++ show (primLiveCount {ex} (cast epochsDone))
-          ++ "\tPeak handles: " ++ show (primPeakLiveCount {ex} (cast epochsDone))
+          ++ "\tLive handles: " ++ show liveH
+          ++ "\tPeak handles: " ++ show peakH
   profileReport {ex}
   pure (finalModel, epochsDone, loss)
   where
@@ -310,10 +312,12 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       extra <- withNoGrad {ex} $ do
                  e <- cfg.metrics m
                  if forceMetrics e then pure e else pure e
+      liveH <- primIO (primLiveCount {ex})
+      peakH <- primIO (primPeakLiveCount {ex})
       let memSuffix = "\tpeak=" ++ show (getRssMB 0) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
-                   ++ "\thandles=" ++ show (primLiveCount {ex} (cast ep))
-                   ++ "\tpeakhandles=" ++ show (primPeakLiveCount {ex} (cast ep))
+                   ++ "\thandles=" ++ show liveH
+                   ++ "\tpeakhandles=" ++ show peakH
       logInfo $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 

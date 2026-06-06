@@ -565,13 +565,11 @@ int get_rss_mb(void);           /* peak RSS in MB (getrusage) */
 int get_current_rss_mb(void);   /* current RSS in MB (macOS mach_task_info) */
 /* Count of live backend tensor handles (mlx: all_tensors; torch:
  * intermediates; tape: tape entries). Per-backend so it tracks the
- * thing that actually grows. Takes an ignored arg to defeat Idris-Chez
- * constant-folding of the zero-arg FFI call. */
-int tensor_live_count(int dummy);
+ * thing that actually grows. */
+int tensor_live_count(void);
 /* High-water mark of live handles since process start (the figure that
- * actually determines whether a paravirt-Metal buffer ceiling is hit).
- * Ignored arg defeats Idris-Chez constant-folding. */
-int tensor_peak_live_count(int dummy);
+ * actually determines whether a paravirt-Metal buffer ceiling is hit). */
+int tensor_peak_live_count(void);
 void backend_reset_for_eval(void); /* reset tape + arena for clean eval forward */
 
 /* Backend-controlled teardown helper. Inference programs that complete

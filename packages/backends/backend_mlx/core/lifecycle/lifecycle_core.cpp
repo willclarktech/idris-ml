@@ -50,6 +50,6 @@ void tensor_release_handle(void* h) {
 // Live-handle accessors — read from all_tensors / g_mlx_peak_live (above).
 // Surfaced for Idris-side live-tensor dashboards + the test suite's
 // "no leaks at end of epoch" assertions.
-int tensor_live_count(int dummy) { (void)dummy; return (int)all_tensors.size(); }
-int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_mlx_peak_live; }
+int tensor_live_count(void) { return (int)all_tensors.size(); }
+int tensor_peak_live_count(void) { return (int)g_mlx_peak_live; }
 }  // extern "C"

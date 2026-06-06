@@ -538,9 +538,9 @@ prim__releaseAllPersistentMlx : PrimIO ()
 %foreign "C:backend_reset_for_eval_mlx,libidrisml"
 prim__resetForEvalMlx : PrimIO ()
 %foreign "C:tensor_live_count_mlx,libidrisml"
-prim__liveCountMlx : Int -> Int
+prim__liveCountMlx : PrimIO Int
 %foreign "C:tensor_peak_live_count_mlx,libidrisml"
-prim__peakLiveCountMlx : Int -> Int
+prim__peakLiveCountMlx : PrimIO Int
 %foreign "C:tensor_perf_reset_mlx,libidrisml"
 prim__perfResetMlx : PrimIO ()
 %foreign "C:tensor_perf_op_count_mlx,libidrisml"

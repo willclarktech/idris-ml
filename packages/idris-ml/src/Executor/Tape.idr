@@ -490,9 +490,9 @@ prim__releaseAllPersistentTape : PrimIO ()
 %foreign "C:backend_reset_for_eval_tape,libidrisml"
 prim__resetForEvalTape : PrimIO ()
 %foreign "C:tensor_live_count_tape,libidrisml"
-prim__liveCountTape : Int -> Int
+prim__liveCountTape : PrimIO Int
 %foreign "C:tensor_peak_live_count_tape,libidrisml"
-prim__peakLiveCountTape : Int -> Int
+prim__peakLiveCountTape : PrimIO Int
 %foreign "C:tensor_perf_reset_tape,libidrisml"
 prim__perfResetTape : PrimIO ()
 %foreign "C:tensor_perf_op_count_tape,libidrisml"

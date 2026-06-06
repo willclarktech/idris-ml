@@ -74,8 +74,8 @@ void backend_release_all_persistent(void) {
     arena_free_all();
 }
 
-int tensor_live_count(int dummy)      { (void)dummy; return (int)tape_size; }
-int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_tape_peak; }
+int tensor_live_count(void)      { return (int)tape_size; }
+int tensor_peak_live_count(void) { return (int)g_tape_peak; }
 
 /* Debug */
 const char* backend_name(void) { return "tape"; }

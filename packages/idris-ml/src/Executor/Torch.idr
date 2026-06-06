@@ -525,9 +525,9 @@ prim__releaseAllPersistentTorch : PrimIO ()
 %foreign "C:backend_reset_for_eval_torch,libidrisml"
 prim__resetForEvalTorch : PrimIO ()
 %foreign "C:tensor_live_count_torch,libidrisml"
-prim__liveCountTorch : Int -> Int
+prim__liveCountTorch : PrimIO Int
 %foreign "C:tensor_peak_live_count_torch,libidrisml"
-prim__peakLiveCountTorch : Int -> Int
+prim__peakLiveCountTorch : PrimIO Int
 %foreign "C:tensor_perf_reset_torch,libidrisml"
 prim__perfResetTorch : PrimIO ()
 %foreign "C:tensor_perf_op_count_torch,libidrisml"

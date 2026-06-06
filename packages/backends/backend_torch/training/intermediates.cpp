@@ -46,8 +46,8 @@ void free_intermediates(void) {
     all_pairs_torch.clear();
 }
 
-extern "C" int tensor_live_count(int dummy) { (void)dummy; return (int)intermediates_torch.size(); }
-extern "C" int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_torch_peak_live_intermediates; }
+extern "C" int tensor_live_count(void) { return (int)intermediates_torch.size(); }
+extern "C" int tensor_peak_live_count(void) { return (int)g_torch_peak_live_intermediates; }
 
 // `from_tensor` / `from_tensor_persistent` live here so they remain
 // co-located with the intermediates list they push into. Declared in

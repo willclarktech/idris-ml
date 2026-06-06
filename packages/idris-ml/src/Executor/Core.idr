@@ -573,14 +573,13 @@ interface UserExecutorCore ex => UserExecutorMemoryHygiene (0 ex : Executor) whe
 public export
 interface UserExecutorCore ex => UserExecutorDiagnostics (0 ex : Executor) where
   ||| Count of live backend tensor handles (mlx: all_tensors; torch:
-  ||| intermediates; tape: tape entries). The arg is ignored — it exists
-  ||| only to defeat Idris-Chez constant-folding of the FFI call so the
-  ||| count re-reads each epoch. Pass a varying value (e.g. the epoch).
-  primLiveCount           : Int -> Int
+  ||| intermediates; tape: tape entries). PrimIO sequencing forces a
+  ||| fresh read at each call (Idris-Chez never folds across the IO
+  ||| boundary).
+  primLiveCount           : PrimIO Int
   ||| High-water mark of live handles since process start — the figure
   ||| that determines whether a backend hits its handle/buffer ceiling.
-  ||| Ignored arg defeats constant-folding; pass a varying value.
-  primPeakLiveCount       : Int -> Int
+  primPeakLiveCount       : PrimIO Int
   ||| TODO #393 op-submission diagnostic. Bumped at every from_tensor()
   ||| wrap on torch (counts graph nodes per forward); no-op on tape
   ||| and mlx (their per-op submission story is different — tape is
