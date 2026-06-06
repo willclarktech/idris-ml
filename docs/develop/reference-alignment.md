@@ -14,6 +14,50 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > referenced in the A2C/PPO entries is structurally impossible in V2 (each layer is named at
 > construction). See [path-c-migration.md](path-c-migration.md).
 
+## Alignment Changes (2026-06-08) — `Env.reset` randomized per Gymnasium
+
+Closes the deterministic-reset divergence that was documented in multiple
+older sections below. `Gym.Env.reset` changes from a pure value to
+`Seed -> (state, Seed)`; per-env distributions now match Gymnasium:
+
+| Env | Reset distribution (both sides) |
+|---|---|
+| CartPole-v1 | each of `(x, x', θ, θ')` ~ U(-0.05, 0.05) |
+| MountainCar-v0 | `pos` ~ U(-0.6, -0.4), `vel` = 0 |
+| MountainCarContinuous-v0 | `pos` ~ U(-0.6, -0.4), `vel` = 0 |
+| Pendulum-v1 | `θ` ~ U(-π, π), `θ̇` ~ U(-1, 1) |
+| Acrobot-v1 | each of 4 components ~ U(-0.1, 0.1) |
+| FrozenLake-v1 | start fixed at pos 0; input Seed seeds internal slip RNG |
+| Blackjack-v1 | input Seed seeds initial deal |
+| CliffWalking-v1 | start fixed at (3, 0) (canonical) |
+| Taxi-v4 | taxi/passenger/destination randomized; `dest != pass` enforced |
+
+**Contract**: both Idris and PyTorch references seed once at trainer
+start (`env.reset(seed=cfg.seed)` on PyTorch; `srand cfg.seed` +
+`randomInt32`-sourced per-call Seed on Idris). Per-episode resets
+advance each side's PRNG and produce different initial states —
+trajectories diverge across episodes naturally rather than restarting
+from a fixed worst-case init.
+
+**Paired-side dropped scaffolding**:
+- `torch_ref/models/{reinforce,sac,mountain_car,mountain_car_cont,ppo}.py`
+  no longer set `env.unwrapped.state = ...` after each `env.reset()`.
+  The `reset_to_*` / `_reset_to_pi` helpers stay (kept for call-site
+  stability) but now just return the natural Gymnasium-reset obs.
+  Make-vec-env loops that re-pinned each sub-env after `vec.reset()`,
+  and the auto-reset branches that overrode `next_obs[i]` with the
+  hardcoded pinned obs, are dropped (SyncVectorEnv auto-reset already
+  produces randomized obs in next_obs).
+- `Example.Taxi` is intentionally unchanged — it calls
+  `Gym.ToyText.Taxi.defaultStart` directly (not via `Env.reset`), so
+  the matching `torch_ref/models/taxi.py` keeps its `_pin_start` for
+  paired-side Q-table reproducibility.
+
+Older sections below containing "pin `(0,0,0,0)` / pin `(π, 0.0)` etc."
+language describe pre-change behaviour; the divergence those rows
+flagged is closed by this commit and the underlying TODO row was
+removed when this section landed.
+
 ## BERT SST-2 LoRA fine-tune (2026-06-07)
 
 New paired example `bert-classify-sst2-lora` — LoRA fine-tune on top of the bert-tiny backbone for SST-2 binary sentiment classification. Same architecture / dataset / seqLen / classifier head as the prior full-fine-tune row; the only difference is what trains.
