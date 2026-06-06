@@ -868,6 +868,33 @@ The `MACHINE` + `HARDWARE` Makefile knobs replace the orthogonal `MLX_DEVICE` + 
 
 The existing runtime-value `HardwareClass = HostCpu | AppleGpu | Nvidia Nat | Other String` (in `Executor.Core`, used by `someExecutor` discovery for reporting) coexists with the new type-level `Hardware.AppleGpu` despite the shared name — Idris disambiguates by context since one is a `HardwareClass` constructor and the other is a `Type`.
 
+### Sub-slice split rather than monolith collapse (2026-06-07, commit `ceda8f30`)
+
+The 2026-04 "Pluggable Device" entry above settled on sliced typeclasses (`UserExecutorCore` / `Linear` / `NN` / `Conv` / `Training`) over a 160-method monolith or a record dictionary. A subsequent open question was whether to *re-merge* the slices — the directional idea in the original "DRY-up + conceptual rework" backlog row was "collapse `UserExecutorCore` / `UserExecutorTraining` / etc. into one interface with a smaller method set + composable mixin extensions." That direction was rejected. The actual landing went the opposite way: `UserExecutorTraining` (57 methods) split into 6 cohesive sub-interfaces — `UserExecutorAutograd` (7) / `UserExecutorParamRegistry` (8) / `UserExecutorOptimizer` (9) / `UserExecutorSerialize` (5) / `UserExecutorProfiling` (10) / `UserExecutorTensorCreate` (18) — plus 3 fused inference ops (`primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d`) lifted from `Training` into `UserExecutorNN`. The aggregate `UserExecutorTraining ex` is preserved as a constraint synonym so ~270 consumer constraints didn't move; the change is implementer-side only.
+
+The rationale is that the new joints are real ones, not artifact-of-evolution. An inference-only third-party backend doesn't need to stub `Optimizer` or `Serialize`; a kernel-replacement backend that reuses the host's autograd machinery wants `Autograd` but not `ParamRegistry`. A new `UserExecutorInference ex = (Conv ex, TensorCreate ex, Transfer ex, Quant ex)` aggregate documents the inference-only minimum surface explicitly. The monolith-collapse direction conflates "every backend implements everything" with "any backend" — fine when every backend you ship implements everything, hostile when you want to admit narrower backends.
+
+Drift across the split is enforced by `scripts/check-executor-method-drift.py` (CI gate): it unions all `(slice, method)` tuples across the 3 instance files and asserts no divergence. The earlier `UserExecutorCore` drift incident (commit `2d9490c9` added `primRound` + `primClamp` for BitNet, left `Example.BringYourOwn` silently out of sync, only failed `check-all` months later) was the motivating bug class; the drift script makes it a one-commit-cycle failure.
+
+### `Compatible` and `RuntimeDType` are orthogonal (2026-06-07)
+
+The original backlog row asked whether `Compatible (ex, dt)` (the empty marker interface gating admissible (Executor, DType) pairs at the type level) and `RuntimeDType t` (the value-level dispatch table carrying `dtypeTag : Int` for FFI selection) are "the same concept reified differently." Survey decided no — they sit on orthogonal axes:
+
+- `Compatible` is compile-time admissibility. The deliberately-missing `Compatible (MlxExecutor MGpu) F64` instance is what makes `Tensor [4] (MlxExecutor MGpu) F64 WithGrad` *fail to typecheck*. Metal GPU dropped F64 in mlx 0.31 and libtorch MPS rejects F64 at construction; the absent instances are the type-level record of those hardware carve-outs. 54 explicit instances total across 3 backends × ~12 dtypes (Tape:12, Torch:27, Mlx:15). Adding a new dtype rung does touch every backend, but each addition is one line and the carve-outs *should* stay explicit so the absence is visible at review time, not buried in a derivation.
+- `RuntimeDType` is runtime FFI dispatch. Its `dtypeTag : Int` lets the dtype-streamed creators (`primCreate1dStreamed`, etc.) pick `tensor_create_*_f32` vs `_f64` vs `_bf16` at the C boundary. Per-dtype one instance regardless of executor.
+
+Folding the two would either (a) push hardware carve-outs into a runtime-conditional FFI tag (worse — runtime branch where today we have a compile-time error), or (b) derive `Compatible` from a per-Executor `SupportedDtypes : List DType` via Idris-2 `Elem` proof search, which is O(N) at each of the ~100+ smart-constructor constraint sites. The first sacrifices type-level guarantees; the second risks measurable elaborator slowdown. The status-quo orthogonal split is the right shape.
+
+### Three-gate model: link / startup / first-use (2026-06-07)
+
+Three independent gates check that backend + executor + hardware availability matches the binary at progressively-later points:
+
+1. **Compile-time `Linked` gate** (`HwConfig.idr`, generated per build). The Makefile's `BACKEND=` list determines which `Linked ex` instances exist; a tape-only build can't even spell `MlxExecutor _` at the type level. See "Device-availability gating" entry above for the EAFP runtime half.
+2. **Startup `requireMachine` gate** (`Machine.Verify` typeclass, the entry point for new contributors adding a Machine — see commit history for the runtime-check implementation). At the first line of `main`, the build's `ExampleMachine`'s `MachineRuntimeCheck` instance probes the actual host (OS / arch / Metal-framework presence / libcuda presence) and hard-errors with a one-line diagnostic if the binary was built for a different host. The check is typeclass-enforced: a new `Machine` literally cannot be added without a `MachineRuntimeCheck` instance — the Idris compiler refuses the build. `IDRISML_MACHINE_CHECK=warn|off` env var relaxes strictness for cross-platform testing.
+3. **First-use EAFP gate** (`toExecutorChecked` and the runtime construction shims). Backend-construction shims catch the backend's exception → NULL handle; `toExecutorChecked` lifts NULL → `Left DeviceError`. Catches the case where the build's hardware was present at startup but a specific operation can't run (e.g. F64 on Metal at construction).
+
+Gate (1) is link-time, no cost at run. Gate (2) is one syscall + one dlopen at program start, cached. Gate (3) is per-construction but only the failure path. The three layers compose: a misconfigured binary hits (2) and dies with a useful message; a half-supported op hits (3) and gets a `Left`; a missing backend never gets past (1).
+
 ### Open `dt` parameter: same `Type` alias trick, with Compatible + UpcastableTo on top (2026-05-17)
 
 `Tensor` gained a fourth 0-quantity phantom parameter for the data
