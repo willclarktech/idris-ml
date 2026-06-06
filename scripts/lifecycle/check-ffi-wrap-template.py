@@ -192,12 +192,20 @@ def check_file(path, errors):
             cname = spec.split(",", 1)[0]
             base = strip_suffix(cname)
             if base in MANIFEST:
-                errors.append(
-                    f"{path}: {name} uses %foreign \"C:{cname}\" but "
-                    f"base {base!r} is in MANIFEST — should have been "
-                    f"converted to wrap-on-return scheme template. "
-                    f"Run scripts/lifecycle/ffi-convert-to-scheme.py."
-                )
+                # Only Tensor-touching FFIs (T arg or T return) need the
+                # wrap-on-return scheme template. Pure primitive FFIs
+                # (Int/Double/void in and out) can stay as raw %foreign "C:..."
+                # — adding the scheme wrapper buys nothing and the manifest
+                # carries them only for instance-method generation metadata.
+                entry = MANIFEST[base]
+                touches_tensor = entry.ret == "T" or "T" in entry.args
+                if touches_tensor:
+                    errors.append(
+                        f"{path}: {name} uses %foreign \"C:{cname}\" but "
+                        f"base {base!r} is in MANIFEST — should have been "
+                        f"converted to wrap-on-return scheme template. "
+                        f"Run scripts/lifecycle/ffi-convert-to-scheme.py."
+                    )
             continue
 
         # scheme: body
@@ -209,7 +217,8 @@ def check_file(path, errors):
             continue
 
         base = strip_suffix(cname)
-        manifest_args, manifest_ret = MANIFEST[base]
+        manifest_entry = MANIFEST[base]
+        manifest_args, manifest_ret = manifest_entry.args, manifest_entry.ret
 
         # Cross-check Idris signature arg count.
         if len(idris_args) != len(manifest_args):

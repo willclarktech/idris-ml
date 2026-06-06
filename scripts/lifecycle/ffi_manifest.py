@@ -1,13 +1,26 @@
-"""Shared manifest + helpers for FFI wrap-template tooling.
+"""Shared manifest + helpers for FFI wrap-template tooling and instance
+generation.
 
-This module is the single source of truth for which Idris-side `%foreign`
-declarations are Tensor-touching (and therefore must use the
-wrap-on-return Scheme template) vs raw FFIs. Both
-`ffi-convert-to-scheme.py` (the converter) and `check-ffi-wrap-template.py`
-(the linter) import from here.
+This module is the single source of truth for two related concerns:
+1. Which Idris-side `%foreign` declarations are Tensor-touching (and
+   therefore must use the wrap-on-return Scheme template) — read by
+   `ffi-convert-to-scheme.py` and `check-ffi-wrap-template.py`.
+2. Which typeclass methods on `Executor/{Tape,Torch,Mlx}.idr` are
+   generated from which FFI — read by `gen-executor-instances.py` and
+   `check-executor-method-drift.py`.
+
+Each entry is an `Entry` dataclass:
+- `args` / `ret`: classifier tuple for the FFI's C signature.
+- `slice`: typeclass sub-interface the method lives in (None if the FFI
+  is internal-only and not bound to any instance method).
+- `idris_method`: name of the typeclass method that calls this FFI.
+- `c_symbol`: canonical C function name (defaults to the manifest key;
+  override for aliased FFIs where one C symbol backs multiple methods).
+- `tape` / `torch` / `mlx`: per-backend generation flavor.
 """
 
 import re
+from dataclasses import dataclass
 
 # Type abbreviations for arg/return classification.
 # T  = wrapped Tensor handle (Idris AnyPtr, vector-ref to unwrap)
@@ -16,265 +29,243 @@ import re
 # d  = Double
 # s  = String
 # v  = void / unit (return only)
-#
-# Each manifest entry is (args, ret) tuple.
-# Manifest is keyed by base C function name (no _tape/_torch/_mlx/_unified
-# suffix — those are stripped before lookup).
+
+
+@dataclass(frozen=True)
+class Entry:
+    """One FFI primitive's full description.
+
+    Manifest is keyed by base C function name (no _tape/_torch/_mlx
+    backend suffix; those are stripped before lookup). Multiple instance
+    methods can share a C symbol via the `c_symbol` field — the manifest
+    key stays distinct (one per Idris-level method), but `c_symbol` points
+    to the actual C function called by the wrap-template.
+    """
+    args: tuple              # arg-class tuple ("T", "i", "d", "s", "R", or "v")
+    ret: str                 # ret-class
+    slice: str = None        # None when the FFI is not bound to any instance method
+    idris_method: str = None # typeclass method name (`primX`); set iff slice is set
+    c_symbol: str = None     # canonical C name; None = use the manifest key
+    tape: str = "direct"     # direct | bespoke
+    torch: str = "direct"    # direct | bespoke
+    mlx: str = "streamed"    # streamed | direct | bespoke
 
 MANIFEST = {
-    # Lifecycle
-    "tensor_create_scalar":             (("d", "i"), "T"),
-    "tensor_create":                    (("R", "R", "i", "i"), "T"),
-    "tensor_clone":                     (("T",), "T"),
-    "tensor_free":                      (("T",), "v"),
-
-    # Accessors
-    "tensor_item":                      (("T",), "d"),
-    "tensor_numel":                     (("T",), "i"),
-    "tensor_dim":                       (("T",), "i"),
-    "tensor_size":                      (("T", "i"), "i"),
-    "tensor_to_doubles":                (("T", "R"), "v"),
-
-    # Arithmetic
-    "tensor_add":                       (("T", "T"), "T"),
-    "tensor_sub":                       (("T", "T"), "T"),
-    "tensor_mul":                       (("T", "T"), "T"),
-    "tensor_div":                       (("T", "T"), "T"),
-    "tensor_neg":                       (("T",), "T"),
-    "tensor_abs":                       (("T",), "T"),
-    "tensor_exp":                       (("T",), "T"),
-    "tensor_log":                       (("T",), "T"),
-    "tensor_sqrt":                      (("T",), "T"),
-    "tensor_pow":                       (("T", "T"), "T"),
-    "tensor_sigmoid":                   (("T",), "T"),
-    "tensor_tanh":                      (("T",), "T"),
-    "tensor_gelu":                      (("T",), "T"),
-    "tensor_leaky_relu":                (("T", "d"), "T"),
-    "tensor_silu":                      (("T",), "T"),
-    "tensor_softplus":                  (("T",), "T"),
-    "tensor_add_scalar":                (("T", "d"), "T"),
-    "tensor_mul_scalar":                (("T", "d"), "T"),
-    "tensor_clamp_min":                 (("T", "d"), "T"),
-    "tensor_clamp":                     (("T", "d", "d"), "T"),
-    "tensor_round":                     (("T",), "T"),
-    "tensor_subtract_scalar_inplace":   (("T", "d"), "T"),
-
-    # Reduction
-    "tensor_sum":                       (("T",), "T"),
-    "tensor_sum_dim":                   (("T", "i", "i"), "T"),
-    "tensor_mean":                      (("T",), "T"),
-    "tensor_min":                       (("T",), "T"),
-    "tensor_max":                       (("T",), "T"),
-
-    # Linear algebra
-    "tensor_matmul":                    (("T", "T"), "T"),
-    "tensor_mv":                        (("T", "T"), "T"),
-    "tensor_linear":                    (("T", "T", "T"), "T"),
-    "tensor_linear_2d":                 (("T", "T", "T"), "T"),
-    "tensor_concat_2d_axis1":           (("T", "T"), "T"),
-    "tensor_dot":                       (("T", "T"), "T"),
-    "tensor_outer":                     (("T", "T"), "T"),
-
-    # Activation / normalization
-    "tensor_softmax":                   (("T", "i"), "T"),
-    "tensor_log_softmax":               (("T", "i"), "T"),
-    "tensor_softmax_2d":                (("T",), "T"),
-    "tensor_log_softmax_2d":            (("T",), "T"),
-    "tensor_softmax_3d":                (("T",), "T"),
-
-    # Loss
-    "tensor_bce_with_logits":           (("T", "T"), "T"),
-    "tensor_cross_entropy":             (("T", "T"), "T"),
-    "tensor_mse_loss":                  (("T", "T"), "T"),
-
-    # Norm + dropout
-    "tensor_batch_norm":                (("T", "T", "T", "T", "T", "i", "i", "i", "d", "d"), "T"),
-    "tensor_group_norm":                (("T", "T", "T", "i", "i", "i", "d"), "T"),
-    "tensor_layer_norm_2d":             (("T", "T", "T", "d"), "T"),
-    "tensor_dropout":                   (("T", "d", "i", "i"), "T"),
-
-    # Conv + pool
-    "tensor_conv1d":                    (("T", "T", "T", "i", "i"), "T"),
-    "tensor_conv1d_grouped":            (("T", "T", "T", "i", "i", "i"), "T"),
-    "tensor_conv1d_circular":           (("T", "T"), "T"),
-    "tensor_conv2d":                    (("T", "T", "T", "i", "i", "i", "i"), "T"),
-    "tensor_conv2d_batched":            (("T", "T", "T", "i", "i", "i", "i"), "T"),
-    "tensor_conv2d_grouped":            (("T", "T", "T", "i", "i", "i", "i", "i"), "T"),
-    "tensor_conv_transpose1d":          (("T", "T", "T", "i", "i"), "T"),
-    "tensor_conv_transpose2d":          (("T", "T", "T", "i", "i", "i", "i"), "T"),
-    "tensor_avg_pool1d":                (("T", "i", "i"), "T"),
-    "tensor_avg_pool2d":                (("T", "i", "i", "i", "i"), "T"),
-    "tensor_max_pool1d":                (("T", "i", "i"), "T"),
-    "tensor_max_pool2d":                (("T", "i", "i", "i", "i"), "T"),
-    "tensor_max_pool2d_batched":        (("T", "i", "i", "i", "i"), "T"),
-
-    # NTM
-    "tensor_cosine_similarity":         (("T", "T", "i"), "T"),
-
-    # Shape
-    "tensor_reshape":                   (("T", "R", "i"), "T"),
-    "tensor_reshape_2d":                (("T", "i", "i"), "T"),
-    "tensor_reshape_3d":                (("T", "i", "i", "i"), "T"),
-    "tensor_reshape_4d":                (("T", "i", "i", "i", "i"), "T"),
-    "tensor_unsqueeze":                 (("T", "i"), "T"),
-    "tensor_squeeze":                   (("T", "i"), "T"),
-    "tensor_select":                    (("T", "i", "i"), "T"),
-    "tensor_stack":                     (("R", "i", "i"), "T"),
-    "tensor_cat":                       (("R", "i", "i"), "T"),
-    "tensor_cat2":                      (("T", "T"), "T"),
-    "tensor_narrow":                    (("T", "i", "i", "i"), "T"),
-    "tensor_mm":                        (("T", "T"), "T"),
-    "tensor_sdpa_2d":                   (("T", "T", "T", "i", "i", "i", "i"), "T"),
-    "tensor_rms_norm_2d":               (("T", "T", "d"), "T"),
-    "tensor_swiglu_2d":                 (("T", "T"), "T"),
-    "tensor_bmm":                       (("T", "T"), "T"),
-    "tensor_bmm_3x3":                   (("T", "T"), "T"),
-    "tensor_batch":                     (("R", "i"), "T"),
-    "tensor_unbatch":                   (("T", "R"), "R"),
-    "tensor_transpose_2d":              (("T",), "T"),
-    "tensor_transpose_last2":           (("T",), "T"),
-    "tensor_expand_mask":               (("T", "i"), "T"),
-    "tensor_causal_mask":               (("i",), "T"),
-    "tensor_tile_2d":                   (("T", "i", "i"), "T"),
-    "tensor_masked_fill":               (("T", "T", "d"), "T"),
-    "tensor_view_1d":                   (("T", "i"), "T"),
-    "tensor_view_2d":                   (("T", "i", "i"), "T"),
-    "tensor_item_1d":                   (("T", "i"), "d"),
-    "tensor_item_2d":                   (("T", "i", "i"), "d"),
-
-    # Autograd
-    "tensor_backward":                  (("T",), "v"),
-    "tensor_grad":                      (("T",), "T"),
-    "tensor_zero_grad":                 (("T",), "v"),
-    "tensor_requires_grad":             (("T",), "i"),
-    "tensor_detach":                    (("T",), "T"),
-    "tensor_with_grad":                 (("T",), "T"),
-    "tensor_set_requires_grad":         (("T", "i"), "v"),
-    "tensor_backward_return":           (("T",), "T"),
-    "tensor_backward_conditional":      (("T",), "i"),
-    "tensor_backward_return_loss":      (("T", "d"), "d"),
-
-    # Device
-    "tensor_to_device":                 (("T", "s"), "T"),
-    "tensor_device":                    (("T",), "s"),
-
-    # RNN
-    "tensor_gru_cell":                  (("T", "T", "T", "i"), "T"),
-    "tensor_lstm_cell":                 (("T", "T", "T", "T", "T", "T", "T", "R", "R"), "v"),
-    "tensor_lstm_gates":                (("T", "T", "i", "R", "R"), "v"),
-    "tensor_lstm_gates_pair":           (("T", "T", "i"), "R"),  # pair handle, not Tensor
-    "tensor_pair_first":                (("R",), "T"),
-    "tensor_pair_second":               (("R",), "T"),
-    "tensor_pair_free":                 (("R",), "v"),
-
-    # Param registry
-    "param_register":                   (("s", "T"), "v"),
-    "param_register_return":            (("s", "T"), "T"),  # returns same Tensor; re-wrap on return
-    "param_tensor":                     (("i",), "T"),
-
-    # Tensor constructors
-    "tensor_one_hot":                   (("R", "i", "i", "i"), "T"),
-    "tensor_create_1d":                 (("i", "R", "i"), "T"),
-    "tensor_create_2d":                 (("i", "i", "R", "i"), "T"),
-    "tensor_create_param_1d":           (("i", "R"), "T"),
-    "tensor_create_param_2d":           (("i", "i", "R"), "T"),
-    "tensor_create_param_3d":           (("i", "i", "i", "R"), "T"),
-    "tensor_create_param_4d":           (("i", "i", "i", "i", "R"), "T"),
-    "tensor_create_state_1d":           (("i", "R"), "T"),
-    "tensor_create_state_2d":           (("i", "i", "R"), "T"),
-
-    # Ptr array (raw array of Tensor handles)
-    "tensor_ptr_array_set":             (("R", "i", "T"), "v"),
-    "tensor_ptr_array_set_return":      (("R", "i", "T"), "R"),
-    "tensor_stack_from_array":          (("R", "i", "i"), "T"),
-    "tensor_cat_from_array":            (("R", "i", "i"), "T"),
-
-    # Embedding / gather / scatter / sort / scan
-    "tensor_embedding":                 (("T", "T", "i", "i"), "T"),
-    "tensor_embedding_2d":              (("T", "T", "i", "i"), "T"),
-    "tensor_gather":                    (("T", "T", "i"), "T"),
-    "tensor_scatter_add":               (("T", "T", "i"), "T"),
-    "tensor_argsort":                   (("T", "i", "i"), "T"),
-    "tensor_cumprod":                   (("T", "i"), "T"),
-
-    # Cross-attention
-    "tensor_cross_attention":           (("T", "T", "T", "T", "d"), "T"),
-
-    # MNIST
-    "mnist_get_image":                  (("R", "i", "i"), "T"),
-
-    # Native train
-    "native_train_step":                (("R", "i", "d", "T", "d"), "d"),
-    "native_train_step_scaled":         (("R", "i", "d", "T", "d", "d"), "d"),
-
-    # Print
-    "tensor_print":                     (("T",), "v"),
-
-    # idrisml_seq: void* → void*. Sequencing helper for ordering side-effecting
-    # FFIs; both args are opaque, neither is a wrapped Tensor handle.
-    "idrisml_seq":                      (("R", "R"), "R"),
-
-    # Unified dtag create/cast (streamed). One symbol per shape; the trailing
-    # `i` is the RuntimeDType tag (dtag), the one before it is the stream tag.
-    # Supersede the per-dtype *_f32/_f64_streamed wrappers (which were never
-    # in the manifest, hence lint-exempt). The Idris wrappers stay hand-written
-    # (they thread dtag + lifecycle), but are now manifest-known so the
-    # wrap-template lint validates their signature + wrap/retain invariants.
-    "tensor_create_scalar_streamed":    (("d", "i", "i", "i"), "T"),
-    "tensor_create_streamed":           (("R", "R", "i", "i", "i", "i"), "T"),
-    "tensor_create_1d_streamed":        (("i", "R", "i", "i", "i"), "T"),
-    "tensor_create_2d_streamed":        (("i", "i", "R", "i", "i", "i"), "T"),
-    "tensor_create_param_1d_streamed":  (("i", "R", "i", "i"), "T"),
-    "tensor_create_param_2d_streamed":  (("i", "i", "R", "i", "i"), "T"),
-    "tensor_create_param_3d_streamed":  (("i", "i", "i", "R", "i", "i"), "T"),
-    "tensor_create_param_4d_streamed":  (("i", "i", "i", "i", "R", "i", "i"), "T"),
-    "tensor_create_state_1d_streamed":  (("i", "R", "i", "i"), "T"),
-    "tensor_create_state_2d_streamed":  (("i", "i", "R", "i", "i"), "T"),
-    "tensor_cast_dtype_streamed":       (("T", "i", "i"), "T"),
-
-    # Fused param create + in-place init (added 2026-05-28, see commit
-    # b38e71c). Allocates the param tensor in C and runs an in-place init
-    # kernel (torch::nn::init::normal_ for normal, t.fill_ for const),
-    # bypassing the per-element Idris-side sampler + per-element
-    # prim__setDouble FFI that dominated HfLlama state construction.
-    # Each takes (dims…, init-params, stream_tag, dtag).
-    "tensor_create_param_1d_normal_streamed": (("i", "d", "d", "i", "i"), "T"),
-    "tensor_create_param_2d_normal_streamed": (("i", "i", "d", "d", "i", "i"), "T"),
-    "tensor_create_param_3d_normal_streamed": (("i", "i", "i", "d", "d", "i", "i"), "T"),
-    "tensor_create_param_4d_normal_streamed": (("i", "i", "i", "i", "d", "d", "i", "i"), "T"),
-    "tensor_create_param_1d_const_streamed":  (("i", "d", "i", "i"), "T"),
-    "tensor_create_param_2d_const_streamed":  (("i", "i", "d", "i", "i"), "T"),
-    "tensor_create_param_3d_const_streamed":  (("i", "i", "i", "d", "i", "i"), "T"),
-    "tensor_create_param_4d_const_streamed":  (("i", "i", "i", "i", "d", "i", "i"), "T"),
-
-    # BitNet b1.58 quantization (#411 B2). The packed-2d creator takes a
-    # host byte buffer (R) and 4 ints; the bitlinear forward takes 4
-    # tensor handles (W is Ternary on tape's packed-byte storage / int8
-    # on torch+mlx; scale, x, bias are float). See design-decisions.md
-    # "Per-backend ternary storage". Bias is always-present at the
-    # Idris-level type (zero-init when caller doesn't want one).
-    "tensor_create_ternary_packed_2d":  (("R", "i", "i", "i", "i"), "T"),
-    "tensor_bitlinear_fwd":             (("T", "T", "T", "T"), "T"),
-    # Fused HF BitLinear forward. Args: W, w_scale, x, bias, use_rms_norm,
-    # rms_norm_w (or NULL), rms_norm_eps. Matches HF transformers'
-    # `BitLinear.forward` semantics for microsoft/bitnet-b1.58-2B-4T-style
-    # checkpoints.
-    "tensor_bitlinear_fwd_hf_quant":    (("T", "d", "T", "T", "i", "T", "d"), "T"),
-
-    # Load-time absmean ternary quantization. `absmean_per_row_2d` reads
-    # a float [o, i] weight and returns [o] in same dtype.
-    # `ternary_quant_with_scale_2d` consumes the weight + that scale and
-    # returns DT_TERNARY in per-backend packed/int8 layout. Both NoGrad —
-    # the pair runs once per linear at checkpoint load time to convert
-    # F-stored BitNet weights into our Ternary tag.
-    "tensor_absmean_per_row_2d":         (("T",), "T"),
-    "tensor_ternary_quant_with_scale_2d":(("T", "T"), "T"),
-
-    # HF -> ours ternary repack. Reads HF's `[(o + 3) / 4, i]` uint8
-    # buffer (microsoft/bitnet-b1.58-2B-4T-style layout) + (o, i) and
-    # returns a DT_TERNARY tensor in our packed/int8 layout. NoGrad —
-    # one-shot at safetensors load.
-    "tensor_create_ternary_from_hf_packed_2d": (("R", "i", "i"), "T"),
+    "idrisml_seq": Entry(args=("R", "R"), ret="R"),
+    "mnist_get_image": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primMnistGetImage", mlx="direct"),
+    "native_train_step_scaled": Entry(args=("R", "i", "d", "T", "d", "d"), ret="d", slice="UserExecutorOptimizer", idris_method="primNativeTrainStepScaled", mlx="direct"),
+    "native_train_step": Entry(args=("R", "i", "d", "T", "d"), ret="d", slice="UserExecutorOptimizer", idris_method="primNativeTrainStep", mlx="direct"),
+    "optimizer_create_adam_group": Entry(args=("d", "d", "d", "d", "s"), ret="R", slice="UserExecutorOptimizer", idris_method="primOptimizerCreateAdamGroup", mlx="direct"),
+    "optimizer_create_adam_w": Entry(args=("d", "d", "d", "d", "d"), ret="R", slice="UserExecutorOptimizer", idris_method="primOptimizerCreateAdamW", c_symbol="optimizer_create_adamw", mlx="direct"),
+    "optimizer_create_adam": Entry(args=("d", "d", "d", "d"), ret="R", slice="UserExecutorOptimizer", idris_method="primOptimizerCreateAdam", mlx="direct"),
+    "optimizer_create_rmsprop": Entry(args=("d", "d", "d", "d", "d"), ret="R", slice="UserExecutorOptimizer", idris_method="primOptimizerCreateRmsprop", mlx="direct"),
+    "optimizer_create_sgd": Entry(args=("d",), ret="R", slice="UserExecutorOptimizer", idris_method="primOptimizerCreateSgd", mlx="direct"),
+    "optimizer_load": Entry(args=("R", "s"), ret="i", slice="UserExecutorSerialize", idris_method="primOptimizerLoad", mlx="direct"),
+    "optimizer_save": Entry(args=("R", "s"), ret="i", slice="UserExecutorSerialize", idris_method="primOptimizerSave", mlx="direct"),
+    "optimizer_set_lr": Entry(args=("R", "d"), ret="v", slice="UserExecutorOptimizer", idris_method="primOptimizerSetLr", mlx="direct"),
+    "optimizer_set_param_lr": Entry(args=("R", "s", "d"), ret="v", slice="UserExecutorOptimizer", idris_method="primOptimizerSetParamLr", mlx="direct"),
+    "param_count": Entry(args=(), ret="i", slice="UserExecutorParamRegistry", idris_method="primParamCount", mlx="direct"),
+    "param_grad_item_at": Entry(args=("i", "i"), ret="d", slice="UserExecutorParamRegistry", idris_method="primParamGradItemAt", mlx="direct"),
+    "param_load_with_policy": Entry(args=("s", "i"), ret="i", slice="UserExecutorSerialize", idris_method="primParamLoadWithPolicy", mlx="direct"),
+    "param_load": Entry(args=("s",), ret="i", slice="UserExecutorSerialize", idris_method="primParamLoad", mlx="direct"),
+    "param_name": Entry(args=("i",), ret="s", slice="UserExecutorParamRegistry", idris_method="primParamName", mlx="direct"),
+    "param_register_return": Entry(args=("s", "T"), ret="T"),
+    "param_register": Entry(args=("s", "T"), ret="T", slice="UserExecutorParamRegistry", idris_method="primParamRegister", c_symbol="param_register_return", mlx="direct"),
+    "param_save": Entry(args=("s",), ret="i", slice="UserExecutorSerialize", idris_method="primParamSave", mlx="direct"),
+    "param_tensor": Entry(args=("i",), ret="T"),
+    "param_zero_all": Entry(args=(), ret="v", slice="UserExecutorParamRegistry", idris_method="primParamZeroAll", c_symbol="param_zero_all_grads", mlx="direct"),
+    "polyak_blend": Entry(args=("d", "s", "s"), ret="i", slice="UserExecutorParamRegistry", idris_method="primPolyakBlend", mlx="direct"),
+    "tensor_abs": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primAbs"),
+    "tensor_absmean_per_row_2d": Entry(args=("T",), ret="T", slice="UserExecutorQuant", idris_method="primAbsmeanPerRow2d", mlx="bespoke"),
+    "tensor_add_scalar": Entry(args=("T", "d"), ret="T", slice="UserExecutorCore", idris_method="primAddScalar"),
+    "tensor_add": Entry(args=("T", "T"), ret="T", slice="UserExecutorCore", idris_method="primAdd"),
+    "tensor_alloc_host": Entry(args=("i",), ret="T", slice="UserExecutorTransfer", idris_method="primAllocHost", c_symbol="tensor_alloc_doubles", mlx="direct"),
+    "tensor_alloc_int_host": Entry(args=("i",), ret="T", slice="UserExecutorTransfer", idris_method="primAllocIntHost", c_symbol="tensor_alloc_ints", mlx="direct"),
+    "tensor_argsort": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primArgsort"),
+    "tensor_avg_pool1d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primAvgPool1d"),
+    "tensor_avg_pool2d": Entry(args=("T", "i", "i", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primAvgPool2d"),
+    "tensor_backward_conditional": Entry(args=("T",), ret="i"),
+    "tensor_backward_return_loss": Entry(args=("T", "d"), ret="d"),
+    "tensor_backward_return": Entry(args=("T",), ret="T"),
+    "tensor_backward": Entry(args=("T",), ret="v", slice="UserExecutorAutograd", idris_method="primBackward", mlx="direct"),
+    "tensor_batch_norm": Entry(args=("T", "T", "T", "T", "T", "i", "i", "i", "d", "d"), ret="T", slice="UserExecutorNN", idris_method="primBatchNorm"),
+    "tensor_batch": Entry(args=("R", "i"), ret="T"),
+    "tensor_bce_with_logits": Entry(args=("T", "T"), ret="T", slice="UserExecutorNN", idris_method="primBceWithLogits"),
+    "tensor_bitlinear_fwd_hf_quant": Entry(args=("T", "d", "T", "T", "i", "T", "d"), ret="T", slice="UserExecutorQuant", idris_method="primBitlinearFwdHfQuant", mlx="bespoke"),
+    "tensor_bitlinear_fwd": Entry(args=("T", "T", "T", "T"), ret="T", slice="UserExecutorQuant", idris_method="primBitlinearFwd", mlx="bespoke"),
+    "tensor_bmm_3x3": Entry(args=("T", "T"), ret="T"),
+    "tensor_bmm": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primBmm"),
+    "tensor_cast_dtype_streamed": Entry(args=("T", "i", "i"), ret="T"),
+    "tensor_cast_streamed": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCastStreamed", c_symbol="tensor_cast_dtype_streamed", mlx="direct"),
+    "tensor_cat_from_array": Entry(args=("R", "i", "i"), ret="T"),
+    "tensor_cat": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primCat"),
+    "tensor_cat2": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primCat2"),
+    "tensor_causal_mask": Entry(args=("i",), ret="T"),
+    "tensor_clamp_min": Entry(args=("T", "d"), ret="T", slice="UserExecutorCore", idris_method="primClampMin"),
+    "tensor_clamp": Entry(args=("T", "d", "d"), ret="T", slice="UserExecutorCore", idris_method="primClamp"),
+    "tensor_clone": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primClone"),
+    "tensor_concat_2d_axis1": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primConcat2dAxis1"),
+    "tensor_conv_transpose1d": Entry(args=("T", "T", "T", "i", "i"), ret="T"),
+    "tensor_conv_transpose2d": Entry(args=("T", "T", "T", "i", "i", "i", "i"), ret="T"),
+    "tensor_conv1d_circular": Entry(args=("T", "T"), ret="T", slice="UserExecutorConv", idris_method="primConv1dCircular"),
+    "tensor_conv1d_grouped": Entry(args=("T", "T", "T", "i", "i", "i"), ret="T"),
+    "tensor_conv1d": Entry(args=("T", "T", "T", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primConv1d"),
+    "tensor_conv2d_batched": Entry(args=("T", "T", "T", "i", "i", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primConv2dBatched"),
+    "tensor_conv2d_grouped": Entry(args=("T", "T", "T", "i", "i", "i", "i", "i"), ret="T"),
+    "tensor_conv2d": Entry(args=("T", "T", "T", "i", "i", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primConv2d"),
+    "tensor_cosine_similarity": Entry(args=("T", "T", "i"), ret="T", slice="UserExecutorNN", idris_method="primCosineSimilarity"),
+    "tensor_create_1d_streamed": Entry(args=("i", "T", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreate1dStreamed", mlx="direct"),
+    "tensor_create_1d": Entry(args=("i", "R", "i"), ret="T"),
+    "tensor_create_2d_streamed": Entry(args=("i", "i", "T", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreate2dStreamed", mlx="direct"),
+    "tensor_create_2d": Entry(args=("i", "i", "R", "i"), ret="T"),
+    "tensor_create_from_host": Entry(args=("T", "T", "i", "i"), ret="T", slice="UserExecutorTransfer", idris_method="primCreateFromHost", c_symbol="tensor_create", torch="bespoke", mlx="direct"),
+    "tensor_create_param_1d_const_streamed": Entry(args=("i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam1dConstStreamed", mlx="direct"),
+    "tensor_create_param_1d_normal_streamed": Entry(args=("i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam1dNormalStreamed", mlx="direct"),
+    "tensor_create_param_1d_streamed": Entry(args=("i", "T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam1dStreamed", mlx="direct"),
+    "tensor_create_param_1d": Entry(args=("i", "R"), ret="T"),
+    "tensor_create_param_2d_const_streamed": Entry(args=("i", "i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam2dConstStreamed", mlx="direct"),
+    "tensor_create_param_2d_normal_streamed": Entry(args=("i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam2dNormalStreamed", mlx="direct"),
+    "tensor_create_param_2d_streamed": Entry(args=("i", "i", "T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam2dStreamed", mlx="direct"),
+    "tensor_create_param_2d": Entry(args=("i", "i", "R"), ret="T"),
+    "tensor_create_param_3d_const_streamed": Entry(args=("i", "i", "i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam3dConstStreamed", mlx="direct"),
+    "tensor_create_param_3d_normal_streamed": Entry(args=("i", "i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam3dNormalStreamed", mlx="direct"),
+    "tensor_create_param_3d_streamed": Entry(args=("i", "i", "i", "T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam3dStreamed", mlx="direct"),
+    "tensor_create_param_3d": Entry(args=("i", "i", "i", "R"), ret="T"),
+    "tensor_create_param_4d_const_streamed": Entry(args=("i", "i", "i", "i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam4dConstStreamed", mlx="direct"),
+    "tensor_create_param_4d_normal_streamed": Entry(args=("i", "i", "i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam4dNormalStreamed", mlx="direct"),
+    "tensor_create_param_4d_streamed": Entry(args=("i", "i", "i", "i", "T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam4dStreamed", mlx="direct"),
+    "tensor_create_param_4d": Entry(args=("i", "i", "i", "i", "R"), ret="T"),
+    "tensor_create_scalar_streamed": Entry(args=("d", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateScalarStreamed", mlx="direct"),
+    "tensor_create_scalar": Entry(args=("d", "i"), ret="T", slice="UserExecutorCore", idris_method="primCreateScalar", torch="bespoke"),
+    "tensor_create_state_1d_streamed": Entry(args=("i", "T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateState1dStreamed", mlx="direct"),
+    "tensor_create_state_1d": Entry(args=("i", "R"), ret="T"),
+    "tensor_create_state_2d_streamed": Entry(args=("i", "i", "T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateState2dStreamed", mlx="direct"),
+    "tensor_create_state_2d": Entry(args=("i", "i", "R"), ret="T"),
+    "tensor_create_streamed": Entry(args=("T", "T", "i", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateStreamed", mlx="direct"),
+    "tensor_create_ternary_from_hf_packed_2d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorQuant", idris_method="primCreateTernaryFromHfPacked2d", mlx="bespoke"),
+    "tensor_create_ternary_packed_2d": Entry(args=("T", "i", "i", "i", "i"), ret="T", slice="UserExecutorQuant", idris_method="primCreateTernaryPacked2d", mlx="bespoke"),
+    "tensor_create": Entry(args=("T", "T", "i", "i"), ret="T", slice="UserExecutorCore", idris_method="primCreate", torch="bespoke"),
+    "tensor_cross_attention": Entry(args=("T", "T", "T", "T", "d"), ret="T", slice="UserExecutorNN", idris_method="primCrossAttention"),
+    "tensor_cross_entropy": Entry(args=("T", "T"), ret="T"),
+    "tensor_cumprod": Entry(args=("T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primCumprod"),
+    "tensor_detach": Entry(args=("T",), ret="T", slice="UserExecutorAutograd", idris_method="primDetach"),
+    "tensor_device": Entry(args=("T",), ret="s"),
+    "tensor_dim": Entry(args=("T",), ret="i"),
+    "tensor_div": Entry(args=("T", "T"), ret="T", slice="UserExecutorCore", idris_method="primDiv"),
+    "tensor_dot": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primDot"),
+    "tensor_dropout": Entry(args=("T", "d", "i", "i"), ret="T", slice="UserExecutorNN", idris_method="primDropout"),
+    "tensor_embedding_2d": Entry(args=("T", "T", "i", "i"), ret="T", slice="UserExecutorNN", idris_method="primEmbedding2d"),
+    "tensor_embedding": Entry(args=("T", "T", "i", "i"), ret="T", slice="UserExecutorNN", idris_method="primEmbedding"),
+    "tensor_epoch_begin": Entry(args=(), ret="v", slice="UserExecutorProfiling", idris_method="primEpochBegin", mlx="direct"),
+    "tensor_epoch_end": Entry(args=(), ret="v", slice="UserExecutorProfiling", idris_method="primEpochEnd", mlx="direct"),
+    "tensor_exp": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primExp"),
+    "tensor_expand_mask": Entry(args=("T", "i"), ret="T", slice="UserExecutorNN", idris_method="primExpandMask"),
+    "tensor_free_host": Entry(args=("T",), ret="v", slice="UserExecutorTransfer", idris_method="primFreeHost", c_symbol="tensor_free_doubles", mlx="direct"),
+    "tensor_free_int_host": Entry(args=("T",), ret="v", slice="UserExecutorTransfer", idris_method="primFreeIntHost", c_symbol="tensor_free_ints", mlx="direct"),
+    "tensor_free": Entry(args=("T",), ret="v", slice="UserExecutorCore", idris_method="primFree"),
+    "tensor_gather": Entry(args=("T", "T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primGather"),
+    "tensor_gelu": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primGelu"),
+    "tensor_grad": Entry(args=("T",), ret="T"),
+    "tensor_group_norm": Entry(args=("T", "T", "T", "i", "i", "i", "d"), ret="T"),
+    "tensor_gru_cell": Entry(args=("T", "T", "T", "i"), ret="T", slice="UserExecutorNN", idris_method="primGruCell"),
+    "tensor_intra_migrate": Entry(args=("T", "s"), ret="T", slice="UserExecutorTransfer", idris_method="primIntraMigrate", c_symbol="tensor_to_device", torch="bespoke", mlx="direct"),
+    "tensor_item_1d": Entry(args=("T", "i"), ret="d", slice="UserExecutorCore", idris_method="primItem1d"),
+    "tensor_item_2d": Entry(args=("T", "i", "i"), ret="d", slice="UserExecutorTensorCreate", idris_method="primItem2d", mlx="direct"),
+    "tensor_item": Entry(args=("T",), ret="d", slice="UserExecutorCore", idris_method="primItem"),
+    "tensor_layer_norm_2d": Entry(args=("T", "T", "T", "d"), ret="T", slice="UserExecutorNN", idris_method="primLayerNorm2d"),
+    "tensor_leaky_relu": Entry(args=("T", "d"), ret="T", slice="UserExecutorNN", idris_method="primLeakyRelu"),
+    "tensor_linear_2d": Entry(args=("T", "T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primLinear2d"),
+    "tensor_linear": Entry(args=("T", "T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primLinear"),
+    "tensor_live_count": Entry(args=("i",), ret="i", slice="UserExecutorProfiling", idris_method="primLiveCount", mlx="direct"),
+    "tensor_log_softmax_2d": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primLogSoftmax2d"),
+    "tensor_log_softmax": Entry(args=("T", "i"), ret="T", slice="UserExecutorNN", idris_method="primLogSoftmax"),
+    "tensor_log": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primLog"),
+    "tensor_lstm_cell": Entry(args=("T", "T", "T", "T", "T", "T", "T", "R", "R"), ret="v"),
+    "tensor_lstm_gates_pair": Entry(args=("T", "T", "i"), ret="T", slice="UserExecutorNN", idris_method="primLstmGatesPair"),
+    "tensor_lstm_gates": Entry(args=("T", "T", "i", "R", "R"), ret="v"),
+    "tensor_masked_fill": Entry(args=("T", "T", "d"), ret="T", slice="UserExecutorNN", idris_method="primMaskedFill"),
+    "tensor_matmul": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primMatmul"),
+    "tensor_max_pool1d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primMaxPool1d"),
+    "tensor_max_pool2d_batched": Entry(args=("T", "i", "i", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primMaxPool2dBatched"),
+    "tensor_max_pool2d": Entry(args=("T", "i", "i", "i", "i"), ret="T", slice="UserExecutorConv", idris_method="primMaxPool2d"),
+    "tensor_max": Entry(args=("T",), ret="T"),
+    "tensor_mean": Entry(args=("T",), ret="T", slice="UserExecutorLinear", idris_method="primMean"),
+    "tensor_min": Entry(args=("T",), ret="T"),
+    "tensor_mm": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primMm"),
+    "tensor_mse_loss": Entry(args=("T", "T"), ret="T"),
+    "tensor_mul_scalar": Entry(args=("T", "d"), ret="T", slice="UserExecutorCore", idris_method="primMulScalar"),
+    "tensor_mul": Entry(args=("T", "T"), ret="T", slice="UserExecutorCore", idris_method="primMul"),
+    "tensor_mv": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primMv"),
+    "tensor_narrow": Entry(args=("T", "i", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primNarrow"),
+    "tensor_neg": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primNeg"),
+    "tensor_no_grad_begin": Entry(args=(), ret="v", slice="UserExecutorAutograd", idris_method="primNoGradBegin", mlx="direct"),
+    "tensor_no_grad_end": Entry(args=(), ret="v", slice="UserExecutorAutograd", idris_method="primNoGradEnd", mlx="direct"),
+    "tensor_numel": Entry(args=("T",), ret="i"),
+    "tensor_one_hot": Entry(args=("T", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primOneHot", mlx="direct"),
+    "tensor_outer": Entry(args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primOuter"),
+    "tensor_pair_first": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primPairFirst"),
+    "tensor_pair_free": Entry(args=("R",), ret="v"),
+    "tensor_pair_second": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primPairSecond"),
+    "tensor_peak_live_count": Entry(args=("i",), ret="i", slice="UserExecutorProfiling", idris_method="primPeakLiveCount", mlx="direct"),
+    "tensor_perf_op_count": Entry(args=(), ret="i", slice="UserExecutorProfiling", idris_method="primPerfOpCount", mlx="direct"),
+    "tensor_perf_reset": Entry(args=(), ret="v", slice="UserExecutorProfiling", idris_method="primPerfReset", mlx="direct"),
+    "tensor_pow": Entry(args=("T", "T"), ret="T", slice="UserExecutorCore", idris_method="primPow"),
+    "tensor_print": Entry(args=("T",), ret="v"),
+    "tensor_profile_report": Entry(args=(), ret="v", slice="UserExecutorProfiling", idris_method="primProfileReport", c_symbol="backend_profile_report", mlx="direct"),
+    "tensor_profile_reset": Entry(args=(), ret="v", slice="UserExecutorProfiling", idris_method="primProfileReset", c_symbol="backend_profile_reset", mlx="direct"),
+    "tensor_ptr_array_set_return": Entry(args=("R", "i", "T"), ret="R"),
+    "tensor_ptr_array_set": Entry(args=("R", "i", "T"), ret="v"),
+    "tensor_release_all_persistent": Entry(args=(), ret="v", slice="UserExecutorProfiling", idris_method="primReleaseAllPersistent", c_symbol="backend_release_all_persistent", mlx="direct"),
+    "tensor_requires_grad": Entry(args=("T",), ret="i", slice="UserExecutorAutograd", idris_method="primRequiresGrad", mlx="direct"),
+    "tensor_reset_for_eval": Entry(args=(), ret="v", slice="UserExecutorProfiling", idris_method="primResetForEval", c_symbol="backend_reset_for_eval", mlx="direct"),
+    "tensor_reshape_1d": Entry(args=("T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primReshape1d"),
+    "tensor_reshape_2d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primReshape2d"),
+    "tensor_reshape_3d": Entry(args=("T", "i", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primReshape3d"),
+    "tensor_reshape_4d": Entry(args=("T", "i", "i", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primReshape4d"),
+    "tensor_reshape": Entry(args=("T", "R", "i"), ret="T"),
+    "tensor_rms_norm_2d": Entry(args=("T", "T", "d"), ret="T", slice="UserExecutorNN", idris_method="primRmsNorm2d", mlx="direct"),
+    "tensor_round": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primRound"),
+    "tensor_scatter_add": Entry(args=("T", "T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primScatterAdd"),
+    "tensor_sdpa_2d": Entry(args=("T", "T", "T", "i", "i", "i", "i"), ret="T", slice="UserExecutorNN", idris_method="primSdpa2d", mlx="direct"),
+    "tensor_select": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primSelect"),
+    "tensor_set_init_seed_streamed": Entry(args=("i", "i"), ret="v", slice="UserExecutorTensorCreate", idris_method="primSetInitSeedStreamed", mlx="direct"),
+    "tensor_set_int_host": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorTransfer", idris_method="primSetIntHost", c_symbol="tensor_write_int_return", mlx="direct"),
+    "tensor_set_requires_grad": Entry(args=("T", "i"), ret="v", slice="UserExecutorAutograd", idris_method="primSetRequiresGrad", mlx="direct"),
+    "tensor_sigmoid": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primSigmoid"),
+    "tensor_silu": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primSilu"),
+    "tensor_size": Entry(args=("T", "i"), ret="i"),
+    "tensor_softmax_2d": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primSoftmax2d"),
+    "tensor_softmax_3d": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primSoftmax3d"),
+    "tensor_softmax": Entry(args=("T", "i"), ret="T", slice="UserExecutorNN", idris_method="primSoftmax"),
+    "tensor_softplus": Entry(args=("T",), ret="T", slice="UserExecutorNN", idris_method="primSoftplus"),
+    "tensor_sqrt": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primSqrt"),
+    "tensor_squeeze": Entry(args=("T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primSqueeze"),
+    "tensor_stack_from_array": Entry(args=("R", "i", "i"), ret="T"),
+    "tensor_stack": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primStack"),
+    "tensor_sub": Entry(args=("T", "T"), ret="T", slice="UserExecutorCore", idris_method="primSub"),
+    "tensor_subtract_scalar_inplace": Entry(args=("T", "d"), ret="T"),
+    "tensor_sum_dim": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primSumDim"),
+    "tensor_sum": Entry(args=("T",), ret="T", slice="UserExecutorLinear", idris_method="primSum"),
+    "tensor_swi_glu_2d": Entry(args=("T", "T"), ret="T", slice="UserExecutorNN", idris_method="primSwiGlu2d", c_symbol="tensor_swiglu_2d", mlx="direct"),
+    "tensor_swiglu_2d": Entry(args=("T", "T"), ret="T"),
+    "tensor_tanh": Entry(args=("T",), ret="T", slice="UserExecutorCore", idris_method="primTanh"),
+    "tensor_tensor_dim": Entry(args=("T",), ret="i", slice="UserExecutorTensorCreate", idris_method="primTensorDim", c_symbol="tensor_dim", mlx="direct"),
+    "tensor_tensor_max": Entry(args=("T",), ret="T", slice="UserExecutorLinear", idris_method="primTensorMax", c_symbol="tensor_max"),
+    "tensor_tensor_min": Entry(args=("T",), ret="T", slice="UserExecutorLinear", idris_method="primTensorMin", c_symbol="tensor_min"),
+    "tensor_tensor_size_at": Entry(args=("T", "i"), ret="i", slice="UserExecutorTensorCreate", idris_method="primTensorSizeAt", c_symbol="tensor_size", mlx="direct"),
+    "tensor_ternary_quant_with_scale_2d": Entry(args=("T", "T"), ret="T", slice="UserExecutorQuant", idris_method="primTernaryQuantWithScale2d", mlx="bespoke"),
+    "tensor_tile_2d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primTile2d"),
+    "tensor_to_device": Entry(args=("T", "s"), ret="T"),
+    "tensor_to_doubles": Entry(args=("T", "R"), ret="v"),
+    "tensor_to_host": Entry(args=("T", "T"), ret="T", slice="UserExecutorTransfer", idris_method="primToHost", c_symbol="tensor_to_doubles", mlx="direct"),
+    "tensor_transpose_2d": Entry(args=("T",), ret="T", slice="UserExecutorLinear", idris_method="primTranspose2d"),
+    "tensor_transpose_last2": Entry(args=("T",), ret="T", slice="UserExecutorLinear", idris_method="primTransposeLast2"),
+    "tensor_unbatch": Entry(args=("T", "R"), ret="R"),
+    "tensor_unsqueeze": Entry(args=("T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primUnsqueeze"),
+    "tensor_view_1d": Entry(args=("T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primView1d"),
+    "tensor_view_2d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primView2d"),
+    "tensor_with_grad": Entry(args=("T",), ret="T", slice="UserExecutorAutograd", idris_method="primWithGrad"),
+    "tensor_zero_grad": Entry(args=("T",), ret="v"),
 }
 
 # C function names to LEAVE AS-IS (don't convert).
@@ -597,10 +588,9 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
 # operate on these.
 WRAP_HANDLE_FILES = [
     "packages/idris-ml/src/Tensor.idr",
-    "packages/idris-ml/src/Device.idr",
-    "packages/idris-ml/src/Device/Mlx.idr",
-    "packages/idris-ml/src/Device/Tape.idr",
-    "packages/idris-ml/src/Device/Torch.idr",
+    "packages/idris-ml/src/Executor/Mlx.idr",
+    "packages/idris-ml/src/Executor/Tape.idr",
+    "packages/idris-ml/src/Executor/Torch.idr",
 ]
 
 

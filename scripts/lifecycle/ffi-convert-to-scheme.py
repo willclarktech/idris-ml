@@ -86,7 +86,8 @@ def convert_file(path):
             stats["skipped"] += 1
             return m.group(0)
 
-        manifest_args, manifest_ret = MANIFEST[base]
+        manifest_entry = MANIFEST[base]
+        manifest_args, manifest_ret = manifest_entry.args, manifest_entry.ret
         name, idris_args, idris_ret = parse_args(sig_line.strip())
 
         # Cross-check arg count.

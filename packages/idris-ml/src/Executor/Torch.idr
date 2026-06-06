@@ -134,6 +134,30 @@ public export
 {d : TorchHwDev} -> UserExecutorCore (TorchExecutor d) where
   deviceName       = torchHwDevName d
   deviceStreamTag  = 0
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primAbs = prim__absTorch
+  primAdd = prim__addTorch
+  primAddScalar = prim__addScalarTorch
+  primClamp = prim__clampTorch
+  primClampMin = prim__clampMinTorch
+  primClone = prim__cloneTorch
+  primDiv = prim__divTorch
+  primExp = prim__expTorch
+  primFree = prim__freeTorch
+  primItem = prim__itemTorch
+  primItem1d = prim__item1dTorch
+  primLog = prim__logTorch
+  primMul = prim__mulTorch
+  primMulScalar = prim__mulScalarTorch
+  primNeg = prim__negTorch
+  primPow = prim__powTorch
+  primRound = prim__roundTorch
+  primSigmoid = prim__sigmoidTorch
+  primSqrt = prim__sqrtTorch
+  primSub = prim__subTorch
+  primTanh = prim__tanhTorch
+  -- <<< END GENERATED <<<
+  -- Hand-written overrides:
   -- Create primitives go through libtorch's CPU-bound construction
   -- path (`torch::from_blob().clone()`), then migrate to the target
   -- hardware via `tensor_to_device`. Self-move on `TCpu`.
@@ -141,27 +165,6 @@ public export
     prim__toDeviceTorch (prim__createScalarTorch val rg) (torchHwDevName d)
   primCreate dat sh rank rg =
     prim__toDeviceTorch (prim__createTorch dat sh rank rg) (torchHwDevName d)
-  primFree         = prim__freeTorch
-  primItem         = prim__itemTorch
-  primItem1d       = prim__item1dTorch
-  primClone        = prim__cloneTorch
-  primAdd          = prim__addTorch
-  primSub          = prim__subTorch
-  primMul          = prim__mulTorch
-  primDiv          = prim__divTorch
-  primNeg          = prim__negTorch
-  primAbs          = prim__absTorch
-  primExp          = prim__expTorch
-  primLog          = prim__logTorch
-  primSqrt         = prim__sqrtTorch
-  primPow          = prim__powTorch
-  primSigmoid      = prim__sigmoidTorch
-  primTanh         = prim__tanhTorch
-  primAddScalar    = prim__addScalarTorch
-  primMulScalar    = prim__mulScalarTorch
-  primClampMin     = prim__clampMinTorch
-  primClamp        = prim__clampTorch
-  primRound        = prim__roundTorch
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (torch-suffixed)
 ----------------------------------------------------------------------
@@ -271,40 +274,42 @@ prim__cumprodTorch : AnyPtr -> Int -> AnyPtr
 
 public export
 {d : TorchHwDev} -> UserExecutorLinear (TorchExecutor d) where
-  primMv             = prim__mvTorch
-  primMm             = prim__mmTorch
-  primMatmul         = prim__matmulTorch
-  primLinear         = prim__linearTorch
-  primDot            = prim__dotTorch
-  primOuter          = prim__outerTorch
-  primBmm            = prim__bmmTorch
-  primLinear2d       = prim__linear2dTorch
-  primSum            = prim__sumTorch
-  primMean           = prim__meanTorch
-  primTensorMin      = prim__tensorMinTorch
-  primTensorMax      = prim__tensorMaxTorch
-  primSumDim         = prim__sumDimTorch
-  primSelect         = prim__selectTorch
-  primUnsqueeze      = prim__unsqueezeTorch
-  primSqueeze        = prim__squeezeTorch
-  primStack          = prim__stackTorch
-  primView1d         = prim__view1dTorch
-  primView2d         = prim__view2dTorch
-  primReshape1d      = prim__reshape1dTorch
-  primReshape2d      = prim__reshape2dTorch
-  primReshape3d      = prim__reshape3dTorch
-  primReshape4d      = prim__reshape4dTorch
-  primTile2d         = prim__tile2dTorch
-  primNarrow         = prim__narrowTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primArgsort = prim__argsortTorch
+  primBmm = prim__bmmTorch
+  primCat = prim__catTorch
+  primCat2 = prim__cat2Torch
+  primConcat2dAxis1 = prim__concat2dAxis1Torch
+  primCumprod = prim__cumprodTorch
+  primDot = prim__dotTorch
+  primGather = prim__gatherTorch
+  primLinear = prim__linearTorch
+  primLinear2d = prim__linear2dTorch
+  primMatmul = prim__matmulTorch
+  primMean = prim__meanTorch
+  primMm = prim__mmTorch
+  primMv = prim__mvTorch
+  primNarrow = prim__narrowTorch
+  primOuter = prim__outerTorch
+  primReshape1d = prim__reshape1dTorch
+  primReshape2d = prim__reshape2dTorch
+  primReshape3d = prim__reshape3dTorch
+  primReshape4d = prim__reshape4dTorch
+  primScatterAdd = prim__scatterAddTorch
+  primSelect = prim__selectTorch
+  primSqueeze = prim__squeezeTorch
+  primStack = prim__stackTorch
+  primSum = prim__sumTorch
+  primSumDim = prim__sumDimTorch
+  primTensorMax = prim__tensorMaxTorch
+  primTensorMin = prim__tensorMinTorch
+  primTile2d = prim__tile2dTorch
+  primTranspose2d = prim__transpose2dTorch
   primTransposeLast2 = prim__transposeLast2Torch
-  primTranspose2d    = prim__transpose2dTorch
-  primCat            = prim__catTorch
-  primCat2           = prim__cat2Torch
-  primConcat2dAxis1  = prim__concat2dAxis1Torch
-  primGather         = prim__gatherTorch
-  primScatterAdd     = prim__scatterAddTorch
-  primArgsort        = prim__argsortTorch
-  primCumprod        = prim__cumprodTorch
+  primUnsqueeze = prim__unsqueezeTorch
+  primView1d = prim__view1dTorch
+  primView2d = prim__view2dTorch
+  -- <<< END GENERATED <<<
 
 
 ----------------------------------------------------------------------
@@ -371,34 +376,34 @@ prim__swiGlu2dTorch : AnyPtr -> AnyPtr -> AnyPtr
 
 public export
 {d : TorchHwDev} -> UserExecutorNN (TorchExecutor d) where
-  primGelu             = prim__geluTorch
-  primLeakyRelu        = prim__leakyReluTorch
-  primSilu             = prim__siluTorch
-  primSoftplus         = prim__softplusTorch
-  primSoftmax          = prim__softmaxTorch
-  primLogSoftmax       = prim__logSoftmaxTorch
-  primSoftmax2d        = prim__softmax2dTorch
-  primLogSoftmax2d     = prim__logSoftmax2dTorch
-  primSoftmax3d        = prim__softmax3dTorch
-  primMaskedFill       = prim__maskedFillTorch
-  primExpandMask       = prim__expandMaskTorch
-  primLayerNorm2d      = prim__layerNorm2dTorch
-  primBatchNorm        = prim__batchNormTorch
-  primDropout          = prim__dropoutTorch
-  primEmbedding        = prim__embeddingTorch
-  primEmbedding2d      = prim__embedding2dTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primBatchNorm = prim__batchNormTorch
+  primBceWithLogits = prim__bceWithLogitsTorch
   primCosineSimilarity = prim__cosineSimilarityTorch
-  primCrossAttention   = prim__crossAttentionTorch
-  primBceWithLogits    = prim__bceWithLogitsTorch
-  primGruCell          = prim__gruCellTorch
-  primLstmGatesPair    = prim__lstmGatesPairTorch
-  primPairFirst        = prim__pairFirstTorch
-  primPairSecond       = prim__pairSecondTorch
-
-  -- Fused inference ops (lifted from legacy Training slice)
-  primSdpa2d                   = prim__sdpa2dTorch
-  primRmsNorm2d                = prim__rmsNorm2dTorch
-  primSwiGlu2d                 = prim__swiGlu2dTorch
+  primCrossAttention = prim__crossAttentionTorch
+  primDropout = prim__dropoutTorch
+  primEmbedding = prim__embeddingTorch
+  primEmbedding2d = prim__embedding2dTorch
+  primExpandMask = prim__expandMaskTorch
+  primGelu = prim__geluTorch
+  primGruCell = prim__gruCellTorch
+  primLayerNorm2d = prim__layerNorm2dTorch
+  primLeakyRelu = prim__leakyReluTorch
+  primLogSoftmax = prim__logSoftmaxTorch
+  primLogSoftmax2d = prim__logSoftmax2dTorch
+  primLstmGatesPair = prim__lstmGatesPairTorch
+  primMaskedFill = prim__maskedFillTorch
+  primPairFirst = prim__pairFirstTorch
+  primPairSecond = prim__pairSecondTorch
+  primRmsNorm2d = prim__rmsNorm2dTorch
+  primSdpa2d = prim__sdpa2dTorch
+  primSilu = prim__siluTorch
+  primSoftmax = prim__softmaxTorch
+  primSoftmax2d = prim__softmax2dTorch
+  primSoftmax3d = prim__softmax3dTorch
+  primSoftplus = prim__softplusTorch
+  primSwiGlu2d = prim__swiGlu2dTorch
+  -- <<< END GENERATED <<<
 
 
 ----------------------------------------------------------------------
@@ -427,15 +432,17 @@ prim__maxPool2dBatchedTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 public export
 {d : TorchHwDev} -> UserExecutorConv (TorchExecutor d) where
-  primConv1d           = prim__conv1dTorch
-  primConv1dCircular   = prim__conv1dCircularTorch
-  primAvgPool1d        = prim__avgPool1dTorch
-  primMaxPool1d        = prim__maxPool1dTorch
-  primConv2d           = prim__conv2dTorch
-  primConv2dBatched    = prim__conv2dBatchedTorch
-  primAvgPool2d        = prim__avgPool2dTorch
-  primMaxPool2d        = prim__maxPool2dTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primAvgPool1d = prim__avgPool1dTorch
+  primAvgPool2d = prim__avgPool2dTorch
+  primConv1d = prim__conv1dTorch
+  primConv1dCircular = prim__conv1dCircularTorch
+  primConv2d = prim__conv2dTorch
+  primConv2dBatched = prim__conv2dBatchedTorch
+  primMaxPool1d = prim__maxPool1dTorch
+  primMaxPool2d = prim__maxPool2dTorch
   primMaxPool2dBatched = prim__maxPool2dBatchedTorch
+  -- <<< END GENERATED <<<
 
 
 ----------------------------------------------------------------------
@@ -574,86 +581,100 @@ prim__setInitSeedStreamedTorch : Bits64 -> Int -> PrimIO ()
 
 public export
 {d : TorchHwDev} -> UserExecutorAutograd (TorchExecutor d) where
-  primRequiresGrad         = prim__requiresGradTorch
-  primSetRequiresGrad      = prim__setRequiresGradTorch
-  primBackward             = prim__backwardTorch
-  primNoGradBegin          = prim__noGradBeginTorch
-  primNoGradEnd            = prim__noGradEndTorch
-  primDetach               = prim__detachTorch
-  primWithGrad             = prim__withGradTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primBackward = prim__backwardTorch
+  primDetach = prim__detachTorch
+  primNoGradBegin = prim__noGradBeginTorch
+  primNoGradEnd = prim__noGradEndTorch
+  primRequiresGrad = prim__requiresGradTorch
+  primSetRequiresGrad = prim__setRequiresGradTorch
+  primWithGrad = prim__withGradTorch
+  -- <<< END GENERATED <<<
 
 public export
 {d : TorchHwDev} -> UserExecutorParamRegistry (TorchExecutor d) where
-  primParamRegister        = prim__paramRegisterTorch
-  primPolyakBlend          = prim__polyakBlendTorch
-  primParamCount           = prim__paramCountTorch
-  primParamName            = prim__paramNameTorch
-  primParamGradItemAt      = prim__paramGradItemAtTorch
-  primParamZeroAll         = prim__paramZeroAllTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primParamCount = prim__paramCountTorch
+  primParamGradItemAt = prim__paramGradItemAtTorch
+  primParamName = prim__paramNameTorch
+  primParamRegister = prim__paramRegisterTorch
+  primParamZeroAll = prim__paramZeroAllTorch
+  primPolyakBlend = prim__polyakBlendTorch
+  -- <<< END GENERATED <<<
 
 public export
 {d : TorchHwDev} -> UserExecutorOptimizer (TorchExecutor d) where
-  primOptimizerCreateSgd       = prim__optimizerCreateSgdTorch
-  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTorch
-  primOptimizerCreateAdam      = prim__optimizerCreateAdamTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primNativeTrainStep = prim__nativeTrainStepTorch
+  primNativeTrainStepScaled = prim__nativeTrainStepScaledTorch
+  primOptimizerCreateAdam = prim__optimizerCreateAdamTorch
   primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTorch
-  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTorch
-  primOptimizerSetLr           = prim__optimizerSetLrTorch
-  primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
-  primNativeTrainStep          = prim__nativeTrainStepTorch
-  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTorch
+  primOptimizerCreateAdamW = prim__optimizerCreateAdamWTorch
+  primOptimizerCreateRmsprop = prim__optimizerCreateRmspropTorch
+  primOptimizerCreateSgd = prim__optimizerCreateSgdTorch
+  primOptimizerSetLr = prim__optimizerSetLrTorch
+  primOptimizerSetParamLr = prim__optimizerSetParamLrTorch
+  -- <<< END GENERATED <<<
 
 public export
 {d : TorchHwDev} -> UserExecutorSerialize (TorchExecutor d) where
-  primParamSave                = prim__paramSaveTorch
-  primParamLoad                = prim__paramLoadTorch
-  primParamLoadWithPolicy      = prim__paramLoadWithPolicyTorch
-  primOptimizerSave            = prim__optimizerSaveTorch
-  primOptimizerLoad            = prim__optimizerLoadTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primOptimizerLoad = prim__optimizerLoadTorch
+  primOptimizerSave = prim__optimizerSaveTorch
+  primParamLoad = prim__paramLoadTorch
+  primParamLoadWithPolicy = prim__paramLoadWithPolicyTorch
+  primParamSave = prim__paramSaveTorch
+  -- <<< END GENERATED <<<
 
 public export
 {d : TorchHwDev} -> UserExecutorProfiling (TorchExecutor d) where
-  primProfileReset             = prim__profileResetTorch
-  primProfileReport            = prim__profileReportTorch
-  primEpochBegin               = prim__epochBeginTorch
-  primEpochEnd                 = prim__epochEndTorch
-  primReleaseAllPersistent     = prim__releaseAllPersistentTorch
-  primResetForEval             = prim__resetForEvalTorch
-  primLiveCount                = prim__liveCountTorch
-  primPeakLiveCount            = prim__peakLiveCountTorch
-  primPerfReset                = prim__perfResetTorch
-  primPerfOpCount              = prim__perfOpCountTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primEpochBegin = prim__epochBeginTorch
+  primEpochEnd = prim__epochEndTorch
+  primLiveCount = prim__liveCountTorch
+  primPeakLiveCount = prim__peakLiveCountTorch
+  primPerfOpCount = prim__perfOpCountTorch
+  primPerfReset = prim__perfResetTorch
+  primProfileReport = prim__profileReportTorch
+  primProfileReset = prim__profileResetTorch
+  primReleaseAllPersistent = prim__releaseAllPersistentTorch
+  primResetForEval = prim__resetForEvalTorch
+  -- <<< END GENERATED <<<
 
 public export
 {d : TorchHwDev} -> UserExecutorTensorCreate (TorchExecutor d) where
-  primCreateScalarStreamed        = prim__createScalarStreamedTorch
-  primCreateStreamed              = prim__createStreamedTorch
-  primCreate1dStreamed            = prim__create1dStreamedTorch
-  primCreate2dStreamed            = prim__create2dStreamedTorch
-  primCreateParam1dStreamed       = prim__createParam1dStreamedTorch
-  primCreateParam2dStreamed       = prim__createParam2dStreamedTorch
-  primCreateParam3dStreamed       = prim__createParam3dStreamedTorch
-  primCreateParam4dStreamed       = prim__createParam4dStreamedTorch
-  primCreateState1dStreamed       = prim__createState1dStreamedTorch
-  primCreateState2dStreamed       = prim__createState2dStreamedTorch
-  primCastStreamed                = prim__castStreamedTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primCastStreamed = prim__castStreamedTorch
+  primCreate1dStreamed = prim__create1dStreamedTorch
+  primCreate2dStreamed = prim__create2dStreamedTorch
+  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedTorch
   primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedTorch
+  primCreateParam1dStreamed = prim__createParam1dStreamedTorch
+  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedTorch
   primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedTorch
+  primCreateParam2dStreamed = prim__createParam2dStreamedTorch
+  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedTorch
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTorch
+  primCreateParam3dStreamed = prim__createParam3dStreamedTorch
+  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTorch
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTorch
-  primCreateParam1dConstStreamed  = prim__createParam1dConstStreamedTorch
-  primCreateParam2dConstStreamed  = prim__createParam2dConstStreamedTorch
-  primCreateParam3dConstStreamed  = prim__createParam3dConstStreamedTorch
-  primCreateParam4dConstStreamed  = prim__createParam4dConstStreamedTorch
-  primSetInitSeedStreamed         = prim__setInitSeedStreamedTorch
-  primTensorDim            = prim__tensorDimTorch
-  primTensorSizeAt         = prim__tensorSizeAtTorch
-  primItem2d               = prim__item2dTorch
-  primMnistGetImage        = prim__mnistGetImageTorch
-  primOneHot               = prim__oneHotTorch
+  primCreateParam4dStreamed = prim__createParam4dStreamedTorch
+  primCreateScalarStreamed = prim__createScalarStreamedTorch
+  primCreateState1dStreamed = prim__createState1dStreamedTorch
+  primCreateState2dStreamed = prim__createState2dStreamedTorch
+  primCreateStreamed = prim__createStreamedTorch
+  primItem2d = prim__item2dTorch
+  primMnistGetImage = prim__mnistGetImageTorch
+  primOneHot = prim__oneHotTorch
+  primSetInitSeedStreamed = prim__setInitSeedStreamedTorch
+  primTensorDim = prim__tensorDimTorch
+  primTensorSizeAt = prim__tensorSizeAtTorch
+  -- <<< END GENERATED <<<
 
 public export
 {d : TorchHwDev} -> UserExecutorTraining (TorchExecutor d) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  -- <<< END GENERATED <<<
 ----------------------------------------------------------------------
 -- Compatible (TorchExecutor, dt).
 --
@@ -782,12 +803,15 @@ prim__createFromHostTorch d dat sh rank rg =
 public export
 {d : TorchHwDev} -> UserExecutorTransfer (TorchExecutor d) where
   backendTag         = "torch"
-  primToHost         = prim__toHostTorch
-  primAllocHost      = prim__allocHostTorch
-  primFreeHost       = prim__freeHostTorch
-  primAllocIntHost   = prim__allocIntHostTorch
-  primFreeIntHost    = prim__freeIntHostTorch
-  primSetIntHost     = prim__setIntHostTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primAllocHost = prim__allocHostTorch
+  primAllocIntHost = prim__allocIntHostTorch
+  primFreeHost = prim__freeHostTorch
+  primFreeIntHost = prim__freeIntHostTorch
+  primSetIntHost = prim__setIntHostTorch
+  primToHost = prim__toHostTorch
+  -- <<< END GENERATED <<<
+  -- Hand-written overrides:
   primCreateFromHost = prim__createFromHostTorch d
   primIntraMigrate h hwName =
     prim__toDeviceTorch h hwName
@@ -823,12 +847,14 @@ prim__bitlinearFwdHfQuantTorch : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> 
 
 public export
 {d : TorchHwDev} -> UserExecutorQuant (TorchExecutor d) where
-  primCreateTernaryPacked2d       = prim__createTernaryPacked2dTorch
-  primBitlinearFwd                = prim__bitlinearFwdTorch
-  primBitlinearFwdHfQuant         = prim__bitlinearFwdHfQuantTorch
-  primAbsmeanPerRow2d             = prim__absmeanPerRow2dTorch
-  primTernaryQuantWithScale2d     = prim__ternaryQuantWithScale2dTorch
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primAbsmeanPerRow2d = prim__absmeanPerRow2dTorch
+  primBitlinearFwd = prim__bitlinearFwdTorch
+  primBitlinearFwdHfQuant = prim__bitlinearFwdHfQuantTorch
   primCreateTernaryFromHfPacked2d = prim__createTernaryFromHfPacked2dTorch
+  primCreateTernaryPacked2d = prim__createTernaryPacked2dTorch
+  primTernaryQuantWithScale2d = prim__ternaryQuantWithScale2dTorch
+  -- <<< END GENERATED <<<
 
 
 ----------------------------------------------------------------------
