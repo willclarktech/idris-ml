@@ -51,7 +51,6 @@ Schema (reads):
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import statistics
 import sys
@@ -59,7 +58,10 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_LOG = ROOT / "docs" / "develop" / "perf-log.jsonl"
+sys.path.insert(0, str(ROOT / "scripts"))
+from mltools.perf_log import iter_entries, resolve_log_path  # noqa: E402
+
+DEFAULT_LOG = resolve_log_path()
 
 # Thresholds: percent slower than baseline. Calibrated against VM noise
 # (±15-20%) per docs/develop/perf-changes.md 2026-06-03 entries and
@@ -111,17 +113,8 @@ MODES = {
 
 
 def load_entries(log_path: Path, kind: str, metric: str) -> list[dict]:
-    if not log_path.exists():
-        return []
     out = []
-    for line in log_path.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for entry in iter_entries(log_path):
         if entry.get("kind") != kind:
             continue
         if entry.get(metric) is None:

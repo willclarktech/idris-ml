@@ -4,11 +4,14 @@
 # For each example: run the PyTorch reference ONCE (cached); then run
 # Idris on each requested cell. One JSONL entry per (example, cell) is
 # appended to docs/develop/perf-log.jsonl, plus a tabular summary to
-# stdout.
+# stdout. Entry construction delegates to `mltools.perf_log
+# append-baseline`.
 #
 # A "cell" is a (backend, device) pair. The supported cells are:
 #   tape       — CPU, tape backend
 #   torch      — CPU, libtorch backend
+#   torch-cpu  — alias for torch
+#   torch-mps  — Metal Performance Shaders
 #   mlx-cpu    — mlx backend, MLX_DEVICE=cpu (default)
 #   mlx-gpu    — mlx backend, MLX_DEVICE=gpu (Metal)
 #
@@ -28,12 +31,9 @@
 # training loop, before eval — so the measurement is the per-epoch
 # wall *inside* the training process, with no startup / build / eval
 # variance folded in.
-#
-# Previous methodology was two-point wall-clock subtraction
-# (`(wall(N_long) - wall(N_short)) / (N_long - N_short)`); see
-# `docs/develop/perf-changes.md` 2026-05-19 entry for why it broke on
-# short-converging RL refs.
 set -euo pipefail
+
+source "$( dirname "${BASH_SOURCE[0]}" )/perf_lib.sh"
 
 EXAMPLES_CSV="rnn,lstm,gru,transformer,ntm-copy,ntm-recall"
 CELLS_CSV="tape,torch-cpu,torch-mps,mlx-cpu,mlx-gpu"
@@ -50,10 +50,6 @@ while [ $# -gt 0 ]; do
 done
 
 # example -> "make-target args-var pytorch-module N_LONG"
-# N_LONG is the single epoch count passed to both sides. Each side
-# emits PERF_MS_PER_EP after its training loop; no warmup/short run
-# needed (the marker comes from inside the training process and is
-# already a per-epoch number).
 spec_for() {
   case "$1" in
     supervised)        echo "example-supervised SUPERVISED_ARGS torch_ref.scripts.supervised 200" ;;
@@ -77,10 +73,6 @@ spec_for() {
 }
 
 # cell -> "BACKEND DEVICE"
-# DEVICE meaning per backend:
-#   tape:  always "cpu" (no hardware variants)
-#   torch: "cpu"|"mps"|"cuda" — fed to TORCH_DEVICE
-#   mlx:   "cpu"|"gpu"        — fed to MLX_DEVICE
 cell_to_backend_device() {
   case "$1" in
     tape)      echo "tape cpu" ;;
@@ -93,37 +85,30 @@ cell_to_backend_device() {
   esac
 }
 
-now_ms() { python3 -c 'import time; print(int(time.time_ns()/1_000_000))'; }
-
-# Extract `PERF_MS_PER_EP=<float>` from a captured stdout file.
-# Returns the value as text, or "missing" if no marker was emitted.
-extract_marker() {
-  local stdout_path="$1"
-  local val
-  val=$(grep -E '^PERF_MS_PER_EP=' "$stdout_path" | tail -1 | sed 's/^PERF_MS_PER_EP=//')
-  if [ -z "$val" ]; then
-    echo "missing"
-  else
-    python3 -c "print(round(float('$val'), 2))"
-  fi
+# Build the per-cell BUILD_KEY (matches Makefile's BUILD_KEY := ...).
+build_key_for_cell() {
+  local backend="$1" device="$2"
+  local mlx_dev=cpu torch_dev=cpu
+  case "$backend" in
+    mlx)   mlx_dev="$device"   ;;
+    torch) torch_dev="$device" ;;
+    tape)  ;;
+  esac
+  echo "${backend}-mlx${mlx_dev}-torch${torch_dev}"
 }
 
-# Build the example binary for a (backend, device) cell ONCE, leaving
-# ./build/<BUILD_KEY>/exec/<name> and the matching dylib in
-# place for direct invocation. The make-driven build + dylib copy is
-# the bulk of per-call wallclock on tiny examples (rnn/gru tape are
-# sub-ms/epoch real, vs ~100-500ms of make overhead per make invocation),
-# so timing make invocations directly produced negative ms/ep on the
-# L60 sweep (2026-05-18). Calling the binary directly removes that
-# overhead from the timing path.
-#
-# The example-* make recipes don't have a "build only" mode — they
-# always run the binary at the end. We pass `<VAR>=--epochs 1 --seed N`
-# so the post-build run is cheap and effectively a warmup-we-discard.
+# example-rnn (tape, cpu) -> ./build/tape-mlxcpu-torchcpu/exec/rnn
+binary_for_target() {
+  local target="$1" backend="$2" device="$3"
+  local build_key
+  build_key=$( build_key_for_cell "$backend" "$device" )
+  echo "./build/${build_key}/exec/${target#example-}"
+}
+
 build_idris_binary() {
   local target="$1" var="$2" backend="$3" device="$4"
   local errlog rc=0
-  errlog=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-build.XXXXXX")
+  errlog=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-build.XXXXXX" )
   case "$backend" in
     mlx)
       MLX_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
@@ -139,8 +124,6 @@ build_idris_binary() {
       ;;
   esac
   if [ "$rc" -ne 0 ]; then
-    # Surface the failure — pre-fix, this `|| true`'d silently and the
-    # next stage ran a stale binary from the previous cell, faking ratios.
     echo "[BUILD FAIL] make $target backend=$backend device=$device exit=$rc" >&2
     tail -5 "$errlog" >&2
     rm -f "$errlog"
@@ -149,44 +132,12 @@ build_idris_binary() {
   rm -f "$errlog"
 }
 
-# Build the per-cell BUILD_KEY (matches Makefile's BUILD_KEY := ...
-# construction). Used by binary_for_target to find the binary under
-# `build/<BUILD_KEY>/exec/` — the Makefile's per-(backend, device,
-# dtype) tree layout (CLAUDE.md "Per-backend-set build cache").
-# Default dtypes are empty (= the matrix's default — no -tdt/-mdt/
-# -tpdt suffix in BUILD_KEY), which matches what perf-sweep's
-# build_idris_binary invocation does — it doesn't set TORCH_DTYPE
-# / MLX_DTYPE / TAPE_DTYPE, so the default cells live at the
-# unsuffixed paths.
-build_key_for_cell() {
-  local backend="$1" device="$2"
-  local mlx_dev=cpu torch_dev=cpu
-  case "$backend" in
-    mlx)   mlx_dev="$device"   ;;
-    torch) torch_dev="$device" ;;
-    tape)  ;;  # neither device matters; the matrix's defaults stand
-  esac
-  echo "${backend}-mlx${mlx_dev}-torch${torch_dev}"
-}
-
-# Derive binary path from make target + cell:
-# example-rnn (tape, cpu) -> ./build/tape-mlxcpu-torchcpu/exec/rnn
-binary_for_target() {
-  local target="$1" backend="$2" device="$3"
-  local build_key
-  build_key=$(build_key_for_cell "$backend" "$device")
-  echo "./build/${build_key}/exec/${target#example-}"
-}
-
-# Run one idris invocation. Captures stdout, parses PERF_MS_PER_EP
-# marker. Returns the float as text, "crashed" on non-zero exit, or
-# "missing" if the binary completed but didn't emit the marker.
 run_idris_once() {
   local target="$1" _var="$2" n="$3" backend="$4" device="$5"
   local bin rc stdout_path errlog
-  bin=$(binary_for_target "$target" "$backend" "$device")
-  stdout_path=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX")
-  errlog=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-err.XXXXXX")
+  bin=$( binary_for_target "$target" "$backend" "$device" )
+  stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX" )
+  errlog=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-err.XXXXXX" )
   rc=0
   if [ "$backend" = "mlx" ]; then
     MLX_DEVICE="$device" "$bin" --epochs "$n" --seed "$SEED" >"$stdout_path" 2>"$errlog" || rc=$?
@@ -201,14 +152,14 @@ run_idris_once() {
     return 0
   fi
   rm -f "$errlog"
-  extract_marker "$stdout_path"
+  perf_extract_marker "$stdout_path"
   rm -f "$stdout_path"
 }
 
 run_pytorch_once() {
   local mod="$1" n="$2"
   local stdout_path rc
-  stdout_path=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX")
+  stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX" )
   rc=0
   ( cd packages/pytorch && uv run python -m "$mod" --epochs "$n" --seed "$SEED" ) \
     >"$stdout_path" 2>/dev/null || rc=$?
@@ -217,13 +168,10 @@ run_pytorch_once() {
     echo "crashed"
     return 0
   fi
-  extract_marker "$stdout_path"
+  perf_extract_marker "$stdout_path"
   rm -f "$stdout_path"
 }
 
-# Single-point in-script timing. Build binary once for the cell
-# (relinks backend dylib), then run at N_LONG and parse the marker
-# from stdout. No two-point subtraction.
 measure_idris() {
   local target="$1" var="$2" n_long="$3" backend="$4" device="$5"
   if ! build_idris_binary "$target" "$var" "$backend" "$device"; then
@@ -238,55 +186,7 @@ measure_pytorch() {
   run_pytorch_once "$mod" "$n_long"
 }
 
-COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
-# Exclude perf-log.jsonl — the sweep itself appends to it mid-run,
-# and that churn is not a code change worth flagging.
-if [ -n "$(git status --porcelain -- ':!docs/develop/perf-log.jsonl' 2>/dev/null)" ]; then COMMIT="${COMMIT}+dirty"; fi
-LOG_PATH="docs/develop/perf-log.jsonl"
-[ -e "$LOG_PATH" ] || : > "$LOG_PATH"
-
-write_jsonl_row() {
-  local example="$1" backend="$2" device="$3" idris_ms="$4" py_ms="$5" ratio="$6" n_long="$7"
-  local ts date
-  ts=$(python3 -c 'from datetime import datetime,timezone; print(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
-  date=$(date +%Y-%m-%d)
-  ISO_TS="$ts" DATE="$date" EXAMPLE="$example" BACKEND="$backend" DEVICE="$device" \
-    COMMIT="$COMMIT" IDRIS_MS="$idris_ms" PY_MS="$py_ms" RATIO="$ratio" \
-    N_LONG="$n_long" SEED="$SEED" python3 <<'PY' >> "$LOG_PATH"
-import json, os
-def num(s):
-    try: return float(s)
-    except (ValueError, TypeError): return None
-idris_raw = os.environ["IDRIS_MS"]
-py_raw = os.environ["PY_MS"]
-idris_crashed = idris_raw in ("crashed", "missing")
-py_crashed = py_raw in ("crashed", "missing")
-row = {
-    "ts": os.environ["ISO_TS"], "date": os.environ["DATE"],
-    "kind": "baseline",
-    "methodology": "in_script_marker",
-    "example": os.environ["EXAMPLE"], "backend": os.environ["BACKEND"],
-    "device": os.environ["DEVICE"], "commit": os.environ["COMMIT"],
-    "idris_ms_per_epoch": None if idris_crashed else num(idris_raw),
-    "pytorch_ms_per_epoch": None if py_crashed else num(py_raw),
-    "ratio": None if (idris_crashed or py_crashed) else num(os.environ["RATIO"]),
-    "n_long": int(os.environ["N_LONG"]),
-    "seed": int(os.environ["SEED"]),
-}
-notes = []
-if idris_raw == "crashed":
-    notes.append("idris binary aborted during timed run")
-elif idris_raw == "missing":
-    notes.append("idris stdout had no PERF_MS_PER_EP marker")
-if py_raw == "crashed":
-    notes.append("pytorch ref aborted during timed run")
-elif py_raw == "missing":
-    notes.append("pytorch stdout had no PERF_MS_PER_EP marker")
-if notes:
-    row["notes"] = "; ".join(notes)
-print(json.dumps(row))
-PY
-}
+COMMIT=$( perf_commit_with_dirty )
 
 echo
 printf '%-18s %-8s %-6s %12s %12s %8s\n' example backend device idris_ms py_ms ratio
@@ -296,28 +196,31 @@ IFS=, read -r -a EXAMPLES <<<"$EXAMPLES_CSV"
 IFS=, read -r -a CELLS <<<"$CELLS_CSV"
 
 for example in "${EXAMPLES[@]}"; do
-  spec=$(spec_for "$example") || { echo "unknown example: $example" >&2; exit 2; }
+  spec=$( spec_for "$example" ) || { echo "unknown example: $example" >&2; exit 2; }
   read -r IDRIS_TGT IDRIS_VAR REF_MOD N_LONG <<<"$spec"
 
   echo "[$example] pytorch ref N=$N_LONG..." >&2
-  PY_MS=$(measure_pytorch "$REF_MOD" "$N_LONG")
+  PY_MS=$( measure_pytorch "$REF_MOD" "$N_LONG" )
 
   for cell in "${CELLS[@]}"; do
-    bd=$(cell_to_backend_device "$cell") || { echo "unknown cell: $cell" >&2; exit 2; }
+    bd=$( cell_to_backend_device "$cell" ) || { echo "unknown cell: $cell" >&2; exit 2; }
     read -r BACKEND DEVICE <<<"$bd"
     echo "[$example/$cell] idris N=$N_LONG..." >&2
-    IDRIS_MS=$(measure_idris "$IDRIS_TGT" "$IDRIS_VAR" "$N_LONG" "$BACKEND" "$DEVICE")
+    IDRIS_MS=$( measure_idris "$IDRIS_TGT" "$IDRIS_VAR" "$N_LONG" "$BACKEND" "$DEVICE" )
     if [ "$IDRIS_MS" = "crashed" ] || [ "$IDRIS_MS" = "missing" ]; then
       RATIO="N/A"
     elif [ "$PY_MS" = "crashed" ] || [ "$PY_MS" = "missing" ]; then
       RATIO="N/A"
     else
-      RATIO=$(python3 -c "print(round($IDRIS_MS / $PY_MS, 2) if $PY_MS > 0 else float('inf'))")
+      RATIO=$( python3 -c "print(round($IDRIS_MS / $PY_MS, 2) if $PY_MS > 0 else float('inf'))" )
     fi
-    write_jsonl_row "$example" "$BACKEND" "$DEVICE" "$IDRIS_MS" "$PY_MS" "$RATIO" "$N_LONG"
+    python3 -m mltools.perf_log append-baseline \
+      --example "$example" --backend "$BACKEND" --device "$DEVICE" \
+      --commit "$COMMIT" --idris-ms "$IDRIS_MS" --pytorch-ms "$PY_MS" \
+      --ratio "$RATIO" --n-long "$N_LONG" --seed "$SEED"
     printf '%-18s %-8s %-6s %12s %12s %8s\n' "$example" "$BACKEND" "$DEVICE" "$IDRIS_MS" "$PY_MS" "$RATIO"
   done
 done
 
 echo
-echo "Sweep complete. JSONL entries appended to $LOG_PATH (kind=baseline)."
+echo "Sweep complete. JSONL entries appended to $PERF_LOG_PATH (kind=baseline)."

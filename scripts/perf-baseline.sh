@@ -9,6 +9,9 @@
 # `commit` is the abbreviated git hash of HEAD, with `+dirty` appended
 # if the working tree has uncommitted changes (mirrors perf-run.sh).
 #
+# A `kind: "baseline"` entry is also appended to `docs/develop/perf-log.jsonl`
+# via the `mltools.perf_log append-baseline` writer.
+#
 # Usage:
 #   scripts/perf-baseline.sh <example-key> <backend>
 #
@@ -35,6 +38,8 @@
 #  - All runs use --seed 42.
 set -euo pipefail
 
+source "$( dirname "${BASH_SOURCE[0]}" )/perf_lib.sh"
+
 EXAMPLE_KEY="${1:-}"
 BACKEND="${2:-tape}"
 SEED=42
@@ -46,9 +51,6 @@ if [ -z "$EXAMPLE_KEY" ]; then
 fi
 
 # example-key -> (idris-make-target, idris-args-var, ref-py-module, n_long)
-# N_LONG is the single epoch count passed to both sides. Each side
-# emits PERF_MS_PER_EP after its training loop; the marker comes
-# from inside the training process and is already a per-epoch number.
 case "$EXAMPLE_KEY" in
   supervised)        IDRIS_TGT=example-supervised;             IDRIS_VAR=SUPERVISED_ARGS;        REF_MOD=torch_ref.scripts.supervised;        N_LONG=200  ;;
   rnn)               IDRIS_TGT=example-rnn;                    IDRIS_VAR=RNN_ARGS;               REF_MOD=torch_ref.scripts.rnn;               N_LONG=200  ;;
@@ -87,30 +89,14 @@ binary_for_target() {
   echo "./build/exec/${IDRIS_TGT#example-}"
 }
 
-# Extract `PERF_MS_PER_EP=<float>` from stdout. Returns the float as
-# text, or "missing" if no marker was printed. Both Idris (via
-# Util.formatPerfMsPerEp) and PyTorch (via runner.run_training plus
-# per-RL-script print) emit exactly one such line.
-extract_marker() {
-  local stdout_path="$1"
-  local val
-  val=$(grep -E '^PERF_MS_PER_EP=' "$stdout_path" | tail -1 | sed 's/^PERF_MS_PER_EP=//')
-  if [ -z "$val" ]; then
-    echo "missing"
-  else
-    # Normalize to 2 decimals for output; preserve full precision in JSONL.
-    python3 -c "print(round(float('$val'), 2))"
-  fi
-}
-
 # Run idris example with `--epochs N --seed S`, capture stdout, return
 # PERF_MS_PER_EP value or "crashed"/"missing".
 run_idris() {
   local n="$1"
   local bin rc stdout_path errlog
-  bin=$(binary_for_target)
-  stdout_path=$(mktemp "${TMPDIR:-/tmp}/perf-baseline-out.XXXXXX")
-  errlog=$(mktemp "${TMPDIR:-/tmp}/perf-baseline-err.XXXXXX")
+  bin=$( binary_for_target )
+  stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-baseline-out.XXXXXX" )
+  errlog=$( mktemp "${TMPDIR:-/tmp}/perf-baseline-err.XXXXXX" )
   rc=0
   "$bin" --epochs "$n" --seed "$SEED" >"$stdout_path" 2>"$errlog" || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -121,15 +107,14 @@ run_idris() {
     return 0
   fi
   rm -f "$errlog"
-  extract_marker "$stdout_path"
+  perf_extract_marker "$stdout_path"
   rm -f "$stdout_path"
 }
 
-# Same for pytorch ref.
 run_pytorch() {
   local n="$1"
   local stdout_path rc
-  stdout_path=$(mktemp "${TMPDIR:-/tmp}/perf-baseline-out.XXXXXX")
+  stdout_path=$( mktemp "${TMPDIR:-/tmp}/perf-baseline-out.XXXXXX" )
   rc=0
   ( cd packages/pytorch && uv run python -m "$REF_MOD" --epochs "$n" --seed "$SEED" ) \
     >"$stdout_path" 2>/dev/null || rc=$?
@@ -138,11 +123,10 @@ run_pytorch() {
     echo "crashed"
     return 0
   fi
-  extract_marker "$stdout_path"
+  perf_extract_marker "$stdout_path"
   rm -f "$stdout_path"
 }
 
-# Single-point in-script timing. Run once at N_LONG, parse the marker.
 measure_idris() {
   build_idris_binary
   run_idris "$N_LONG"
@@ -152,79 +136,30 @@ measure_pytorch() {
   run_pytorch "$N_LONG"
 }
 
-# Capture the active commit (with +dirty marker), mirroring perf-run.sh.
-# perf-log.jsonl is excluded from the dirty check — the perf scripts
-# append to it mid-run, and that's not a code change worth flagging.
-COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-if [ -n "$(git status --porcelain -- ':!docs/develop/perf-log.jsonl' 2>/dev/null)" ]; then
-  COMMIT="${COMMIT}+dirty"
-fi
+COMMIT=$( perf_commit_with_dirty )
 
 echo "[perf-baseline] $EXAMPLE_KEY [$BACKEND]: idris N=$N_LONG..." >&2
-IDRIS_MS=$(measure_idris)
+IDRIS_MS=$( measure_idris )
 echo "[perf-baseline] $EXAMPLE_KEY: pytorch N=$N_LONG..." >&2
-PY_MS=$(measure_pytorch)
+PY_MS=$( measure_pytorch )
 if [ "$IDRIS_MS" = "crashed" ] || [ "$IDRIS_MS" = "missing" ]; then
   RATIO="N/A"
 elif [ "$PY_MS" = "crashed" ] || [ "$PY_MS" = "missing" ]; then
   RATIO="N/A"
 else
-  RATIO=$(python3 -c "print(round(${IDRIS_MS} / ${PY_MS}, 2) if ${PY_MS} > 0 else 'inf')")
+  RATIO=$( python3 -c "print(round(${IDRIS_MS} / ${PY_MS}, 2) if ${PY_MS} > 0 else 'inf')" )
 fi
 
 echo "${EXAMPLE_KEY},${BACKEND},${IDRIS_MS},${PY_MS},${RATIO},${N_LONG},${SEED},${COMMIT},"
 
-# Also append a JSONL entry to perf-log.jsonl. Tagged kind="baseline"
-# (vs perf-run.sh's default kind="convergence") so jq can filter:
-#   jq 'select(.kind=="baseline")' docs/develop/perf-log.jsonl
-LOG_PATH="docs/develop/perf-log.jsonl"
-if [ ! -e "$LOG_PATH" ]; then : > "$LOG_PATH"; fi
-ISO_TS=$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
-DATE=$(date +%Y-%m-%d)
-case "$BACKEND" in
-  mlx)   DEVICE="${MLX_DEVICE:-cpu}" ;;
-  tape)  DEVICE="cpu" ;;
-  torch) DEVICE="cpu" ;;
-  *)     DEVICE="unknown" ;;
-esac
-[ "$DEVICE" = "metal" ] && DEVICE="gpu"
-ISO_TS="$ISO_TS" DATE="$DATE" EXAMPLE_KEY="$EXAMPLE_KEY" BACKEND="$BACKEND" \
-  DEVICE="$DEVICE" COMMIT="$COMMIT" IDRIS_MS="$IDRIS_MS" PY_MS="$PY_MS" RATIO="$RATIO" \
-  N_LONG="$N_LONG" SEED="$SEED" \
-  python3 <<'PY' >> "$LOG_PATH"
-import json, os
-def num(s):
-    try: return float(s)
-    except (ValueError, TypeError): return None
-idris_raw = os.environ["IDRIS_MS"]
-py_raw = os.environ["PY_MS"]
-idris_crashed = idris_raw in ("crashed", "missing")
-py_crashed = py_raw in ("crashed", "missing")
-row = {
-    "ts": os.environ["ISO_TS"],
-    "date": os.environ["DATE"],
-    "kind": "baseline",
-    "methodology": "in_script_marker",
-    "example": os.environ["EXAMPLE_KEY"],
-    "backend": os.environ["BACKEND"],
-    "device": os.environ["DEVICE"],
-    "commit": os.environ["COMMIT"],
-    "idris_ms_per_epoch": None if idris_crashed else num(idris_raw),
-    "pytorch_ms_per_epoch": None if py_crashed else num(py_raw),
-    "ratio": None if (idris_crashed or py_crashed) else num(os.environ["RATIO"]),
-    "n_long": int(os.environ["N_LONG"]),
-    "seed": int(os.environ["SEED"]),
-}
-notes = []
-if idris_raw == "crashed":
-    notes.append("idris binary aborted during timed run")
-elif idris_raw == "missing":
-    notes.append("idris stdout had no PERF_MS_PER_EP marker")
-if py_raw == "crashed":
-    notes.append("pytorch ref aborted during timed run")
-elif py_raw == "missing":
-    notes.append("pytorch stdout had no PERF_MS_PER_EP marker")
-if notes:
-    row["notes"] = "; ".join(notes)
-print(json.dumps(row))
-PY
+DEVICE=$( perf_device_for "$BACKEND" )
+python3 -m mltools.perf_log append-baseline \
+  --example "$EXAMPLE_KEY" \
+  --backend "$BACKEND" \
+  --device "$DEVICE" \
+  --commit "$COMMIT" \
+  --idris-ms "$IDRIS_MS" \
+  --pytorch-ms "$PY_MS" \
+  --ratio "$RATIO" \
+  --n-long "$N_LONG" \
+  --seed "$SEED"

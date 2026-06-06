@@ -21,13 +21,15 @@ benches land — the renderer already keys on `axis` so it picks up
 new axes automatically.
 """
 
-import json
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LOG_PATH = ROOT / "docs" / "develop" / "perf-log.jsonl"
+sys.path.insert(0, str(ROOT / "scripts"))
+from mltools.perf_log import iter_entries, resolve_log_path  # noqa: E402
+
+LOG_PATH = resolve_log_path()
 OUT_PATH = ROOT / "BENCHMARKS.md"
 
 AXIS_TITLES = {
@@ -38,21 +40,6 @@ AXIS_TITLES = {
 }
 
 AXIS_ORDER = ["A", "B", "C", "D"]
-
-
-def load_latest_entries():
-    if not LOG_PATH.exists():
-        return []
-    entries = []
-    for line in LOG_PATH.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entries.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return entries
 
 
 def select_op_bench_latest(entries):
@@ -142,7 +129,7 @@ def render_placeholder_axis(axis):
 
 
 def render():
-    entries = load_latest_entries()
+    entries = list(iter_entries())
     latest = select_op_bench_latest(entries)
     axes_present = {axis for (axis, _, _) in latest}
 
