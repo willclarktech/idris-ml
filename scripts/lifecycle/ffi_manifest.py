@@ -52,7 +52,6 @@ class Entry:
 
 MANIFEST = {
     "idrisml_seq": Entry(args=("R", "R"), ret="R"),
-    "mnist_get_image": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primMnistGetImage", mlx="direct"),
     "native_train_step_scaled": Entry(args=("R", "i", "d", "T", "d", "d"), ret="d", slice="UserExecutorOptimizer", idris_method="primNativeTrainStepScaled", mlx="direct"),
     "native_train_step": Entry(args=("R", "i", "d", "T", "d"), ret="d", slice="UserExecutorOptimizer", idris_method="primNativeTrainStep", mlx="direct"),
     "optimizer_create_adam_group": Entry(args=("d", "d", "d", "d", "s"), ret="R", slice="UserExecutorOptimizer", idris_method="primOptimizerCreateAdamGroup", mlx="direct"),
@@ -73,6 +72,8 @@ MANIFEST = {
     "param_register_return": Entry(args=("s", "T"), ret="T"),
     "param_register": Entry(args=("s", "T"), ret="T", slice="UserExecutorParamRegistry", idris_method="primParamRegister", c_symbol="param_register_return", mlx="direct"),
     "param_save": Entry(args=("s",), ret="i", slice="UserExecutorSerialize", idris_method="primParamSave", mlx="direct"),
+    "param_save_by_name": Entry(args=("s", "s", "i"), ret="i", slice="UserExecutorSerialize", idris_method="primParamSaveByName", mlx="direct"),
+    "param_save_by_name_renamed": Entry(args=("s", "s", "s", "i"), ret="i", slice="UserExecutorSerialize", idris_method="primParamSaveByNameRenamed", mlx="direct"),
     "param_tensor": Entry(args=("i",), ret="T"),
     "param_zero_all": Entry(args=(), ret="v", slice="UserExecutorParamRegistry", idris_method="primParamZeroAll", c_symbol="param_zero_all_grads", mlx="direct"),
     "polyak_blend": Entry(args=("d", "s", "s"), ret="i", slice="UserExecutorParamRegistry", idris_method="primPolyakBlend", mlx="direct"),
@@ -145,7 +146,6 @@ MANIFEST = {
     "tensor_create_streamed": Entry(args=("T", "T", "i", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateStreamed", mlx="direct"),
     "tensor_create_ternary_from_hf_packed_2d": Entry(args=("T", "i", "i"), ret="T", slice="UserExecutorQuant", idris_method="primCreateTernaryFromHfPacked2d", mlx="bespoke"),
     "tensor_create_ternary_packed_2d": Entry(args=("T", "i", "i", "i", "i"), ret="T", slice="UserExecutorQuant", idris_method="primCreateTernaryPacked2d", mlx="bespoke"),
-    "tensor_create": Entry(args=("T", "T", "i", "i"), ret="T", slice="UserExecutorCore", idris_method="primCreate", torch="bespoke"),
     "tensor_cross_attention": Entry(args=("T", "T", "T", "T", "d"), ret="T", slice="UserExecutorNN", idris_method="primCrossAttention"),
     "tensor_cross_entropy": Entry(args=("T", "T"), ret="T"),
     "tensor_cumprod": Entry(args=("T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primCumprod"),
@@ -351,7 +351,6 @@ INIT_FFI = {
     "tensor_create_state_1d",
     "tensor_create_state_2d",
     "tensor_one_hot",
-    "mnist_get_image",
     # Unified dtag create/cast wrappers — each can be the first
     # Tensor-creating call, so they carry the guardian lazy-init.
     "tensor_create_scalar_streamed",
