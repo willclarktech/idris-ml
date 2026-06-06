@@ -122,20 +122,20 @@ MANIFEST = {
     "tensor_create_2d_streamed": Entry(args=("i", "i", "R", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreate2dStreamed", mlx="direct"),
     "tensor_create_2d": Entry(args=("i", "i", "R", "i"), ret="T"),
     "tensor_create_from_host": Entry(args=("R", "R", "i", "i"), ret="T", slice="UserExecutorTransfer", idris_method="primCreateFromHost", c_symbol="tensor_create", torch="bespoke", mlx="direct"),
-    "tensor_create_param_1d_const_streamed": Entry(args=("i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam1dConstStreamed", mlx="direct"),
-    "tensor_create_param_1d_normal_streamed": Entry(args=("i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam1dNormalStreamed", mlx="direct"),
+    "tensor_create_param_1d_const_streamed": Entry(args=("i", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam1dConstStreamed", mlx="direct"),
+    "tensor_create_param_1d_normal_streamed": Entry(args=("i", "d", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam1dNormalStreamed", mlx="direct"),
     "tensor_create_param_1d_streamed": Entry(args=("i", "R", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam1dStreamed", mlx="direct"),
     "tensor_create_param_1d": Entry(args=("i", "R"), ret="T"),
-    "tensor_create_param_2d_const_streamed": Entry(args=("i", "i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam2dConstStreamed", mlx="direct"),
-    "tensor_create_param_2d_normal_streamed": Entry(args=("i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam2dNormalStreamed", mlx="direct"),
+    "tensor_create_param_2d_const_streamed": Entry(args=("i", "i", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam2dConstStreamed", mlx="direct"),
+    "tensor_create_param_2d_normal_streamed": Entry(args=("i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam2dNormalStreamed", mlx="direct"),
     "tensor_create_param_2d_streamed": Entry(args=("i", "i", "R", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam2dStreamed", mlx="direct"),
     "tensor_create_param_2d": Entry(args=("i", "i", "R"), ret="T"),
-    "tensor_create_param_3d_const_streamed": Entry(args=("i", "i", "i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam3dConstStreamed", mlx="direct"),
-    "tensor_create_param_3d_normal_streamed": Entry(args=("i", "i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam3dNormalStreamed", mlx="direct"),
+    "tensor_create_param_3d_const_streamed": Entry(args=("i", "i", "i", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam3dConstStreamed", mlx="direct"),
+    "tensor_create_param_3d_normal_streamed": Entry(args=("i", "i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam3dNormalStreamed", mlx="direct"),
     "tensor_create_param_3d_streamed": Entry(args=("i", "i", "i", "R", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam3dStreamed", mlx="direct"),
     "tensor_create_param_3d": Entry(args=("i", "i", "i", "R"), ret="T"),
-    "tensor_create_param_4d_const_streamed": Entry(args=("i", "i", "i", "i", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam4dConstStreamed", mlx="direct"),
-    "tensor_create_param_4d_normal_streamed": Entry(args=("i", "i", "i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam4dNormalStreamed", mlx="direct"),
+    "tensor_create_param_4d_const_streamed": Entry(args=("i", "i", "i", "i", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam4dConstStreamed", mlx="direct"),
+    "tensor_create_param_4d_normal_streamed": Entry(args=("i", "i", "i", "i", "d", "d", "i", "i"), ret="T", slice="UserExecutorOptimizations", idris_method="primCreateParam4dNormalStreamed", mlx="direct"),
     "tensor_create_param_4d_streamed": Entry(args=("i", "i", "i", "i", "R", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateParam4dStreamed", mlx="direct"),
     "tensor_create_param_4d": Entry(args=("i", "i", "i", "i", "R"), ret="T"),
     "tensor_create_scalar_streamed": Entry(args=("d", "i", "i", "i"), ret="T", slice="UserExecutorTensorCreate", idris_method="primCreateScalarStreamed", mlx="direct"),
@@ -365,9 +365,9 @@ INIT_FFI = {
     "tensor_create_state_1d_streamed",
     "tensor_create_state_2d_streamed",
     "tensor_cast_dtype_streamed",
-    # Fused-init creators (added 2026-05-28) — same rule: each can be
-    # the first Tensor-creating call in a program (HfBert's
-    # makeBertLinear is now the first FFI on the BERT path, etc.).
+    # Fused-init creators — same rule: each can be the first Tensor-
+    # creating call in a program (HfBert's makeBertLinear is the first
+    # FFI on the BERT path, etc.).
     "tensor_create_param_1d_normal_streamed",
     "tensor_create_param_2d_normal_streamed",
     "tensor_create_param_3d_normal_streamed",
@@ -512,13 +512,12 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
     for "primary"). Retain is symmetric — each wrap calls the
     suffixed retain so refcounts land on the right backend.
 
-    **FFI symbol caching (added 2026-05-27):** each `foreign-procedure`
-    is lazy-cached at first call via a per-FFI Chez top-level binding
+    **FFI symbol caching:** each `foreign-procedure` is lazy-cached at
+    first call via a per-FFI Chez top-level binding
     (`idris-ffi-<c-symbol-with-dashes>`). Without the cache every call
     re-evaluates `(foreign-procedure …)` → fresh dlsym → walks every
     loaded library's symbol table; on a Llama-3.2-1B forward pass that
-    dominated 100% of CPU wall (see sample at
-    `/tmp/scheme_2026-05-27_180602_BTJW.sample.txt`). The lazy-init
+    dominated 100% of CPU wall. The lazy-init
     block uses the same `(when (not (top-level-bound? 'name))
     (set-top-level-value! 'name …))` idiom the codebase already uses
     for `idris-tensor-guardian`, extended from one shared symbol to

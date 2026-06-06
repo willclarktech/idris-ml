@@ -365,15 +365,6 @@ UserExecutorNN TapeExecutor where
   -- <<< END GENERATED <<<
 
 
-public export
-UserExecutorOptimizations TapeExecutor where
-  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primRmsNorm2d = prim__rmsNorm2dTape
-  primSdpa2d = prim__sdpa2dTape
-  primSwiGlu2d = prim__swiGlu2dTape
-  -- <<< END GENERATED <<<
-
-
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (tape-suffixed)
 ----------------------------------------------------------------------
@@ -556,6 +547,24 @@ prim__createParam4dConstStreamedTape : Int -> Int -> Int -> Int -> Double -> Int
 %foreign "C:tensor_set_init_seed_streamed_tape,libidrisml"
 prim__setInitSeedStreamedTape : Bits64 -> Int -> PrimIO ()
 
+
+public export
+UserExecutorOptimizations TapeExecutor where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedTape
+  primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedTape
+  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedTape
+  primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedTape
+  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedTape
+  primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTape
+  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTape
+  primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTape
+  primRmsNorm2d = prim__rmsNorm2dTape
+  primSdpa2d = prim__sdpa2dTape
+  primSwiGlu2d = prim__swiGlu2dTape
+  -- <<< END GENERATED <<<
+
+
 public export
 UserExecutorAutograd TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -628,17 +637,9 @@ UserExecutorTensorCreate TapeExecutor where
   primCastStreamed = prim__castStreamedTape
   primCreate1dStreamed = prim__create1dStreamedTape
   primCreate2dStreamed = prim__create2dStreamedTape
-  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedTape
-  primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedTape
   primCreateParam1dStreamed = prim__createParam1dStreamedTape
-  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedTape
-  primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedTape
   primCreateParam2dStreamed = prim__createParam2dStreamedTape
-  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedTape
-  primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTape
   primCreateParam3dStreamed = prim__createParam3dStreamedTape
-  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTape
-  primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTape
   primCreateParam4dStreamed = prim__createParam4dStreamedTape
   primCreateScalarStreamed = prim__createScalarStreamedTape
   primCreateState1dStreamed = prim__createState1dStreamedTape

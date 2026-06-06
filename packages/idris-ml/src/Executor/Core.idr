@@ -356,6 +356,20 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
   primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
 
+  -- Fused param create + in-place init. Replaces the per-element Idris-
+  -- side sampler + per-element prim__setDouble FFI for model state
+  -- construction. Each: (dims…, init-params, streamTag, dtypeTag) →
+  -- AnyPtr; backends that don't implement these (currently tape and
+  -- mlx) abort loudly at the FFI boundary via dtype_streamed.c.
+  primCreateParam1dNormalStreamed : Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam2dNormalStreamed : Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam3dNormalStreamed : Int -> Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam4dNormalStreamed : Int -> Int -> Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam1dConstStreamed  : Int -> Double -> Int -> Int -> AnyPtr
+  primCreateParam2dConstStreamed  : Int -> Int -> Double -> Int -> Int -> AnyPtr
+  primCreateParam3dConstStreamed  : Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
+  primCreateParam4dConstStreamed  : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Training surface: six cohesive sub-slices + an aggregate
@@ -584,19 +598,6 @@ interface UserExecutorCore ex => UserExecutorTensorCreate (0 ex : Executor) wher
   primCreateState2dStreamed : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
   primCastStreamed         : AnyPtr -> Int -> Int -> AnyPtr
 
-  -- Fused param create + in-place init (added 2026-05-28). Replaces the
-  -- per-element Idris-side sampler + per-element prim__setDouble FFI for
-  -- model state construction. Each: (dims…, init-params, streamTag,
-  -- dtypeTag) → AnyPtr; backends that don't implement these (tape, mlx
-  -- pre-Phase 7) abort loudly at the FFI boundary via dtype_streamed.c.
-  primCreateParam1dNormalStreamed : Int -> Double -> Double -> Int -> Int -> AnyPtr
-  primCreateParam2dNormalStreamed : Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
-  primCreateParam3dNormalStreamed : Int -> Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
-  primCreateParam4dNormalStreamed : Int -> Int -> Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
-  primCreateParam1dConstStreamed  : Int -> Double -> Int -> Int -> AnyPtr
-  primCreateParam2dConstStreamed  : Int -> Int -> Double -> Int -> Int -> AnyPtr
-  primCreateParam3dConstStreamed  : Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
-  primCreateParam4dConstStreamed  : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
   -- Seed the backend's init RNG (torch::manual_seed equivalent). No-op
   -- on backends without a seedable init-RNG.
   primSetInitSeedStreamed : Bits64 -> Int -> PrimIO ()
@@ -737,12 +738,12 @@ interface UserExecutorCore ex => UserExecutorQuant (0 ex : Executor) where
 ||| party backend that ships only forward-pass + checkpoint-load (no
 ||| optimizer, no autograd) needs to implement: `Conv` (transitively
 ||| pulls in Core + Linear + NN), `Optimizations` (the fused inference
-||| ops `primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d` — promoted out
-||| of NN in the 2026-06-09 audit), `TensorCreate` (data loading +
-||| dtype-streamed creators), `Transfer` (cross-backend handles), and
-||| `Quant` (BitNet ternary surface). Skipping Autograd / ParamRegistry
-||| / Optimizer / Serialize is a real reduction — those four sub-slices
-||| together hold 27 of the 57 legacy Training methods.
+||| ops `primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d` + fused param-
+||| init), `TensorCreate` (data loading + dtype-streamed creators),
+||| `Transfer` (cross-backend handles), and `Quant` (BitNet ternary
+||| surface). Skipping Autograd / ParamRegistry / Optimizer /
+||| Serialize is a real reduction — those four sub-slices together
+||| hold 27 of the 57 legacy Training methods.
 public export
 interface (UserExecutorConv ex,
            UserExecutorOptimizations ex,

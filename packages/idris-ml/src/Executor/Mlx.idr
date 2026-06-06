@@ -414,15 +414,6 @@ public export
   -- <<< END GENERATED <<<
 
 
-public export
-{s : MlxStream} -> UserExecutorOptimizations (MlxExecutor s) where
-  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primRmsNorm2d = prim__rmsNorm2dMlx
-  primSdpa2d = prim__sdpa2dMlx
-  primSwiGlu2d = prim__swiGlu2dMlx
-  -- <<< END GENERATED <<<
-
-
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (mlx-suffixed)
 ----------------------------------------------------------------------
@@ -600,6 +591,24 @@ prim__createParam4dConstStreamedMlx : Int -> Int -> Int -> Int -> Double -> Int 
 %foreign "C:tensor_set_init_seed_streamed_mlx,libidrisml"
 prim__setInitSeedStreamedMlx : Bits64 -> Int -> PrimIO ()
 
+
+public export
+{s : MlxStream} -> UserExecutorOptimizations (MlxExecutor s) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedMlx
+  primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedMlx
+  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedMlx
+  primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedMlx
+  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedMlx
+  primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedMlx
+  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedMlx
+  primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedMlx
+  primRmsNorm2d = prim__rmsNorm2dMlx
+  primSdpa2d = prim__sdpa2dMlx
+  primSwiGlu2d = prim__swiGlu2dMlx
+  -- <<< END GENERATED <<<
+
+
 public export
 {s : MlxStream} -> UserExecutorAutograd (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -672,17 +681,9 @@ public export
   primCastStreamed = prim__castStreamedMlx
   primCreate1dStreamed = prim__create1dStreamedMlx
   primCreate2dStreamed = prim__create2dStreamedMlx
-  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedMlx
-  primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedMlx
   primCreateParam1dStreamed = prim__createParam1dStreamedMlx
-  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedMlx
-  primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedMlx
   primCreateParam2dStreamed = prim__createParam2dStreamedMlx
-  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedMlx
-  primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedMlx
   primCreateParam3dStreamed = prim__createParam3dStreamedMlx
-  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedMlx
-  primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedMlx
   primCreateParam4dStreamed = prim__createParam4dStreamedMlx
   primCreateScalarStreamed = prim__createScalarStreamedMlx
   primCreateState1dStreamed = prim__createState1dStreamedMlx

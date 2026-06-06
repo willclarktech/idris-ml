@@ -648,7 +648,7 @@ dtCreateParam4d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -
                   Int -> Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam4d a b c e dat stream = primCreateParam4dStreamed {ex} a b c e dat stream (dtypeTag {t})
 
--- Fused param create + in-place init (added 2026-05-28). Each
+-- Fused param create + in-place init. Each
 -- `dtCreateParam<rank>{Normal,Const}` dispatches to the backend's
 -- `primCreateParam<rank><Init>Streamed` instance method, threading
 -- the dtypeTag from `RuntimeDType t`. Replaces the per-element
@@ -1331,7 +1331,7 @@ tparam1d {n} pid buf = ioRerun (\_ =>
   in MkTensor reg (Just pid))
 
 -- ---------------------------------------------------------------
--- Fused param create + in-place init (added 2026-05-28)
+-- Fused param create + in-place init
 -- ---------------------------------------------------------------
 -- Replaces the `traverse normalSample + packDoubles + tparam*` chain
 -- in HF model + core Layer/ smart constructors. The init runs in the

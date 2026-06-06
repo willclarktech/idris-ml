@@ -399,15 +399,6 @@ public export
   -- <<< END GENERATED <<<
 
 
-public export
-{d : TorchHwDev} -> UserExecutorOptimizations (TorchExecutor d) where
-  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primRmsNorm2d = prim__rmsNorm2dTorch
-  primSdpa2d = prim__sdpa2dTorch
-  primSwiGlu2d = prim__swiGlu2dTorch
-  -- <<< END GENERATED <<<
-
-
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (torch-suffixed)
 ----------------------------------------------------------------------
@@ -589,6 +580,24 @@ prim__createParam4dConstStreamedTorch : Int -> Int -> Int -> Int -> Double -> In
 %foreign "C:tensor_set_init_seed_streamed_torch,libidrisml"
 prim__setInitSeedStreamedTorch : Bits64 -> Int -> PrimIO ()
 
+
+public export
+{d : TorchHwDev} -> UserExecutorOptimizations (TorchExecutor d) where
+  -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
+  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedTorch
+  primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedTorch
+  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedTorch
+  primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedTorch
+  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedTorch
+  primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTorch
+  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTorch
+  primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTorch
+  primRmsNorm2d = prim__rmsNorm2dTorch
+  primSdpa2d = prim__sdpa2dTorch
+  primSwiGlu2d = prim__swiGlu2dTorch
+  -- <<< END GENERATED <<<
+
+
 public export
 {d : TorchHwDev} -> UserExecutorAutograd (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -661,17 +670,9 @@ public export
   primCastStreamed = prim__castStreamedTorch
   primCreate1dStreamed = prim__create1dStreamedTorch
   primCreate2dStreamed = prim__create2dStreamedTorch
-  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedTorch
-  primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedTorch
   primCreateParam1dStreamed = prim__createParam1dStreamedTorch
-  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedTorch
-  primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedTorch
   primCreateParam2dStreamed = prim__createParam2dStreamedTorch
-  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedTorch
-  primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTorch
   primCreateParam3dStreamed = prim__createParam3dStreamedTorch
-  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTorch
-  primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTorch
   primCreateParam4dStreamed = prim__createParam4dStreamedTorch
   primCreateScalarStreamed = prim__createScalarStreamedTorch
   primCreateState1dStreamed = prim__createState1dStreamedTorch

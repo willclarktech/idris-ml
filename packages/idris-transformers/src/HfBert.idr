@@ -210,10 +210,10 @@ makeBertLinear : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Comp
               -> (paramPrefix : String)
               -> IO (BertLinearWb i o ex dt WithGrad)
 makeBertLinear pfx = do
-  -- Fused C-side create + in-place init (added 2026-05-28). Weight:
-  -- normal(0, 0.02) matching HF's default Linear init; bias: zero.
-  -- Replaces the per-element `traverse normalSample` + `packDs` chain
-  -- that dominated state construction on 1B-param models (see
+  -- Fused C-side create + in-place init. Weight: normal(0, 0.02)
+  -- matching HF's default Linear init; bias: zero. Replaces the per-
+  -- element `traverse normalSample` + `packDs` chain that dominated
+  -- state construction on 1B-param models (see
   -- docs/develop/perf-changes.md).
   w <- tparam2dNormal {o} {i} (pfx ++ ".weight") 0.0 0.02
   b <- tparam1dConst  {n=o}   (pfx ++ ".bias")   0.0
