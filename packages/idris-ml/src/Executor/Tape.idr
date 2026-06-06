@@ -469,6 +469,8 @@ prim__nativeTrainStepScaledTape : AnyPtr -> Int -> Double -> AnyPtr -> Double ->
 prim__paramSaveTape : String -> PrimIO Int
 %foreign "C:param_save_by_name_tape,libidrisml"
 prim__paramSaveByNameTape : String -> String -> Int -> PrimIO Int
+%foreign "C:param_save_by_name_renamed_tape,libidrisml"
+prim__paramSaveByNameRenamedTape : String -> String -> String -> Int -> PrimIO Int
 %foreign "C:param_load_tape,libidrisml"
 prim__paramLoadTape : String -> PrimIO Int
 %foreign "C:param_load_with_policy_tape,libidrisml"
@@ -599,6 +601,7 @@ UserExecutorSerialize TapeExecutor where
   primParamLoadWithPrefix = prim__paramLoadWithPrefixTape
   primParamSave = prim__paramSaveTape
   primParamSaveByName = prim__paramSaveByNameTape
+  primParamSaveByNameRenamed = prim__paramSaveByNameRenamedTape
   -- <<< END GENERATED <<<
 
 public export

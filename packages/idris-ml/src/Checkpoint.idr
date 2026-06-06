@@ -147,6 +147,53 @@ saveModelSuffixes : UserExecutorTraining ex =>
 saveModelSuffixes path sfxs =
   saveModelMatching {ex} path (\nm => any (\s => isSuffixOf s nm) sfxs)
 
+
+-- Walk the registry collecting matching name pairs (registryName, ondiskName).
+-- The transform takes a registry name and returns `Just on_disk_name` to
+-- include (with rename) or `Nothing` to skip.
+collectRenamedNames : UserExecutorTraining ex =>
+  (transform : String -> Maybe String) -> IO (String, String, Int)
+collectRenamedNames transform = do
+  n <- getParamCount {ex}
+  go n 0 [] []
+  where
+    go : Int -> Int -> List String -> List String -> IO (String, String, Int)
+    go end i lookups ondisks =
+      if i >= end
+        then pure ( joinNewlines (reverse lookups)
+                  , joinNewlines (reverse ondisks)
+                  , cast (length lookups))
+        else do
+          nm <- getParamName {ex} i
+          case transform nm of
+            Nothing       => go end (i + 1) lookups ondisks
+            Just renamed  => go end (i + 1) (nm :: lookups) (renamed :: ondisks)
+
+||| Like `saveModelMatching`, but the per-param transform produces
+||| the on-disk name (or `Nothing` to skip). The C-side writer
+||| receives both lists in lockstep: registry names for tensor
+||| lookup, override names for the JSON header.
+|||
+||| Use case: peft-compatible LoRA adapter export. The transform
+|||
+|||     \nm => if endsWithLoraAorB nm
+|||              then Just ("base_model.model." ++ nm ++ ".default.weight")
+|||              else Nothing
+|||
+||| picks out the adapters and wraps them in peft's on-disk
+||| decorations so the resulting file loads cleanly via
+||| `peft.PeftModel.from_pretrained` in Python.
+export
+saveModelMatchingRenamed : UserExecutorTraining ex =>
+  (path : String) -> (transform : String -> Maybe String) -> IO Bool
+saveModelMatchingRenamed path transform = do
+  (lookups, ondisks, count) <- collectRenamedNames {ex} transform
+  if count == 0
+    then pure False
+    else do
+      rc <- primIO (primParamSaveByNameRenamed {ex} path lookups ondisks count)
+      pure (rc == 0)
+
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
 ||| Returns True on success.
 export

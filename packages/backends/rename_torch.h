@@ -62,6 +62,7 @@
 #define param_register_return param_register_return_torch
 #define param_save param_save_torch
 #define param_save_by_name param_save_by_name_torch
+#define param_save_by_name_renamed param_save_by_name_renamed_torch
 #define param_subtract_delta param_subtract_delta_torch
 #define param_tensor param_tensor_torch
 #define param_zero_all_grads param_zero_all_grads_torch

@@ -445,6 +445,14 @@ interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) wh
   ||| number of names. On-disk order matches `namesNl` order. Used by
   ||| the LoRA adapter-only checkpoint path — see `Checkpoint.saveModelMatching`.
   primParamSaveByName     : String -> String -> Int -> PrimIO Int
+  ||| Save the named subset under override on-disk names.
+  ||| `lookupNamesNl` identifies which registry tensors to save;
+  ||| `ondiskNamesNl` is what to write as their JSON-header keys.
+  ||| Used by the LoRA/peft adapter export path to wrap idris-ml-side
+  ||| names like `bert.[...].lora_A` in peft's on-disk decorations
+  ||| `base_model.model.bert.[...].lora_A.default.weight` —
+  ||| see `Checkpoint.saveModelMatchingRenamed`.
+  primParamSaveByNameRenamed : String -> String -> String -> Int -> PrimIO Int
   ||| Load params from file into the registry, strict dtype.
   primParamLoad           : String -> PrimIO Int
   ||| Load params with a cast policy (`allowCast` = 0/1).

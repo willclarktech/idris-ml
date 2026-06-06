@@ -69,13 +69,18 @@ static size_t dtype_byte_width(const char* name) {
 
 /* Shared core. When filter_indices is non-NULL, only those n_filter
    indices into the registry are saved (in caller-given order); when
-   NULL, every registered param is saved. The on-disk name is taken
-   from the registry as-is (callers that need name remapping should
-   register adapter-friendly names directly — there's no rename hook
-   on the C side).
+   NULL, every registered param is saved.
+
+   `override_names` is an optional array of length n_filter giving
+   the on-disk JSON-header name for each saved tensor (in lockstep
+   with filter_indices). NULL = use the registry name verbatim.
+   Used by the LoRA/peft adapter-IO path to wrap registry names
+   (`bert.[...].lora_A`) in peft's on-disk decorations
+   (`base_model.model.bert.[...].lora_A.default.weight`).
 */
 static int param_save_core(const char* path, int n_filter,
-                           const int* filter_indices) {
+                           const int* filter_indices,
+                           const char* const* override_names) {
     int n_all = param_count();
     int n;
     int* identity = NULL;
@@ -133,7 +138,7 @@ static int param_save_core(const char* path, int n_filter,
     /* Build JSON entries */
     for (int k = 0; k < n; k++) {
         int i = idx[k];
-        const char* name = param_name(i);
+        const char* name = override_names ? override_names[k] : param_name(i);
         TensorHandle t = param_tensor(i);
         int rank = tensor_dim(t);
 
@@ -276,7 +281,7 @@ static int param_save_core(const char* path, int n_filter,
 }
 
 int param_save(const char* path) {
-    return param_save_core(path, 0, NULL);
+    return param_save_core(path, 0, NULL, NULL);
 }
 
 /* Save only the named subset. `names_nl` is a newline-separated list
@@ -329,7 +334,110 @@ int param_save_by_name(const char* path, const char* names_nl, int count) {
         return -1;
     }
 
-    int rc = param_save_core(path, count, indices);
+    int rc = param_save_core(path, count, indices, NULL);
+    free(indices);
+    return rc;
+}
+
+/* Save the named subset, but write each tensor under an OVERRIDE
+   name (in lockstep with names_nl). Used by the LoRA/peft adapter
+   export path to wrap registry names like
+   `bert.[...].lora_A` in peft's on-disk decorations
+   `base_model.model.bert.[...].lora_A.default.weight`. Both
+   name-lists are newline-separated and must have exactly `count`
+   entries each. Returns 0 on success. */
+int param_save_by_name_renamed(const char* path,
+                               const char* lookup_names_nl,
+                               const char* ondisk_names_nl,
+                               int count) {
+    if (!lookup_names_nl || !ondisk_names_nl || count <= 0) {
+        fprintf(stderr,
+                "param_save_by_name_renamed: invalid arg (count=%d)\n", count);
+        return -1;
+    }
+
+    int n_reg = param_count();
+    int* indices = (int*)malloc((size_t)count * sizeof(int));
+    char** overrides = (char**)calloc((size_t)count, sizeof(char*));
+    if (!indices || !overrides) {
+        free(indices); free(overrides); return -1;
+    }
+
+    /* Parse lookup_names_nl + look up each in registry. */
+    const char* p = lookup_names_nl;
+    int parsed = 0;
+    while (*p && parsed < count) {
+        const char* end = p;
+        while (*end && *end != '\n') end++;
+        size_t len = (size_t)(end - p);
+
+        int found = -1;
+        for (int i = 0; i < n_reg; i++) {
+            const char* nm = param_name(i);
+            if (nm && strlen(nm) == len && memcmp(nm, p, len) == 0) {
+                found = i;
+                break;
+            }
+        }
+        if (found < 0) {
+            fprintf(stderr,
+                    "param_save_by_name_renamed: '%.*s' not in registry\n",
+                    (int)len, p);
+            free(indices);
+            for (int j = 0; j < parsed; j++) free(overrides[j]);
+            free(overrides);
+            return -1;
+        }
+        indices[parsed++] = found;
+        p = end;
+        if (*p == '\n') p++;
+    }
+
+    if (parsed != count) {
+        fprintf(stderr,
+                "param_save_by_name_renamed: expected %d lookup names, got %d\n",
+                count, parsed);
+        free(indices);
+        for (int j = 0; j < parsed; j++) free(overrides[j]);
+        free(overrides);
+        return -1;
+    }
+
+    /* Parse ondisk_names_nl into the overrides buffer. */
+    p = ondisk_names_nl;
+    int oi = 0;
+    while (*p && oi < count) {
+        const char* end = p;
+        while (*end && *end != '\n') end++;
+        size_t len = (size_t)(end - p);
+        overrides[oi] = (char*)malloc(len + 1);
+        if (!overrides[oi]) {
+            free(indices);
+            for (int j = 0; j < oi; j++) free(overrides[j]);
+            free(overrides);
+            return -1;
+        }
+        memcpy(overrides[oi], p, len);
+        overrides[oi][len] = '\0';
+        oi++;
+        p = end;
+        if (*p == '\n') p++;
+    }
+
+    if (oi != count) {
+        fprintf(stderr,
+                "param_save_by_name_renamed: expected %d on-disk names, got %d\n",
+                count, oi);
+        free(indices);
+        for (int j = 0; j < oi; j++) free(overrides[j]);
+        free(overrides);
+        return -1;
+    }
+
+    int rc = param_save_core(path, count, indices, (const char* const*)overrides);
+
+    for (int j = 0; j < count; j++) free(overrides[j]);
+    free(overrides);
     free(indices);
     return rc;
 }

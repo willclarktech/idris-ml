@@ -1,0 +1,156 @@
+||| Unit tests for L4's peft-compatible LoRA adapter I/O
+||| (`HfLoraIO.saveLoraAdapter` + `HfLoraIO.loadLoraAdapter`).
+|||
+||| Strategy: register two LoRA-shaped params (one `.lora_A` and one
+||| `.lora_B`), call `saveLoraAdapter` on a temp dir, then verify
+||| three properties:
+|||
+|||  1. The adapter_config.json round-trips via `loadLoraAdapter` to
+|||     the same `LoraAdapterConfig` values.
+|||  2. The safetensors file's JSON header contains the peft-wrapped
+|||     keys (`base_model.model.[...]. lora_A.default.weight`) and
+|||     NOT the bare idris-ml names.
+|||  3. The actual tensor data round-trips (we load via the existing
+|||     `loadModel` path with renamed-on-disk-back-to-idris setup —
+|||     register two params under the peft names, then loadModel
+|||     restores them; the values match what we saved).
+|||
+||| Pinned to tape; cross-backend coverage covered by L1 + L5.
+module Test.HfLoraIO
+
+import Data.List
+import Data.String
+import Data.Vect
+import System.Directory
+import System.File
+
+import Test.Harness
+
+import Checkpoint
+import Executor
+import Executor.Core
+import Executor.Tape
+import HfLoraIO
+import Tensor
+
+
+----------------------------------------------------------------------
+-- Test #1 — adapter_config.json round-trip
+----------------------------------------------------------------------
+
+configRoundTrip : IO Bool
+configRoundTrip = do
+  let cfg = MkLoraAdapterConfig 8 16.0 (the (List String) ["query", "value"]) "SEQ_CLS"
+      dir = "/tmp/idris-ml-l4-cfg-roundtrip"
+  -- Register a single adapter param so saveLoraAdapter has something to write
+  -- (it errors on an empty match set).
+  _ <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1}
+                     "L4cfg.bert.encoder.layer.0.attention.self.query.lora_A" 1.0
+  ok <- saveLoraAdapter {ex=TapeExecutor} dir cfg
+  if not ok
+    then do putStrLn "  FAIL: saveLoraAdapter returned False"; pure False
+    else do
+      res <- loadLoraAdapter dir
+      case res of
+        Left err => do
+          putStrLn ("  FAIL: loadLoraAdapter: " ++ err)
+          pure False
+        Right cfg' => do
+          let okRank = cfg'.rank          == cfg.rank
+              okAlpha = cfg'.alpha         == cfg.alpha
+              okTM    = cfg'.targetModules == cfg.targetModules
+              okTask  = cfg'.taskType      == cfg.taskType
+          if okRank && okAlpha && okTM && okTask
+            then check ("adapter_config.json round-trips "
+                        ++ "(rank=" ++ show cfg'.rank
+                        ++ ", alpha=" ++ show cfg'.alpha
+                        ++ ", targets=" ++ show cfg'.targetModules
+                        ++ ", task=" ++ cfg'.taskType ++ ")") True
+            else do
+              putStrLn ("  FAIL: round-trip mismatch — got "
+                        ++ "rank=" ++ show cfg'.rank
+                        ++ ", alpha=" ++ show cfg'.alpha
+                        ++ ", targets=" ++ show cfg'.targetModules
+                        ++ ", task=" ++ cfg'.taskType)
+              pure False
+
+
+----------------------------------------------------------------------
+-- Test #2 — adapter_model.safetensors uses peft on-disk names
+----------------------------------------------------------------------
+--
+-- Verify that the keys written to disk include the peft `base_model.model.`
+-- prefix + `.default.weight` suffix wrap, NOT the bare idris-ml names.
+
+testPeftKeyShape : IO Bool
+testPeftKeyShape = do
+  let dir = "/tmp/idris-ml-l4-keyshape"
+      cfg = MkLoraAdapterConfig 4 8.0 (the (List String) ["query"]) "SEQ_CLS"
+  -- Register one A + one B under the L3 HF-aligned naming convention.
+  _ <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1}
+                     "L4ks.bert.encoder.layer.0.attention.self.query.lora_A" 0.5
+  _ <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1}
+                     "L4ks.bert.encoder.layer.0.attention.self.query.lora_B" 0.0
+  ok <- saveLoraAdapter {ex=TapeExecutor} dir cfg
+  if not ok
+    then do putStrLn "  FAIL: saveLoraAdapter returned False"; pure False
+    else do
+      -- Verify round-trip by loading under the on-disk peft names.
+      -- We register two params with the peft names + 99 sentinel values,
+      -- then loadModel restores them from the saved file (if the saved
+      -- keys really are peft-wrapped, the load will hit them). After the
+      -- load, the peft-named params should be 0.5 / 0.0 (the saved values),
+      -- and the idris-ml-named params (still 99 from a separate prefix)
+      -- should be untouched.
+      peftAName <- pure "base_model.model.L4ks.bert.encoder.layer.0.attention.self.query.lora_A.default.weight"
+      peftBName <- pure "base_model.model.L4ks.bert.encoder.layer.0.attention.self.query.lora_B.default.weight"
+      pA <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1} peftAName 99.0
+      pB <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1} peftBName 99.0
+      okLoad <- loadModel {ex=TapeExecutor} (dir ++ "/adapter_model.safetensors")
+      let pAV = primItem1d {ex=TapeExecutor} pA.tensorPtr 0
+          pBV = primItem1d {ex=TapeExecutor} pB.tensorPtr 0
+      if okLoad && pAV == 0.5 && pBV == 0.0
+        then check ("peft-wrapped keys present in adapter_model.safetensors "
+                    ++ "(loaded A=" ++ show pAV ++ ", B=" ++ show pBV ++ ")") True
+        else do
+          putStrLn ("  FAIL: peft-wrapped load failed — "
+                    ++ "okLoad=" ++ show okLoad
+                    ++ ", A=" ++ show pAV ++ " (want 0.5)"
+                    ++ ", B=" ++ show pBV ++ " (want 0.0)")
+          pure False
+
+
+----------------------------------------------------------------------
+-- Test #3 — name remap helpers
+----------------------------------------------------------------------
+
+testNameRemap : IO Bool
+testNameRemap = do
+  let idrisName = "bert.encoder.layer.0.attention.self.query.lora_A"
+      peftName  = "base_model.model.bert.encoder.layer.0.attention.self.query.lora_A.default.weight"
+      wrapped = idrisToPeftName idrisName
+      unwrapped = peftToIdrisName peftName
+      rtFromPeft = peftToIdrisName wrapped
+      okWrap   = wrapped == peftName
+      okUnwrap = unwrapped == Just idrisName
+      okRt     = rtFromPeft == Just idrisName
+      okMiss   = peftToIdrisName "some.unrelated.name" == Nothing
+  if okWrap && okUnwrap && okRt && okMiss
+    then check "idrisToPeftName / peftToIdrisName round-trip + reject non-peft" True
+    else do
+      putStrLn ("  FAIL: wrap=" ++ show okWrap
+                ++ ", unwrap=" ++ show okUnwrap
+                ++ ", roundtrip=" ++ show okRt
+                ++ ", reject-non-peft=" ++ show okMiss)
+      pure False
+
+
+export
+suite : List (String, List (IO Bool))
+suite =
+  [ ("HfLoraIO — peft-compatible adapter I/O",
+     [ configRoundTrip
+     , testPeftKeyShape
+     , testNameRemap
+     ])
+  ]

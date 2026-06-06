@@ -30,6 +30,11 @@ dependencies = [
     # into the local data/hf-datasets/<repo>/ TSV cache that the
     # HfDataset.idr loader consumes.
     "datasets>=3.0",
+    # HuggingFace PEFT — used by the BERT SST-2 LoRA worked example's
+    # paired reference (packages/pytorch/torch_ref/scripts/bert_classify_sst2_lora_finetune.py)
+    # and by validate_lora_adapter.py for cross-tool round-trip of
+    # idris-ml-saved LoRA adapters into PeftModel.from_pretrained.
+    "peft>=0.14",
 ]
 
 [dependency-groups]

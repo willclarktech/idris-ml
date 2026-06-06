@@ -5,6 +5,7 @@ import Test.HfBert
 import Test.HfBertAttentionMask
 import Test.HfBertForClassification
 import Test.HfBertLoraInject
+import Test.HfLoraIO
 import Test.HfBitNet
 import Test.HfDataset
 import Test.HfGpt2
@@ -21,6 +22,7 @@ main = runAll (
   ] ++ Test.HfBert.suite ++ Test.HfBertAttentionMask.suite
     ++ Test.HfBertForClassification.suite
     ++ Test.HfBertLoraInject.suite
+    ++ Test.HfLoraIO.suite
     ++ Test.HfDataset.suite
     ++ Test.HfGpt2.suite ++ Test.HfLlama.suite
     ++ Test.HfBitNet.suite ++ Test.KVCache.suite ++ Test.Tokenizer.suite)

@@ -679,6 +679,20 @@ int param_save(const char* path);
    on success. */
 int param_save_by_name(const char* path, const char* names_nl, int count);
 
+/* Save the named subset under override on-disk names. `lookup_names_nl`
+   identifies which registry tensors to save; `ondisk_names_nl` is what
+   to write as their JSON-header keys. Both newline-separated, each
+   with exactly `count` entries. Used by the LoRA/peft adapter-IO
+   path to wrap idris-ml-side adapter names like
+   `bert.encoder.layer.0.attention.self.query.lora_A` in peft's
+   on-disk decorations
+   `base_model.model.bert.encoder.layer.0.attention.self.query.lora_A.default.weight`.
+   Returns 0 on success. */
+int param_save_by_name_renamed(const char* path,
+                               const char* lookup_names_nl,
+                               const char* ondisk_names_nl,
+                               int count);
+
 /* Load params from a .safetensors file into the existing param registry.
    Matches by name. Skips tensors not in registry. Returns 0 on success.
    Strict mode: errors out if any tensor's on-disk dtype differs from

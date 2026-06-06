@@ -487,7 +487,8 @@ applyEmbedLookup2d {seqLen} {dim} (MkBertEmbedding w) tokens = ioRerun (\_ =>
 -- tensor. Wraps primLayerNorm2d.
 export
 applyLN2d : {0 ex : Executor} -> UserExecutorTraining ex
-         => BertLN hidden ex dt g
+         => {seqLen, hidden : Nat}
+         -> BertLN hidden ex dt g
          -> Tensor [seqLen, hidden] ex dt g
          -> IO (Tensor [seqLen, hidden] ex dt g)
 applyLN2d (MkBertLN g b) input = ioRerun (\_ =>
