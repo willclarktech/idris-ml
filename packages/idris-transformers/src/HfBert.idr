@@ -397,6 +397,22 @@ makeLayer i pfx = do
   ou <- makeOutput    {hidden} {intermediate} p
   pure (MkBertLayer sa so im ou)
 
+-- Recursive helper for makeLayers. Top-level (not a `where`-bound
+-- helper) so its implicit binders don't shadow BertConfig's record
+-- projectors — the `where`-helper form trips Idris's lowercase-name
+-- shadowing warning that can't be silenced without breaking
+-- unification at the recursive call.
+makeLayersGo : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+            => {hidden, intermediate : Nat}
+            -> (paramPrefix : String)
+            -> (idx : Nat) -> (remaining : Nat)
+            -> IO (Vect remaining (BertLayerState hidden intermediate ex dt WithGrad))
+makeLayersGo _   _   Z     = pure []
+makeLayersGo pfx idx (S k) = do
+  l  <- makeLayer {hidden} {intermediate} idx pfx
+  ls <- makeLayersGo pfx (S idx) k
+  pure (l :: ls)
+
 -- Build N layers in ascending index order (0, 1, …, N-1). Registers
 -- params in the order the catalogue lists them.
 makeLayers : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
@@ -404,15 +420,7 @@ makeLayers : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatib
           -> (count : Nat)
           -> (paramPrefix : String)
           -> IO (Vect count (BertLayerState hidden intermediate ex dt WithGrad))
-makeLayers count pfx = go Z count
-  where
-    go : (idx : Nat) -> (remaining : Nat)
-       -> IO (Vect remaining (BertLayerState hidden intermediate ex dt WithGrad))
-    go _   Z     = pure []
-    go idx (S k) = do
-      l  <- makeLayer {hidden} {intermediate} idx pfx
-      ls <- go (S idx) k
-      pure (l :: ls)
+makeLayers count pfx = makeLayersGo pfx Z count
 
 makePooler : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {hidden : Nat}
