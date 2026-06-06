@@ -441,6 +441,8 @@ prim__paramNameTape : Int -> PrimIO String
 prim__paramGradItemAtTape : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_tape,libidrisml"
 prim__paramZeroAllTape : PrimIO ()
+%foreign "C:param_erase_by_prefix_tape,libidrisml"
+prim__paramEraseByPrefixTape : String -> PrimIO ()
 %foreign "C:optimizer_create_sgd_tape,libidrisml"
 prim__optimizerCreateSgdTape : Double -> AnyPtr
 %foreign "C:optimizer_create_rmsprop_tape,libidrisml"
@@ -564,6 +566,7 @@ public export
 UserExecutorParamRegistry TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primParamCount = prim__paramCountTape
+  primParamEraseByPrefix = prim__paramEraseByPrefixTape
   primParamGradItemAt = prim__paramGradItemAtTape
   primParamName = prim__paramNameTape
   primParamRegister = prim__paramRegisterTape

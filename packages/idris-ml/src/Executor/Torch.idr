@@ -475,6 +475,8 @@ prim__paramNameTorch : Int -> PrimIO String
 prim__paramGradItemAtTorch : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_torch,libidrisml"
 prim__paramZeroAllTorch : PrimIO ()
+%foreign "C:param_erase_by_prefix_torch,libidrisml"
+prim__paramEraseByPrefixTorch : String -> PrimIO ()
 %foreign "C:optimizer_create_sgd_torch,libidrisml"
 prim__optimizerCreateSgdTorch : Double -> AnyPtr
 %foreign "C:optimizer_create_rmsprop_torch,libidrisml"
@@ -597,6 +599,7 @@ public export
 {d : TorchHwDev} -> UserExecutorParamRegistry (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primParamCount = prim__paramCountTorch
+  primParamEraseByPrefix = prim__paramEraseByPrefixTorch
   primParamGradItemAt = prim__paramGradItemAtTorch
   primParamName = prim__paramNameTorch
   primParamRegister = prim__paramRegisterTorch

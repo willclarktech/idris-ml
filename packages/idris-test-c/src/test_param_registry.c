@@ -109,3 +109,36 @@ Test(shared_param_registry, duplicate_replaces) {
     cr_assert_eq((void*)param_tensor(0), (void*)b);
     (void)a;
 }
+
+Test(shared_param_registry, erase_by_prefix_drops_matching) {
+    param_clear();
+    (void)mk_param("model.layer1", 4);
+    (void)mk_param("__act/mnist/0", 4);
+    (void)mk_param("__act/mnist/1", 4);
+    (void)mk_param("model.layer2", 4);
+    cr_assert_eq(param_count(), 4);
+    param_erase_by_prefix("__act/");
+    cr_assert_eq(param_count(), 2);
+    /* Survivors must be the model entries, in stable relative order. */
+    cr_assert_str_eq(param_name(0), "model.layer1");
+    cr_assert_str_eq(param_name(1), "model.layer2");
+}
+
+Test(shared_param_registry, erase_by_prefix_no_match_is_noop) {
+    param_clear();
+    (void)mk_param("model.weight", 4);
+    cr_assert_eq(param_count(), 1);
+    param_erase_by_prefix("__act/");
+    cr_assert_eq(param_count(), 1);
+    cr_assert_str_eq(param_name(0), "model.weight");
+}
+
+Test(shared_param_registry, erase_by_prefix_empty_prefix_is_noop) {
+    /* Empty prefix would otherwise erase everything (every name starts
+       with the empty string). Defensive guard in param_erase_by_prefix
+       turns it into a no-op so a caller's "" doesn't nuke the model. */
+    param_clear();
+    (void)mk_param("model.weight", 4);
+    param_erase_by_prefix("");
+    cr_assert_eq(param_count(), 1);
+}

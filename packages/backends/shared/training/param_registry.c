@@ -71,6 +71,30 @@ void param_clear(void) {
     }
     param_count_val = 0;
 }
+
+/* Remove every registry entry whose name starts with `prefix`, releasing
+   its retain. Used by the activation-dump path in `forwardVarTraced`
+   (TRACE level) so transient `__act/<label>/<i>` entries don't survive
+   the forward and pollute the optimizer's `nativeTrainStep` walk. */
+void param_erase_by_prefix(const char* prefix) {
+    if (!prefix || !*prefix) return;
+    size_t pl = strlen(prefix);
+    int read = 0, write = 0;
+    while (read < param_count_val) {
+        if (strncmp(param_registry_arr[read].name, prefix, pl) == 0) {
+            tensor_release_handle((TensorHandle)param_registry_arr[read].tensor);
+            read++;
+            continue;
+        }
+        if (write != read) {
+            param_registry_arr[write] = param_registry_arr[read];
+        }
+        read++;
+        write++;
+    }
+    param_count_val = write;
+}
+
 int          param_count(void)        { return param_count_val; }
 const char*  param_name(int i)        { return param_registry_arr[i].name; }
 TensorHandle param_tensor(int i)      { return (TensorHandle)param_registry_arr[i].tensor; }

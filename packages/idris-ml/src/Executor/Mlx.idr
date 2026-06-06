@@ -486,6 +486,8 @@ prim__paramNameMlx : Int -> PrimIO String
 prim__paramGradItemAtMlx : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_mlx,libidrisml"
 prim__paramZeroAllMlx : PrimIO ()
+%foreign "C:param_erase_by_prefix_mlx,libidrisml"
+prim__paramEraseByPrefixMlx : String -> PrimIO ()
 %foreign "C:optimizer_create_sgd_mlx,libidrisml"
 prim__optimizerCreateSgdMlx : Double -> AnyPtr
 %foreign "C:optimizer_create_rmsprop_mlx,libidrisml"
@@ -606,6 +608,7 @@ public export
 {s : MlxStream} -> UserExecutorParamRegistry (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primParamCount = prim__paramCountMlx
+  primParamEraseByPrefix = prim__paramEraseByPrefixMlx
   primParamGradItemAt = prim__paramGradItemAtMlx
   primParamName = prim__paramNameMlx
   primParamRegister = prim__paramRegisterMlx

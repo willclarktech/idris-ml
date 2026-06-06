@@ -47,6 +47,7 @@
 #define optimizer_zero_grad optimizer_zero_grad_torch
 #define param_clear param_clear_torch
 #define param_count param_count_torch
+#define param_erase_by_prefix param_erase_by_prefix_torch
 #define param_grad_item param_grad_item_torch
 #define param_grad_item_and_zero param_grad_item_and_zero_torch
 #define param_grad_item_at param_grad_item_at_torch

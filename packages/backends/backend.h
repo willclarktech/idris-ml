@@ -453,6 +453,7 @@ TensorHandle tensor_ternary_quant_with_scale_2d(
 /* Register a named parameter for gradient collection after backward() */
 void         param_register(const char* name, TensorHandle t);
 void         param_clear(void);
+void         param_erase_by_prefix(const char* prefix);  /* drop entries with paramId starting with prefix */
 int          param_count(void);
 const char*  param_name(int idx);
 double       param_grad_item(int idx);          /* read scalar grad for param i */
