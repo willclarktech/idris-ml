@@ -216,6 +216,7 @@ runMixedF32Master cfg opt =
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 

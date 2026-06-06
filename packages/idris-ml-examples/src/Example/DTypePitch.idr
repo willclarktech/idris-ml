@@ -125,6 +125,7 @@ okIntU8  : () ; okIntU8  = integralOK {dt = U8}
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn "=== device capability gates ==="
   putStrLn "Compatible (dtype) admits, on every build:"
   putStrLn "  TapeExecutor F64 | TorchExecutor {TCpu F64/F32, TMps F32} | MlxExecutor {MCpu F64/F32, MGpu F32}"

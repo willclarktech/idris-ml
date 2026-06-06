@@ -349,6 +349,7 @@ specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
 partial
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 

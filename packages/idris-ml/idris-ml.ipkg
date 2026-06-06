@@ -25,6 +25,9 @@ modules = Compat.Random
         , Hardware
         , HwConfig
         , Machine
+        , Machine.BuiltinChecks
+        , Machine.Verify
+        , Machine.Verify.Probes
         , Preset
         , HwExecutors
         , Hpo

@@ -237,6 +237,7 @@ runPooledDump model = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   args <- getArgs
   let dumpPooled = elem "--dump-pooled" args
   t0 <- clockTime Monotonic

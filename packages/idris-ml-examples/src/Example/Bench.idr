@@ -304,6 +304,7 @@ benchNtmRecall = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   srand 123456
   args <- getArgs
   case drop 1 args of

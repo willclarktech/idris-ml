@@ -420,6 +420,7 @@ benchTransformerBlock = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn "--- Linear ---"
   benchLinear
   putStrLn ""

@@ -47,6 +47,7 @@ import Executor
 import Executor.Mlx
 import Layer
 import Tensor
+import BuildConfig
 
 
 -- Same input both sides; the value-level result must agree (modulo
@@ -74,6 +75,7 @@ showVec [a, b, c, d] = "[" ++ show a ++ ", " ++ show b ++ ", "
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn "=== mlx stream demo (MlxCpu F64 || MlxGpu F32) ==="
 
   -- CPU-stream tensor at F64. `UserExecutorCore (MlxExecutor MCpu)`'s

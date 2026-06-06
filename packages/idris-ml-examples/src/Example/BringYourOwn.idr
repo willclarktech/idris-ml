@@ -172,6 +172,7 @@ fma d a b c =
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn "=== BringYourOwn: dispatch demo ==="
   putStrLn ("device tag: " ++ deviceName {ex=BYO})
   putStrLn ""

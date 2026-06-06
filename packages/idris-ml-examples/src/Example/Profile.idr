@@ -123,6 +123,7 @@ profileLoop opt dataPoints model cur count =
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   srand 123456
 
   putStrLn "=== NTM Copy Forward-Pass Profile ==="

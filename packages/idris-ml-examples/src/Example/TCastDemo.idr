@@ -41,6 +41,7 @@ showVec [a, b, c, d] = "[" ++ show a ++ ", " ++ show b ++ ", "
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn $ "=== tcast smoke test [" ++ backendName {ex=ExampleExecutor} ++ "] ==="
   let srcPtr = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} testValues
       src    = the (TVec 4 ExampleExecutor ExampleDType WithGrad) (MkTensor srcPtr Nothing)

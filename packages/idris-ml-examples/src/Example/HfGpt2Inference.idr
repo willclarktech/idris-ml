@@ -223,6 +223,7 @@ runGenerate tok model prompt numTokens = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   args <- getArgs
   let dumpHidden = elem "--dump-final-hidden" args
   t0 <- clockTime Monotonic

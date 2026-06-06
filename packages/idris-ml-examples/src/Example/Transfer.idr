@@ -34,6 +34,7 @@ import Data.Vect
 import Executor
 import Tensor
 import Util
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -199,6 +200,7 @@ hopF32 = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn "=== Live cross-backend Tensor transfer demo ==="
   putStrLn ""
   putStrLn "Expected values at every hop: [1.0, 2.0, 3.0, 4.0]"

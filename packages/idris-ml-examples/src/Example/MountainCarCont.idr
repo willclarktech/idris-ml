@@ -412,6 +412,7 @@ evalN actor (S k) acc = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed

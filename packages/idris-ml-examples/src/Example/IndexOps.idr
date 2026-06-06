@@ -57,6 +57,7 @@ approxEq a b = abs (a - b) < 1.0e-9
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn $ "=== index ops [" ++ backendName {ex=ExampleExecutor} ++ "] ==="
   let src = mkVec srcVals
 

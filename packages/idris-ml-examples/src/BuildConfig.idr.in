@@ -26,12 +26,17 @@ module BuildConfig
 import public Executor
 import Backend
 import Hardware
-import Machine
+import public Machine
+import public Machine.Verify
+import public Machine.BuiltinChecks
 import Preset
 
 ||| The Machine the build targets, sed-substituted from $(MACHINE).
+||| Declared at kind `Machine` (the kind alias from the `Machine`
+||| module — same as `Type`) so the `MachineRuntimeCheck` instance
+||| resolves cleanly under `requireMachine {m = ChosenMachine}`.
 public export
-ChosenMachine : Type
+ChosenMachine : Machine
 ChosenMachine = @CHOSEN_MACHINE_TAG@
 
 ||| The primary Backend, sed-substituted from $(PRIMARY).

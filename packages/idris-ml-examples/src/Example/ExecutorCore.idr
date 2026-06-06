@@ -11,6 +11,7 @@ module Example.ExecutorCore
 
 import Executor.Core
 import Executor.Tape
+import BuildConfig
 
 
 ||| Build two scalars, add them, read back. Forces the typechecker
@@ -25,6 +26,7 @@ addViaInterface d a b =
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn ("device: " ++ deviceName {ex=TapeExecutor})
   putStrLn ("3 + 4         = " ++ show (addViaInterface TapeExecutor 3.0 4.0))
   putStrLn ("(2 + 3) * 5   = "

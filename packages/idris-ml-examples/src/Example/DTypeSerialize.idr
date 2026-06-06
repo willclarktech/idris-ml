@@ -47,6 +47,7 @@ saveOne name vals = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   args <- getArgs
   let path = case args of
                (_ :: p :: _) => p

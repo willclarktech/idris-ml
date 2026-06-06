@@ -59,3 +59,9 @@ public export {n : Nat} -> Provides (LinuxCuda n) (Cuda 0) where
 -- Multi-index Cuda enumeration (Cuda 1 .. Cuda n-1) is the High-Priority
 -- CUDA TODO row's job; for now only Cuda 0 is admitted from each Cuda-
 -- equipped Machine.
+
+-- MachineRuntimeCheck instances for the built-in Machine tags live in
+-- `Machine.BuiltinChecks` to avoid a circular import (Machine.Verify
+-- depends on this module for the `Machine` kind alias). Users adding
+-- their own Machine tag write their `MachineRuntimeCheck` instance
+-- alongside the tag in their own module.

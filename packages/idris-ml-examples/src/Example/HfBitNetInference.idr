@@ -224,6 +224,7 @@ runGenerate tok model tables prompt numTokens = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   args <- getArgs
   let dumpLogits   = elem "--dump-logits"   args
   let bisectBlocks = elem "--bisect-blocks" args

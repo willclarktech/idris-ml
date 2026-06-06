@@ -42,6 +42,7 @@ import Data.Vect
 
 import Executor
 import Tensor
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -214,6 +215,7 @@ partThree_F32Hop = do
 
 main : IO ()
 main = do
+  requireMachine {m = ChosenMachine}
   putStrLn "=== PrecisionDemo: F32/F64 cast + cross-backend hop ==="
   putStrLn ""
   putStrLn "F32: 4 bytes/elem, ~7 significant decimal digits."
