@@ -6,8 +6,9 @@
 ||| cache length is 3 and the row-major data is exactly what
 ||| concat-along-axis-0 should produce.
 |||
-||| Pins `{ex=TapeExecutor}` directly (same shape as `Test.HfLlama` — it's a
-||| FFI-level test and tape's C arena is the predictable lane).
+||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from the
+||| Makefile-generated `Test.Config`; runs on every F64-admissible
+||| primary.
 module Test.KVCache
 
 import Data.Vect
@@ -15,7 +16,7 @@ import Data.Vect
 import Array
 import Executor
 import Executor.Core
-import Executor.Tape
+import Test.Config
 import Test.Harness
 import KVCache
 import Tensor
@@ -25,18 +26,18 @@ import Tensor
 -- Helpers
 ----------------------------------------------------------------------
 
-mkRow2 : {n : Nat} -> Vect n Double -> IO (Tensor [1, n] TapeExecutor F64 NoGrad)
+mkRow2 : {n : Nat} -> Vect n Double -> IO (Tensor [1, n] TestExecutor TestDType NoGrad)
 mkRow2 xs = do
-  raw <- ioRerun (\_ => bulkToTensor2d {ex=TapeExecutor} {dt=F64} {b=1} {i=n}
+  raw <- ioRerun (\_ => bulkToTensor2d {ex=TestExecutor} {dt=TestDType} {b=1} {i=n}
                                        [VArray (map SArray xs)])
-  weakenGrad {ex=TapeExecutor} (tinput2d {m=1} {n} raw)
+  weakenGrad {ex=TestExecutor} (tinput2d {m=1} {n} raw)
 
 mkRows2 : {m, n : Nat} -> Vect m (Vect n Double) ->
-          IO (Tensor [m, n] TapeExecutor F64 NoGrad)
+          IO (Tensor [m, n] TestExecutor TestDType NoGrad)
 mkRows2 xss = do
-  raw <- ioRerun (\_ => bulkToTensor2d {ex=TapeExecutor} {dt=F64} {b=m} {i=n}
+  raw <- ioRerun (\_ => bulkToTensor2d {ex=TestExecutor} {dt=TestDType} {b=m} {i=n}
                                        (map (\row => VArray (map SArray row)) xss))
-  weakenGrad {ex=TapeExecutor} (tinput2d {m} {n} raw)
+  weakenGrad {ex=TestExecutor} (tinput2d {m} {n} raw)
 
 
 -- Read a [m, n] tensor's raw buffer into row-major List Double via
@@ -48,7 +49,7 @@ readMat m n p = go (cast {to=Int} (m * n)) 0 []
     go end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {ex=TapeExecutor} p i
+        else let v = primItem1d {ex=TestExecutor} p i
              in go end (i + 1) (v :: acc)
 
 
@@ -58,7 +59,7 @@ readMat m n p = go (cast {to=Int} (m * n)) 0 []
 
 testEmptyLen : IO Bool
 testEmptyLen =
-  let c : KVCache 4 TapeExecutor F64
+  let c : KVCache 4 TestExecutor TestDType
       c = emptyKVCache
   in check "emptyKVCache.cacheLen = 0" (cacheLen c == 0)
 
@@ -77,7 +78,7 @@ testAppendIntoEmpty = do
   v0 <- mkRows2 {m=2} {n=3}
           (the (Vect 2 (Vect 3 Double))
                [[7.0, 8.0, 9.0], [10.0, 11.0, 12.0]])
-  c1 <- appendKV {s=2} {kvOut=3} (the (KVCache 3 TapeExecutor F64) emptyKVCache) k0 v0
+  c1 <- appendKV {s=2} {kvOut=3} (the (KVCache 3 TestExecutor TestDType) emptyKVCache) k0 v0
   case c1 of
     Empty => do
       putStrLn "  FAIL: appendKV onto Empty returned Empty"
@@ -114,7 +115,7 @@ testAppendIntoFilled = do
   v0 <- mkRows2 {m=2} {n=3}
           (the (Vect 2 (Vect 3 Double))
                [[10.0, 20.0, 30.0], [40.0, 50.0, 60.0]])
-  c1 <- appendKV {s=2} {kvOut=3} (the (KVCache 3 TapeExecutor F64) emptyKVCache) k0 v0
+  c1 <- appendKV {s=2} {kvOut=3} (the (KVCache 3 TestExecutor TestDType) emptyKVCache) k0 v0
   k1 <- mkRow2 {n=3} (the (Vect 3 Double) [7.0, 8.0, 9.0])
   v1 <- mkRow2 {n=3} (the (Vect 3 Double) [70.0, 80.0, 90.0])
   c2 <- appendKV {s=1} {kvOut=3} c1 k1 v1
@@ -156,7 +157,7 @@ testCacheLenAccumulates = do
   v3 <- mkRow2 {n=3} (the (Vect 3 Double) [4.0, 5.0, 6.0])
   k4 <- mkRow2 {n=3} (the (Vect 3 Double) [1.0, 2.0, 3.0])
   v4 <- mkRow2 {n=3} (the (Vect 3 Double) [4.0, 5.0, 6.0])
-  c0 <- pure (the (KVCache 3 TapeExecutor F64) emptyKVCache)
+  c0 <- pure (the (KVCache 3 TestExecutor TestDType) emptyKVCache)
   c1 <- appendKV {s=1} {kvOut=3} c0 k1 v1
   c2 <- appendKV {s=1} {kvOut=3} c1 k2 v2
   c3 <- appendKV {s=1} {kvOut=3} c2 k3 v3

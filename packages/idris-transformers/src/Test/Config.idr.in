@@ -1,0 +1,78 @@
+||| Build-time selection of the (Machine, Backend, Hardware) triple the
+||| `idris-transformers` test suite targets. Generated from this template
+||| by the Makefile rule at `Makefile`'s IDRIS_TRANSFORMERS_TESTCONFIG_IDR
+||| target — observes `PRIMARY` + `HARDWARE` + `MACHINE` at build time
+||| and substitutes the chosen type tags via sed. Mirrors
+||| `packages/idris-ml/src/Test/Config.idr.in`; each test sourcedir keeps
+||| its own resolved `Test.Config` because the dual-ipkg setup means
+||| neither package's tests can import the other's generated module.
+|||
+||| The Executor and DType drop out via the `Preset` typeclass; the
+||| `Provides` constraint enforces that the requested Hardware is
+||| reachable on the chosen Machine. Mismatched combinations fail at
+||| test-compile with clear "no instance Preset …" / "no instance
+||| Provides …" errors.
+|||
+||| Pre-existing unit tests used to pin `{ex=TapeExecutor}` directly,
+||| binding them to the tape backend. Tests now spell `{ex=TestExecutor}`
+||| and resolve to the active primary at build time.
+|||
+||| Idris-2 cannot drive type-level selection from a runtime env var —
+||| types are fixed at elaboration. The generated `TestConfig.idr` is in
+||| `.gitignore`. Do not edit the generated file directly; edit this
+||| `.in` template instead.
+module Test.Config
+
+import public Executor
+import public Executor.Tape
+import public Executor.Torch
+import public Executor.Mlx
+import public Backend
+import public Hardware
+import public Machine
+import public Preset
+
+||| The Machine the test build targets, sed-substituted from $(MACHINE).
+public export
+TestMachine : Type
+TestMachine = @CHOSEN_MACHINE_TAG@
+
+||| The primary Backend (type-level), sed-substituted from $(PRIMARY).
+public export
+TestPrimaryBackendTag : Type
+TestPrimaryBackendTag = @PRIMARY_BACKEND_TAG@
+
+||| The Hardware the tests target, sed-substituted from $(HARDWARE).
+public export
+TestHardware : Type
+TestHardware = @CHOSEN_HARDWARE_TAG@
+
+||| Test Executor — sed-substituted directly (typeclass methods don't
+||| unfold during constraint search; emit the resolved type so
+||| `UserExecutorTraining TestExecutor` reduces cleanly).
+public export
+TestExecutor : Type
+TestExecutor = @EXAMPLE_EXECUTOR_TYPE@
+
+||| Test DType — sed-substituted directly (same reason).
+public export
+TestDType : Type
+TestDType = @EXAMPLE_DTYPE_TYPE@
+
+||| Lowercase name of the primary backend ("tape" / "torch" / "mlx"),
+||| as seen at TestConfig generation time. Value-level mirror of the
+||| Type-level `TestExecutor` selection above. Tests that need to gate
+||| at runtime — e.g. F32-vs-F64 paired-oracle tests that only make
+||| sense when both dtypes are admissible on the active device — read
+||| this string to decide whether to run or skip.
+public export
+TestPrimaryBackend : String
+TestPrimaryBackend = "@PRIMARY@"
+
+public export
+machineProvidesHardware : Provides TestMachine TestHardware
+machineProvidesHardware = %search
+
+public export
+backendHasPreset : Preset TestPrimaryBackendTag TestHardware
+backendHasPreset = %search

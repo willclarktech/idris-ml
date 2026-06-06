@@ -6,9 +6,8 @@
 |||      those names in C-side param registry order.
 |||   3. Forward-pass shape + finite smoke on the tinyGpt2Config.
 |||
-||| Like Test.HfBert this pins `{ex=TapeExecutor}` directly. CI runs `make
-||| test-transformers` with whatever backend `make install` produced
-||| (tape by default).
+||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from `Test.Config`;
+||| runs on every F64-admissible primary.
 module Test.HfGpt2
 
 import Data.List
@@ -21,7 +20,7 @@ import Test.HfCommon
 
 import Executor
 import Executor.Core
-import Executor.Tape
+import Test.Config
 import Tensor
 import Array
 
@@ -106,14 +105,14 @@ testNamingConvention =
 
 readAllParamNames : IO (List String)
 readAllParamNames = do
-  count <- primIO (primParamCount {ex=TapeExecutor})
+  count <- primIO (primParamCount {ex=TestExecutor})
   go count 0
   where
     go : Int -> Int -> IO (List String)
     go end i = if i >= end
                  then pure []
                  else do
-                   name <- primIO (primParamName {ex=TapeExecutor} i)
+                   name <- primIO (primParamName {ex=TestExecutor} i)
                    rest <- go end (i + 1)
                    pure (name :: rest)
 
@@ -133,8 +132,8 @@ testConstructorRegistersHfNames = do
   -- Literal Nats so `hidden = numHeads * headDim` reduces to Refl
   -- (`4 = 2 * 2`). Going through `cfg.hidden` keeps the proof
   -- existentially-quantified and the auto-implicit can't resolve.
-  preCount <- primIO (primParamCount {ex=TapeExecutor})
-  _ <- hfGpt2Model {ex=TapeExecutor} {dt=F64}
+  preCount <- primIO (primParamCount {ex=TestExecutor})
+  _ <- hfGpt2Model {ex=TestExecutor} {dt=TestDType}
                    {vocab        = 8}
                    {hidden       = 4}
                    {numLayers    = 6}

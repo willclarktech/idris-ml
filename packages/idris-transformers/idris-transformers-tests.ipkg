@@ -12,6 +12,7 @@ depends = contrib
         , idris-test
 
 modules = Test.Main
+        , Test.Config
         , Test.HfBert
         , Test.HfBertAttentionMask
         , Test.HfBertForClassification

@@ -7,8 +7,8 @@
 |||      (vocab=8, hidden=4, etc.) but numLayers=16 so the per-layer
 |||      math matches the real Llama 3.2 1B catalogue (146 names).
 |||
-||| Pins `{ex=TapeExecutor}` directly (same shape as the HfBert + HfGpt2
-||| FFI tests).
+||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from `Test.Config`;
+||| runs on every F64-admissible primary.
 module Test.HfLlama
 
 import Data.List
@@ -21,7 +21,7 @@ import Test.HfCommon
 
 import Executor
 import Executor.Core
-import Executor.Tape
+import Test.Config
 import Tensor
 
 
@@ -106,14 +106,14 @@ testNamingConvention =
 
 readAllParamNames : IO (List String)
 readAllParamNames = do
-  count <- primIO (primParamCount {ex=TapeExecutor})
+  count <- primIO (primParamCount {ex=TestExecutor})
   go count 0
   where
     go : Int -> Int -> IO (List String)
     go end i = if i >= end
                  then pure []
                  else do
-                   name <- primIO (primParamName {ex=TapeExecutor} i)
+                   name <- primIO (primParamName {ex=TestExecutor} i)
                    rest <- go end (i + 1)
                    pure (name :: rest)
 
@@ -131,8 +131,8 @@ testConstructorRegistersHfNames = do
   -- test.
   --
   -- Literal Nats so the auto-implicits can resolve (each Nat is small).
-  preCount <- primIO (primParamCount {ex=TapeExecutor})
-  _ <- hfLlamaModel {ex=TapeExecutor} {dt=F64}
+  preCount <- primIO (primParamCount {ex=TestExecutor})
+  _ <- hfLlamaModel {ex=TestExecutor} {dt=TestDType}
                     {vocab        = 8}
                     {hidden       = 4}
                     {numLayers    = 16}

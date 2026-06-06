@@ -730,6 +730,13 @@ HWDEVICES_IN  := packages/idris-ml/src/HwExecutors.idr.in
 TESTCONFIG_IDR := packages/idris-ml/src/Test/Config.idr
 TESTCONFIG_IN  := packages/idris-ml/src/Test/Config.idr.in
 
+# Sibling Test.Config for the idris-transformers test ipkg — same template
+# pattern. The two ipkgs can't share a generated module (different sourcedirs),
+# so each gets its own resolved copy keyed on the same (MACHINE, PRIMARY,
+# HARDWARE) tuple.
+IDRIS_TRANSFORMERS_TESTCONFIG_IDR := packages/idris-transformers/src/Test/Config.idr
+IDRIS_TRANSFORMERS_TESTCONFIG_IN  := packages/idris-transformers/src/Test/Config.idr.in
+
 # Always-touch the stamp so it's at least as fresh as the current `make`
 # invocation, even when content matches. Without the trailing touch, a
 # *different* backend set rewriting BuildConfig.idr (mtime bumps) would
@@ -847,6 +854,47 @@ $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[TestConfig] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → TestExecutor=$$(awk -F' = ' '/^TestExecutor = / { print $$2; exit }' $@) / TestDType=$$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
+
+# The transformers test ipkg uses the same template as idris-ml's; both
+# resolve to the same content (same active PRIMARY × hw envs). Generated
+# by re-running the same sed substitution against the transformers
+# template — the two .in files stay in sync (mirror copies).
+$(IDRIS_TRANSFORMERS_TESTCONFIG_IDR): $(IDRIS_TRANSFORMERS_TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
+	@case "$(MACHINE_RESOLVED)" in \
+		mac-m-series)   MTAG="MacMSeries" ;; \
+		mac-intel)      MTAG="MacIntel" ;; \
+		intel-cuda-*)   MTAG="IntelCuda $$(echo $(MACHINE_RESOLVED) | sed 's/intel-cuda-//')" ;; \
+		linux-cpu)      MTAG="LinuxCpu" ;; \
+		linux-cuda-*)   MTAG="LinuxCuda $$(echo $(MACHINE_RESOLVED) | sed 's/linux-cuda-//')" ;; \
+		*)              MTAG="MacMSeries" ;; \
+	esac; \
+	case "$(PRIMARY)" in \
+		tape)  BTAG="TapeBackend" ;;  \
+		torch) BTAG="TorchBackend" ;; \
+		mlx)   BTAG="MlxBackend" ;;   \
+		*)     BTAG="TapeBackend" ;;  \
+	esac; \
+	case "$(HARDWARE_RESOLVED)" in \
+		cpu)    HTAG="Cpu" ;;       \
+		metal)  HTAG="AppleGpu" ;;  \
+		cuda)   HTAG="Cuda 0" ;;    \
+		*)      HTAG="Cpu" ;;       \
+	esac; \
+	case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
+		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
+		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
+		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
+		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
+		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
+		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+	esac; \
+	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
+	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
+	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
+	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+	@echo "[TestConfig:transformers] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → TestExecutor=$$(awk -F' = ' '/^TestExecutor = / { print $$2; exit }' $@) / TestDType=$$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
 
 # Same always-touch logic as the .buildconfig-stamp recipe above; see
 # the comment there for why a content-equal stamp still needs an mtime
@@ -1502,7 +1550,7 @@ test-unit-gym:
 # exactly. The dylib gets copied alongside the test executable so the
 # FFI registry calls land on the active backend's symbols (mirrors
 # the test-unit-idris-ml recipe).
-test-unit-idris-transformers: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
+test-unit-idris-transformers: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(IDRIS_TRANSFORMERS_TESTCONFIG_IDR)
 	cd packages/idris-transformers && pack --no-prompt build idris-transformers-tests.ipkg
 	cp $(LIB) packages/idris-transformers/build/exec/idris-transformers-test_app/
 	$(STDBUF) ./packages/idris-transformers/build/exec/idris-transformers-test

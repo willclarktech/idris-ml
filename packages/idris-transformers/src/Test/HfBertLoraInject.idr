@@ -1,15 +1,11 @@
 ||| Unit tests for L3's `loraInjectBert` + `hfBertForwardWithLora`.
 |||
-||| Pinned to TapeExecutor for the same reason `Test.HfBertAttentionMask`
-||| is — the idris-transformers test suite doesn't yet have a generated
-||| `TestConfig.idr.in` mirror of the idris-ml side. Cross-backend
-||| coverage rides on:
-|||  - L1's `Test.LoraLinear` (verifies the LoRA math primitive on
-|||    tape/torch/mlx-cpu), and
-|||  - L5's worked example (verifies the end-to-end LoRA fine-tune
-|||    converges on all three backends).
-||| This module's job is the PLUMBING gate: confirm the adapter struct
-||| is correctly threaded into the encoder forward.
+||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from the
+||| Makefile-generated `Test.Config`; runs on every F64-admissible
+||| primary. Cross-backend numeric coverage of the LoRA math primitive
+||| itself lives in L1's `Test.LoraLinear`; this module's job is the
+||| PLUMBING gate: confirm the adapter struct is correctly threaded
+||| into the encoder forward.
 module Test.HfBertLoraInject
 
 import Data.List
@@ -21,7 +17,7 @@ import Test.Harness
 
 import Executor
 import Executor.Core
-import Executor.Tape
+import Test.Config
 import Tensor
 import Array
 
@@ -30,9 +26,9 @@ import Array
 -- Helpers (mirror Test.HfBertAttentionMask)
 ----------------------------------------------------------------------
 
-mkIdsTensor : {n : Nat} -> Vect n Double -> IO (Tensor [n] TapeExecutor F64 WithGrad)
+mkIdsTensor : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType WithGrad)
 mkIdsTensor xs = do
-  raw <- ioRerun (\_ => bulkToTensor {ex=TapeExecutor} {dt=F64}
+  raw <- ioRerun (\_ => bulkToTensor {ex=TestExecutor} {dt=TestDType}
                                      (VArray (map SArray xs)))
   pure (tinput1d {n} raw)
 
@@ -43,7 +39,7 @@ readOut {n} p = loop (cast {to=Int} n) 0 []
     loop end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {ex=TapeExecutor} p i
+        else let v = primItem1d {ex=TestExecutor} p i
              in loop end (i + 1) (v :: acc)
 
 maxAbsDiff : List Double -> List Double -> Double
@@ -62,9 +58,9 @@ maxAbsDiff actual expected = go actual expected 0.0
 -- ---------------------------------------------------------------
 
 buildModel : (pfx : String)
-          -> IO (HfBert.BertModelState 4 8 1 16 4 2 TapeExecutor F64 WithGrad)
+          -> IO (HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad)
 buildModel pfx =
-  hfBertModel {ex=TapeExecutor} {dt=F64}
+  hfBertModel {ex=TestExecutor} {dt=TestDType}
               {vocab        = 4}
               {hidden       = 8}
               {numLayers    = 1}
@@ -77,14 +73,14 @@ buildModel pfx =
 -- Run hfBertForwardWithLora with given adapters + return the
 -- [Hidden=8]-shape pooled output as a List Double.
 runForwardWith :
-     HfBert.BertModelState 4 8 1 16 4 2 TapeExecutor F64 WithGrad
-  -> Maybe (BertLoraAdapters 1 8 4 TapeExecutor F64 WithGrad)
+     HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad
+  -> Maybe (BertLoraAdapters 1 8 4 TestExecutor TestDType WithGrad)
   -> IO (List Double)
 runForwardWith model lora = do
   inputIds <- mkIdsTensor (the (Vect 3 Double) [1.0, 2.0, 3.0])
   posIds   <- mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
   typeIds  <- mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
-  out <- hfBertForwardWithLora {ex=TapeExecutor} {dt=F64}
+  out <- hfBertForwardWithLora {ex=TestExecutor} {dt=TestDType}
                                {seqLen       = 3}
                                {vocab        = 4}
                                {hidden       = 8}
@@ -113,7 +109,7 @@ runForwardWith model lora = do
 testInjectBitMatchAtInit : IO Bool
 testInjectBitMatchAtInit = do
   model <- buildModel "lora_inject_init.bert"
-  lora  <- loraInjectBert {ex=TapeExecutor} {dt=F64} {hidden=8}
+  lora  <- loraInjectBert {ex=TestExecutor} {dt=TestDType} {hidden=8}
                           "lora_inject_init.bert" 1 4 16.0
   outNothing <- runForwardWith model Nothing
   outWith    <- runForwardWith model (Just lora)
@@ -146,17 +142,17 @@ testInjectBitMatchAtInit = do
 -- applies. Exact-value verification of the delta lives in L1's
 -- `Test.LoraLinear.testNonZeroDelta`; this is the integration gate.
 
-mkAdaptersWithNonzeroB : IO (BertLoraAdapters 1 8 4 TapeExecutor F64 WithGrad)
+mkAdaptersWithNonzeroB : IO (BertLoraAdapters 1 8 4 TestExecutor TestDType WithGrad)
 mkAdaptersWithNonzeroB = do
   let qPfx = "lora_inject_nz.bert.encoder.layer.0.attention.self.query"
       vPfx = "lora_inject_nz.bert.encoder.layer.0.attention.self.value"
-  aQ <- tparam2dNormal {ex=TapeExecutor} {dt=F64} {o=4} {i=8}
+  aQ <- tparam2dNormal {ex=TestExecutor} {dt=TestDType} {o=4} {i=8}
                        (qPfx ++ ".lora_A") 0.0 0.5
-  bQ <- tparam2dConst  {ex=TapeExecutor} {dt=F64} {o=8} {i=4}
+  bQ <- tparam2dConst  {ex=TestExecutor} {dt=TestDType} {o=8} {i=4}
                        (qPfx ++ ".lora_B") 0.25  -- NONZERO
-  aV <- tparam2dNormal {ex=TapeExecutor} {dt=F64} {o=4} {i=8}
+  aV <- tparam2dNormal {ex=TestExecutor} {dt=TestDType} {o=4} {i=8}
                        (vPfx ++ ".lora_A") 0.0 0.5
-  bV <- tparam2dConst  {ex=TapeExecutor} {dt=F64} {o=8} {i=4}
+  bV <- tparam2dConst  {ex=TestExecutor} {dt=TestDType} {o=8} {i=4}
                        (vPfx ++ ".lora_B") 0.25  -- NONZERO
   pure (MkBertLoraAdapters 4 16.0 [MkLoraAdapter aQ bQ] [MkLoraAdapter aV bV])
 

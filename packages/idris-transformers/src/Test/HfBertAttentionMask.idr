@@ -2,12 +2,10 @@
 ||| `hfBertForward` (and downstream `applyEncoder` / `applyLayer` /
 ||| `applySelfAttn` / `oneHeadCtx` / `buildHeads`).
 |||
-||| Pinned to `TapeExecutor` for the same reason `Test.HfBert` is —
-||| the idris-transformers test suite doesn't yet have a generated
-||| `TestConfig.idr.in` mirror of the idris-ml side. Tape's MaskedFill
-||| primitive is the load-bearing piece; cross-backend coverage rides
-||| on the existing `Test.HfBert.testForwardShapeAndFinite` not
-||| regressing under `BACKEND=torch,tape` and `BACKEND=mlx,tape`.
+||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from the
+||| Makefile-generated `Test.Config`, so the suite runs on whichever
+||| F64-admissible primary the build targets (tape / torch-cpu /
+||| mlx-cpu). MaskedFill is the load-bearing primitive being exercised.
 module Test.HfBertAttentionMask
 
 import Data.List
@@ -18,7 +16,7 @@ import Test.Harness
 
 import Executor
 import Executor.Core
-import Executor.Tape
+import Test.Config
 import Tensor
 import Array
 
@@ -26,9 +24,9 @@ import Array
 -- Build a Tensor [n] from a Vect of doubles (mirrors Test.HfBert).
 -- `ioRerun` defers the C-side allocation per the pure-typed-FFI
 -- reorder gotcha (feedback_pure_typed_ffi_reorders.md).
-mkIdsTensor : {n : Nat} -> Vect n Double -> IO (Tensor [n] TapeExecutor F64 WithGrad)
+mkIdsTensor : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType WithGrad)
 mkIdsTensor xs = do
-  raw <- ioRerun (\_ => bulkToTensor {ex=TapeExecutor} {dt=F64}
+  raw <- ioRerun (\_ => bulkToTensor {ex=TestExecutor} {dt=TestDType}
                                      (VArray (map SArray xs)))
   pure (tinput1d {n} raw)
 
@@ -37,12 +35,12 @@ mkIdsTensor xs = do
 -- The mask is treated as a constant (no-grad in practice — the bool
 -- cast inside masked_fill drops grad).
 mkMask2d : {m, n : Nat} -> Vect (m * n) Double
-        -> IO (Tensor [m, n] TapeExecutor F64 WithGrad)
+        -> IO (Tensor [m, n] TestExecutor TestDType WithGrad)
 mkMask2d {m} {n} xs = do
   let mn = cast {to=Int} (m * n)
       buf = prim__allocDoubles mn
       buf' = fill buf 0 xs
-  tparam2d {ex=TapeExecutor} {dt=F64} {o=m} {i=n}
+  tparam2d {ex=TestExecutor} {dt=TestDType} {o=m} {i=n}
            ("attnmask_test_" ++ show m ++ "x" ++ show n)
            buf'
   where
@@ -61,7 +59,7 @@ readOut {n} p = loop (cast {to=Int} n) 0 []
     loop end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {ex=TapeExecutor} p i
+        else let v = primItem1d {ex=TestExecutor} p i
              in loop end (i + 1) (v :: acc)
 
 
@@ -83,14 +81,14 @@ maxAbsDiff actual expected = go actual expected 0.0
 -- entries by name on every `hfBertModel` call, so re-constructing
 -- the model would yield different random weights).
 runForwardWith :
-     HfBert.BertModelState 4 8 1 16 4 2 TapeExecutor F64 WithGrad
-  -> Maybe (Tensor [3, 3] TapeExecutor F64 WithGrad)
+     HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad
+  -> Maybe (Tensor [3, 3] TestExecutor TestDType WithGrad)
   -> IO (List Double)
 runForwardWith model mask = do
   inputIds <- mkIdsTensor (the (Vect 3 Double) [1.0, 2.0, 3.0])
   posIds   <- mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
   typeIds  <- mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
-  out <- hfBertForward {ex=TapeExecutor} {dt=F64}
+  out <- hfBertForward {ex=TestExecutor} {dt=TestDType}
                        {seqLen       = 3}
                        {vocab        = 4}
                        {hidden       = 8}
@@ -108,9 +106,9 @@ runForwardWith model mask = do
 -- builds a fresh paramPrefix, so the two assertions don't collide
 -- on the param registry).
 buildModel : (pfx : String)
-          -> IO (HfBert.BertModelState 4 8 1 16 4 2 TapeExecutor F64 WithGrad)
+          -> IO (HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad)
 buildModel pfx =
-  hfBertModel {ex=TapeExecutor} {dt=F64}
+  hfBertModel {ex=TestExecutor} {dt=TestDType}
               {vocab        = 4}
               {hidden       = 8}
               {numLayers    = 1}

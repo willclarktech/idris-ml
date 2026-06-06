@@ -6,9 +6,9 @@
 |||   3. FFI registry — constructor registers HF-native names in order
 |||   4. forward pass — shape + finite values
 |||
-||| The FFI bucket pins `{ex=TapeExecutor}` directly (same convention
-||| as the existing `Test.HfBert` suite); `make BACKEND=tape
-||| test-unit-idris-transformers` exercises it.
+||| The FFI bucket resolves `{ex=TestExecutor}` / `{dt=TestDType}`
+||| from `Test.Config`; the suite runs against every F64-admissible
+||| primary.
 module Test.HfBertForClassification
 
 import Data.List
@@ -21,7 +21,7 @@ import Test.Harness
 
 import Executor
 import Executor.Core
-import Executor.Tape
+import Test.Config
 import Tensor
 import Array
 
@@ -142,14 +142,14 @@ testSeqClassifyCombinedCatalogue =
 
 readAllParamNames : IO (List String)
 readAllParamNames = do
-  count <- primIO (primParamCount {ex=TapeExecutor})
+  count <- primIO (primParamCount {ex=TestExecutor})
   go count 0
   where
     go : Int -> Int -> IO (List String)
     go end i = if i >= end
                  then pure []
                  else do
-                   name <- primIO (primParamName {ex=TapeExecutor} i)
+                   name <- primIO (primParamName {ex=TestExecutor} i)
                    rest <- go end (i + 1)
                    pure (name :: rest)
 
@@ -164,7 +164,7 @@ testConstructorRegistersClassifierHead = do
   let cfg = bertTinyConfig
   -- Use distinct prefixes to dodge any registry pollution from
   -- earlier Test.HfBert buckets ("bert" / "fwdtest" / "clstest").
-  _ <- hfBertForSequenceClassification {ex=TapeExecutor} {dt=F64}
+  _ <- hfBertForSequenceClassification {ex=TestExecutor} {dt=TestDType}
                                        {vocab        = cfg.vocabSize}
                                        {hidden       = cfg.hidden}
                                        {numLayers    = cfg.numLayers}
@@ -193,9 +193,9 @@ testConstructorRegistersClassifierHead = do
 -- Bucket 4 — forward pass shape + finite smoke
 ----------------------------------------------------------------------
 
-mkIdsTensor : {n : Nat} -> Vect n Double -> Tensor [n] TapeExecutor F64 WithGrad
+mkIdsTensor : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkIdsTensor xs =
-  let raw = bulkToTensor {ex=TapeExecutor} {dt=F64}
+  let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
 
@@ -206,7 +206,7 @@ readOut {n} p = loop (cast {to=Int} n) 0 []
     loop end i acc =
       if i >= end
         then pure (reverse acc)
-        else let v = primItem1d {ex=TapeExecutor} p i
+        else let v = primItem1d {ex=TestExecutor} p i
              in loop end (i + 1) (v :: acc)
 
 isFinite : Double -> Bool
@@ -216,7 +216,7 @@ testForwardShapeAndFinite : IO Bool
 testForwardShapeAndFinite = do
   -- Tiny config: hidden=8, layers=1, heads=2, headDim=4, intermediate=16, numClasses=3.
   -- Distinct prefixes so registry entries don't collide with earlier buckets.
-  model <- hfBertForSequenceClassification {ex=TapeExecutor} {dt=F64}
+  model <- hfBertForSequenceClassification {ex=TestExecutor} {dt=TestDType}
                                            {vocab        = 4}
                                            {hidden       = 8}
                                            {numLayers    = 1}
@@ -229,7 +229,7 @@ testForwardShapeAndFinite = do
   let inputIds = mkIdsTensor (the (Vect 3 Double) [1.0, 2.0, 3.0])
       posIds   = mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
       typeIds  = mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
-  out <- hfBertSeqClassifyForward {ex=TapeExecutor} {dt=F64}
+  out <- hfBertSeqClassifyForward {ex=TestExecutor} {dt=TestDType}
                                   {seqLen       = 3}
                                   {vocab        = 4}
                                   {hidden       = 8}

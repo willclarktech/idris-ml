@@ -13,6 +13,7 @@ packages/idris-ml/src/HwExecutors.idr
 # (Makefile TESTCONFIG_IDR rule). The template is tracked; the generated file
 # is not.
 packages/idris-ml/src/Test/Config.idr
+packages/idris-transformers/src/Test/Config.idr
 
 build/
 build-cov/

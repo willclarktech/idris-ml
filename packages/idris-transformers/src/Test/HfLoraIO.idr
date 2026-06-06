@@ -15,7 +15,9 @@
 |||     register two params under the peft names, then loadModel
 |||     restores them; the values match what we saved).
 |||
-||| Pinned to tape; cross-backend coverage covered by L1 + L5.
+||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from `Test.Config`;
+||| runs on every F64-admissible primary. Cross-backend numeric
+||| coverage of the LoRA math primitive lives in L1's `Test.LoraLinear`.
 module Test.HfLoraIO
 
 import Data.List
@@ -29,7 +31,7 @@ import Test.Harness
 import Checkpoint
 import Executor
 import Executor.Core
-import Executor.Tape
+import Test.Config
 import HfLoraIO
 import Tensor
 
@@ -44,9 +46,9 @@ configRoundTrip = do
       dir = "/tmp/idris-ml-l4-cfg-roundtrip"
   -- Register a single adapter param so saveLoraAdapter has something to write
   -- (it errors on an empty match set).
-  _ <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1}
+  _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1}
                      "L4cfg.bert.encoder.layer.0.attention.self.query.lora_A" 1.0
-  ok <- saveLoraAdapter {ex=TapeExecutor} dir cfg
+  ok <- saveLoraAdapter {ex=TestExecutor} dir cfg
   if not ok
     then do putStrLn "  FAIL: saveLoraAdapter returned False"; pure False
     else do
@@ -87,11 +89,11 @@ testPeftKeyShape = do
   let dir = "/tmp/idris-ml-l4-keyshape"
       cfg = MkLoraAdapterConfig 4 8.0 (the (List String) ["query"]) "SEQ_CLS"
   -- Register one A + one B under the L3 HF-aligned naming convention.
-  _ <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1}
+  _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1}
                      "L4ks.bert.encoder.layer.0.attention.self.query.lora_A" 0.5
-  _ <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1}
+  _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1}
                      "L4ks.bert.encoder.layer.0.attention.self.query.lora_B" 0.0
-  ok <- saveLoraAdapter {ex=TapeExecutor} dir cfg
+  ok <- saveLoraAdapter {ex=TestExecutor} dir cfg
   if not ok
     then do putStrLn "  FAIL: saveLoraAdapter returned False"; pure False
     else do
@@ -104,11 +106,11 @@ testPeftKeyShape = do
       -- should be untouched.
       peftAName <- pure "base_model.model.L4ks.bert.encoder.layer.0.attention.self.query.lora_A.default.weight"
       peftBName <- pure "base_model.model.L4ks.bert.encoder.layer.0.attention.self.query.lora_B.default.weight"
-      pA <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1} peftAName 99.0
-      pB <- tparam1dConst {ex=TapeExecutor} {dt=F64} {n=1} peftBName 99.0
-      okLoad <- loadModel {ex=TapeExecutor} (dir ++ "/adapter_model.safetensors")
-      let pAV = primItem1d {ex=TapeExecutor} pA.tensorPtr 0
-          pBV = primItem1d {ex=TapeExecutor} pB.tensorPtr 0
+      pA <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} peftAName 99.0
+      pB <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} peftBName 99.0
+      okLoad <- loadModel {ex=TestExecutor} (dir ++ "/adapter_model.safetensors")
+      let pAV = primItem1d {ex=TestExecutor} pA.tensorPtr 0
+          pBV = primItem1d {ex=TestExecutor} pB.tensorPtr 0
       if okLoad && pAV == 0.5 && pBV == 0.0
         then check ("peft-wrapped keys present in adapter_model.safetensors "
                     ++ "(loaded A=" ++ show pAV ++ ", B=" ++ show pBV ++ ")") True
