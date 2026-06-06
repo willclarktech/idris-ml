@@ -10,9 +10,7 @@ def looks_like_definition(line: str) -> bool:
     if " : " in line and not line.startswith("("):
         return True
     # Function clause: "name args = body" but not "x == y"
-    if " = " in line and line[0].isalpha() and "==" not in line:
-        return True
-    return False
+    return " = " in line and line[0].isalpha() and "==" not in line
 
 
 def _unclosed_brackets(text: str) -> bool:

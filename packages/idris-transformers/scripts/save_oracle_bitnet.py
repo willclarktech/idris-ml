@@ -33,7 +33,7 @@ from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "bitnet-2b-4t-oracle.safetensors"
 MODEL_LOCAL = MODELS_DIR / "microsoft" / "bitnet-b1.58-2B-4T"
@@ -47,7 +47,7 @@ MODEL_ID = "microsoft/bitnet-b1.58-2B-4T"
 # rebuilds.
 FIXED_INPUT_IDS: list[int] = [9906, 1917]
 HIDDEN: int = 2560
-VOCAB:  int = 128256
+VOCAB: int = 128256
 
 
 def main() -> None:
@@ -62,7 +62,8 @@ def main() -> None:
     )
     tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
     model = AutoModelForCausalLM.from_pretrained(
-        str(MODEL_LOCAL), torch_dtype=torch.bfloat16,
+        str(MODEL_LOCAL),
+        torch_dtype=torch.bfloat16,
     )
     model.train(False)  # inference mode (== model.eval())
 
@@ -78,7 +79,7 @@ def main() -> None:
     # `lm_head` which is tied) and rewrites its weight buffer.
     bitlinear_class_name = "AutoBitLinear"
     fixed = 0
-    for name, mod in model.named_modules():
+    for _name, mod in model.named_modules():
         if type(mod).__name__ != bitlinear_class_name:
             continue
         if mod.weight.dtype == torch.uint8:

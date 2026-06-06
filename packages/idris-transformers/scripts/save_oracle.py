@@ -36,7 +36,7 @@ from transformers import AutoModel, AutoTokenizer
 # Example/HfBertInference.idr so the Idris side reads from the same
 # location.
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "bert-tiny-oracle.safetensors"
 

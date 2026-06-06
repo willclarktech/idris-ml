@@ -2,7 +2,6 @@
 
 from idris_ml_kernel.cell_parser import _unclosed_brackets, looks_like_definition, parse_cell
 
-
 # --- REPL command passthrough ---
 
 
@@ -30,9 +29,7 @@ def test_module():
 
 
 def test_type_signature():
-    assert parse_cell("myAdd : Int -> Int -> Int") == [
-        ":let myAdd : Int -> Int -> Int"
-    ]
+    assert parse_cell("myAdd : Int -> Int -> Int") == [":let myAdd : Int -> Int -> Int"]
 
 
 def test_function_clause():

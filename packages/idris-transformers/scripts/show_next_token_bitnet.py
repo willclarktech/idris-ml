@@ -29,9 +29,9 @@ from pathlib import Path
 
 # Avoid heavy ML imports until we need to decode — tokenizer load takes
 # ~100ms and we want stage-echo to feel instant.
-SCRIPT_DIR  = Path(__file__).resolve().parent
-REPO_ROOT   = SCRIPT_DIR.parent.parent.parent
-MODEL_DIR   = REPO_ROOT / "models" / "microsoft" / "bitnet-b1.58-2B-4T"
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent
+MODEL_DIR = REPO_ROOT / "models" / "microsoft" / "bitnet-b1.58-2B-4T"
 EXPECTED_VOCAB = 128256
 
 
@@ -78,19 +78,19 @@ def main() -> int:
         print("ERR: no float lines found in input", file=sys.stderr)
         return 1
     if n_floats != EXPECTED_VOCAB:
-        print(f"WARN: expected {EXPECTED_VOCAB} logits, got {n_floats}",
-              file=sys.stderr)
+        print(f"WARN: expected {EXPECTED_VOCAB} logits, got {n_floats}", file=sys.stderr)
 
     # Tokenizer load deferred until after we've consumed the stream so
     # the [stage] echoes feel responsive.
     if not MODEL_DIR.is_dir():
-        print(f"ERR: {MODEL_DIR} not found — fetch via the hf-download script first",
-              file=sys.stderr)
+        print(
+            f"ERR: {MODEL_DIR} not found — fetch via the hf-download script first", file=sys.stderr
+        )
         return 1
     from transformers import AutoTokenizer
+
     tok = AutoTokenizer.from_pretrained(str(MODEL_DIR))
-    text = tok.decode([argmax_id], skip_special_tokens=False,
-                       clean_up_tokenization_spaces=False)
+    text = tok.decode([argmax_id], skip_special_tokens=False, clean_up_tokenization_spaces=False)
     print()
     print(f"Argmax token id: {argmax_id}")
     print(f"Next token:      {text!r}")

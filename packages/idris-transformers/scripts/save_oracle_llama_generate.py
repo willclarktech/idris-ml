@@ -54,7 +54,7 @@ from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "llama-3.2-1b-generate-oracle.safetensors"
 MODEL_LOCAL = MODELS_DIR / "unsloth" / "Llama-3.2-1B"
@@ -133,9 +133,7 @@ def main() -> None:
     )
     # Sanity: prompt prefix must round-trip.
     prefix = tokens[: len(prompt_ids)].tolist()
-    assert prefix == prompt_ids, (
-        f"prompt prefix drift: input {prompt_ids} → output[:p] {prefix}"
-    )
+    assert prefix == prompt_ids, f"prompt prefix drift: input {prompt_ids} → output[:p] {prefix}"
 
     save_file({"token_ids": tokens}, str(ORACLE_PATH))
     print(f"wrote {ORACLE_PATH}")

@@ -81,8 +81,7 @@ def _run_token_sequence(stdout_path: Path, oracle_path: Path) -> None:
     tensors = load_file(str(oracle_path))
     if "token_ids" not in tensors:
         print(
-            f"FAIL: oracle {oracle_path} missing 'token_ids' key; "
-            f"keys: {list(tensors)}",
+            f"FAIL: oracle {oracle_path} missing 'token_ids' key; keys: {list(tensors)}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -99,11 +98,10 @@ def _run_token_sequence(stdout_path: Path, oracle_path: Path) -> None:
         )
         sys.exit(1)
 
-    for i, (a, b) in enumerate(zip(idris_ids, oracle_ids)):
+    for i, (a, b) in enumerate(zip(idris_ids, oracle_ids, strict=True)):
         if a != b:
             print(
-                f"FAIL: token sequence mismatch at position {i}: "
-                f"idris={a} oracle={b}",
+                f"FAIL: token sequence mismatch at position {i}: idris={a} oracle={b}",
                 file=sys.stderr,
             )
             print(f"  idris  ids: {idris_ids}", file=sys.stderr)
@@ -153,7 +151,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    diffs = [abs(a - b) for a, b in zip(idris_vals, oracle_vals)]
+    diffs = [abs(a - b) for a, b in zip(idris_vals, oracle_vals, strict=True)]
     max_diff = max(diffs)
     max_idx = diffs.index(max_diff)
 
@@ -177,13 +175,10 @@ def main() -> None:
                 f"FAIL: argmax mismatch (idris={idris_argmax}, oracle={oracle_argmax})",
                 file=sys.stderr,
             )
-            print(f"  idris[{idris_argmax}]  = {idris_vals[idris_argmax]:+.6f}",
-                  file=sys.stderr)
-            print(f"  oracle[{oracle_argmax}] = {oracle_vals[oracle_argmax]:+.6f}",
-                  file=sys.stderr)
+            print(f"  idris[{idris_argmax}]  = {idris_vals[idris_argmax]:+.6f}", file=sys.stderr)
+            print(f"  oracle[{oracle_argmax}] = {oracle_vals[oracle_argmax]:+.6f}", file=sys.stderr)
             sys.exit(1)
-        print(f"PASS: max-abs-diff {max_diff:.6e} < tol {tol:.6e}  "
-              f"argmax matches ({idris_argmax})")
+        print(f"PASS: max-abs-diff {max_diff:.6e} < tol {tol:.6e}  argmax matches ({idris_argmax})")
     else:
         print(f"PASS: max-abs-diff {max_diff:.6e} < tol {tol:.6e}")
 

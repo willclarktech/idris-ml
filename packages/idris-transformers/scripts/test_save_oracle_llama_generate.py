@@ -59,9 +59,7 @@ def oracle_path() -> Path:
 def test_oracle_key(oracle_path: Path) -> None:
     """Oracle has the expected 'token_ids' key."""
     tensors = load_file(str(oracle_path))
-    assert "token_ids" in tensors, (
-        f"oracle missing 'token_ids' key; keys: {list(tensors)}"
-    )
+    assert "token_ids" in tensors, f"oracle missing 'token_ids' key; keys: {list(tensors)}"
 
 
 def test_oracle_dtype(oracle_path: Path) -> None:

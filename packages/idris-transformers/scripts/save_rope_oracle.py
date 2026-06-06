@@ -28,16 +28,16 @@ import torch
 from safetensors.torch import save_file
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "llama3-rope-oracle.safetensors"
 
 # Llama 3.2 1B's RoPE config.
-HEAD_DIM    = 64
-ROPE_BASE   = 500000.0
-FACTOR      = 32.0
-LOW_FREQ    = 1.0
-HIGH_FREQ   = 4.0
+HEAD_DIM = 64
+ROPE_BASE = 500000.0
+FACTOR = 32.0
+LOW_FREQ = 1.0
+HIGH_FREQ = 4.0
 ORIG_MAXPOS = 8192
 
 
@@ -49,19 +49,19 @@ def _compute_llama3_parameters(inv_freq: torch.Tensor) -> torch.Tensor:
     the 1-D `inv_freq` tensor.
     """
     wavelen = 2 * math.pi / inv_freq
-    low_band  = ORIG_MAXPOS / HIGH_FREQ
+    low_band = ORIG_MAXPOS / HIGH_FREQ
     high_band = ORIG_MAXPOS / LOW_FREQ
-    scaled    = inv_freq / FACTOR
-    smooth    = (ORIG_MAXPOS / wavelen - LOW_FREQ) / (HIGH_FREQ - LOW_FREQ)
-    interp    = (1 - smooth) * scaled + smooth * inv_freq
+    scaled = inv_freq / FACTOR
+    smooth = (ORIG_MAXPOS / wavelen - LOW_FREQ) / (HIGH_FREQ - LOW_FREQ)
+    interp = (1 - smooth) * scaled + smooth * inv_freq
 
     out = inv_freq.clone()
     high_freq_mask = wavelen < low_band
-    low_freq_mask  = wavelen > high_band
-    mid_freq_mask  = ~high_freq_mask & ~low_freq_mask
+    low_freq_mask = wavelen > high_band
+    mid_freq_mask = ~high_freq_mask & ~low_freq_mask
     out = torch.where(high_freq_mask, inv_freq, out)
-    out = torch.where(low_freq_mask,  scaled,   out)
-    out = torch.where(mid_freq_mask,  interp,   out)
+    out = torch.where(low_freq_mask, scaled, out)
+    out = torch.where(mid_freq_mask, interp, out)
     return out
 
 
@@ -71,7 +71,7 @@ def main() -> None:
     half_dim = HEAD_DIM // 2
 
     # Base inv_freq: 1 / base^(2i/d) for i in 0..half_dim
-    i_range  = torch.arange(half_dim, dtype=torch.float64)
+    i_range = torch.arange(half_dim, dtype=torch.float64)
     base_inv = 1.0 / (ROPE_BASE ** (2.0 * i_range / HEAD_DIM))
 
     # Llama 3 NTK-aware scaling.
@@ -79,14 +79,14 @@ def main() -> None:
 
     # cos / sin tables for positions 0..3.
     n_positions = 4
-    positions   = torch.arange(n_positions, dtype=torch.float64)
-    angles      = positions.unsqueeze(1) * inv_freq.unsqueeze(0)  # [n_pos, half_dim]
-    cos_tab     = torch.cos(angles)
-    sin_tab     = torch.sin(angles)
+    positions = torch.arange(n_positions, dtype=torch.float64)
+    angles = positions.unsqueeze(1) * inv_freq.unsqueeze(0)  # [n_pos, half_dim]
+    cos_tab = torch.cos(angles)
+    sin_tab = torch.sin(angles)
 
     assert inv_freq.shape == (half_dim,)
-    assert cos_tab.shape  == (n_positions, half_dim)
-    assert sin_tab.shape  == (n_positions, half_dim)
+    assert cos_tab.shape == (n_positions, half_dim)
+    assert sin_tab.shape == (n_positions, half_dim)
     assert torch.isfinite(inv_freq).all()
     assert torch.isfinite(cos_tab).all()
     assert torch.isfinite(sin_tab).all()

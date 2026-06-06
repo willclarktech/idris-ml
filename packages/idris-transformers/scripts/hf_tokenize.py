@@ -36,9 +36,8 @@ from pathlib import Path
 
 from transformers import AutoTokenizer
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
 MODELS_DIR = REPO_ROOT / "models"
 
 

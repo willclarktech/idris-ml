@@ -26,7 +26,6 @@ from pathlib import Path
 import numpy as np
 from safetensors.torch import load_file
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent
 ORACLE_DIR = REPO_ROOT / "models" / "bitnet-2b-4t-bisect"
@@ -64,9 +63,14 @@ def load_oracle(label: str) -> np.ndarray | None:
     return t.to(dtype=__import__("torch").float64).cpu().numpy().reshape(-1)
 
 
-def fmt_row(label: str, n_idris: int | None, n_oracle: int | None,
-            max_abs: float | None, max_rel: float | None,
-            verdict: str) -> str:
+def fmt_row(
+    label: str,
+    n_idris: int | None,
+    n_oracle: int | None,
+    max_abs: float | None,
+    max_rel: float | None,
+    verdict: str,
+) -> str:
     nstr = f"{n_idris}/{n_oracle}" if n_idris is not None and n_oracle is not None else "—"
     abs_s = f"{max_abs:.3e}" if max_abs is not None else "   —    "
     rel_s = f"{max_rel:.3e}" if max_rel is not None else "   —    "
@@ -90,14 +94,20 @@ def main() -> int:
 
         if idris is None or oracle is None:
             verdict = "MISSING"
-            rows.append(fmt_row(label,
-                                len(idris) if idris is not None else None,
-                                len(oracle) if oracle is not None else None,
-                                None, None, verdict))
+            rows.append(
+                fmt_row(
+                    label,
+                    len(idris) if idris is not None else None,
+                    len(oracle) if oracle is not None else None,
+                    None,
+                    None,
+                    verdict,
+                )
+            )
             continue
 
         if len(idris) != len(oracle):
-            verdict = f"COUNT MISMATCH"
+            verdict = "COUNT MISMATCH"
             rows.append(fmt_row(label, len(idris), len(oracle), None, None, verdict))
             continue
 
@@ -115,8 +125,7 @@ def main() -> int:
         else:
             verdict = "ok"
 
-        rows.append(fmt_row(label, len(idris), len(oracle),
-                             max_abs, max_rel, verdict))
+        rows.append(fmt_row(label, len(idris), len(oracle), max_abs, max_rel, verdict))
 
     print("\n".join(rows))
     print()

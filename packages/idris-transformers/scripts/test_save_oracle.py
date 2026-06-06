@@ -23,7 +23,9 @@ SCRIPT = Path(__file__).resolve().parent / "save_oracle.py"
 # Top-level <repo-root>/models/ (post 2026-05-27 refactor — same dir
 # Python's AutoModel.from_pretrained reads from + Idris's loadModel
 # reads from; single physical copy of each model on disk).
-ORACLE = Path(__file__).resolve().parent.parent.parent.parent / "models" / "bert-tiny-oracle.safetensors"
+ORACLE = (
+    Path(__file__).resolve().parent.parent.parent.parent / "models" / "bert-tiny-oracle.safetensors"
+)
 HIDDEN = 128
 
 

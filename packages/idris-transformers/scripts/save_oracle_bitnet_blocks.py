@@ -36,7 +36,7 @@ from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent
 MODELS_DIR = REPO_ROOT / "models"
 BISECT_DIR = MODELS_DIR / "bitnet-2b-4t-bisect"
 MODEL_LOCAL = MODELS_DIR / "microsoft" / "bitnet-b1.58-2B-4T"
@@ -72,7 +72,8 @@ def main() -> None:
     )
     tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
     model = AutoModelForCausalLM.from_pretrained(
-        str(MODEL_LOCAL), torch_dtype=torch.bfloat16,
+        str(MODEL_LOCAL),
+        torch_dtype=torch.bfloat16,
     )
     model.train(False)
     patched = patch_bitlinears(model)
@@ -80,9 +81,7 @@ def main() -> None:
 
     # Tokenizer sanity
     actual = tokenizer.encode("Hello world", add_special_tokens=False)
-    assert actual == FIXED_INPUT_IDS, (
-        f"Tokenizer drift: expected {FIXED_INPUT_IDS}, got {actual}."
-    )
+    assert actual == FIXED_INPUT_IDS, f"Tokenizer drift: expected {FIXED_INPUT_IDS}, got {actual}."
 
     # Find the layers list. transformers names it model.model.layers (CausalLM
     # wraps BitNetModel as model.model).
@@ -98,6 +97,7 @@ def main() -> None:
             # take the first element as the hidden state.
             h = output[0] if isinstance(output, tuple) else output
             captures[label] = h.detach().to(torch.float32).contiguous().cpu()
+
         return hook
 
     handles = []

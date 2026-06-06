@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from idris_ml_kernel.repl import Idris2REPL
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -53,8 +52,7 @@ def test_expression_eval(repl):
 def test_ffi_tensor_create(repl):
     """Core FFI test: create a scalar tensor and read its value."""
     result = repl.send(
-        ":exec (let t = prim__createScalar 3.14 0 in "
-        "putStrLn (show (prim__item t)))"
+        ":exec (let t = prim__createScalar 3.14 0 in putStrLn (show (prim__item t)))"
     )
     assert "3.14" in result
 

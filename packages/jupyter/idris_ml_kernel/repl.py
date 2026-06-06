@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import platform
 import shutil
 import termios
-import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pexpect
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class Idris2REPL:
@@ -48,15 +51,19 @@ class Idris2REPL:
         # Set IDRIS2_PACKAGE_PATH so idris2 finds locally-installed packages
         pkg_path = str(self.root / ".idris2" / "idris2-0.8.0")
         import os
+
         env = os.environ.copy()
         env["IDRIS2_PACKAGE_PATH"] = pkg_path
 
         self.child = pexpect.spawn(
             "idris2",
             [
-                "-p", "contrib",
-                "-p", "idris-ml",
-                "-p", "idris-ml-notebook",
+                "-p",
+                "contrib",
+                "-p",
+                "idris-ml",
+                "-p",
+                "idris-ml-notebook",
                 "--no-banner",
                 "--no-colour",
             ],
@@ -92,10 +99,8 @@ class Idris2REPL:
 
     def restart(self) -> None:
         """Kill and respawn, replaying session state."""
-        try:
+        with contextlib.suppress(Exception):
             self.child.close(force=True)
-        except Exception:
-            pass
         self._ensure_dylib()
         self._spawn()
         for mod in self.modules:
@@ -105,12 +110,8 @@ class Idris2REPL:
 
     def close(self) -> None:
         """Shut down the REPL."""
-        try:
+        with contextlib.suppress(Exception):
             self.child.sendline(":q")
             self.child.expect(pexpect.EOF, timeout=5)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.child.close(force=True)
-        except Exception:
-            pass

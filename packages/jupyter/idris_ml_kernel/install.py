@@ -1,7 +1,6 @@
 """Install the idris-ml Jupyter kernel spec."""
 
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -28,9 +27,7 @@ def main():
             json.dump(kernel_spec, f, indent=2)
 
         ksm = KernelSpecManager()
-        dest = ksm.install_kernel_spec(
-            str(spec_dir), kernel_name="idris-ml", user=True
-        )
+        dest = ksm.install_kernel_spec(str(spec_dir), kernel_name="idris-ml", user=True)
         print(f"Installed kernel spec to {dest}")
 
 

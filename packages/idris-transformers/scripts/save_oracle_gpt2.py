@@ -35,7 +35,7 @@ from safetensors.torch import save_file
 from transformers import AutoModel, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "distilgpt2-oracle.safetensors"
 # Local model dir populated by hf-download.sh (snapshot_download).
@@ -93,8 +93,7 @@ def main() -> None:
 
     last_hidden = outputs.last_hidden_state  # [1, 2, 768]
     assert last_hidden.shape == (1, len(FIXED_INPUT_IDS), HIDDEN), (
-        f"last_hidden_state shape {last_hidden.shape} != "
-        f"[1, {len(FIXED_INPUT_IDS)}, {HIDDEN}]"
+        f"last_hidden_state shape {last_hidden.shape} != [1, {len(FIXED_INPUT_IDS)}, {HIDDEN}]"
     )
     assert torch.isfinite(last_hidden).all()
 

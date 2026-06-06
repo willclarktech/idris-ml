@@ -13,11 +13,14 @@ benchmark targets; the gap between the two (if any) localises the
 
 Usage (from repo root):
 
-    cd packages/pytorch && uv run python ../idris-transformers/scripts/time_rank3_broadcast.py [device]
+    cd packages/pytorch && uv run python \\
+        ../idris-transformers/scripts/time_rank3_broadcast.py [device]
 
 device defaults to mps on Apple Silicon, cpu otherwise.
 """
+
 from __future__ import annotations
+
 import sys
 import time
 
@@ -80,8 +83,10 @@ def bench_contig(device: torch.device) -> float:
 
 
 def main() -> int:
-    device_str = sys.argv[1] if len(sys.argv) > 1 else (
-        "mps" if torch.backends.mps.is_available() else "cpu"
+    device_str = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
     )
     device = torch.device(device_str)
     print(f"device: {device_str}")

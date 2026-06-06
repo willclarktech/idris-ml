@@ -40,7 +40,7 @@ from safetensors.torch import save_file
 from transformers import AutoModel, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent
 MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "llama-3.2-1b-oracle.safetensors"
 MODEL_LOCAL = MODELS_DIR / "unsloth" / "Llama-3.2-1B"
@@ -102,8 +102,7 @@ def main() -> None:
 
     last_hidden = outputs.last_hidden_state  # [1, 1, 2048]
     assert last_hidden.shape == (1, len(FIXED_INPUT_IDS), HIDDEN), (
-        f"last_hidden_state shape {last_hidden.shape} != "
-        f"[1, {len(FIXED_INPUT_IDS)}, {HIDDEN}]"
+        f"last_hidden_state shape {last_hidden.shape} != [1, {len(FIXED_INPUT_IDS)}, {HIDDEN}]"
     )
     assert torch.isfinite(last_hidden).all()
 

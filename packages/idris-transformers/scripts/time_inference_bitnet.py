@@ -35,14 +35,13 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent
-MODEL_DIR  = REPO_ROOT / "models" / "microsoft" / "bitnet-b1.58-2B-4T"
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent
+MODEL_DIR = REPO_ROOT / "models" / "microsoft" / "bitnet-b1.58-2B-4T"
 
 FIXED_INPUT_IDS: list[int] = [9906, 1917]
 HIDDEN: int = 2560
-VOCAB:  int = 128256
+VOCAB: int = 128256
 
 # Device picks: env BITNET_DEVICE overrides; default CPU (matches the
 # save_oracle_bitnet.py oracle, which is what the Idris-side compares
@@ -51,16 +50,14 @@ VOCAB:  int = 128256
 DEVICE = os.environ.get("BITNET_DEVICE", "cpu")
 # Dtype picks: BF16 is the native on-disk dtype for this model.
 _DTYPE_MAP = {
-    "F32":  torch.float32,
-    "F64":  torch.float64,
+    "F32": torch.float32,
+    "F64": torch.float64,
     "BF16": torch.bfloat16,
-    "F16":  torch.float16,
+    "F16": torch.float16,
 }
 _DTYPE_NAME = os.environ.get("BITNET_DTYPE", "BF16").upper()
 if _DTYPE_NAME not in _DTYPE_MAP:
-    raise ValueError(
-        f"Unknown BITNET_DTYPE={_DTYPE_NAME!r}; pick one of {sorted(_DTYPE_MAP)}"
-    )
+    raise ValueError(f"Unknown BITNET_DTYPE={_DTYPE_NAME!r}; pick one of {sorted(_DTYPE_MAP)}")
 DTYPE = _DTYPE_MAP[_DTYPE_NAME]
 
 
@@ -95,13 +92,12 @@ def main() -> int:
     print(f"Prompt token ids: {FIXED_INPUT_IDS}", flush=True)
 
     if not MODEL_DIR.is_dir():
-        print(f"\nERR: {MODEL_DIR} not found — run hf-download.sh first.",
-              file=sys.stderr)
+        print(f"\nERR: {MODEL_DIR} not found — run hf-download.sh first.", file=sys.stderr)
         return 1
 
     t0 = time.perf_counter()
 
-    tok = AutoTokenizer.from_pretrained(str(MODEL_DIR))
+    AutoTokenizer.from_pretrained(str(MODEL_DIR))
     stamp("tokenizer probe ok", t0)
 
     # from_pretrained does construction + load in a single call. We use
@@ -135,8 +131,7 @@ def main() -> int:
         # on a single scalar is enough to drain.
         outputs.logits[0, -1, 0].cpu()
         fwd_end = time.perf_counter()
-        stamp(f"forward ok ({label}): {(fwd_end - fwd_start) * 1000:.1f} ms",
-              t0)
+        stamp(f"forward ok ({label}): {(fwd_end - fwd_start) * 1000:.1f} ms", t0)
 
     # Final sanity print so we know what was computed
     last_row = outputs.logits[0, -1, :].to(torch.float32).cpu()

@@ -13,6 +13,7 @@ idris-ml writes. Run via `make example-dtype-serialize`.
 
 Usage: verify_dtypes.py <path-to-safetensors>
 """
+
 import sys
 
 import torch
@@ -21,8 +22,8 @@ from safetensors.torch import load_file
 # (name, expected dtype, expected values)
 EXPECTED = {
     "w_bf16": (torch.bfloat16, [1.5, -2.0, 256.0, -0.5]),
-    "w_f16":  (torch.float16,  [1.5, -2.0, 256.0, -0.5]),
-    "w_i32":  (torch.int32,    [1, -2, 1000, -42]),
+    "w_f16": (torch.float16, [1.5, -2.0, 256.0, -0.5]),
+    "w_i32": (torch.int32, [1, -2, 1000, -42]),
 }
 
 

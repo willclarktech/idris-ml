@@ -37,33 +37,30 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent.parent.parent
-MODEL_DIR  = REPO_ROOT / "models" / "meta-llama" / "Llama-3.2-1B"
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent
+MODEL_DIR = REPO_ROOT / "models" / "meta-llama" / "Llama-3.2-1B"
 
-PROMPT     = "The capital of France is"
+PROMPT = "The capital of France is"
 NUM_TOKENS = 8
 # Device picks: env LLAMA_DEVICE overrides; otherwise auto (mps if available,
 # else cpu). The override is what lets us run the CPU vs MPS head-to-head
 # without editing the script each time.
 _DEFAULT_DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
-DEVICE     = os.environ.get("LLAMA_DEVICE", _DEFAULT_DEVICE)
+DEVICE = os.environ.get("LLAMA_DEVICE", _DEFAULT_DEVICE)
 # Dtype picks: env LLAMA_DTYPE overrides; default F32 (matches Idris's
 # torch-mps F32 lane). Map idris-ml-style dtype names to torch dtypes so
 # the same string the Idris-side TORCH_DTYPE knob accepts also works here.
 _DTYPE_MAP = {
-    "F32":  torch.float32,
-    "F64":  torch.float64,
+    "F32": torch.float32,
+    "F64": torch.float64,
     "BF16": torch.bfloat16,
-    "F16":  torch.float16,
+    "F16": torch.float16,
 }
 _DTYPE_NAME = os.environ.get("LLAMA_DTYPE", "F32").upper()
 if _DTYPE_NAME not in _DTYPE_MAP:
-    raise ValueError(
-        f"Unknown LLAMA_DTYPE={_DTYPE_NAME!r}; pick one of {sorted(_DTYPE_MAP)}"
-    )
-DTYPE      = _DTYPE_MAP[_DTYPE_NAME]
+    raise ValueError(f"Unknown LLAMA_DTYPE={_DTYPE_NAME!r}; pick one of {sorted(_DTYPE_MAP)}")
+DTYPE = _DTYPE_MAP[_DTYPE_NAME]
 
 
 def fmt_elapsed(t0: float, now: float) -> str:
@@ -120,8 +117,7 @@ def run_one(use_cache: bool, label: str) -> None:
     # `clean_up_tokenization_spaces=False`: the True default is WordPiece-
     # oriented and corrupts BPE output (warning at decode time). Llama uses
     # BPE, so we always pass False here.
-    text = tok.decode(out[0], skip_special_tokens=False,
-                       clean_up_tokenization_spaces=False)
+    text = tok.decode(out[0], skip_special_tokens=False, clean_up_tokenization_spaces=False)
     print(f"Output: {text}", flush=True)
 
 
@@ -131,10 +127,12 @@ def main() -> int:
     print(f"Prompt: {PROMPT!r}, tokens: {NUM_TOKENS}", flush=True)
 
     if not MODEL_DIR.is_dir():
-        print(f"\nERR: {MODEL_DIR} not found — run the hf-download.sh script first.", file=sys.stderr)
+        print(
+            f"\nERR: {MODEL_DIR} not found — run the hf-download.sh script first.", file=sys.stderr
+        )
         return 1
 
-    run_one(use_cache=True,  label="PyTorch — default (KV cache on)")
+    run_one(use_cache=True, label="PyTorch — default (KV cache on)")
     run_one(use_cache=False, label="PyTorch — no-KV-cache (apples-to-Idris)")
     return 0
 

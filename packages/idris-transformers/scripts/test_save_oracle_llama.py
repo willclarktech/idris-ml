@@ -27,7 +27,11 @@ import torch
 from safetensors.torch import load_file
 
 SCRIPT = Path(__file__).resolve().parent / "save_oracle_llama.py"
-ORACLE = Path(__file__).resolve().parent.parent.parent.parent / "models" / "llama-3.2-1b-oracle.safetensors"
+ORACLE = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "models"
+    / "llama-3.2-1b-oracle.safetensors"
+)
 HIDDEN = 2048
 
 
