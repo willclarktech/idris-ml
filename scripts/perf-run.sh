@@ -135,15 +135,21 @@ case "$BACKEND" in
   *) MLX_COMPILE_STATE="n/a" ;;
 esac
 
-# Run the example and capture output. Use stdbuf -oL so we can tail
-# the log live during long-running tasks (per the "always use stdbuf"
-# convention for background tasks).
+# Run the example and capture output. `tee` so make's stdout/stderr
+# is saved into $LOG (for the grep-based summary below) AND streamed
+# to this script's stdout. The stream-through matters when this runs
+# as a background task or under a wrapper that captures stdout
+# (perf-run-quiet.sh + the harness's bash-task .output file): without
+# the tee, the captured file stays empty until the run completes, so
+# a wedge inside `make` (download stall, elaboration hang, dylib
+# relink stuck) is invisible from outside. With tee, the operator can
+# read the captured file mid-run and see live progress.
 LOG=$(mktemp)
 T0=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
 set +e
 BACKEND="$BACKEND" stdbuf -oL make --no-print-directory "$TGT" \
-  "${AVAR}=${ARGS[*]}" > "$LOG" 2>&1
-RC=$?
+  "${AVAR}=${ARGS[*]}" 2>&1 | tee "$LOG"
+RC=${PIPESTATUS[0]}
 set -e
 T1=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
 
