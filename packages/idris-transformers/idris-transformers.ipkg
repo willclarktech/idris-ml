@@ -7,6 +7,7 @@ depends = contrib
 
 modules = HfBert
         , HfBertForClassification
+        , HfBertLora
         , HfBitNet
         , HfCommon
         , HfDataset

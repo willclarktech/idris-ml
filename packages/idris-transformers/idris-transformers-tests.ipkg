@@ -15,6 +15,7 @@ modules = Test.Main
         , Test.HfBert
         , Test.HfBertAttentionMask
         , Test.HfBertForClassification
+        , Test.HfBertLoraInject
         , Test.HfBitNet
         , Test.HfDataset
         , Test.HfGpt2

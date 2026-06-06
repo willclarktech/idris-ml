@@ -485,6 +485,7 @@ applyEmbedLookup2d {seqLen} {dim} (MkBertEmbedding w) tokens = ioRerun (\_ =>
 
 -- 2D LayerNorm: applies γ and β along the last dim of a [seq, hidden]
 -- tensor. Wraps primLayerNorm2d.
+export
 applyLN2d : {0 ex : Executor} -> UserExecutorTraining ex
          => BertLN hidden ex dt g
          -> Tensor [seqLen, hidden] ex dt g
@@ -510,6 +511,7 @@ applyBertLinear2d (MkBertLinear w b) x = tlinear2d w x b
 -- when `Just`, `primMaskedFill scores mask (-1.0e20)` is applied
 -- between matmul and softmax. Convention matches HfGpt2's
 -- `causalMask`: a non-zero entry means "mask out this position".
+export
 oneHeadCtx : {0 ex : Executor} -> UserExecutorTraining ex
           => (qFull, kFull, vFull : AnyPtr)
           -> (mask : Maybe AnyPtr)
@@ -531,6 +533,7 @@ oneHeadCtx qFull kFull vFull mask startI headDimI scale =
 -- along axis=1. Head 0 is the starting accumulator; heads 1..N-1 are
 -- folded in. `remaining` counts heads still to process; `startI`
 -- is the column offset for the *next* head.
+export
 buildHeads : {0 ex : Executor} -> UserExecutorTraining ex
           => (qFull, kFull, vFull : AnyPtr)
           -> (mask : Maybe AnyPtr)
@@ -632,6 +635,7 @@ applyEncoder (l :: ls) mask h = do
   applyEncoder {numHeads} {headDim} ls mask h'
 
 -- Pooler: take the [CLS] (row 0), apply dense + tanh.
+export
 applyPooler : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
            => {seqLen, hidden : Nat}
            -> BertPoolerState hidden ex dt g
@@ -644,6 +648,7 @@ applyPooler (MkBertPooler dn) input = do
   ttanh dense
 
 -- Embeddings forward: sum word + position + token-type, LayerNorm.
+export
 applyEmbeddings : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
                => {seqLen, vocab, hidden, maxPos, typeVocab : Nat}
                -> BertEmbeddingsState vocab hidden maxPos typeVocab ex dt g

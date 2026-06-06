@@ -4,6 +4,7 @@ import Test.Harness
 import Test.HfBert
 import Test.HfBertAttentionMask
 import Test.HfBertForClassification
+import Test.HfBertLoraInject
 import Test.HfBitNet
 import Test.HfDataset
 import Test.HfGpt2
@@ -19,6 +20,7 @@ main = runAll (
      ])
   ] ++ Test.HfBert.suite ++ Test.HfBertAttentionMask.suite
     ++ Test.HfBertForClassification.suite
+    ++ Test.HfBertLoraInject.suite
     ++ Test.HfDataset.suite
     ++ Test.HfGpt2.suite ++ Test.HfLlama.suite
     ++ Test.HfBitNet.suite ++ Test.KVCache.suite ++ Test.Tokenizer.suite)
