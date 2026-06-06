@@ -194,3 +194,19 @@ void ensure_grad(Tensor* t) {
         t->grad = calloc(t->numel, sizeof(double));
     }
 }
+
+/* Typed grad allocator — allocates per data dtype. F32-tagged tensors
+   get a `numel * sizeof(float)` buffer; everything else falls through
+   to the F64 default. Drop-in for `ensure_grad` at backward sites that
+   have been migrated to use the `tape_grad_*` typed accessors. See
+   `arena.h` for the migration rationale (Row 38). */
+void ensure_grad_typed(Tensor* t) {
+    if (!t->grad) {
+        t->grad = calloc(t->numel, tape_grad_elem_size(t->dtype_tag));
+    }
+}
+
+size_t tape_grad_elem_size(int dtype_tag) {
+    if (dtype_tag == DT_F32) return sizeof(float);
+    return sizeof(double);
+}
