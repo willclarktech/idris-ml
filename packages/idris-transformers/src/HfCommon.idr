@@ -79,3 +79,33 @@ decoderBlockPreNorm preAttnNorm attn preMlpNorm mlp x = do
   xLn2 <- preMlpNorm xMid
   mOut <- mlp xLn2
   tadd xMid mOut
+
+
+----------------------------------------------------------------------
+-- Tied LM-head projection
+----------------------------------------------------------------------
+
+||| Tied LM-head: project the final hidden state `[seq, hidden]`
+||| against the (shared) word-embedding weight `[vocab, hidden]` and
+||| return per-position vocab logits `[seq, vocab]`. The bias is a
+||| run-time zero `[vocab]` (calloc-backed, never registered as a
+||| param), since the standard `tlinear2d` smart constructor expects
+||| `y = x @ W^T + b` and HF's tied head has no bias.
+|||
+||| Used by HfLlama (forward + cached step), HfBitNet (forward), and
+||| HfGpt2 (forward). Bert's MLM head has a real learnable bias and
+||| does NOT use this — `applyMlmHead` keeps its own path.
+export
+projectTiedLmHead
+  : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+ => RuntimeDType dt => Linked ex => Compatible ex dt
+ => {seqLen, vocab, hidden : Nat}
+ -> (embedWeight : Tensor [vocab, hidden] ex dt g)
+ -> (hFinal      : Tensor [seqLen, hidden] ex dt g)
+ -> IO (Tensor [seqLen, vocab] ex dt g)
+projectTiedLmHead embedWeight hFinal =
+  let vI = cast {to=Int} vocab
+      zBuf = prim__allocDoubles vI    -- calloc-backed → already zeros
+      zeroBias : Tensor [vocab] ex dt g
+      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
+  in tlinear2d embedWeight hFinal zeroBias

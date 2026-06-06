@@ -34,6 +34,7 @@ import Data.Vect
 
 import Compat.Random
 import Executor
+import HfCommon
 import Init
 import Sampler
 import Tensor
@@ -569,11 +570,5 @@ hfGpt2ForwardLm {hidden} {vocab} {numHeads} {headDim} model tokenIds posIds = do
   hFinal <- hfGpt2Forward {numHeads} {headDim} model tokenIds posIds  -- [seqLen, hidden]
   -- LM head: x @ wte.weight^T → [seqLen, vocab]. wte.weight is
   -- [vocab, hidden]; tlinear2d wants weight as [out, in] = [vocab, hidden].
-  -- Bias is zero (no separate LM bias in GPT-2). Materialise the
-  -- zero-bias as a persistent-state tensor so the buffer survives
-  -- tape_reset across grad calls.
-  let vI = cast {to=Int} vocab
-      zBuf = prim__allocDoubles vI  -- calloc-backed; already zero
-      zeroBias : Tensor [vocab] ex dt g
-      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
-  tlinear2d model.wte.weight hFinal zeroBias
+  -- Bias is zero (no separate LM bias in GPT-2).
+  projectTiedLmHead model.wte.weight hFinal

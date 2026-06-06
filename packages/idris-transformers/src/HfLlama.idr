@@ -571,13 +571,7 @@ hfLlamaForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorC
                 -> IO (Tensor [seq, vocab] ex dt g)
 hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
   hFinal <- hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens
-  -- LM head via the tied embed_tokens.weight (shape [vocab, hidden]).
-  -- tlinear2d expects weight [out, in] = [vocab, hidden] which matches.
-  let vI = cast {to=Int} vocab
-      zBuf = prim__allocDoubles vI  -- calloc-backed → already zeros
-      zeroBias : Tensor [vocab] ex dt g
-      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
-  tlinear2d model.embedTokens.weight hFinal zeroBias
+  projectTiedLmHead model.embedTokens.weight hFinal
 
 
 ----------------------------------------------------------------------
@@ -753,11 +747,7 @@ hfLlamaForwardLmStep :
 hfLlamaForwardLmStep {numHeads} {numKvHeads} {headDim} eps model tables caches tokens = do
   (caches', hFinal) <- hfLlamaForwardStep {numHeads} {numKvHeads} {headDim}
                                           eps model tables caches tokens
-  let vI = cast {to=Int} vocab
-      zBuf = prim__allocDoubles vI  -- calloc-backed → already zeros
-      zeroBias : Tensor [vocab] ex dt g
-      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
-  logits <- tlinear2d model.embedTokens.weight hFinal zeroBias
+  logits <- projectTiedLmHead model.embedTokens.weight hFinal
   pure (caches', logits)
 
 

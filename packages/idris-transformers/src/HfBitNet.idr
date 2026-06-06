@@ -761,14 +761,10 @@ hfBitnetForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutor
 hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tables tokens = do
   hFinal <- hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate}
                             eps model tables tokens
-  let vI = cast {to=Int} vocab
-      zBuf = prim__allocDoubles vI
-      zeroBias : Tensor [vocab] ex dt g
-      zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
   -- Tied LM head: HF's `tie_word_embeddings=True` means the embedding
   -- weight IS the LM-head projection. No separate `lm_head.weight`
   -- exists in the safetensors file for `microsoft/bitnet-b1.58-2B-4T`.
-  tlinear2d model.embedTokens.weight hFinal zeroBias
+  projectTiedLmHead model.embedTokens.weight hFinal
 
 
 ----------------------------------------------------------------------
