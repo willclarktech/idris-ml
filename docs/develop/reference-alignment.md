@@ -14,6 +14,34 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > referenced in the A2C/PPO entries is structurally impossible in V2 (each layer is named at
 > construction). See [path-c-migration.md](path-c-migration.md).
 
+## GPT-2 LM continued pretraining (2026-06-07)
+
+New paired example `gpt2-lm-finetune` — distilgpt2 fine-tune on Tiny Shakespeare.
+
+| Side | File | Notes |
+|------|------|-------|
+| Idris | `packages/idris-ml-examples/src/Example/Gpt2LmFinetune.idr` | `loadModelAllowCast` warm-starts distilgpt2; sliding-window batch; `hfGpt2ForwardLm` → `[SeqLen, Vocab]` logits; 2D one-hot target via `primOneHot` + `primReshape2d` |
+| PyTorch | `packages/pytorch/torch_ref/scripts/gpt2_lm_finetune.py` | reads the SAME token file; `transformers.AutoModelForCausalLM.from_pretrained("distilgpt2")` + same AdamW |
+
+| Setting | Both sides |
+|---------|------------|
+| Architecture | distilgpt2 (vocab=50257, hidden=768, layers=6, heads=12, headDim=64, intermediate=3072, maxPos=1024) |
+| SeqLen / batch | 32 / 1 (single-example batch) |
+| Corpus | Tiny Shakespeare (1.1MB) tokenized via distilgpt2 BPE → `data/tinyshakespeare/input.distilgpt2.tokens` (338K tokens) |
+| Sampling | random sliding window of (SeqLen+1) tokens; input = first SeqLen, target = shifted-by-1 last SeqLen |
+| Loss | per-position cross-entropy mean over SeqLen positions (Idris `gpt2LmLoss`: logSoftmax2d + elementwise multiply against one-hot + sum + negate + mean; PyTorch `nn.CrossEntropyLoss` over flattened `[seqLen, vocab]`) |
+| Optimizer | AdamW(lr=5e-5, β=(0.9, 0.999), ε=1e-8, weight_decay=0.01) + grad-norm clip 1.0 |
+| Default steps | 100 |
+| Convergence on 50 steps (seed=42) | Idris tape: EMA 5.26 → 4.89 / 1m13s; Idris torch: 5.26 → 4.89 / 24.6s; Idris mlx-cpu: ~4.3 (different seed via perf-run-quiet, different sample stream) / 3m19s; PyTorch CPU: 5.04 → 4.80 / 7.3s |
+
+Loss-step trajectories are not bit-aligned cross-backend because the random
+window-start sampling differs between Idris (`Generate.randomInt`) and Python
+(`random.randint`). The EMA reduction washes out per-step variance; both sides
+show the same monotone downward trend. distilgpt2's pretrained baseline loss on
+Tiny Shakespeare sits at ~5.5 (text data with vocab=50257; uniform-random is
+`ln(50257) ≈ 10.8`); both sides drop into the 4.0-5.0 range after 50 steps,
+confirming the continued-pretraining path works end-to-end.
+
 ## BERT SST-2 classification fine-tune (2026-06-07)
 
 New paired example `bert-classify-sst2-finetune` — real-text variant of the synthetic FT3 example.

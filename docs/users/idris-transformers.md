@@ -246,11 +246,44 @@ threshold (Idris tape ~59%, torch ~61%, mlx-cpu ~56%; PyTorch
 ~52% on the same subset). Full SST-2 + 3 epochs at lr=2e-5
 matches HF's documented ~80%+, but takes ~hours on Idris tape.
 
+### GPT-2 LM continued pretraining
+
+As of 2026-06-07 the GPT-2 LM continued-pretraining path ships as a
+worked example. See
+[`Example/Gpt2LmFinetune.idr`](../../packages/idris-ml-examples/src/Example/Gpt2LmFinetune.idr).
+
+Architecture: distilgpt2 (vocab=50257, hidden=768, layers=6, heads=12,
+headDim=64, intermediate=3072, maxPos=1024).
+
+Corpus: Tiny Shakespeare (1.1MB) tokenized via distilgpt2's BPE into
+`data/tinyshakespeare/input.distilgpt2.tokens` (a flat list of ~338K
+token IDs). New helper script
+[`scripts/tokenize-text-corpus.sh`](../../packages/idris-transformers/scripts/tokenize-text-corpus.sh)
+runs the tokenization once via the pytorch uv venv.
+
+```bash
+make data-tinyshakespeare-distilgpt2   # tokenize once
+make example-gpt2-lm-finetune          # train (50 default steps)
+```
+
+The training loop forwards through `hfGpt2ForwardLm` (which composes
+the encoder with the tied `wte` LM head) and computes per-position
+cross-entropy against the shifted-by-1 next-token target. Loss
+function `gpt2LmLoss` mirrors `Example/Gpt`'s `allPositionsCELoss`:
+logSoftmax2d + elementwise multiply against the one-hot + sum +
+negate + mean over seqLen. Target one-hot is built via the existing
+`primOneHot` primitive (flat `[seqLen*vocab]`) reshaped to 2D so the
+loss multiplies against `[seqLen, vocab]` logits directly.
+
+Paired reference:
+[`gpt2_lm_finetune.py`](../../packages/pytorch/torch_ref/scripts/gpt2_lm_finetune.py).
+Same backbone, same token file, same sliding-window sampling, same
+AdamW(lr=5e-5, wd=0.01, clip=1.0). Both sides drop loss into the
+4.0-5.0 range after 50 steps of single-example batches, starting from
+distilgpt2's pretrained baseline of ~5.5 on this corpus.
+
 ### Today's limits + parked follow-ups
 
-- **GPT-2 LM continued pretraining example.** Architecture +
-  forward (`hfGpt2Forward`) ships in `idris-transformers`; the
-  worked example is a TODO row.
 - **BERT MLM continued pretraining example.** Architecture +
   forward (`hfBertMlmForward`) ships; the worked example is a
   TODO row.
@@ -258,10 +291,9 @@ matches HF's documented ~80%+, but takes ~hours on Idris tape.
 
 ## What's not supported yet
 
-- **GPT-2 LM continued pretraining + BERT MLM continued
-  pretraining worked examples.** Both architectures + forward
-  passes ship in `idris-transformers`; only the worked fine-tune
-  examples are parked (TODO).
+- **BERT MLM continued pretraining worked example.** Architecture +
+  forward (`hfBertMlmForward`) ships in `idris-transformers`; only
+  the worked fine-tune example is parked (TODO).
 - **LoRA / parameter-efficient fine-tuning.** TODO.
 
 ## Cross-references
