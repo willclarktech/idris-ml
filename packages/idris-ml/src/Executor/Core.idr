@@ -118,6 +118,13 @@ interface UserExecutorCore (0 ex : Executor) where
   ||| every other backend returns 0 (the tape and torch backends
   ||| have no stream concept — their `_streamed` C entries are
   ||| no-op wrappers that ignore the arg).
+  |||
+  ||| TODO audit: candidate for demotion to a `UserExecutorStreamed`
+  ||| opt-in interface (BYO authors without streams shouldn't have
+  ||| to write `deviceStreamTag = 0` boilerplate). Deferred from the
+  ||| Optimizations-slice audit because the drift gate's OPT_IN_SLICES
+  ||| escape hatch covers slice-level opt-in, not default-impl methods
+  ||| on a mandatory slice. Needs a paired drift-gate change.
   deviceStreamTag : Int
 
   -- Lifecycle ---------------------------------------------------------
@@ -478,6 +485,11 @@ interface UserExecutorParamRegistry ex => UserExecutorOptimizer (0 ex : Executor
 ||| SafeTensors round-trip for the param registry + optimizer state.
 ||| Layered on Optimizer because the optimizer state buffers it
 ||| serializes belong to the optimizer instance.
+|||
+||| TODO audit: `primParamSaveByName` / `primParamSaveByNameRenamed`
+||| are niche LoRA / subset-save paths; collapsing them with the full
+||| `primParamSave` is a serialization-layer redesign, deferred to the
+||| LoRA / PEFT follow-up rather than this audit.
 public export
 interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) where
   ||| Save every registered param to a .safetensors file (rc 0 = ok).
@@ -511,6 +523,18 @@ interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) wh
 ||| Op-timing counters + epoch hooks + live/peak-handle reporting.
 ||| Orthogonal to autograd; sits next to `Core` because it observes,
 ||| doesn't mutate, the training surface.
+|||
+||| TODO audit: several methods here are asymmetric across backends —
+||| `primEpochBegin/End` (MLX-meaningful, tape/torch no-ops),
+||| `primReleaseAllPersistent` (cheap on tape arena, meaningful on
+||| torch + mlx), `primResetForEval` (footgun marked UNSAFE in
+||| training), `primLiveCount/PeakLiveCount` (reporting-only, dummy-
+||| arg defeats Idris-Chez constant-folding), `primPerfOpCount` (#393
+||| op-submission diagnostic, `Int` workaround for the Bits64 codegen
+||| crash). Candidates for demotion to `UserExecutorMemoryHygiene` /
+||| `UserExecutorDiagnostics` opt-in interfaces. Deferred from the
+||| Optimizations-slice audit; needs a drift-gate change to recognize
+||| default-impl methods on mandatory slices.
 public export
 interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
   ||| Reset this backend's op-timing profile counters.
@@ -557,11 +581,11 @@ interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
   ||| per-forward op counts without instrumenting every kernel wrapper.
   primPerfReset           : PrimIO ()
   ||| Returns `Int` (not `Bits64`) — `PrimIO Bits64` triggered a
-  ||| cumulative-state crash on tape F32 HfLlama (#401, 2026-05-31).
-  ||| Idris-2's chez codegen emits `unsigned-64` for Bits64 returns;
-  ||| something about that path corrupts state across calls. `Int`
-  ||| (int64 on 64-bit platforms) holds the same value and is the
-  ||| codepath used by every other counter FFI in the codebase.
+  ||| cumulative-state crash on tape F32 HfLlama (#401). Idris-2's
+  ||| chez codegen emits `unsigned-64` for Bits64 returns; something
+  ||| about that path corrupts state across calls. `Int` (int64 on
+  ||| 64-bit platforms) holds the same value and is the codepath used
+  ||| by every other counter FFI in the codebase.
   primPerfOpCount         : PrimIO Int
 
 ||| Tensor creation surface: shape queries + host item reads + dtype-
