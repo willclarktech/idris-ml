@@ -29,6 +29,7 @@ static TensorHandle tape_f32_unsupported(const char* sym) {
 	        "[tape backend] %s called but tape has no fp32 arena. "
 	        "Bind your code to F64 on tape, or build with BACKEND=mlx / torch.\n",
 	        sym);
+	// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 	abort();
 }
 

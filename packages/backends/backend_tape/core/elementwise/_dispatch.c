@@ -127,5 +127,6 @@ void tape_abort_mixed_dtype(const char* op) {
 	        "[tape backend] %s: mixed-dtype inputs forbidden — both operands must "
 	        "share a dtype_tag (cast first via tcast / tensor_cast_dtype_streamed).\n",
 	        op);
+	// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 	abort();
 }

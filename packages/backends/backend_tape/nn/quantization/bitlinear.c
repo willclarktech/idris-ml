@@ -45,6 +45,7 @@ TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_bytes, int pa
 		        "[tape] tensor_create_ternary_packed_2d: byte-count "
 		        "mismatch (got %d, expected %d for shape [%d, %d])\n",
 		        packed_byte_count, expected_bytes, o, i);
+		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
 	}
 	Tensor* t = arena_alloc(sizeof(Tensor));

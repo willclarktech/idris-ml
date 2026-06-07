@@ -30,6 +30,7 @@ TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
 		        "tensor_unsqueeze: dim=%d out of range for rank=%d "
 		        "(valid: 0..%d)\n",
 		        dim, old_rank, old_rank);
+		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
 	}
 	int* new_shape = arena_alloc((size_t)new_rank * sizeof(int));

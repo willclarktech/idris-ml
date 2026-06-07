@@ -16,6 +16,7 @@ void tape_register_op(int op, TapeBackwardFn fn) {
 		        "[tape backend] tape_register_op: op tag %d out of range "
 		        "[0..%d)\n",
 		        op, OP_COUNT);
+		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
 	}
 	g_tape_backward[op] = fn;

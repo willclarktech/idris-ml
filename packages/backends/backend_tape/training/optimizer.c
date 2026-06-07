@@ -326,6 +326,7 @@ void tape_optimizer_step(void* h) {
 			}
 			default:
 				fprintf(stderr, "tape optimizer: unknown opt->type=%d\n", opt->type);
+				// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 				abort();
 			}
 		}

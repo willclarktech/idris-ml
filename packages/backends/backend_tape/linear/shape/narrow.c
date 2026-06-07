@@ -106,6 +106,7 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
 		        "tape tensor_narrow: unsupported (rank=%d, dim=%d). "
 		        "Supported: rank=1+dim=0, rank=2+dim=0/1, rank=3+dim=0/2.\n",
 		        t->rank, dim);
+		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
 	}
 

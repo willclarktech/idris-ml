@@ -32,6 +32,7 @@ TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
 	if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_cat2");
 	if (a->rank != b->rank) {
 		fprintf(stderr, "tensor_cat2: rank mismatch (a->rank=%d, b->rank=%d)\n", a->rank, b->rank);
+		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
 	}
 	for (int k = 1; k < a->rank; k++) {

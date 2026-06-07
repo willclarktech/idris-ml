@@ -70,6 +70,7 @@ int tape_tag_from_dtag(int dtag) {
 		        "{1=Bool, 4=U8, 8-11=I8/I16/I32/I64, 13-15=F16/F32/F64, 17=BF16, "
 		        "24=Binary, 25=Ternary})\n",
 		        dtag);
+		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
 	}
 }
