@@ -533,6 +533,15 @@ jobs:
         # Ubuntu-only: ref-setup runs only there in this matrix.
         if: matrix.os == 'ubuntu-latest'
         run: make typecheck-py-pytorch
+
+      - name: Typecheck idris-ml-examples Python helpers (pyright strict, Ubuntu)
+        # pyright strict over packages/idris-ml-examples/scripts/ (config
+        # root: its pyrightconfig.json, selected via -p). Matrix not
+        # preflight: verify_dtypes.py imports torch/safetensors, which
+        # only the full ref-setup venv carries. Ubuntu-only: ref-setup
+        # runs only there in this matrix.
+        if: matrix.os == 'ubuntu-latest'
+        run: make typecheck-py-examples
       # <<< END GENERATED <<<
 
       - name: Upload Criterion JUnit XML artifacts

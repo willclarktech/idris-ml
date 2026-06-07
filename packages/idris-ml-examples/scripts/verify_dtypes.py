@@ -17,10 +17,13 @@ Usage: verify_dtypes.py <path-to-safetensors>
 import sys
 
 import torch
-from safetensors.torch import load_file
+
+# safetensors' load_file stub leaks a PathLike[Unknown] parameter, so the
+# import itself is partially unknown under strict; the call is fine.
+from safetensors.torch import load_file  # pyright: ignore[reportUnknownVariableType]
 
 # (name, expected dtype, expected values)
-EXPECTED = {
+EXPECTED: dict[str, tuple[torch.dtype, list[float] | list[int]]] = {
     "w_bf16": (torch.bfloat16, [1.5, -2.0, 256.0, -0.5]),
     "w_f16": (torch.float16, [1.5, -2.0, 256.0, -0.5]),
     "w_i32": (torch.int32, [1, -2, 1000, -42]),
@@ -45,7 +48,9 @@ def main() -> int:
             print(f"FAIL: '{name}' dtype is {t.dtype}, expected {want_dtype}")
             failures += 1
             continue
-        got = t.to(torch.float64).tolist()
+        # torch's own stub types Tensor.tolist() as list[Unknown]; the
+        # declared type re-establishes precision for everything below.
+        got: list[float] = t.to(torch.float64).tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
         if got != [float(v) for v in want_vals]:
             print(f"FAIL: '{name}' values {got}, expected {want_vals}")
             failures += 1

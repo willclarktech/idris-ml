@@ -12,6 +12,7 @@
         test-integration-lint-paired-defaults lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
         lint-py-jupyter typecheck-py typecheck-py-pytorch \
+        typecheck-py-examples \
         lint-c lint-c-tape lint-c-include-cleaner \
         lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing \
@@ -116,11 +117,15 @@ lint-py-jupyter:
 # name, in mk/ref.mk) so the typecheck-py-* family is uniform for
 # CI/docs.
 
-typecheck-py: typecheck-py-pytorch
+typecheck-py: typecheck-py-pytorch typecheck-py-examples
 	@echo "typecheck-py OK (all Python-bearing packages)"
 
 typecheck-py-pytorch: ref-typecheck
 	@echo "  typecheck-py-pytorch OK"
+
+typecheck-py-examples:
+	@cd packages/pytorch && uv run --no-sync --quiet pyright -p ../idris-ml-examples/scripts
+	@echo "  typecheck-py-examples OK"
 
 # Lint the C / C++ backend surface: clang-format (layout drift
 # against the repo-root `.clang-format` — tabs for indent, K&R

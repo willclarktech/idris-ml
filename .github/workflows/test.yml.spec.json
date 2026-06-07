@@ -364,6 +364,18 @@
         "aren't importable there. Pyright version is pinned by uv.lock.",
         "Ubuntu-only: ref-setup runs only there in this matrix."
       ]
+    },
+    {
+      "name": "Typecheck idris-ml-examples Python helpers (pyright strict, Ubuntu)",
+      "run": "make typecheck-py-examples",
+      "os": "ubuntu",
+      "comment": [
+        "pyright strict over packages/idris-ml-examples/scripts/ (config",
+        "root: its pyrightconfig.json, selected via -p). Matrix not",
+        "preflight: verify_dtypes.py imports torch/safetensors, which",
+        "only the full ref-setup venv carries. Ubuntu-only: ref-setup",
+        "runs only there in this matrix."
+      ]
     }
   ]
 }

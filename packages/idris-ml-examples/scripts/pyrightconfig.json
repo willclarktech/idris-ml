@@ -1,0 +1,10 @@
+{
+	// Config root for the examples-package Python helpers, selected via
+	// `pyright -p packages/idris-ml-examples/scripts` (pyright discovers
+	// config from the project root, not by per-file ancestor walk like
+	// ruff). Strict; imports (torch, safetensors) resolve from the
+	// packages/pytorch uv venv pyright runs out of.
+	"include": ["."],
+	"pythonVersion": "3.12",
+	"typeCheckingMode": "strict"
+}
