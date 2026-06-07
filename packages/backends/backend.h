@@ -680,17 +680,25 @@ int param_save_by_name_renamed(const char* path, const char* lookup_names_nl,
                                const char* ondisk_names_nl, int count);
 
 /* Load params from a .safetensors file into the existing param registry.
-   Matches by name. Skips tensors not in registry. Returns 0 on success.
+   Matches by name. Skips tensors not in registry (NOT an error — the
+   warm-start path depends on it). Returns 0 on success, otherwise a
+   typed code (first-error-wins across entries; the loop continues so
+   one bad entry doesn't abort the rest):
+     -1 cannot open file       -2 malformed file (size prelude, JSON
+                                  header, or a bad data_offsets entry)
+     -3 dtype mismatch (gate)  -4 element-count mismatch
+     -5 unsupported on-disk dtype
+     -6 data read / alloc failure
    Strict mode: errors out if any tensor's on-disk dtype differs from
    the destination param's dtype. Use param_load_with_policy() to opt
    in to silent precision conversion. */
 int param_load(const char* path);
 
 /* Load params with explicit dtype-mismatch policy. allow_cast=0 is
-   strict (mismatch -> error). allow_cast=1 reads source bytes,
+   strict (mismatch -> -3). allow_cast=1 reads source bytes,
    widens to doubles, then loads via param_load_data (which narrows
    to the destination param's actual dtype as needed). Returns 0 if
-   every tensor loaded cleanly, nonzero if any entry was skipped. */
+   every tensor loaded cleanly, otherwise the param_load error code. */
 int param_load_with_policy(const char* path, int allow_cast);
 
 /* Load params subject to a name-prefix filter. Same dtype-policy

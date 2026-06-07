@@ -481,7 +481,19 @@ int param_save_by_name_renamed(const char* path, const char* lookup_names_nl,
 /* Core loader. `prefix == NULL` loads every key (legacy behaviour);
    `prefix != NULL` loads only safetensors keys whose name starts with
    `prefix` (used by Idris-side `loadModelPrefix` to warm-start a
-   pretrained backbone while leaving a fresh head at its init). */
+   pretrained backbone while leaving a fresh head at its init).
+
+   Returns 0 on success, otherwise a typed error code (consumed by the
+   Idris-side Checkpoint.load to build a LoadError):
+     -1 cannot open file       -2 malformed file (size prelude, JSON
+                                  header, or a bad data_offsets entry)
+     -3 dtype mismatch (gate)  -4 element-count mismatch
+     -5 unsupported on-disk dtype
+     -6 data read / alloc failure
+   Per-entry errors are first-error-wins (set-if-zero) and the loop
+   continues, so one bad entry doesn't abort the rest of the load.
+   A file key missing from the registry is a SKIP, not an error —
+   the warm-start path depends on that. */
 static int param_load_core(const char* path, int allow_cast, const char* prefix) {
 	FILE* f = fopen(path, "rb");
 	if (!f) {
@@ -495,20 +507,20 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 	if (fread(&header_size, sizeof(uint64_t), 1, f) != 1) {
 		fprintf(stderr, "param_load: failed to read header size\n");
 		fclose(f);
-		return -1;
+		return -2;
 	}
 
 	/* Read JSON header */
 	char* json_str = (char*)malloc(header_size + 1);
 	if (!json_str) {
 		fclose(f);
-		return -1;
+		return -6;
 	}
 	if (fread(json_str, 1, header_size, f) != header_size) {
 		fprintf(stderr, "param_load: failed to read header\n");
 		free(json_str);
 		fclose(f);
-		return -1;
+		return -2;
 	}
 	json_str[header_size] = '\0';
 
@@ -520,7 +532,7 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 	if (!root) {
 		fprintf(stderr, "param_load: failed to parse JSON header\n");
 		fclose(f);
-		return -1;
+		return -2;
 	}
 
 	int n = param_count();
@@ -561,7 +573,7 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 		if (src_width == 0) {
 			fprintf(stderr, "param_load: unsupported on-disk dtype '%s' for '%s'\n", src_dtype,
 			        name);
-			rc = -1;
+			if (rc == 0) rc = -5;
 			continue;
 		}
 
@@ -573,7 +585,7 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 			        "param_load: dtype mismatch for '%s' — on disk %s, destination %s. "
 			        "Pass allow_cast=1 to convert at load time.\n",
 			        name, src_dtype, dst_dtype);
-			rc = -1;
+			if (rc == 0) rc = -3;
 			continue;
 		}
 
@@ -581,7 +593,7 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 		cJSON* offsets = cJSON_GetObjectItem(entry, "data_offsets");
 		if (!offsets || cJSON_GetArraySize(offsets) != 2) {
 			fprintf(stderr, "param_load: bad data_offsets for '%s'\n", name);
-			rc = -1;
+			if (rc == 0) rc = -2;
 			continue;
 		}
 		size_t start = (size_t)cJSON_GetArrayItem(offsets, 0)->valuedouble;
@@ -594,7 +606,7 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 		if (numel != expected_numel) {
 			fprintf(stderr, "param_load: size mismatch for '%s': file has %d, registry has %d\n",
 			        name, numel, expected_numel);
-			rc = -1;
+			if (rc == 0) rc = -4;
 			continue;
 		}
 
@@ -602,14 +614,14 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 		   param_load_data — destination dtype conversion happens C-side). */
 		void* raw_buf = malloc(byte_len);
 		if (!raw_buf) {
-			rc = -1;
+			if (rc == 0) rc = -6;
 			continue;
 		}
 		fseek(f, data_start + (long)start, SEEK_SET);
 		if (fread(raw_buf, 1, byte_len, f) != byte_len) {
 			fprintf(stderr, "param_load: failed to read data for '%s'\n", name);
 			free(raw_buf);
-			rc = -1;
+			if (rc == 0) rc = -6;
 			continue;
 		}
 
@@ -634,7 +646,7 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 			dbuf = (double*)malloc((size_t)numel * sizeof(double));
 			if (!dbuf) {
 				free(raw_buf);
-				rc = -1;
+				if (rc == 0) rc = -6;
 				continue;
 			}
 			owns_dbuf = 1;

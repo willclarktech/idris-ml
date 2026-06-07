@@ -265,6 +265,153 @@ Test(safetensors, raw_bytes_reader) {
 }
 
 
+/* ================================================================
+   Typed load error codes
+   ================================================================
+   param_load_core distinguishes failure modes by return code so the
+   Idris-side Checkpoint.load can surface a typed LoadError:
+     -1 open failure          -2 malformed file (header/JSON)
+     -3 dtype mismatch        -4 element-count mismatch
+     -5 unsupported on-disk dtype
+     -6 data read / alloc failure
+   Per-entry errors are first-error-wins (set-if-zero); the
+   registry-miss skip stays a NON-error — the warm-start path
+   (loadModelPrefix backbone + fresh head) depends on it. */
+
+/* Write a minimal safetensors container: 8-byte LE header size,
+   JSON header, raw data section. */
+static void write_st_file(const char* path, const char* json,
+                          const void* data, size_t data_len) {
+    FILE* f = fopen(path, "wb");
+    cr_assert(f != NULL, "write_st_file: cannot open '%s'", path);
+    uint64_t hs = (uint64_t)strlen(json);
+    cr_assert(fwrite(&hs, sizeof(hs), 1, f) == 1, "write_st_file: header size");
+    cr_assert(fwrite(json, 1, hs, f) == hs, "write_st_file: header");
+    if (data_len > 0)
+        cr_assert(fwrite(data, 1, data_len, f) == data_len, "write_st_file: data");
+    fclose(f);
+}
+
+static TensorHandle mk_param_f64(int n, const double* vals) {
+    double* buf = tensor_alloc_doubles(n);
+    for (int i = 0; i < n; i++) buf[i] = vals[i];
+    return tensor_create_param_1d_f64(n, buf);
+}
+
+Test(safetensors, load_typed_error_codes) {
+    param_clear();
+    const double v3[] = {1.0, 2.0, 3.0};
+    const double v4[] = {0.0, 0.0, 0.0, 0.0};
+
+    /* -1: open failure */
+    cr_assert_eq(param_load("/tmp/idrisml-no-such-file.safetensors"), -1,
+                 "missing file must return -1");
+
+    /* -2: malformed — unparseable JSON header */
+    const char* p_bad = "/tmp/idrisml_ec_badjson.safetensors";
+    write_st_file(p_bad, "this is not json at all!!", NULL, 0);
+    cr_assert_eq(param_load(p_bad), -2, "garbage JSON header must return -2");
+
+    /* -2: malformed — file shorter than the 8-byte size prelude */
+    const char* p_tiny = "/tmp/idrisml_ec_tiny.safetensors";
+    FILE* tf = fopen(p_tiny, "wb");
+    cr_assert(tf != NULL, "open tiny file");
+    fwrite("AB", 1, 2, tf);
+    fclose(tf);
+    cr_assert_eq(param_load(p_tiny), -2, "truncated size prelude must return -2");
+
+    /* Good file: ec_w as F64 [3]. */
+    param_register("ec_w", mk_param_f64(3, v3));
+    const char* p_good = "/tmp/idrisml_ec_good.safetensors";
+    cr_assert_eq(param_save(p_good), 0, "param_save of the good file");
+
+    /* -3: dtype gate — same name re-registered as F32 (dtag 14). */
+    param_clear();
+    {
+        double* b32 = tensor_alloc_doubles(3);
+        for (int i = 0; i < 3; i++) b32[i] = 0.0;
+        param_register("ec_w", tensor_create_param_1d_streamed(3, b32, 0, 14));
+    }
+    cr_assert_eq(param_load(p_good), -3, "dtype mismatch without allow_cast must return -3");
+    cr_assert_eq(param_load_with_policy(p_good, 1), 0,
+                 "allow_cast=1 lifts the dtype gate");
+
+    /* -4: element-count mismatch — same name, F64, numel 4 vs file's 3. */
+    param_clear();
+    param_register("ec_w", mk_param_f64(4, v4));
+    cr_assert_eq(param_load(p_good), -4, "element-count mismatch must return -4");
+
+    /* -5: unsupported on-disk dtype. */
+    param_clear();
+    param_register("ec_w", mk_param_f64(3, v3));
+    const char* p_baddt = "/tmp/idrisml_ec_baddtype.safetensors";
+    uint8_t zeros24[24] = {0};
+    write_st_file(p_baddt,
+                  "{\"ec_w\":{\"dtype\":\"Q4\",\"shape\":[3],\"data_offsets\":[0,24]}}",
+                  zeros24, 24);
+    cr_assert_eq(param_load(p_baddt), -5, "unsupported on-disk dtype must return -5");
+
+    /* -6: data section truncated below data_offsets' claim. */
+    const char* p_trunc = "/tmp/idrisml_ec_trunc.safetensors";
+    write_st_file(p_trunc,
+                  "{\"ec_w\":{\"dtype\":\"F64\",\"shape\":[3],\"data_offsets\":[0,24]}}",
+                  zeros24, 8);
+    cr_assert_eq(param_load(p_trunc), -6, "short data read must return -6");
+
+    remove(p_bad);
+    remove(p_tiny);
+    remove(p_good);
+    remove(p_baddt);
+    remove(p_trunc);
+    param_clear();
+}
+
+Test(safetensors, load_first_error_wins) {
+    param_clear();
+    const double v2[] = {1.0, 2.0};
+    const double v3[] = {0.0, 0.0, 0.0};
+
+    /* Save ec_a + ec_b (file order follows registry order). */
+    param_register("ec_a", mk_param_f64(2, v2));
+    param_register("ec_b", mk_param_f64(2, v2));
+    const char* path = "/tmp/idrisml_ec_two.safetensors";
+    cr_assert_eq(param_save(path), 0, "param_save of the two-entry file");
+
+    /* Re-register: ec_a dtype-mismatched (F32), ec_b count-mismatched. */
+    param_clear();
+    {
+        double* b32 = tensor_alloc_doubles(2);
+        b32[0] = 0.0;
+        b32[1] = 0.0;
+        param_register("ec_a", tensor_create_param_1d_streamed(2, b32, 0, 14));
+    }
+    param_register("ec_b", mk_param_f64(3, v3));
+    cr_assert_eq(param_load(path), -3,
+                 "first error (ec_a dtype, -3) must win over ec_b's count error (-4)");
+
+    remove(path);
+    param_clear();
+}
+
+Test(safetensors, load_registry_miss_is_not_error) {
+    param_clear();
+    const double v2[] = {7.0, 8.0};
+
+    param_register("ec_solo", mk_param_f64(2, v2));
+    const char* path = "/tmp/idrisml_ec_solo.safetensors";
+    cr_assert_eq(param_save(path), 0, "param_save of the solo file");
+
+    /* A registry that lacks the file's key: skip, not an error. */
+    param_clear();
+    param_register("ec_other", mk_param_f64(2, v2));
+    cr_assert_eq(param_load(path), 0,
+                 "registry-miss skip must stay rc 0 (warm-start path)");
+
+    remove(path);
+    param_clear();
+}
+
+
 #ifdef BACKEND_TORCH
 /* Inference-dtype create via the unified dtag-dispatch symbol.
    Canonical kind-major dtag layout (see backend_torch/training/dtype_dispatch.cpp
