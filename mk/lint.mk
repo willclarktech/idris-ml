@@ -14,7 +14,7 @@
         lint-py-jupyter typecheck-py typecheck-py-pytorch \
         typecheck-py-scripts typecheck-py-transformers \
         typecheck-py-examples typecheck-py-jupyter \
-        lint-c lint-c-tape lint-c-include-cleaner \
+        lint-c lint-c-tape lint-c-tape-linux lint-c-include-cleaner \
         lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing \
         test-integration-typegate-lossy-cast \
@@ -190,6 +190,27 @@ lint-c-tape:
 		clang-tidy --quiet $(BACKEND_TAPE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
 	else \
 		echo "lint-c-tape: clang-tidy not installed (install via 'brew install llvm' or 'apt-get install clang-tidy'); skipping"; \
+	fi
+
+# Linux-lane approximation of the CI clang-tidy gate, for pre-sync
+# feedback on a macOS dev box. CI's preflight lints on Ubuntu, where
+# clang-tidy analyzes the #else (non-Apple) branches of the tape
+# sources — code a macOS lint-c-tape run never parses. Observed
+# 2026-06-11: CI-only analyzer findings in conv2d_batched.c's Linux
+# branch shipped through a green local gate. This target re-runs
+# clang-tidy with __APPLE__ undefined and a non-Accelerate <cblas.h>
+# (nix openblas) so those branches get analyzed locally. Caveat:
+# local clang-tidy (brew llvm, v21) vs CI's apt clang-tidy (v18) can
+# disagree on individual analyzer findings — this is an
+# approximation, not a bit-exact mirror of the CI lane.
+LINT_LINUX_CBLAS_INC ?= $(shell nix path-info nixpkgs\#openblas.dev 2>/dev/null)/include
+lint-c-tape-linux:
+	@if ! command -v clang-tidy >/dev/null 2>&1; then \
+		echo "lint-c-tape-linux: clang-tidy not installed; skipping"; \
+	elif [ ! -f "$(LINT_LINUX_CBLAS_INC)/cblas.h" ]; then \
+		echo "lint-c-tape-linux: no cblas.h found (run 'nix build --no-link nixpkgs#openblas.dev' or set LINT_LINUX_CBLAS_INC); skipping"; \
+	else \
+		clang-tidy --quiet $(BACKEND_TAPE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) -U__APPLE__ -isystem $(LINT_LINUX_CBLAS_INC) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
 	fi
 
 # Rename-free misc-include-cleaner gate. Runs clang-tidy with ONLY

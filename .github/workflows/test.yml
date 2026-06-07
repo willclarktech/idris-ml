@@ -108,8 +108,11 @@ jobs:
         # install via `brew install clang-format cppcheck llvm` or
         # the equivalent nix derivation. The Make target gracefully
         # skips each tool that isn't on PATH so it doesn't block
-        # pre-commit runs locally.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format cppcheck clang-tidy
+        # pre-commit runs locally. libopenblas-dev provides <cblas.h>,
+        # which clang-tidy needs to parse the tape sources' non-Apple
+        # BLAS branch (the build job installs it too, but this
+        # preflight job has its own apt step).
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format cppcheck clang-tidy libopenblas-dev
       - name: Lint C / C++ backend surface (clang-format + cppcheck + clang-tidy)
         # Runs `make lint-c`: clang-format --dry-run + cppcheck on
         # all 3 backends + clang-tidy on tape (tape uses only libc
