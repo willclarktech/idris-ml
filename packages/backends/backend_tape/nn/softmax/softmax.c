@@ -30,7 +30,9 @@ static TensorHandle tensor_softmax_f32(TensorHandle h, int dim) {
 	for (int i = 0; i < n; i++)
 		data[i] /= sum;
 	Tensor* r;
+	/* data[0] set by the n>=1 loop above; analyzer can't prove n>=1 from rank==0 */
 	if (t->rank == 0) {
+		// NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
 		r = make_scalar_f32((double)data[0], t->requires_grad);
 	} else {
 		float* arena_d = arena_alloc(n * sizeof(float));
@@ -65,6 +67,7 @@ TensorHandle tensor_softmax(TensorHandle h, int dim) {
 		data[i] /= sum;
 	Tensor* r;
 	if (t->rank == 0) {
+		// NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage) — data[0] set by the n>=1 loop above
 		r = make_scalar(data[0], t->requires_grad);
 	} else {
 		r = make_tensor(data, t->shape, t->rank, t->requires_grad);

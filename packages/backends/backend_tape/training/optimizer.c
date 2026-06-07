@@ -91,8 +91,12 @@ static int param_element_offset(int param_idx) {
 static void optimizer_ensure_buffers(TapeOptimizer* opt) {
 	if (opt->allocated) return;
 	int n = param_total_elements();
-	opt->v = calloc(n, sizeof(double));
-	opt->m = calloc(n, sizeof(double));
+	/* calloc(0, ...) is implementation-defined; treat zero-param state
+	 * as a no-op and let `allocated` stay 0 so the next call retries
+	 * after params are registered. */
+	if (n <= 0) return;
+	opt->v = calloc((size_t)n, sizeof(double));
+	opt->m = calloc((size_t)n, sizeof(double));
 	opt->allocated = 1;
 }
 

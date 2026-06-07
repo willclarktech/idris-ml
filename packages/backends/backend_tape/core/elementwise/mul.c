@@ -60,7 +60,9 @@ static void tape_backward_mul(TapeEntry* e) {
 			double rg = tape_grad_load_d(r, i);
 			if (a) tape_grad_add_d(a, ai, rg * tape_load_d(b, bi));
 			if (b) tape_grad_add_d(b, bi, rg * tape_load_d(a, ai));
+			/* idx[k] safe: r->rank <= MAX_BCAST_RANK guaranteed by compute_bcast_shape */
 			for (int k = r->rank - 1; k >= 0; k--) {
+				// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
 				if (++idx[k] < r->shape[k]) break;
 				idx[k] = 0;
 			}

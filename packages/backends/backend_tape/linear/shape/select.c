@@ -47,7 +47,8 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
 		v->dtype_tag = parent_dtype_tag;
 		if (v->requires_grad) tape_append(OP_SELECT, v, t, NULL, (double)index);
 		return v;
-	} else if (t->rank == 2 && dim == 0) {
+	}
+	if (t->rank == 2 && dim == 0) {
 		int cols = t->shape[1];
 		Tensor* r = arena_alloc(sizeof(Tensor));
 		memset(r, 0, sizeof(Tensor));

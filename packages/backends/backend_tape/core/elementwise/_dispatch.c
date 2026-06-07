@@ -28,6 +28,8 @@
 #include "../../../backend.h"
 
 extern double _wall_ms(void);
+extern double prof_binop_inside_ms[];
+extern int prof_binop_inside_count[];
 
 /* F64 stamping. */
 #define SCALAR double
@@ -88,9 +90,6 @@ extern double _wall_ms(void);
    counters (read by backend_profile_report). */
 TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
                                double (*scalar_fn)(double, double)) {
-	extern double prof_binop_inside_ms[];
-	extern int prof_binop_inside_count[];
-	extern double _wall_ms(void);
 	double _b0 = _wall_ms();
 	TensorHandle r = binop_elementwise_inner_f64(ha, hb, op_tag, scalar_fn);
 	if (op_tag >= 0 && op_tag < OP_COUNT) {
@@ -102,9 +101,6 @@ TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
 
 TensorHandle binop_elementwise_f32_disp(TensorHandle ha, TensorHandle hb, int op_tag,
                                         float (*scalar_fn)(float, float)) {
-	extern double prof_binop_inside_ms[];
-	extern int prof_binop_inside_count[];
-	extern double _wall_ms(void);
 	double _b0 = _wall_ms();
 	TensorHandle r = binop_elementwise_inner_f32(ha, hb, op_tag, scalar_fn);
 	if (op_tag >= 0 && op_tag < OP_COUNT) {

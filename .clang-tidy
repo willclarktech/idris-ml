@@ -1,47 +1,120 @@
 # clang-tidy config for the C / C++ backend sources.
 #
-# Pattern: enable the whole `bugprone-*` family (it's curated as
-# "bug-finding heuristics" — matches our intent), with two
-# exceptions for checks that are stylistic rather than bug-class.
-# Outside `bugprone-*`, enumerate individually — the other check
-# families (readability-*, modernize-*, cppcoreguidelines-*, etc.)
-# bundle real findings with broad style-preference enforcement we
-# don't want.
+# Architecture: deny-list. Enable everything (`*`), then disable
+# families and individual checks that don't carry bug-class signal
+# for this codebase. The disable list is long but written once with
+# rationales; new checks shipped in future LLVM versions are
+# automatically enabled.
 #
-# When LLVM ships a new bugprone-* check, we get it for free. When
-# the new check turns out to be noisy here, add a negated entry
-# below to disable it (mirror the pattern of the existing
-# exceptions, with a rationale).
+# To opt one of the disabled families back in: remove its entry
+# below, run `make lint-c-tape`, triage the findings (fix or NOLINT).
+# The rationale block on each disable says why we decided against
+# it the first time around.
 #
-# To expand outside bugprone-*: add a check, run `make lint-c-tape`
-# locally, decide whether the new findings are real (fix in source
-# or guard with NOLINTNEXTLINE) or noisy (drop the entry).
+# Family-wholesale disables:
+#   altera-*       — Intel Altera FPGA OpenCL optimization hints; we
+#                    target CPU
+#   abseil-*       — Abseil library; not a dep
+#   boost-*        — Boost library; not a dep
+#   concurrency-*  — `getenv` flagged as MT-unsafe; the backend is
+#                    single-threaded
+#   cppcoreguidelines-* — C++ guidance; primarily a C codebase, the
+#                    C-applicable parts (init-variables, magic-numbers)
+#                    are stylistic noise
+#   darwin-*       — Darwin-specific (dispatch_once etc.); narrow
+#                    surface
+#   fuchsia-*      — Fuchsia OS style; opinionated
+#   google-*       — Google style; overlaps with hicpp/llvm
+#   hicpp-*        — High Integrity C++; signed-bitwise fires on
+#                    legitimate array indexing
+#   linuxkernel-*  — Linux kernel coding patterns; N/A
+#   llvm-*         — LLVM project's own coding style; header guard
+#                    naming + include-order are stylistic
+#   llvmlibc-*     — Intended for LLVM's own libc implementation
+#   modernize-*    — C++11/14/17/20 modernization; primarily a C
+#                    codebase
+#   mpi-*          — MPI; N/A
+#   objc-*         — Objective-C; N/A
+#   openmp-*       — OpenMP; N/A
+#   zircon-*       — Fuchsia Zircon kernel; N/A
+#
+# Individual-check disables (within otherwise-enabled families):
+#   bugprone-easily-swappable-parameters — tensor APIs are full of
+#       `(int m, int n)` adjacent parameter pairs by necessity
+#   bugprone-reserved-identifier — `_var` is the local convention for
+#       tape-internal helpers and statement-expression locals
+#   cert-dcl37-c, cert-dcl51-cpp — aliases of bugprone-reserved-identifier
+#   cert-err33-c — predicted 41 hits across the backend, all
+#       `fprintf(stderr, ...)` discards in diagnostic-logging paths;
+#       wrong noise:signal ratio
+#   clang-analyzer-core.NullDereference — ~7 hits, all overlap with the
+#       deferred deref-before-redundant-null-check cleanup pattern
+#       (also flagged by cppcheck's nullPointerRedundantCheck); enable
+#       after that cleanup lands
+#   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+#       — "use fprintf_s instead of fprintf" (C11 Annex K, not widely
+#       shipped); ~41 FPs for plain fprintf calls
+#   misc-include-cleaner — ~338 hits, FP-heavy in macro-heavy code; the
+#       unused-include cleanup is a real backlog item separate from
+#       this gate
+#   readability-braces-around-statements — `misleading-indentation`
+#       already catches the goto-fail class without forcing braces
+#       everywhere
+#   readability-function-cognitive-complexity — stylistic; some
+#       backward fns are intrinsically long
+#   readability-identifier-length — `i`/`j`/`m`/`n`/`eps` are idiomatic
+#       in math code
+#   readability-inconsistent-declaration-parameter-name — header
+#       decls use generic placeholders (`TensorHandle t`); .c files
+#       use mnemonic names (`ha`, `hweight`); intentional convention
+#   readability-isolate-declaration — `int a, b;` is fine
+#   readability-magic-numbers — stylistic
+#   readability-math-missing-parentheses — operator precedence is
+#       well-defined
+#   readability-non-const-parameter — partly C-doesn't-have-const-views
+#   readability-redundant-casting — sometimes intentional for clarity
+#   readability-uppercase-literal-suffix — `0L` vs `0l` typo; rare
+#       here
 #
 # Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 
 Checks: >
-  -*,
-  bugprone-*,
+  *,
+  -abseil-*,
+  -altera-*,
+  -boost-*,
+  -concurrency-*,
+  -cppcoreguidelines-*,
+  -darwin-*,
+  -fuchsia-*,
+  -google-*,
+  -hicpp-*,
+  -linuxkernel-*,
+  -llvm-*,
+  -llvmlibc-*,
+  -modernize-*,
+  -mpi-*,
+  -objc-*,
+  -openmp-*,
+  -zircon-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-reserved-identifier,
-  cert-err34-c,
-  clang-analyzer-deadcode.DeadStores,
-  clang-analyzer-unix.Malloc,
-  misc-definitions-in-headers,
-  misc-redundant-expression,
-  misc-unused-parameters,
-  misc-unused-using-decls,
-  readability-misleading-indentation,
-  readability-redundant-control-flow
-
-# bugprone-* exceptions, with rationale:
-#   easily-swappable-parameters — tensor APIs are full of
-#     `(int m, int n)` adjacent pairs by necessity; this check
-#     would fire ~92 times across the backend with no
-#     bug-class signal
-#   reserved-identifier — `_var` is the local convention for
-#     tape-internal helpers and statement-expression locals;
-#     intentional, ~13 sites
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cert-err33-c,
+  -clang-analyzer-core.NullDereference,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -misc-include-cleaner,
+  -readability-braces-around-statements,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-inconsistent-declaration-parameter-name,
+  -readability-isolate-declaration,
+  -readability-magic-numbers,
+  -readability-math-missing-parentheses,
+  -readability-non-const-parameter,
+  -readability-redundant-casting,
+  -readability-uppercase-literal-suffix
 
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'packages/backends/.*\.h$'

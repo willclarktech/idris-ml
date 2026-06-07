@@ -62,7 +62,9 @@ static void tape_backward_div(TapeEntry* e) {
 			if (a) tape_grad_add_d(a, ai, tape_grad_load_d(r, i) / bv);
 			if (b)
 				tape_grad_add_d(b, bi, -(tape_grad_load_d(r, i) * tape_load_d(a, ai) / (bv * bv)));
+			/* idx[k] safe: r->rank <= MAX_BCAST_RANK guaranteed by compute_bcast_shape */
 			for (int k = r->rank - 1; k >= 0; k--) {
+				// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
 				if (++idx[k] < r->shape[k]) break;
 				idx[k] = 0;
 			}

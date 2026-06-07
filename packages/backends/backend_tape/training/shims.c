@@ -18,8 +18,6 @@
 #include "../tensor.h"
 #include "../../backend.h"
 
-extern long g_tape_peak;
-
 /* System */
 void backend_reset_for_eval(void) {
 	tape_reset();

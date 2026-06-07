@@ -243,7 +243,8 @@ TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
 		}
 		Tensor* r = make_tensor_arena(sd, o, out_shape, 1, 0);
 		return (TensorHandle)r;
-	} else if (w->dtype_tag == DT_F32) {
+	}
+	if (w->dtype_tag == DT_F32) {
 		const float* wf = (const float*)w->data;
 		float* sf = arena_alloc((size_t)o * sizeof(float));
 		for (int j = 0; j < o; j++) {
@@ -257,7 +258,8 @@ TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
 		}
 		Tensor* r = make_tensor_arena_f32(sf, o, out_shape, 1, 0);
 		return (TensorHandle)r;
-	} else {
+	}
+	{
 		fprintf(stderr,
 		        "[tape] tensor_absmean_per_row_2d: only F64 and F32 "
 		        "inputs supported (got dtype_tag=%d)\n",
@@ -306,6 +308,8 @@ TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* hf_packed_by
 				        hf_code, hf_byte, hf_chunk, j, k);
 				abort();
 			}
+			/* Canonical 3-way ternary encoding (HF -1/0/+1 → 11/00/01) */
+			// NOLINTNEXTLINE(readability-avoid-nested-conditional-operator)
 			uint8_t our_code = (value == 0) ? 0u : (value == 1 ? 1u : 3u);
 			int our_byte_idx = j * our_bytes_per_row + (k >> 2);
 			int our_slot = k & 0x3;
@@ -390,6 +394,7 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hs
 			for (int k = 0; k < i_dim; k++) {
 				int8_t v = round_clamp_ternary(row_in[k] * inv);
 				/* Encode: 0 -> 00, +1 -> 01, -1 -> 11. Slot 0 in low bits. */
+				// NOLINTNEXTLINE(readability-avoid-nested-conditional-operator)
 				uint8_t code = (v == 0) ? 0u : (v == 1 ? 1u : 3u);
 				int byte_idx = k >> 2;
 				int slot = k & 0x3;
@@ -407,6 +412,8 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hs
 			float inv = 1.0f / sj;
 			for (int k = 0; k < i_dim; k++) {
 				int8_t v = round_clamp_ternary((double)(row_in[k] * inv));
+				/* Canonical 3-way ternary encoding (-1/0/+1 → 11/00/01) */
+				// NOLINTNEXTLINE(readability-avoid-nested-conditional-operator)
 				uint8_t code = (v == 0) ? 0u : (v == 1 ? 1u : 3u);
 				int byte_idx = k >> 2;
 				int slot = k & 0x3;

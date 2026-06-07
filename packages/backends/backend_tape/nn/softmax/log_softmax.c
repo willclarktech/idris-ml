@@ -53,6 +53,7 @@ TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
 		data[i] = ((double*)t->data)[i] - log_sum;
 	Tensor* r;
 	if (t->rank == 0) {
+		// NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage) — data[0] set by the n>=1 loop above
 		r = make_scalar(data[0], t->requires_grad);
 	} else {
 		r = make_tensor(data, t->shape, t->rank, t->requires_grad);
