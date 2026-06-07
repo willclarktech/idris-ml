@@ -108,7 +108,7 @@ it *changes* one, the change is deliberate and recorded here.
 
 | Decision | Status | Where re-tested |
 |---|---|---|
-| `IO`-typed tensor ops (C1) | **kept** — forced by FFI sequencing under strict eval; `TensorM` operators are the ergonomic answer, not purity | api-critique constraint ledger + §N3 |
+| `IO`-typed tensor ops (C1) | **kept** — forced by FFI sequencing under strict eval; operator aliases + bang notation are the ergonomic answer, not purity | api-critique constraint ledger + §N3 |
 | Wrapped-handle Chez ABI (C2) | **kept** — but fenced out of user-visible surface (§S10) | api-critique §S10 |
 | Peano-Nat limits → factored shapes (C3) | **kept** — factored `[b, c, h, w]` + opaque products; large flattened literals stay documented limitation | api-critique §N4 + "explicitly unreachable" |
 | String-named C param registry (C5) | **kept** — independently confirmed load-bearing by the survey (safetensors/HF/freeze/groups all key on names); but *usage* changes: prefixes compose via `scoped`, leaf names stay explicit, optimizer scoping goes through `groupOf` (decision 6 rejected full auto-derivation) | glaive-survey verdicts A/B; api-critique §N5 |
