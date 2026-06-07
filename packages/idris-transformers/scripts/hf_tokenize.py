@@ -33,8 +33,9 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
@@ -42,7 +43,7 @@ MODELS_DIR = REPO_ROOT / "models"
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("repo", help="HF repo name (e.g. distilgpt2)")
     ap.add_argument("mode", choices=["vocab", "encode", "decode"])
     ap.add_argument(
@@ -64,7 +65,13 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    tok = AutoTokenizer.from_pretrained(str(local_path))
+    # AutoTokenizer.from_pretrained is loosely typed in transformers 5.x
+    # (Unknown params/return); cast to the concrete base class so
+    # len/encode/decode type-check.
+    tok = cast(
+        "PreTrainedTokenizerBase",
+        AutoTokenizer.from_pretrained(str(local_path)),  # pyright: ignore[reportUnknownMemberType]
+    )
 
     if args.mode == "vocab":
         # `len(tok)` reports BPE/WordPiece base vocab PLUS added special
@@ -92,14 +99,19 @@ def main() -> int:
         # (GPT-2), <|begin_of_text|> (Llama-3) etc. get added by default.
         # Callers that want to NOT add them can subtract them after the
         # fact; we err on the side of "behaves like AutoTokenizer".
-        ids = tok.encode(raw, add_special_tokens=True)
+        # encode's **kwargs is Unknown in the transformers 5.x stubs; the
+        # return is fully typed as list[int].
+        ids = tok.encode(raw, add_special_tokens=True)  # pyright: ignore[reportUnknownMemberType]
         # Space-separated IDs on a single line.
         sys.stdout.write(" ".join(str(i) for i in ids))
         return 0
 
     if args.mode == "decode":
         ids = [int(x) for x in raw.split() if x.strip()]
-        out = tok.decode(ids, skip_special_tokens=False)
+        # decode's **kwargs is Unknown in the transformers 5.x stubs, and its
+        # return union's list[str] arm only fires for batched input — a flat
+        # list[int] always decodes to a single str.
+        out = cast("str", tok.decode(ids, skip_special_tokens=False))  # pyright: ignore[reportUnknownMemberType]
         # No trailing newline — what we write IS the decoded string.
         sys.stdout.write(out)
         return 0

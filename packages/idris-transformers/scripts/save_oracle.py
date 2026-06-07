@@ -26,10 +26,15 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import torch
-from safetensors.torch import save_file
-from transformers import AutoModel, AutoTokenizer
+
+# safetensors' stubs type save_file's `filename` as str | PathLike[Unknown]
+# (unparameterized PathLike), so the symbol is partially unknown to pyright;
+# calls with a plain str are fine at runtime.
+from safetensors.torch import save_file  # pyright: ignore[reportUnknownVariableType]
+from transformers import AutoModel, AutoTokenizer, BertModel, PreTrainedTokenizerFast
 
 # Resolve the models cache directory relative to this script regardless
 # of where the user `cd`'d before invoking. The path is documented in
@@ -63,7 +68,9 @@ def main() -> None:
     # (no dropout, no sampling), so a fixed seed isn't strictly
     # required — but setting it is cheap insurance against future
     # changes that might add nondeterminism.
-    torch.manual_seed(42)
+    # torch leaves manual_seed's `seed` parameter unannotated, so the
+    # member is partially unknown to pyright; fine at runtime.
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]
 
     print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
     assert MODEL_LOCAL.is_dir(), (
@@ -71,14 +78,26 @@ def main() -> None:
         f"scripts/hf-download.sh {MODEL_ID}` first (or `make example-hf-bert-"
         f"inference` which depends on it via the Makefile pattern rule)."
     )
-    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
-    model = AutoModel.from_pretrained(str(MODEL_LOCAL))
+    # Auto*.from_pretrained is untyped (Unknown / loose union) in
+    # transformers 5.x's stubs; the checkpoint is BERT, so pin the
+    # concrete classes via cast — no behavior change.
+    tokenizer = cast(
+        "PreTrainedTokenizerFast",
+        AutoTokenizer.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
+    model = cast(
+        "BertModel",
+        AutoModel.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
     model.eval()
 
     # Sanity-check the tokenization matches our hardcoded IDs. If the
     # tokenizer changes upstream (vocab swap, casing fix), this
     # surfaces the divergence loudly.
-    actual_ids = tokenizer.encode("hello", add_special_tokens=True)
+    # encode's **kwargs are unannotated in transformers 5.x, so the
+    # member is partially unknown to pyright; the list[int] return is
+    # typed and the call is fine at runtime.
+    actual_ids: list[int] = tokenizer.encode("hello", add_special_tokens=True)  # pyright: ignore[reportUnknownMemberType]
     assert actual_ids == FIXED_INPUT_IDS, (
         f"Tokenizer drift: expected {FIXED_INPUT_IDS}, got {actual_ids}. "
         f"The Idris side hardcodes {FIXED_INPUT_IDS}; either regenerate "

@@ -29,10 +29,15 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import torch
-from safetensors.torch import save_file
-from transformers import AutoModel, AutoTokenizer
+
+# safetensors' stubs type save_file's `filename` as str | PathLike[Unknown]
+# (unparameterized PathLike), so the symbol is partially unknown to pyright;
+# calls with a plain str are fine at runtime.
+from safetensors.torch import save_file  # pyright: ignore[reportUnknownVariableType]
+from transformers import AutoModel, AutoTokenizer, GPT2Model, PreTrainedTokenizerFast
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
@@ -55,15 +60,26 @@ HIDDEN: int = 768
 def main() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    torch.manual_seed(42)
+    # torch leaves manual_seed's `seed` parameter unannotated, so the
+    # member is partially unknown to pyright; fine at runtime.
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]
 
     print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
     assert MODEL_LOCAL.is_dir(), (
         f"{MODEL_LOCAL} not found — run `bash packages/idris-transformers/"
         f"scripts/hf-download.sh {MODEL_ID}` first."
     )
-    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
-    model = AutoModel.from_pretrained(str(MODEL_LOCAL))
+    # Auto*.from_pretrained is untyped (Unknown / loose union) in
+    # transformers 5.x's stubs; the checkpoint is GPT-2, so pin the
+    # concrete classes via cast — no behavior change.
+    tokenizer = cast(
+        "PreTrainedTokenizerFast",
+        AutoTokenizer.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
+    model = cast(
+        "GPT2Model",
+        AutoModel.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
     model.eval()
 
     cfg = model.config
@@ -81,7 +97,10 @@ def main() -> None:
     # Confirm tokenization matches the hardcoded IDs the Idris side
     # uses in --dump-final-hidden mode. If HF rebuilds the BPE vocab,
     # this surfaces the drift loudly.
-    actual_ids = tokenizer.encode("Hello world", add_special_tokens=True)
+    # encode's **kwargs are unannotated in transformers 5.x, so the
+    # member is partially unknown to pyright; the list[int] return is
+    # typed and the call is fine at runtime.
+    actual_ids: list[int] = tokenizer.encode("Hello world", add_special_tokens=True)  # pyright: ignore[reportUnknownMemberType]
     assert actual_ids == FIXED_INPUT_IDS, (
         f"Tokenizer drift: expected {FIXED_INPUT_IDS}, got {actual_ids}."
     )

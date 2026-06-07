@@ -30,10 +30,21 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import torch
-from safetensors.torch import save_file
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from safetensors.torch import save_file  # pyright: ignore[reportUnknownVariableType]
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitNetForCausalLM,
+    PreTrainedTokenizerBase,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from torch.utils.hooks import RemovableHandle
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent
@@ -46,15 +57,21 @@ FIXED_INPUT_IDS: list[int] = [9906, 1917]
 NUM_LAYERS: int = 30
 
 
-def patch_bitlinears(model) -> int:
+def patch_bitlinears(model: torch.nn.Module) -> int:
     bitlinear_class_name = "AutoBitLinear"
     fixed = 0
-    for _, mod in model.named_modules():
+    # torch's named_modules() carries no return annotation (recursive
+    # yield), so its element type is partially Unknown — pin it.
+    named_mods = cast("Iterator[tuple[str, torch.nn.Module]]", model.named_modules())
+    for _, mod in named_mods:
         if type(mod).__name__ != bitlinear_class_name:
             continue
-        if mod.weight.dtype == torch.uint8:
-            w_i8 = mod.weight.data.view(torch.int8)
-            mod.weight.data = w_i8.to(torch.bfloat16)
+        # nn.Module.__getattr__ types dynamic attrs as Tensor | Module;
+        # AutoBitLinear.weight is always a Tensor — narrow for pyright.
+        weight = mod.weight
+        if isinstance(weight, torch.Tensor) and weight.dtype == torch.uint8:
+            w_i8 = weight.data.view(torch.int8)
+            weight.data = w_i8.to(torch.bfloat16)
             fixed += 1
     return fixed
 
@@ -62,7 +79,7 @@ def patch_bitlinears(model) -> int:
 def main() -> None:
     BISECT_DIR.mkdir(parents=True, exist_ok=True)
 
-    torch.manual_seed(42)
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]
 
     print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
     assert MODEL_LOCAL.is_dir(), (
@@ -70,17 +87,32 @@ def main() -> None:
         f"`bash packages/idris-transformers/scripts/hf-download.sh "
         f"{MODEL_ID}` first."
     )
-    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
-    model = AutoModelForCausalLM.from_pretrained(
-        str(MODEL_LOCAL),
-        torch_dtype=torch.bfloat16,
+    # AutoTokenizer.from_pretrained is loosely typed in transformers 5.x
+    # (Unknown params/return); cast to the concrete base class so
+    # encode type-checks.
+    tokenizer = cast(
+        "PreTrainedTokenizerBase",
+        AutoTokenizer.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
+    # AutoModelForCausalLM.from_pretrained returns a loose union in the
+    # transformers 5.x stubs; the checkpoint's model_type is "bitnet",
+    # so the concrete class is known.
+    model = cast(
+        "BitNetForCausalLM",
+        AutoModelForCausalLM.from_pretrained(  # pyright: ignore[reportUnknownMemberType]
+            str(MODEL_LOCAL),
+            torch_dtype=torch.bfloat16,
+        ),
     )
     model.train(False)
     patched = patch_bitlinears(model)
     print(f"  patched {patched} AutoBitLinear weights uint8 -> bfloat16")
 
-    # Tokenizer sanity
-    actual = tokenizer.encode("Hello world", add_special_tokens=False)
+    # Tokenizer sanity. encode's **kwargs is Unknown in the
+    # transformers 5.x stubs.
+    actual: list[int] = tokenizer.encode(  # pyright: ignore[reportUnknownMemberType]
+        "Hello world", add_special_tokens=False
+    )
     assert actual == FIXED_INPUT_IDS, f"Tokenizer drift: expected {FIXED_INPUT_IDS}, got {actual}."
 
     # Find the layers list. transformers names it model.model.layers (CausalLM
@@ -91,8 +123,17 @@ def main() -> None:
 
     captures: dict[str, torch.Tensor] = {}
 
-    def make_hook(label: str):
-        def hook(module, inputs, output):
+    def make_hook(
+        label: str,
+    ) -> Callable[
+        [torch.nn.Module, tuple[torch.Tensor, ...], torch.Tensor | tuple[torch.Tensor, ...]],
+        None,
+    ]:
+        def hook(
+            module: torch.nn.Module,
+            inputs: tuple[torch.Tensor, ...],
+            output: torch.Tensor | tuple[torch.Tensor, ...],
+        ) -> None:
             # Some module forwards return a tuple (hidden, attn_weights, ...);
             # take the first element as the hidden state.
             h = output[0] if isinstance(output, tuple) else output
@@ -100,7 +141,7 @@ def main() -> None:
 
         return hook
 
-    handles = []
+    handles: list[RemovableHandle] = []
     handles.append(base.embed_tokens.register_forward_hook(make_hook("embedding")))
     for i, layer in enumerate(layers):
         handles.append(layer.register_forward_hook(make_hook(f"block_{i:02d}")))
@@ -132,13 +173,17 @@ def main() -> None:
     print()
     print("Sample of embedding output (token 9906 row, first 5 values):")
     emb = captures["embedding"][0] if captures["embedding"].dim() == 3 else captures["embedding"]
-    print(f"  {emb[0, :5].tolist()}")
+    # Tensor.tolist() returns list[Unknown] in torch's stubs.
+    emb_head: list[float] = emb[0, :5].tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    print(f"  {emb_head}")
     print("Sample of block_00 output (first 5 of position 0):")
     blk = captures["block_00"]
-    print(f"  {blk[0, :5].tolist()}")
+    blk_head: list[float] = blk[0, :5].tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    print(f"  {blk_head}")
     print("Sample of final_norm output (first 5 of position 1):")
     fn = captures["final_norm"]
-    print(f"  {fn[1, :5].tolist()}")
+    fn_head: list[float] = fn[1, :5].tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    print(f"  {fn_head}")
 
 
 if __name__ == "__main__":

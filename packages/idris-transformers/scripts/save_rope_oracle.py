@@ -25,7 +25,11 @@ import math
 from pathlib import Path
 
 import torch
-from safetensors.torch import save_file
+
+# safetensors' stubs type save_file's `filename` as str | PathLike[Unknown]
+# (unparameterized PathLike), so the symbol is partially unknown to pyright;
+# calls with a plain str are fine at runtime.
+from safetensors.torch import save_file  # pyright: ignore[reportUnknownVariableType]
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>

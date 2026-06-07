@@ -31,9 +31,13 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitNetForCausalLM
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent
@@ -70,18 +74,24 @@ def stamp(label: str, t0: float) -> None:
     print(f"[stage] {fmt_elapsed(t0, time.perf_counter())} {label}", flush=True)
 
 
-def patch_bitlinears(model) -> int:
+def patch_bitlinears(model: torch.nn.Module) -> int:
     """transformers 5.9.0 BitNet CPU-load bug workaround — see
     save_oracle_bitnet.py for the full explanation. Walks every
     AutoBitLinear, reinterprets U8 storage as I8, recovers ternary."""
     bitlinear_class_name = "AutoBitLinear"
     fixed = 0
-    for _, mod in model.named_modules():
+    # torch's named_modules() carries no return annotation (recursive
+    # yield), so its element type is partially Unknown — pin it.
+    named_mods = cast("Iterator[tuple[str, torch.nn.Module]]", model.named_modules())
+    for _, mod in named_mods:
         if type(mod).__name__ != bitlinear_class_name:
             continue
-        if mod.weight.dtype == torch.uint8:
-            w_i8 = mod.weight.data.view(torch.int8)
-            mod.weight.data = w_i8.to(DTYPE)
+        # nn.Module.__getattr__ types dynamic attrs as Tensor | Module;
+        # AutoBitLinear.weight is always a Tensor — narrow for pyright.
+        weight = mod.weight
+        if isinstance(weight, torch.Tensor) and weight.dtype == torch.uint8:
+            w_i8 = weight.data.view(torch.int8)
+            weight.data = w_i8.to(DTYPE)
             fixed += 1
     return fixed
 
@@ -97,16 +107,24 @@ def main() -> int:
 
     t0 = time.perf_counter()
 
-    AutoTokenizer.from_pretrained(str(MODEL_DIR))
+    # AutoTokenizer.from_pretrained is loosely typed in transformers 5.x
+    # (Unknown params/return); the probe result is unused.
+    AutoTokenizer.from_pretrained(str(MODEL_DIR))  # pyright: ignore[reportUnknownMemberType]
     stamp("tokenizer probe ok", t0)
 
     # from_pretrained does construction + load in a single call. We use
     # dtype= (the modern replacement for torch_dtype=) and disable
     # low_cpu_mem_usage so the load profile matches Idris's eager load.
-    model = AutoModelForCausalLM.from_pretrained(
-        str(MODEL_DIR),
-        dtype=DTYPE,
-        low_cpu_mem_usage=False,
+    # AutoModelForCausalLM.from_pretrained returns a loose union in the
+    # transformers 5.x stubs; the checkpoint's model_type is "bitnet",
+    # so the concrete class is known.
+    model = cast(
+        "BitNetForCausalLM",
+        AutoModelForCausalLM.from_pretrained(  # pyright: ignore[reportUnknownMemberType]
+            str(MODEL_DIR),
+            dtype=DTYPE,
+            low_cpu_mem_usage=False,
+        ),
     )
     model.train(False)  # inference mode
     stamp("hfBitnetModel + loadModelAllowCast ok (combined)", t0)
@@ -114,7 +132,9 @@ def main() -> int:
     fixed = patch_bitlinears(model)
     print(f"  patched {fixed} AutoBitLinear weights uint8 -> {DTYPE}")
 
-    model = model.to(DEVICE)
+    # transformers 5.x wraps Module.to in a decorator whose _Wrapped
+    # type pyright can't bind as a method; the call is fine at runtime.
+    model = model.to(DEVICE)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
     stamp("model -> device ok", t0)
 
     input_ids = torch.tensor([FIXED_INPUT_IDS], dtype=torch.long, device=DEVICE)

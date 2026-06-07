@@ -27,10 +27,19 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import torch
-from safetensors.torch import save_file
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from safetensors.torch import save_file  # pyright: ignore[reportUnknownVariableType]
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitNetForCausalLM,
+    PreTrainedTokenizerBase,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # <repo-root>
@@ -53,17 +62,29 @@ VOCAB: int = 128256
 def main() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    torch.manual_seed(42)
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]
 
     print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
     assert MODEL_LOCAL.is_dir(), (
         f"{MODEL_LOCAL} not found -- run `bash packages/idris-transformers/"
         f"scripts/hf-download.sh {MODEL_ID}` first."
     )
-    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
-    model = AutoModelForCausalLM.from_pretrained(
-        str(MODEL_LOCAL),
-        torch_dtype=torch.bfloat16,
+    # AutoTokenizer.from_pretrained is loosely typed in transformers 5.x
+    # (Unknown params/return); cast to the concrete base class so
+    # encode/decode type-check.
+    tokenizer = cast(
+        "PreTrainedTokenizerBase",
+        AutoTokenizer.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
+    # AutoModelForCausalLM.from_pretrained returns a loose union in the
+    # transformers 5.x stubs; the checkpoint's model_type is "bitnet",
+    # so the concrete class is known.
+    model = cast(
+        "BitNetForCausalLM",
+        AutoModelForCausalLM.from_pretrained(  # pyright: ignore[reportUnknownMemberType]
+            str(MODEL_LOCAL),
+            torch_dtype=torch.bfloat16,
+        ),
     )
     model.train(False)  # inference mode (== model.eval())
 
@@ -79,12 +100,18 @@ def main() -> None:
     # `lm_head` which is tied) and rewrites its weight buffer.
     bitlinear_class_name = "AutoBitLinear"
     fixed = 0
-    for _name, mod in model.named_modules():
+    # torch's named_modules() carries no return annotation (recursive
+    # yield), so its element type is partially Unknown — pin it.
+    named_mods = cast("Iterator[tuple[str, torch.nn.Module]]", model.named_modules())
+    for _name, mod in named_mods:
         if type(mod).__name__ != bitlinear_class_name:
             continue
-        if mod.weight.dtype == torch.uint8:
-            w_i8 = mod.weight.data.view(torch.int8)
-            mod.weight.data = w_i8.to(torch.bfloat16)
+        # nn.Module.__getattr__ types dynamic attrs as Tensor | Module;
+        # AutoBitLinear.weight is always a Tensor — narrow for pyright.
+        weight = mod.weight
+        if isinstance(weight, torch.Tensor) and weight.dtype == torch.uint8:
+            w_i8 = weight.data.view(torch.int8)
+            weight.data = w_i8.to(torch.bfloat16)
             fixed += 1
     print(f"  patched {fixed} AutoBitLinear weights uint8 -> bfloat16 ternary")
 
@@ -105,7 +132,10 @@ def main() -> None:
         "BitNet 2B-4T should tie embeddings; oracle relies on that."
     )
 
-    actual_ids = tokenizer.encode("Hello world", add_special_tokens=False)
+    # encode's **kwargs is Unknown in the transformers 5.x stubs.
+    actual_ids: list[int] = tokenizer.encode(  # pyright: ignore[reportUnknownMemberType]
+        "Hello world", add_special_tokens=False
+    )
     assert actual_ids == FIXED_INPUT_IDS, (
         f"Tokenizer drift: expected {FIXED_INPUT_IDS}, got {actual_ids}."
     )
@@ -135,7 +165,12 @@ def main() -> None:
     print(f"  argmax token id: {output_vec.argmax().item()}")
     top5 = output_vec.topk(5)
     print(f"  top-5 token ids: {top5.indices.tolist()}")
-    print(f"  top-5 token strs: {[tokenizer.decode([i]) for i in top5.indices.tolist()]}")
+    # decode's **kwargs is Unknown in the transformers 5.x stubs.
+    top5_strs = [
+        cast("str", tokenizer.decode([i]))  # pyright: ignore[reportUnknownMemberType]
+        for i in top5.indices.tolist()
+    ]
+    print(f"  top-5 token strs: {top5_strs}")
 
 
 if __name__ == "__main__":

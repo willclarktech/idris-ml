@@ -33,7 +33,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from safetensors.torch import load_file
+# safetensors' stub types load_file's path parameter as PathLike[Unknown];
+# the return (Dict[str, Tensor]) is fully typed, so call sites are safe.
+from safetensors.torch import load_file  # pyright: ignore[reportUnknownVariableType]
 
 
 def _read_lines_filtered(path: Path) -> list[str]:
@@ -85,7 +87,8 @@ def _run_token_sequence(stdout_path: Path, oracle_path: Path) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-    oracle_ids = tensors["token_ids"].tolist()
+    # Tensor.tolist() is typed list[Unknown] in torch's stubs; these are int64 token ids.
+    oracle_ids: list[int] = tensors["token_ids"].tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
 
     n_idris = len(idris_ids)
     n_oracle = len(oracle_ids)
@@ -140,7 +143,8 @@ def main() -> None:
     idris_vals = [float(line) for line in raw_lines]
 
     oracle_tensor = load_file(str(oracle_path))["output"]
-    oracle_vals = oracle_tensor.tolist()
+    # Tensor.tolist() is typed list[Unknown] in torch's stubs; the oracle output is float.
+    oracle_vals: list[float] = oracle_tensor.tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
 
     n_idris = len(idris_vals)
     n_oracle = len(oracle_vals)

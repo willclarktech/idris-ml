@@ -33,9 +33,10 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent
@@ -76,7 +77,13 @@ def run_one(use_cache: bool, label: str) -> None:
     print(f"\n=== {label} ===", flush=True)
     t0 = time.perf_counter()
 
-    tok = AutoTokenizer.from_pretrained(str(MODEL_DIR))
+    # AutoTokenizer.from_pretrained is loosely typed in transformers 5.x
+    # (Unknown params/return); cast to the concrete base class so the
+    # pad/eos attributes and __call__/decode type-check.
+    tok = cast(
+        "PreTrainedTokenizerBase",
+        AutoTokenizer.from_pretrained(str(MODEL_DIR)),  # pyright: ignore[reportUnknownMemberType]
+    )
     # Llama tokenizers don't ship a `pad_token`; transformers warns at
     # generate-time and falls back to `eos_token_id`. Set it explicitly
     # here so the warning is silenced and the value is observable.
@@ -92,11 +99,14 @@ def run_one(use_cache: bool, label: str) -> None:
     # note this in the output.
     #
     # `dtype=` replaces the deprecated `torch_dtype=` (transformers ≥ 4.50).
-    model = AutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(  # pyright: ignore[reportUnknownMemberType]
         str(MODEL_DIR),
         dtype=DTYPE,
         low_cpu_mem_usage=False,  # match Idris which doesn't lazy-load
-    ).to(DEVICE)
+    )
+    # transformers 5.x wraps Module.to in a decorator whose _Wrapped type
+    # pyright can't bind as a method; the call is fine at runtime.
+    model.to(DEVICE)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
     model.eval()
     stamp("hfLlamaModel + loadModelAllowCast ok (combined)", t0)
 
@@ -105,19 +115,29 @@ def run_one(use_cache: bool, label: str) -> None:
     # picks `generate`'s kwarg first, the tokenizer attribute is a fallback.
     inputs = tok(PROMPT, return_tensors="pt").to(DEVICE)
     with torch.no_grad():
-        out = model.generate(
-            **inputs,
-            max_new_tokens=NUM_TOKENS,
-            do_sample=False,
-            use_cache=use_cache,
-            pad_token_id=tok.pad_token_id,
+        # transformers 5.x's GenerativePreTrainedModel protocol doesn't
+        # match its own model classes (device property vs mutable attr),
+        # so pyright can't bind .generate; fine at runtime. Greedy
+        # generate (no return_dict_in_generate) always returns a Tensor.
+        out = cast(
+            "torch.Tensor",
+            model.generate(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                **inputs,
+                max_new_tokens=NUM_TOKENS,
+                do_sample=False,
+                use_cache=use_cache,
+                pad_token_id=tok.pad_token_id,
+            ),
         )
     stamp(f"runGenerate done ({NUM_TOKENS} tokens, use_cache={use_cache})", t0)
 
     # `clean_up_tokenization_spaces=False`: the True default is WordPiece-
     # oriented and corrupts BPE output (warning at decode time). Llama uses
     # BPE, so we always pass False here.
-    text = tok.decode(out[0], skip_special_tokens=False, clean_up_tokenization_spaces=False)
+    # decode's **kwargs is Unknown in the transformers 5.x stubs.
+    text = tok.decode(  # pyright: ignore[reportUnknownMemberType]
+        out[0], skip_special_tokens=False, clean_up_tokenization_spaces=False
+    )
     print(f"Output: {text}", flush=True)
 
 

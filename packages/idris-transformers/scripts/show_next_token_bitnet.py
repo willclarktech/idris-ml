@@ -26,6 +26,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Avoid heavy ML imports until we need to decode — tokenizer load takes
 # ~100ms and we want stage-echo to feel instant.
@@ -35,7 +39,7 @@ MODEL_DIR = REPO_ROOT / "models" / "microsoft" / "bitnet-b1.58-2B-4T"
 EXPECTED_VOCAB = 128256
 
 
-def parse_stream(stream):
+def parse_stream(stream: Iterable[str]) -> tuple[int, int]:
     """Read line-by-line; echo [stage] lines live, accumulate floats.
     Returns (argmax_token_id, count_of_floats)."""
     best_v = float("-inf")
@@ -87,10 +91,22 @@ def main() -> int:
             f"ERR: {MODEL_DIR} not found — fetch via the hf-download script first", file=sys.stderr
         )
         return 1
-    from transformers import AutoTokenizer
+    from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-    tok = AutoTokenizer.from_pretrained(str(MODEL_DIR))
-    text = tok.decode([argmax_id], skip_special_tokens=False, clean_up_tokenization_spaces=False)
+    # AutoTokenizer.from_pretrained is loosely typed in transformers 5.x
+    # (Unknown params/return); cast to the concrete base class so decode
+    # type-checks.
+    tok = cast(
+        "PreTrainedTokenizerBase",
+        AutoTokenizer.from_pretrained(str(MODEL_DIR)),  # pyright: ignore[reportUnknownMemberType]
+    )
+    # decode's **kwargs is Unknown in the transformers 5.x stubs.
+    text = cast(
+        "str",
+        tok.decode(  # pyright: ignore[reportUnknownMemberType]
+            [argmax_id], skip_special_tokens=False, clean_up_tokenization_spaces=False
+        ),
+    )
     print()
     print(f"Argmax token id: {argmax_id}")
     print(f"Next token:      {text!r}")

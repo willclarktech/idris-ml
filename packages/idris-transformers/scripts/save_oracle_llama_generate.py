@@ -48,10 +48,20 @@ unsloth/Llama-3.2-1B`).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import torch
-from safetensors.torch import save_file
-from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# safetensors' stubs type save_file's `filename` as str | PathLike[Unknown]
+# (unparameterized PathLike), so the symbol is partially unknown to pyright;
+# calls with a plain str are fine at runtime.
+from safetensors.torch import save_file  # pyright: ignore[reportUnknownVariableType]
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    LlamaForCausalLM,
+    PreTrainedTokenizerFast,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent
@@ -76,7 +86,9 @@ NUM_NEW_TOKENS = 8
 def main() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    torch.manual_seed(42)
+    # torch leaves manual_seed's `seed` parameter unannotated, so the
+    # member is partially unknown to pyright; fine at runtime.
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]
 
     print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
     assert MODEL_LOCAL.is_dir(), (
@@ -84,10 +96,19 @@ def main() -> None:
         f"scripts/hf-download.sh {MODEL_ID}` first (requires HF_TOKEN + "
         f"Llama 3.2 license acceptance)."
     )
-    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
+    # Auto*.from_pretrained is untyped (Unknown / loose union) in
+    # transformers 5.x's stubs; the checkpoint is Llama, so pin the
+    # concrete classes via cast — no behavior change.
+    tokenizer = cast(
+        "PreTrainedTokenizerFast",
+        AutoTokenizer.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
     # F32 on CPU: deterministic numerics. Matches what the Idris
     # torch-cpu CI lane sees.
-    model = AutoModelForCausalLM.from_pretrained(str(MODEL_LOCAL), dtype=torch.float32)
+    model = cast(
+        "LlamaForCausalLM",
+        AutoModelForCausalLM.from_pretrained(str(MODEL_LOCAL), dtype=torch.float32),  # pyright: ignore[reportUnknownMemberType]
+    )
     model.train(False)
 
     cfg = model.config
@@ -102,7 +123,10 @@ def main() -> None:
     # Llama-3 prepends BOS `<|begin_of_text|>` (id 128000). To stay
     # apples-to-apples with the Idris-side generation path (which
     # consumes the subprocess output), match it here.
-    prompt_ids = tokenizer.encode(PROMPT, add_special_tokens=True)
+    # encode's **kwargs are unannotated in transformers 5.x, so the
+    # member is partially unknown to pyright; the list[int] return is
+    # typed and the call is fine at runtime.
+    prompt_ids: list[int] = tokenizer.encode(PROMPT, add_special_tokens=True)  # pyright: ignore[reportUnknownMemberType]
     print(f"  prompt:       {PROMPT!r}")
     print(f"  prompt ids:   {prompt_ids} (len={len(prompt_ids)})")
 
@@ -113,13 +137,21 @@ def main() -> None:
         # is HF's default and matches the post-Phase-C Idris path; it's
         # mathematically equivalent to use_cache=False (same argmax,
         # same forward math, just faster).
-        out = model.generate(
-            input_ids=input_ids,
-            max_new_tokens=NUM_NEW_TOKENS,
-            do_sample=False,
-            use_cache=True,
-            temperature=1.0,
-            pad_token_id=cfg.eos_token_id if cfg.eos_token_id is not None else 0,
+        # transformers 5.x's GenerativePreTrainedModel protocol doesn't
+        # match its own model classes (device property vs mutable attr),
+        # so pyright can't bind .generate; fine at runtime. Greedy decode
+        # without return_dict_in_generate returns a plain LongTensor, so
+        # the cast pins the runtime type.
+        out = cast(
+            "torch.Tensor",
+            model.generate(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                input_ids=input_ids,
+                max_new_tokens=NUM_NEW_TOKENS,
+                do_sample=False,
+                use_cache=True,
+                temperature=1.0,
+                pad_token_id=cfg.eos_token_id if cfg.eos_token_id is not None else 0,
+            ),
         )
 
     # `out` is [1, p + N]; squeeze the batch dim and assert the length
@@ -129,18 +161,24 @@ def main() -> None:
     expected_len = len(prompt_ids) + NUM_NEW_TOKENS
     assert tokens.shape == (expected_len,), (
         f"output length {tokens.shape[0]} != expected {expected_len}; "
-        f"early-stop or padding interference. tokens={tokens.tolist()}"
+        # Tensor.tolist returns an unparameterized list in torch's stubs.
+        f"early-stop or padding interference. tokens={tokens.tolist()}"  # pyright: ignore[reportUnknownMemberType]
     )
-    # Sanity: prompt prefix must round-trip.
-    prefix = tokens[: len(prompt_ids)].tolist()
+    # Sanity: prompt prefix must round-trip. Tensor.tolist returns an
+    # unparameterized list in torch's stubs; the int64 1-D tensor makes
+    # the declared list[int] exact.
+    prefix: list[int] = tokens[: len(prompt_ids)].tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
     assert prefix == prompt_ids, f"prompt prefix drift: input {prompt_ids} → output[:p] {prefix}"
 
     save_file({"token_ids": tokens}, str(ORACLE_PATH))
     print(f"wrote {ORACLE_PATH}")
     print(f"  shape:        {list(tokens.shape)}")
     print(f"  dtype:        {tokens.dtype}")
-    print(f"  full ids:     {tokens.tolist()}")
-    print(f"  decoded:      {tokenizer.decode(tokens)!r}")
+    # Tensor.tolist returns an unparameterized list in torch's stubs;
+    # decode's **kwargs are unannotated in transformers 5.x. Both are
+    # fine at runtime.
+    print(f"  full ids:     {tokens.tolist()}")  # pyright: ignore[reportUnknownMemberType]
+    print(f"  decoded:      {tokenizer.decode(tokens)!r}")  # pyright: ignore[reportUnknownMemberType]
 
 
 if __name__ == "__main__":

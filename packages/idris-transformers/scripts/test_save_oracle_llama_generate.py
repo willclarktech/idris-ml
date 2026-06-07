@@ -25,7 +25,10 @@ from pathlib import Path
 
 import pytest
 import torch
-from safetensors.torch import load_file
+
+# safetensors' stub types load_file's path parameter as PathLike[Unknown];
+# the return (Dict[str, Tensor]) is fully typed, so call sites are safe.
+from safetensors.torch import load_file  # pyright: ignore[reportUnknownVariableType]
 
 SCRIPT = Path(__file__).resolve().parent / "save_oracle_llama_generate.py"
 ORACLE = (
@@ -99,7 +102,8 @@ def test_oracle_nontrivial(oracle_path: Path) -> None:
     # The full output is at least 9 tokens; the last NUM_NEW_TOKENS are
     # the generated ones. Their being all identical to each other across
     # 4 positions on this prompt would be deeply suspicious.
-    new_ids = out[-NUM_NEW_TOKENS:].tolist()
+    # Tensor.tolist() is typed list[Unknown] in torch's stubs; these are int64 token ids.
+    new_ids: list[int] = out[-NUM_NEW_TOKENS:].tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
     assert len(set(new_ids)) > 1 or NUM_NEW_TOKENS == 1, (
         f"generated tokens are all identical: {new_ids}"
     )

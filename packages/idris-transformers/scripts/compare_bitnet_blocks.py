@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from safetensors.torch import load_file
+from safetensors.torch import load_file  # pyright: ignore[reportUnknownVariableType]
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent

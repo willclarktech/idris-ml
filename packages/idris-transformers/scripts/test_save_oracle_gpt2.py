@@ -24,7 +24,10 @@ from pathlib import Path
 
 import pytest
 import torch
-from safetensors.torch import load_file
+
+# safetensors' stub types load_file's path parameter as PathLike[Unknown];
+# the return (Dict[str, Tensor]) is fully typed, so call sites are safe.
+from safetensors.torch import load_file  # pyright: ignore[reportUnknownVariableType]
 
 SCRIPT = Path(__file__).resolve().parent / "save_oracle_gpt2.py"
 # Top-level <repo-root>/models/ (post 2026-05-27 refactor).

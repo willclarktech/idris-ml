@@ -376,6 +376,18 @@
         "only the full ref-setup venv carries. Ubuntu-only: ref-setup",
         "runs only there in this matrix."
       ]
+    },
+    {
+      "name": "Typecheck idris-transformers scripts (pyright strict, Ubuntu)",
+      "run": "make typecheck-py-transformers",
+      "os": "ubuntu",
+      "comment": [
+        "pyright strict over packages/idris-transformers/scripts/ (config",
+        "root: its pyrightconfig.json via -p). Matrix not preflight: the",
+        "oracle/compare scripts import torch/transformers/safetensors,",
+        "which only the full ref-setup venv carries. Ubuntu-only:",
+        "ref-setup runs only there in this matrix."
+      ]
     }
   ]
 }

@@ -12,7 +12,8 @@
         test-integration-lint-paired-defaults lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
         lint-py-jupyter typecheck-py typecheck-py-pytorch \
-        typecheck-py-scripts typecheck-py-examples \
+        typecheck-py-scripts typecheck-py-transformers \
+        typecheck-py-examples typecheck-py-jupyter \
         lint-c lint-c-tape lint-c-include-cleaner \
         lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing \
@@ -117,7 +118,8 @@ lint-py-jupyter:
 # name, in mk/ref.mk) so the typecheck-py-* family is uniform for
 # CI/docs.
 
-typecheck-py: typecheck-py-pytorch typecheck-py-scripts typecheck-py-examples
+typecheck-py: typecheck-py-pytorch typecheck-py-scripts typecheck-py-transformers \
+              typecheck-py-examples typecheck-py-jupyter
 	@echo "typecheck-py OK (all Python-bearing packages)"
 
 typecheck-py-pytorch: ref-typecheck
@@ -127,9 +129,25 @@ typecheck-py-scripts:
 	@cd packages/pytorch && uv run --no-sync --quiet pyright -p ../../scripts
 	@echo "  typecheck-py-scripts OK"
 
+typecheck-py-transformers:
+	@cd packages/pytorch && uv run --no-sync --quiet pyright -p ../idris-transformers/scripts
+	@echo "  typecheck-py-transformers OK"
+
 typecheck-py-examples:
 	@cd packages/pytorch && uv run --no-sync --quiet pyright -p ../idris-ml-examples/scripts
 	@echo "  typecheck-py-examples OK"
+
+# Depends on the jupyter venv (ipykernel/jupyter_client/pexpect must
+# be importable — packages/jupyter/pyproject.toml's [tool.pyright]
+# points venvPath at it) but deliberately NOT on jupyter-install,
+# which dep-chains the heavy `backend check`. The prerequisite is the
+# literal venv path, not $(JUPYTER_VENV): lint.mk is included before
+# jupyter.mk, so the variable is still empty when this prerequisite
+# list is read (recipes expand at run time, so $(JUPYTER_PIP) is fine).
+typecheck-py-jupyter: packages/jupyter/.venv/bin/activate
+	@$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
+	@cd packages/pytorch && uv run --no-sync --quiet pyright -p ../jupyter
+	@echo "  typecheck-py-jupyter OK"
 
 # Lint the C / C++ backend surface: clang-format (layout drift
 # against the repo-root `.clang-format` — tabs for indent, K&R

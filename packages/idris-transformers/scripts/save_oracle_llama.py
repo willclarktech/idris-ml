@@ -34,10 +34,15 @@ unsloth/Llama-3.2-1B`).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import torch
-from safetensors.torch import save_file
-from transformers import AutoModel, AutoTokenizer
+
+# safetensors' stubs type save_file's `filename` as str | PathLike[Unknown]
+# (unparameterized PathLike), so the symbol is partially unknown to pyright;
+# calls with a plain str are fine at runtime.
+from safetensors.torch import save_file  # pyright: ignore[reportUnknownVariableType]
+from transformers import AutoModel, AutoTokenizer, LlamaModel, PreTrainedTokenizerFast
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent
@@ -58,7 +63,9 @@ HIDDEN: int = 2048
 def main() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    torch.manual_seed(42)
+    # torch leaves manual_seed's `seed` parameter unannotated, so the
+    # member is partially unknown to pyright; fine at runtime.
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]
 
     print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
     assert MODEL_LOCAL.is_dir(), (
@@ -66,11 +73,20 @@ def main() -> None:
         f"scripts/hf-download.sh {MODEL_ID}` first (requires HF_TOKEN + "
         f"Llama 3.2 license acceptance)."
     )
-    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
+    # Auto*.from_pretrained is untyped (Unknown / loose union) in
+    # transformers 5.x's stubs; the checkpoint is Llama, so pin the
+    # concrete classes via cast — no behavior change.
+    tokenizer = cast(
+        "PreTrainedTokenizerFast",
+        AutoTokenizer.from_pretrained(str(MODEL_LOCAL)),  # pyright: ignore[reportUnknownMemberType]
+    )
     # F32 on CPU: matches what the Idris torch-cpu / torch-mps F32 lanes
     # see. The oracle wants deterministic numerics, not throughput, so
     # CPU is fine even though the example runs on MPS/GPU.
-    model = AutoModel.from_pretrained(str(MODEL_LOCAL), dtype=torch.float32)
+    model = cast(
+        "LlamaModel",
+        AutoModel.from_pretrained(str(MODEL_LOCAL), dtype=torch.float32),  # pyright: ignore[reportUnknownMemberType]
+    )
     model.train(False)
 
     cfg = model.config
@@ -90,7 +106,10 @@ def main() -> None:
     # in --dump-final-hidden mode. Llama 3's BPE encodes "Hello" as a
     # single token id 9906 with no BOS prepended in this single-token
     # form. If HF rebuilds the tokenizer this surfaces the drift loudly.
-    actual_ids = tokenizer.encode("Hello", add_special_tokens=False)
+    # encode's **kwargs are unannotated in transformers 5.x, so the
+    # member is partially unknown to pyright; the list[int] return is
+    # typed and the call is fine at runtime.
+    actual_ids: list[int] = tokenizer.encode("Hello", add_special_tokens=False)  # pyright: ignore[reportUnknownMemberType]
     assert actual_ids == FIXED_INPUT_IDS, (
         f"Tokenizer drift: expected {FIXED_INPUT_IDS}, got {actual_ids}."
     )

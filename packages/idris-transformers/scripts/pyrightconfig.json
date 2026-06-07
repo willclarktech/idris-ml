@@ -1,0 +1,11 @@
+{
+	// Config root for the idris-transformers oracle/compare/timing
+	// scripts, selected via `pyright -p packages/idris-transformers/
+	// scripts`. Strict; imports (torch, transformers, safetensors,
+	// pytest) resolve from the packages/pytorch uv venv pyright runs
+	// out of. Tests drive the sibling scripts via subprocess, so no
+	// extraPaths are needed.
+	"include": ["."],
+	"pythonVersion": "3.12",
+	"typeCheckingMode": "strict"
+}

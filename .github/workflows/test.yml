@@ -552,6 +552,15 @@ jobs:
         # runs only there in this matrix.
         if: matrix.os == 'ubuntu-latest'
         run: make typecheck-py-examples
+
+      - name: Typecheck idris-transformers scripts (pyright strict, Ubuntu)
+        # pyright strict over packages/idris-transformers/scripts/ (config
+        # root: its pyrightconfig.json via -p). Matrix not preflight: the
+        # oracle/compare scripts import torch/transformers/safetensors,
+        # which only the full ref-setup venv carries. Ubuntu-only:
+        # ref-setup runs only there in this matrix.
+        if: matrix.os == 'ubuntu-latest'
+        run: make typecheck-py-transformers
       # <<< END GENERATED <<<
 
       - name: Upload Criterion JUnit XML artifacts
