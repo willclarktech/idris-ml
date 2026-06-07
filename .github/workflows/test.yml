@@ -82,20 +82,23 @@ jobs:
         # Use --no-sync so the partially-synced venv from the previous
         # step isn't filled with the heavy main deps.
         run: make lint-py
-      - name: Install C-lint tools (cppcheck + clang-tidy)
-        # apt-installs cppcheck + clang-tidy on the Ubuntu preflight
-        # runner. ~10s on a warm cache. Local devs install via
-        # `brew install cppcheck llvm` or the equivalent nix derivation.
-        # The Make target gracefully skips when the tools aren't on
-        # PATH so it doesn't block pre-commit runs locally.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq cppcheck clang-tidy
-      - name: Lint C / C++ backend surface (cppcheck + clang-tidy)
-        # Runs `make c-lint`: cppcheck on all 3 backends + clang-tidy
-        # on tape (tape uses only libc + BLAS headers; no libtorch /
-        # mlx setup needed at preflight time). Full clang-tidy across
-        # the C++ backends is gated behind `C_LINT_FULL_CLANG_TIDY=1`
-        # and lands in the heavy matrix jobs (libtorch headers are
-        # ~30s per TU). Conservative check set in `.clang-tidy`.
+      - name: Install C-lint tools (clang-format + cppcheck + clang-tidy)
+        # apt-installs clang-format + cppcheck + clang-tidy on the
+        # Ubuntu preflight runner. ~10s on a warm cache. Local devs
+        # install via `brew install clang-format cppcheck llvm` or
+        # the equivalent nix derivation. The Make target gracefully
+        # skips each tool that isn't on PATH so it doesn't block
+        # pre-commit runs locally.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format cppcheck clang-tidy
+      - name: Lint C / C++ backend surface (clang-format + cppcheck + clang-tidy)
+        # Runs `make lint-c`: clang-format --dry-run + cppcheck on
+        # all 3 backends + clang-tidy on tape (tape uses only libc
+        # + BLAS headers; no libtorch / mlx setup needed at preflight
+        # time). Full clang-tidy across the C++ backends is gated
+        # behind `C_LINT_FULL_CLANG_TIDY=1` and lands in the heavy
+        # matrix jobs (libtorch headers are ~30s per TU). clang-format
+        # rules live in `.clang-format`; cppcheck flags inline;
+        # clang-tidy check set in `.clang-tidy`.
         run: make lint-c
 
   test-examples:

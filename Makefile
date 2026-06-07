@@ -1328,7 +1328,9 @@ lint-py:
 	@cd packages/pytorch && uv run --no-sync --quiet ruff check $(PYTHON_LINT_PATHS) --config pyproject.toml && uv run --no-sync --quiet ruff format --check $(PYTHON_LINT_PATHS) --config pyproject.toml && uv run --no-sync --quiet vulture
 	@echo "lint-py OK (ruff check + format + vulture)"
 
-# Lint the C / C++ backend surface: cppcheck (unused functions +
+# Lint the C / C++ backend surface: clang-format (layout drift
+# against the repo-root `.clang-format` — tabs for indent, K&R
+# brace style, 100-col limit) + cppcheck (unused functions +
 # bug-class warnings, fast) + clang-tidy (dead-store + bugprone +
 # misc-unused, slower because libtorch + mlx headers parse on every
 # .cpp). Conservative check sets live in `.clang-tidy` and the
@@ -1344,9 +1346,20 @@ lint-py:
 # pre-commit use. `lint-c` runs the full sweep including the C++
 # backends (slow — libtorch headers).
 lint-c: lint-c-tape lint-c-torch lint-c-mlx
-	@echo "lint-c OK (cppcheck + clang-tidy across all 3 backends)"
+	@echo "lint-c OK (clang-format + cppcheck + clang-tidy across all 3 backends)"
+
+# Shared C/C++ surface — linked into every backend, so re-check
+# from each lint-c-<backend> target. rename_*.h is auto-generated
+# (gen-rename-headers.py owns its layout) and excluded.
+BACKENDS_SHARED_SRCS := $(shell find packages/backends -maxdepth 1 \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) ! -name "rename_*.h" 2>/dev/null) \
+                       $(shell find packages/backends/shared \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) 2>/dev/null)
 
 lint-c-tape:
+	@if command -v clang-format >/dev/null 2>&1; then \
+		clang-format --dry-run -Werror --style=file $$(find packages/backends/backend_tape \( -name "*.c" -o -name "*.h" \) 2>/dev/null) $(BACKENDS_SHARED_SRCS) || exit 1; \
+	else \
+		echo "lint-c-tape: clang-format not installed (install via 'brew install clang-format' or 'apt-get install clang-format'; macOS Command Line Tools also ships one at /Library/Developer/CommandLineTools/usr/bin/clang-format if that's on PATH); skipping"; \
+	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape packages/backends/backend_tape/ || exit 1; \
 	else \
@@ -1359,6 +1372,11 @@ lint-c-tape:
 	fi
 
 lint-c-torch:
+	@if command -v clang-format >/dev/null 2>&1; then \
+		clang-format --dry-run -Werror --style=file $$(find packages/backends/backend_torch \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) 2>/dev/null) $(BACKENDS_SHARED_SRCS) || exit 1; \
+	else \
+		echo "lint-c-torch: clang-format not installed; skipping"; \
+	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_torch packages/backends/backend_torch/ || exit 1; \
 	else \
@@ -1370,6 +1388,11 @@ lint-c-torch:
 	fi
 
 lint-c-mlx:
+	@if command -v clang-format >/dev/null 2>&1; then \
+		clang-format --dry-run -Werror --style=file $$(find packages/backends/backend_mlx \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) 2>/dev/null) $(BACKENDS_SHARED_SRCS) || exit 1; \
+	else \
+		echo "lint-c-mlx: clang-format not installed; skipping"; \
+	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_mlx packages/backends/backend_mlx/ || exit 1; \
 	else \
