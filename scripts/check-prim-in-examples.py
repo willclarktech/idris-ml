@@ -45,11 +45,11 @@ BASELINE = {
 }
 
 
-def main():
+def main() -> int:
     root = "packages/idris-ml-examples/src"
-    failures = []
-    opportunities = []
-    seen = set()
+    failures: list[str] = []
+    opportunities: list[str] = []
+    seen: set[str] = set()
 
     for path in sorted(glob.glob(EXAMPLES_GLOB, recursive=True)):
         rel = os.path.relpath(path, root)
