@@ -1,0 +1,53 @@
+# mk/jupyter.mk — Jupyter kernel venv + notebook gates.
+
+# Jupyter kernel (venv in packages/jupyter/.venv)
+# Apple-bundled /usr/bin/python3 is 3.9 (too old for our deps), so we
+# prefer a managed 3.12+. Resolution order:
+#   1. uv-managed python, if uv is installed (most projects on this
+#      codebase already have it via the pyproject/uv.lock pattern)
+#   2. system `python3` on $PATH — falls back loudly if it's < 3.12
+#
+# Deliberately not falling back to `nix build nixpkgs#python3`: that
+# materialises python3 in the nix store on every build regardless of
+# user config (same pattern as the removed mlx fallback above).
+UV_PYTHON := $(shell uv python find 2>/dev/null)
+VENV_PYTHON := $(shell [ -x "$(UV_PYTHON)" ] && echo "$(UV_PYTHON)" || echo python3)
+JUPYTER_VENV := packages/jupyter/.venv
+JUPYTER_PIP := $(JUPYTER_VENV)/bin/pip
+JUPYTER_PYTHON := $(JUPYTER_VENV)/bin/python3
+JUPYTER_PYTEST := $(JUPYTER_VENV)/bin/pytest
+
+$(JUPYTER_VENV)/bin/activate:
+	$(VENV_PYTHON) -m venv $(JUPYTER_VENV)
+	$(JUPYTER_PIP) install --upgrade pip setuptools >/dev/null
+
+jupyter-install: backend check $(JUPYTER_VENV)/bin/activate
+	$(JUPYTER_PIP) install -e packages/jupyter/.[dev]
+	$(JUPYTER_PYTHON) -m idris_ml_kernel.install
+
+jupyter-lab: jupyter-install
+	$(JUPYTER_PIP) install -q jupyterlab
+	$(JUPYTER_VENV)/bin/jupyter lab --notebook-dir=packages/jupyter/notebooks
+
+# Jupyter kernel tests (requires backend + idris2)
+test-e2e-jupyter: backend check $(JUPYTER_VENV)/bin/activate
+	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
+	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/ -v
+
+# Quick: just cell parser (no REPL, no backend needed)
+test-integration-jupyter-cellparser: $(JUPYTER_VENV)/bin/activate
+	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
+	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
+
+# Run all notebooks headless to check for API breakage
+test-e2e-notebooks: jupyter-install
+	@fail=0; \
+	for nb in packages/jupyter/notebooks/tutorials/*.ipynb packages/jupyter/notebooks/models/*.ipynb; do \
+		echo "--- $$nb ---"; \
+		$(JUPYTER_VENV)/bin/jupyter nbconvert --execute --to notebook \
+			--ExecutePreprocessor.timeout=120 "$$nb" \
+			--output /tmp/test_nb_out.ipynb 2>&1 || { echo "FAIL: $$nb"; fail=1; continue; }; \
+		echo "ok"; \
+	done; \
+	rm -f /tmp/test_nb_out.ipynb; \
+	[ $$fail -eq 0 ] && echo "All notebooks passed" || { echo "Some notebooks failed"; exit 1; }

@@ -1,0 +1,135 @@
+# mk/ref.mk — PyTorch reference runs (torch_ref). ref-setup, the
+# collapsed ref-* static pattern rules + exceptions, HF reference
+# inference, oracle gates, ref-convergence, test-e2e-cuda.
+
+# PyTorch reference implementation (uv manages Python)
+ref-setup:
+	cd packages/pytorch && uv sync --dev
+
+# Plain torch_ref reference runs, collapsed into one static pattern
+# rule: ref-foo-bar -> `python -m torch_ref.scripts.foo_bar`. Static
+# (not a bare `ref-%`) so the member list stays explicit/greppable,
+# .PHONY applies, and a stray file named ref-<x> can't shadow a rule.
+# Exceptions keep explicit rules (file deps, ARGS, or different shapes
+# entirely): ref-setup ref-lint ref-typecheck ref-convergence{,-copy,
+# -recall} ref-hf-{bert,gpt2,llama} ref-bert-classify-sst2-{finetune,
+# lora-finetune} validate-lora-adapter, plus ref-gpt2-lm-finetune and
+# ref-bert-mlm-finetune (colocated with their examples further up).
+REF_SCRIPT_NAMES := supervised bert-classify-finetune rnn lstm gru \
+	ntm-copy ntm-recall dnc-copy dnc-recall transformer gpt reinforce \
+	a2c ppo dqn mountain-car mountain-car-cont
+REF_SCRIPT_TARGETS := $(addprefix ref-,$(REF_SCRIPT_NAMES))
+.PHONY: $(REF_SCRIPT_TARGETS)
+$(REF_SCRIPT_TARGETS): ref-%:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.$(subst -,_,$*)
+
+# SAC, tabular RL, and Monte Carlo have no scripts/ wrapper — invoke
+# models/*.py:__main__ directly (paired-side entry point in both cases).
+REF_MODEL_NAMES := sac q-learning sarsa frozen-lake taxi monte-carlo
+REF_MODEL_TARGETS := $(addprefix ref-,$(REF_MODEL_NAMES))
+.PHONY: $(REF_MODEL_TARGETS)
+$(REF_MODEL_TARGETS): ref-%:
+	cd packages/pytorch && uv run python -m torch_ref.models.$(subst -,_,$*)
+
+ref-bert-classify-sst2-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
+	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_sst2_finetune $(BERT_SST2_ARGS)
+
+ref-bert-classify-sst2-lora-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
+		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
+	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_sst2_lora_finetune $(BERT_SST2_LORA_ARGS)
+
+# Cross-tool gate: load an idris-ml-saved LoRA adapter via peft and run a
+# forward pass. ADAPTER_DIR points at the directory written by the
+# `--save-adapter` flag on the worked example. Default = /tmp/idris-ml-lora-out;
+# override on the command line: `make validate-lora-adapter ADAPTER_DIR=...`.
+ADAPTER_DIR ?= /tmp/idris-ml-lora-out
+validate-lora-adapter: models/google/bert_uncased_L-2_H-128_A-2/config.json
+	cd packages/pytorch && uv run python torch_ref/scripts/validate_lora_adapter.py \
+		--adapter-dir $(realpath $(ADAPTER_DIR)) \
+		--base-model $(realpath models/google/bert_uncased_L-2_H-128_A-2) \
+		--num-labels 2
+
+# PyTorch reference inference for the HF-aligned models. Each invokes the
+# canonical HF transformers forward pass for the same model the matching
+# Idris example runs, so users can eyeball PyTorch's output (or wall
+# time) for direct comparison with `make example-hf-{bert,gpt2,llama}-inference`.
+#
+# bert + gpt2 reuse the oracle scripts (load via HF, run forward, save
+# the comparison-target tensor) — re-running them refreshes the oracle
+# files used by `test-hf-{bert,gpt2}-roundtrip`. llama uses
+# `time_inference_llama.py` (PyTorch greedy decode, stage timers
+# mirroring the Idris example).
+ref-hf-bert:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/save_oracle.py
+
+ref-hf-gpt2:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/save_oracle_gpt2.py
+
+ref-hf-llama:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/time_inference_llama.py
+
+test-e2e-pytorch-ref:
+	cd packages/pytorch && uv run pytest torch_ref/correctness/ -v
+
+ref-lint:
+	cd packages/pytorch && uv run ruff check torch_ref/ && uv run ruff format --check torch_ref/
+
+ref-typecheck:
+	cd packages/pytorch && uv run pyright torch_ref/
+
+# Regenerate + validate the HfBert forward-pass oracle. Runs
+# packages/idris-transformers/scripts/save_oracle.py through pytest
+# under the pytorch package's uv-managed venv (which carries the
+# `transformers` dep). The pytest is colocated with the script per
+# feedback_paired_side_alignment. Wire into CI alongside test-transformers.
+#
+# This target only runs the generator + asserts the fixture is
+# well-formed (shape, dtype, finite, nontrivial). The cross-language
+# Idris-vs-Python comparison gate lands in Phase 6 as
+# test-e2e-hf-bert-roundtrip.
+test-e2e-transformers-oracle-bert:
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle.py -v
+
+# Produce the Llama-3 RoPE table oracle (inv_freq + a slice of
+# cos/sin tables). Pinned by Test.RoPE in the idris-ml unit suite;
+# this target lets you regenerate the oracle if the upstream Llama-3
+# rope_scaling formula changes.
+test-e2e-rope-oracle:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/save_rope_oracle.py
+
+# Same shape as test-e2e-transformers-oracle-bert, paired with HfGpt2.idr:
+# generates `models/tiny-gpt2-oracle.safetensors` from
+# `distilgpt2`'s last-hidden-state for [15496, 995] and
+# asserts the fixture is well-formed. The cross-language gate lands
+# as test-e2e-hf-gpt2-roundtrip alongside the Idris example.
+test-e2e-transformers-oracle-gpt2:
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
+
+# Same shape, paired with HfLlama.idr: generates
+# `models/llama-3.2-1b-oracle.safetensors` from `unsloth/Llama-3.2-1B`'s
+# last-hidden-state for [9906] ("Hello") and asserts the fixture is
+# well-formed. The cross-language gate lands as test-e2e-hf-llama-roundtrip
+# alongside the Idris example.
+test-e2e-transformers-oracle-llama:
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle_llama.py -v
+
+ref-convergence:
+	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task both
+
+ref-convergence-copy:
+	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task copy
+
+ref-convergence-recall:
+	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
+
+# CUDA test (run on Colab or Linux with CUDA GPU)
+test-e2e-cuda:
+	bash scripts/test_cuda_colab.sh
