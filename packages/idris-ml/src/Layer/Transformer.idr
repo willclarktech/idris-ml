@@ -184,7 +184,7 @@ foldBlocks (b :: bs) h mask sI hdI =
 ----------------------------------------------------------------------
 
 export
-applyTransformer : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+applyTransformer : {0 ex : Executor} -> Backend ex dt => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
                      TransformerState seqLen dModel numHeads headDim numBlocks
                                        vocabSize seqLen (seqLen * vocabSize) ex dt g ->
                      TVec seqLen ex dt g ->
@@ -340,7 +340,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
 ----------------------------------------------------------------------
 
 -- Build a Vect of n Linear layers with sequential paramId suffixes.
-mkLinearVec : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o ex dt WithGrad))
+mkLinearVec : Backend ex dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o ex dt WithGrad))
 mkLinearVec Z _ = pure []
 mkLinearVec (S k) pfx = do
   l <- linearLayer {i} {o} (pfx ++ show k)
@@ -348,7 +348,7 @@ mkLinearVec (S k) pfx = do
   pure (l :: rest)
 
 -- Build one transformer block.
-mkBlock : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {dModel, numHeads, headDim : Nat} ->
+mkBlock : Backend ex dt => {dModel, numHeads, headDim : Nat} ->
             (paramPrefix : String) ->
             IO (BlockState dModel numHeads headDim ex dt WithGrad)
 mkBlock pfx = do
@@ -362,7 +362,7 @@ mkBlock pfx = do
   f2 <- linearLayer {i = 4 * dModel} {o = dModel} (pfx ++ "_ff2")
   pure $ MkBlock qs ks vs ops n1 n2 f1 f2
 
-mkBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {dModel, numHeads, headDim : Nat} ->
+mkBlocks : Backend ex dt => {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
              IO (Vect k (BlockState dModel numHeads headDim ex dt WithGrad))
 mkBlocks Z _ = pure []
@@ -376,7 +376,7 @@ mkBlocks (S k) paramPrefix = do
 ||| All params register as C params under their respective prefixes.
 export
 transformerLayer :
-  UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+  Backend ex dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
@@ -512,7 +512,7 @@ public export
 
 export
 transformerLayerAny :
-  UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+  Backend ex dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->

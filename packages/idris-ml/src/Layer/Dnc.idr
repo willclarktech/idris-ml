@@ -63,7 +63,7 @@ dncRetention onesScalar idx freeGatesT (rw :: rws) acc =
 -- per timestep, dominated DNC forward overhead at ~1k prims/step
 -- for n=32 — close to 200ms/epoch wasted on a constant). Fix moves
 -- those 1027 prims out of the hot path entirely.
-buildNonDiagMask : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (n : Nat) -> AnyPtr
+buildNonDiagMask : {0 ex : Executor} -> Backend ex dt => (n : Nat) -> AnyPtr
 buildNonDiagMask n =
   let nI = cast {to=Int} n
       numElems = nI * nI
@@ -169,13 +169,13 @@ data DncState :
 -- entries or wrapped Idris Tensors reference it, freed when both let go.
 -- See docs/develop/tensor-lifecycle.md and `Layer/Ntm.idr`'s
 -- zeroState comment.
-zeroState1d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 ex : Executor} -> Backend ex dt => (n : Nat) -> AnyPtr
 zeroState1d {ex} {dt} n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
   in dtCreateState1d {ex} {t=dt} nI buf (deviceStreamTag {ex})
 
-constState1d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (n : Nat) -> Double -> AnyPtr
+constState1d : {0 ex : Executor} -> Backend ex dt => (n : Nat) -> Double -> AnyPtr
 constState1d n v =
   let nI = cast {to=Int} n
       buf = fillBuf (prim__allocDoubles nI) 0 nI v
@@ -185,14 +185,14 @@ constState1d n v =
     fillBuf b i n v = if i >= n then b
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
-zeroState2d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (a, b : Nat) -> AnyPtr
+zeroState2d : {0 ex : Executor} -> Backend ex dt => (a, b : Nat) -> AnyPtr
 zeroState2d a b =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
       buf = prim__allocDoubles (aI * bI)
   in dtCreateState2d {ex} {t=dt} aI bI buf (deviceStreamTag {ex})
 
-constState2d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (a, b : Nat) -> Double -> AnyPtr
+constState2d : {0 ex : Executor} -> Backend ex dt => (a, b : Nat) -> Double -> AnyPtr
 constState2d a b v =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
@@ -204,11 +204,11 @@ constState2d a b v =
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
 -- Vect r of zero-state [n] handles (for read weights and read outputs).
-mkZeroVectN : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectN : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectN Z _ = []
 mkZeroVectN (S k) n = zeroState1d {ex} {dt} n :: mkZeroVectN {ex} {dt} k n
 
-mkZeroVectM : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectM : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectM Z _ = []
 mkZeroVectM (S k) m = zeroState1d {ex} {dt} m :: mkZeroVectM {ex} {dt} k m
 
@@ -218,7 +218,7 @@ mkZeroVectM (S k) m = zeroState1d {ex} {dt} m :: mkZeroVectM {ex} {dt} k m
 ----------------------------------------------------------------------
 
 export
-applyDnc : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {r, n, m, h, i, o : Nat} ->
+applyDnc : {0 ex : Executor} -> Backend ex dt => {r, n, m, h, i, o : Nat} ->
              DncState r n m h i o ex dt g ->
              TVec i ex dt g ->
              IO (DncState r n m h i o ex dt g, TVec o ex dt g)
@@ -363,7 +363,7 @@ applyDnc {r} {n} {m}
 -- Build r Kaiming-uniform read-output state tensors (one per read head).
 -- PyTorch default kaiming_uniform on (1, m) per head: bound = 1/sqrt(m).
 -- Sampled once at construction; non-learnable.
-mkKaimingReadOuts : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
+mkKaimingReadOuts : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
 mkKaimingReadOuts Z _ _ = pure []
 mkKaimingReadOuts (S k) m bound = do
   vals <- traverse (\_ => randomRIO (-bound, bound)) (Vect.replicate m ())
@@ -386,7 +386,7 @@ mkKaimingReadOuts (S k) m bound = do
 ||| - initial read outputs:   `kaiming_uniform_((R, m))`, non-learnable,
 |||                           sampled once at construction
 export
-dncLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {r, n, m, h, i, o : Nat} ->
+dncLayer : Backend ex dt => {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (DncState r n m h i o ex dt WithGrad)
 dncLayer pfx = do
@@ -513,7 +513,7 @@ public export
                 (map retypeGrad link) rwTs roTs)
 
 export
-dncLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {r, n, m, h, i, o : Nat} ->
+dncLayerAny : Backend ex dt => {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o ex dt WithGrad)
 dncLayerAny pid =

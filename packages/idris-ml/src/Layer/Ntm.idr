@@ -76,13 +76,13 @@ data NtmState :
 -- Idris-wrapped Tensor handle is alive; freed once both let go. Without
 -- this management the per-sequence state leaks unboundedly across eval-
 -- phase forwards on mlx (see docs/develop/tensor-lifecycle.md).
-zeroState1d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 ex : Executor} -> Backend ex dt => (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
   in dtCreateState1d {ex} {t=dt} nI buf (deviceStreamTag {ex})
 
-zeroState2d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (n, m : Nat) -> AnyPtr
+zeroState2d : {0 ex : Executor} -> Backend ex dt => (n, m : Nat) -> AnyPtr
 zeroState2d n m =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
@@ -137,7 +137,7 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
   in primAdd {ex} kept writeAdd
 
 export
-applyNtm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n, m, h, i, o : Nat} ->
+applyNtm : {0 ex : Executor} -> Backend ex dt => {n, m, h, i, o : Nat} ->
              NtmState n m h i o ex dt g ->
              TVec i ex dt g ->
              IO (NtmState n m h i o ex dt g, TVec o ex dt g)
@@ -218,7 +218,7 @@ applyNtm {n} {m} {h} {i} {o}
 ||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
 |||                           sampled once at construction
 export
-ntmLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n, m, h, i, o : Nat} ->
+ntmLayer : Backend ex dt => {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (NtmState n m h i o ex dt WithGrad)
 ntmLayer pfx = do
@@ -320,7 +320,7 @@ public export
                 (map retypeGrad wa) (map retypeGrad ro))
 
 export
-ntmLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n, m, h, i, o : Nat} ->
+ntmLayerAny : Backend ex dt => {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o ex dt WithGrad)
 ntmLayerAny pid =

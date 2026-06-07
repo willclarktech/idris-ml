@@ -107,7 +107,7 @@ applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
 
 ||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
-conv2dLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayer : Backend ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv2DState inC outC h w kH kW padH padW
                                   (inC * (h * w))
@@ -141,7 +141,7 @@ public export
     pure (MkConv2D (retypeGrad k) (retypeGrad b))
 
 export
-conv2dLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayerAny : Backend ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -184,7 +184,7 @@ applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
   in MkTensor (primReshape1d {ex} outT (cast {to=Int} outFlat)) Nothing
 
 export
-conv1dLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayer : Backend ex dt => {inC, outC, len, kL, pad : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv1DState inC outC len kL pad
                                   (inC * len)
@@ -216,7 +216,7 @@ public export
     pure (MkConv1D (retypeGrad k) (retypeGrad b))
 
 export
-conv1dLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayerAny : Backend ex dt => {inC, outC, len, kL, pad : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) ex dt WithGrad)
 conv1dLayerAny pid =
