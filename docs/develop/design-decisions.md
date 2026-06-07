@@ -1979,3 +1979,65 @@ operators, no `share` combinator: nothing can silently re-execute.
   reference code — worth unifying when the loss vocabulary consolidates.
 - **Perf**: no example references the new symbols yet (examples migrate at the sweep), and the
   aliases are %inline names for existing calls — can't affect hot paths; no bench run required.
+
+## Optimizer surface: `sgd`/`rmsprop`/`adam`/`adamW` × `OptimOpts` (2026-06-12)
+
+**Decision**: implements the optimizer-collapse row (api-critique §S4). One `Optimizer ex`
+(alias of `NativeOptimizer ex`; same record, same fused `nativeTrainStep`), four IO
+constructors over the unchanged C ABI, shared knobs in `OptimOpts`
+(beta1/beta2/eps/clip/groups + `defaultOpts`, PyTorch numeric defaults), schedules attach
+via `withSchedule` + `tick` instead of hand-rolled `beforeEpoch` lambdas. The `native*`
+constructors and `applySchedule` are deleted together with their call sites at the example
+migration sweep.
+
+- **Deviations from the TODO row**: `rmsprop` survives as a 4th constructor
+  (PyTorch-precedent rule: `torch.optim.RMSprop` exists; 8 tuned examples use it).
+  `clip : ClipMode` directly (not `Maybe ClipSpec` — `NoClip` is already the zero).
+  `groups : List (String, Double)` = per-prefix LR overrides (the freeze/scale mechanism that
+  exists today), not the critique's `(Scope, Overrides)`; typed scopes wait for `Params`.
+- **Nothing accepted-but-ignored**: algorithm-specific knobs are arguments on the constructor
+  that owns them — `rmsprop`'s `alpha`/`momentum` (named, defaulted), `adamW`'s `weightDecay`
+  (positional), `adam`'s `scope` (named, defaulted; routes to the AdamGroup C prim — the only
+  scoped create). A shared record field would silently no-op on the other constructors, the
+  §S4 bug class.
+- **Constructors are IO**: construction touches the C optimizer registry and the `groups`
+  walk applies `setParamLR` per matching param at construction time. Registry-order hazard
+  documented on `OptimOpts` (params registered after construction miss the override) — same
+  hazard `freezeByPrefix` documents.
+- **`Optimizer` alias quantity**: `Optimizer : (0 ex : Executor) -> Type` — the binder must
+  carry the same `0` as the record header or the alias won't unify (`(0 _ : Executor) -> Type`
+  vs `Executor -> Type` mismatch); a `0`-quantity *definition* (`0 Optimizer : ...`) can't
+  unfold during unification of relevant terms at all.
+- **Equivalence evidence**: `Test.Optimizer` locks bitwise trajectory equality (exact `==`,
+  no tolerance) of each constructor vs its `native*` twin — same C prims, same trajectories.
+  Test-design note: a beta1/beta2 swap is invisible on a smooth quadratic (bias-corrected
+  Adam update ≈ lr·sign(grad)) and under a tight `NormClip` (constant grad norm); the adam
+  test varies per-step loss scale `[1, 5, 0.5]` under a loose clip so the moment EMAs lag
+  distinguishably. `schedule : Maybe Schedule` rides on `NativeOptimizer` (Tensor.idr imports
+  Schedule — a leaf module, no cycle).
+
+## Checkpoint surface: `load` / `LoadOpts` / `LoadError` + `saveAll` (2026-06-12)
+
+**Decision**: implements the checkpoint-surface row (api-critique §S6) against the global
+registry — the `Params`-typed `save model path` waits for models-as-records. C side first:
+`param_load_core` returns typed codes (-1 open, -2 malformed, -3 dtype, -4 count,
+-5 unsupported dtype, -6 read/alloc; first-error-wins set-if-zero, loop continues) — shared
+safetensors.c serves all three backends via the rename headers, verified per-lane. Idris
+side: `LoadError` (one constructor per code + `LoadFailed Int` total escape decoder),
+`LoadOpts {allowCast = False, only : Maybe String}`, `load : path -> LoadOpts ->
+IO (Either LoadError ())`, `saveAll` escape hatch.
+
+- **No MissingParam constructor**: a file key absent from the registry is a skip, not an
+  error — the warm-start path (`only = Just "bert."` backbone + fresh head) depends on it.
+  Locked by a criterion case and the LoadOpts suite.
+- **allowCast defaults False**: the safe default wins; the most-used call shape pays one
+  record update.
+- **`remap` deferred**: zero call sites today and it needs a new C prim (on-disk key →
+  registry name translation happens inside `param_load_core`'s entry loop). Follow-up row
+  filed in TODO.md.
+- **Old loaders are wrappers**: the four `loadModel*` are one-line `isRight <$> load …` —
+  the untouched CheckpointSubset + SaveModelMatching suites are the equivalence oracle. They
+  and their ~49 call sites are deleted together at the example migration sweep (no
+  lifecycle annotations in code — pre-user, no backwards compatibility).
+- **Math.idr**: no demotion annotation either; the module is deleted wholesale at the sweep
+  (`argmax`/`oneHotEncode` relocate to Util.idr then — no Tensor-side `targmax` exists).

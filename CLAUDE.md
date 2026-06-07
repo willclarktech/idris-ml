@@ -84,7 +84,7 @@ run-output dirs (`logs/`, `results/`, `.tmp/`).
 
 ## Architecture
 
-Module dependency order (leaves first): **Device → Floating → Util → Sampler → Init → Array → Math → Tensor → DataPoint → DataLoader → Layer.\* → Schedule → Hpo → Backprop → Train → Curriculum → Checkpoint → Notebook.Prelude**. Single `import Layer` brings in all layer modules (Linear, Activation, LayerNorm, BatchNorm, Conv, Dropout, Embedding, Residual, Rnn/Lstm/Gru, Ntm, Dnc, Transformer).
+Module dependency order (leaves first): **Device → Floating → Util → Sampler → Init → Array → Math → Schedule → Tensor → Optimizer → DataPoint → DataLoader → Layer.\* → Hpo → Backprop → Train → Curriculum → Checkpoint → Notebook.Prelude**. Single `import Layer` brings in all layer modules (Linear, Activation, LayerNorm, BatchNorm, Conv, Dropout, Embedding, Residual, Rnn/Lstm/Gru, Ntm, Dnc, Transformer).
 
 ### Core type signatures
 
@@ -194,7 +194,7 @@ Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/
   (\m, d => epochVar opt d lossFn m) (pure data) (simpleConfig 1000) model
 ```
 
-`runTraining` handles: epoch loop, NaN detection, progress logging, early stopping, timing summary. Use `runTrainingIO` when the per-epoch step needs IO. Attach an LR schedule via `TrainConfig.beforeEpoch` + `applySchedule sched opt`.
+`runTraining` handles: epoch loop, NaN detection, progress logging, early stopping, timing summary. Use `runTrainingIO` when the per-epoch step needs IO. Attach an LR schedule via `withSchedule sched opt` + `{ beforeEpoch := tick opt }`.
 
 ### Training modes
 
@@ -206,13 +206,13 @@ Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/
 | TwoPhase | `epochTwoPhaseVar` | `TwoPhaseDataPoint i o ty` | NTM/DNC copy/recall |
 | RL | custom (uses `runTrainingIO`) | varies | REINFORCE / DQN / A2C / PPO / SAC / tabular |
 
-### Native optimizer
+### Optimizer
 
-The only optimizer surface — `nativeSgd` / `nativeRmsprop` / `nativeAdamGlobalClip` / `nativeAdamGroup` / `nativeAdamW`. Single `nativeTrainStep opt loss` runs zero_grad → backward → clip → step. Use `NormClip` for recurrent models. `nativeAdamGroup "prefix_" lr ...` filters by paramId prefix for per-network optimizers.
+`Optimizer.idr`: four IO constructors `sgd` / `rmsprop` / `adam` / `adamW` × `OptimOpts` (beta1/beta2/eps/clip/groups, `defaultOpts` = PyTorch defaults, record-update to override). Algorithm-specific knobs sit on the constructor that owns them — `rmsprop {alpha} {momentum}`, `adamW lr weightDecay opts`, `adam {scope="actor_"} lr opts` for per-network optimizers (scope routes to the AdamGroup prim). `groups := [("bert.", 0.0)]` sets per-prefix LR overrides at construction (0 freezes; params registered after construction miss the walk — construct optimizers after the networks). Schedules: `withSchedule sched opt` + `tick opt epoch` (interim driver spelling `{ beforeEpoch := tick opt }`). Single `nativeTrainStep opt loss` runs zero_grad → backward → clip → step; use `NormClip` for recurrent models. The `native*` constructors and `applySchedule` still exist for current examples and die at the migration sweep.
 
 ### Model serialization
 
-Backend-agnostic SafeTensors (`.safetensors`) via `Checkpoint` module: `saveModel` / `loadModel` / `saveOptimizer` / `loadOptimizer`. Python interop: PyTorch loads via `safetensors.torch.load_file()`, MLX via `mx.load()`.
+Backend-agnostic SafeTensors (`.safetensors`) via `Checkpoint` module: `saveAll` + `load path opts : IO (Either LoadError ())` with `LoadOpts {allowCast = False, only : Maybe String}` (`only` = prefix-filtered warm-start; registry-miss is a skip, not an error); `saveOptimizer` / `loadOptimizer` for optimizer state. The Bool-returning `loadModel*` wrappers persist for current examples until the migration sweep. Python interop: PyTorch loads via `safetensors.torch.load_file()`, MLX via `mx.load()`.
 
 Training-loop integration: attach a `CheckpointPolicy` (built by `fileCheckpoint dir everyN keepBest opt`) to a `TrainConfig` via `withCheckpoint`. `runTrainingIO` then auto-saves every N epochs to `<dir>/last`, keeps the best to `<dir>/best`, resumes from `<dir>/last` if present, and reloads best at the end (return-best). Resume scalars (epoch, best metric) live in a `trainer_state.json` sidecar; safetensors stays the only on-disk format. Examples expose `--checkpoint-dir` / `--resume` / `--checkpoint-every` (gpt, transformer, ntm-copy, dnc-copy). See design-decisions.md "Training-loop checkpointing".
 
