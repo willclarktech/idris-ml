@@ -13,8 +13,8 @@ TensorHandle tensor_softmax_2d(TensorHandle h) {
 	int m = t->shape[0], n = t->shape[1];
 	int is_f32 = (t->dtype_tag == DT_F32);
 	int shape[] = {m, n};
-	void* data =
-	    is_f32 ? (void*)arena_alloc(m * n * sizeof(float)) : (void*)malloc(m * n * sizeof(double));
+	void* data = is_f32 ? (void*)arena_alloc((size_t)m * n * sizeof(float))
+	                    : (void*)malloc((size_t)m * n * sizeof(double));
 	for (int i = 0; i < m; i++) {
 		double max_val = tape_load_d(t, i * n);
 		for (int j = 1; j < n; j++) {

@@ -111,12 +111,14 @@ TensorHandle tensor_batch(TensorHandle* handles, int count) {
 	if (is_f32) {
 		float* data = arena_alloc(total * sizeof(float));
 		for (int i = 0; i < count; i++)
-			memcpy(data + i * elem_size, ((Tensor*)handles[i])->data, elem_size * sizeof(float));
+			memcpy(data + (size_t)i * elem_size, ((Tensor*)handles[i])->data,
+			       (size_t)elem_size * sizeof(float));
 		r = make_tensor_arena_f32(data, total, shape, rank, 0);
 	} else {
 		double* data = malloc(total * sizeof(double));
 		for (int i = 0; i < count; i++)
-			memcpy(data + i * elem_size, ((Tensor*)handles[i])->data, elem_size * sizeof(double));
+			memcpy(data + (size_t)i * elem_size, ((Tensor*)handles[i])->data,
+			       (size_t)elem_size * sizeof(double));
 		r = make_tensor(data, shape, rank, 0);
 		free(data);
 	}

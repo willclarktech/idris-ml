@@ -29,7 +29,7 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
 	 * Mathematical answer when any of {m,n,k}=0 is the [m,k] zero tensor. */
 	if (m == 0 || n == 0 || k == 0) return tape_zero_tensor(shape, 2, a->dtype_tag, rg);
 	if (a->dtype_tag == DT_F32) {
-		float* data = arena_alloc(m * k * sizeof(float));
+		float* data = arena_alloc((size_t)m * k * sizeof(float));
 #ifdef __APPLE__
 		cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, k, n, 1.0f, (const float*)a->data,
 		            n, (const float*)b->data, k, 0.0f, data, k);
@@ -38,15 +38,16 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
 			for (int j = 0; j < k; j++) {
 				float s = 0;
 				for (int p = 0; p < n; p++)
-					s += ((float*)a->data)[i * n + p] * ((float*)b->data)[p * k + j];
-				data[i * k + j] = s;
+					s +=
+					    ((float*)a->data)[(size_t)i * n + p] * ((float*)b->data)[(size_t)p * k + j];
+				data[(size_t)i * k + j] = s;
 			}
 #endif
 		Tensor* r = make_tensor_arena_f32(data, m * k, shape, 2, rg);
 		if (rg) tape_append(OP_MM, r, a, b, 0);
 		return r;
 	}
-	double* data = calloc(m * k, sizeof(double));
+	double* data = calloc((size_t)m * k, sizeof(double));
 #ifdef __APPLE__
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, k, n, 1.0, a->data, n, b->data, k,
 	            0.0, data, k);
@@ -55,8 +56,8 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
 		for (int j = 0; j < k; j++) {
 			double s = 0;
 			for (int p = 0; p < n; p++)
-				s += ((double*)a->data)[i * n + p] * ((double*)b->data)[p * k + j];
-			data[i * k + j] = s;
+				s += ((double*)a->data)[(size_t)i * n + p] * ((double*)b->data)[(size_t)p * k + j];
+			data[(size_t)i * k + j] = s;
 		}
 #endif
 	Tensor* r = make_tensor(data, shape, 2, rg);

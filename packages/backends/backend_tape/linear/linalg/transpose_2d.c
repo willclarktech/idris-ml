@@ -16,16 +16,16 @@ TensorHandle tensor_transpose_2d(TensorHandle h) {
 	int shape[] = {n, m};
 	Tensor* r;
 	if (t->dtype_tag == DT_F32) {
-		float* data = arena_alloc(m * n * sizeof(float));
+		float* data = arena_alloc((size_t)m * n * sizeof(float));
 		for (int i = 0; i < m; i++)
 			for (int j = 0; j < n; j++)
-				data[j * m + i] = ((float*)t->data)[i * n + j];
+				data[(size_t)j * m + i] = ((float*)t->data)[(size_t)i * n + j];
 		r = make_tensor_arena_f32(data, m * n, shape, 2, t->requires_grad);
 	} else {
-		double* data = malloc(m * n * sizeof(double));
+		double* data = malloc((size_t)m * n * sizeof(double));
 		for (int i = 0; i < m; i++)
 			for (int j = 0; j < n; j++)
-				data[j * m + i] = ((double*)t->data)[i * n + j];
+				data[(size_t)j * m + i] = ((double*)t->data)[(size_t)i * n + j];
 		r = make_tensor(data, shape, 2, t->requires_grad);
 		free(data);
 	}

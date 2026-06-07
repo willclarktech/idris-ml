@@ -27,12 +27,12 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 	/* Zero-dim guard (see mm.c). Per-batch cblas_*gemm rejects lda=0. */
 	if (B == 0 || m == 0 || n == 0 || k == 0) return tape_zero_tensor(shape, 3, a->dtype_tag, rg);
 	if (a->dtype_tag == DT_F32) {
-		float* data = arena_alloc(B * m * k * sizeof(float));
+		float* data = arena_alloc((size_t)B * m * k * sizeof(float));
 		for (int bi = 0; bi < B; bi++) {
 #ifdef __APPLE__
 			cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, k, n, 1.0f,
-			            ((const float*)a->data) + bi * m * n, n, (const float*)b->data, k, 0.0f,
-			            data + bi * m * k, k);
+			            ((const float*)a->data) + (size_t)bi * m * n, n, (const float*)b->data, k,
+			            0.0f, data + (size_t)bi * m * k, k);
 #else
 			for (int i = 0; i < m; i++)
 				for (int j = 0; j < k; j++) {
@@ -48,11 +48,12 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 		if (rg) tape_append(OP_BMM, r, a, b, 0);
 		return r;
 	}
-	double* data = calloc(B * m * k, sizeof(double));
+	double* data = calloc((size_t)B * m * k, sizeof(double));
 	for (int bi = 0; bi < B; bi++) {
 #ifdef __APPLE__
 		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, k, n, 1.0,
-		            ((double*)a->data) + bi * m * n, n, b->data, k, 0.0, data + bi * m * k, k);
+		            ((double*)a->data) + (size_t)bi * m * n, n, b->data, k, 0.0,
+		            data + (size_t)bi * m * k, k);
 #else
 		for (int i = 0; i < m; i++)
 			for (int j = 0; j < k; j++) {

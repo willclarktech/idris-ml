@@ -27,8 +27,8 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma, TensorHan
 	int rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
 
 	if (t->dtype_tag == DT_F32) {
-		float* data = arena_alloc(m * n * sizeof(float));
-		double* x_hat = malloc(m * n * sizeof(double));
+		float* data = arena_alloc((size_t)m * n * sizeof(float));
+		double* x_hat = malloc((size_t)m * n * sizeof(double));
 		double* rstd = malloc(m * sizeof(double));
 		const float* td = (const float*)t->data;
 		const float* gd = (const float*)gamma->data;
@@ -70,8 +70,8 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma, TensorHan
 		return r;
 	}
 
-	double* data = malloc(m * n * sizeof(double));
-	double* x_hat = malloc(m * n * sizeof(double));
+	double* data = malloc((size_t)m * n * sizeof(double));
+	double* x_hat = malloc((size_t)m * n * sizeof(double));
 	double* rstd = malloc(m * sizeof(double));
 	for (int i = 0; i < m; i++) {
 		double mean = 0;

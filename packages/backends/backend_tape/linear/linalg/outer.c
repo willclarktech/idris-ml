@@ -21,18 +21,18 @@ TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
 	int shape[] = {m, n};
 	int rg = a->requires_grad || b->requires_grad;
 	if (a->dtype_tag == DT_F32) {
-		float* data = arena_alloc(m * n * sizeof(float));
+		float* data = arena_alloc((size_t)m * n * sizeof(float));
 		for (int i = 0; i < m; i++)
 			for (int j = 0; j < n; j++)
-				data[i * n + j] = ((float*)a->data)[i] * ((float*)b->data)[j];
+				data[(size_t)i * n + j] = ((float*)a->data)[i] * ((float*)b->data)[j];
 		Tensor* r = make_tensor_arena_f32(data, m * n, shape, 2, rg);
 		if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);
 		return r;
 	}
-	double* data = malloc(m * n * sizeof(double));
+	double* data = malloc((size_t)m * n * sizeof(double));
 	for (int i = 0; i < m; i++)
 		for (int j = 0; j < n; j++)
-			data[i * n + j] = ((double*)a->data)[i] * ((double*)b->data)[j];
+			data[(size_t)i * n + j] = ((double*)a->data)[i] * ((double*)b->data)[j];
 	Tensor* r = make_tensor(data, shape, 2, rg);
 	free(data);
 	if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);

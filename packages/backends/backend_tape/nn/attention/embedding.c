@@ -23,7 +23,7 @@ static Tensor* embedding_impl(Tensor* weight, Tensor* indices, int n, int embedD
 		for (int i = 0; i < n; i++) {
 			int idx = (int)tape_load_d(indices, i);
 			idx_copy[i] = idx;
-			memcpy(out + i * embedDim, ((float*)weight->data) + idx * embedDim,
+			memcpy(out + (size_t)i * embedDim, ((float*)weight->data) + (size_t)idx * embedDim,
 			       embedDim * sizeof(float));
 		}
 		r = make_tensor_arena_f32(out, out_numel, out_shape, out_rank, weight->requires_grad);
@@ -32,7 +32,7 @@ static Tensor* embedding_impl(Tensor* weight, Tensor* indices, int n, int embedD
 		for (int i = 0; i < n; i++) {
 			int idx = (int)tape_load_d(indices, i);
 			idx_copy[i] = idx;
-			memcpy(out + i * embedDim, ((double*)weight->data) + idx * embedDim,
+			memcpy(out + (size_t)i * embedDim, ((double*)weight->data) + (size_t)idx * embedDim,
 			       embedDim * sizeof(double));
 		}
 		r = make_tensor(out, out_shape, out_rank, weight->requires_grad);

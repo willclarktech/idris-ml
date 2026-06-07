@@ -40,8 +40,8 @@ TensorHandle tensor_swiglu_2d(TensorHandle hgate, TensorHandle hup) {
 	int rg = g->requires_grad || u->requires_grad;
 
 	if (g->dtype_tag == DT_F32) {
-		float* data = arena_alloc(m * n * sizeof(float));
-		double* sig_g = rg ? malloc(m * n * sizeof(double)) : NULL;
+		float* data = arena_alloc((size_t)m * n * sizeof(float));
+		double* sig_g = rg ? malloc((size_t)m * n * sizeof(double)) : NULL;
 		const float* gd = (const float*)g->data;
 		const float* ud = (const float*)u->data;
 		for (int i = 0; i < m * n; i++) {
@@ -62,8 +62,8 @@ TensorHandle tensor_swiglu_2d(TensorHandle hgate, TensorHandle hup) {
 		return r;
 	}
 
-	double* data = malloc(m * n * sizeof(double));
-	double* sig_g = rg ? malloc(m * n * sizeof(double)) : NULL;
+	double* data = malloc((size_t)m * n * sizeof(double));
+	double* sig_g = rg ? malloc((size_t)m * n * sizeof(double)) : NULL;
 	const double* gd = (const double*)g->data;
 	const double* ud = (const double*)u->data;
 	for (int i = 0; i < m * n; i++) {

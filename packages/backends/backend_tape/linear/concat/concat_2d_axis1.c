@@ -27,19 +27,23 @@ TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
 	int out_shape[] = {m, n + k};
 	int rg = A->requires_grad || B->requires_grad;
 	if (A->dtype_tag == DT_F32) {
-		float* out_data = arena_alloc(m * (n + k) * sizeof(float));
+		float* out_data = arena_alloc((size_t)m * (n + k) * sizeof(float));
 		for (int i = 0; i < m; i++) {
-			memcpy(out_data + i * (n + k), ((float*)A->data) + i * n, n * sizeof(float));
-			memcpy(out_data + i * (n + k) + n, ((float*)B->data) + i * k, k * sizeof(float));
+			memcpy(out_data + (size_t)i * (n + k), ((float*)A->data) + (size_t)i * n,
+			       n * sizeof(float));
+			memcpy(out_data + (size_t)i * (n + k) + n, ((float*)B->data) + (size_t)i * k,
+			       k * sizeof(float));
 		}
 		Tensor* r = make_tensor_arena_f32(out_data, m * (n + k), out_shape, 2, rg);
 		if (rg) tape_append(OP_CONCAT_2D_AXIS1, r, A, B, (double)n);
 		return r;
 	}
-	double* out_data = malloc(m * (n + k) * sizeof(double));
+	double* out_data = malloc((size_t)m * (n + k) * sizeof(double));
 	for (int i = 0; i < m; i++) {
-		memcpy(out_data + i * (n + k), ((double*)A->data) + i * n, n * sizeof(double));
-		memcpy(out_data + i * (n + k) + n, ((double*)B->data) + i * k, k * sizeof(double));
+		memcpy(out_data + (size_t)i * (n + k), ((double*)A->data) + (size_t)i * n,
+		       n * sizeof(double));
+		memcpy(out_data + (size_t)i * (n + k) + n, ((double*)B->data) + (size_t)i * k,
+		       k * sizeof(double));
 	}
 	Tensor* r = make_tensor(out_data, out_shape, 2, rg);
 	free(out_data);

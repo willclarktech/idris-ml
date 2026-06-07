@@ -51,7 +51,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 	}
 
 	if (W->dtype_tag == DT_F32) {
-		float* out_data = arena_alloc(BB * oo * sizeof(float));
+		float* out_data = arena_alloc((size_t)BB * oo * sizeof(float));
 #ifdef __APPLE__
 		cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, BB, oo, ii, 1.0f,
 		            (const float*)X->data, ii, (const float*)W->data, ii, 0.0f, out_data, oo);
@@ -60,19 +60,20 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 			for (int o = 0; o < oo; o++) {
 				float s = 0;
 				for (int j = 0; j < ii; j++)
-					s += ((float*)X->data)[b * ii + j] * ((float*)W->data)[o * ii + j];
-				out_data[b * oo + o] = s;
+					s += ((float*)X->data)[(size_t)b * ii + j] *
+					     ((float*)W->data)[(size_t)o * ii + j];
+				out_data[(size_t)b * oo + o] = s;
 			}
 		}
 #endif
 		if (bias) {
 			for (int b = 0; b < BB; b++) {
 #ifdef __APPLE__
-				vDSP_vadd(out_data + b * oo, 1, (const float*)bias->data, 1, out_data + b * oo, 1,
-				          (vDSP_Length)oo);
+				vDSP_vadd(out_data + (size_t)b * oo, 1, (const float*)bias->data, 1,
+				          out_data + (size_t)b * oo, 1, (vDSP_Length)oo);
 #else
 				for (int o = 0; o < oo; o++)
-					out_data[b * oo + o] += ((float*)bias->data)[o];
+					out_data[(size_t)b * oo + o] += ((float*)bias->data)[o];
 #endif
 			}
 		}
@@ -83,7 +84,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 			meta->B = BB;
 			meta->i = ii;
 			meta->o = oo;
-			meta->x_vals = arena_alloc(BB * ii * sizeof(double));
+			meta->x_vals = arena_alloc((size_t)BB * ii * sizeof(double));
 			for (int j = 0; j < BB * ii; j++)
 				meta->x_vals[j] = (double)((float*)X->data)[j];
 			meta->bias = bias;
@@ -92,7 +93,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 		return r;
 	}
 
-	double* out_data = malloc(BB * oo * sizeof(double));
+	double* out_data = malloc((size_t)BB * oo * sizeof(double));
 #ifdef __APPLE__
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, BB, oo, ii, 1.0, X->data, ii, W->data, ii,
 	            0.0, out_data, oo);
@@ -101,18 +102,20 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 		for (int o = 0; o < oo; o++) {
 			double s = 0;
 			for (int j = 0; j < ii; j++)
-				s += ((double*)X->data)[b * ii + j] * ((double*)W->data)[o * ii + j];
-			out_data[b * oo + o] = s;
+				s +=
+				    ((double*)X->data)[(size_t)b * ii + j] * ((double*)W->data)[(size_t)o * ii + j];
+			out_data[(size_t)b * oo + o] = s;
 		}
 	}
 #endif
 	if (bias) {
 		for (int b = 0; b < BB; b++) {
 #ifdef __APPLE__
-			vDSP_vaddD(out_data + b * oo, 1, bias->data, 1, out_data + b * oo, 1, (vDSP_Length)oo);
+			vDSP_vaddD(out_data + (size_t)b * oo, 1, bias->data, 1, out_data + (size_t)b * oo, 1,
+			           (vDSP_Length)oo);
 #else
 			for (int o = 0; o < oo; o++)
-				out_data[b * oo + o] += ((double*)bias->data)[o];
+				out_data[(size_t)b * oo + o] += ((double*)bias->data)[o];
 #endif
 		}
 	}
@@ -124,8 +127,8 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 		meta->B = BB;
 		meta->i = ii;
 		meta->o = oo;
-		meta->x_vals = arena_alloc(BB * ii * sizeof(double));
-		memcpy(meta->x_vals, X->data, BB * ii * sizeof(double));
+		meta->x_vals = arena_alloc((size_t)BB * ii * sizeof(double));
+		memcpy(meta->x_vals, X->data, (size_t)BB * ii * sizeof(double));
 		meta->bias = bias;
 		e->op_meta = meta;
 	}

@@ -28,20 +28,20 @@ TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
 	int shape[] = {M, N};
 	Tensor* r;
 	if (t->dtype_tag == DT_F32) {
-		float* data = arena_alloc(M * N * sizeof(float));
+		float* data = arena_alloc((size_t)M * N * sizeof(float));
 		const float* td = (const float*)t->data;
 		for (int i = 0; i < M; i++) {
 			int si = i % m;
 			for (int j = 0; j < N; j++)
-				data[i * N + j] = td[si * n + (j % n)];
+				data[(size_t)i * N + j] = td[(size_t)si * n + (j % n)];
 		}
 		r = make_tensor_arena_f32(data, M * N, shape, 2, t->requires_grad);
 	} else {
-		double* data = malloc(M * N * sizeof(double));
+		double* data = malloc((size_t)M * N * sizeof(double));
 		for (int i = 0; i < M; i++) {
 			int si = i % m;
 			for (int j = 0; j < N; j++)
-				data[i * N + j] = ((double*)t->data)[si * n + (j % n)];
+				data[(size_t)i * N + j] = ((double*)t->data)[(size_t)si * n + (j % n)];
 		}
 		r = make_tensor(data, shape, 2, t->requires_grad);
 		free(data);

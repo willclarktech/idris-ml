@@ -16,6 +16,7 @@ Checks: >
   -*,
   bugprone-assignment-in-if-condition,
   bugprone-branch-clone,
+  bugprone-implicit-widening-of-multiplication-result,
   bugprone-infinite-loop,
   bugprone-not-null-terminated-result,
   bugprone-signed-char-misuse,

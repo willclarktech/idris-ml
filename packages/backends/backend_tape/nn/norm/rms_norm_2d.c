@@ -34,8 +34,8 @@ TensorHandle tensor_rms_norm_2d(TensorHandle h, TensorHandle hweight, double eps
 	int rg = t->requires_grad || weight->requires_grad;
 
 	if (t->dtype_tag == DT_F32) {
-		float* data = arena_alloc(m * n * sizeof(float));
-		double* x_hat = malloc(m * n * sizeof(double));
+		float* data = arena_alloc((size_t)m * n * sizeof(float));
+		double* x_hat = malloc((size_t)m * n * sizeof(double));
 		double* rstd = malloc(m * sizeof(double));
 		const float* td = (const float*)t->data;
 		const float* wd = (const float*)weight->data;
@@ -71,8 +71,8 @@ TensorHandle tensor_rms_norm_2d(TensorHandle h, TensorHandle hweight, double eps
 		return r;
 	}
 
-	double* data = malloc(m * n * sizeof(double));
-	double* x_hat = malloc(m * n * sizeof(double));
+	double* data = malloc((size_t)m * n * sizeof(double));
+	double* x_hat = malloc((size_t)m * n * sizeof(double));
 	double* rstd = malloc(m * sizeof(double));
 	const double* td = (const double*)t->data;
 	const double* wd = (const double*)weight->data;

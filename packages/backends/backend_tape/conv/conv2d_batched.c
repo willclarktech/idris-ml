@@ -45,7 +45,7 @@ static void conv2d_im2col(const double* input, int B, int inC, int H, int W, int
 		const double* inp_b = input + (size_t)b * inC * H * W;
 		for (int oh = 0; oh < oH; oh++) {
 			for (int ow = 0; ow < oW; ow++) {
-				double* row = X_col + ((size_t)b * oH * oW + oh * oW + ow) * K;
+				double* row = X_col + ((size_t)b * oH * oW + (size_t)oh * oW + ow) * K;
 				for (int ic = 0; ic < inC; ic++) {
 					for (int kh = 0; kh < kH; kh++) {
 						int ih = oh * strideH - padH + kh;
@@ -74,7 +74,7 @@ static void conv2d_im2col_f32(const float* input, int B, int inC, int H, int W, 
 		const float* inp_b = input + (size_t)b * inC * H * W;
 		for (int oh = 0; oh < oH; oh++) {
 			for (int ow = 0; ow < oW; ow++) {
-				float* row = X_col + ((size_t)b * oH * oW + oh * oW + ow) * K;
+				float* row = X_col + ((size_t)b * oH * oW + (size_t)oh * oW + ow) * K;
 				for (int ic = 0; ic < inC; ic++) {
 					for (int kh = 0; kh < kH; kh++) {
 						int ih = oh * strideH - padH + kh;
@@ -101,7 +101,7 @@ static void conv2d_col2im_accumulate(const double* dX_col, int B, int inC, int H
 		double* din_b = dInput + (size_t)b * inC * H * W;
 		for (int oh = 0; oh < oH; oh++) {
 			for (int ow = 0; ow < oW; ow++) {
-				const double* row = dX_col + ((size_t)b * oH * oW + oh * oW + ow) * K;
+				const double* row = dX_col + ((size_t)b * oH * oW + (size_t)oh * oW + ow) * K;
 				for (int ic = 0; ic < inC; ic++) {
 					for (int kh = 0; kh < kH; kh++) {
 						int ih = oh * strideH - padH + kh;
