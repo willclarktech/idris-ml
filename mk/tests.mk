@@ -136,22 +136,40 @@ COV_BUILD := build-cov
 COV_CFLAGS := -fprofile-instr-generate -fcoverage-mapping -O0 -g
 COV_LDFLAGS := -fprofile-instr-generate
 
+# llvm source-based coverage is clang-only. On macOS the system cc IS
+# clang and the llvm tools live behind xcrun. On Linux the default cc
+# is gcc, which rejects -fprofile-instr-generate/-fcoverage-mapping
+# (first exercised by CI on 2026-06-11 when the coverage matrix moved
+# to push — the target was previously dispatch-only and had never run
+# on a gcc host), so force the clang toolchain via the per-backend CC
+# vars (command-line overrides beat the := assignments in backends.mk)
+# and call the llvm tools directly (apt's `llvm` package ships
+# unversioned llvm-profdata/llvm-cov).
+ifeq ($(UNAME),Darwin)
+COV_CC_OVERRIDES :=
+COV_LLVM := xcrun
+else
+COV_CC_OVERRIDES := tape_CC=clang torch_CC=clang++ mlx_CC=clang++ LINK_CC=clang++ TEST_CC=clang
+COV_LLVM :=
+endif
+
 test-coverage-backend:
 	$(MAKE) -j$(NPROC) BUILD=$(COV_BUILD) \
 	  EXTRA_CFLAGS="$(COV_CFLAGS)" \
 	  EXTRA_LDFLAGS="$(COV_LDFLAGS)" \
 	  BACKEND=$(BACKEND) \
+	  $(COV_CC_OVERRIDES) \
 	  $(COV_BUILD)/test_criterion_smoke
 	@mkdir -p $(COV_BUILD)/profraw
 	@rm -f $(COV_BUILD)/profraw/*.profraw
 	LLVM_PROFILE_FILE='$(COV_BUILD)/profraw/test_criterion_%p_%m.profraw' \
 	  ./$(COV_BUILD)/test_criterion_smoke --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml > /dev/null
-	xcrun llvm-profdata merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
+	$(COV_LLVM) llvm-profdata merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
 	@echo ""
 	@echo "=== Coverage report ($(PRIMARY)) ==="
-	xcrun llvm-cov report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
+	$(COV_LLVM) llvm-cov report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
 	@rm -rf $(COV_BUILD)/html-$(PRIMARY)
-	xcrun llvm-cov show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
+	$(COV_LLVM) llvm-cov show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
 	@echo ""
 	@echo "Coverage HTML: file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
 
@@ -159,8 +177,11 @@ test-coverage-backend:
 # test-coverage-backend recipe can set LLVM_PROFILE_FILE before running.
 # Matches the test-unit-c build recipe — link the full
 # discovered suite, not just the smoke shell.
+# TEST_CC is overridable so the coverage path can force clang on Linux
+# (EXTRA_CFLAGS carries clang-only instrumentation flags there).
+TEST_CC := cc
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
-	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+	$(TEST_CC) -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 
 $(COV_BUILD):
 	mkdir -p $@

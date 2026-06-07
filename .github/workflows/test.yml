@@ -813,8 +813,12 @@ jobs:
           swap: 'true'
 
       - name: Install LLVM (Ubuntu)
+        # llvm ships the unversioned llvm-profdata/llvm-cov the make
+        # recipe calls; clang (usually preinstalled, kept explicit) is
+        # the only compiler that accepts -fprofile-instr-generate —
+        # mk/tests.mk forces it via COV_CC_OVERRIDES on Linux.
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y llvm
+        run: sudo apt-get install -y llvm clang
 
       - name: Install LLVM (macOS)
         if: matrix.os == 'macos-latest'
