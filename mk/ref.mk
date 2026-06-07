@@ -3,6 +3,14 @@
 # inference, oracle gates, ref-convergence, test-e2e-cuda.
 
 # PyTorch reference implementation (uv manages Python)
+.PHONY: ref-setup ref-bert-classify-sst2-finetune \
+        ref-bert-classify-sst2-lora-finetune validate-lora-adapter \
+        ref-hf-bert ref-hf-gpt2 ref-hf-llama test-e2e-pytorch-ref \
+        ref-lint ref-typecheck test-e2e-transformers-oracle-bert \
+        test-e2e-rope-oracle test-e2e-transformers-oracle-gpt2 \
+        test-e2e-transformers-oracle-llama ref-convergence \
+        ref-convergence-copy ref-convergence-recall test-e2e-cuda
+
 ref-setup:
 	cd packages/pytorch && uv sync --dev
 

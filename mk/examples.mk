@@ -7,6 +7,35 @@
 # Sentinel files anchor the recipe — `dataset_mnist.sh` writes 4
 # files in one shot; using the first as the Make target is enough
 # to gate the recipe.
+.PHONY: dataset-mnist dataset-tinyshakespeare example-supervised \
+        example-bert-classify-finetune data-sst2 \
+        example-bert-classify-sst2-finetune \
+        example-bert-classify-sst2-lora data-tinyshakespeare-distilgpt2 \
+        data-tinyshakespeare-bert-tiny example-gpt2-lm-finetune \
+        ref-gpt2-lm-finetune example-bert-mlm-finetune \
+        ref-bert-mlm-finetune example-hf-bert-inference \
+        test-e2e-hf-bert-roundtrip example-hf-gpt2-inference \
+        example-hf-llama-inference \
+        test-integration-lint-hf-llama-inference \
+        example-hf-bitnet-inference test-e2e-hf-bitnet-roundtrip \
+        test-e2e-hf-gpt2-roundtrip test-e2e-hf-llama-roundtrip \
+        test-e2e-hf-llama-generate-roundtrip \
+        test-e2e-transformers-oracle-llama-generate example-rnn \
+        example-lstm example-gru example-bring-your-own example-ntm-copy \
+        example-ntm-associative-recall example-dnc-copy \
+        example-dnc-recall example-transformer example-tcast-demo \
+        example-dtype-serialize example-index-ops example-dtype-pitch \
+        example-precision-checkpoint test-integration-checkpoint-resume \
+        example-mlx-stream-demo example-gpt example-gpt-full \
+        example-mnist example-seq-classify example-reinforce \
+        example-q-learning example-sarsa example-monte-carlo \
+        example-frozen-lake example-taxi example-dqn \
+        example-mountain-car example-mountain-car-cont example-a2c \
+        example-ppo example-sac example-transfer example-precision-demo \
+        example-checkpoint example-checkpoint-demo example-matmul-bench \
+        example-rank-broadcast-bench example-bench example-profile sweep \
+        sweep-quick
+
 TINYSHAKESPEARE_FILE := data/tinyshakespeare/input.txt
 MNIST_SENTINEL       := data/mnist/train-images-idx3-ubyte
 

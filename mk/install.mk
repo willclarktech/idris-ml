@@ -14,6 +14,10 @@
 # it ran concurrently — `rm -rf $(BUILD)/ttc-*` deleting build dirs
 # mid-elaboration (observed: install-gym/install-core dying with no
 # output inside example-checkpoint-demo under MAKEFLAGS=-j2).
+.PHONY: install-core install-gym install-transformers install-notebook \
+        install-examples install-test-harness install check-idris-ml \
+        check-gym check-transformers check-idris check
+
 install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(BUILD)/.library-cache-stamp
 	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --install idris-ml.ipkg >/dev/null
 

@@ -5,6 +5,18 @@
 # Regenerate the per-backend rename headers from backend.h. The
 # generated files are checked in; `make test-integration-lint-rename-headers`
 # (in CI) gates that they stay in sync with backend.h.
+.PHONY: rename-headers test-integration-lint-rename-headers \
+        test-integration-lint-ci-workflow \
+        test-integration-lint-ffi-wrap-template \
+        test-integration-lint-non-io-side-effects \
+        test-integration-lint-paired-defaults lint-py lint-py-pytorch \
+        lint-py-scripts lint-py-transformers lint-py-examples \
+        lint-py-jupyter lint-c lint-c-tape lint-c-include-cleaner \
+        lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
+        test-integration-typegate-gradmode-aliasing \
+        test-integration-typegate-lossy-cast \
+        test-integration-typegate-int-overflow-cast
+
 rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py
 

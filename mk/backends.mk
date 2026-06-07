@@ -11,6 +11,8 @@
 # Tape has no monolithic backend_tape.{c,cpp} — every TU lives under
 # backend_tape/. The per-backend compile rule's foreach skips tape;
 # its .o objects come from BACKEND_TAPE_OBJS instead.
+.PHONY: backend
+
 tape_CC := cc
 # ACCELERATE_NEW_LAPACK is a compile-time #define (gates BLAS API
 # version); the framework flag is link-time.

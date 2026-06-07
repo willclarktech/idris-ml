@@ -10,6 +10,9 @@
 # Deliberately not falling back to `nix build nixpkgs#python3`: that
 # materialises python3 in the nix store on every build regardless of
 # user config (same pattern as the removed mlx fallback above).
+.PHONY: jupyter-install jupyter-lab test-e2e-jupyter \
+        test-integration-jupyter-cellparser test-e2e-notebooks
+
 UV_PYTHON := $(shell uv python find 2>/dev/null)
 VENV_PYTHON := $(shell [ -x "$(UV_PYTHON)" ] && echo "$(UV_PYTHON)" || echo python3)
 JUPYTER_VENV := packages/jupyter/.venv

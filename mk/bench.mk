@@ -2,6 +2,12 @@
 # bench_ops, layer benches, the bench-fast/nightly/full tiers, and
 # the perf-regression lint gates.
 
+.PHONY: bench-py bench-compare bench-ops bench-ops-py bench-layers \
+        bench-layers-py bench-fast bench-nightly bench-full bench \
+        test-integration-lint-benchmarks \
+        test-integration-lint-perf-regression lint-perf-run \
+        bench-ops-compare
+
 bench-py:
 	cd packages/pytorch && uv run python -m torch_ref.benchmark $(BENCH)
 

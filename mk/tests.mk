@@ -12,6 +12,17 @@
 # Criterion is provided by nix (nixpkgs `criterion` + `criterion.dev`).
 # Include / lib paths derived from the user nix-profile; an explicit
 # CRITERION_PREFIX= overrides for non-nix environments.
+.PHONY: test-unit-c test-unit-c-tape test-unit-c-mlx test-unit-c-torch \
+        test-unit-c-asan-tape test-unit-c-asan-mlx \
+        test-unit-c-asan-torch test-unit-c-asan test-coverage-backend \
+        test-coverage-backend-tape test-coverage-backend-mlx \
+        test-coverage-backend-torch test-coverage-gap-probe \
+        bench-rank3-broadcast bench-rank3-broadcast-wrapped print-torch \
+        check-examples test-unit test-unit-idris test test-integration \
+        test-e2e test-coverage test-unit-idris-ml \
+        test-unit-multi-backend test-unit-gym \
+        test-unit-idris-transformers bench-gym test-unit-examples
+
 CRITERION_PREFIX ?= $(HOME)/.nix-profile
 CRITERION_CFLAGS := -I$(CRITERION_PREFIX)/include
 CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERION_PREFIX)/lib

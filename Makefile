@@ -121,41 +121,5 @@ check-all: check check-examples
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
-.PHONY: all check check-libs check-idris-ml check-gym check-transformers check-notebook check-examples check-all \
-        test test-unit test-unit-idris-ml test-unit-idris-transformers \
-        test-unit-gym test-unit-examples test-unit-multi-backend test-all dataset-mnist dataset-tinyshakespeare \
-        test-unit-c test-unit-c-tape test-unit-c-mlx test-unit-c-torch \
-        test-integration test-integration-lint-rename-headers test-integration-lint-ffi-wrap-template \
-        test-integration-lint-non-io-side-effects test-integration-lint-paired-defaults \
-        test-integration-lint-hf-llama-inference test-integration-lint-ci-workflow \
-        test-integration-lint-benchmarks bench bench-fast bench-nightly bench-full \
-        all-backends \
-        test-integration-typegate-gradmode \
-        test-integration-typegate-gradmode-aliasing test-integration-typegate-lossy-cast \
-        test-integration-typegate-int-overflow-cast test-integration-checkpoint-resume \
-        test-integration-jupyter-cellparser \
-        test-coverage test-coverage-backend test-coverage-backend-tape test-coverage-backend-mlx \
-        test-coverage-backend-torch test-coverage-gap-probe \
-        test-e2e test-e2e-examples test-e2e-pytorch-ref test-e2e-jupyter test-e2e-notebooks test-e2e-cuda \
-        test-e2e-hf-bert-roundtrip test-e2e-hf-gpt2-roundtrip test-e2e-hf-bitnet-roundtrip \
-        test-e2e-hf-llama-roundtrip test-e2e-hf-llama-generate-roundtrip \
-        test-e2e-transformers-oracle-bert test-e2e-transformers-oracle-gpt2 \
-        test-e2e-transformers-oracle-llama test-e2e-transformers-oracle-llama-generate \
-        test-e2e-rope-oracle \
-        test-convergence \
-        check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
-        example-supervised example-rnn example-lstm example-gru \
-        example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
-        example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi \
-        example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
-        example-gpt example-gpt-full example-matmul-bench example-mnist example-seq-classify example-transformer \
-        ref-gpt \
-        example-transfer example-checkpoint example-checkpoint-demo \
-        example-bench example-profile sweep sweep-quick clean \
-        backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
-        ref-ntm-recall ref-dnc-copy ref-dnc-recall \
-        ref-transformer ref-hf-bert ref-hf-gpt2 ref-hf-llama \
-        bench-py bench-compare bench-ops bench-ops-py bench-ops-compare \
-        bench-layers bench-layers-py ref-lint \
-        ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
-        jupyter-install jupyter-lab
+.PHONY: all check-all test-all check-notebook \
+        clean clean-set clean-all clean-models clean-datasets
