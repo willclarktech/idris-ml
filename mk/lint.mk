@@ -211,6 +211,7 @@ lint-c-tape-linux:
 		echo "lint-c-tape-linux: no cblas.h found (run 'nix build --no-link nixpkgs#openblas.dev' or set LINT_LINUX_CBLAS_INC); skipping"; \
 	else \
 		clang-tidy --quiet $(BACKEND_TAPE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) -U__APPLE__ -isystem $(LINT_LINUX_CBLAS_INC) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
+		clang-tidy --quiet --checks='-*,misc-include-cleaner' -warnings-as-errors='*' $(BACKEND_TAPE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) -U__APPLE__ -isystem $(LINT_LINUX_CBLAS_INC) || exit 1; \
 	fi
 
 # Rename-free misc-include-cleaner gate. Runs clang-tidy with ONLY

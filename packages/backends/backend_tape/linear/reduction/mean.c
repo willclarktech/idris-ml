@@ -4,6 +4,7 @@
  * input element receives grad * (1/numel).
  */
 
+#include <stddef.h> /* NULL */
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../tensor.h"

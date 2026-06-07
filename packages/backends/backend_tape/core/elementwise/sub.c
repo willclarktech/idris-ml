@@ -3,7 +3,6 @@
  * d(a-b)/da = 1, d(a-b)/db = -1 (sign-flipped from add).
  */
 
-#include <string.h>
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../broadcast.h"

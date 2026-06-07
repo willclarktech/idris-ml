@@ -5,6 +5,7 @@
  * on the constant). F32 path uses a real float arena buffer.
  */
 
+#include <stddef.h> /* NULL */
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../tensor.h"

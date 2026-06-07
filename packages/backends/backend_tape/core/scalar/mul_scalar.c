@@ -4,6 +4,7 @@
  * scalar_arg slot and used in backward.
  */
 
+#include <stddef.h> /* NULL */
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../tensor.h"

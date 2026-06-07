@@ -11,7 +11,6 @@
  * op to populate it.
  */
 
-#include <string.h>
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../broadcast.h"

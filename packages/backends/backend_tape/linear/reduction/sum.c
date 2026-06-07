@@ -5,6 +5,7 @@
  * input positions).
  */
 
+#include <stddef.h> /* NULL */
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../tensor.h"
