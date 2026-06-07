@@ -30,12 +30,18 @@ written against it, then pack publication.
    so nothing can silently re-execute and there is no extra sharing semantics to teach. Given up:
    integer-literal promotion. The dead `Num (Tensor …)` instance retires with nothing claiming its
    place.
-6. **Param naming** (adjusts api-critique §N5): hierarchical `scoped` combinators + **explicit leaf
-   names** + `groupOf` for optimizer scoping. Full auto-derivation rejected: Idris can't reflect
-   record field names, so derived names would be positional counters — a field reorder would
-   silently rename every param and break checkpoint compatibility, a worse failure mode than the
-   typo class it cures. Prefixes compose structurally (can't desync between networks); the C
-   registry is unchanged.
+6. **Param naming** (adjusts api-critique §N5; leaf-name half amended 2026-06-11): hierarchical
+   `scoped` combinators + `groupOf` for optimizer scoping are settled. Leaf names: **explicit for
+   now, with a time-boxed derivation spike gated into the models-as-records row.** The original
+   rejection of auto-derivation rested on a false premise — "Idris can't reflect record field
+   names". It can: a ~25-line `%runElab` script over `getCons`/`getType` reads them from base's
+   `Language.Reflection` (verified on idris2 0.8.0). Derived names would be real field names —
+   reorder-safe; the honest tradeoff is field-rename hazard + unmeasured elaborator cost
+   (`%runElab` per model record, in a codebase with documented elaboration blowups) versus the
+   leaf-typo / silent-gradient-non-flow class that explicit strings carry. Spike outcome decides:
+   if deriving `Params` field names elaborates cheaply at real model size,
+   derived-with-explicit-override becomes the design; explicit leaves are the fallback. Prefixes
+   compose structurally either way (can't desync between networks); the C registry is unchanged.
 7. **Driver** (adjusts api-critique §N6): `fit` is the primary documented path, and the engine
    pieces it composes (NaN guard, eval bracket, checkpoint tick, mlx generation hygiene) are
    **exported** so RL/custom loops compose them rather than reimplement the subtle parts.
@@ -111,7 +117,7 @@ it *changes* one, the change is deliberate and recorded here.
 | `IO`-typed tensor ops (C1) | **kept** — forced by FFI sequencing under strict eval; operator aliases + bang notation are the ergonomic answer, not purity | api-critique constraint ledger + §N3 |
 | Wrapped-handle Chez ABI (C2) | **kept** — but fenced out of user-visible surface (§S10) | api-critique §S10 |
 | Peano-Nat limits → factored shapes (C3) | **kept** — factored `[b, c, h, w]` + opaque products; large flattened literals stay documented limitation | api-critique §N4 + "explicitly unreachable" |
-| String-named C param registry (C5) | **kept** — independently confirmed load-bearing by the survey (safetensors/HF/freeze/groups all key on names); but *usage* changes: prefixes compose via `scoped`, leaf names stay explicit, optimizer scoping goes through `groupOf` (decision 6 rejected full auto-derivation) | glaive-survey verdicts A/B; api-critique §N5 |
+| String-named C param registry (C5) | **kept** — independently confirmed load-bearing by the survey (safetensors/HF/freeze/groups all key on names); but *usage* changes: prefixes compose via `scoped`, optimizer scoping goes through `groupOf`, leaf names explicit pending the derivation spike (decision 6 as amended) | glaive-survey verdicts A/B; api-critique §N5 |
 | Autodiff lives C-side | **kept** — TensorType's own state (composition undefined, `%hint` dead-ends, `train` commented out) is the strongest evidence the pure-Idris path isn't ready | glaive-survey verdicts A/G |
 | safetensors-only checkpoint format | **kept** | api-critique §S6 |
 | Per-arch HF adapter modules | **kept** (naming changes only) | api-critique §S8 |

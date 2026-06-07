@@ -3,7 +3,9 @@
 **Date**: 2026-06-11 · **Commit**: `de5dc612` · **Status**: findings recorded; refactors not yet started.
 **Decision record**: the north-star items were walked through with the user 2026-06-11 and three were
 adjusted (§N3 — no `Num`-on-IO/`share`, operator aliases on plain tensors instead; §N5 — `scoped` +
-explicit leaf names, no auto-derived positional names; §N6 — engine pieces exported alongside `fit`).
+`groupOf`, leaf naming gated on an elab-reflection derivation spike (the initial "Idris can't reflect
+record field names" rejection was disproven by probe 2026-06-11); §N6 — engine pieces exported
+alongside `fit`).
 [`roadmap.md`](roadmap.md) "Decisions taken" is authoritative where it and this doc differ.
 
 **Scope**: publish-readiness critique of what an `import Tensor` / `import Layer` / `import Train` user
