@@ -15,9 +15,10 @@ Pure C; no Idris source.
 | `src/test_param_registry.c` | Criterion | Shared param registry (cross-backend infra). |
 | `src/test_clip_grad_norm.c` | Criterion | Optimizer clip-grad-norm path. |
 | `src/test_optimizers.c` | Criterion | SGD / RMSprop / Adam / AdamW step semantics. |
-| `src/test_ntm_grad.c` | Standalone main() | NTM backward chain at realistic scale. |
-| `src/test_ntm_timestep.c` | Standalone main() | NTM single timestep (LSTM + FC + addressing + output). |
-| `src/test_mlx_compile.c` | Standalone main() | mlx::compile integration (MLX-only). |
+| `src/test_safetensors.c` | Criterion | SafeTensors save/load round-trips (param + optimizer state; bf16/f16/i32 under `BACKEND_TORCH`). |
+| `src/test_ntm_grad.c` | Criterion (single Test()) | NTM backward chain at realistic scale. |
+| `src/test_ntm_timestep.c` | Criterion (single Test()) | NTM single timestep (LSTM + FC + addressing + output). |
+| `src/test_mlx_compile.c` | Criterion | mlx::compile integration (MLX-only, `#ifdef BACKEND_MLX`). |
 | `include/test_helpers.h` | Header | Backend-aware tolerance + readout helpers. |
 
 ## What does NOT live here
@@ -32,10 +33,11 @@ for the hybrid-layout rule.
 
 ## How tests are built
 
-The Makefile globs `src/*.c` and links the Criterion-style ones into
-`build/<KEY>/test_criterion_smoke`. The standalone main()s (`test_ntm_*`,
-`test_mlx_compile`) keep their own per-recipe binaries because they
-ship their own `main()` and would conflict at link time.
+The Makefile globs `src/*.c` and links everything into one Criterion
+binary at `build/<KEY>/test_criterion_smoke`. The former standalone
+main() tests (`test_safetensors`, `test_ntm_*`, `test_mlx_compile`)
+were converted to Criterion suites on 2026-06-05 and ride the same
+glob; their dedicated `test-unit-*` make recipes are gone.
 
 Include paths: the build adds `-Ipackages/backends` and
 `-Ipackages/idris-test-c/include`, so test files use bare `#include
@@ -45,8 +47,7 @@ Include paths: the build adds `-Ipackages/backends` and
 
 ```
 make test-unit-c                  # Criterion suite (all common + colocated)
-make test-unit-safetensors              # standalone main() — safetensors loader
-make test-unit-ntm-grad                 # standalone main() — NTM backward
-make test-unit-ntm-timestep             # standalone main() — NTM forward
-make test-unit-mlx-compile              # standalone main() — MLX-only
+make test-unit-c-tape             # same, forcing BACKEND=tape
+make test-unit-c-torch            # same, forcing BACKEND=torch
+make test-unit-c-mlx              # same, forcing BACKEND=mlx
 ```

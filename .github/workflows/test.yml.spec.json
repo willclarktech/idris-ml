@@ -304,24 +304,6 @@
       ]
     },
     {
-      "name": "Run safetensors round-trip (tape)",
-      "run": "make BACKEND=tape test-unit-safetensors",
-      "comment": [
-        "F32/F64 param + optimizer-state round-trip; runs on every OS.",
-        "Re-installs the tape dylib so subsequent steps that expect",
-        "tape symbols (test-e2e-examples default lane) see them."
-      ]
-    },
-    {
-      "name": "Run safetensors round-trip (torch, Ubuntu)",
-      "run": "make BACKEND=torch test-unit-safetensors",
-      "os": "ubuntu",
-      "comment": [
-        "Adds the bf16/f16/i32 byte-level round-trip (those dtypes exist",
-        "only on torch). Gated to the libtorch lane."
-      ]
-    },
-    {
       "name": "Run typed index-op round-trip (torch, Ubuntu)",
       "run": "make example-index-ops",
       "os": "ubuntu",

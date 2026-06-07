@@ -680,18 +680,6 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: make test-unit-multi-backend
 
-      - name: Run safetensors round-trip (tape)
-        # F32/F64 param + optimizer-state round-trip; runs on every OS.
-        # Re-installs the tape dylib so subsequent steps that expect
-        # tape symbols (test-e2e-examples default lane) see them.
-        run: make BACKEND=tape test-unit-safetensors
-
-      - name: Run safetensors round-trip (torch, Ubuntu)
-        # Adds the bf16/f16/i32 byte-level round-trip (those dtypes exist
-        # only on torch). Gated to the libtorch lane.
-        if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-unit-safetensors
-
       - name: Run typed index-op round-trip (torch, Ubuntu)
         # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
         # on torch (Compatible d I64) and runs — the C test covers numerics,
