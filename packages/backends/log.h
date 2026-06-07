@@ -30,11 +30,11 @@
 #include <stdarg.h>
 
 #define IDRISML_LEVEL_SILENT 0
-#define IDRISML_LEVEL_ERROR  1
-#define IDRISML_LEVEL_WARN   2
-#define IDRISML_LEVEL_INFO   3
-#define IDRISML_LEVEL_DEBUG  4
-#define IDRISML_LEVEL_TRACE  5
+#define IDRISML_LEVEL_ERROR 1
+#define IDRISML_LEVEL_WARN 2
+#define IDRISML_LEVEL_INFO 3
+#define IDRISML_LEVEL_DEBUG 4
+#define IDRISML_LEVEL_TRACE 5
 
 #ifndef IDRISML_LOG_LEVEL
 #define IDRISML_LOG_LEVEL IDRISML_LEVEL_INFO
@@ -54,7 +54,7 @@ int idrisml_log_resolve_level(void);
 /* Internal: format a message at `level`. Honors both the build ceiling
  * (via #if at the macro call site) and the runtime cache (via a leading
  * branch here). */
-void idrisml_log_impl(int level, const char *fmt, ...);
+void idrisml_log_impl(int level, const char* fmt, ...);
 
 /* Fixed-arity wrappers for Idris-side FFI consumption. Idris-2's FFI
  * doesn't support varargs; Idris formats the message string and calls
@@ -62,11 +62,11 @@ void idrisml_log_impl(int level, const char *fmt, ...);
  * is a one-liner `IDRISML_LOG(level, "%s", msg)` so the same compile-
  * time elision applies — `IDRISML_LOG=warn` builds drop the INFO/DEBUG
  * call bodies the same way as C-side macro uses. */
-void idrisml_log_error(const char *msg);
-void idrisml_log_warn (const char *msg);
-void idrisml_log_info (const char *msg);
-void idrisml_log_debug(const char *msg);
-void idrisml_log_trace(const char *msg);
+void idrisml_log_error(const char* msg);
+void idrisml_log_warn(const char* msg);
+void idrisml_log_info(const char* msg);
+void idrisml_log_debug(const char* msg);
+void idrisml_log_trace(const char* msg);
 
 #ifdef __cplusplus
 }
@@ -74,7 +74,9 @@ void idrisml_log_trace(const char *msg);
 
 /* Macro form: short-circuits at compile time when level > build ceiling.
  * For levels passing the ceiling, runtime branch in idrisml_log_impl. */
-#define IDRISML_LOG(level, ...) \
-    do { if ((level) <= IDRISML_LOG_LEVEL) idrisml_log_impl((level), __VA_ARGS__); } while (0)
+#define IDRISML_LOG(level, ...)                                                                    \
+	do {                                                                                           \
+		if ((level) <= IDRISML_LOG_LEVEL) idrisml_log_impl((level), __VA_ARGS__);                  \
+	} while (0)
 
 #endif /* IDRISML_LOG_H */

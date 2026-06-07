@@ -31,166 +31,166 @@ extern "C" {
 #endif
 
 typedef struct BackendPort {
-  /* ----------------------------------------------------------------------
-     Tensor introspection. `t` is the backend's TensorHandle (opaque void*
-     here — backends downcast to their concrete Tensor type internally).
-     ---------------------------------------------------------------------- */
-  int    (*tensor_numel)(void* t);
-  int    (*tensor_requires_grad)(void* t);
-  int    (*tensor_has_grad)(void* t);
+	/* ----------------------------------------------------------------------
+	   Tensor introspection. `t` is the backend's TensorHandle (opaque void*
+	   here — backends downcast to their concrete Tensor type internally).
+	   ---------------------------------------------------------------------- */
+	int (*tensor_numel)(void* t);
+	int (*tensor_requires_grad)(void* t);
+	int (*tensor_has_grad)(void* t);
 
-  /* ----------------------------------------------------------------------
-     Per-element dtype-aware read/write. F32 storage narrows/widens
-     through these (tape's `tape_load_d`/`tape_store_d` semantics);
-     F64 hits the raw buffer. Used by the optimizer's per-element
-     update loop and by polyak_blend.
-     ---------------------------------------------------------------------- */
-  double (*data_read)(void* t, int i);
-  void   (*data_write)(void* t, int i, double v);
-  double (*grad_read)(void* t, int i);
-  void   (*grad_write)(void* t, int i, double v);
+	/* ----------------------------------------------------------------------
+	   Per-element dtype-aware read/write. F32 storage narrows/widens
+	   through these (tape's `tape_load_d`/`tape_store_d` semantics);
+	   F64 hits the raw buffer. Used by the optimizer's per-element
+	   update loop and by polyak_blend.
+	   ---------------------------------------------------------------------- */
+	double (*data_read)(void* t, int i);
+	void (*data_write)(void* t, int i, double v);
+	double (*grad_read)(void* t, int i);
+	void (*grad_write)(void* t, int i, double v);
 
-  /* ----------------------------------------------------------------------
-     Bulk grad zero (one whole tensor's grad buffer set to 0).
-     ---------------------------------------------------------------------- */
-  void   (*zero_grad)(void* t);
+	/* ----------------------------------------------------------------------
+	   Bulk grad zero (one whole tensor's grad buffer set to 0).
+	   ---------------------------------------------------------------------- */
+	void (*zero_grad)(void* t);
 
-  /* ----------------------------------------------------------------------
-     Bulk data load (for safetensors load + param loaders).
-     load_doubles writes `src[i]` to data[i] dtype-aware;
-     load_int64 widens to double via the dtype's lingua-franca path.
-     ---------------------------------------------------------------------- */
-  void   (*load_doubles)(void* t, const double* src, int n);
-  void   (*load_int64)(void* t, const int64_t* src, int n);
+	/* ----------------------------------------------------------------------
+	   Bulk data load (for safetensors load + param loaders).
+	   load_doubles writes `src[i]` to data[i] dtype-aware;
+	   load_int64 widens to double via the dtype's lingua-franca path.
+	   ---------------------------------------------------------------------- */
+	void (*load_doubles)(void* t, const double* src, int n);
+	void (*load_int64)(void* t, const int64_t* src, int n);
 
-  /* ----------------------------------------------------------------------
-     Backward driver. Triggers gradient propagation from `loss` to all
-     `requires_grad=1` ancestors. Tape: walks the Wengert list in
-     reverse via the op_dispatch table. Torch/mlx: delegate to their
-     native autograd.
-     ---------------------------------------------------------------------- */
-  void   (*backward)(void* loss);
+	/* ----------------------------------------------------------------------
+	   Backward driver. Triggers gradient propagation from `loss` to all
+	   `requires_grad=1` ancestors. Tape: walks the Wengert list in
+	   reverse via the op_dispatch table. Torch/mlx: delegate to their
+	   native autograd.
+	   ---------------------------------------------------------------------- */
+	void (*backward)(void* loss);
 
+	/* ----------------------------------------------------------------------
+	   Optimizer surface. Each backend defines its own optimizer struct
+	   and supplies all of these (tape: flat-buffer Optimizer struct +
+	   per-element SGD/RMSprop/Adam/AdamW math; torch: libtorch
+	   OptWrapper wrapping torch::optim::Adam + at::_foreach_adam math;
+	   mlx: TBD). The shared/training/optimizer.c file provides tiny
+	   trampolines from the FFI-named entry points (`optimizer_create_*`,
+	   etc.) to these port methods.
 
-  /* ----------------------------------------------------------------------
-     Optimizer surface. Each backend defines its own optimizer struct
-     and supplies all of these (tape: flat-buffer Optimizer struct +
-     per-element SGD/RMSprop/Adam/AdamW math; torch: libtorch
-     OptWrapper wrapping torch::optim::Adam + at::_foreach_adam math;
-     mlx: TBD). The shared/training/optimizer.c file provides tiny
-     trampolines from the FFI-named entry points (`optimizer_create_*`,
-     etc.) to these port methods.
+	   The shared file still owns the cross-cutting helpers that don't
+	   touch optimizer state: `optimizer_zero_grad` (delegates to
+	   param_zero_all_grads), `polyak_blend` and `optimizer_clip_*`
+	   (per-element via the port's grad/data accessors),
+	   `native_train_step` / `optimizer_step_with_clip` (high-level
+	   wrappers that compose zero_grad/backward/clip/step).
+	   ---------------------------------------------------------------------- */
 
-     The shared file still owns the cross-cutting helpers that don't
-     touch optimizer state: `optimizer_zero_grad` (delegates to
-     param_zero_all_grads), `polyak_blend` and `optimizer_clip_*`
-     (per-element via the port's grad/data accessors),
-     `native_train_step` / `optimizer_step_with_clip` (high-level
-     wrappers that compose zero_grad/backward/clip/step).
-     ---------------------------------------------------------------------- */
+	/* Constructors — each returns a backend-owned struct cast to void*. */
+	void* (*optimizer_create_sgd)(double lr);
+	void* (*optimizer_create_rmsprop)(double lr, double alpha, double eps, double weight_decay,
+	                                  double momentum);
+	void* (*optimizer_create_adam)(double lr, double beta1, double beta2, double eps);
+	void* (*optimizer_create_adam_group)(double lr, double beta1, double beta2, double eps,
+	                                     const char* prefix);
+	void* (*optimizer_create_adamw)(double lr, double beta1, double beta2, double eps,
+	                                double weight_decay);
 
-  /* Constructors — each returns a backend-owned struct cast to void*. */
-  void* (*optimizer_create_sgd)(double lr);
-  void* (*optimizer_create_rmsprop)(double lr, double alpha, double eps,
-                                     double weight_decay, double momentum);
-  void* (*optimizer_create_adam)(double lr, double beta1, double beta2, double eps);
-  void* (*optimizer_create_adam_group)(double lr, double beta1, double beta2,
-                                        double eps, const char* prefix);
-  void* (*optimizer_create_adamw)(double lr, double beta1, double beta2, double eps,
-                                   double weight_decay);
+	/* Lifecycle / setters. */
+	void (*optimizer_free)(void* opt);
+	void (*optimizer_set_lr)(void* opt, double lr);
+	void (*optimizer_set_param_lr)(void* opt, const char* name, double lr);
 
-  /* Lifecycle / setters. */
-  void  (*optimizer_free)(void* opt);
-  void  (*optimizer_set_lr)(void* opt, double lr);
-  void  (*optimizer_set_param_lr)(void* opt, const char* name, double lr);
+	/* Per-step math. Adapter is responsible for ALL backend hygiene
+	   (intermediate cleanup, prof_* updates, tape_reset where applicable). */
+	void (*optimizer_step)(void* opt);
 
-  /* Per-step math. Adapter is responsible for ALL backend hygiene
-     (intermediate cleanup, prof_* updates, tape_reset where applicable). */
-  void  (*optimizer_step)(void* opt);
+	/* Prefix-scoped grad clipping. Each backend's Optimizer holds the
+	   prefix that scopes which params it owns (SAC's multi-optimizer
+	   setup: actor_/q1_/q2_/etc.); these methods clip only the owned
+	   params. Distinct from the global `optimizer_clip_grad_value` /
+	   `optimizer_clip_grad_norm` exported as FFI from
+	   shared/training/optimizer.c. `native_train_step` and
+	   `optimizer_step_with_clip` route through these so multi-optimizer
+	   training (SAC etc.) preserves the scoping. */
+	void (*optimizer_clip_grad_value_filtered)(void* opt, double max_val);
+	double (*optimizer_clip_grad_norm_filtered)(void* opt, double max_norm);
 
-  /* Prefix-scoped grad clipping. Each backend's Optimizer holds the
-     prefix that scopes which params it owns (SAC's multi-optimizer
-     setup: actor_/q1_/q2_/etc.); these methods clip only the owned
-     params. Distinct from the global `optimizer_clip_grad_value` /
-     `optimizer_clip_grad_norm` exported as FFI from
-     shared/training/optimizer.c. `native_train_step` and
-     `optimizer_step_with_clip` route through these so multi-optimizer
-     training (SAC etc.) preserves the scoping. */
-  void   (*optimizer_clip_grad_value_filtered)(void* opt, double max_val);
-  double (*optimizer_clip_grad_norm_filtered)(void* opt, double max_norm);
+	/* Serialization — flat-buffer m/v access + 9-double meta vector
+	   (type, lr, β1, β2, eps, alpha, weight_decay, momentum, t).
+	   Out-buffers are caller-allocated. */
+	int (*optimizer_buf_count)(void* opt);
+	void (*optimizer_get_m)(void* opt, int idx, double* out);
+	void (*optimizer_get_v)(void* opt, int idx, double* out);
+	void (*optimizer_set_m)(void* opt, int idx, const double* in);
+	void (*optimizer_set_v)(void* opt, int idx, const double* in);
+	void (*optimizer_get_meta)(void* opt, double* out9);
+	void (*optimizer_set_meta)(void* opt, const double* in9);
 
-  /* Serialization — flat-buffer m/v access + 9-double meta vector
-     (type, lr, β1, β2, eps, alpha, weight_decay, momentum, t).
-     Out-buffers are caller-allocated. */
-  int   (*optimizer_buf_count)(void* opt);
-  void  (*optimizer_get_m)(void* opt, int idx, double* out);
-  void  (*optimizer_get_v)(void* opt, int idx, double* out);
-  void  (*optimizer_set_m)(void* opt, int idx, const double* in);
-  void  (*optimizer_set_v)(void* opt, int idx, const double* in);
-  void  (*optimizer_get_meta)(void* opt, double* out9);
-  void  (*optimizer_set_meta)(void* opt, const double* in9);
+	/* ----------------------------------------------------------------------
+	   Wall clock for profiler. Returns milliseconds since some epoch
+	   (only deltas matter). Tape, torch, and mlx all use the same
+	   gettimeofday-based implementation today.
+	   ---------------------------------------------------------------------- */
+	double (*wall_ms)(void);
 
-  /* ----------------------------------------------------------------------
-     Wall clock for profiler. Returns milliseconds since some epoch
-     (only deltas matter). Tape, torch, and mlx all use the same
-     gettimeofday-based implementation today.
-     ---------------------------------------------------------------------- */
-  double (*wall_ms)(void);
+	/* ----------------------------------------------------------------------
+	   Dtag-dispatched create / cast surface. Each method takes the
+	   same arguments as the corresponding `tensor_create_*_streamed`
+	   FFI wrapper minus the `stream_tag` (an mlx-only knob the shared
+	   wrappers absorb at the boundary). The adapter picks the right
+	   backend storage variant (F64 lingua franca, real F32 storage,
+	   or lingua-franca-rounded for the other dtags) based on `dtag`.
+	   `data` buffer ownership matches the underlying creator (tape
+	   copies + frees; torch/mlx wrap their own storage).
+	   ---------------------------------------------------------------------- */
+	void* (*create_scalar)(double v, int rg, int dtag);
+	void* (*create)(double* data, int* shape, int rank, int rg, int dtag);
+	void* (*create_1d)(int n, double* data, int rg, int dtag);
+	void* (*create_2d)(int rows, int cols, double* data, int rg, int dtag);
+	void* (*create_param_1d)(int n, double* data, int dtag);
+	void* (*create_param_2d)(int rows, int cols, double* data, int dtag);
+	void* (*create_param_3d)(int d0, int d1, int d2, double* data, int dtag);
+	void* (*create_param_4d)(int d0, int d1, int d2, int d3, double* data, int dtag);
+	void* (*create_state_1d)(int n, double* data, int dtag);
+	void* (*create_state_2d)(int rows, int cols, double* data, int dtag);
+	void* (*cast_dtype)(void* src, int dtag);
 
-  /* ----------------------------------------------------------------------
-     Dtag-dispatched create / cast surface. Each method takes the
-     same arguments as the corresponding `tensor_create_*_streamed`
-     FFI wrapper minus the `stream_tag` (an mlx-only knob the shared
-     wrappers absorb at the boundary). The adapter picks the right
-     backend storage variant (F64 lingua franca, real F32 storage,
-     or lingua-franca-rounded for the other dtags) based on `dtag`.
-     `data` buffer ownership matches the underlying creator (tape
-     copies + frees; torch/mlx wrap their own storage).
-     ---------------------------------------------------------------------- */
-  void* (*create_scalar)(double v, int rg, int dtag);
-  void* (*create)(double* data, int* shape, int rank, int rg, int dtag);
-  void* (*create_1d)(int n, double* data, int rg, int dtag);
-  void* (*create_2d)(int rows, int cols, double* data, int rg, int dtag);
-  void* (*create_param_1d)(int n, double* data, int dtag);
-  void* (*create_param_2d)(int rows, int cols, double* data, int dtag);
-  void* (*create_param_3d)(int d0, int d1, int d2, double* data, int dtag);
-  void* (*create_param_4d)(int d0, int d1, int d2, int d3, double* data, int dtag);
-  void* (*create_state_1d)(int n, double* data, int dtag);
-  void* (*create_state_2d)(int rows, int cols, double* data, int dtag);
-  void* (*cast_dtype)(void* src, int dtag);
+	/* ----------------------------------------------------------------------
+	   Fused param create + in-place init. Replaces the per-element
+	   Idris-side fill (`traverse normalSample + packDoubles`) that
+	   dominated 1.24B-element model construction (HfLlama state took 58
+	   min — 30 min in Box-Muller in Chez, 28 min in per-element
+	   `prim__setDouble` FFI). These primitives allocate the parameter
+	   tensor in the backend, run the init kernel in-place (libtorch's
+	   `torch::nn::init::normal_` / `t.fill_` / etc. — bandwidth-bound
+	   C++ loops, no FFI), then return the wrapped TensorHandle ready for
+	   paramId registration.
 
-  /* ----------------------------------------------------------------------
-     Fused param create + in-place init. Replaces the per-element
-     Idris-side fill (`traverse normalSample + packDoubles`) that
-     dominated 1.24B-element model construction (HfLlama state took 58
-     min — 30 min in Box-Muller in Chez, 28 min in per-element
-     `prim__setDouble` FFI). These primitives allocate the parameter
-     tensor in the backend, run the init kernel in-place (libtorch's
-     `torch::nn::init::normal_` / `t.fill_` / etc. — bandwidth-bound
-     C++ loops, no FFI), then return the wrapped TensorHandle ready for
-     paramId registration.
+	   For deterministic seed-stable runs the backend's global RNG must
+	   be seeded once via `set_torch_seed` (or the backend's equivalent)
+	   before any of these are called.
 
-     For deterministic seed-stable runs the backend's global RNG must
-     be seeded once via `set_torch_seed` (or the backend's equivalent)
-     before any of these are called.
+	   Backends that haven't wired these yet leave the slot nullptr; the
+	   shared trampoline in dtype_streamed.c asserts non-null and aborts
+	   with a clear message at the FFI boundary (loud, not silent).
+	   ---------------------------------------------------------------------- */
+	void* (*create_param_1d_normal)(int n, double mean, double std, int dtag);
+	void* (*create_param_2d_normal)(int rows, int cols, double mean, double std, int dtag);
+	void* (*create_param_3d_normal)(int d0, int d1, int d2, double mean, double std, int dtag);
+	void* (*create_param_4d_normal)(int d0, int d1, int d2, int d3, double mean, double std,
+	                                int dtag);
+	void* (*create_param_1d_const)(int n, double value, int dtag);
+	void* (*create_param_2d_const)(int rows, int cols, double value, int dtag);
+	void* (*create_param_3d_const)(int d0, int d1, int d2, double value, int dtag);
+	void* (*create_param_4d_const)(int d0, int d1, int d2, int d3, double value, int dtag);
 
-     Backends that haven't wired these yet leave the slot nullptr; the
-     shared trampoline in dtype_streamed.c asserts non-null and aborts
-     with a clear message at the FFI boundary (loud, not silent).
-     ---------------------------------------------------------------------- */
-  void* (*create_param_1d_normal)(int n,                                    double mean, double std, int dtag);
-  void* (*create_param_2d_normal)(int rows, int cols,                       double mean, double std, int dtag);
-  void* (*create_param_3d_normal)(int d0, int d1, int d2,                   double mean, double std, int dtag);
-  void* (*create_param_4d_normal)(int d0, int d1, int d2, int d3,           double mean, double std, int dtag);
-  void* (*create_param_1d_const) (int n,                                    double value,            int dtag);
-  void* (*create_param_2d_const) (int rows, int cols,                       double value,            int dtag);
-  void* (*create_param_3d_const) (int d0, int d1, int d2,                   double value,            int dtag);
-  void* (*create_param_4d_const) (int d0, int d1, int d2, int d3,           double value,            int dtag);
-
-  /* Seed the backend's global RNG (torch::manual_seed equivalent) so
-     subsequent create_param_*_normal calls are deterministic. Idle on
-     backends without an init-RNG; loud-no-op rather than crash. */
-  void   (*set_init_seed)(uint64_t seed);
+	/* Seed the backend's global RNG (torch::manual_seed equivalent) so
+	   subsequent create_param_*_normal calls are deterministic. Idle on
+	   backends without an init-RNG; loud-no-op rather than crash. */
+	void (*set_init_seed)(uint64_t seed);
 } BackendPort;
 
 /* Each backend defines exactly one instance with internal linkage at

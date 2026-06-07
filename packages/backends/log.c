@@ -11,39 +11,49 @@
 
 int idrisml_log_active_level = -1;
 
-static int idrisml_parse_level(const char *s) {
-    if (!s || *s == '\0') return IDRISML_LOG_LEVEL;
-    if (strcasecmp(s, "silent") == 0) return IDRISML_LEVEL_SILENT;
-    if (strcasecmp(s, "error")  == 0) return IDRISML_LEVEL_ERROR;
-    if (strcasecmp(s, "warn")   == 0) return IDRISML_LEVEL_WARN;
-    if (strcasecmp(s, "info")   == 0) return IDRISML_LEVEL_INFO;
-    if (strcasecmp(s, "debug")  == 0) return IDRISML_LEVEL_DEBUG;
-    if (strcasecmp(s, "trace")  == 0) return IDRISML_LEVEL_TRACE;
-    return IDRISML_LOG_LEVEL;
+static int idrisml_parse_level(const char* s) {
+	if (!s || *s == '\0') return IDRISML_LOG_LEVEL;
+	if (strcasecmp(s, "silent") == 0) return IDRISML_LEVEL_SILENT;
+	if (strcasecmp(s, "error") == 0) return IDRISML_LEVEL_ERROR;
+	if (strcasecmp(s, "warn") == 0) return IDRISML_LEVEL_WARN;
+	if (strcasecmp(s, "info") == 0) return IDRISML_LEVEL_INFO;
+	if (strcasecmp(s, "debug") == 0) return IDRISML_LEVEL_DEBUG;
+	if (strcasecmp(s, "trace") == 0) return IDRISML_LEVEL_TRACE;
+	return IDRISML_LOG_LEVEL;
 }
 
 int idrisml_log_resolve_level(void) {
-    if (idrisml_log_active_level != -1) return idrisml_log_active_level;
-    const char *env = getenv("IDRISML_LOG_LEVEL");
-    int requested = idrisml_parse_level(env);
-    /* Can only lower below build ceiling — higher levels are #if-elided. */
-    int effective = (requested < IDRISML_LOG_LEVEL) ? requested : IDRISML_LOG_LEVEL;
-    idrisml_log_active_level = effective;
-    return effective;
+	if (idrisml_log_active_level != -1) return idrisml_log_active_level;
+	const char* env = getenv("IDRISML_LOG_LEVEL");
+	int requested = idrisml_parse_level(env);
+	/* Can only lower below build ceiling — higher levels are #if-elided. */
+	int effective = (requested < IDRISML_LOG_LEVEL) ? requested : IDRISML_LOG_LEVEL;
+	idrisml_log_active_level = effective;
+	return effective;
 }
 
-void idrisml_log_impl(int level, const char *fmt, ...) {
-    if (level > idrisml_log_resolve_level()) return;
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
+void idrisml_log_impl(int level, const char* fmt, ...) {
+	if (level > idrisml_log_resolve_level()) return;
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
 }
 
 /* Fixed-arity wrappers — see log.h. Each delegates to IDRISML_LOG so
  * the compile-time level ceiling applies uniformly. */
-void idrisml_log_error(const char *msg) { IDRISML_LOG(IDRISML_LEVEL_ERROR, "%s\n", msg); }
-void idrisml_log_warn (const char *msg) { IDRISML_LOG(IDRISML_LEVEL_WARN,  "%s\n", msg); }
-void idrisml_log_info (const char *msg) { IDRISML_LOG(IDRISML_LEVEL_INFO,  "%s\n", msg); }
-void idrisml_log_debug(const char *msg) { IDRISML_LOG(IDRISML_LEVEL_DEBUG, "%s\n", msg); }
-void idrisml_log_trace(const char *msg) { IDRISML_LOG(IDRISML_LEVEL_TRACE, "%s\n", msg); }
+void idrisml_log_error(const char* msg) {
+	IDRISML_LOG(IDRISML_LEVEL_ERROR, "%s\n", msg);
+}
+void idrisml_log_warn(const char* msg) {
+	IDRISML_LOG(IDRISML_LEVEL_WARN, "%s\n", msg);
+}
+void idrisml_log_info(const char* msg) {
+	IDRISML_LOG(IDRISML_LEVEL_INFO, "%s\n", msg);
+}
+void idrisml_log_debug(const char* msg) {
+	IDRISML_LOG(IDRISML_LEVEL_DEBUG, "%s\n", msg);
+}
+void idrisml_log_trace(const char* msg) {
+	IDRISML_LOG(IDRISML_LEVEL_TRACE, "%s\n", msg);
+}

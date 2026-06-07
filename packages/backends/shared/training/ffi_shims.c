@@ -19,58 +19,56 @@
 #include "../../backend.h"
 
 TensorHandle tensor_backward_return(TensorHandle t) {
-    tensor_backward(t);
-    return t;
+	tensor_backward(t);
+	return t;
 }
 
 TensorHandle param_register_return(const char* name, TensorHandle t) {
-    tensor_set_requires_grad(t, 1);
-    param_register(name, t);
-    return t;
+	tensor_set_requires_grad(t, 1);
+	param_register(name, t);
+	return t;
 }
 
 int param_zero_all_grads_return(int dummy) {
-    (void)dummy;
-    param_zero_all_grads();
-    return 0;
+	(void)dummy;
+	param_zero_all_grads();
+	return 0;
 }
 
 double* tensor_to_doubles_return(TensorHandle h, double* buf) {
-    tensor_to_doubles(h, buf);
-    return buf;
+	tensor_to_doubles(h, buf);
+	return buf;
 }
 
 int tensor_backward_conditional(TensorHandle t) {
-    if (tensor_requires_grad(t))
-        tensor_backward(t);
-    return param_count();
+	if (tensor_requires_grad(t)) tensor_backward(t);
+	return param_count();
 }
 
 double tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val) {
-    if (tensor_requires_grad(loss_ptr))
-        tensor_backward(loss_ptr);
-    return loss_val;
+	if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
+	return loss_val;
 }
 
 void* idrisml_seq(void* a, void* b) {
-    (void)a;
-    return b;
+	(void)a;
+	return b;
 }
 
 int backend_reset_for_eval_return(int dummy) {
-    (void)dummy;
-    backend_reset_for_eval();
-    return dummy;
+	(void)dummy;
+	backend_reset_for_eval();
+	return dummy;
 }
 
 int backend_profile_reset_return(int dummy) {
-    (void)dummy;
-    backend_profile_reset();
-    return dummy;
+	(void)dummy;
+	backend_profile_reset();
+	return dummy;
 }
 
 int backend_profile_report_return(int dummy) {
-    (void)dummy;
-    backend_profile_report();
-    return dummy;
+	(void)dummy;
+	backend_profile_report();
+	return dummy;
 }

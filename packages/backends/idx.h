@@ -15,11 +15,11 @@
 #include <stdint.h>
 
 typedef struct {
-    double*  images;   /* [count * rows * cols], normalized to [0,1] */
-    uint8_t* labels;   /* [count] */
-    int count;
-    int rows;
-    int cols;
+	double* images;  /* [count * rows * cols], normalized to [0,1] */
+	uint8_t* labels; /* [count] */
+	int count;
+	int rows;
+	int cols;
 } IdxDataset;
 
 #ifdef __cplusplus

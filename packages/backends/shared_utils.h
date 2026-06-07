@@ -16,7 +16,7 @@ extern "C" {
 /* Index-array helpers (DataLoader). */
 int* create_index_array(int n);
 int* shuffle_index_array(int* arr, int n);
-int  index_array_get(int* arr, int i);
+int index_array_get(int* arr, int i);
 
 /* RSS reporting. */
 int get_rss_mb(void);
@@ -39,27 +39,27 @@ double _wall_ms(void);
 /* C buffer helpers (host malloc / free / element read/write).
  * Backend-agnostic; one definition for all backends. */
 double* tensor_alloc_doubles(int n);
-void    tensor_free_doubles(double* buf);
-double  tensor_read_double(double* buf, int idx);
-void*   tensor_write_double_return(void* buf, int off, double val);
+void tensor_free_doubles(double* buf);
+double tensor_read_double(double* buf, int idx);
+void* tensor_write_double_return(void* buf, int off, double val);
 
-int*    tensor_alloc_ints(int n);
-void    tensor_free_ints(int* buf);
-int*    tensor_write_int_return(int* buf, int off, int val);
+int* tensor_alloc_ints(int n);
+void tensor_free_ints(int* buf);
+int* tensor_write_int_return(int* buf, int off, int val);
 
 /* Byte buffer helpers (#411 B2 — packed-ternary input to
  * tensor_create_ternary_packed_2d). Mirrors the int helpers above but
  * for unsigned 8-bit values. */
 uint8_t* tensor_alloc_bytes(int n);
-void     tensor_free_bytes(uint8_t* buf);
+void tensor_free_bytes(uint8_t* buf);
 uint8_t* tensor_write_byte_return(uint8_t* buf, int off, int val);
 
 /* Tensor-pointer arrays (the Idris-side staging buffer used by
  * stack/cat). Stores opaque void* handles; the per-backend
  * `tensor_stack_from_array` / `tensor_cat_from_array` consumers
  * reinterpret as TensorHandle* internally. */
-void**  tensor_ptr_array_alloc(int n);
-void*   tensor_ptr_array_set_return(void* arr, int idx, void* t);
+void** tensor_ptr_array_alloc(int n);
+void* tensor_ptr_array_set_return(void* arr, int idx, void* t);
 
 /* bf16 / f16 <-> double bit conversions.
  *
@@ -68,9 +68,9 @@ void*   tensor_ptr_array_set_return(void* arr, int idx, void* t);
  * safetensors.c (on-disk half-precision I/O) and backend_tape.c
  * (Phase 4 `tape_round_to_dtype` for DT_BF16 / DT_F16). Backend-agnostic
  * so they live here, one definition for the dylib. */
-double   bf16_bits_to_double(uint16_t h);
+double bf16_bits_to_double(uint16_t h);
 uint16_t double_to_bf16_bits(double d);
-double   f16_bits_to_double(uint16_t h);
+double f16_bits_to_double(uint16_t h);
 uint16_t double_to_f16_bits(double d);
 
 /* Ternary {-1, 0, +1} packing (#411 BitNet).
@@ -90,7 +90,7 @@ uint16_t double_to_f16_bits(double d);
  *
  * `ternary_unpack(packed, n, out)` reads ceil(n/4) bytes from `packed`
  * and writes n elements to `out`. */
-int  ternary_pack(const int8_t* values, int n, uint8_t* out);
+int ternary_pack(const int8_t* values, int n, uint8_t* out);
 void ternary_unpack(const uint8_t* packed, int n, int8_t* out);
 
 #ifdef __cplusplus

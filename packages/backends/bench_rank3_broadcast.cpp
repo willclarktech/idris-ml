@@ -38,97 +38,96 @@ static constexpr int N_ITER = 100;
 
 static void sync_device(torch::Device d) {
 #ifdef __APPLE__
-  if (d.type() == torch::kMPS) {
-    torch::mps::synchronize();
-    return;
-  }
+	if (d.type() == torch::kMPS) {
+		torch::mps::synchronize();
+		return;
+	}
 #endif
-  // CPU: nothing to do; eager ops are synchronous on construction.
+	// CPU: nothing to do; eager ops are synchronous on construction.
 }
 
 static double bench_strided(torch::Device d) {
-  auto x = torch::randn({SEQ, NUM_HEADS, HALF_DIM}, d);
-  // cos starts as a [maxPos, halfDim] table; narrow(0, offset, SEQ)
-  // gives a strided view, reshape adds the broadcast dim.
-  auto cos_table = torch::randn({2048, HALF_DIM}, d);
-  auto cos = cos_table.narrow(0, 0, SEQ).reshape({SEQ, 1, HALF_DIM});
+	auto x = torch::randn({SEQ, NUM_HEADS, HALF_DIM}, d);
+	// cos starts as a [maxPos, halfDim] table; narrow(0, offset, SEQ)
+	// gives a strided view, reshape adds the broadcast dim.
+	auto cos_table = torch::randn({2048, HALF_DIM}, d);
+	auto cos = cos_table.narrow(0, 0, SEQ).reshape({SEQ, 1, HALF_DIM});
 
-  for (int i = 0; i < N_WARMUP; ++i) {
-    auto y = torch::mul(x, cos);
-    (void)y;
-  }
-  sync_device(d);
+	for (int i = 0; i < N_WARMUP; ++i) {
+		auto y = torch::mul(x, cos);
+		(void)y;
+	}
+	sync_device(d);
 
-  auto t0 = std::chrono::steady_clock::now();
-  for (int i = 0; i < N_ITER; ++i) {
-    auto y = torch::mul(x, cos);
-    (void)y;
-  }
-  sync_device(d);
-  auto t1 = std::chrono::steady_clock::now();
+	auto t0 = std::chrono::steady_clock::now();
+	for (int i = 0; i < N_ITER; ++i) {
+		auto y = torch::mul(x, cos);
+		(void)y;
+	}
+	sync_device(d);
+	auto t1 = std::chrono::steady_clock::now();
 
-  double us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-  return us / N_ITER;
+	double us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+	return us / N_ITER;
 }
 
 static double bench_contig(torch::Device d) {
-  auto x = torch::randn({SEQ, NUM_HEADS, HALF_DIM}, d);
-  // cos materialized contiguous up front — what the "pre-materialize"
-  // fix (Commit 2C in the plan) would build at table-build time.
-  auto cos = torch::randn({SEQ, 1, HALF_DIM}, d).contiguous();
+	auto x = torch::randn({SEQ, NUM_HEADS, HALF_DIM}, d);
+	// cos materialized contiguous up front — what the "pre-materialize"
+	// fix (Commit 2C in the plan) would build at table-build time.
+	auto cos = torch::randn({SEQ, 1, HALF_DIM}, d).contiguous();
 
-  for (int i = 0; i < N_WARMUP; ++i) {
-    auto y = torch::mul(x, cos);
-    (void)y;
-  }
-  sync_device(d);
+	for (int i = 0; i < N_WARMUP; ++i) {
+		auto y = torch::mul(x, cos);
+		(void)y;
+	}
+	sync_device(d);
 
-  auto t0 = std::chrono::steady_clock::now();
-  for (int i = 0; i < N_ITER; ++i) {
-    auto y = torch::mul(x, cos);
-    (void)y;
-  }
-  sync_device(d);
-  auto t1 = std::chrono::steady_clock::now();
+	auto t0 = std::chrono::steady_clock::now();
+	for (int i = 0; i < N_ITER; ++i) {
+		auto y = torch::mul(x, cos);
+		(void)y;
+	}
+	sync_device(d);
+	auto t1 = std::chrono::steady_clock::now();
 
-  double us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-  return us / N_ITER;
+	double us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+	return us / N_ITER;
 }
 
 int main(int argc, char** argv) {
-  std::string device_str = "cpu";
-  if (argc > 1) device_str = argv[1];
+	std::string device_str = "cpu";
+	if (argc > 1) device_str = argv[1];
 
-  torch::Device d(torch::kCPU);
-  if (device_str == "mps") {
+	torch::Device d(torch::kCPU);
+	if (device_str == "mps") {
 #ifdef __APPLE__
-    if (torch::mps::is_available()) {
-      d = torch::Device(torch::kMPS);
-    } else {
-      std::fprintf(stderr, "MPS requested but not available; falling back to CPU\n");
-    }
+		if (torch::mps::is_available()) {
+			d = torch::Device(torch::kMPS);
+		} else {
+			std::fprintf(stderr, "MPS requested but not available; falling back to CPU\n");
+		}
 #else
-    std::fprintf(stderr, "MPS not built; falling back to CPU\n");
+		std::fprintf(stderr, "MPS not built; falling back to CPU\n");
 #endif
-  } else if (device_str == "cuda") {
-    if (torch::cuda::is_available()) {
-      d = torch::Device(torch::kCUDA, 0);
-    } else {
-      std::fprintf(stderr, "CUDA requested but not available; falling back to CPU\n");
-    }
-  }
+	} else if (device_str == "cuda") {
+		if (torch::cuda::is_available()) {
+			d = torch::Device(torch::kCUDA, 0);
+		} else {
+			std::fprintf(stderr, "CUDA requested but not available; falling back to CPU\n");
+		}
+	}
 
-  std::printf("device: %s\n", device_str.c_str());
-  std::printf("shape: x=[%d,%d,%d] cos=[%d,1,%d]\n",
-              SEQ, NUM_HEADS, HALF_DIM, SEQ, HALF_DIM);
-  std::printf("iterations: warmup=%d measure=%d\n", N_WARMUP, N_ITER);
+	std::printf("device: %s\n", device_str.c_str());
+	std::printf("shape: x=[%d,%d,%d] cos=[%d,1,%d]\n", SEQ, NUM_HEADS, HALF_DIM, SEQ, HALF_DIM);
+	std::printf("iterations: warmup=%d measure=%d\n", N_WARMUP, N_ITER);
 
-  double strided_us = bench_strided(d);
-  std::printf("[strided] %.2f us/op  (= %.3f ms/op)\n", strided_us, strided_us / 1000.0);
+	double strided_us = bench_strided(d);
+	std::printf("[strided] %.2f us/op  (= %.3f ms/op)\n", strided_us, strided_us / 1000.0);
 
-  double contig_us = bench_contig(d);
-  std::printf("[contig ] %.2f us/op  (= %.3f ms/op)\n", contig_us, contig_us / 1000.0);
+	double contig_us = bench_contig(d);
+	std::printf("[contig ] %.2f us/op  (= %.3f ms/op)\n", contig_us, contig_us / 1000.0);
 
-  std::printf("strided/contig ratio: %.2fx\n", strided_us / contig_us);
-  return 0;
+	std::printf("strided/contig ratio: %.2fx\n", strided_us / contig_us);
+	return 0;
 }

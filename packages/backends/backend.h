@@ -12,7 +12,10 @@ extern "C" {
 typedef void* TensorHandle;
 
 /* Pair of tensor handles (for functions returning two results) */
-typedef struct { TensorHandle first; TensorHandle second; } TensorPair;
+typedef struct {
+	TensorHandle first;
+	TensorHandle second;
+} TensorPair;
 
 /* ---------- Lifecycle ---------- */
 
@@ -44,23 +47,23 @@ TensorHandle tensor_cast_dtype_f64(TensorHandle src);
 TensorHandle tensor_create_scalar(double value, int requires_grad);
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad);
 TensorHandle tensor_clone(TensorHandle t);
-void         tensor_free(TensorHandle t);
+void tensor_free(TensorHandle t);
 
 /* Refcount-driven lifecycle (see
  * docs/develop/tensor-lifecycle.md). retain_handle bumps a Tensor's
  * refcount; release_handle decrements and frees when refcount reaches
  * zero. Called by tape capture, param_registry, and Idris-side managed
  * handle finalizers. */
-void         tensor_retain_handle(TensorHandle t);
-void         tensor_release_handle(TensorHandle t);
+void tensor_retain_handle(TensorHandle t);
+void tensor_release_handle(TensorHandle t);
 /* ---------- Accessors ---------- */
 
-double tensor_item(TensorHandle t);          /* scalar tensor -> double */
-int    tensor_numel(TensorHandle t);
-int    tensor_dim(TensorHandle t);
-int    tensor_size(TensorHandle t, int dim);
-void   tensor_to_doubles(TensorHandle t, double* out); /* flatten to buffer */
-void   tensor_to_floats(TensorHandle t, float* out);   /* flatten to f32 buffer */
+double tensor_item(TensorHandle t); /* scalar tensor -> double */
+int tensor_numel(TensorHandle t);
+int tensor_dim(TensorHandle t);
+int tensor_size(TensorHandle t, int dim);
+void tensor_to_doubles(TensorHandle t, double* out); /* flatten to buffer */
+void tensor_to_floats(TensorHandle t, float* out);   /* flatten to f32 buffer */
 const char* tensor_dtype_name(TensorHandle t); /* "F32" | "F64" — SafeTensors-compatible string */
 
 /* ---------- Arithmetic (element-wise, return new tensor) ---------- */
@@ -77,10 +80,10 @@ TensorHandle tensor_sqrt(TensorHandle t);
 TensorHandle tensor_pow(TensorHandle base, TensorHandle exp);
 TensorHandle tensor_sigmoid(TensorHandle t);
 TensorHandle tensor_tanh(TensorHandle t);
-TensorHandle tensor_gelu(TensorHandle t);   /* GELU activation (tanh approx) */
-TensorHandle tensor_leaky_relu(TensorHandle t, double alpha);  /* max(alpha*x, x) */
-TensorHandle tensor_silu(TensorHandle t);   /* x * sigmoid(x) (Swish) */
-TensorHandle tensor_softplus(TensorHandle t);  /* log(1 + exp(x)), backward = sigmoid(x) */
+TensorHandle tensor_gelu(TensorHandle t);                     /* GELU activation (tanh approx) */
+TensorHandle tensor_leaky_relu(TensorHandle t, double alpha); /* max(alpha*x, x) */
+TensorHandle tensor_silu(TensorHandle t);                     /* x * sigmoid(x) (Swish) */
+TensorHandle tensor_softplus(TensorHandle t); /* log(1 + exp(x)), backward = sigmoid(x) */
 
 /* Scalar broadcast variants */
 TensorHandle tensor_add_scalar(TensorHandle t, double s);
@@ -94,20 +97,21 @@ TensorHandle tensor_clamp_min(TensorHandle t, double min_val);
 TensorHandle tensor_sum(TensorHandle t);
 TensorHandle tensor_sum_dim(TensorHandle t, int dim, int keepdim);
 TensorHandle tensor_mean(TensorHandle t);
-TensorHandle tensor_min(TensorHandle t);     /* scalar reduction: min of all elements */
-TensorHandle tensor_max(TensorHandle t);     /* scalar reduction: max of all elements */
+TensorHandle tensor_min(TensorHandle t); /* scalar reduction: min of all elements */
+TensorHandle tensor_max(TensorHandle t); /* scalar reduction: max of all elements */
 
 /* ---------- Linear algebra ---------- */
 
-TensorHandle tensor_matmul(TensorHandle a, TensorHandle b);     /* general matmul */
-TensorHandle tensor_mv(TensorHandle mat, TensorHandle vec);     /* matrix-vector */
-TensorHandle tensor_linear(TensorHandle W, TensorHandle x, TensorHandle bias); /* y = Wx + b (fused) */
+TensorHandle tensor_matmul(TensorHandle a, TensorHandle b); /* general matmul */
+TensorHandle tensor_mv(TensorHandle mat, TensorHandle vec); /* matrix-vector */
+TensorHandle tensor_linear(TensorHandle W, TensorHandle x,
+                           TensorHandle bias); /* y = Wx + b (fused) */
 TensorHandle tensor_linear_2d(TensorHandle W, TensorHandle X, TensorHandle bias);
 /* W: [o,i], X: [B,i], bias: [o] -> Y: [B,o] = X @ W^T + broadcast(bias) */
 TensorHandle tensor_concat_2d_axis1(TensorHandle A, TensorHandle B);
 /* A: [m, n], B: [m, k] -> [m, n+k]. Concat along the last axis. */
-TensorHandle tensor_dot(TensorHandle a, TensorHandle b);        /* vector dot */
-TensorHandle tensor_outer(TensorHandle a, TensorHandle b);      /* outer product */
+TensorHandle tensor_dot(TensorHandle a, TensorHandle b);   /* vector dot */
+TensorHandle tensor_outer(TensorHandle a, TensorHandle b); /* outer product */
 
 /* ---------- Activation / normalization ---------- */
 
@@ -127,9 +131,8 @@ TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target);
    running_mean/running_var: [C] state (updated in-place when training=1).
    Returns normalized, scaled, shifted tensor (same shape as input). */
 TensorHandle tensor_batch_norm(TensorHandle input, TensorHandle gamma, TensorHandle beta,
-                               TensorHandle running_mean, TensorHandle running_var,
-                               int channels, int spatial, int training,
-                               double momentum, double eps);
+                               TensorHandle running_mean, TensorHandle running_var, int channels,
+                               int spatial, int training, double momentum, double eps);
 
 /* Group normalization: input [C * spatial], gamma/beta [C].
    Normalizes within each group of channels. */
@@ -147,11 +150,11 @@ TensorHandle tensor_dropout(TensorHandle input, double p, int training, unsigned
 
 /* Conv1D: input [inC, L], kernel [outC, inC/groups, kL], bias [outC] or NULL.
    Returns [outC, oL] where oL = (L + 2*pad - kL) / stride + 1. */
-TensorHandle tensor_conv1d(TensorHandle input, TensorHandle kernel,
-                           TensorHandle bias, int pad, int stride);
+TensorHandle tensor_conv1d(TensorHandle input, TensorHandle kernel, TensorHandle bias, int pad,
+                           int stride);
 /* Grouped Conv1D: same as conv1d but with groups parameter. */
-TensorHandle tensor_conv1d_grouped(TensorHandle input, TensorHandle kernel,
-                                   TensorHandle bias, int pad, int stride, int groups);
+TensorHandle tensor_conv1d_grouped(TensorHandle input, TensorHandle kernel, TensorHandle bias,
+                                   int pad, int stride, int groups);
 
 /* MaxPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_max_pool1d(TensorHandle input, int kL, int stride);
@@ -162,31 +165,27 @@ TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* data);
 
 /* Conv2D: input [inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL.
    Returns [outC, oH, oW] where oH = (H + 2*padH - kH) / strideH + 1. */
-TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel,
-                           TensorHandle bias, int padH, int padW,
-                           int strideH, int strideW);
+TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel, TensorHandle bias, int padH,
+                           int padW, int strideH, int strideW);
 /* Batched Conv2D: input [B, inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL.
    Returns [B, outC, oH, oW]. The training-loop fast path — one tape entry per
    batched op vs B per-sample ones, single libtorch / mlx native batched call. */
-TensorHandle tensor_conv2d_batched(TensorHandle input, TensorHandle kernel,
-                                    TensorHandle bias, int padH, int padW,
-                                    int strideH, int strideW);
+TensorHandle tensor_conv2d_batched(TensorHandle input, TensorHandle kernel, TensorHandle bias,
+                                   int padH, int padW, int strideH, int strideW);
 /* Grouped Conv2D: same as conv2d but with groups parameter.
    kernel shape: [outC, inC/groups, kH, kW]. groups=inC for depthwise. */
-TensorHandle tensor_conv2d_grouped(TensorHandle input, TensorHandle kernel,
-                                   TensorHandle bias, int padH, int padW,
-                                   int strideH, int strideW, int groups);
+TensorHandle tensor_conv2d_grouped(TensorHandle input, TensorHandle kernel, TensorHandle bias,
+                                   int padH, int padW, int strideH, int strideW, int groups);
 
 /* ConvTranspose1D: input [inC, L], kernel [inC, outC, kL], bias [outC] or NULL.
    Returns [outC, oL] where oL = (L-1)*stride - 2*pad + kL. */
-TensorHandle tensor_conv_transpose1d(TensorHandle input, TensorHandle kernel,
-                                     TensorHandle bias, int pad, int stride);
+TensorHandle tensor_conv_transpose1d(TensorHandle input, TensorHandle kernel, TensorHandle bias,
+                                     int pad, int stride);
 
 /* ConvTranspose2D: input [inC, H, W], kernel [inC, outC, kH, kW], bias [outC] or NULL.
    Returns [outC, oH, oW]. */
-TensorHandle tensor_conv_transpose2d(TensorHandle input, TensorHandle kernel,
-                                     TensorHandle bias, int padH, int padW,
-                                     int strideH, int strideW);
+TensorHandle tensor_conv_transpose2d(TensorHandle input, TensorHandle kernel, TensorHandle bias,
+                                     int padH, int padW, int strideH, int strideW);
 
 /* AvgPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_avg_pool1d(TensorHandle input, int kL, int stride);
@@ -196,11 +195,10 @@ TensorHandle tensor_avg_pool2d(TensorHandle input, int kH, int kW, int strideH, 
 
 /* MaxPool2D: input [C, H, W].
    Returns [C, oH, oW] where oH = (H - kH) / strideH + 1. */
-TensorHandle tensor_max_pool2d(TensorHandle input, int kH, int kW,
-                               int strideH, int strideW);
+TensorHandle tensor_max_pool2d(TensorHandle input, int kH, int kW, int strideH, int strideW);
 /* Batched MaxPool2D: input [B, C, H, W]. Returns [B, C, oH, oW]. */
-TensorHandle tensor_max_pool2d_batched(TensorHandle input, int kH, int kW,
-                                        int strideH, int strideW);
+TensorHandle tensor_max_pool2d_batched(TensorHandle input, int kH, int kW, int strideH,
+                                       int strideW);
 
 /* ---------- NTM-specific compositions ---------- */
 
@@ -219,49 +217,49 @@ TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim);
 TensorHandle tensor_cat2(TensorHandle a, TensorHandle b);
 TensorHandle tensor_narrow(TensorHandle t, int dim, int start, int len);
 TensorHandle tensor_mm(TensorHandle a, TensorHandle b);
-TensorHandle tensor_bmm(TensorHandle a, TensorHandle b);   /* [B,m,n] x [n,k] -> [B,m,k] */
-TensorHandle tensor_batch(TensorHandle* handles, int count); /* B × [m,n] -> [B,m,n] */
+TensorHandle tensor_bmm(TensorHandle a, TensorHandle b);      /* [B,m,n] x [n,k] -> [B,m,k] */
+TensorHandle tensor_batch(TensorHandle* handles, int count);  /* B × [m,n] -> [B,m,n] */
 TensorHandle* tensor_unbatch(TensorHandle h, int* out_count); /* [B,...] -> B × [...] */
 TensorHandle tensor_transpose_2d(TensorHandle t);
 TensorHandle tensor_softmax_2d(TensorHandle t);
 TensorHandle tensor_masked_fill(TensorHandle t, TensorHandle mask, double value);
 TensorHandle tensor_log_softmax_2d(TensorHandle t);
-TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
-                                   TensorHandle bias, double eps);
+TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma, TensorHandle bias,
+                                  double eps);
 TensorHandle tensor_reshape_2d(TensorHandle t, int rows, int cols);
 
 /* 3D batched attention ops */
-TensorHandle tensor_bmm_3x3(TensorHandle a, TensorHandle b);  /* [B,m,n] x [B,n,k] -> [B,m,k] */
-TensorHandle tensor_softmax_3d(TensorHandle t);                /* softmax along last dim */
-TensorHandle tensor_transpose_last2(TensorHandle t);           /* [B,m,n] -> [B,n,m] */
+TensorHandle tensor_bmm_3x3(TensorHandle a, TensorHandle b); /* [B,m,n] x [B,n,k] -> [B,m,k] */
+TensorHandle tensor_softmax_3d(TensorHandle t);              /* softmax along last dim */
+TensorHandle tensor_transpose_last2(TensorHandle t);         /* [B,m,n] -> [B,n,m] */
 TensorHandle tensor_reshape_3d(TensorHandle t, int d0, int d1, int d2);
 TensorHandle tensor_reshape_4d(TensorHandle t, int d0, int d1, int d2, int d3);
-TensorHandle tensor_expand_mask(TensorHandle mask, int B);     /* [m,n] -> [B,m,n] */
+TensorHandle tensor_expand_mask(TensorHandle mask, int B);       /* [m,n] -> [B,m,n] */
 TensorHandle tensor_tile_2d(TensorHandle t, int rep0, int rep1); /* [m,n] -> [m*rep0, n*rep1] */
 
 /* ---------- Autograd ---------- */
 
-void         tensor_backward(TensorHandle loss);
-TensorHandle tensor_grad(TensorHandle t);  /* returns .grad, may be NULL */
-void         tensor_zero_grad(TensorHandle t);
-int          tensor_requires_grad(TensorHandle t);
+void tensor_backward(TensorHandle loss);
+TensorHandle tensor_grad(TensorHandle t); /* returns .grad, may be NULL */
+void tensor_zero_grad(TensorHandle t);
+int tensor_requires_grad(TensorHandle t);
 TensorHandle tensor_detach(TensorHandle t);
-TensorHandle tensor_with_grad(TensorHandle t);  /* returns copy with requires_grad=true */
-void         tensor_set_requires_grad(TensorHandle t, int requires_grad);
+TensorHandle tensor_with_grad(TensorHandle t); /* returns copy with requires_grad=true */
+void tensor_set_requires_grad(TensorHandle t, int requires_grad);
 
 /* No-grad scope (for optimizer steps, inference) */
-void         tensor_no_grad_begin(void);
-void         tensor_no_grad_end(void);
+void tensor_no_grad_begin(void);
+void tensor_no_grad_end(void);
 /* Per-epoch generation-scoped free for grad-mode training: epoch_begin
  * marks the generation, epoch_end deletes wrap-only handles created since.
  * mlx implements the free; tape/torch are no-ops (no buffer ceiling). */
-void         tensor_epoch_begin(void);
-void         tensor_epoch_end(void);
+void tensor_epoch_begin(void);
+void tensor_epoch_end(void);
 
 /* ---------- Device ---------- */
 
-TensorHandle tensor_to_device(TensorHandle t, const char* device);  /* "cpu", "mps", "cuda" */
-const char*  tensor_device(TensorHandle t);
+TensorHandle tensor_to_device(TensorHandle t, const char* device); /* "cpu", "mps", "cuda" */
+const char* tensor_device(TensorHandle t);
 
 /* ---------- GRU ---------- */
 
@@ -272,24 +270,20 @@ const char*  tensor_device(TensorHandle t);
      n = tanh(ih_n + r * hh_n)
      h' = (1 - z) * n + z * prev
    Returns new hidden state [o]. */
-TensorHandle tensor_gru_cell(TensorHandle ih, TensorHandle hh,
-                              TensorHandle prev_hidden, int o);
+TensorHandle tensor_gru_cell(TensorHandle ih, TensorHandle hh, TensorHandle prev_hidden, int o);
 
 /* ---------- LSTM ---------- */
 
 /* Returns (h', c') as two tensors via out pointers */
-void tensor_lstm_cell(
-    TensorHandle input, TensorHandle hx, TensorHandle cx,
-    TensorHandle w_ih, TensorHandle w_hh,
-    TensorHandle b_ih, TensorHandle b_hh,
-    TensorHandle* out_h, TensorHandle* out_c);
+void tensor_lstm_cell(TensorHandle input, TensorHandle hx, TensorHandle cx, TensorHandle w_ih,
+                      TensorHandle w_hh, TensorHandle b_ih, TensorHandle b_hh, TensorHandle* out_h,
+                      TensorHandle* out_c);
 
 /* Fused LSTM cell from pre-computed gate values.
    combined = mulIW + mulRW + bias  ([4*o] tensor)
    Returns (new_hidden, new_cell) via out pointers. */
-void tensor_lstm_gates(
-    TensorHandle combined, TensorHandle prev_cell, int o,
-    TensorHandle* out_h, TensorHandle* out_c);
+void tensor_lstm_gates(TensorHandle combined, TensorHandle prev_cell, int o, TensorHandle* out_h,
+                       TensorHandle* out_c);
 
 TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell, int o);
 TensorHandle tensor_pair_first(TensorPair* p);
@@ -319,9 +313,8 @@ void tensor_pair_free(TensorPair* p);
  *
  * `packed_byte_count` is the length of the buffer; the call aborts
  * if it doesn't equal `((i + 3) / 4) * o`. */
-TensorHandle tensor_create_ternary_packed_2d(
-    const uint8_t* packed_bytes, int packed_byte_count,
-    int o, int i, int requires_grad);
+TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_bytes, int packed_byte_count,
+                                             int o, int i, int requires_grad);
 
 /* BitLinear inference forward: y = (W_ternary * scale.unsqueeze(1)) @ x + bias.
  *
@@ -333,8 +326,8 @@ TensorHandle tensor_create_ternary_packed_2d(
  * Output is shape [o] in scale's dtype. NoGrad path (BitNet b1.58
  * weight is a frozen quantized param); bias gradient flow lands in a
  * follow-up. */
-TensorHandle tensor_bitlinear_fwd(
-    TensorHandle W, TensorHandle scale, TensorHandle x, TensorHandle bias);
+TensorHandle tensor_bitlinear_fwd(TensorHandle W, TensorHandle scale, TensorHandle x,
+                                  TensorHandle bias);
 
 /* HF-semantics BitLinear forward — one fused kernel that bundles
  * RMSNorm (optional) + per-token symmetric int8 activation
@@ -363,14 +356,9 @@ TensorHandle tensor_bitlinear_fwd(
  * The fused form is the perf path; users who want to compose the
  * pieces a la carte can call `tActivationQuantInt8` + `tBitlinearFwd`
  * directly (the math is equivalent — exact-match within FP error). */
-TensorHandle tensor_bitlinear_fwd_hf_quant(
-    TensorHandle W,
-    double weight_scale,
-    TensorHandle x,
-    TensorHandle bias,
-    int use_rms_norm,
-    TensorHandle rms_norm_w,
-    double rms_norm_eps);
+TensorHandle tensor_bitlinear_fwd_hf_quant(TensorHandle W, double weight_scale, TensorHandle x,
+                                           TensorHandle bias, int use_rms_norm,
+                                           TensorHandle rms_norm_w, double rms_norm_eps);
 
 /* Per-row absmean scale for ternary quantization.
  *
@@ -423,8 +411,7 @@ TensorHandle tensor_clamp(TensorHandle t, double lo, double hi);
  * Returns: TensorHandle with dtype_tag = DT_TERNARY, shape [o, i], NoGrad.
  * The output storage is per-backend (packed 2-bit on tape, int8 [o, i]
  * on torch / mlx) — same as `tensor_create_ternary_packed_2d`. */
-TensorHandle tensor_create_ternary_from_hf_packed_2d(
-    const uint8_t* hf_packed_bytes, int o, int i);
+TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* hf_packed_bytes, int o, int i);
 
 /* Quantize a 2D float weight to ternary via a pre-computed per-row scale.
  *
@@ -445,23 +432,22 @@ TensorHandle tensor_create_ternary_from_hf_packed_2d(
  *   - torch / mlx: int8 [o, i], values in {-1, 0, +1}, tag DT_TERNARY.
  *
  * NoGrad on the output. */
-TensorHandle tensor_ternary_quant_with_scale_2d(
-    TensorHandle w, TensorHandle scale);
+TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle w, TensorHandle scale);
 
 /* ---------- Parameter Registry ---------- */
 
 /* Register a named parameter for gradient collection after backward() */
-void         param_register(const char* name, TensorHandle t);
-void         param_clear(void);
-void         param_erase_by_prefix(const char* prefix);  /* drop entries with paramId starting with prefix */
-int          param_count(void);
-const char*  param_name(int idx);
-double       param_grad_item(int idx);          /* read scalar grad for param i */
-double       param_grad_item_at(int param_idx, int elem_idx); /* read grad element */
-double       param_grad_item_and_zero(int idx); /* read grad, then zero it */
+void param_register(const char* name, TensorHandle t);
+void param_clear(void);
+void param_erase_by_prefix(const char* prefix); /* drop entries with paramId starting with prefix */
+int param_count(void);
+const char* param_name(int idx);
+double param_grad_item(int idx);                        /* read scalar grad for param i */
+double param_grad_item_at(int param_idx, int elem_idx); /* read grad element */
+double param_grad_item_and_zero(int idx);               /* read grad, then zero it */
 TensorHandle param_tensor(int idx);
-void         param_zero_all_grads(void);
-void         param_subtract_delta(int idx, double delta); /* in-place: param -= delta */
+void param_zero_all_grads(void);
+void param_subtract_delta(int idx, double delta); /* in-place: param -= delta */
 
 /* In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading. */
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle t, double val);
@@ -491,8 +477,8 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
 
 /* ---------- Tensor pointer array (for stack/cat from Idris) ---------- */
 
-TensorHandle   tensor_stack_from_array(TensorHandle* arr, int count, int dim);
-TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
+TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim);
+TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 
 /* ---------- Tensor-level parameter creation ---------- */
 
@@ -530,27 +516,27 @@ double tensor_item_1d(TensorHandle vec, int idx);
 typedef void* OptimizerHandle;
 
 OptimizerHandle optimizer_create_sgd(double lr);
-OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
-                                          double weight_decay, double momentum);
+OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps, double weight_decay,
+                                         double momentum);
 OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps);
 /* Adam whose step() / clip_grad only touches params whose registry name starts
  * with `prefix`. Empty prefix behaves identically to optimizer_create_adam. */
-OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2,
-                                            double eps, const char* prefix);
+OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2, double eps,
+                                            const char* prefix);
 OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                        double weight_decay);
-void            optimizer_free(OptimizerHandle opt);
-void            optimizer_step(OptimizerHandle opt);
-void            optimizer_zero_grad(OptimizerHandle opt);
-void            optimizer_set_param_lr(OptimizerHandle opt, const char* name, double lr);
+void optimizer_free(OptimizerHandle opt);
+void optimizer_step(OptimizerHandle opt);
+void optimizer_zero_grad(OptimizerHandle opt);
+void optimizer_set_param_lr(OptimizerHandle opt, const char* name, double lr);
 /* Set the optimizer's base (global) learning rate. Per-param overrides set
  * via optimizer_set_param_lr remain in effect; only params not overridden
  * pick up the new base lr. Used to apply LR schedules per epoch. */
-void            optimizer_set_lr(OptimizerHandle opt, double lr);
+void optimizer_set_lr(OptimizerHandle opt, double lr);
 
 /* Gradient clipping (operates on all registered params) */
 void optimizer_clip_grad_value(double max_val);
-double optimizer_clip_grad_norm(double max_norm);  /* returns actual norm */
+double optimizer_clip_grad_norm(double max_norm); /* returns actual norm */
 
 /* Polyak soft update for twin-network setups (SAC target Q-nets).
  * For each registered param P whose name starts with `online_scope`,
@@ -561,8 +547,8 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
 
 /* ---------- System ---------- */
 
-int get_rss_mb(void);           /* peak RSS in MB (getrusage) */
-int get_current_rss_mb(void);   /* current RSS in MB (macOS mach_task_info) */
+int get_rss_mb(void);         /* peak RSS in MB (getrusage) */
+int get_current_rss_mb(void); /* current RSS in MB (macOS mach_task_info) */
 /* Count of live backend tensor handles (mlx: all_tensors; torch:
  * intermediates; tape: tape entries). Per-backend so it tracks the
  * thing that actually grows. */
@@ -589,7 +575,7 @@ void backend_release_all_persistent(void);
 
 void backend_profile_reset(void);
 void backend_profile_report(void);
-void backend_epoch_begin(void);  /* mark start of forward pass for timing */
+void backend_epoch_begin(void); /* mark start of forward pass for timing */
 
 /* TODO #393 op-submission diagnostic — count per-forward graph nodes
  * on torch (counts at::Tensor wraps in from_tensor()); no-op stubs on
@@ -614,9 +600,8 @@ long tensor_perf_op_count(void);
  * a flag (no mask tensor passed) since the SDPA kernel can construct
  * it directly. Caller's responsibility: Q and K must already have
  * RoPE applied. */
-TensorHandle tensor_sdpa_2d(TensorHandle q, TensorHandle k, TensorHandle v,
-                            int numHeads, int numKvHeads, int headDim,
-                            int isCausal);
+TensorHandle tensor_sdpa_2d(TensorHandle q, TensorHandle k, TensorHandle v, int numHeads,
+                            int numKvHeads, int headDim, int isCausal);
 
 /* Fused row-wise RMSNorm (HF LlamaRMSNorm formula).
  *   input  [seqLen, hidden]
@@ -637,25 +622,29 @@ TensorHandle tensor_swiglu_2d(TensorHandle gate, TensorHandle up);
 
 /* These wrap void-returning functions to return an argument for value threading.
    Needed because RefC doesn't support inline Scheme lambdas. */
-TensorHandle tensor_backward_return(TensorHandle t);  /* backward(t); return t */
-TensorHandle param_register_return(const char* name, TensorHandle t); /* set_requires_grad + register; return t */
-int          param_zero_all_grads_return(int dummy);  /* zero_all_grads(); return 0 */
+TensorHandle tensor_backward_return(TensorHandle t); /* backward(t); return t */
+TensorHandle param_register_return(const char* name,
+                                   TensorHandle t); /* set_requires_grad + register; return t */
+int param_zero_all_grads_return(int dummy);         /* zero_all_grads(); return 0 */
 /* tensor_write_double_return / tensor_ptr_array_set_return /
  * tensor_alloc_ints / tensor_free_ints / tensor_write_int_return
  * are unified across backends — declared in shared_utils.h. */
-double*      tensor_to_doubles_return(TensorHandle h, double* buf); /* tensor_to_doubles + return buf */
-int          tensor_backward_conditional(TensorHandle t); /* backward if requires_grad; return param_count */
-double       tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val); /* backward if rg; return loss_val */
-double       native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
-                               TensorHandle loss_ptr, double loss_val); /* zero+bwd+clip+step; return loss_val */
-double       native_train_step_scaled(OptimizerHandle opt, int clip_mode, double clip_val,
-                                      TensorHandle loss_ptr, double loss_val,
-                                      double scale); /* GradScaler variant: scaled bwd, unscale grads, NaN if non-finite seen (skip step) */
-int          optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy); /* clip+step+zero; return 0 */
-void*        idrisml_seq(void* a, void* b); /* evaluate a, return b */
-int          backend_reset_for_eval_return(int dummy);
-int          backend_profile_reset_return(int dummy);
-int          backend_profile_report_return(int dummy);
+double* tensor_to_doubles_return(TensorHandle h, double* buf); /* tensor_to_doubles + return buf */
+int tensor_backward_conditional(TensorHandle t); /* backward if requires_grad; return param_count */
+double tensor_backward_return_loss(TensorHandle loss_ptr,
+                                   double loss_val); /* backward if rg; return loss_val */
+double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val, TensorHandle loss_ptr,
+                         double loss_val); /* zero+bwd+clip+step; return loss_val */
+double native_train_step_scaled(OptimizerHandle opt, int clip_mode, double clip_val,
+                                TensorHandle loss_ptr, double loss_val,
+                                double scale); /* GradScaler variant: scaled bwd, unscale grads, NaN
+                                                  if non-finite seen (skip step) */
+int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val,
+                             int dummy); /* clip+step+zero; return 0 */
+void* idrisml_seq(void* a, void* b);     /* evaluate a, return b */
+int backend_reset_for_eval_return(int dummy);
+int backend_profile_reset_return(int dummy);
+int backend_profile_report_return(int dummy);
 /* dropout_random_seed is backend-agnostic and lives in shared_utils.h. */
 
 /* ---------- Backend Info ---------- */
@@ -687,10 +676,8 @@ int param_save_by_name(const char* path, const char* names_nl, int count);
    on-disk decorations
    `base_model.model.bert.encoder.layer.0.attention.self.query.lora_A.default.weight`.
    Returns 0 on success. */
-int param_save_by_name_renamed(const char* path,
-                               const char* lookup_names_nl,
-                               const char* ondisk_names_nl,
-                               int count);
+int param_save_by_name_renamed(const char* path, const char* lookup_names_nl,
+                               const char* ondisk_names_nl, int count);
 
 /* Load params from a .safetensors file into the existing param registry.
    Matches by name. Skips tensors not in registry. Returns 0 on success.
@@ -739,7 +726,7 @@ int optimizer_save(OptimizerHandle opt, const char* path);
 int optimizer_load(OptimizerHandle opt, const char* path);
 
 /* Optimizer buffer accessors (per-backend, for serialization) */
-int  optimizer_buf_count(OptimizerHandle opt);
+int optimizer_buf_count(OptimizerHandle opt);
 void optimizer_get_m(OptimizerHandle opt, int idx, double* out);
 void optimizer_get_v(OptimizerHandle opt, int idx, double* out);
 void optimizer_set_m(OptimizerHandle opt, int idx, const double* data);
@@ -793,7 +780,7 @@ TensorHandle tensor_cumprod(TensorHandle t, int dim);
 
 int* create_index_array(int n);
 int* shuffle_index_array(int* arr, int n);
-int  index_array_get(int* arr, int i);
+int index_array_get(int* arr, int i);
 
 /* ---------- MLX compile (Job 3 Phase B) ---------- */
 
@@ -804,7 +791,7 @@ int tensor_mlx_compile_enabled(void);
 /* Count of how many times tensor_backward has entered the compile-enabled
    code path. Resets via tensor_mlx_compile_reset_stats(). Non-mlx backends
    always return 0. */
-int  tensor_mlx_compile_invocations(void);
+int tensor_mlx_compile_invocations(void);
 void tensor_mlx_compile_reset_stats(void);
 
 /* Read the raw on-disk bytes of a named tensor from a safetensors file
@@ -820,15 +807,12 @@ void tensor_mlx_compile_reset_stats(void);
    Backend-agnostic — pure file I/O, no tensor handles or device
    side effects, so the symbol is intentionally not renamed
    per-backend. */
-int64_t safetensors_read_raw_bytes(const char* path,
-                                   const char* tensor_name,
-                                   uint8_t* out_buf,
+int64_t safetensors_read_raw_bytes(const char* path, const char* tensor_name, uint8_t* out_buf,
                                    size_t out_cap);
 
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);
-
 
 /* ---- Unified dtag-dispatch create/cast entry points ----
    One symbol per shape; the trailing `int dtag` selects the RuntimeDType
@@ -848,16 +832,24 @@ void tensor_print(TensorHandle t);
    switches on dtag internally: torch handles all 10 wired dtypes, mlx
    f32/f64 (rejects the rest), tape stores all via the double lingua
    franca with real F32 storage + kernels (Phase 3). */
-TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag, int dtag);
-TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag, int dtag);
-TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag, int dtag);
-TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag, int dtag);
+TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag,
+                                           int dtag);
+TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad,
+                                    int stream_tag, int dtag);
+TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag,
+                                       int dtag);
+TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int requires_grad,
+                                       int stream_tag, int dtag);
 TensorHandle tensor_create_param_1d_streamed(int n, double* data, int stream_tag, int dtag);
-TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag);
-TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int stream_tag, int dtag);
-TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag, int dtag);
+TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int stream_tag,
+                                             int dtag);
+TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int stream_tag,
+                                             int dtag);
+TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data,
+                                             int stream_tag, int dtag);
 TensorHandle tensor_create_state_1d_streamed(int n, double* data, int stream_tag, int dtag);
-TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag);
+TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag,
+                                             int dtag);
 TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dtag);
 
 /* Fused param create + init — allocate + run in-place init in C
@@ -865,15 +857,22 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dt
    filling element-by-element on the Idris side via traverse +
    packDoubles. Backends that haven't wired their adapter slots abort
    loudly at the FFI boundary (see shared/training/dtype_streamed.c). */
-TensorHandle tensor_create_param_1d_normal_streamed(int n,                                       double mean, double std, int stream_tag, int dtag);
-TensorHandle tensor_create_param_2d_normal_streamed(int rows, int cols,                          double mean, double std, int stream_tag, int dtag);
-TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, int d2,                      double mean, double std, int stream_tag, int dtag);
-TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, int d2, int d3,              double mean, double std, int stream_tag, int dtag);
-TensorHandle tensor_create_param_1d_const_streamed (int n,                                       double value,            int stream_tag, int dtag);
-TensorHandle tensor_create_param_2d_const_streamed (int rows, int cols,                          double value,            int stream_tag, int dtag);
-TensorHandle tensor_create_param_3d_const_streamed (int d0, int d1, int d2,                      double value,            int stream_tag, int dtag);
-TensorHandle tensor_create_param_4d_const_streamed (int d0, int d1, int d2, int d3,              double value,            int stream_tag, int dtag);
-void         tensor_set_init_seed_streamed(unsigned long long seed, int stream_tag);
+TensorHandle tensor_create_param_1d_normal_streamed(int n, double mean, double std, int stream_tag,
+                                                    int dtag);
+TensorHandle tensor_create_param_2d_normal_streamed(int rows, int cols, double mean, double std,
+                                                    int stream_tag, int dtag);
+TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, int d2, double mean, double std,
+                                                    int stream_tag, int dtag);
+TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, int d2, int d3, double mean,
+                                                    double std, int stream_tag, int dtag);
+TensorHandle tensor_create_param_1d_const_streamed(int n, double value, int stream_tag, int dtag);
+TensorHandle tensor_create_param_2d_const_streamed(int rows, int cols, double value, int stream_tag,
+                                                   int dtag);
+TensorHandle tensor_create_param_3d_const_streamed(int d0, int d1, int d2, double value,
+                                                   int stream_tag, int dtag);
+TensorHandle tensor_create_param_4d_const_streamed(int d0, int d1, int d2, int d3, double value,
+                                                   int stream_tag, int dtag);
+void tensor_set_init_seed_streamed(unsigned long long seed, int stream_tag);
 
 #ifdef __cplusplus
 }
