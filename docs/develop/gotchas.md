@@ -156,6 +156,15 @@ The polymorphic version binds `dt` once per function call instead of per Tensor 
 
 Discovered during the dt-parameter refactor on 2026-05-17. Documented in detail in `docs/develop/dtype-parameter.md` "Lessons learned."
 
+### `%search` / `%hint` limitations — no constrained-polymorphic hints, no composition decomposition
+
+Idris-2 proof search resolves monomorphic `%hint`s (`Diff MyFn`) and unconstrained polymorphic hints (`{a : Type} -> Diff (F {a})`), but **fails** on both of:
+
+- polymorphic hints carrying interface constraints — `%hint d : {a : Type} -> Num a => Diff (F {a})` is never found by `%search` for `Diff (F {a=Int})`; the workaround is one monomorphic hint per concrete instantiation.
+- composition — `%search` cannot decompose a goal `Diff (g . f)` into sub-searches for `Diff g` and `Diff f`, even with a `composeDiff` hint in scope; composition must be applied explicitly (e.g. a `>>>` operator).
+
+Consequence: any design of the shape "annotate each primitive with a `%hint`-registered derivative/property and let search assemble the chain" does not work in today's Idris 2. TensorType's autodiff core hit exactly this wall; their `Data/Autodiff/Core/SearchIssues.idr` ([bgavran/TensorType](https://github.com/bgavran/TensorType)) is a runnable catalogue of the four cases. Recorded 2026-06-11 during the Glaive survey (`docs/develop/glaive-survey.md`).
+
 ### Tensor Foldable reversal
 
 The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers, extracting prediction values for argmax).
