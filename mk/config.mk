@@ -299,7 +299,24 @@ LIBRARY_SRCS := $(filter-out packages/idris-ml/src/HwConfig.idr packages/idris-m
                   $(shell find packages/idris-ml/src packages/idris-gym/src packages/idris-transformers/src -name '*.idr' 2>/dev/null)) \
                 packages/idris-ml-examples/src/Generate.idr
 
-$(BUILD)/.library-cache-stamp: $(LIBRARY_SRCS)
+# Content guard for the stamp rule below. Pure mtime invalidation is
+# sound locally but not under CI's cross-commit ttc cache restore +
+# git restore-mtime: a tree saved LATER than the current commit's
+# file dates makes both make and idris2 see everything as fresh while
+# module content/DAG changed — the 2026-06-12 macOS failure (run
+# 27434248717) loaded a stale Init.ttc and died with "Undefined name
+# InitSpec" inside Tensor.idr. The sha sidecar is rewritten (mtime
+# bump) only when the concatenated lib-source content changes, so a
+# restored foreign tree triggers the nuke regardless of timestamps,
+# and a same-content restore stays warm. (GNU make re-checks mtimes
+# after remaking an always-run prerequisite: unchanged sha file =
+# stamp not stale.)
+$(BUILD)/.library-src-sha: FORCE
+	@mkdir -p $(BUILD)
+	@cat $(LIBRARY_SRCS) | shasum -a 256 | cut -d' ' -f1 | cmp -s - $@ 2>/dev/null || \
+		cat $(LIBRARY_SRCS) | shasum -a 256 | cut -d' ' -f1 > $@
+
+$(BUILD)/.library-cache-stamp: $(LIBRARY_SRCS) $(BUILD)/.library-src-sha
 	@echo "[$(BUILD_KEY)] Library source changed — invalidating ttc caches"
 	@rm -rf $(BUILD)/ttc-*
 	@mkdir -p $(BUILD)

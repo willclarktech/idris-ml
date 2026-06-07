@@ -299,8 +299,12 @@ runs:
     # generated sources (BuildConfig.idr etc.) must be cached too —
     # regenerating them fresh would invalidate every downstream module.
     # Bump -v3 to force-flush a wedged tree. (v2 -> v3: 2026-06-12, pre-rebase
-# trees restored via prefix fallback were incoherent after the history
-# rewrite and one poisoned a same-sha key.)
+    # trees restored via prefix fallback were incoherent after the history
+    # rewrite and one poisoned a same-sha key.) Since the content-based
+    # .library-src-sha guard (mk/config.mk, 2026-06-12), a restored tree
+    # whose lib sources don't match the current commit self-nukes at
+    # make-install time — bumps should now only be needed for corruption
+    # outside the lib-source invalidation's reach (C objects, vendored).
     - name: Restore TTC cache
       if: inputs.restore-ttc == 'true'
       uses: actions/cache/restore@v5
