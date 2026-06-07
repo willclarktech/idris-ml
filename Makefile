@@ -1235,11 +1235,20 @@ print-torch:
 # Install core library to local prefix (needed before building examples/tests).
 # `--build-dir` keys the per-package ttc cache on the active BUILD_KEY so
 # `BACKEND=tape` and `BACKEND=torch` (etc.) each have their own warm cache.
-install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
+#
+# Every install-* target deps $(BUILD)/.library-cache-stamp so the
+# stale-ttc wipe in its recipe runs BEFORE any `idris2 --install`
+# starts. Without this the stamp was only a sibling prereq of the
+# `install` aggregate: serially the wipe ran after the installs
+# (letting a stale-inlined ttc reach the prefix), and under `make -j`
+# it ran concurrently — `rm -rf $(BUILD)/ttc-*` deleting build dirs
+# mid-elaboration (observed: install-gym/install-core dying with no
+# output inside example-checkpoint-demo under MAKEFLAGS=-j2).
+install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(BUILD)/.library-cache-stamp
 	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --install idris-ml.ipkg >/dev/null
 
 # Install gym to local prefix
-install-gym:
+install-gym: $(BUILD)/.library-cache-stamp
 	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-gym --install idris-gym.ipkg >/dev/null
 
 # Install idris-transformers (HF-aligned model library) to local prefix.
@@ -1268,7 +1277,7 @@ install-test-harness:
 # Install all Idris packages locally. install-test-harness is NOT
 # in the chain — pack lazily installs idris-test the first time
 # any tests ipkg references it.
-install: install-core install-gym install-transformers install-notebook install-examples $(BUILD)/.library-cache-stamp
+install: install-core install-gym install-transformers install-notebook install-examples
 
 # Type-check the idris-ml core library only. Fastest single-package
 # gate. The `check` aggregator below is the daily-driver default.
