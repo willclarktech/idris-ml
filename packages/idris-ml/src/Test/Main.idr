@@ -3,6 +3,7 @@ module Test.Main
 import Test.Harness
 import Test.Array
 import Test.Backend
+import Test.Construct
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
@@ -48,6 +49,7 @@ main : IO ()
 main = runAll
   [ ("Array",           Test.Array.tests)
   , ("Backend",         Test.Backend.tests)
+  , ("Construct",       Test.Construct.tests)
   , ("GradMode",        Test.GradMode.tests)
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)

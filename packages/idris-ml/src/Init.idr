@@ -1,7 +1,39 @@
 module Init
 
+import Data.Vect
+
 import public Sampler
 import Compat.Random
+
+
+----------------------------------------------------------------------
+-- InitSpec (typed construction facade)
+----------------------------------------------------------------------
+
+||| How to fill a tensor of `n` elements. The index ties `FromVect`'s
+||| length to the target shape's element count at compile time —
+||| a length mismatch is a type error, not a runtime crash.
+public export
+data InitSpec : Nat -> Type where
+  Zeros    : InitSpec n
+  Const    : Double -> InitSpec n
+  Normal   : (mu : Double) -> (sd : Double) -> InitSpec n
+  Uniform  : (lo : Double) -> (hi : Double) -> InitSpec n
+  FromVect : Vect n Double -> InitSpec n
+
+||| Element count of a shape. The singleton clause keeps `Numel [n]`
+||| definitionally `n` (no `n * 1` wart), so 1-D `FromVect` literals
+||| check without rewriting.
+public export
+Numel : Vect rank Nat -> Nat
+Numel []        = 1
+Numel [n]       = n
+Numel (n :: ns) = n * Numel ns
+
+||| Stack rows into the `FromVect` spec for a `[b, i]` tensor.
+public export
+fromRows : Vect b (Vect i Double) -> InitSpec (b * i)
+fromRows rows = FromVect (concat rows)
 
 
 ----------------------------------------------------------------------

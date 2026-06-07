@@ -12,6 +12,7 @@ import public DType.Core
 import public GradMode
 import Floating
 import Array
+import public Init
 import Schedule
 import public Tensor.Internal
 import Util
@@ -1661,6 +1662,124 @@ tparamScalar pid val = ioRerun (\_ =>
   let ptr = dtCreateScalar {ex} {t=dt} val 1 (deviceStreamTag {ex})    -- requires_grad=true
       reg = primParamRegister {ex} pid ptr
   in MkTensor reg (Just pid))
+
+----------------------------------------------------------------------
+-- Typed construction facade: tensor / param × InitSpec
+----------------------------------------------------------------------
+
+-- Fill a fresh host double buffer of n elements per the spec. The
+-- random specs sample host-side per element (cold construction path);
+-- each prim__setDouble is IO-sequenced via ioRerun so the writes
+-- can't reorder across the sampling.
+fillSpecBuf : (n : Int) -> InitSpec k -> IO AnyPtr
+fillSpecBuf n spec = do
+  buf <- ioRerun (\_ => prim__allocDoubles n)
+  case spec of
+    Zeros         => ioRerun (\_ => fillConst buf 0 0.0)
+    Const x       => ioRerun (\_ => fillConst buf 0 x)
+    Normal mu sd  => fillIO buf 0 (map (\z => mu + sd * z) normalSample)
+    Uniform lo hi => fillIO buf 0 (randomRIO (lo, hi))
+    FromVect xs   => ioRerun (\_ => packVect buf 0 xs)
+  where
+    fillConst : AnyPtr -> Int -> Double -> AnyPtr
+    fillConst b i v = if i >= n then b else fillConst (prim__setDouble b i v) (i + 1) v
+    fillIO : AnyPtr -> Int -> IO Double -> IO AnyPtr
+    fillIO b i sample =
+      if i >= n then pure b else do
+        v <- sample
+        b' <- ioRerun (\_ => prim__setDouble b i v)
+        fillIO b' (i + 1) sample
+    packVect : AnyPtr -> Int -> Vect m Double -> AnyPtr
+    packVect b _ [] = b
+    packVect b i (x :: xs) = packVect (prim__setDouble b i x) (i + 1) xs
+
+-- One value for the rank-0 cell of the facade.
+scalarSpecValue : InitSpec 1 -> IO Double
+scalarSpecValue Zeros           = pure 0.0
+scalarSpecValue (Const x)       = pure x
+scalarSpecValue (Normal mu sd)  = pure (mu + sd * !normalSample)
+scalarSpecValue (Uniform lo hi) = randomRIO (lo, hi)
+scalarSpecValue (FromVect [x])  = pure x
+
+||| Construct a non-learnable tensor of any rank from an `InitSpec`.
+||| `FromVect`'s length is tied to `Numel dims` at compile time, so a
+||| data/shape mismatch is a type error. For learnable parameters use
+||| `param` (registers with the optimizer registry).
+export
+tensor : {0 ex : Executor} -> Backend ex dt => {rank : Nat} -> {dims : Vect rank Nat} ->
+         InitSpec (Numel dims) -> IO (Tensor dims ex dt NoGrad)
+tensor {dims} spec = do
+  buf <- fillSpecBuf (cast (Numel dims)) spec
+  shp <- ioRerun (\_ => packShape (prim__allocInts (cast rank)) 0 dims)
+  ptr <- ioRerun (\_ => dtCreate {ex} {t=dt} buf shp (cast rank) 0 (deviceStreamTag {ex}))
+  pure (MkTensor ptr Nothing)
+  where
+    packShape : AnyPtr -> Int -> Vect m Nat -> AnyPtr
+    packShape b _ [] = b
+    packShape b i (d :: ds) = packShape (prim__setInt b i (cast d)) (i + 1) ds
+
+||| Construct + register a learnable parameter (rank <= 4 — the C
+||| param-create surface's ceiling; rank 5 is a compile error, not a
+||| crash). `Normal` / `Const` / `Zeros` route to the fused C init
+||| paths (init runs backend-side at memory-bandwidth speed);
+||| `Uniform` / `FromVect` fill a host buffer. Always registers under
+||| `name` — parameters without a registry entry are invisible to the
+||| optimizer.
+export
+param : {0 ex : Executor} -> Backend ex dt => {rank : Nat} -> {dims : Vect rank Nat} ->
+        {auto rankOk : LTE rank 4} ->
+        (name : String) -> InitSpec (Numel dims) -> IO (Tensor dims ex dt WithGrad)
+param {dims = []} pid spec = do
+  v <- scalarSpecValue spec
+  tparamScalar {ex} pid v
+param {dims = [n]} pid spec = do
+  let nI = cast {to=Int} n
+  ptr <- case spec of
+    Normal mu sd => ioRerun (\_ => dtCreateParam1dNormal {ex} {t=dt} nI mu sd (deviceStreamTag {ex}))
+    Const x      => ioRerun (\_ => dtCreateParam1dConst {ex} {t=dt} nI x (deviceStreamTag {ex}))
+    Zeros        => ioRerun (\_ => dtCreateParam1dConst {ex} {t=dt} nI 0.0 (deviceStreamTag {ex}))
+    _            => do buf <- fillSpecBuf nI spec
+                       ioRerun (\_ => dtCreateParam1d {ex} {t=dt} nI buf (deviceStreamTag {ex}))
+  reg <- ioRerun (\_ => primParamRegister {ex} pid ptr)
+  pure (MkTensor reg (Just pid))
+param {dims = [m, n]} pid spec = do
+  let mI = cast {to=Int} m
+  let nI = cast {to=Int} n
+  ptr <- case spec of
+    Normal mu sd => ioRerun (\_ => dtCreateParam2dNormal {ex} {t=dt} mI nI mu sd (deviceStreamTag {ex}))
+    Const x      => ioRerun (\_ => dtCreateParam2dConst {ex} {t=dt} mI nI x (deviceStreamTag {ex}))
+    Zeros        => ioRerun (\_ => dtCreateParam2dConst {ex} {t=dt} mI nI 0.0 (deviceStreamTag {ex}))
+    _            => do buf <- fillSpecBuf (mI * nI) spec
+                       ioRerun (\_ => dtCreateParam2d {ex} {t=dt} mI nI buf (deviceStreamTag {ex}))
+  reg <- ioRerun (\_ => primParamRegister {ex} pid ptr)
+  pure (MkTensor reg (Just pid))
+param {dims = [a, b, c]} pid spec = do
+  let aI = cast {to=Int} a
+  let bI = cast {to=Int} b
+  let cI = cast {to=Int} c
+  ptr <- case spec of
+    Normal mu sd => ioRerun (\_ => dtCreateParam3dNormal {ex} {t=dt} aI bI cI mu sd (deviceStreamTag {ex}))
+    Const x      => ioRerun (\_ => dtCreateParam3dConst {ex} {t=dt} aI bI cI x (deviceStreamTag {ex}))
+    Zeros        => ioRerun (\_ => dtCreateParam3dConst {ex} {t=dt} aI bI cI 0.0 (deviceStreamTag {ex}))
+    _            => do buf <- fillSpecBuf (aI * bI * cI) spec
+                       ioRerun (\_ => dtCreateParam3d {ex} {t=dt} aI bI cI buf (deviceStreamTag {ex}))
+  reg <- ioRerun (\_ => primParamRegister {ex} pid ptr)
+  pure (MkTensor reg (Just pid))
+param {dims = [a, b, c, e]} pid spec = do
+  let aI = cast {to=Int} a
+  let bI = cast {to=Int} b
+  let cI = cast {to=Int} c
+  let eI = cast {to=Int} e
+  ptr <- case spec of
+    Normal mu sd => ioRerun (\_ => dtCreateParam4dNormal {ex} {t=dt} aI bI cI eI mu sd (deviceStreamTag {ex}))
+    Const x      => ioRerun (\_ => dtCreateParam4dConst {ex} {t=dt} aI bI cI eI x (deviceStreamTag {ex}))
+    Zeros        => ioRerun (\_ => dtCreateParam4dConst {ex} {t=dt} aI bI cI eI 0.0 (deviceStreamTag {ex}))
+    _            => do buf <- fillSpecBuf (aI * bI * cI * eI) spec
+                       ioRerun (\_ => dtCreateParam4d {ex} {t=dt} aI bI cI eI buf (deviceStreamTag {ex}))
+  reg <- ioRerun (\_ => primParamRegister {ex} pid ptr)
+  pure (MkTensor reg (Just pid))
+param {dims = _ :: _ :: _ :: _ :: _ :: _} {rankOk = LTESucc (LTESucc (LTESucc (LTESucc p)))} _ _ =
+  absurd p
 
 ||| Concatenate two [b, m] / [b, n] TVars along axis 1, producing
 ||| [b, m + n]. Wraps `prim__concat2dAxis1`. Used by SAC's actor loss
