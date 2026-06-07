@@ -1399,6 +1399,23 @@ lint-c-tape:
 		echo "lint-c-tape: clang-tidy not installed (install via 'brew install llvm' or 'apt-get install clang-tidy'); skipping"; \
 	fi
 
+# Rename-free misc-include-cleaner gate. Runs clang-tidy with ONLY
+# this check and WITHOUT `-include rename_tape.h`, because the
+# rename macros rewrite every backend.h-declared symbol (tensor_*,
+# param_*, ...) before include-cleaner sees them, hiding their
+# provider attribution and producing ~250 architectural FPs against
+# `-include`d source. The rename-free invocation reflects the
+# semantic view the developer wrote, which is what include-cleaner
+# is designed to check.
+lint-c-include-cleaner:
+	@if command -v clang-tidy >/dev/null 2>&1; then \
+		clang-tidy --quiet --checks='-*,misc-include-cleaner' \
+		    -warnings-as-errors='*' \
+		    $(BACKEND_TAPE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) || exit 1; \
+	else \
+		echo "lint-c-include-cleaner: clang-tidy not installed; skipping"; \
+	fi
+
 lint-c-torch:
 	@if command -v clang-format >/dev/null 2>&1; then \
 		clang-format --dry-run -Werror --style=file $$(find packages/backends/backend_torch \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) 2>/dev/null) $(BACKENDS_SHARED_SRCS) || exit 1; \
