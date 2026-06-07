@@ -19,7 +19,8 @@
         lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing \
         test-integration-typegate-lossy-cast \
-        test-integration-typegate-int-overflow-cast
+        test-integration-typegate-int-overflow-cast \
+        test-integration-typegate-backend-linked
 
 rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py
@@ -299,3 +300,11 @@ test-integration-typegate-lossy-cast: install
 test-integration-typegate-int-overflow-cast: install
 	@chmod +x ./scripts/check-int-overflow-cast-gate.sh
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-int-overflow-cast-gate.sh
+
+# Verify the Backend-bundle availability gate: `Backend ex dt` must not
+# resolve for an executor lacking `Linked` (the per-build availability
+# gate generated into HwConfig.idr). Inverts the idris2 exit code and
+# asserts the search failure names the Linked leaf.
+test-integration-typegate-backend-linked: install
+	@chmod +x ./scripts/check-backend-bundle-gate.sh
+	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-backend-bundle-gate.sh

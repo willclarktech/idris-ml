@@ -571,6 +571,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-typegate-int-overflow-cast
 
+      - name: Verify Backend-bundle Linked gate (unlinked executor rejected)
+        # Negative type-check: `Backend ex dt` (the v1 constraint bundle)
+        # must not resolve for an executor with no Linked instance; the
+        # search failure must name the Linked leaf. Guards the per-build
+        # device-availability gating against a bundle regression.
+        if: ${{ !cancelled() }}
+        run: make test-integration-typegate-backend-linked
+
+
       - name: Run typed index-op round-trip (torch, Ubuntu)
         # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
         # on torch (Compatible d I64) and runs — the C test covers numerics,

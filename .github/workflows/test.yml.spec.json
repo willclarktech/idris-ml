@@ -244,6 +244,16 @@
         ]
       },
       {
+        "name": "Verify Backend-bundle Linked gate (unlinked executor rejected)",
+        "run": "make test-integration-typegate-backend-linked",
+        "comment": [
+          "Negative type-check: `Backend ex dt` (the v1 constraint bundle)",
+          "must not resolve for an executor with no Linked instance; the",
+          "search failure must name the Linked leaf. Guards the per-build",
+          "device-availability gating against a bundle regression."
+        ]
+      },
+      {
         "name": "Run typed index-op round-trip (torch, Ubuntu)",
         "run": "make example-index-ops",
         "os": "ubuntu",

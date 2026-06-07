@@ -309,6 +309,7 @@ test-integration: \
 		test-integration-typegate-gradmode-aliasing \
 		test-integration-typegate-lossy-cast \
 		test-integration-typegate-int-overflow-cast \
+		test-integration-typegate-backend-linked \
 		test-integration-checkpoint-resume \
 		test-integration-jupyter-cellparser
 
