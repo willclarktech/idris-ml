@@ -68,3 +68,4 @@ modules = Compat.Random
         , Util
         , Util.Log
         , Tensor
+        , Tensor.Internal
