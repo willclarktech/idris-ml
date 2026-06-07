@@ -1410,7 +1410,7 @@ lint-c-torch:
 	else \
 		echo "lint-c-torch: cppcheck not installed; skipping"; \
 	fi
-	@echo "lint-c-torch: clang-tidy on libtorch C++ skipped by default (libtorch headers ~30s/TU); enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch'"
+	@echo "lint-c-torch: clang-tidy on libtorch C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch' (Linux). macOS+nix is blocked: Apple SDK <sys/resource.h> uint8_t/uint64_t fail to resolve against nix clang-tidy's libc++ pre-include chain — not fixable cheaply."
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
 		clang-tidy --quiet $(BACKEND_TORCH_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(torch_CFLAGS) -include $(BACKENDS_DIR)/rename_torch.h || exit 1; \
 	fi
@@ -1426,7 +1426,7 @@ lint-c-mlx:
 	else \
 		echo "lint-c-mlx: cppcheck not installed; skipping"; \
 	fi
-	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx'"
+	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx' (Linux). Same macOS+nix block as torch — Apple SDK headers reject nix clang-tidy."
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
 		clang-tidy --quiet $(BACKEND_MLX_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(mlx_CFLAGS) -include $(BACKENDS_DIR)/rename_mlx.h || exit 1; \
 	fi

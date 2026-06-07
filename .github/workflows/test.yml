@@ -94,11 +94,14 @@ jobs:
         # Runs `make lint-c`: clang-format --dry-run + cppcheck on
         # all 3 backends + clang-tidy on tape (tape uses only libc
         # + BLAS headers; no libtorch / mlx setup needed at preflight
-        # time). Full clang-tidy across the C++ backends is gated
-        # behind `C_LINT_FULL_CLANG_TIDY=1` and lands in the heavy
-        # matrix jobs (libtorch headers are ~30s per TU). clang-format
-        # rules live in `.clang-format`; cppcheck flags inline;
-        # clang-tidy check set in `.clang-tidy`.
+        # time). Full clang-tidy across the C++ backends (torch + mlx)
+        # is gated behind `C_LINT_FULL_CLANG_TIDY=1` and is currently
+        # NOT wired into any CI job — landing it requires staging a
+        # libtorch + mlx install in a dedicated lint matrix lane (the
+        # preflight job intentionally doesn't carry the libtorch
+        # dependency). Tracked as a follow-up. clang-format rules
+        # live in `.clang-format`; cppcheck flags inline; clang-tidy
+        # check set in `.clang-tidy`.
         run: make lint-c
 
   test-examples:
