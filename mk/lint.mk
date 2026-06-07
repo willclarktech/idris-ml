@@ -12,7 +12,7 @@
         test-integration-lint-paired-defaults lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
         lint-py-jupyter typecheck-py typecheck-py-pytorch \
-        typecheck-py-examples \
+        typecheck-py-scripts typecheck-py-examples \
         lint-c lint-c-tape lint-c-include-cleaner \
         lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing \
@@ -117,11 +117,15 @@ lint-py-jupyter:
 # name, in mk/ref.mk) so the typecheck-py-* family is uniform for
 # CI/docs.
 
-typecheck-py: typecheck-py-pytorch typecheck-py-examples
+typecheck-py: typecheck-py-pytorch typecheck-py-scripts typecheck-py-examples
 	@echo "typecheck-py OK (all Python-bearing packages)"
 
 typecheck-py-pytorch: ref-typecheck
 	@echo "  typecheck-py-pytorch OK"
+
+typecheck-py-scripts:
+	@cd packages/pytorch && uv run --no-sync --quiet pyright -p ../../scripts
+	@echo "  typecheck-py-scripts OK"
 
 typecheck-py-examples:
 	@cd packages/pytorch && uv run --no-sync --quiet pyright -p ../idris-ml-examples/scripts

@@ -17,9 +17,12 @@ The `make test-integration-lint-ci-workflow` target wraps --check; CI fails
 if a hand-edit of test.yml diverges from the spec.
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / ".github" / "workflows" / "test.yml.spec.json"
@@ -35,16 +38,17 @@ OS_TO_IF = {
 }
 
 
-def render_invocation(inv: dict) -> list[str]:
+def render_invocation(inv: dict[str, Any]) -> list[str]:
     """Render one invocation as a list of YAML lines (no trailing newlines)."""
     lines = [f"{STEP_INDENT}- name: {inv['name']}"]
 
     # Block comment (# lines) preceding the step body.
-    for c in inv.get("comment") or []:
+    comments: list[str] = inv.get("comment") or []
+    for c in comments:
         lines.append(f"{STEP_INDENT}  # {c}" if c else f"{STEP_INDENT}  #")
 
     # `if:` combining `os` filter and explicit `if`.
-    cond_parts = []
+    cond_parts: list[str] = []
     if "os" in inv:
         os_val = inv["os"]
         if os_val not in OS_TO_IF:
@@ -56,7 +60,7 @@ def render_invocation(inv: dict) -> list[str]:
         lines.append(f"{STEP_INDENT}  if: {' && '.join(cond_parts)}")
 
     # env block.
-    env = inv.get("env")
+    env: dict[str, Any] | None = inv.get("env")
     if env:
         lines.append(f"{STEP_INDENT}  env:")
         for k, v in env.items():
@@ -71,10 +75,10 @@ def render_invocation(inv: dict) -> list[str]:
     return lines
 
 
-def render_block(spec: dict) -> str:
+def render_block(spec: dict[str, Any]) -> str:
     """Render the full generated block (between markers) as a string ending in '\n'."""
-    out_lines = []
-    invocations = spec.get("invocations", [])
+    out_lines: list[str] = []
+    invocations: list[dict[str, Any]] = spec.get("invocations", [])
     for i, inv in enumerate(invocations):
         if i > 0:
             out_lines.append("")  # blank line between steps
@@ -101,13 +105,13 @@ def splice_workflow(workflow_text: str, generated_block: str) -> str:
     return workflow_text[:line_end_of_begin] + generated_block + workflow_text[line_start_of_end:]
 
 
-def main():
+def main() -> None:
     check = "--check" in sys.argv[1:]
     if not SPEC.exists():
         raise SystemExit(f"spec not found: {SPEC}")
     if not WORKFLOW.exists():
         raise SystemExit(f"workflow not found: {WORKFLOW}")
-    spec = json.loads(SPEC.read_text())
+    spec: dict[str, Any] = json.loads(SPEC.read_text())
     workflow_text = WORKFLOW.read_text()
     generated = render_block(spec)
     new_text = splice_workflow(workflow_text, generated)
@@ -123,7 +127,8 @@ def main():
         return
     if new_text != workflow_text:
         WORKFLOW.write_text(new_text)
-        n = len(spec.get("invocations", []))
+        invocations: list[dict[str, Any]] = spec.get("invocations", [])
+        n = len(invocations)
         print(f"Regenerated {WORKFLOW.relative_to(ROOT)} from {n} spec entries.")
     else:
         print(f"No changes; {WORKFLOW.relative_to(ROOT)} already in sync.")

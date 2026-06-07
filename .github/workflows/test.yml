@@ -82,6 +82,16 @@ jobs:
         # Use --no-sync so the partially-synced venv from the previous
         # step isn't filled with the heavy main deps.
         run: make lint-py
+      - name: Typecheck stdlib Python scripts (pyright strict)
+        # `make typecheck-py-scripts` — pyright strict over the
+        # repo-root scripts/ tree (config root scripts/pyrightconfig
+        # .json). Lives in the preflight because the tree is
+        # stdlib-only: pyright is already in the --only-group dev
+        # venv and no torch/transformers imports are involved. The
+        # torch-dependent typecheck gates (typecheck-py-pytorch /
+        # -transformers / -examples) run in the matrix after
+        # ref-setup instead.
+        run: make typecheck-py-scripts
       - name: Install C-lint tools (clang-format + cppcheck + clang-tidy)
         # apt-installs clang-format + cppcheck + clang-tidy on the
         # Ubuntu preflight runner. ~10s on a warm cache. Local devs

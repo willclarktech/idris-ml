@@ -22,6 +22,8 @@ The manifest, helpers, and canonical wrapper generator all live in
 `ffi_manifest.py` — that module is the single source of truth.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from pathlib import Path
@@ -43,7 +45,7 @@ from ffi_manifest import (
 _FP_RE = re.compile(r'\(foreign-procedure\s+\\"([a-zA-Z_0-9]+)\\"\s*\([^)]*\)\s+[a-zA-Z*_]+\s*\)')
 
 
-def _first_manifest_call(body):
+def _first_manifest_call(body: str) -> str | None:
     """Return the first foreign-procedure name in `body` whose base is in
     MANIFEST. Returns None if no such call exists (the scheme: body is a
     bespoke helper or only references SKIP-listed names).
@@ -58,11 +60,11 @@ def _first_manifest_call(body):
     return None
 
 
-def convert_file(path):
+def convert_file(path: str) -> dict[str, int]:
     text = Path(path).read_text()
     stats = {"converted": 0, "regenerated": 0, "skipped": 0}
 
-    def replace(m):
+    def replace(m: re.Match[str]) -> str:
         kind = m.group(2)  # "C" or "scheme"
         spec = m.group(3)  # body without "C:" / "scheme:" prefix
         export_line = m.group(4)
@@ -89,7 +91,7 @@ def convert_file(path):
 
         manifest_entry = MANIFEST[base]
         manifest_args, manifest_ret = manifest_entry.args, manifest_entry.ret
-        name, idris_args, idris_ret = parse_args(sig_line.strip())
+        _name, idris_args, _idris_ret = parse_args(sig_line.strip())
 
         # Cross-check arg count.
         if len(idris_args) != len(manifest_args):
@@ -103,7 +105,7 @@ def convert_file(path):
 
         # Each Idris arg's class is taken from the manifest (which knows
         # whether AnyPtr means T or R).
-        arg_classes = list(manifest_args)
+        arg_classes = manifest_args
         ret_class = manifest_ret
 
         # Validate consistency with Idris signature.

@@ -36,6 +36,8 @@ Usage:
 Exit 0 on clean; 1 on any violation.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
@@ -188,7 +190,14 @@ def classify_return(ret_type: str) -> str:
     return "other"
 
 
-def lint_decl(path, name, cname, args, ret_type, errors):
+def lint_decl(
+    path: str,
+    name: str,
+    cname: str,
+    args: list[str],
+    ret_type: str,
+    errors: list[str],
+) -> None:
     """Apply the lint rules to one %foreign decl."""
     if name in KNOWN_DEAD_PRIMS:
         return
@@ -237,12 +246,12 @@ def lint_decl(path, name, cname, args, ret_type, errors):
         return
 
 
-def main(argv):
-    errors = []
+def main(argv: list[str]) -> None:
+    errors: list[str] = []
     n_decls = 0
     files_scanned = 0
 
-    files = []
+    files: list[Path] = []
     if len(argv) > 1:
         files = [Path(p) for p in argv[1:]]
     else:

@@ -28,6 +28,8 @@ consumers import via this package's top-level surface — see `__all__`):
   families/     — per-typeclass-family ENTRIES sub-dicts merged into MANIFEST
 """
 
+from __future__ import annotations
+
 from ._entry import Entry
 from ._helpers import (
     backend_tag_of,
@@ -94,7 +96,6 @@ _FAMILY_MODULES = (
 MANIFEST: dict[str, Entry] = {}
 for _mod in _FAMILY_MODULES:
     MANIFEST.update(_mod.ENTRIES)
-del _mod
 
 # Integrity guard: two families silently colliding on a key would let
 # the later module's Entry win and the earlier one disappear. Catch at

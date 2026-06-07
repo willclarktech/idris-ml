@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     src = spec["src"]
     exec_name = spec["exec"]
     fixed_flags: list[str] = list(spec.get("fixed_flags", []))
-    grid: dict[str, list] = spec["grid"]
+    grid: dict[str, list[object]] = spec["grid"]
 
     exe = f"./build/exec/{exec_name}"
     if not args.skip_build:

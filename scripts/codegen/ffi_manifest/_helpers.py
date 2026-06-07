@@ -3,10 +3,12 @@ generation. Family-orthogonal: every consumer uses these regardless of
 which typeclass family an FFI lives in.
 """
 
+from __future__ import annotations
+
 from ._skip import GUARDIAN_LAZY_INIT, INIT_FFI
 
 
-def strip_suffix(cname):
+def strip_suffix(cname: str) -> str:
     """Strip _mlx / _tape / _torch suffix from a C name to get the base.
 
     Note: `_<backend>_streamed` compound names (mlx-specific, e.g.
@@ -21,7 +23,7 @@ def strip_suffix(cname):
     return cname
 
 
-def parse_args(idris_sig):
+def parse_args(idris_sig: str) -> tuple[str, list[str], str]:
     """Parse 'export prim__foo : T1 -> T2 -> ... -> Tn' into (name, [T1..T_{n-1}], Tn)."""
     s = idris_sig.strip()
     if s.startswith("export"):
@@ -34,7 +36,7 @@ def parse_args(idris_sig):
     return name, args, ret
 
 
-def idris_type_to_class(t, manifest_class):
+def idris_type_to_class(t: str, manifest_class: str) -> str:
     """Map Idris type → classifier. manifest_class disambiguates AnyPtr."""
     t = t.strip()
     if t == "AnyPtr":
@@ -59,7 +61,7 @@ def idris_type_to_class(t, manifest_class):
     return manifest_class
 
 
-def scheme_type(cls):
+def scheme_type(cls: str) -> str:
     """Classifier → foreign-procedure type."""
     if cls == "T" or cls == "R":
         return "void*"
@@ -74,7 +76,7 @@ def scheme_type(cls):
     raise ValueError(f"Unknown classifier {cls!r}")
 
 
-def cache_var(c_symbol):
+def cache_var(c_symbol: str) -> str:
     """Per-FFI Chez top-level binding name for the cached foreign-procedure.
 
     Maps `tensor_add_torch` → `idris-ffi-tensor-add-torch`. The
@@ -89,7 +91,7 @@ def cache_var(c_symbol):
     return "idris-ffi-" + c_symbol.replace("_", "-")
 
 
-def backend_tag_of(cname):
+def backend_tag_of(cname: str) -> str:
     """Derive the backend tag for a wrap from the C function name.
 
     `tensor_add_tape`  → "tape"
@@ -113,7 +115,7 @@ def backend_tag_of(cname):
     return "primary"
 
 
-def gen_scheme_wrapper(cname, arg_classes, ret_class):
+def gen_scheme_wrapper(cname: str, arg_classes: tuple[str, ...], ret_class: str) -> str:
     """Generate the canonical Scheme lambda body for one FFI.
 
     The output is the literal string that would appear inside the
@@ -147,7 +149,7 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
     arg_names = [f"a{i}" for i in range(n_args)]
     fp_arg_types = " ".join(scheme_type(c) for c in arg_classes)
     fp_ret_type = scheme_type(ret_class)
-    call_args = []
+    call_args: list[str] = []
     for nm, cls in zip(arg_names, arg_classes, strict=True):
         if cls == "T":
             # v2 layout: raw pointer lives at slot 2 (slot 0 = sentinel,

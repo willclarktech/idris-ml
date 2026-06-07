@@ -1,0 +1,20 @@
+{
+	// Config root for the stdlib-only scripts/ tree, selected via
+	// `pyright -p scripts` (pyright discovers config from the project
+	// root, not by per-file ancestor walk like ruff). Strict here —
+	// these are repo tooling/codegen scripts where full annotations
+	// are cheap and the payoff is highest (the 2385e3f wrapper-regen
+	// bug class lived in codegen/).
+	//
+	// codegen/*.py's `sys.path.insert(0, <own dir>)` needs no
+	// extraPaths: pyright falls back to the importing file's own
+	// directory. Only tests/ imports across directories (mltools +
+	// ffi_manifest), hence its executionEnvironment.
+	"include": ["."],
+	"pythonVersion": "3.12",
+	"typeCheckingMode": "strict",
+	"executionEnvironments": [
+		{ "root": "tests", "extraPaths": [".", "codegen"] },
+		{ "root": "." }
+	]
+}

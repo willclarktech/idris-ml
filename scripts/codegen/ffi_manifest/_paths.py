@@ -2,6 +2,8 @@
 sources from, and how they recognise `%foreign` declarations in them.
 """
 
+from __future__ import annotations
+
 import re
 
 # Files in the wrap-handle FFI set — the linter and converter both

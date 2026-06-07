@@ -41,6 +41,8 @@ Usage:
 Exit code 0 on clean; 1 on any violation.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from pathlib import Path
@@ -64,12 +66,14 @@ FP_RE = re.compile(
 )
 
 
-def lint_scheme_body(body, cname, manifest_args, manifest_ret):
+def lint_scheme_body(
+    body: str, cname: str, manifest_args: list[str], manifest_ret: str
+) -> list[str]:
     """Verify body matches the wrap-on-return template for cname.
 
     Returns a list of issue strings (empty = clean).
     """
-    issues = []
+    issues: list[str] = []
 
     # 1. Locate the foreign-procedure call for cname.
     fp_re = re.compile(
@@ -164,7 +168,7 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
     return issues
 
 
-def first_manifest_call(body):
+def first_manifest_call(body: str) -> str | None:
     """Return the first foreign-procedure name in body whose base is in
     MANIFEST. Returns None if no such call exists (bespoke helper).
     """
@@ -178,7 +182,7 @@ def first_manifest_call(body):
     return None
 
 
-def check_file(path, errors):
+def check_file(path: str, errors: list[str]) -> None:
     text = Path(path).read_text()
     for m in ANY_FFI_RE.finditer(text):
         kind = m.group(2)  # "C" or "scheme"
@@ -252,9 +256,9 @@ def check_file(path, errors):
             errors.append(f"{path}: {name} (C:{cname}): {issue}")
 
 
-def main(argv):
+def main(argv: list[str]) -> None:
     files = argv[1:] if len(argv) > 1 else WRAP_HANDLE_FILES
-    errors = []
+    errors: list[str] = []
     n_decls = 0
     for f in files:
         text = Path(f).read_text()

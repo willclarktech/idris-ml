@@ -109,18 +109,24 @@ def emit_method_line(entry: Entry, manifest_key: str, backend: str) -> str | Non
     raise ValueError(f"Unknown flavor {flavor!r} for {manifest_key}/{backend}")
 
 
+def _idris_method_key(kv: tuple[str, Entry]) -> str:
+    method = kv[1].idris_method
+    assert method is not None, f"manifest entry {kv[0]!r} has a slice but no idris_method"
+    return method
+
+
 def entries_for_slice(slice_name: str) -> list[tuple[str, Entry]]:
     """Return all (key, Entry) pairs whose `slice == slice_name`,
     sorted by entry.idris_method for stable output."""
     out = [(k, e) for k, e in MANIFEST.items() if e.slice == slice_name]
-    out.sort(key=lambda kv: kv[1].idris_method)
+    out.sort(key=_idris_method_key)
     return out
 
 
 def generate_block(slice_name: str, backend: str) -> list[str]:
     """Return the list of generated body lines (with leading 2-space
     indent, no marker lines) for `slice_name` on `backend`."""
-    lines = []
+    lines: list[str] = []
     for key, entry in entries_for_slice(slice_name):
         line = emit_method_line(entry, key, backend)
         if line is not None:
@@ -175,14 +181,14 @@ def rewrite_file(path: Path, backend: str, dry_run: bool = False) -> tuple[str, 
     return src, new_src
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--check", action="store_true", help="Exit 1 if regeneration would change any file."
     )
     args = ap.parse_args()
 
-    diffs = []
+    diffs: list[tuple[str, Path]] = []
     for backend, path in FILES.items():
         src, new_src = rewrite_file(path, backend, dry_run=args.check)
         if src != new_src:

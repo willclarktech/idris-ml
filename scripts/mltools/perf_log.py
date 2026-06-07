@@ -34,10 +34,10 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 LOG_PATH_REL = "docs/develop/perf-log.jsonl"
 
@@ -85,9 +85,9 @@ def parse_epoch(line: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def parse_completed(line: str) -> dict:
+def parse_completed(line: str) -> dict[str, Any]:
     """Parse `Completed in 1m 7s (5500 epochs, 12ms/epoch)` → dict."""
-    out: dict = {}
+    out: dict[str, Any] = {}
     if not line:
         return out
     m = _COMPLETED_PARENS_RE.search(line)
@@ -100,9 +100,9 @@ def parse_completed(line: str) -> dict:
     return out
 
 
-def parse_result(line: str) -> dict:
+def parse_result(line: str) -> dict[str, Any]:
     """Parse `RESULT\\tk=v\\tk=v` → {k: v} with int / float / str coercion."""
-    out: dict = {}
+    out: dict[str, Any] = {}
     if not line:
         return out
     for part in line.split("\t")[1:]:
@@ -121,9 +121,9 @@ def parse_result(line: str) -> dict:
     return out
 
 
-def parse_stages(blob: str) -> list[dict]:
+def parse_stages(blob: str) -> list[dict[str, Any]]:
     """Parse multi-line `[stage] [hh:mm:ss] <label>` block."""
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     if not blob:
         return out
     for line in blob.splitlines():
@@ -136,14 +136,14 @@ def parse_stages(blob: str) -> list[dict]:
     return out
 
 
-def parse_op_bench_output(blob: str) -> list[dict]:
+def parse_op_bench_output(blob: str) -> list[dict[str, Any]]:
     """Parse `bench_ops` / `bench_layers` stdout.
 
     Returns one dict per measurement line:
         {"section": "...", "label": "...", "wall_ms": float, "iters": int}
     Section is the most recent `--- <name> ---` header (empty if none yet).
     """
-    entries: list[dict] = []
+    entries: list[dict[str, Any]] = []
     section = ""
     for line in blob.splitlines():
         line = line.rstrip()
@@ -176,7 +176,7 @@ _RESULT_LINE_RE = re.compile(r"^RESULT")
 _STAGE_LINE_RE = re.compile(r"^\[stage\] \[\d{2}:\d{2}:\d{2}\]")
 
 
-def extract_run_lines(blob: str) -> dict:
+def extract_run_lines(blob: str) -> dict[str, str]:
     """Pull the canonical lines out of a captured example stdout/stderr.
 
     Returns a dict with the *last* match for each (or empty string when
@@ -212,7 +212,7 @@ def extract_run_lines(blob: str) -> dict:
 # ----------------------------------------------------------------------
 
 
-def now_ts(_clock=None) -> tuple[str, str]:
+def now_ts(_clock: Callable[[], datetime] | None = None) -> tuple[str, str]:
     """(ISO timestamp, ISO date) in UTC.
 
     The `_clock` hook is for tests; production callers leave it None.
@@ -234,7 +234,7 @@ def resolve_log_path(path: str | Path | None = None) -> Path:
     return repo_root / LOG_PATH_REL
 
 
-def _append(entry: dict, log_path: str | Path | None) -> Path:
+def _append(entry: dict[str, Any], log_path: str | Path | None) -> Path:
     path = resolve_log_path(log_path)
     if not path.exists():
         path.touch()
@@ -264,7 +264,7 @@ def append_run(
     mlx_dtype: str | None = None,
     tape_dtype: str | None = None,
     log_path: str | Path | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Build a `kind="run"` entry and append it.
 
     When `parse_log` is given, the captured make-log file is scanned
@@ -272,7 +272,7 @@ def append_run(
     the structured fields are filled in.
     """
     ts, date = now_ts()
-    entry: dict = {
+    entry: dict[str, Any] = {
         "ts": ts,
         "date": date,
         "kind": "run",
@@ -326,7 +326,7 @@ def append_baseline(
     n_long: int,
     seed: int,
     log_path: str | Path | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Build a `kind="baseline"` entry from raw markers.
 
     `idris_raw` / `pytorch_raw` are float strings, or the sentinel
@@ -342,7 +342,7 @@ def append_baseline(
 
     idris_crashed = idris_raw in ("crashed", "missing")
     py_crashed = pytorch_raw in ("crashed", "missing")
-    entry: dict = {
+    entry: dict[str, Any] = {
         "ts": ts,
         "date": date,
         "kind": "baseline",
@@ -382,9 +382,9 @@ def append_op_bench(
     iters: int,
     commit: str,
     log_path: str | Path | None = None,
-) -> dict:
+) -> dict[str, Any]:
     ts, date = now_ts()
-    entry = {
+    entry: dict[str, Any] = {
         "ts": ts,
         "date": date,
         "kind": "op_bench",
@@ -406,7 +406,7 @@ def append_op_bench(
 # ----------------------------------------------------------------------
 
 
-def iter_entries(log_path: str | Path | None = None) -> Iterator[dict]:
+def iter_entries(log_path: str | Path | None = None) -> Iterator[dict[str, Any]]:
     """Yield each JSONL entry. Skips blank lines + JSON-decode errors."""
     path = resolve_log_path(log_path)
     if not path.exists():
@@ -416,9 +416,10 @@ def iter_entries(log_path: str | Path | None = None) -> Iterator[dict]:
         if not line:
             continue
         try:
-            yield json.loads(line)
+            entry: dict[str, Any] = json.loads(line)
         except json.JSONDecodeError:
             continue
+        yield entry
 
 
 # ----------------------------------------------------------------------

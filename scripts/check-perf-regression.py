@@ -56,6 +56,10 @@ import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -80,15 +84,25 @@ RUN_BASELINE_WINDOW = 10
 
 
 # Per-mode wiring: how to filter, group, and extract the metric.
-def _key_op_bench(entry: dict) -> tuple[str, str, str]:
+def _key_op_bench(entry: dict[str, Any]) -> tuple[str, str, str]:
     return (entry.get("axis", ""), entry.get("label", ""), entry.get("runtime", ""))
 
 
-def _key_run(entry: dict) -> tuple[str, str, str]:
+def _key_run(entry: dict[str, Any]) -> tuple[str, str, str]:
     return (entry.get("example", ""), entry.get("backend", ""), entry.get("args", ""))
 
 
-MODES = {
+class ModeConfig(TypedDict):
+    metric: str
+    metric_label: str
+    key_fn: Callable[[dict[str, Any]], tuple[str, str, str]]
+    key_labels: tuple[str, str, str]
+    fail_pct: float
+    baseline_window: int
+    always_gates: bool
+
+
+MODES: dict[str, ModeConfig] = {
     "op_bench": {
         "metric": "ms_per_iter",
         "metric_label": "ms/iter",
@@ -110,8 +124,8 @@ MODES = {
 }
 
 
-def load_entries(log_path: Path, kind: str, metric: str) -> list[dict]:
-    out = []
+def load_entries(log_path: Path, kind: str, metric: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for entry in iter_entries(log_path):
         if entry.get("kind") != kind:
             continue
@@ -125,10 +139,13 @@ def load_entries(log_path: Path, kind: str, metric: str) -> list[dict]:
     return out
 
 
-def group_by_cell(entries: list[dict], key_fn) -> dict[tuple[str, str, str], list[dict]]:
+def group_by_cell(
+    entries: list[dict[str, Any]],
+    key_fn: Callable[[dict[str, Any]], tuple[str, str, str]],
+) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
     """Group entries by the per-mode key function. Preserves the JSONL
     order within each cell (append-only log → naturally time-sorted)."""
-    cells: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    cells: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for entry in entries:
         cells[key_fn(entry)].append(entry)
     return cells
@@ -184,7 +201,7 @@ def main() -> int:
 
     cells = group_by_cell(entries, mode_cfg["key_fn"])
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     counts = {"OK": 0, "WARN": 0, "FAIL": 0, "INSUFFICIENT": 0, "INDETERMINATE": 0}
     for key in sorted(cells.keys()):
         cell_entries = cells[key]

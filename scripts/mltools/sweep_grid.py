@@ -41,8 +41,17 @@ if TYPE_CHECKING:
 # format.
 from mltools.perf_log import parse_result as parse_result_line  # noqa: F401
 
+__all__ = [
+    "config_to_cli_args",
+    "expand_grid",
+    "first_nonempty_result_keys",
+    "parse_result_line",
+    "random_sample",
+    "to_csv",
+]
 
-def expand_grid(grid: dict[str, list]) -> list[dict[str, str]]:
+
+def expand_grid(grid: dict[str, list[object]]) -> list[dict[str, str]]:
     """Cartesian product over the values of each grid key.
 
     Preserves key order (Python 3.7+ dict ordering). Values are

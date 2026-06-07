@@ -7,6 +7,8 @@ curated set of Tensor-creating FFIs whose wrapper carries the
 guardian-lazy-init prelude.
 """
 
+from __future__ import annotations
+
 # C function names to LEAVE AS-IS (don't convert).
 # Reasons:
 # - Take no Tensor args and don't return Tensors

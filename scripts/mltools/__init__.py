@@ -9,3 +9,5 @@ The package is the home for shared logic that multiple scripts need
 (perf-log entry construction, header parsing, sweep grid expansion).
 Single-script logic stays in the script.
 """
+
+from __future__ import annotations
