@@ -9,7 +9,7 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
-    (void)dim;
-    (void)keepdim;
-    return tensor_sum(h);
+	(void)dim;
+	(void)keepdim;
+	return tensor_sum(h);
 }

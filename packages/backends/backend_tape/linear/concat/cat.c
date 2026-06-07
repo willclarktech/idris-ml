@@ -9,5 +9,5 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
-    return tensor_stack(tensors, count, dim);
+	return tensor_stack(tensors, count, dim);
 }

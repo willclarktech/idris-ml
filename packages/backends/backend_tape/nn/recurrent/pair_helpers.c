@@ -10,6 +10,12 @@
 #include <stdlib.h>
 #include "../../../backend.h"
 
-TensorHandle tensor_pair_first(TensorPair* p)  { return p->first; }
-TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
-void         tensor_pair_free(TensorPair* p)   { free(p); }
+TensorHandle tensor_pair_first(TensorPair* p) {
+	return p->first;
+}
+TensorHandle tensor_pair_second(TensorPair* p) {
+	return p->second;
+}
+void tensor_pair_free(TensorPair* p) {
+	free(p);
+}

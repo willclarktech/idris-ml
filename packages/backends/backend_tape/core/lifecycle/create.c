@@ -20,23 +20,24 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
-    if (requires_grad) {
-        int numel = 1;
-        for (int i = 0; i < rank; i++) numel *= shape[i];
-        Tensor* t = calloc(1, sizeof(Tensor));
-        t->data = malloc(numel * sizeof(double));
-        memcpy(t->data, data, numel * sizeof(double));
-        t->shape = malloc(rank * sizeof(int));
-        memcpy(t->shape, shape, rank * sizeof(int));
-        t->rank = rank;
-        t->numel = numel;
-        t->requires_grad = 1;
-        t->tape_idx = -1;
-        t->grad = NULL;
-        t->persistent = 1;
-        t->dtype_tag = DT_F64;
-        tape_append(OP_CONST, t, NULL, NULL, 0);
-        return t;
-    }
-    return make_tensor(data, shape, rank, requires_grad);
+	if (requires_grad) {
+		int numel = 1;
+		for (int i = 0; i < rank; i++)
+			numel *= shape[i];
+		Tensor* t = calloc(1, sizeof(Tensor));
+		t->data = malloc(numel * sizeof(double));
+		memcpy(t->data, data, numel * sizeof(double));
+		t->shape = malloc(rank * sizeof(int));
+		memcpy(t->shape, shape, rank * sizeof(int));
+		t->rank = rank;
+		t->numel = numel;
+		t->requires_grad = 1;
+		t->tape_idx = -1;
+		t->grad = NULL;
+		t->persistent = 1;
+		t->dtype_tag = DT_F64;
+		tape_append(OP_CONST, t, NULL, NULL, 0);
+		return t;
+	}
+	return make_tensor(data, shape, rank, requires_grad);
 }

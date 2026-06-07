@@ -11,15 +11,17 @@
 static TapeBackwardFn g_tape_backward[OP_COUNT] = {0};
 
 void tape_register_op(int op, TapeBackwardFn fn) {
-    if (op < 0 || op >= OP_COUNT) {
-        fprintf(stderr, "[tape backend] tape_register_op: op tag %d out of range "
-                "[0..%d)\n", op, OP_COUNT);
-        abort();
-    }
-    g_tape_backward[op] = fn;
+	if (op < 0 || op >= OP_COUNT) {
+		fprintf(stderr,
+		        "[tape backend] tape_register_op: op tag %d out of range "
+		        "[0..%d)\n",
+		        op, OP_COUNT);
+		abort();
+	}
+	g_tape_backward[op] = fn;
 }
 
 TapeBackwardFn tape_dispatch_get(int op) {
-    if (op < 0 || op >= OP_COUNT) return NULL;
-    return g_tape_backward[op];
+	if (op < 0 || op >= OP_COUNT) return NULL;
+	return g_tape_backward[op];
 }

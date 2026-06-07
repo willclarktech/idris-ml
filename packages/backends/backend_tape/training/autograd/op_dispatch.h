@@ -16,7 +16,7 @@
 #ifndef IDRISML_BACKEND_TAPE_OP_DISPATCH_H
 #define IDRISML_BACKEND_TAPE_OP_DISPATCH_H
 
-#include "../../tape.h"  /* OP_COUNT, TapeEntry */
+#include "../../tape.h" /* OP_COUNT, TapeEntry */
 
 /* Backward kernel signature: receives the forward's TapeEntry; reads
  * inputs through tape_load_d and writes to .grad. */
@@ -43,8 +43,9 @@ TapeBackwardFn tape_dispatch_get(int op);
  * Idris invokes tensor_backward, by which time all constructors have
  * completed (dyld's standard guarantee).
  */
-#define TAPE_REGISTER_OP(op, fn)                                       \
-    __attribute__((constructor))                                       \
-    static void _tape_reg_##op##_##fn(void) { tape_register_op(op, fn); }
+#define TAPE_REGISTER_OP(op, fn)                                                                   \
+	__attribute__((constructor)) static void _tape_reg_##op##_##fn(void) {                         \
+		tape_register_op(op, fn);                                                                  \
+	}
 
 #endif /* IDRISML_BACKEND_TAPE_OP_DISPATCH_H */

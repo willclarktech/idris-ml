@@ -22,14 +22,14 @@ extern long g_tape_peak;
 
 /* System */
 void backend_reset_for_eval(void) {
-    tape_reset();
-    /* Re-register params so they have valid tape indices */
-    for (int j = 0; j < param_count(); j++) {
-        Tensor* t = (Tensor*)param_tensor(j);
-        t->tape_idx = -1;
-        if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
-        tape_append(OP_CONST, t, NULL, NULL, 0);
-    }
+	tape_reset();
+	/* Re-register params so they have valid tape indices */
+	for (int j = 0; j < param_count(); j++) {
+		Tensor* t = (Tensor*)param_tensor(j);
+		t->tape_idx = -1;
+		if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
+		tape_append(OP_CONST, t, NULL, NULL, 0);
+	}
 }
 
 /* See backend.h: explicit pre-exit cleanup. Three-phase free pass:
@@ -60,44 +60,55 @@ void backend_reset_for_eval(void) {
  * tensor handles. Every previously-returned arena pointer becomes
  * dangling after step (3). */
 void backend_release_all_persistent(void) {
-    tape_reset();
-    int n = param_count();
-    for (int i = 0; i < n; i++) {
-        Tensor* t = (Tensor*)param_tensor(i);
-        if (!t) continue;
-        free(t->shape);
-        free(t->data);
-        free(t->grad);
-        free(t);
-    }
-    param_clear();
-    arena_free_all();
+	tape_reset();
+	int n = param_count();
+	for (int i = 0; i < n; i++) {
+		Tensor* t = (Tensor*)param_tensor(i);
+		if (!t) continue;
+		free(t->shape);
+		free(t->data);
+		free(t->grad);
+		free(t);
+	}
+	param_clear();
+	arena_free_all();
 }
 
-int tensor_live_count(void)      { return (int)tape_size; }
-int tensor_peak_live_count(void) { return (int)g_tape_peak; }
+int tensor_live_count(void) {
+	return (int)tape_size;
+}
+int tensor_peak_live_count(void) {
+	return (int)g_tape_peak;
+}
 
 /* Debug */
-const char* backend_name(void) { return "tape"; }
+const char* backend_name(void) {
+	return "tape";
+}
 
 /* mx::compile is mlx-only; tape backend always reports disabled
  * regardless of MLX_COMPILE env var. */
-int  tensor_mlx_compile_enabled(void)         { return 0; }
-int  tensor_mlx_compile_invocations(void)     { return 0; }
-void tensor_mlx_compile_reset_stats(void)     { }
+int tensor_mlx_compile_enabled(void) {
+	return 0;
+}
+int tensor_mlx_compile_invocations(void) {
+	return 0;
+}
+void tensor_mlx_compile_reset_stats(void) {
+}
 
 void tensor_print(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    if (t->rank == 0) {
-        printf("%.6f\n", ((double*)t->data)[0]);
-    } else {
-        printf("[");
-        for (int i = 0; i < t->numel; i++) {
-            if (i > 0) printf(", ");
-            printf("%.6f", ((double*)t->data)[i]);
-        }
-        printf("]\n");
-    }
+	Tensor* t = (Tensor*)h;
+	if (t->rank == 0) {
+		printf("%.6f\n", ((double*)t->data)[0]);
+	} else {
+		printf("[");
+		for (int i = 0; i < t->numel; i++) {
+			if (i > 0) printf(", ");
+			printf("%.6f", ((double*)t->data)[i]);
+		}
+		printf("]\n");
+	}
 }
 
 /* dropout_random_seed lives in shared_utils.c. */

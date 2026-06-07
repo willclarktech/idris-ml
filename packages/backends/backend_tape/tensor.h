@@ -27,19 +27,31 @@
    storage path lands in B3 along with `tensor_bitlinear_fwd`. The
    ABI-to-internal mapping is in place so a future cast-into-Ternary
    call has a deterministic abort site rather than UB. */
-enum { DT_F64 = 0, DT_F32, DT_BF16, DT_F16, DT_I8, DT_I16, DT_I32, DT_I64, DT_U8, DT_BOOL,
-       DT_BINARY, DT_TERNARY };
+enum {
+	DT_F64 = 0,
+	DT_F32,
+	DT_BF16,
+	DT_F16,
+	DT_I8,
+	DT_I16,
+	DT_I32,
+	DT_I64,
+	DT_U8,
+	DT_BOOL,
+	DT_BINARY,
+	DT_TERNARY
+};
 
 typedef struct {
-    void* data;         /* owned, heap-allocated; element type per dtype_tag */
-    int* shape;         /* owned, heap-allocated (NULL for scalar) */
-    int rank;           /* 0 = scalar, 1 = vector, 2 = matrix */
-    int numel;
-    int requires_grad;
-    int tape_idx;       /* index into tape (-1 if not tracked) */
-    void* grad;         /* gradient storage (same shape/dtype as data), NULL if not allocated */
-    int persistent;     /* 1 = param tensor (malloc'd), 0 = intermediate (arena) */
-    int dtype_tag;      /* internal DT_* tag; 0 = DT_F64 (default for zeroed structs) */
+	void* data; /* owned, heap-allocated; element type per dtype_tag */
+	int* shape; /* owned, heap-allocated (NULL for scalar) */
+	int rank;   /* 0 = scalar, 1 = vector, 2 = matrix */
+	int numel;
+	int requires_grad;
+	int tape_idx;   /* index into tape (-1 if not tracked) */
+	void* grad;     /* gradient storage (same shape/dtype as data), NULL if not allocated */
+	int persistent; /* 1 = param tensor (malloc'd), 0 = intermediate (arena) */
+	int dtype_tag;  /* internal DT_* tag; 0 = DT_F64 (default for zeroed structs) */
 } Tensor;
 
 /* Byte size of one element of the given internal DT_* tag. */

@@ -13,10 +13,14 @@
 #include "../../../backend.h"
 
 void tensor_free(TensorHandle h) {
-    /* Tape holds non-owning pointers; freeing here would dangle them.
-     * Arena reset (in tape_reset) tears down the whole arena at once. */
-    (void)h;
+	/* Tape holds non-owning pointers; freeing here would dangle them.
+	 * Arena reset (in tape_reset) tears down the whole arena at once. */
+	(void)h;
 }
 
-void tensor_retain_handle(TensorHandle h) { (void)h; }
-void tensor_release_handle(TensorHandle h) { (void)h; }
+void tensor_retain_handle(TensorHandle h) {
+	(void)h;
+}
+void tensor_release_handle(TensorHandle h) {
+	(void)h;
+}

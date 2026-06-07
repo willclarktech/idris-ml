@@ -7,6 +7,6 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
-    int shape[] = {d0, d1, d2};
-    return tensor_reshape(h, shape, 3);
+	int shape[] = {d0, d1, d2};
+	return tensor_reshape(h, shape, 3);
 }

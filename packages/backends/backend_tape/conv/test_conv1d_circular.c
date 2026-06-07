@@ -22,24 +22,24 @@
 #include "test_helpers.h"
 
 Test(conv_conv1d_circular, forward_and_backward) {
-    param_clear();
-    double in_data[3] = {1.0, 2.0, 3.0};
-    double k_data[3]  = {0.1, 0.2, 0.3};
-    int sh[1] = {3};
-    TensorHandle in = tensor_create(in_data, sh, 1, 1);
-    TensorHandle k  = tensor_create(k_data,  sh, 1, 1);
-    param_register("in", in);
-    param_register("k",  k);
+	param_clear();
+	double in_data[3] = {1.0, 2.0, 3.0};
+	double k_data[3] = {0.1, 0.2, 0.3};
+	int sh[1] = {3};
+	TensorHandle in = tensor_create(in_data, sh, 1, 1);
+	TensorHandle k = tensor_create(k_data, sh, 1, 1);
+	param_register("in", in);
+	param_register("k", k);
 
-    TensorHandle out = tensor_conv1d_circular(in, k);
-    cr_assert_float_eq(tensor_item_1d(out, 0), 1.3, TEST_TOL_TIGHT);
-    cr_assert_float_eq(tensor_item_1d(out, 1), 1.0, TEST_TOL_TIGHT);
-    cr_assert_float_eq(tensor_item_1d(out, 2), 1.3, TEST_TOL_TIGHT);
+	TensorHandle out = tensor_conv1d_circular(in, k);
+	cr_assert_float_eq(tensor_item_1d(out, 0), 1.3, TEST_TOL_TIGHT);
+	cr_assert_float_eq(tensor_item_1d(out, 1), 1.0, TEST_TOL_TIGHT);
+	cr_assert_float_eq(tensor_item_1d(out, 2), 1.3, TEST_TOL_TIGHT);
 
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
-    for (int i = 0; i < 3; i++)
-        cr_assert_float_eq(param_grad_item_at(0, i), 0.6, TEST_TOL_TIGHT, "d_in[%d]", i);
-    for (int i = 0; i < 3; i++)
-        cr_assert_float_eq(param_grad_item_at(1, i), 6.0, TEST_TOL_TIGHT, "d_k[%d]", i);
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
+	for (int i = 0; i < 3; i++)
+		cr_assert_float_eq(param_grad_item_at(0, i), 0.6, TEST_TOL_TIGHT, "d_in[%d]", i);
+	for (int i = 0; i < 3; i++)
+		cr_assert_float_eq(param_grad_item_at(1, i), 6.0, TEST_TOL_TIGHT, "d_k[%d]", i);
 }

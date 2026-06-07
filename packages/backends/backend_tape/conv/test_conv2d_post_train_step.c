@@ -22,48 +22,50 @@
 #include "backend.h"
 
 Test(conv_conv2d_post_train_step, rank3_input_after_optimizer_step) {
-    param_clear();
+	param_clear();
 
-    /* Phase 1: tiny linear training loop (W: [2,2], b: [2]) for 3 steps. */
-    double wdata[4] = {0.1, 0.2, 0.3, 0.4};
-    double bdata[2] = {0.0, 0.0};
-    double* wcopy = (double*)malloc(4 * sizeof(double));
-    double* bcopy = (double*)malloc(2 * sizeof(double));
-    for (int i = 0; i < 4; i++) wcopy[i] = wdata[i];
-    for (int i = 0; i < 2; i++) bcopy[i] = bdata[i];
-    TensorHandle W = tensor_create_param_2d_f64(2, 2, wcopy);
-    TensorHandle b = tensor_create_param_1d_f64(2, bcopy);
-    param_register("W", W);
-    param_register("b", b);
-    OptimizerHandle opt = optimizer_create_sgd(0.01);
+	/* Phase 1: tiny linear training loop (W: [2,2], b: [2]) for 3 steps. */
+	double wdata[4] = {0.1, 0.2, 0.3, 0.4};
+	double bdata[2] = {0.0, 0.0};
+	double* wcopy = (double*)malloc(4 * sizeof(double));
+	double* bcopy = (double*)malloc(2 * sizeof(double));
+	for (int i = 0; i < 4; i++)
+		wcopy[i] = wdata[i];
+	for (int i = 0; i < 2; i++)
+		bcopy[i] = bdata[i];
+	TensorHandle W = tensor_create_param_2d_f64(2, 2, wcopy);
+	TensorHandle b = tensor_create_param_1d_f64(2, bcopy);
+	param_register("W", W);
+	param_register("b", b);
+	OptimizerHandle opt = optimizer_create_sgd(0.01);
 
-    double xdata[2] = {1.0, -1.0};
-    int xshape[1] = {2};
-    for (int step = 0; step < 3; step++) {
-        optimizer_zero_grad(opt);
-        TensorHandle x = tensor_create(xdata, xshape, 1, 0);
-        TensorHandle y = tensor_linear(W, x, b);
-        TensorHandle loss = tensor_sum(y);
-        tensor_backward(loss);
-        optimizer_step(opt);
-        tensor_free(x);
-    }
-    optimizer_free(opt);
+	double xdata[2] = {1.0, -1.0};
+	int xshape[1] = {2};
+	for (int step = 0; step < 3; step++) {
+		optimizer_zero_grad(opt);
+		TensorHandle x = tensor_create(xdata, xshape, 1, 0);
+		TensorHandle y = tensor_linear(W, x, b);
+		TensorHandle loss = tensor_sum(y);
+		tensor_backward(loss);
+		optimizer_step(opt);
+		tensor_free(x);
+	}
+	optimizer_free(opt);
 
-    /* Phase 2: conv2d with a *rank-3* input — the bench_ops contract.
-       input [inC=1, H=2, W=2] = [[1,2],[3,4]], kernel [outC=1, inC=1,
-       kH=2, kW=2] = ones, no bias, pad=0, stride=1.
-       Forward: out[0,0,0] = 1+2+3+4 = 10. */
-    double in_data[4] = {1.0, 2.0, 3.0, 4.0};
-    double k_data[4]  = {1.0, 1.0, 1.0, 1.0};
-    int sh_in[3] = {1, 2, 2};
-    int sh_k[4]  = {1, 1, 2, 2};
-    TensorHandle in = tensor_create(in_data, sh_in, 3, 0);
-    TensorHandle k  = tensor_create(k_data,  sh_k,  4, 0);
-    TensorHandle out = tensor_conv2d(in, k, (TensorHandle)0, 0, 0, 1, 1);
-    cr_assert_float_eq(tensor_item_1d(out, 0), 10.0, 1e-12,
-        "conv2d after 3 optimizer steps returns expected value (got %.6f)",
-        tensor_item_1d(out, 0));
+	/* Phase 2: conv2d with a *rank-3* input — the bench_ops contract.
+	   input [inC=1, H=2, W=2] = [[1,2],[3,4]], kernel [outC=1, inC=1,
+	   kH=2, kW=2] = ones, no bias, pad=0, stride=1.
+	   Forward: out[0,0,0] = 1+2+3+4 = 10. */
+	double in_data[4] = {1.0, 2.0, 3.0, 4.0};
+	double k_data[4] = {1.0, 1.0, 1.0, 1.0};
+	int sh_in[3] = {1, 2, 2};
+	int sh_k[4] = {1, 1, 2, 2};
+	TensorHandle in = tensor_create(in_data, sh_in, 3, 0);
+	TensorHandle k = tensor_create(k_data, sh_k, 4, 0);
+	TensorHandle out = tensor_conv2d(in, k, (TensorHandle)0, 0, 0, 1, 1);
+	cr_assert_float_eq(tensor_item_1d(out, 0), 10.0, 1e-12,
+	                   "conv2d after 3 optimizer steps returns expected value (got %.6f)",
+	                   tensor_item_1d(out, 0));
 
-    param_clear();
+	param_clear();
 }

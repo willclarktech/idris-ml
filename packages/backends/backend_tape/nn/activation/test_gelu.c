@@ -17,55 +17,55 @@
 #include "test_helpers.h"
 
 static double gelu_ref(double x) {
-    double c = 0.7978845608028654;
-    double inner = c * (x + 0.044715 * x * x * x);
-    return 0.5 * x * (1.0 + tanh(inner));
+	double c = 0.7978845608028654;
+	double inner = c * (x + 0.044715 * x * x * x);
+	return 0.5 * x * (1.0 + tanh(inner));
 }
 
 static double gelu_grad_ref(double x) {
-    double c = 0.7978845608028654;
-    double inner = c * (x + 0.044715 * x * x * x);
-    double t = tanh(inner);
-    double dtdx = (1.0 - t * t) * c * (1.0 + 3.0 * 0.044715 * x * x);
-    return 0.5 * (1.0 + t) + 0.5 * x * dtdx;
+	double c = 0.7978845608028654;
+	double inner = c * (x + 0.044715 * x * x * x);
+	double t = tanh(inner);
+	double dtdx = (1.0 - t * t) * c * (1.0 + 3.0 * 0.044715 * x * x);
+	return 0.5 * (1.0 + t) + 0.5 * x * dtdx;
 }
 
 Test(nn_activation_gelu, forward_backward_at_zero) {
-    param_clear();
-    TensorHandle a = tensor_create_scalar(0.0, 1);
-    param_register("a", a);
-    TensorHandle r = tensor_gelu(a);
-    cr_assert_float_eq(tensor_item(r), 0.0, TEST_TOL_TIGHT,
-        "gelu(0) should be 0 (got %.9f)", tensor_item(r));
-    tensor_backward(r);
-    cr_assert_float_eq(param_grad_item_at(0, 0), 0.5, TEST_TOL_TIGHT,
-        "d gelu(0)/dx should be 0.5 (got %.9f)", param_grad_item_at(0, 0));
+	param_clear();
+	TensorHandle a = tensor_create_scalar(0.0, 1);
+	param_register("a", a);
+	TensorHandle r = tensor_gelu(a);
+	cr_assert_float_eq(tensor_item(r), 0.0, TEST_TOL_TIGHT, "gelu(0) should be 0 (got %.9f)",
+	                   tensor_item(r));
+	tensor_backward(r);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 0.5, TEST_TOL_TIGHT,
+	                   "d gelu(0)/dx should be 0.5 (got %.9f)", param_grad_item_at(0, 0));
 }
 
 Test(nn_activation_gelu, forward_backward_at_one) {
-    param_clear();
-    TensorHandle a = tensor_create_scalar(1.0, 1);
-    param_register("a", a);
-    TensorHandle r = tensor_gelu(a);
-    cr_assert_float_eq(tensor_item(r), gelu_ref(1.0), TEST_TOL_RELAXED,
-        "gelu(1) should match reference (got %.9f vs %.9f)",
-        tensor_item(r), gelu_ref(1.0));
-    tensor_backward(r);
-    cr_assert_float_eq(param_grad_item_at(0, 0), gelu_grad_ref(1.0), TEST_TOL_RELAXED,
-        "d gelu(1)/dx should match reference (got %.9f vs %.9f)",
-        param_grad_item_at(0, 0), gelu_grad_ref(1.0));
+	param_clear();
+	TensorHandle a = tensor_create_scalar(1.0, 1);
+	param_register("a", a);
+	TensorHandle r = tensor_gelu(a);
+	cr_assert_float_eq(tensor_item(r), gelu_ref(1.0), TEST_TOL_RELAXED,
+	                   "gelu(1) should match reference (got %.9f vs %.9f)", tensor_item(r),
+	                   gelu_ref(1.0));
+	tensor_backward(r);
+	cr_assert_float_eq(param_grad_item_at(0, 0), gelu_grad_ref(1.0), TEST_TOL_RELAXED,
+	                   "d gelu(1)/dx should match reference (got %.9f vs %.9f)",
+	                   param_grad_item_at(0, 0), gelu_grad_ref(1.0));
 }
 
 Test(nn_activation_gelu, forward_negative_input) {
-    /* GELU is asymmetric: gelu(-x) ≠ -gelu(x). At x=-1 the output is small
-     * and negative (the tanh damp factor). Verify the sign is correct. */
-    param_clear();
-    TensorHandle a = tensor_create_scalar(-1.0, 1);
-    param_register("a", a);
-    TensorHandle r = tensor_gelu(a);
-    double expected = gelu_ref(-1.0);
-    cr_assert(expected < 0.0, "gelu(-1) reference should be negative");
-    cr_assert_float_eq(tensor_item(r), expected, TEST_TOL_RELAXED,
-        "gelu(-1) should match reference (got %.9f vs %.9f)",
-        tensor_item(r), expected);
+	/* GELU is asymmetric: gelu(-x) ≠ -gelu(x). At x=-1 the output is small
+	 * and negative (the tanh damp factor). Verify the sign is correct. */
+	param_clear();
+	TensorHandle a = tensor_create_scalar(-1.0, 1);
+	param_register("a", a);
+	TensorHandle r = tensor_gelu(a);
+	double expected = gelu_ref(-1.0);
+	cr_assert(expected < 0.0, "gelu(-1) reference should be negative");
+	cr_assert_float_eq(tensor_item(r), expected, TEST_TOL_RELAXED,
+	                   "gelu(-1) should match reference (got %.9f vs %.9f)", tensor_item(r),
+	                   expected);
 }

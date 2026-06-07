@@ -9,5 +9,5 @@
 #include "../../../backend.h"
 
 double tensor_item(TensorHandle h) {
-    return tape_load_d((Tensor*)h, 0);
+	return tape_load_d((Tensor*)h, 0);
 }

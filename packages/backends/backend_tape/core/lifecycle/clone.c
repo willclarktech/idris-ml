@@ -13,15 +13,15 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_clone(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    if (t->rank == 0) {
-        double v = tape_load_d(t, 0);
-        return (t->dtype_tag == DT_F32) ? make_scalar_f32(v, 0) : make_scalar(v, 0);
-    }
-    if (t->dtype_tag == DT_F32) {
-        float* data = arena_alloc(t->numel * sizeof(float));
-        memcpy(data, t->data, t->numel * sizeof(float));
-        return make_tensor_arena_f32(data, t->numel, t->shape, t->rank, 0);
-    }
-    return make_tensor(t->data, t->shape, t->rank, 0);
+	Tensor* t = (Tensor*)h;
+	if (t->rank == 0) {
+		double v = tape_load_d(t, 0);
+		return (t->dtype_tag == DT_F32) ? make_scalar_f32(v, 0) : make_scalar(v, 0);
+	}
+	if (t->dtype_tag == DT_F32) {
+		float* data = arena_alloc(t->numel * sizeof(float));
+		memcpy(data, t->data, t->numel * sizeof(float));
+		return make_tensor_arena_f32(data, t->numel, t->shape, t->rank, 0);
+	}
+	return make_tensor(t->data, t->shape, t->rank, 0);
 }

@@ -11,23 +11,27 @@
 #include "_helpers.h"
 #include "../../../backend.h"
 
-static double fn_log_d(double x) { return log(x); }
-static float  fn_log_f32(float x) { return logf(x); }
+static double fn_log_d(double x) {
+	return log(x);
+}
+static float fn_log_f32(float x) {
+	return logf(x);
+}
 
 TensorHandle tensor_log(TensorHandle ha) {
-    Tensor* a = (Tensor*)ha;
-    if (a->dtype_tag == DT_F32) return unop_elementwise_f32_disp(ha, OP_LOG, fn_log_f32);
-    return unop_elementwise(ha, OP_LOG, fn_log_d);
+	Tensor* a = (Tensor*)ha;
+	if (a->dtype_tag == DT_F32) return unop_elementwise_f32_disp(ha, OP_LOG, fn_log_f32);
+	return unop_elementwise(ha, OP_LOG, fn_log_d);
 }
 
 static void tape_backward_log(TapeEntry* e) {
-    Tensor* r = e->result;
-    Tensor* a = e->arg1;
-    if (a) {
-        ensure_grad(a);
-        for (int j = 0; j < a->numel; j++)
-            tape_grad_add_d(a, j, tape_grad_load_d(r, j) / tape_load_d(a, j));
-    }
+	Tensor* r = e->result;
+	Tensor* a = e->arg1;
+	if (a) {
+		ensure_grad(a);
+		for (int j = 0; j < a->numel; j++)
+			tape_grad_add_d(a, j, tape_grad_load_d(r, j) / tape_load_d(a, j));
+	}
 }
 
 TAPE_REGISTER_OP(OP_LOG, tape_backward_log)

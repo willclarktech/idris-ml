@@ -1,0 +1,46 @@
+# clang-format config for packages/backends/.
+#
+# Tabs for indentation (Linux/BSD style); spaces for column
+# alignment after the indent. Keeps the file readable at any
+# tab-width setting while preserving in-line alignment.
+#
+# BasedOnStyle: LLVM is the most-conservative starting point;
+# everything below overrides where the project's existing style
+# already diverges (K&R-ish brace placement, longer column limit).
+
+BasedOnStyle: LLVM
+Language: Cpp
+
+UseTab: ForIndentation
+IndentWidth: 4
+TabWidth: 4
+
+# K&R: attach `{` to the function signature; `else` on a new line.
+# Matches what's already in packages/backends/.
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: None
+
+# `if (cond) return ...;` is heavy in the FFI bodies; LLVM's
+# default `Never` would force a 2-line split everywhere and
+# bloat the diff with no readability win.
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+
+# Wider column limit. The existing backend code (FFI bodies, kernel
+# loops, dispatch tables) routinely runs to 100 cols; LLVM's 80
+# would forcibly rewrap into hard-to-read shapes.
+ColumnLimit: 100
+
+# Preserve the order of explicit includes — backend.h before
+# rename_<b>.h before per-backend includes is load-bearing for the
+# rename machinery, and sorting would shuffle them.
+SortIncludes: false
+
+# Pointer alignment: `Foo* p` (LLVM default `Foo *p` flips). Match
+# the existing C and C++ backend code which uses the left-aligned
+# form throughout.
+PointerAlignment: Left
+
+# Don't auto-derive — be explicit so the diff is reproducible
+# across clang-format versions.
+DerivePointerAlignment: false

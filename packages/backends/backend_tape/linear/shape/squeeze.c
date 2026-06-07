@@ -11,6 +11,6 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_squeeze(TensorHandle h, int dim) {
-    (void)dim;
-    return tensor_clone(h);
+	(void)dim;
+	return tensor_clone(h);
 }

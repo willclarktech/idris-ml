@@ -36,12 +36,12 @@ extern size_t tape_grad_elem_size(int dtype_tag);
    via the existing public surface. */
 
 Test(tape_grad_typed, elem_size_dispatches_on_dtag) {
-    /* F32 (DT_F32 = 1) → 4 bytes; everything else → 8. */
-    cr_assert_eq(tape_grad_elem_size(0), 8, "DT_F64 grad elem size");
-    cr_assert_eq(tape_grad_elem_size(1), 4, "DT_F32 grad elem size");
-    /* Future dtypes default to F64-sized grad (lingua-franca). */
-    cr_assert_eq(tape_grad_elem_size(2), 8, "DT_BF16 grad elem size (F64 fallback)");
-    cr_assert_eq(tape_grad_elem_size(3), 8, "DT_F16 grad elem size (F64 fallback)");
+	/* F32 (DT_F32 = 1) → 4 bytes; everything else → 8. */
+	cr_assert_eq(tape_grad_elem_size(0), 8, "DT_F64 grad elem size");
+	cr_assert_eq(tape_grad_elem_size(1), 4, "DT_F32 grad elem size");
+	/* Future dtypes default to F64-sized grad (lingua-franca). */
+	cr_assert_eq(tape_grad_elem_size(2), 8, "DT_BF16 grad elem size (F64 fallback)");
+	cr_assert_eq(tape_grad_elem_size(3), 8, "DT_F16 grad elem size (F64 fallback)");
 }
 
 /* End-to-end roundtrip: an F32 tensor's gradient via a simple multiply
@@ -58,19 +58,18 @@ Test(tape_grad_typed, elem_size_dispatches_on_dtag) {
    exercises the new typed path end-to-end. For Phase 3a it's a
    passing-through regression sentinel. */
 Test(tape_grad_typed, f32_param_existing_pipeline_still_works) {
-    param_clear();
-    double xd[] = {2.0};
-    /* F32 param via dtag dispatch — exists pre-Phase 3a (precision-demo path). */
-    TensorHandle x = tensor_create_streamed(xd, (int[]){1}, 1, 1, 0, DTAG_F32);
-    param_register("x", x);
-    TensorHandle x_sq = tensor_mul(x, x);
-    TensorHandle loss = tensor_sum(x_sq);
-    cr_assert_float_eq(tensor_item(loss), 4.0, 1e-5,
-        "F32 (2.0)^2 should be 4.0 (got %.9f)", tensor_item(loss));
-    tensor_backward(loss);
-    /* d(x^2)/dx = 2x = 4. */
-    cr_assert_float_eq(param_grad_item_at(0, 0), 4.0, 1e-5,
-        "F32 d(x^2)/dx at x=2 should be 4.0 (got %.9f)",
-        param_grad_item_at(0, 0));
+	param_clear();
+	double xd[] = {2.0};
+	/* F32 param via dtag dispatch — exists pre-Phase 3a (precision-demo path). */
+	TensorHandle x = tensor_create_streamed(xd, (int[]){1}, 1, 1, 0, DTAG_F32);
+	param_register("x", x);
+	TensorHandle x_sq = tensor_mul(x, x);
+	TensorHandle loss = tensor_sum(x_sq);
+	cr_assert_float_eq(tensor_item(loss), 4.0, 1e-5, "F32 (2.0)^2 should be 4.0 (got %.9f)",
+	                   tensor_item(loss));
+	tensor_backward(loss);
+	/* d(x^2)/dx = 2x = 4. */
+	cr_assert_float_eq(param_grad_item_at(0, 0), 4.0, 1e-5,
+	                   "F32 d(x^2)/dx at x=2 should be 4.0 (got %.9f)", param_grad_item_at(0, 0));
 }
 #endif /* BACKEND_TAPE */

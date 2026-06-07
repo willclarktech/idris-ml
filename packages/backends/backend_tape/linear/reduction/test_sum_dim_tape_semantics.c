@@ -14,11 +14,11 @@
 #ifdef BACKEND_TAPE
 
 Test(tape_linear_reduction_sum_dim, simplified_delegates_to_sum) {
-    double d[] = {1.0, 2.0, 3.0, 4.0};
-    int s[] = {2, 2};
-    TensorHandle t = tensor_create(d, s, 2, 0);
-    TensorHandle r = tensor_sum_dim(t, 0, 0);
-    cr_assert_float_eq(tensor_item(r), 10.0, 1e-12);
+	double d[] = {1.0, 2.0, 3.0, 4.0};
+	int s[] = {2, 2};
+	TensorHandle t = tensor_create(d, s, 2, 0);
+	TensorHandle r = tensor_sum_dim(t, 0, 0);
+	cr_assert_float_eq(tensor_item(r), 10.0, 1e-12);
 }
 
 #endif /* BACKEND_TAPE */

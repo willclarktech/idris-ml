@@ -15,14 +15,15 @@
 static int persistent_scalar_count = 0;
 
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    persistent_scalar_count++;
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(sizeof(double));
-    ((double*)t->data)[0] = value;
-    t->rank = 0; t->numel = 1;
-    t->requires_grad = requires_grad;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    if (requires_grad) tape_append(OP_CONST, t, NULL, NULL, 0);
-    return t;
+	persistent_scalar_count++;
+	Tensor* t = calloc(1, sizeof(Tensor));
+	t->data = malloc(sizeof(double));
+	((double*)t->data)[0] = value;
+	t->rank = 0;
+	t->numel = 1;
+	t->requires_grad = requires_grad;
+	t->tape_idx = -1;
+	t->persistent = 1;
+	if (requires_grad) tape_append(OP_CONST, t, NULL, NULL, 0);
+	return t;
 }

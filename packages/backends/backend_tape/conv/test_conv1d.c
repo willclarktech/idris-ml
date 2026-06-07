@@ -22,27 +22,27 @@
 #include "backend.h"
 
 Test(conv_conv1d, forward_and_backward) {
-    param_clear();
-    double in_data[4] = {1.0, 2.0, 3.0, 4.0};
-    double k_data[2]  = {0.5, 0.5};
-    int sh_in[2] = {1, 4};
-    int sh_k[3]  = {1, 1, 2};
-    TensorHandle in = tensor_create(in_data, sh_in, 2, 1);
-    TensorHandle k  = tensor_create(k_data,  sh_k,  3, 1);
-    param_register("in", in);
-    param_register("k",  k);
+	param_clear();
+	double in_data[4] = {1.0, 2.0, 3.0, 4.0};
+	double k_data[2] = {0.5, 0.5};
+	int sh_in[2] = {1, 4};
+	int sh_k[3] = {1, 1, 2};
+	TensorHandle in = tensor_create(in_data, sh_in, 2, 1);
+	TensorHandle k = tensor_create(k_data, sh_k, 3, 1);
+	param_register("in", in);
+	param_register("k", k);
 
-    TensorHandle out = tensor_conv1d(in, k, /*bias=*/(TensorHandle)0, /*pad=*/0, /*stride=*/1);
-    cr_assert_float_eq(tensor_item_1d(out, 0), 1.5, 1e-12);
-    cr_assert_float_eq(tensor_item_1d(out, 1), 2.5, 1e-12);
-    cr_assert_float_eq(tensor_item_1d(out, 2), 3.5, 1e-12);
+	TensorHandle out = tensor_conv1d(in, k, /*bias=*/(TensorHandle)0, /*pad=*/0, /*stride=*/1);
+	cr_assert_float_eq(tensor_item_1d(out, 0), 1.5, 1e-12);
+	cr_assert_float_eq(tensor_item_1d(out, 1), 2.5, 1e-12);
+	cr_assert_float_eq(tensor_item_1d(out, 2), 3.5, 1e-12);
 
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
-    cr_assert_float_eq(param_grad_item_at(0, 0), 0.5, 1e-12, "d_in[0]");
-    cr_assert_float_eq(param_grad_item_at(0, 1), 1.0, 1e-12, "d_in[1]");
-    cr_assert_float_eq(param_grad_item_at(0, 2), 1.0, 1e-12, "d_in[2]");
-    cr_assert_float_eq(param_grad_item_at(0, 3), 0.5, 1e-12, "d_in[3]");
-    cr_assert_float_eq(param_grad_item_at(1, 0), 6.0, 1e-12, "d_k[0]");
-    cr_assert_float_eq(param_grad_item_at(1, 1), 9.0, 1e-12, "d_k[1]");
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 0.5, 1e-12, "d_in[0]");
+	cr_assert_float_eq(param_grad_item_at(0, 1), 1.0, 1e-12, "d_in[1]");
+	cr_assert_float_eq(param_grad_item_at(0, 2), 1.0, 1e-12, "d_in[2]");
+	cr_assert_float_eq(param_grad_item_at(0, 3), 0.5, 1e-12, "d_in[3]");
+	cr_assert_float_eq(param_grad_item_at(1, 0), 6.0, 1e-12, "d_k[0]");
+	cr_assert_float_eq(param_grad_item_at(1, 1), 9.0, 1e-12, "d_k[1]");
 }

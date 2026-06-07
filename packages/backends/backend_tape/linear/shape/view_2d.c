@@ -10,15 +10,15 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
-    Tensor* t = (Tensor*)h;
-    int cols = t->shape[1];
-    Tensor* v = calloc(1, sizeof(Tensor));
-    v->data = &((double*)t->data)[row * cols + col];
-    v->shape = NULL;
-    v->rank = 0;
-    v->numel = 1;
-    v->requires_grad = 0;
-    v->tape_idx = -1;
-    v->grad = NULL;
-    return v;
+	Tensor* t = (Tensor*)h;
+	int cols = t->shape[1];
+	Tensor* v = calloc(1, sizeof(Tensor));
+	v->data = &((double*)t->data)[row * cols + col];
+	v->shape = NULL;
+	v->rank = 0;
+	v->numel = 1;
+	v->requires_grad = 0;
+	v->tape_idx = -1;
+	v->grad = NULL;
+	return v;
 }

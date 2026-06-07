@@ -27,169 +27,168 @@
 #define DTAG_F64 15
 
 static TensorHandle make_zero_shape_f32(int* shape, int rank) {
-    return tensor_create_streamed(NULL, shape, rank, 0, 0, DTAG_F32);
+	return tensor_create_streamed(NULL, shape, rank, 0, 0, DTAG_F32);
 }
 static TensorHandle make_zero_shape_f64(int* shape, int rank) {
-    return tensor_create_streamed(NULL, shape, rank, 0, 0, DTAG_F64);
+	return tensor_create_streamed(NULL, shape, rank, 0, 0, DTAG_F64);
 }
 
 /* ---- helpers ---- */
 
 static void assert_all_zero(TensorHandle t, int expected_numel) {
-    cr_assert_eq(tensor_numel(t), expected_numel,
-                 "expected numel=%d, got %d", expected_numel, tensor_numel(t));
-    if (expected_numel == 0) return;
-    double* out = malloc(sizeof(double) * expected_numel);
-    tensor_to_doubles(t, out);
-    for (int i = 0; i < expected_numel; i++) {
-        cr_assert_float_eq(out[i], 0.0, 1e-30,
-                           "out[%d] should be 0.0 (got %.6g)", i, out[i]);
-    }
-    free(out);
+	cr_assert_eq(tensor_numel(t), expected_numel, "expected numel=%d, got %d", expected_numel,
+	             tensor_numel(t));
+	if (expected_numel == 0) return;
+	double* out = malloc(sizeof(double) * expected_numel);
+	tensor_to_doubles(t, out);
+	for (int i = 0; i < expected_numel; i++) {
+		cr_assert_float_eq(out[i], 0.0, 1e-30, "out[%d] should be 0.0 (got %.6g)", i, out[i]);
+	}
+	free(out);
 }
 
 /* ---- tensor_mm: K=0 ---- */
 
 Test(linear_linalg_zero_dim, mm_f64_zero_K) {
-    /* a=[3,0], b=[0,4], r=[3,4] all zero. */
-    int sa[] = {3, 0};
-    int sb[] = {0, 4};
-    TensorHandle a = make_zero_shape_f64(sa, 2);
-    TensorHandle b = make_zero_shape_f64(sb, 2);
-    TensorHandle r = tensor_mm(a, b);
-    cr_assert_eq(tensor_size(r, 0), 3);
-    cr_assert_eq(tensor_size(r, 1), 4);
-    assert_all_zero(r, 12);
+	/* a=[3,0], b=[0,4], r=[3,4] all zero. */
+	int sa[] = {3, 0};
+	int sb[] = {0, 4};
+	TensorHandle a = make_zero_shape_f64(sa, 2);
+	TensorHandle b = make_zero_shape_f64(sb, 2);
+	TensorHandle r = tensor_mm(a, b);
+	cr_assert_eq(tensor_size(r, 0), 3);
+	cr_assert_eq(tensor_size(r, 1), 4);
+	assert_all_zero(r, 12);
 }
 
 Test(linear_linalg_zero_dim, mm_f32_zero_K) {
-    int sa[] = {3, 0};
-    int sb[] = {0, 4};
-    TensorHandle a = make_zero_shape_f32(sa, 2);
-    TensorHandle b = make_zero_shape_f32(sb, 2);
-    TensorHandle r = tensor_mm(a, b);
-    cr_assert_eq(tensor_size(r, 0), 3);
-    cr_assert_eq(tensor_size(r, 1), 4);
-    assert_all_zero(r, 12);
+	int sa[] = {3, 0};
+	int sb[] = {0, 4};
+	TensorHandle a = make_zero_shape_f32(sa, 2);
+	TensorHandle b = make_zero_shape_f32(sb, 2);
+	TensorHandle r = tensor_mm(a, b);
+	cr_assert_eq(tensor_size(r, 0), 3);
+	cr_assert_eq(tensor_size(r, 1), 4);
+	assert_all_zero(r, 12);
 }
 
 /* ---- tensor_mv: vector-length = 0 ---- */
 
 Test(linear_linalg_zero_dim, mv_f64_zero_inner) {
-    /* mat=[3,0], vec=[0], r=[3] all zero. */
-    int sm[] = {3, 0};
-    int sv[] = {0};
-    TensorHandle mat = make_zero_shape_f64(sm, 2);
-    TensorHandle vec = make_zero_shape_f64(sv, 1);
-    TensorHandle r = tensor_mv(mat, vec);
-    cr_assert_eq(tensor_size(r, 0), 3);
-    assert_all_zero(r, 3);
+	/* mat=[3,0], vec=[0], r=[3] all zero. */
+	int sm[] = {3, 0};
+	int sv[] = {0};
+	TensorHandle mat = make_zero_shape_f64(sm, 2);
+	TensorHandle vec = make_zero_shape_f64(sv, 1);
+	TensorHandle r = tensor_mv(mat, vec);
+	cr_assert_eq(tensor_size(r, 0), 3);
+	assert_all_zero(r, 3);
 }
 
 Test(linear_linalg_zero_dim, mv_f32_zero_inner) {
-    int sm[] = {3, 0};
-    int sv[] = {0};
-    TensorHandle mat = make_zero_shape_f32(sm, 2);
-    TensorHandle vec = make_zero_shape_f32(sv, 1);
-    TensorHandle r = tensor_mv(mat, vec);
-    cr_assert_eq(tensor_size(r, 0), 3);
-    assert_all_zero(r, 3);
+	int sm[] = {3, 0};
+	int sv[] = {0};
+	TensorHandle mat = make_zero_shape_f32(sm, 2);
+	TensorHandle vec = make_zero_shape_f32(sv, 1);
+	TensorHandle r = tensor_mv(mat, vec);
+	cr_assert_eq(tensor_size(r, 0), 3);
+	assert_all_zero(r, 3);
 }
 
 /* ---- tensor_linear: W=[m,0], x=[0], bias=NULL → r=[m] all zero ---- */
 
 Test(linear_linalg_zero_dim, linear_f64_zero_inner) {
-    int sW[] = {3, 0};
-    int sx[] = {0};
-    TensorHandle W = make_zero_shape_f64(sW, 2);
-    TensorHandle x = make_zero_shape_f64(sx, 1);
-    TensorHandle r = tensor_linear(W, x, NULL);
-    cr_assert_eq(tensor_size(r, 0), 3);
-    assert_all_zero(r, 3);
+	int sW[] = {3, 0};
+	int sx[] = {0};
+	TensorHandle W = make_zero_shape_f64(sW, 2);
+	TensorHandle x = make_zero_shape_f64(sx, 1);
+	TensorHandle r = tensor_linear(W, x, NULL);
+	cr_assert_eq(tensor_size(r, 0), 3);
+	assert_all_zero(r, 3);
 }
 
 Test(linear_linalg_zero_dim, linear_f32_zero_inner) {
-    int sW[] = {3, 0};
-    int sx[] = {0};
-    TensorHandle W = make_zero_shape_f32(sW, 2);
-    TensorHandle x = make_zero_shape_f32(sx, 1);
-    TensorHandle r = tensor_linear(W, x, NULL);
-    cr_assert_eq(tensor_size(r, 0), 3);
-    assert_all_zero(r, 3);
+	int sW[] = {3, 0};
+	int sx[] = {0};
+	TensorHandle W = make_zero_shape_f32(sW, 2);
+	TensorHandle x = make_zero_shape_f32(sx, 1);
+	TensorHandle r = tensor_linear(W, x, NULL);
+	cr_assert_eq(tensor_size(r, 0), 3);
+	assert_all_zero(r, 3);
 }
 
 /* ---- tensor_linear_2d: X=[B,0], W=[o,0], no bias → r=[B,o] all zero ---- */
 
 Test(linear_linalg_zero_dim, linear_2d_f64_zero_inner) {
-    int sX[] = {2, 0};
-    int sW[] = {4, 0};
-    TensorHandle X = make_zero_shape_f64(sX, 2);
-    TensorHandle W = make_zero_shape_f64(sW, 2);
-    TensorHandle r = tensor_linear_2d(W, X, NULL);
-    cr_assert_eq(tensor_size(r, 0), 2);
-    cr_assert_eq(tensor_size(r, 1), 4);
-    assert_all_zero(r, 8);
+	int sX[] = {2, 0};
+	int sW[] = {4, 0};
+	TensorHandle X = make_zero_shape_f64(sX, 2);
+	TensorHandle W = make_zero_shape_f64(sW, 2);
+	TensorHandle r = tensor_linear_2d(W, X, NULL);
+	cr_assert_eq(tensor_size(r, 0), 2);
+	cr_assert_eq(tensor_size(r, 1), 4);
+	assert_all_zero(r, 8);
 }
 
 Test(linear_linalg_zero_dim, linear_2d_f32_zero_inner) {
-    int sX[] = {2, 0};
-    int sW[] = {4, 0};
-    TensorHandle X = make_zero_shape_f32(sX, 2);
-    TensorHandle W = make_zero_shape_f32(sW, 2);
-    TensorHandle r = tensor_linear_2d(W, X, NULL);
-    cr_assert_eq(tensor_size(r, 0), 2);
-    cr_assert_eq(tensor_size(r, 1), 4);
-    assert_all_zero(r, 8);
+	int sX[] = {2, 0};
+	int sW[] = {4, 0};
+	TensorHandle X = make_zero_shape_f32(sX, 2);
+	TensorHandle W = make_zero_shape_f32(sW, 2);
+	TensorHandle r = tensor_linear_2d(W, X, NULL);
+	cr_assert_eq(tensor_size(r, 0), 2);
+	cr_assert_eq(tensor_size(r, 1), 4);
+	assert_all_zero(r, 8);
 }
 
 /* ---- tensor_bmm: a=[B,m,0], b=[0,k] → r=[B,m,k] all zero (b shared) ---- */
 
 Test(linear_linalg_zero_dim, bmm_f64_zero_inner) {
-    int sa[] = {2, 3, 0};
-    int sb[] = {0, 4};
-    TensorHandle a = make_zero_shape_f64(sa, 3);
-    TensorHandle b = make_zero_shape_f64(sb, 2);
-    TensorHandle r = tensor_bmm(a, b);
-    cr_assert_eq(tensor_size(r, 0), 2);
-    cr_assert_eq(tensor_size(r, 1), 3);
-    cr_assert_eq(tensor_size(r, 2), 4);
-    assert_all_zero(r, 24);
+	int sa[] = {2, 3, 0};
+	int sb[] = {0, 4};
+	TensorHandle a = make_zero_shape_f64(sa, 3);
+	TensorHandle b = make_zero_shape_f64(sb, 2);
+	TensorHandle r = tensor_bmm(a, b);
+	cr_assert_eq(tensor_size(r, 0), 2);
+	cr_assert_eq(tensor_size(r, 1), 3);
+	cr_assert_eq(tensor_size(r, 2), 4);
+	assert_all_zero(r, 24);
 }
 
 Test(linear_linalg_zero_dim, bmm_f32_zero_inner) {
-    int sa[] = {2, 3, 0};
-    int sb[] = {0, 4};
-    TensorHandle a = make_zero_shape_f32(sa, 3);
-    TensorHandle b = make_zero_shape_f32(sb, 2);
-    TensorHandle r = tensor_bmm(a, b);
-    cr_assert_eq(tensor_size(r, 0), 2);
-    cr_assert_eq(tensor_size(r, 1), 3);
-    cr_assert_eq(tensor_size(r, 2), 4);
-    assert_all_zero(r, 24);
+	int sa[] = {2, 3, 0};
+	int sb[] = {0, 4};
+	TensorHandle a = make_zero_shape_f32(sa, 3);
+	TensorHandle b = make_zero_shape_f32(sb, 2);
+	TensorHandle r = tensor_bmm(a, b);
+	cr_assert_eq(tensor_size(r, 0), 2);
+	cr_assert_eq(tensor_size(r, 1), 3);
+	cr_assert_eq(tensor_size(r, 2), 4);
+	assert_all_zero(r, 24);
 }
 
 /* ---- tensor_bmm_3x3: a=[B,m,0], b=[B,0,k] → r=[B,m,k] all zero ---- */
 
 Test(linear_linalg_zero_dim, bmm_3x3_f64_zero_inner) {
-    int sa[] = {2, 3, 0};
-    int sb[] = {2, 0, 4};
-    TensorHandle a = make_zero_shape_f64(sa, 3);
-    TensorHandle b = make_zero_shape_f64(sb, 3);
-    TensorHandle r = tensor_bmm_3x3(a, b);
-    cr_assert_eq(tensor_size(r, 0), 2);
-    cr_assert_eq(tensor_size(r, 1), 3);
-    cr_assert_eq(tensor_size(r, 2), 4);
-    assert_all_zero(r, 24);
+	int sa[] = {2, 3, 0};
+	int sb[] = {2, 0, 4};
+	TensorHandle a = make_zero_shape_f64(sa, 3);
+	TensorHandle b = make_zero_shape_f64(sb, 3);
+	TensorHandle r = tensor_bmm_3x3(a, b);
+	cr_assert_eq(tensor_size(r, 0), 2);
+	cr_assert_eq(tensor_size(r, 1), 3);
+	cr_assert_eq(tensor_size(r, 2), 4);
+	assert_all_zero(r, 24);
 }
 
 Test(linear_linalg_zero_dim, bmm_3x3_f32_zero_inner) {
-    int sa[] = {2, 3, 0};
-    int sb[] = {2, 0, 4};
-    TensorHandle a = make_zero_shape_f32(sa, 3);
-    TensorHandle b = make_zero_shape_f32(sb, 3);
-    TensorHandle r = tensor_bmm_3x3(a, b);
-    cr_assert_eq(tensor_size(r, 0), 2);
-    cr_assert_eq(tensor_size(r, 1), 3);
-    cr_assert_eq(tensor_size(r, 2), 4);
-    assert_all_zero(r, 24);
+	int sa[] = {2, 3, 0};
+	int sb[] = {2, 0, 4};
+	TensorHandle a = make_zero_shape_f32(sa, 3);
+	TensorHandle b = make_zero_shape_f32(sb, 3);
+	TensorHandle r = tensor_bmm_3x3(a, b);
+	cr_assert_eq(tensor_size(r, 0), 2);
+	cr_assert_eq(tensor_size(r, 1), 3);
+	cr_assert_eq(tensor_size(r, 2), 4);
+	assert_all_zero(r, 24);
 }

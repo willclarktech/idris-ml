@@ -24,30 +24,27 @@
 #include "../../log.h"
 
 void _dbg_dump_param_grads_if_enabled(void) {
-    /* Outer level gate: bypass entirely when build ceiling is < DEBUG.
-     * Without this the function still links and getenv() runs even on
-     * IDRISML_LOG=warn builds. */
-    if (idrisml_log_resolve_level() < IDRISML_LEVEL_DEBUG) return;
-    if (!getenv("DEBUG_PARAM_GRADS")) return;
-    IDRISML_LOG(IDRISML_LEVEL_DEBUG, "=== param grads after backward ===\n");
-    for (int i = 0; i < param_count(); i++) {
-        Tensor* t = (Tensor*)param_tensor(i);
-        double l2 = 0.0;
-        int has_nan = 0;
-        if (t->grad) {
-            for (int j = 0; j < t->numel; j++) {
-                double g = tape_grad_load_d(t, j);
-                if (isnan(g) || isinf(g)) has_nan = 1;
-                l2 += g * g;
-            }
-            l2 = sqrt(l2);
-        }
-        IDRISML_LOG(IDRISML_LEVEL_DEBUG,
-                "  %-40s numel=%-6d l2=%12.6e%s%s\n",
-                param_name(i), t->numel, l2,
-                t->grad ? "" : " NO_GRAD",
-                has_nan ? " NAN_OR_INF!" : "");
-    }
+	/* Outer level gate: bypass entirely when build ceiling is < DEBUG.
+	 * Without this the function still links and getenv() runs even on
+	 * IDRISML_LOG=warn builds. */
+	if (idrisml_log_resolve_level() < IDRISML_LEVEL_DEBUG) return;
+	if (!getenv("DEBUG_PARAM_GRADS")) return;
+	IDRISML_LOG(IDRISML_LEVEL_DEBUG, "=== param grads after backward ===\n");
+	for (int i = 0; i < param_count(); i++) {
+		Tensor* t = (Tensor*)param_tensor(i);
+		double l2 = 0.0;
+		int has_nan = 0;
+		if (t->grad) {
+			for (int j = 0; j < t->numel; j++) {
+				double g = tape_grad_load_d(t, j);
+				if (isnan(g) || isinf(g)) has_nan = 1;
+				l2 += g * g;
+			}
+			l2 = sqrt(l2);
+		}
+		IDRISML_LOG(IDRISML_LEVEL_DEBUG, "  %-40s numel=%-6d l2=%12.6e%s%s\n", param_name(i),
+		            t->numel, l2, t->grad ? "" : " NO_GRAD", has_nan ? " NAN_OR_INF!" : "");
+	}
 }
 
 /* Dumps h0/c0 param value trajectories. Set DEBUG_LSTM_TRAJ to enable;
@@ -55,33 +52,32 @@ void _dbg_dump_param_grads_if_enabled(void) {
 static int _dbg_traj_step = 0;
 
 void _dbg_dump_lstm_traj_if_enabled(void) {
-    if (idrisml_log_resolve_level() < IDRISML_LEVEL_DEBUG) return;
-    if (!getenv("DEBUG_LSTM_TRAJ")) return;
-    int every = 100;
-    const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
-    if (every_s) every = atoi(every_s);
-    _dbg_traj_step++;
-    if (_dbg_traj_step % every != 0 && _dbg_traj_step != 1) return;
-    for (int i = 0; i < param_count(); i++) {
-        const char* nm = param_name(i);
-        size_t L = strlen(nm);
-        if (L >= 3 && (strcmp(nm + L - 3, "_h0") == 0 ||
-                       strcmp(nm + L - 3, "_c0") == 0)) {
-            Tensor* t = (Tensor*)param_tensor(i);
-            double l2 = 0.0, mn = 1e300, mx = -1e300;
-            for (int j = 0; j < t->numel; j++) {
-                double v = ((double*)t->data)[j];
-                l2 += v*v;
-                if (v < mn) mn = v;
-                if (v > mx) mx = v;
-            }
-            l2 = sqrt(l2);
-            IDRISML_LOG(IDRISML_LEVEL_DEBUG,
-                "[traj epoch %d] %s l2=%.10g min=%.10g max=%.10g | t[0..2]=%.10g, %.10g, %.10g\n",
-                _dbg_traj_step, nm, l2, mn, mx,
-                t->numel >= 1 ? ((double*)t->data)[0] : 0.0,
-                t->numel >= 2 ? ((double*)t->data)[1] : 0.0,
-                t->numel >= 3 ? ((double*)t->data)[2] : 0.0);
-        }
-    }
+	if (idrisml_log_resolve_level() < IDRISML_LEVEL_DEBUG) return;
+	if (!getenv("DEBUG_LSTM_TRAJ")) return;
+	int every = 100;
+	const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
+	if (every_s) every = atoi(every_s);
+	_dbg_traj_step++;
+	if (_dbg_traj_step % every != 0 && _dbg_traj_step != 1) return;
+	for (int i = 0; i < param_count(); i++) {
+		const char* nm = param_name(i);
+		size_t L = strlen(nm);
+		if (L >= 3 && (strcmp(nm + L - 3, "_h0") == 0 || strcmp(nm + L - 3, "_c0") == 0)) {
+			Tensor* t = (Tensor*)param_tensor(i);
+			double l2 = 0.0, mn = 1e300, mx = -1e300;
+			for (int j = 0; j < t->numel; j++) {
+				double v = ((double*)t->data)[j];
+				l2 += v * v;
+				if (v < mn) mn = v;
+				if (v > mx) mx = v;
+			}
+			l2 = sqrt(l2);
+			IDRISML_LOG(
+			    IDRISML_LEVEL_DEBUG,
+			    "[traj epoch %d] %s l2=%.10g min=%.10g max=%.10g | t[0..2]=%.10g, %.10g, %.10g\n",
+			    _dbg_traj_step, nm, l2, mn, mx, t->numel >= 1 ? ((double*)t->data)[0] : 0.0,
+			    t->numel >= 2 ? ((double*)t->data)[1] : 0.0,
+			    t->numel >= 3 ? ((double*)t->data)[2] : 0.0);
+		}
+	}
 }

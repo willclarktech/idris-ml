@@ -12,17 +12,17 @@
 #include "test_helpers.h"
 
 Test(conv_avg_pool2d, forward_and_backward) {
-    param_clear();
-    double in_data[4] = {1.0, 2.0, 3.0, 4.0};
-    int sh[3] = {1, 2, 2};
-    TensorHandle in = tensor_create(in_data, sh, 3, 1);
-    param_register("in", in);
+	param_clear();
+	double in_data[4] = {1.0, 2.0, 3.0, 4.0};
+	int sh[3] = {1, 2, 2};
+	TensorHandle in = tensor_create(in_data, sh, 3, 1);
+	param_register("in", in);
 
-    TensorHandle out = tensor_avg_pool2d(in, 2, 2, 1, 1);
-    cr_assert_float_eq(tensor_item_1d(out, 0), 2.5, TEST_TOL_TIGHT);
+	TensorHandle out = tensor_avg_pool2d(in, 2, 2, 1, 1);
+	cr_assert_float_eq(tensor_item_1d(out, 0), 2.5, TEST_TOL_TIGHT);
 
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
-    for (int i = 0; i < 4; i++)
-        cr_assert_float_eq(param_grad_item_at(0, i), 0.25, TEST_TOL_TIGHT, "d_in[%d]", i);
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
+	for (int i = 0; i < 4; i++)
+		cr_assert_float_eq(param_grad_item_at(0, i), 0.25, TEST_TOL_TIGHT, "d_in[%d]", i);
 }

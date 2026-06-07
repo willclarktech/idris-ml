@@ -28,86 +28,87 @@
 extern void tape_abort_mixed_dtype(const char* op) __attribute__((noreturn));
 
 static inline double sigmoid_d(double x) {
-    return 1.0 / (1.0 + exp(-x));
+	return 1.0 / (1.0 + exp(-x));
 }
 
 TensorHandle tensor_swiglu_2d(TensorHandle hgate, TensorHandle hup) {
-    Tensor* g = (Tensor*)hgate;
-    Tensor* u = (Tensor*)hup;
-    if (g->dtype_tag != u->dtype_tag)
-        tape_abort_mixed_dtype("tensor_swiglu_2d");
-    int m = g->shape[0], n = g->shape[1];
-    int shape[] = {m, n};
-    int rg = g->requires_grad || u->requires_grad;
+	Tensor* g = (Tensor*)hgate;
+	Tensor* u = (Tensor*)hup;
+	if (g->dtype_tag != u->dtype_tag) tape_abort_mixed_dtype("tensor_swiglu_2d");
+	int m = g->shape[0], n = g->shape[1];
+	int shape[] = {m, n};
+	int rg = g->requires_grad || u->requires_grad;
 
-    if (g->dtype_tag == DT_F32) {
-        float* data = arena_alloc(m * n * sizeof(float));
-        double* sig_g = rg ? malloc(m * n * sizeof(double)) : NULL;
-        const float* gd = (const float*)g->data;
-        const float* ud = (const float*)u->data;
-        for (int i = 0; i < m * n; i++) {
-            double gv = gd[i];
-            double s = sigmoid_d(gv);
-            if (sig_g) sig_g[i] = s;
-            data[i] = (float)(gv * s * (double)ud[i]);
-        }
-        Tensor* r = make_tensor_arena_f32(data, m * n, shape, 2, rg);
-        if (rg) {
-            SwiGluMeta* meta = arena_alloc(sizeof(SwiGluMeta));
-            meta->sig_g = sig_g;
-            meta->m = m; meta->n = n;
-            TapeEntry* e = tape_append(OP_SWIGLU_2D, r, g, u, 0);
-            e->op_meta = meta;
-        }
-        return r;
-    }
+	if (g->dtype_tag == DT_F32) {
+		float* data = arena_alloc(m * n * sizeof(float));
+		double* sig_g = rg ? malloc(m * n * sizeof(double)) : NULL;
+		const float* gd = (const float*)g->data;
+		const float* ud = (const float*)u->data;
+		for (int i = 0; i < m * n; i++) {
+			double gv = gd[i];
+			double s = sigmoid_d(gv);
+			if (sig_g) sig_g[i] = s;
+			data[i] = (float)(gv * s * (double)ud[i]);
+		}
+		Tensor* r = make_tensor_arena_f32(data, m * n, shape, 2, rg);
+		if (rg) {
+			SwiGluMeta* meta = arena_alloc(sizeof(SwiGluMeta));
+			meta->sig_g = sig_g;
+			meta->m = m;
+			meta->n = n;
+			TapeEntry* e = tape_append(OP_SWIGLU_2D, r, g, u, 0);
+			e->op_meta = meta;
+		}
+		return r;
+	}
 
-    double* data = malloc(m * n * sizeof(double));
-    double* sig_g = rg ? malloc(m * n * sizeof(double)) : NULL;
-    const double* gd = (const double*)g->data;
-    const double* ud = (const double*)u->data;
-    for (int i = 0; i < m * n; i++) {
-        double s = sigmoid_d(gd[i]);
-        if (sig_g) sig_g[i] = s;
-        data[i] = gd[i] * s * ud[i];
-    }
-    Tensor* r = make_tensor(data, shape, 2, rg);
-    free(data);
-    if (rg) {
-        SwiGluMeta* meta = arena_alloc(sizeof(SwiGluMeta));
-        meta->sig_g = sig_g;
-        meta->m = m; meta->n = n;
-        TapeEntry* e = tape_append(OP_SWIGLU_2D, r, g, u, 0);
-        e->op_meta = meta;
-    }
-    return r;
+	double* data = malloc(m * n * sizeof(double));
+	double* sig_g = rg ? malloc(m * n * sizeof(double)) : NULL;
+	const double* gd = (const double*)g->data;
+	const double* ud = (const double*)u->data;
+	for (int i = 0; i < m * n; i++) {
+		double s = sigmoid_d(gd[i]);
+		if (sig_g) sig_g[i] = s;
+		data[i] = gd[i] * s * ud[i];
+	}
+	Tensor* r = make_tensor(data, shape, 2, rg);
+	free(data);
+	if (rg) {
+		SwiGluMeta* meta = arena_alloc(sizeof(SwiGluMeta));
+		meta->sig_g = sig_g;
+		meta->m = m;
+		meta->n = n;
+		TapeEntry* e = tape_append(OP_SWIGLU_2D, r, g, u, 0);
+		e->op_meta = meta;
+	}
+	return r;
 }
 
 static void tape_backward_swiglu_2d(TapeEntry* e) {
-    Tensor* r = e->result;
-    Tensor* g = e->arg1;
-    Tensor* u = e->arg2;
-    SwiGluMeta* meta = (SwiGluMeta*)e->op_meta;
-    int N = meta->m * meta->n;
-    ensure_grad(r);
-    int gNeedsGrad = g && g->requires_grad;
-    int uNeedsGrad = u && u->requires_grad;
-    if (gNeedsGrad) ensure_grad(g);
-    if (uNeedsGrad) ensure_grad(u);
-    for (int i = 0; i < N; i++) {
-        double dout = tape_grad_load_d(r, i);
-        double s = meta->sig_g[i];
-        double gv = tape_load_d(g, i);
-        if (gNeedsGrad) {
-            double uv = tape_load_d(u, i);
-            /* silu'(gate) = s * (1 + gate * (1 - s)) */
-            double dsilu = s * (1.0 + gv * (1.0 - s));
-            tape_grad_add_d(g, i, dout * uv * dsilu);
-        }
-        if (uNeedsGrad) {
-            tape_grad_add_d(u, i, dout * gv * s);
-        }
-    }
+	Tensor* r = e->result;
+	Tensor* g = e->arg1;
+	Tensor* u = e->arg2;
+	SwiGluMeta* meta = (SwiGluMeta*)e->op_meta;
+	int N = meta->m * meta->n;
+	ensure_grad(r);
+	int gNeedsGrad = g && g->requires_grad;
+	int uNeedsGrad = u && u->requires_grad;
+	if (gNeedsGrad) ensure_grad(g);
+	if (uNeedsGrad) ensure_grad(u);
+	for (int i = 0; i < N; i++) {
+		double dout = tape_grad_load_d(r, i);
+		double s = meta->sig_g[i];
+		double gv = tape_load_d(g, i);
+		if (gNeedsGrad) {
+			double uv = tape_load_d(u, i);
+			/* silu'(gate) = s * (1 + gate * (1 - s)) */
+			double dsilu = s * (1.0 + gv * (1.0 - s));
+			tape_grad_add_d(g, i, dout * uv * dsilu);
+		}
+		if (uNeedsGrad) {
+			tape_grad_add_d(u, i, dout * gv * s);
+		}
+	}
 }
 
 TAPE_REGISTER_OP(OP_SWIGLU_2D, tape_backward_swiglu_2d)

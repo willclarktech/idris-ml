@@ -18,24 +18,24 @@
 #include "backend.h"
 
 Test(conv_conv2d, forward_and_backward) {
-    param_clear();
-    double in_data[4] = {1.0, 2.0, 3.0, 4.0};
-    double k_data[4]  = {1.0, 1.0, 1.0, 1.0};
-    int sh_in[3] = {1, 2, 2};
-    int sh_k[4]  = {1, 1, 2, 2};
-    TensorHandle in = tensor_create(in_data, sh_in, 3, 1);
-    TensorHandle k  = tensor_create(k_data,  sh_k,  4, 1);
-    param_register("in", in);
-    param_register("k",  k);
+	param_clear();
+	double in_data[4] = {1.0, 2.0, 3.0, 4.0};
+	double k_data[4] = {1.0, 1.0, 1.0, 1.0};
+	int sh_in[3] = {1, 2, 2};
+	int sh_k[4] = {1, 1, 2, 2};
+	TensorHandle in = tensor_create(in_data, sh_in, 3, 1);
+	TensorHandle k = tensor_create(k_data, sh_k, 4, 1);
+	param_register("in", in);
+	param_register("k", k);
 
-    TensorHandle out = tensor_conv2d(in, k, (TensorHandle)0, 0, 0, 1, 1);
-    cr_assert_float_eq(tensor_item_1d(out, 0), 10.0, 1e-12);
+	TensorHandle out = tensor_conv2d(in, k, (TensorHandle)0, 0, 0, 1, 1);
+	cr_assert_float_eq(tensor_item_1d(out, 0), 10.0, 1e-12);
 
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
-    for (int i = 0; i < 4; i++)
-        cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 1e-12, "d_in[%d]", i);
-    double exp_k[4] = {1.0, 2.0, 3.0, 4.0};
-    for (int i = 0; i < 4; i++)
-        cr_assert_float_eq(param_grad_item_at(1, i), exp_k[i], 1e-12, "d_k[%d]", i);
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
+	for (int i = 0; i < 4; i++)
+		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 1e-12, "d_in[%d]", i);
+	double exp_k[4] = {1.0, 2.0, 3.0, 4.0};
+	for (int i = 0; i < 4; i++)
+		cr_assert_float_eq(param_grad_item_at(1, i), exp_k[i], 1e-12, "d_k[%d]", i);
 }

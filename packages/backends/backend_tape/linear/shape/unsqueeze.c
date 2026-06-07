@@ -22,22 +22,24 @@
 #include "../../../backend.h"
 
 TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
-    Tensor* t = (Tensor*)h;
-    int old_rank = t->rank;
-    int new_rank = old_rank + 1;
-    if (dim < 0 || dim > old_rank) {
-        fprintf(stderr, "tensor_unsqueeze: dim=%d out of range for rank=%d "
-                "(valid: 0..%d)\n", dim, old_rank, old_rank);
-        abort();
-    }
-    int* new_shape = arena_alloc((size_t)new_rank * sizeof(int));
-    int j = 0;
-    for (int i = 0; i < new_rank; i++) {
-        if (i == dim) {
-            new_shape[i] = 1;
-        } else {
-            new_shape[i] = (old_rank == 0) ? 1 : t->shape[j++];
-        }
-    }
-    return tensor_reshape(h, new_shape, new_rank);
+	Tensor* t = (Tensor*)h;
+	int old_rank = t->rank;
+	int new_rank = old_rank + 1;
+	if (dim < 0 || dim > old_rank) {
+		fprintf(stderr,
+		        "tensor_unsqueeze: dim=%d out of range for rank=%d "
+		        "(valid: 0..%d)\n",
+		        dim, old_rank, old_rank);
+		abort();
+	}
+	int* new_shape = arena_alloc((size_t)new_rank * sizeof(int));
+	int j = 0;
+	for (int i = 0; i < new_rank; i++) {
+		if (i == dim) {
+			new_shape[i] = 1;
+		} else {
+			new_shape[i] = (old_rank == 0) ? 1 : t->shape[j++];
+		}
+	}
+	return tensor_reshape(h, new_shape, new_rank);
 }

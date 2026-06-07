@@ -11,23 +11,27 @@
 #include "_helpers.h"
 #include "../../../backend.h"
 
-static double fn_sqrt_d(double x) { return sqrt(x); }
-static float  fn_sqrt_f32(float x) { return sqrtf(x); }
+static double fn_sqrt_d(double x) {
+	return sqrt(x);
+}
+static float fn_sqrt_f32(float x) {
+	return sqrtf(x);
+}
 
 TensorHandle tensor_sqrt(TensorHandle ha) {
-    Tensor* a = (Tensor*)ha;
-    if (a->dtype_tag == DT_F32) return unop_elementwise_f32_disp(ha, OP_SQRT, fn_sqrt_f32);
-    return unop_elementwise(ha, OP_SQRT, fn_sqrt_d);
+	Tensor* a = (Tensor*)ha;
+	if (a->dtype_tag == DT_F32) return unop_elementwise_f32_disp(ha, OP_SQRT, fn_sqrt_f32);
+	return unop_elementwise(ha, OP_SQRT, fn_sqrt_d);
 }
 
 static void tape_backward_sqrt(TapeEntry* e) {
-    Tensor* r = e->result;
-    Tensor* a = e->arg1;
-    if (a) {
-        ensure_grad(a);
-        for (int j = 0; j < a->numel; j++)
-            tape_grad_add_d(a, j, tape_grad_load_d(r, j) / (2.0 * tape_load_d(r, j)));
-    }
+	Tensor* r = e->result;
+	Tensor* a = e->arg1;
+	if (a) {
+		ensure_grad(a);
+		for (int j = 0; j < a->numel; j++)
+			tape_grad_add_d(a, j, tape_grad_load_d(r, j) / (2.0 * tape_load_d(r, j)));
+	}
 }
 
 TAPE_REGISTER_OP(OP_SQRT, tape_backward_sqrt)
