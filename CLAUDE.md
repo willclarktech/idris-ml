@@ -44,7 +44,7 @@ make example-<name>                       # Build and run an example (all accept
 make test-examples              # Smoke gate: every example × 4 lanes (tape, mlx, mlx-gpu, torch), ~30-60 min
 make test-examples-convergence  # Every example to convergence (hours, tape only)
 make test                       # Idris unit tests
-make test-backend-{tape,mlx,torch}  # C backend FFI tests per backend
+make test-unit-c-{tape,mlx,torch}   # C backend unit tests per backend (criterion)
 
 make bench-compare              # Side-by-side Idris vs PyTorch (end-to-end training)
 make bench-ops-compare          # Operator-level C backend vs PyTorch (raw speed)
@@ -246,7 +246,7 @@ Commit at each step. PyTorch is the correctness oracle.
 - **(ii) paired commit** — observe red locally, then commit test + implementation together in one commit whose body records the red. Used when a skip flag would be more ceremony than the change warrants.
 
 **Test layer to use** (pick the one the change actually drives):
-- **C unit tests** (`packages/backends/test_backend.c`, `make test-backend-{tape,torch,mlx}`) — backend-side dtype/kernel/lifetime work. Add assertions under the relevant `#ifdef`; verify on **all three** backends, not just the primary (regression on the non-primary backend is the bug class this catches).
+- **C unit tests** (criterion `test_*.c` files next to the backend sources, `make test-unit-c-{tape,torch,mlx}`) — backend-side dtype/kernel/lifetime work. Add assertions under the relevant `#ifdef`; verify on **all three** backends, not just the primary (regression on the non-primary backend is the bug class this catches).
 - **F32 gradcheck oracle** (tape T29 block) — when extending F32 routing to a new kernel: paired F32-vs-F64 contract with tag-propagation + forward-tol + grad-tol asserts.
 - **Idris unit tests** (`packages/idris-ml/test`, `make test`) — typed-surface, smart-constructor, training-loop work.
 - **`.expect` example outputs** (`make test-examples`) — user-visible example behaviour. Author the fixed expected stdout first; the example is RED until step 2 writes it (gated by a `<EXAMPLE>_READY` Makefile var for the skip-flag shape).
