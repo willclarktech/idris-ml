@@ -38,10 +38,13 @@ written against it, then pack publication.
    `Language.Reflection` (verified on idris2 0.8.0). Derived names would be real field names —
    reorder-safe; the honest tradeoff is field-rename hazard + unmeasured elaborator cost
    (`%runElab` per model record, in a codebase with documented elaboration blowups) versus the
-   leaf-typo / silent-gradient-non-flow class that explicit strings carry. Spike outcome decides:
-   if deriving `Params` field names elaborates cheaply at real model size,
-   derived-with-explicit-override becomes the design; explicit leaves are the fallback. Prefixes
-   compose structurally either way (can't desync between networks); the C registry is unchanged.
+   leaf-typo / silent-gradient-non-flow class that explicit strings carry. The spike's scope is the
+   **full `Params` instance**, not just names — traversal and field names fall out of the same
+   `%runElab` field walk, so it simultaneously answers api-critique §S2's "3-line boilerplate per
+   record until generic deriving lands". Outcome decides both: cheap elaboration at real model size
+   → `derive Params` with explicit-name override becomes the design; expensive → hand-written
+   3-line instances + explicit leaves. Prefixes compose structurally either way (can't desync
+   between networks); the C registry is unchanged.
 7. **Driver** (adjusts api-critique §N6): `fit` is the primary documented path, and the engine
    pieces it composes (NaN guard, eval bracket, checkpoint tick, mlx generation hygiene) are
    **exported** so RL/custom loops compose them rather than reimplement the subtle parts.
