@@ -40,7 +40,7 @@ packDoublesIntoBuf buf off (x :: rest) =
   packDoublesIntoBuf (prim__setDouble buf off x) (off + 1) rest
 
 -- Non-persistent input/target tensor from Vector n Double.
-bulkToPersistent : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} -> Vector n Double -> AnyPtr
+bulkToPersistent : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -54,7 +54,7 @@ bulkToPersistent {n} (VArray elems) =
 
 -- Scalar Tensor holding 0.0. IO so its FFI side effect happens at
 -- sequence-time rather than at call-time.
-freshZeroLossT : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => Double -> IO (Tensor [] ex dt WithGrad)
+freshZeroLossT : {0 ex : Executor} -> Backend ex dt => Double -> IO (Tensor [] ex dt WithGrad)
 freshZeroLossT seed = ioRerun (\_ => MkTensor (dtCreateScalar {ex} {t=dt} seed 0 (deviceStreamTag {ex})) Nothing)
 
 -- Add two scalar TVars. Dispatches via `primAdd {ex}` so the
@@ -71,7 +71,7 @@ scaleLoss v s = ioRerun (\_ => MkTensor (primMulScalar {ex} v.tensorPtr s) Nothi
 -- Sum a list of scalar tensors starting from a fresh zero. Replaces
 -- the old `foldl taddScalar (freshZeroLossT 0.0) losses` pattern under
 -- the IO-typed surface.
-sumLosses : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+sumLosses : {0 ex : Executor} -> Backend ex dt =>
             List (Tensor [] ex dt WithGrad) -> IO (Tensor [] ex dt WithGrad)
 sumLosses losses = do
   zero <- freshZeroLossT 0.0
@@ -94,7 +94,7 @@ sumLosses losses = do
 
 -- Per-point loss closure factored out to avoid let-block elaboration
 -- weirdness in epochVar's body.
-perPointLoss : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> {hs : List Nat} ->
+perPointLoss : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List Nat} ->
                LossFn ex dt o ->
                Network i hs o ex dt WithGrad ->
                DataPoint i o Double ->
@@ -111,7 +111,7 @@ perPointLoss lossFn model dp = do
 ||| sample losses, mean-reduce, native train step. Returns the
 ||| (unchanged) network and the loss scalar.
 export
-epochVar : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVar : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer ex ->
             Vect n (DataPoint i o Double) ->
             LossFn ex dt o ->
@@ -209,7 +209,7 @@ perRowLoss lossFn predB tgtB k = do
 
 ||| Batched supervised epoch over `TensorDataPoint`s.
 export
-epochVarTensorBatch : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensorBatch : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer ex ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn ex dt o ->
@@ -249,7 +249,7 @@ epochVarTensorBatch opt dataPoints lossFn model = do
 
 -- One step of a sequence: forward, compute loss against target,
 -- accumulate.
-recurStep : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> {hs : List Nat} ->
+recurStep : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List Nat} ->
             LossFn ex dt o ->
             (Network i hs o ex dt WithGrad, Tensor [] ex dt WithGrad) ->
             (Vector i Double, Vector o Double) ->
@@ -263,7 +263,7 @@ recurStep lossFn (net, accLoss) (xVec, yVec) = do
   pure (net', newAcc)
 
 -- Per-sequence loss: reset state, walk timesteps, mean-reduce.
-perSeqLoss : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLoss : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn ex dt o ->
              Network i hs o ex dt WithGrad ->
              RecurrentDataPoint i o Double ->
@@ -291,7 +291,7 @@ perSeqLoss lossFn model dp = do
 
 ||| One recurrent epoch.
 export
-epochRecurrentVar : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochRecurrentVar : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer ex ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn ex dt o ->
@@ -309,7 +309,7 @@ epochRecurrentVar opt dataPoints lossFn model = do
 -- Two-phase epoch (NTM/DNC pattern: encode then decode)
 ----------------------------------------------------------------------
 
-decodeStep : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> {hs : List Nat} ->
+decodeStep : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn ex dt o ->
              AnyPtr ->
              (Network i hs o ex dt WithGrad, Tensor [] ex dt WithGrad) ->
@@ -323,7 +323,7 @@ decodeStep lossFn zeroInPtr (net, accLoss) tgtVec = do
   newAcc <- taddScalar accLoss stepL
   pure (net', newAcc)
 
-encodeStep : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> {hs : List Nat} ->
+encodeStep : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List Nat} ->
              Network i hs o ex dt WithGrad ->
              Vector i Double ->
              IO (Network i hs o ex dt WithGrad)
@@ -332,7 +332,7 @@ encodeStep net xVec = do
   (net', _) <- forwardVar net inV
   pure net'
 
-perSeqLossTwoPhase : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLossTwoPhase : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn ex dt o ->
                      Network i hs o ex dt WithGrad ->
                      TwoPhaseDataPoint i o Double ->
@@ -371,7 +371,7 @@ perSeqLossTwoPhase lossFn model dp = do
 
 ||| One two-phase epoch.
 export
-epochTwoPhaseVar : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochTwoPhaseVar : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer ex ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn ex dt o ->
@@ -398,7 +398,7 @@ tvecToVector {n} ptr = VArray (build 0 n)
     build off (S k) = SArray (primItem1d {ex} ptr off) :: build (off + 1) k
 
 export
-forwardTwoPhase : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> {hs : List Nat} ->
+forwardTwoPhase : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List Nat} ->
                       Network i hs o ex dt WithGrad ->
                       TwoPhaseDataPoint i o Double ->
                       IO (Network i hs o ex dt WithGrad, List (Vector o Double))

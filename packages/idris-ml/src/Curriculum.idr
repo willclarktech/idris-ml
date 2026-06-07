@@ -47,7 +47,7 @@ minDelta : Double
 minDelta = 0.001
 
 ||| Run a chunk of training epochs over fixed data.
-runChunk : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+runChunk : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
            NativeOptimizer ex -> Schedule ->
            Network i hs o ex dt WithGrad ->
            Vect n (RecurrentDataPoint i o Double) ->
@@ -73,7 +73,7 @@ runChunk opt sched m ds lossFn (S k) ep bl sc = do
 ||| Train one curriculum stage. Returns
 ||| (model, totalEpochs, advanced?). `advanced=True` means the
 ||| caller should move to the next stage.
-trainStage : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
+trainStage : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
              NativeOptimizer ex -> Schedule ->
              Network i hs o ex dt WithGrad ->
              Stage ex i o n ->
@@ -130,7 +130,7 @@ trainStage opt sched model stage lossFn chunkSz patience budget done bestLoss st
 ||| per-epoch optimizer rebuild needed).
 export
 runCurriculum :
-  {ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => IsFloating dt =>
+  {ex : Executor} -> Backend ex dt => IsFloating dt =>
   {i, o, n : Nat} -> {hs : List Nat} ->
   NativeOptimizer ex ->
   Schedule ->
