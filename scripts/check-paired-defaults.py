@@ -299,7 +299,9 @@ def parse_idris(path: Path) -> dict[str, FlagInfo]:
             f"{path}: MkConfig has {len(tokens)} values but record has {len(fields)} fields"
         )
     field_defaults: dict[str, object] = {}
-    for fld, tok in zip(fields, tokens, strict=True):
+    # no strict=True: redundant with the length check above, and it
+    # breaks macOS system python 3.9 (the only local interpreter).
+    for fld, tok in zip(fields, tokens):
         field_defaults[fld] = _parse_idris_literal(tok)
 
     # 3. Arg specs: capture (flag, field) pairs.
