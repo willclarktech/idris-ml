@@ -1,13 +1,20 @@
 name: perf
 
-# Tier 2 perf cadence (see docs/develop/testing-taxonomy.md). Runs the
-# `bench-deep` aggregator end-to-end on Ubuntu and uploads the
-# refreshed perf-log.jsonl + BENCHMARKS.md as artifacts. Today covers
-# Axes A (op kernels), B (single-layer fwd+bwd), C (e2e training), and
-# the BERT + GPT-2 cells of Axis D (HF inference). The Llama-generate
-# cell of Axis D needs torch-mps F32 (Apple Silicon) — it's not
-# available on this Ubuntu runner so it lands on a developer's local
-# perf-deep.sh run, not this CI workflow.
+# Tier 1 + Tier 2 perf cadence (see docs/develop/testing-taxonomy.md).
+# Runs the `bench-deep` aggregator end-to-end on Ubuntu (bench-deep ⊇
+# bench-fast, so this workflow is the single per-push perf measurement
+# — running Tier 1 separately in test.yml double-appended Axis A/B
+# JSONL entries for the same sha) and uploads the refreshed
+# perf-log.jsonl + BENCHMARKS.md as artifacts. Covers Axes A (op
+# kernels), B (single-layer fwd+bwd), C (e2e training), and the BERT +
+# GPT-2 cells of Axis D (HF inference). The Llama-generate cell of
+# Axis D needs torch-mps F32 (Apple Silicon) — it's not available on
+# this Ubuntu runner so it lands on a developer's local perf-deep.sh
+# run, not this CI workflow.
+#
+# The perf-log sync lints run here, where the data is produced:
+# test-integration-lint-benchmarks (BENCHMARKS.md ↔ JSONL) and the
+# advisory perf-regression reports.
 #
 # Trigger is push-to-main, not a nightly cron: day-to-day work happens
 # on the private mirror (CI disabled) and this public repo only moves
@@ -26,119 +33,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  perf:
-    name: perf (tape)
+  bench-deep:
+    name: bench-deep (tape)
     runs-on: ubuntu-latest
-    # bench-deep itself is ≤20 min warm, but this runner is cold:
-    # idris2 bootstrap (~8 min) + `make install` elaboration + the
-    # Axis C/D example builds all happen from scratch.
+    # bench-deep itself is ≤20 min warm, but a cold runner pays the
+    # idris2 bootstrap + `make install` elaboration + the Axis C/D
+    # example builds from scratch.
     timeout-minutes: 60
     steps:
-      # Full history: git-restore-mtime below needs per-file
-      # last-commit dates (see test.yml's test-examples job for the
-      # full rationale on the mtime + TTC-cache interplay).
+      # Full history: the composite's git-restore-mtime needs per-file
+      # last-commit dates for the TTC-cache reuse.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install chez + openblas
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chezscheme libopenblas-dev git-restore-mtime
-
-      - name: Restore source mtimes for incremental rebuilds
-        run: git restore-mtime
-
-      # All caches in this workflow use split restore/save with
-      # if: always() saves — the plain actions/cache form only saves
-      # on job success, which starved every cache while the workflow
-      # was red (each run re-bootstrapped idris2 + the venv from
-      # scratch).
-      - name: Restore pytorch venv cache
-        uses: actions/cache/restore@v4
+      # torch deps: every Python invocation in the bench path goes
+      # through `uv run` inside packages/pytorch (bench-ops-py /
+      # bench-layers-py, the Axis C/D PyTorch refs, and the Idris-side
+      # hf_tokenize subprocess). No pack: the bench path doesn't drive
+      # the pack-built test harnesses.
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
         with:
-          path: packages/pytorch/.venv
-          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
-
-      - name: Install torch + transformers via uv
-        # Every Python invocation in the bench path goes through
-        # `uv run` inside packages/pytorch (bench-ops-py /
-        # bench-layers-py, the Axis C/D PyTorch refs, and the
-        # Idris-side hf_tokenize subprocess), so provision the
-        # uv-managed venv like test.yml does — a bare pip3 install
-        # is invisible to `uv run`. transformers comes in via the
-        # package's main dependency group (pyproject.toml). The
-        # Llama-generate cell of Axis D is locally-gated (torch-mps)
-        # and naturally skips on this runner since no MPS is
-        # available. uv lands in ~/.local/bin; persist it on PATH
-        # for the bench-deep step via GITHUB_PATH.
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          export PATH="$HOME/.local/bin:$PATH"
-          make ref-setup
-
-      # Same cache key as test.yml's Ubuntu lane so the two workflows
-      # share one warm ~/.idris2 tree. The old form here cloned an
-      # unpinned Idris2 main and `sudo make install`ed it — which lands
-      # in /root/.idris2 (sudo resets HOME) and is invisible to later
-      # steps' PATH.
-      - name: Restore Idris 2 cache
-        id: idris2-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.idris2
-          key: idris2-v0.8.0-ubuntu-latest-v2
-
-      - name: Build and install Idris 2
-        if: steps.idris2-cache.outputs.cache-hit != 'true'
-        run: |
-          git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
-          cd /tmp/Idris2
-          make bootstrap SCHEME=scheme
-          make install
-
-      - name: Add Idris 2 to PATH
-        run: echo "$HOME/.idris2/bin" >> $GITHUB_PATH
-
-      - name: Verify Idris 2
-        run: idris2 --version
-
-      # Same keys as test.yml's Ubuntu lane so the two workflows share
-      # one TTC tree + one HF model store (restore-only here picks up
-      # whatever the test workflow saved for this push, and vice versa).
-      - name: Restore TTC cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            build
-            packages/*/build
-            vendored
-            packages/idris-ml-examples/src/BuildConfig.idr
-            packages/idris-ml/src/HwConfig.idr
-            packages/idris-ml/src/HwExecutors.idr
-            packages/idris-ml/src/Test/Config.idr
-            packages/idris-transformers/src/Test/Config.idr
-          key: ttc-ubuntu-latest-v1-${{ github.sha }}
-          restore-keys: ttc-ubuntu-latest-v1-
-
-      - name: Restore HF model cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            models
-            ~/.cache/huggingface
-          key: hf-models-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
-          restore-keys: hf-models-ubuntu-latest-
-
-      - name: Restore dataset cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            data
-            packages/pytorch/data
-          key: datasets-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
-          restore-keys: datasets-ubuntu-latest-
+          os-label: ubuntu-latest
+          backend-deps: torch
+          ttc-job: bench-deep
+          swap: 'true'
 
       - name: Build tape backend
         run: env BACKEND=tape make backend
@@ -146,63 +66,43 @@ jobs:
       - name: Run bench-deep
         run: make bench-deep
 
-      # The test workflow's save uses the same per-sha key; whichever
-      # job finishes first wins and the other skips gracefully. Saving
-      # even on failure keeps partial elaboration progress.
-      - name: Save TTC cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            build
-            packages/*/build
-            vendored
-            packages/idris-ml-examples/src/BuildConfig.idr
-            packages/idris-ml/src/HwConfig.idr
-            packages/idris-ml/src/HwExecutors.idr
-            packages/idris-ml/src/Test/Config.idr
-            packages/idris-transformers/src/Test/Config.idr
-          key: ttc-ubuntu-latest-v1-${{ github.sha }}
+      - name: Verify BENCHMARKS.md is in sync with perf-log.jsonl
+        # Catches a hand-edit of BENCHMARKS.md that drifts from the
+        # JSONL truth. Runs here (not test.yml) because this workflow
+        # produces the entries it checks.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-benchmarks
 
-      - name: Save HF model cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            models
-            ~/.cache/huggingface
-          key: hf-models-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
+      - name: Run perf-regression gate (kind="op_bench", advisory)
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-perf-regression
 
-      - name: Save dataset cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            data
-            packages/pytorch/data
-          key: datasets-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
+      - name: Run perf-regression gate (kind="run" entries, advisory)
+        # Groups perf-log.jsonl `kind="run"` entries by (example,
+        # backend, args), medians the last 10, and reports OK / WARN
+        # (>15%) / FAIL (>100% slower) for the latest entry per cell.
+        # Advisory only — exits 0 even on FAILs — until the noise
+        # profile is calibrated; promote by setting PERF_GATE=1.
+        if: ${{ !cancelled() }}
+        run: make lint-perf-run
 
-      - name: Save Idris 2 cache
-        if: always() && steps.idris2-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.idris2
-          key: idris2-v0.8.0-ubuntu-latest-v2
-
-      - name: Save pytorch venv cache
+      - name: Save caches
         if: always()
-        uses: actions/cache/save@v4
+        uses: ./.github/actions/save-idris-ml-caches
         with:
-          path: packages/pytorch/.venv
-          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+          os-label: ubuntu-latest
+          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          ttc-job: bench-deep
 
       - name: Upload perf-log.jsonl
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: perf-log
           path: docs/develop/perf-log.jsonl
 
       - name: Upload BENCHMARKS.md
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmarks-md

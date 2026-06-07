@@ -584,27 +584,6 @@ jobs:
         # Train.idr / Checkpoint.idr auto-save / resume integration.
         if: ${{ !cancelled() }}
         run: make test-integration-checkpoint-resume
-
-      - name: Run Tier-1 perf benches + render BENCHMARKS.md + perf-regression gate
-        # Axis A op-kernel benches (matmul / softmax / SDPA / embedding /
-        # RMSNorm) on tape vs PyTorch. Appends kind="op_bench" entries to
-        # perf-log.jsonl and regenerates BENCHMARKS.md. The follow-up
-        # lint asserts BENCHMARKS.md is in sync with the log — catches a
-        # hand-edit of BENCHMARKS.md that drifts from the JSONL truth.
-        # Ubuntu-only: the PyTorch side runs through the uv venv.
-        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
-        run: make bench-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression
-
-      - name: Run perf-regression gate (kind="run" entries, advisory)
-        # Companion to the kind="op_bench" gate above. Groups
-        # perf-log.jsonl `kind="run"` entries by (example, backend,
-        # args), medians the last 10, and reports OK / WARN (>15%)
-        # / FAIL (>100% slower) for the latest entry per cell.
-        # Advisory only — exits 0 even on FAILs — until the noise
-        # profile is calibrated; promote by setting PERF_GATE=1.
-        # Renders the report in the CI logs regardless.
-        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
-        run: make lint-perf-run
       # <<< END GENERATED (test-integration) <<<
 
       - name: Save caches
