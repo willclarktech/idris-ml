@@ -149,7 +149,7 @@ ifeq ($(UNAME),Darwin)
 COV_CC_OVERRIDES :=
 COV_LLVM := xcrun
 else
-COV_CC_OVERRIDES := tape_CC=clang torch_CC=clang++ mlx_CC=clang++ LINK_CC=clang++ TEST_CC=clang
+COV_CC_OVERRIDES := tape_CC=clang torch_CC=clang++ mlx_CC=clang++ LINK_CC=clang++ TEST_CC=clang SHARED_CC=clang
 COV_LLVM :=
 endif
 

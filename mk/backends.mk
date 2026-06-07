@@ -373,23 +373,28 @@ endif
 
 SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/shared_utils.o $(BUILD)/idx.o $(BUILD)/log.o $(BUILD)/probes.o
 
+# Overridable so the coverage path can force clang on Linux (EXTRA_CFLAGS
+# carries clang-only instrumentation flags there) — same contract as the
+# per-backend tape_CC/torch_CC/mlx_CC and TEST_CC in mk/tests.mk.
+SHARED_CC := cc
+
 $(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(CJSON_H) $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
+	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
 
 $(BUILD)/cJSON.o: $(CJSON_C) $(CJSON_H) | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
+	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
+	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BUILD)/idx.o: $(BACKENDS_DIR)/idx.c $(BACKENDS_DIR)/idx.h | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
+	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BUILD)/log.o: $(BACKENDS_DIR)/log.c $(BACKENDS_DIR)/log.h | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -c -o $@ $<
+	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -c -o $@ $<
 
 $(BUILD)/probes.o: $(BACKENDS_DIR)/probes.c $(BACKENDS_DIR)/probes.h | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
+	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 # Drift detector: errors if any method is present in some Executor backend
 # files but not all three. Run alongside other check-* targets.
