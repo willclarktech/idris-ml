@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "arena.h"
+#include "tensor.h" /* Tensor struct + DT_F32 enum (transitive via arena.h, but direct per include-cleaner) */
 
 #define ARENA_INIT_SIZE (1 << 22) /* 4 MB */
 

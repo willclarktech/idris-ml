@@ -8,6 +8,7 @@
 #include <string.h>
 #include "tape.h"
 #include "arena.h" /* arena_reset (called from tape_reset) */
+#include "tensor.h" /* Tensor struct (used via tape entries' result/arg fields) */
 
 /* ----------------------------------------------------------------
  * TypedArena<T> — fixed-element-size linked-list arena. Struct is

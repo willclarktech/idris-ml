@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "op_dispatch.h"
+#include "../../tape.h" /* OP_COUNT enum (transitive via op_dispatch.h, but direct per include-cleaner) */
 
 static TapeBackwardFn g_tape_backward[OP_COUNT] = {0};
 
