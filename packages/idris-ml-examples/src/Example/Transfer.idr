@@ -57,7 +57,7 @@ import BuildConfig
 ||| frees on the same pointers and trip libsystem_malloc's
 ||| "pointer being freed was not allocated" abort. The same
 ||| structure exists (and is tested) in `Test.Transfer.makeVec4`.
-makeVec4 : {0 d : Type} -> {0 dt : DType} ->
+makeVec4 : {0 ex : Type} -> {0 dt : DType} ->
            UserExecutorTransfer ex => Compatible ex dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] ex dt WithGrad)
@@ -80,7 +80,7 @@ makeVec4 (a, b, c, dd) = do
 ||| promotes F32 to double on readback). The `{ex}` annotations
 ||| pin the typeclass dispatch — without them, Idris can't infer
 ||| which backend's `primItem1d` to call from a bare `AnyPtr`.
-read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
+read4 : {0 ex : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
         Tensor [4] ex dt WithGrad ->
         (Double, Double, Double, Double)
 read4 t =

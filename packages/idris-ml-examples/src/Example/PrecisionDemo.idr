@@ -55,7 +55,7 @@ import BuildConfig
 ||| ordered. A let-chain would risk being hoisted to a CSE'd
 ||| module-level constant whose lambda still references buffers
 ||| allocated at module load, double-freeing on the next call.
-makeVec3 : {0 d : Type} -> {0 dt : DType} ->
+makeVec3 : {0 ex : Type} -> {0 dt : DType} ->
            UserExecutorTransfer ex => Compatible ex dt =>
            (Double, Double, Double) ->
            IO (Tensor [3] ex dt WithGrad)
@@ -76,7 +76,7 @@ makeVec3 (a, b, c) = do
 ||| Returns F64 doubles regardless of storage dtype — the C side
 ||| promotes F32 to double on readback. `{ex}` pins the typeclass
 ||| dispatch (Idris can't infer it from a bare `AnyPtr`).
-read3 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
+read3 : {0 ex : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
         Tensor [3] ex dt WithGrad ->
         (Double, Double, Double)
 read3 t =

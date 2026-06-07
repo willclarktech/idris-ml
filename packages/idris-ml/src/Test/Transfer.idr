@@ -38,7 +38,7 @@ import Tensor
 ||| call to the constant re-ran the frees on the same pointers and
 ||| tripped libsystem_malloc's "pointer being freed was not
 ||| allocated" abort.
-makeVec4 : {0 d : Type} -> {0 dt : DType} ->
+makeVec4 : {0 ex : Type} -> {0 dt : DType} ->
            UserExecutorTransfer ex => Compatible ex dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] ex dt WithGrad)
@@ -56,7 +56,7 @@ makeVec4 (a, b, c, dd) = do
   _ <- primIO (\w => MkIORes (primFreeHost    {ex} buf4) w)
   pure (MkTensor ptr Nothing)
 
-read4 : {0 d : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
+read4 : {0 ex : Type} -> {0 dt : DType} -> UserExecutorCore ex =>
         Tensor [4] ex dt WithGrad ->
         (Double, Double, Double, Double)
 read4 t =
