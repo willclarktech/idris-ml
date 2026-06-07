@@ -16,6 +16,13 @@ NPROC ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 EXTRA_CFLAGS  ?=
 EXTRA_LDFLAGS ?=
 
+# HF checkpoint store (file-as-make-target fetch; pattern rule in
+# mk/examples.mk). Defined here, not in examples.mk, because tests.mk
+# is included earlier and its targets (test-unit-idris-transformers)
+# declare fixture prerequisites under this dir — prerequisites expand
+# at parse time.
+HF_MODELS_DIR := models
+
 # MLX stream selection at runtime, also consumed by the BuildConfig
 # generation rule below — when PRIMARY=mlx and MLX_DEVICE=gpu, examples
 # spell `Tensor [..] (MlxExecutor MGpu) F32 WithGrad` so the type-level

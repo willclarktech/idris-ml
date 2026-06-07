@@ -414,7 +414,16 @@ test-unit-args:
 # exactly. The dylib gets copied alongside the test executable so the
 # FFI registry calls land on the active backend's symbols (mirrors
 # the test-unit-idris-ml recipe).
-test-unit-idris-transformers: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(IDRIS_TRANSFORMERS_TESTCONFIG_IDR)
+# The Test.Tokenizer buckets subprocess into hf_tokenize.py, which
+# reads vocab files from models/<repo>/ — declare those fixtures as
+# prerequisites so the pattern rule in mk/examples.mk fetches them
+# when missing (Make's existence check IS the cache; CI run
+# 27373449876's Ubuntu leg failed 0/3 on the missing dirs).
+TRANSFORMERS_TEST_FIXTURES := \
+	$(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json \
+	$(HF_MODELS_DIR)/distilgpt2/config.json
+
+test-unit-idris-transformers: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(IDRIS_TRANSFORMERS_TESTCONFIG_IDR) $(TRANSFORMERS_TEST_FIXTURES)
 	cd packages/idris-transformers && pack --no-prompt install-deps idris-transformers-tests.ipkg
 	cd packages/idris-transformers && pack --no-prompt build idris-transformers-tests.ipkg
 	cp $(LIB) packages/idris-transformers/build/exec/idris-transformers-test_app/

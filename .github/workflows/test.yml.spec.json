@@ -302,6 +302,17 @@
     ],
     "test-e2e-hf": [
       {
+        "name": "Prefetch tokenizer-test fixtures",
+        "run": "make hf-fixtures",
+        "comment": [
+          "Fetches the small models (bert-tiny + distilgpt2) that the",
+          "Test.Tokenizer buckets in test-unit-idris-transformers",
+          "subprocess into, so this job's hf-models cache save carries",
+          "them for the test-unit legs' restore. Seconds when the cache",
+          "is warm (file-as-make-target: existence check is the cache)."
+        ]
+      },
+      {
         "name": "Run PyTorch reference correctness suite",
         "run": "make test-e2e-pytorch-ref",
         "comment": [

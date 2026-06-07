@@ -176,7 +176,8 @@ ref-bert-mlm-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
 # is checked here (the one place that actually fetches) rather than in
 # every consumer recipe. Gated models that need the token surface a
 # clear error; ungated models (BERT-tiny, distilgpt2) ignore the check.
-HF_MODELS_DIR := models
+# (HF_MODELS_DIR itself is defined in mk/config.mk — tests.mk parses
+# before this fragment and declares fixture prerequisites under it.)
 
 $(HF_MODELS_DIR)/%/config.json:
 	@if echo "$*" | grep -q '^meta-llama/' && [ -z "$$HF_TOKEN" ]; then \
@@ -187,6 +188,12 @@ $(HF_MODELS_DIR)/%/config.json:
 		exit 1; \
 	fi
 	bash packages/idris-transformers/scripts/hf-download.sh $*
+
+# Prefetch the small tokenizer-test fixtures (bert-tiny + distilgpt2)
+# without building anything. Run by the CI HF job so the shared
+# hf-models cache carries them for the test-unit legs' restore.
+.PHONY: hf-fixtures
+hf-fixtures: $(TRANSFORMERS_TEST_FIXTURES)
 
 example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
