@@ -60,6 +60,10 @@ void tensor_backward(TensorHandle h) {
 	int _num_chunks_b = 0;
 	for (TypedArenaChunk* _c = tape_arena.head; _c; _c = _c->next)
 		_num_chunks_b++;
+	/* `loss->tape_idx >= 0` (checked above) implies at least one chunk; the
+	 * explicit guard here is for the static analyzer, which can't prove the
+	 * connection and otherwise flags the malloc-of-size-zero path. */
+	if (_num_chunks_b == 0) return;
 	TypedArenaChunk** _chunks_b = malloc(_num_chunks_b * sizeof(TypedArenaChunk*));
 	{
 		int _ci = 0;

@@ -27,6 +27,7 @@ Checks: >
   bugprone-suspicious-string-compare,
   bugprone-unused-return-value,
   clang-analyzer-deadcode.DeadStores,
+  clang-analyzer-unix.Malloc,
   misc-definitions-in-headers,
   misc-redundant-expression,
   misc-unused-parameters,
