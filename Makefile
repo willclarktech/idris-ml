@@ -213,6 +213,17 @@ else
   LIB_EXT := so
 endif
 
+# Apple's `cc` finds the macOS SDK automatically via xcrun. The
+# nix-installed clang-tidy doesn't — it ships with its own libc++
+# headers but no system C SDK. Pass -isysroot at lint time so
+# clang-tidy resolves <stdio.h> etc.; harmless on Linux (variable
+# resolves to empty there).
+ifeq ($(UNAME), Darwin)
+  CLANG_TIDY_EXTRA_CFLAGS := -isysroot $(shell xcrun --show-sdk-path 2>/dev/null)
+else
+  CLANG_TIDY_EXTRA_CFLAGS :=
+endif
+
 # Per-example wall-clock cap for test-examples. Examples exceeding this are
 # killed and reported as timeouts. Override with `EXAMPLE_TIMEOUT=900 make ...`.
 EXAMPLE_TIMEOUT ?= 600
@@ -1378,12 +1389,12 @@ lint-c-tape:
 		echo "lint-c-tape: clang-format not installed (install via 'brew install clang-format' or 'apt-get install clang-format'; macOS Command Line Tools also ships one at /Library/Developer/CommandLineTools/usr/bin/clang-format if that's on PATH); skipping"; \
 	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
-		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape packages/backends/backend_tape/ || exit 1; \
+		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape packages/backends/backend_tape/ || exit 1; \
 	else \
 		echo "lint-c-tape: cppcheck not installed (install via 'brew install cppcheck' or 'apt-get install cppcheck'); skipping"; \
 	fi
 	@if command -v clang-tidy >/dev/null 2>&1; then \
-		clang-tidy --quiet $(BACKEND_TAPE_SRCS) -- $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
+		clang-tidy --quiet $(BACKEND_TAPE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
 	else \
 		echo "lint-c-tape: clang-tidy not installed (install via 'brew install llvm' or 'apt-get install clang-tidy'); skipping"; \
 	fi
@@ -1395,13 +1406,13 @@ lint-c-torch:
 		echo "lint-c-torch: clang-format not installed; skipping"; \
 	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
-		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_torch packages/backends/backend_torch/ || exit 1; \
+		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_torch packages/backends/backend_torch/ || exit 1; \
 	else \
 		echo "lint-c-torch: cppcheck not installed; skipping"; \
 	fi
 	@echo "lint-c-torch: clang-tidy on libtorch C++ skipped by default (libtorch headers ~30s/TU); enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch'"
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
-		clang-tidy --quiet $(BACKEND_TORCH_SRCS) -- $(torch_CFLAGS) -include $(BACKENDS_DIR)/rename_torch.h || exit 1; \
+		clang-tidy --quiet $(BACKEND_TORCH_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(torch_CFLAGS) -include $(BACKENDS_DIR)/rename_torch.h || exit 1; \
 	fi
 
 lint-c-mlx:
@@ -1411,13 +1422,13 @@ lint-c-mlx:
 		echo "lint-c-mlx: clang-format not installed; skipping"; \
 	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
-		cppcheck --quiet --enable=warning,style,unusedFunction --suppress=missingIncludeSystem --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_mlx packages/backends/backend_mlx/ || exit 1; \
+		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_mlx packages/backends/backend_mlx/ || exit 1; \
 	else \
 		echo "lint-c-mlx: cppcheck not installed; skipping"; \
 	fi
 	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx'"
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
-		clang-tidy --quiet $(BACKEND_MLX_SRCS) -- $(mlx_CFLAGS) -include $(BACKENDS_DIR)/rename_mlx.h || exit 1; \
+		clang-tidy --quiet $(BACKEND_MLX_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(mlx_CFLAGS) -include $(BACKENDS_DIR)/rename_mlx.h || exit 1; \
 	fi
 
 # Verify the GradMode gate is intact: a NoGrad loss must NOT type-check

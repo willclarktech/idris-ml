@@ -37,9 +37,11 @@ void _dbg_dump_param_grads_if_enabled(void) {
 		if (t->grad) {
 			for (int j = 0; j < t->numel; j++) {
 				double g = tape_grad_load_d(t, j);
+				// NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) — read by IDRISML_LOG
 				if (isnan(g) || isinf(g)) has_nan = 1;
 				l2 += g * g;
 			}
+			// NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) — read by IDRISML_LOG
 			l2 = sqrt(l2);
 		}
 		IDRISML_LOG(IDRISML_LEVEL_DEBUG, "  %-40s numel=%-6d l2=%12.6e%s%s\n", param_name(i),
@@ -71,6 +73,7 @@ void _dbg_dump_lstm_traj_if_enabled(void) {
 				if (v < mn) mn = v;
 				if (v > mx) mx = v;
 			}
+			// NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) — read by IDRISML_LOG
 			l2 = sqrt(l2);
 			IDRISML_LOG(
 			    IDRISML_LEVEL_DEBUG,

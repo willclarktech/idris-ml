@@ -102,6 +102,8 @@ void backend_profile_report(void) {
 		        int n = 0;
 		        for (int i = 0; i < param_count(); i++)
 			        n += ((Tensor*)param_tensor(i))->numel;
+		        // Value of the GCC statement-expression `({ ... })`, not a useless statement.
+		        // cppcheck-suppress constStatement
 		        n;
 	        }));
 	fprintf(stderr, "  Forward:   %.1fms total (%.1fms/epoch)\n", prof_forward_ms,
