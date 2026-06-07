@@ -14,13 +14,21 @@
 
 Checks: >
   -*,
-  bugprone-unused-return-value,
+  bugprone-assignment-in-if-condition,
+  bugprone-branch-clone,
+  bugprone-infinite-loop,
+  bugprone-signed-char-misuse,
+  bugprone-sizeof-expression,
   bugprone-suspicious-include,
+  bugprone-suspicious-memset-usage,
   bugprone-suspicious-string-compare,
+  bugprone-unused-return-value,
   clang-analyzer-deadcode.DeadStores,
+  misc-definitions-in-headers,
+  misc-redundant-expression,
   misc-unused-parameters,
   misc-unused-using-decls,
-  misc-redundant-expression,
+  readability-misleading-indentation,
   readability-redundant-control-flow
 
 # Don't enforce naming or style rules — those would touch every line.
