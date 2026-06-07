@@ -1,5 +1,7 @@
 module Test.Harness
 
+import System
+
 ||| Shared test harness for the idris-ml monorepo. One source of
 ||| truth used by every package's `test/` suite (idris-ml,
 ||| idris-transformers, idris-gym, idris-ml-examples).
@@ -7,9 +9,9 @@ module Test.Harness
 ||| A "test" is an `IO Bool` action that prints its own PASS/FAIL
 ||| line and returns True on success. A "suite" is a named
 ||| `List (IO Bool)`. `runAll` runs a list of suites, prints a
-||| trailing summary, and lets the exit code reflect failures via
-||| the caller's choice (idiomatic: `main` returns plain `IO ()`,
-||| and a non-zero count is signalled by the printed summary).
+||| trailing summary, and exits non-zero when any test failed —
+||| the printed summary alone is invisible to make/CI (run
+||| 27373449876's tokenizer FAILs sailed through a green step).
 
 export
 check : String -> Bool -> IO Bool
@@ -43,7 +45,8 @@ runLoop nFails ss =
   case ss of
     [] => if nFails == 0
              then putStrLn "\nAll tests passed."
-             else putStrLn ("\n" ++ show nFails ++ " failure(s).")
+             else do putStrLn ("\n" ++ show nFails ++ " failure(s).")
+                     exitFailure
     ((name, ts) :: rest) => do
       n <- runSuite name ts
       runLoop (nFails + n) rest
