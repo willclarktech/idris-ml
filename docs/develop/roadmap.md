@@ -21,6 +21,28 @@ written against it, then pack publication.
 3. **License**: choice deferred (see the LICENSE TODO row, which blocks the publish row). The repo
    currently has no LICENSE file; the AGPL adjacency from the TensorType survey makes the gap newly
    visible.
+4. **Composition**: records + `Params` + `Seq` confirmed. `~~>` survives as `Seq`'s chaining
+   operator — list-literal sugar and operator chains coexist (both desugar to the same
+   constructors); no `OutputLayer`-style terminator (the endpoints-only index needs none).
+5. **Expression layer** (deviates from api-critique §N3): operator aliases on *plain evaluated
+   tensors* returning IO (`(+.)`, `(*.)`, …) used with bang notation, plus `tgather`-style indexing.
+   **No `Num` instances on `IO (Tensor …)` and no `share`** — ops consume already-evaluated tensors,
+   so nothing can silently re-execute and there is no extra sharing semantics to teach. Given up:
+   integer-literal promotion. The dead `Num (Tensor …)` instance retires with nothing claiming its
+   place.
+6. **Param naming** (adjusts api-critique §N5): hierarchical `scoped` combinators + **explicit leaf
+   names** + `groupOf` for optimizer scoping. Full auto-derivation rejected: Idris can't reflect
+   record field names, so derived names would be positional counters — a field reorder would
+   silently rename every param and break checkpoint compatibility, a worse failure mode than the
+   typo class it cures. Prefixes compose structurally (can't desync between networks); the C
+   registry is unchanged.
+7. **Driver** (adjusts api-critique §N6): `fit` is the primary documented path, and the engine
+   pieces it composes (NaN guard, eval bracket, checkpoint tick, mlx generation hygiene) are
+   **exported** so RL/custom loops compose them rather than reimplement the subtle parts.
+8. **Batching**: batched-first where it earns it — dense/conv/transformer modules ship `[b, …]`
+   forms (single sample = `b=1`); recurrent/memory modules (RNN/LSTM/NTM/DNC) keep their natural
+   per-sequence forms. Under records there is no uniform interface forcing fake batched
+   implementations; the type says what each module supports.
 
 ## Workstream sequence
 
@@ -36,17 +58,18 @@ deletes the three zero-user epoch variants (`epochVarTensor`, `epochVarTensorMix
 - Optimizer collapse (§S4): `sgd`/`adam`/`adamW` × options record, schedules attach to the optimizer.
 - Construction facade + export boundary (§S1+§S10): `tensor`/`param` × `InitSpec`; `prim__*`/`dt*`
   fenced into `Internal`/`Unsafe`; CI lint gate "zero `prim__` in examples".
-- TensorM expression layer (§S3/N3): operators over `IO (Tensor …)`, `share`/`val`, `tgather`; the
-  37-line DQN loss exhibit is the acceptance test.
+- Tensor expression ops (§S3/N3 as adjusted by decision 5): `tgather`-style indexing + operator
+  aliases on plain tensors with bang notation; the 37-line DQN loss exhibit is the acceptance test.
 - Checkpoint surface + Math.idr demotion (§S6+§S3): `save`/`load` over the coming `Params`
   interface, `LoadOpts`, typed errors; one loss vocabulary.
 
 **Then the two XL rows, in order, library surface only** (old surfaces coexist until the sweep):
-- Single `fit` driver + data redesign (§S5+§S7/N6+N7): `fit` over a user `Step`, `Dataset`/`Stream`;
-  recurrent/two-phase become step-function folds.
-- Models-as-records (§S2/N4+N5; depends on the bundle and `fit`): `Params` + `Seq`, batched-first
-  signatures (closes the `applyVarBatch` `idris_crash` hole), `LayerLikeMixed` tree dies, `Init`
-  scope monad derives param names. **Absorbs the former "Reconsider layer / module naming" row** —
+- Single `fit` driver + data redesign (§S5+§S7/N6+N7, engine pieces exported per decision 7): `fit`
+  over a user `Step`, `Dataset`/`Stream`; recurrent/two-phase become step-function folds.
+- Models-as-records (§S2/N4+N5 as adjusted by decisions 4/6/8; depends on the bundle and `fit`):
+  `Params` + `Seq` (with `~~>`), batched-first where it earns it (closes the `applyVarBatch`
+  `idris_crash` hole structurally), `LayerLikeMixed` tree dies, `scoped` + explicit leaf names +
+  `groupOf` for params. **Absorbs the former "Reconsider layer / module naming" row** —
   the new abstraction is born with the glaive-survey vocabulary (`Module`, `Sequential`, bare
   constructor names) rather than renaming `LayerLike` first and deleting it later. Before the
   interface locks, skim the two PyTorch-design-survey items that inform it (`__call__`-vs-`forward`
@@ -88,15 +111,15 @@ it *changes* one, the change is deliberate and recorded here.
 | `IO`-typed tensor ops (C1) | **kept** — forced by FFI sequencing under strict eval; `TensorM` operators are the ergonomic answer, not purity | api-critique constraint ledger + §N3 |
 | Wrapped-handle Chez ABI (C2) | **kept** — but fenced out of user-visible surface (§S10) | api-critique §S10 |
 | Peano-Nat limits → factored shapes (C3) | **kept** — factored `[b, c, h, w]` + opaque products; large flattened literals stay documented limitation | api-critique §N4 + "explicitly unreachable" |
-| String-named C param registry (C5) | **kept** — independently confirmed load-bearing by the survey (safetensors/HF/freeze/groups all key on names); but *usage* changes: names become derived (`Init` scope monad), not hand-typed | glaive-survey verdicts A/B; api-critique §N5 |
+| String-named C param registry (C5) | **kept** — independently confirmed load-bearing by the survey (safetensors/HF/freeze/groups all key on names); but *usage* changes: prefixes compose via `scoped`, leaf names stay explicit, optimizer scoping goes through `groupOf` (decision 6 rejected full auto-derivation) | glaive-survey verdicts A/B; api-critique §N5 |
 | Autodiff lives C-side | **kept** — TensorType's own state (composition undefined, `%hint` dead-ends, `train` commented out) is the strongest evidence the pure-Idris path isn't ready | glaive-survey verdicts A/G |
 | safetensors-only checkpoint format | **kept** | api-critique §S6 |
 | Per-arch HF adapter modules | **kept** (naming changes only) | api-critique §S8 |
 | Losses as functions (not classes) | **kept** | api-critique §S3 |
 | Existential layer chain (`Network`/`AnyLayer`/`LayerLike`) | **changed** → records + `Params` + `Seq` | api-critique §S2/N4 |
-| Single-sample-first signatures | **changed** → batched-first (the honest answer to no-`vmap` B1; deletes the `idris_crash` default) | api-critique §S2/S5 |
+| Single-sample-first signatures | **changed** → batched-first where it earns it: dense/conv/transformer modules ship `[b, …]`; recurrent/memory modules keep per-sequence forms (decision 8) | api-critique §S2/S5 |
 | Mixed precision as parallel interface tree | **changed** → `fit` config | api-critique §S5 |
-| `Num (Tensor …)` instance | **changed** → moves to `TensorM` where it's honest | api-critique §S10/N3 |
+| `Num (Tensor …)` instance | **changed** → deleted, nothing claims its place; operator aliases on plain tensors + bang replace it (decision 5 rejected `Num` on IO carriers) | api-critique §S10/N3 |
 | CLI arg parsing in `Train.idr` | **changed** → moves to the examples package | api-critique §N6 |
 | `Math.idr` parallel loss surface | **changed** → demoted/internal | api-critique §S3 |
 | Flat `Hf*` module names | **changed** → `Transformers.*` namespaces | api-critique §S8 |
