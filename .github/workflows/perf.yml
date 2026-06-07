@@ -113,6 +113,7 @@ jobs:
           path: |
             build
             packages/*/build
+            vendored
             packages/idris-ml-examples/src/BuildConfig.idr
             packages/idris-ml/src/HwConfig.idr
             packages/idris-ml/src/HwExecutors.idr
@@ -130,6 +131,15 @@ jobs:
           key: hf-models-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
           restore-keys: hf-models-ubuntu-latest-
 
+      - name: Restore dataset cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data
+            packages/pytorch/data
+          key: datasets-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
+          restore-keys: datasets-ubuntu-latest-
+
       - name: Build tape backend
         run: env BACKEND=tape make backend
 
@@ -146,6 +156,7 @@ jobs:
           path: |
             build
             packages/*/build
+            vendored
             packages/idris-ml-examples/src/BuildConfig.idr
             packages/idris-ml/src/HwConfig.idr
             packages/idris-ml/src/HwExecutors.idr
@@ -161,6 +172,15 @@ jobs:
             models
             ~/.cache/huggingface
           key: hf-models-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
+
+      - name: Save dataset cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data
+            packages/pytorch/data
+          key: datasets-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
 
       - name: Save Idris 2 cache
         if: always() && steps.idris2-cache.outputs.cache-hit != 'true'

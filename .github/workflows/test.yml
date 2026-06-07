@@ -65,6 +65,23 @@ jobs:
         # is the single source of truth; add a gate by appending to
         # the spec and regenerating, not by editing the workflow.
         run: make test-integration-lint-ci-workflow
+      # Distinct key from the matrix jobs' full venv (pytorch-venv-*):
+      # this venv holds ONLY the dev group, and both live at the same
+      # path — sharing a key would poison the full-venv cache that
+      # test-examples restores. uv sync below is idempotent on a warm
+      # venv. Paired saves at the end of the job, if: always().
+      - name: Restore lint venv cache
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+      - name: Restore jupyter venv cache
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/jupyter/.venv
+          key: jupyter-venv-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
+
       - name: Install uv + lint-only Python deps
         # `--only-group dev --no-install-project` installs ruff + vulture
         # + their transitive deps WITHOUT pulling in torch / transformers
@@ -138,6 +155,20 @@ jobs:
         # FP architecture plus the macOS+nix libtorch-vs-libc++
         # block — deferred follow-up matching the main clang-tidy gap.
         run: make lint-c-include-cleaner
+
+      - name: Save lint venv cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+      - name: Save jupyter venv cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: packages/jupyter/.venv
+          key: jupyter-venv-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
 
   test-examples:
     name: test-examples (${{ matrix.os }})
@@ -354,6 +385,7 @@ jobs:
           path: |
             build
             packages/*/build
+            vendored
             packages/idris-ml-examples/src/BuildConfig.idr
             packages/idris-ml/src/HwConfig.idr
             packages/idris-ml/src/HwExecutors.idr
@@ -377,6 +409,20 @@ jobs:
             ~/.cache/huggingface
           key: hf-models-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
           restore-keys: hf-models-${{ matrix.os }}-
+
+      # Datasets the e2e example runs fetch (MNIST, SST-2, the
+      # torch_ref downloads under packages/pytorch/data). Same Pattern
+      # A logic as the model cache: the fetch rules are
+      # file-as-make-target, so a restored file is simply not
+      # re-fetched. Removes a mid-job network dependency.
+      - name: Restore dataset cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data
+            packages/pytorch/data
+          key: datasets-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
+          restore-keys: datasets-${{ matrix.os }}-
 
       - name: Build tape backend
         run: make BACKEND=tape backend
@@ -692,6 +738,7 @@ jobs:
           path: |
             build
             packages/*/build
+            vendored
             packages/idris-ml-examples/src/BuildConfig.idr
             packages/idris-ml/src/HwConfig.idr
             packages/idris-ml/src/HwExecutors.idr
@@ -707,6 +754,15 @@ jobs:
             models
             ~/.cache/huggingface
           key: hf-models-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
+
+      - name: Save dataset cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data
+            packages/pytorch/data
+          key: datasets-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
 
       - name: Save pack cache
         if: always()
