@@ -2,6 +2,7 @@ module Test.Main
 
 import Test.Harness
 import Test.Array
+import Test.Backend
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
@@ -43,6 +44,7 @@ import Test.SwiGLU
 main : IO ()
 main = runAll
   [ ("Array",           Test.Array.tests)
+  , ("Backend",         Test.Backend.tests)
   , ("GradMode",        Test.GradMode.tests)
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)

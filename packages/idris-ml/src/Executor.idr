@@ -25,6 +25,7 @@
 ||| the recipe.
 module Executor
 
+import public Backend
 import public Executor.Core
 import public Executor.Tape
 import public Executor.Torch

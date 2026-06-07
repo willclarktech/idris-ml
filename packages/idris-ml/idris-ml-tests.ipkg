@@ -16,6 +16,7 @@ modules = Test.Main
         , Test.ActivationDump
         , Test.Config
         , Test.Array
+        , Test.Backend
         , Test.BitLinear
         , Test.BitNet
         , Test.CheckpointSubset
