@@ -1,6 +1,10 @@
 .DS_Store
 .tmp/
 
+# Local git worktrees created by scripts/worktree.sh (each carries its
+# own COW-cloned build/models/data trees; never commit them).
+.worktrees/
+
 # Generated per-build from HwConfig.idr.in + the BACKEND list (Makefile
 # HWCONFIG_IDR rule). The template is tracked; the generated file is not.
 packages/idris-ml/src/HwConfig.idr
