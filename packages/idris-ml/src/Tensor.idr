@@ -12,6 +12,7 @@ import public DType.Core
 import public GradMode
 import Floating
 import Array
+import Schedule
 import Util
 
 
@@ -737,16 +738,20 @@ data ClipMode = NoClip | ValueClip Double | NormClip Double
 ||| parameters in the backend's registry. The `d` phantom pins the
 ||| optimizer to the backend whose registry it manages — a
 ||| `NativeOptimizer ex` can only step a loss `Tensor [] ex dt`.
+|||
+||| `schedule` is consumed by `Optimizer.tick` (Nothing = fixed LR);
+||| attach one with `Optimizer.withSchedule`.
 public export
 record NativeOptimizer (0 ex : Executor) where
   constructor MkNativeOptimizer
   handle : AnyPtr
   clipMode : ClipMode
+  schedule : Maybe Schedule
 
 ||| Create a native SGD optimizer.
 export
 nativeSgd : UserExecutorTraining ex => Double -> NativeOptimizer ex
-nativeSgd lr = MkNativeOptimizer (primOptimizerCreateSgd {ex} lr) NoClip
+nativeSgd lr = MkNativeOptimizer (primOptimizerCreateSgd {ex} lr) NoClip Nothing
 
 ||| Create a native RMSprop optimizer (matches PyTorch defaults).
 export
@@ -757,6 +762,7 @@ nativeRmsprop lr alpha eps clipVal momentum =
   MkNativeOptimizer
     (primOptimizerCreateRmsprop {ex} lr alpha eps 0.0 momentum)
     (ValueClip clipVal)
+    Nothing
 
 ||| Create a native Adam optimizer with global norm clipping.
 export
@@ -767,6 +773,7 @@ nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
   MkNativeOptimizer
     (primOptimizerCreateAdam {ex} lr beta1 beta2 eps)
     (NormClip maxNorm)
+    Nothing
 
 ||| Create a native Adam optimizer that only manages params whose registry
 ||| paramId starts with `scope`. Empty scope behaves like
@@ -783,6 +790,7 @@ nativeAdamGroup scope lr beta1 beta2 eps maxNorm =
   MkNativeOptimizer
     (primOptimizerCreateAdamGroup {ex} lr beta1 beta2 eps scope)
     (NormClip maxNorm)
+    Nothing
 
 ||| Create a native AdamW optimizer (decoupled weight decay) with global norm clipping.
 export
@@ -793,6 +801,7 @@ nativeAdamW lr beta1 beta2 eps wd maxNorm =
   MkNativeOptimizer
     (primOptimizerCreateAdamW {ex} lr beta1 beta2 eps wd)
     (NormClip maxNorm)
+    Nothing
 
 ||| Set a per-parameter learning rate override. Parameters matching the given
 ||| name will use this LR instead of the optimizer's base LR.

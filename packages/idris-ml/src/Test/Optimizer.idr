@@ -5,8 +5,9 @@ import Data.Vect
 
 import Test.Harness
 import Executor
-import Tensor
 import Optimizer
+import Schedule
+import Tensor
 import Test.Config
 
 
@@ -152,7 +153,67 @@ adamScopeRouting = do
          ++ "]), bystander frozen (" ++ show bn2 ++ ")")
         (wn1 == wo1 && wn2 == wo2 && bo1 == 1.0 && bn1 == 1.0 && bn2 == 1.0)
 
+-- withSchedule + tick: tick pushes schedule(epoch) into the C
+-- optimizer's base LR. Schedule values below are exact binary
+-- fractions so the assertions can stay exact ==.
+
+scheduleFreezesAtZero : IO Bool
+scheduleFreezesAtZero = do
+  w <- mkW "opt_sched0_w" 1.0
+  opt0 <- sgd {ex=TestExecutor} 0.1 defaultOpts
+  let opt = withSchedule (constant 0.0) opt0
+  tick opt 0
+  v <- stepQuadratic opt w
+  check ("withSchedule (constant 0) + tick freezes the step (w = "
+         ++ show v ++ ")") (v == 1.0)
+
+tickAppliesScheduleEpoch : IO Bool
+tickAppliesScheduleEpoch = do
+  w <- mkW "opt_sched1_w" 1.0
+  opt0 <- sgd {ex=TestExecutor} 0.25 defaultOpts
+  let opt = withSchedule (exponentialLR 0.25 0.5) opt0
+  tick opt 1
+  v <- stepQuadratic opt w
+  check ("tick 1 applies lr 0.25 * 0.5^1 = 0.125 (w = " ++ show v
+         ++ ", expect 0.75)") (v == 0.75)
+
+tickWithoutScheduleIsNoOp : IO Bool
+tickWithoutScheduleIsNoOp = do
+  wRef <- mkW "opt_noop_ref" 1.0
+  optRef <- sgd {ex=TestExecutor} 0.1 defaultOpts
+  trajRef <- trajectory optRef wRef 2
+  w <- mkW "opt_noop_w" 1.0
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
+  tick opt 9
+  traj <- trajectory opt w 2
+  check ("tick without a schedule is a no-op (" ++ show traj
+         ++ " vs " ++ show trajRef ++ ")") (traj == trajRef)
+
+-- groups: per-prefix LR overrides applied by walking the param
+-- registry at construction. One step at base lr 0.25 on three params:
+-- the frozen group stays put, the scaled group steps at lr 0.125,
+-- the bystander steps at base. All values exact binary fractions.
+groupsOverrideByPrefix : IO Bool
+groupsOverrideByPrefix = do
+  wf <- mkW "opt_g4f_w" 1.0
+  ws <- mkW "opt_g4s_w" 1.0
+  wn <- mkW "opt_g4n_w" 1.0
+  opt <- sgd {ex=TestExecutor} 0.25
+           ({ groups := [("opt_g4f_", 0.0), ("opt_g4s_", 0.125)] } defaultOpts)
+  l1 <- tmul wf wf
+  l2 <- tmul ws ws
+  l3 <- tmul wn wn
+  l12 <- tadd l1 l2
+  loss <- tadd l12 l3
+  _ <- nativeTrainStep opt loss
+  let (vf, vs, vn) = (tensorItem wf, tensorItem ws, tensorItem wn)
+  check ("groups freeze/scale by prefix (frozen " ++ show vf
+         ++ ", scaled " ++ show vs ++ ", base " ++ show vn ++ ")")
+        (vf == 1.0 && vs == 0.75 && vn == 0.5)
+
 export
 tests : List (IO Bool)
 tests = [ sgdMatchesNative, rmspropMatchesNative, rmspropDefaultsMatchPyTorch
-        , adamMatchesNative, adamWMatchesNative, adamScopeRouting ]
+        , adamMatchesNative, adamWMatchesNative, adamScopeRouting
+        , scheduleFreezesAtZero, tickAppliesScheduleEpoch
+        , tickWithoutScheduleIsNoOp, groupsOverrideByPrefix ]
