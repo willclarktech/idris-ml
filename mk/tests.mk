@@ -20,7 +20,7 @@
         bench-rank3-broadcast bench-rank3-broadcast-wrapped print-torch \
         check-examples test-unit test-unit-idris test test-integration \
         test-e2e test-coverage test-unit-idris-ml \
-        test-unit-multi-backend test-unit-gym \
+        test-unit-multi-backend test-unit-gym test-unit-args \
         test-unit-idris-transformers bench-gym test-unit-examples
 
 # Criterion prefix autodetection: nix profile (local dev), then brew
@@ -281,7 +281,7 @@ check-examples: install
 test-unit: test-unit-idris test-unit-c
 
 # All Idris-side unit suites (across packages).
-test-unit-idris: test-unit-idris-ml test-unit-gym test-unit-idris-transformers test-unit-examples
+test-unit-idris: test-unit-idris-ml test-unit-gym test-unit-args test-unit-idris-transformers test-unit-examples
 
 # Default `test` aggregator — alias for the unit-test layer (the
 # fast tier that's safe to run pre-commit). For broader gates use
@@ -400,6 +400,12 @@ _test-unit-multi-backend-build: $(TESTCONFIG_IDR) $(HWCONFIG_IDR) $(HWDEVICES_ID
 test-unit-gym:
 	cd packages/idris-gym && pack --no-prompt build idris-gym-tests.ipkg
 	$(STDBUF) ./packages/idris-gym/build/exec/idris-gym-test
+
+# Idris tests for idris-args package (pure Idris, zero deps beyond
+# base; no backend required). Same colocated dual-ipkg pattern.
+test-unit-args:
+	cd packages/idris-args && pack --no-prompt build idris-args-tests.ipkg
+	$(STDBUF) ./packages/idris-args/build/exec/idris-args-test
 
 # Idris tests for idris-transformers package. Pure-Idris suite for
 # bertParamNames catalogue + an FFI suite that constructs a real

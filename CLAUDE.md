@@ -17,6 +17,7 @@ packages/
   idris-gym/          # Pure Idris RL environments (Gymnasium-parity API)
   idris-transformers/ # HF-aligned model library on top of idris-ml (HfBert, HfGpt2, HfLlama)
   idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym + idris-transformers), plus Generate.idr
+  idris-args/         # Typed CLI flag parsing (general-purpose, zero deps beyond base)
   backends/           # C/C++ backends (tape, MLX, torch)
   jupyter/            # Jupyter kernel (Python)
   pytorch/            # PyTorch reference implementations (Python)

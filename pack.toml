@@ -78,3 +78,13 @@ ipkg = "idris-ml-examples-tests.ipkg"
 type = "local"
 path = "packages/idris-test"
 ipkg = "idris-test.ipkg"
+
+[custom.all.idris-args]
+type = "local"
+path = "packages/idris-args"
+ipkg = "idris-args.ipkg"
+
+[custom.all.idris-args-tests]
+type = "local"
+path = "packages/idris-args"
+ipkg = "idris-args-tests.ipkg"

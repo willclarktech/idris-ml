@@ -81,6 +81,15 @@
         ]
       },
       {
+        "name": "Run idris-args unit suite",
+        "run": "make test-unit-args",
+        "comment": [
+          "Pure-Idris suite for the zero-dep CLI flag parsing package",
+          "(packages/idris-args/): readers, --flag/=-form values, switches,",
+          "positionals, unknown-flag/bad-value errors, --help rendering."
+        ]
+      },
+      {
         "name": "Run idris-transformers unit tests",
         "run": "make test-unit-idris-transformers",
         "comment": [

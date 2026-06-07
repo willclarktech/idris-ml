@@ -1,0 +1,7 @@
+package idris-args
+
+sourcedir = "src"
+
+depends = base
+
+modules = Args

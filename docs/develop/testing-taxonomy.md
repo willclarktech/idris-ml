@@ -43,9 +43,9 @@ are much faster.
 | Target | Scope | Wall (warm) |
 |---|---|---|
 | `test` (= `test-unit`) | all unit suites — Idris + C | a few minutes |
-| `test-unit-idris` | Idris-side unit suites across packages (core, gym, transformers, examples) | a few minutes |
+| `test-unit-idris` | Idris-side unit suites across packages (core, gym, args, transformers, examples) | a few minutes |
 | `test-unit-c` | Criterion C-side suite | a minute |
-| `test-unit-{idris-ml,gym,idris-transformers,examples}` | per-package | shortest |
+| `test-unit-{idris-ml,gym,args,idris-transformers,examples}` | per-package | shortest |
 | `test-unit-c-{tape,mlx,torch}` | C suite with that backend forced | a minute each |
 | `test-unit-multi-backend` | cross-backend Idris suite (requires BACKEND=tape,torch,mlx) | a few minutes |
 | `test-integration` | negative-type gates, linters, multi-module probes | ~5 min |

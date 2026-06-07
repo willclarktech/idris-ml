@@ -389,6 +389,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-unit-gym
 
+      - name: Run idris-args unit suite
+        # Pure-Idris suite for the zero-dep CLI flag parsing package
+        # (packages/idris-args/): readers, --flag/=-form values, switches,
+        # positionals, unknown-flag/bad-value errors, --help rendering.
+        if: ${{ !cancelled() }}
+        run: make test-unit-args
+
       - name: Run idris-transformers unit tests
         # Pure-Idris test harness for the HF-aligned model package
         # (packages/idris-transformers/): bertParamNames catalogue + an FFI
