@@ -23,13 +23,13 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 
 	mx::eval(inp->data);
 	mx::eval(ker->data);
-	std::vector<double> inpD_buf((size_t)(inC * L));
-	std::vector<double> kerD_buf((size_t)(inC * outC * kL));
+	std::vector<double> inpD_buf((size_t)inC * L);
+	std::vector<double> kerD_buf((size_t)inC * outC * kL);
 	mx_to_doubles(inp->data, inpD_buf.data());
 	mx_to_doubles(ker->data, kerD_buf.data());
 	const double* inpD = inpD_buf.data();
 	const double* kerD = kerD_buf.data();
-	double* out = (double*)calloc(outC * oL, sizeof(double));
+	double* out = (double*)calloc((size_t)outC * oL, sizeof(double));
 	if (bias) {
 		mx::eval(bias->data);
 		std::vector<double> biasD_buf((size_t)outC);
@@ -37,7 +37,7 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 		const double* biasD = biasD_buf.data();
 		for (int oc = 0; oc < outC; oc++)
 			for (int ol = 0; ol < oL; ol++)
-				out[oc * oL + ol] = biasD[oc];
+				out[(size_t)oc * oL + ol] = biasD[oc];
 	}
 	for (int ic = 0; ic < inC; ic++)
 		for (int il = 0; il < L; il++)
@@ -45,8 +45,8 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 				for (int kl = 0; kl < kL; kl++) {
 					int ol = il * stride - pad + kl;
 					if (ol >= 0 && ol < oL)
-						out[oc * oL + ol] +=
-						    inpD[ic * L + il] * kerD[ic * outC * kL + oc * kL + kl];
+						out[(size_t)oc * oL + ol] += inpD[(size_t)ic * L + il] *
+						                             kerD[(size_t)ic * outC * kL + oc * kL + kl];
 				}
 	auto result = mx_array_from_doubles(out, {outC, oL}, inp->data.dtype());
 	free(out);
@@ -65,13 +65,13 @@ extern "C" TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandl
 	int oW = (W - 1) * strideW - 2 * padW + kW;
 	mx::eval(inp->data);
 	mx::eval(ker->data);
-	std::vector<double> inpD_buf((size_t)(inC * H * W));
-	std::vector<double> kerD_buf((size_t)(inC * outC * kH * kW));
+	std::vector<double> inpD_buf((size_t)inC * H * W);
+	std::vector<double> kerD_buf((size_t)inC * outC * kH * kW);
 	mx_to_doubles(inp->data, inpD_buf.data());
 	mx_to_doubles(ker->data, kerD_buf.data());
 	const double* inpD = inpD_buf.data();
 	const double* kerD = kerD_buf.data();
-	double* out = (double*)calloc(outC * oH * oW, sizeof(double));
+	double* out = (double*)calloc((size_t)outC * oH * oW, sizeof(double));
 	if (bias) {
 		mx::eval(bias->data);
 		std::vector<double> biasD_buf((size_t)outC);
@@ -80,7 +80,7 @@ extern "C" TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandl
 		for (int oc = 0; oc < outC; oc++)
 			for (int oh = 0; oh < oH; oh++)
 				for (int ow = 0; ow < oW; ow++)
-					out[oc * oH * oW + oh * oW + ow] = biasD[oc];
+					out[(size_t)oc * oH * oW + (size_t)oh * oW + ow] = biasD[oc];
 	}
 	for (int ic = 0; ic < inC; ic++)
 		for (int ih = 0; ih < H; ih++)
@@ -91,9 +91,10 @@ extern "C" TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandl
 							int oh = ih * strideH - padH + kh;
 							int ow = iw * strideW - padW + kw;
 							if (oh >= 0 && oh < oH && ow >= 0 && ow < oW)
-								out[oc * oH * oW + oh * oW + ow] +=
-								    inpD[ic * H * W + ih * W + iw] *
-								    kerD[ic * outC * kH * kW + oc * kH * kW + kh * kW + kw];
+								out[(size_t)oc * oH * oW + (size_t)oh * oW + ow] +=
+								    inpD[(size_t)ic * H * W + (size_t)ih * W + iw] *
+								    kerD[(size_t)ic * outC * kH * kW + (size_t)oc * kH * kW +
+								         (size_t)kh * kW + kw];
 						}
 	auto result = mx_array_from_doubles(out, {outC, oH, oW}, inp->data.dtype());
 	free(out);

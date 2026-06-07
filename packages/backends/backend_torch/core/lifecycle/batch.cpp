@@ -33,7 +33,7 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
 	auto acc = t.accessor<double, 1>();
 	for (int i = 0; i < n_tokens; i++) {
 		int tok = tokens[i];
-		if (tok >= 0 && tok < vocab_size) acc[i * vocab_size + tok] = 1.0;
+		if (tok >= 0 && tok < vocab_size) acc[(size_t)i * vocab_size + tok] = 1.0;
 	}
 	/* Delegate to st_for_dtag for the kind-major dtag layout; invalid
 	   dtags abort there. */
@@ -62,7 +62,7 @@ extern "C" TensorHandle tensor_batch(TensorHandle* handles, int count) {
 extern "C" TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 	auto tensors = to_tensor(h)->unbind(0);
 	*out_count = (int)tensors.size();
-	auto* arr = (TensorHandle*)malloc(*out_count * sizeof(TensorHandle));
+	auto* arr = (TensorHandle*)malloc((size_t)*out_count * sizeof(TensorHandle));
 	for (int i = 0; i < *out_count; i++)
 		arr[i] = from_tensor(at::Tensor(tensors[i]));
 	return arr;

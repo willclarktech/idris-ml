@@ -44,13 +44,13 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
 	// dtag layout dtag 13 = F16, dtag 14 = F32, dtag 15 = F64, dtag 17 = BF16.
 	// Any other dtag would fail the Compatible gate Idris-side; this routes
 	// to F32 as a sentinel so a stray call doesn't silently return F64.
-	int total = n_tokens * vocab_size;
+	size_t total = (size_t)n_tokens * vocab_size;
 	std::vector<double> data(total, 0.0);
 	for (int i = 0; i < n_tokens; i++) {
 		int tok = tokens[i];
-		if (tok >= 0 && tok < vocab_size) data[i * vocab_size + tok] = 1.0;
+		if (tok >= 0 && tok < vocab_size) data[(size_t)i * vocab_size + tok] = 1.0;
 	}
-	mx::Shape sh = {total};
+	mx::Shape sh = {(int)total};
 	mx::Dtype dt = (dtag == 15)   ? mx::float64
 	               : (dtag == 17) ? mx::bfloat16
 	               : (dtag == 13) ? mx::float16
