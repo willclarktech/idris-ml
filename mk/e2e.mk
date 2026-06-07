@@ -11,7 +11,17 @@ EXAMPLES := example-supervised example-rnn example-lstm example-gru example-tran
 # 5-lane matrix. `mlx-gpu` (BACKEND=mlx MLX_DEVICE=gpu) and `torch-mps`
 # (BACKEND=torch TORCH_DEVICE=mps) are virtual lanes that exercise the
 # F32 code paths (per BuildConfig.idr); tape / mlx / torch build at F64.
+# torch-mps is Darwin-only: on Linux it shares the plain torch dylib, so
+# the lane's `make backend` succeeds (no build-failure skip) and every
+# example then crashes at MPS construction. The mlx lanes stay in the
+# Linux list on purpose — `make BACKEND=mlx backend` $(error)s off-macOS,
+# which routes them through the harness's build-failure skip and thereby
+# also disables the tape+mlx+torch demos (checkpoint/precision).
+ifeq ($(UNAME),Darwin)
 BACKENDS := tape mlx mlx-gpu torch torch-mps
+else
+BACKENDS := tape mlx mlx-gpu torch
+endif
 
 # Crash-only smoke gate: every example × lane, 3-10 epochs each,
 # safety-net thresholds in test-examples.expect. Catches crashes / NaN /
