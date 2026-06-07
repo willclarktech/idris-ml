@@ -45,3 +45,16 @@ interface (UserExecutorTraining ex,
 ||| DType.Core.)
 public export
 (UserExecutorTraining ex, RuntimeDType dt, Linked ex, Compatible ex dt) => Backend ex dt where
+
+||| Assemble a Backend dictionary from explicitly-chosen dtype-side
+||| leaves. For bridge code (e.g. the AsMixed LayerLike adapter) whose
+||| scope carries TWO candidate (RuntimeDType, Compatible) dict pairs:
+||| plain auto-search finds multiple solutions there and idris2
+||| rejects the ambiguity; this pins one side. Inside this body the
+||| explicit args are the only candidates, so the blanket resolves
+||| uniquely.
+export
+backendFrom : UserExecutorTraining ex => Linked ex =>
+              (rdt : RuntimeDType dt) -> (cmp : Compatible ex dt) ->
+              Backend ex dt
+backendFrom rdt cmp = %search

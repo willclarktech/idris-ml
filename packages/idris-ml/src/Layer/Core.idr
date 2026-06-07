@@ -30,7 +30,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _
   ||| critical for `withNoGrad` to correctly bracket eval-phase work.
   ||| Polymorphic in `g` so forwarding a `NoGrad` input through a
   ||| frozen layer yields a `NoGrad` output naturally.
-  applyVar : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} ->
+  applyVar : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} ->
               l i o ex dt g -> Tensor [i] ex dt g -> IO (l i o ex dt g, Tensor [o] ex dt g)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
@@ -48,7 +48,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _
   ||| (LSTM/RNN/GRU/NTM/DNC) keep the default; batched-cell semantics
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
-  applyVarBatch : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+  applyVarBatch : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    l i o ex dt g -> Tensor [b, i] ex dt g -> IO (l i o ex dt g, Tensor [b, o] ex dt g)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
@@ -79,14 +79,14 @@ data AnyLayer : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMo
                  l i o ex dt g -> AnyLayer i o ex dt g
 
 export
-applyVarAny : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} ->
+applyVarAny : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} ->
                AnyLayer i o ex dt g -> Tensor [i] ex dt g -> IO (AnyLayer i o ex dt g, Tensor [o] ex dt g)
 applyVarAny (MkAnyLayer l @{dict} layer) input = do
   (layer', out) <- applyVar @{dict} layer input
   pure (MkAnyLayer l @{dict} layer', out)
 
 export
-applyVarBatchAny : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+applyVarBatchAny : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                     AnyLayer i o ex dt g -> Tensor [b, i] ex dt g ->
                     IO (AnyLayer i o ex dt g, Tensor [b, o] ex dt g)
 applyVarBatchAny (MkAnyLayer l @{dict} layer) input = do
@@ -123,7 +123,7 @@ export infixr 5 ~~>
 ||| forwarding a `NoGrad` input through a frozen network yields a
 ||| `NoGrad` output naturally.
 export
-forwardVar : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVar : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
               Network i hs o ex dt g -> Tensor [i] ex dt g -> IO (Network i hs o ex dt g, Tensor [o] ex dt g)
 forwardVar (OutputLayer l) input = do
   (l', out) <- applyVarAny l input
@@ -185,7 +185,7 @@ resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
 ||| Activation / Dropout override; other layers crash via the
 ||| interface default.
 export
-forwardVarBatch : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+forwardVarBatch : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
                    Network i hs o ex dt g -> Tensor [b, i] ex dt g ->
                    IO (Network i hs o ex dt g, Tensor [b, o] ex dt g)
@@ -280,7 +280,7 @@ sanitizeLabel s = pack (map sanitize (unpack s))
 ||| `__act/epoch5/0`, `__act/epoch5/1`, ... readable in Python via
 ||| `safetensors.numpy.load_file(path)`.
 export
-forwardVarTraced : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVarTraced : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                    (label : String) ->
                    Network i hs o ex dt g -> Tensor [i] ex dt g ->
                    IO (Network i hs o ex dt g, Tensor [o] ex dt g)

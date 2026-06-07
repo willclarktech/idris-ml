@@ -121,17 +121,18 @@ LayerLikeMixed AsMixed where
   -- to `applyVar` to disambiguate from the otherwise-equally-applicable
   -- `rdtP` / `cmpP` (which would also unify after `pDt = cDt`).
   applyVarMixed {rdtC} {cmpC} (MkAsMixed (MkAnyLayer l @{dict} layer)) input = do
-    -- Position-skip slots that auto-resolve (UDT, UDC, Linked); pin
-    -- the RuntimeDType + Compatible slots to the cDt-side dicts so
-    -- they don't conflict with rdtP / cmpP after pDt = cDt.
-    (layer', out) <- applyVar @{dict} @{%search} @{%search} @{rdtC} @{%search} @{cmpC} layer input
+    -- applyVar's constraints collapsed to one Backend dict; assemble
+    -- it from the cDt-side leaves explicitly so it doesn't conflict
+    -- with rdtP / cmpP after pDt = cDt (auto-search would be
+    -- ambiguous with both dict pairs in scope).
+    (layer', out) <- applyVar @{dict} @{backendFrom rdtC cmpC} layer input
     pure (MkAsMixed (MkAnyLayer l @{dict} layer'), out)
   layerPrefixMixed (MkAsMixed (MkAnyLayer _ @{dict} layer)) =
     layerPrefix @{dict} layer
   resetStateMixed (MkAsMixed (MkAnyLayer l @{dict} layer)) =
     MkAsMixed (MkAnyLayer l @{dict} (resetState @{dict} layer))
   applyVarBatchMixed {rdtC} {cmpC} (MkAsMixed (MkAnyLayer l @{dict} layer)) input = do
-    (layer', out) <- applyVarBatch @{dict} @{%search} @{%search} @{rdtC} @{%search} @{cmpC} layer input
+    (layer', out) <- applyVarBatch @{dict} @{backendFrom rdtC cmpC} layer input
     pure (MkAsMixed (MkAnyLayer l @{dict} layer'), out)
   freezeLayerMixed (MkAsMixed (MkAnyLayer l @{dict} layer)) = do
     layer' <- freezeLayer @{dict} layer

@@ -203,8 +203,7 @@ record RoPETables (maxPos : Nat) (headDim : Nat)
 |||   `base`     : rope_theta (Llama 3 = 500000).
 |||   `scaling`  : NTK scaling params (use `llama3Scaling` for default).
 export
-buildLlamaRoPETables : {0 ex : Executor} -> UserExecutorTraining ex =>
-                       RuntimeDType dt => Linked ex => Compatible ex dt
+buildLlamaRoPETables : {0 ex : Executor} -> Backend ex dt
                     => {maxPos, headDim : Nat}
                     -> (base : Double)
                     -> (scaling : LlamaRopeScaling)

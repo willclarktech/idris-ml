@@ -46,7 +46,7 @@ data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
 %default partial
 
 export
-applyBatchNorm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {channels, spatialDim : Nat} ->
+applyBatchNorm : {0 ex : Executor} -> Backend ex dt => {channels, spatialDim : Nat} ->
                    BatchNormState channels spatialDim
                      (channels * spatialDim)
                      (channels * spatialDim) ex dt g ->
@@ -84,7 +84,7 @@ fillConst buf off n v =
 ||| Params register as `<prefix>_gamma` / `<prefix>_beta`; state
 ||| tensors are persistent C tensors (non-learnable).
 export
-batchNormLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {channels, spatialDim : Nat} ->
+batchNormLayer : Backend ex dt => {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
@@ -145,7 +145,7 @@ public export
 
 ||| Wrap in `AnyLayer`.
 export
-batchNormLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {channels, spatialDim : Nat} ->
+batchNormLayerAny : Backend ex dt => {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer (channels * spatialDim) (channels * spatialDim) ex dt WithGrad)
 batchNormLayerAny pid =

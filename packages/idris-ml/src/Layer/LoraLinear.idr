@@ -70,9 +70,7 @@ record LoraLinearState (i : Nat) (o : Nat)
 ||| W + (α/r)·B·A — the rank-r savings are what make LoRA cheap on
 ||| large attention projections.
 export
-applyLoraLinear : {0 ex : Executor} -> UserExecutorTraining ex
-              => UserExecutorCore ex => RuntimeDType dt => Linked ex
-              => Compatible ex dt => {0 g : GradMode} -> {i, o : Nat}
+applyLoraLinear : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat}
               -> LoraLinearState i o ex dt g
               -> Tensor [i] ex dt g
               -> IO (Tensor [o] ex dt g)
@@ -108,8 +106,7 @@ applyLoraLinear (MkLoraLinear {rank} base loraA loraB alpha) input = do
 ||| (per `feedback_param_registry_dedup`, `param_register` REPLACES
 ||| existing entries by name).
 export
-mkLoraLinear : {0 ex : Executor} -> UserExecutorTraining ex
-            => RuntimeDType dt => Linked ex => Compatible ex dt
+mkLoraLinear : {0 ex : Executor} -> Backend ex dt
             => {i, o : Nat}
             -> (paramPrefix : String)
             -> (rank : Nat)

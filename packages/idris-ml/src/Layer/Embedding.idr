@@ -35,7 +35,7 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 ex : Executor) (0 dt : D
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
 ||| the flattened embedding vectors. Wraps `primEmbedding {ex}`.
 export
-applyEmbedding : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {seqLen, embedDim, vocab : Nat} ->
+applyEmbedding : {0 ex : Executor} -> Backend ex dt => {seqLen, embedDim, vocab : Nat} ->
                    EmbeddingState vocab embedDim ex dt g ->
                    TVec seqLen ex dt g ->
                    IO (TVec (seqLen * embedDim) ex dt g)
@@ -54,7 +54,7 @@ applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
 ||| sampled from N(0, 0.02) — HF default for token / position embeddings.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
-embeddingLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
+embeddingLayer : Backend ex dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
                    IO (EmbeddingState vocab embedDim ex dt WithGrad)
 embeddingLayer paramPrefix = do
   let wName = paramPrefix ++ "_weight"
@@ -100,7 +100,7 @@ public export
 
 ||| Wrap a fresh embedding into `AnyLayer` for a specific seqLen.
 export
-embeddingLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {vocab, embedDim, seqLen : Nat} ->
+embeddingLayerAny : Backend ex dt => {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer seqLen (seqLen * embedDim) ex dt WithGrad)
 embeddingLayerAny pid = do

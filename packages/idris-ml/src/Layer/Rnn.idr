@@ -46,7 +46,7 @@ record RnnState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Grad
 %default partial
 
 export
-applyRnn : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {o : Nat} ->
+applyRnn : {0 ex : Executor} -> Backend ex dt => {o : Nat} ->
              RnnState i o ex dt g ->
              TVec i ex dt g ->
              IO (RnnState i o ex dt g, TVec o ex dt g)
@@ -75,7 +75,7 @@ applyRnn {o} st input = do
 ||| Common activations: `ttanh` (default for `nn.RNN`), `trelu`,
 ||| `id` for a linear-recurrence variant.
 export
-rnnLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} ->
+rnnLayer : Backend ex dt => {i, o : Nat} ->
              (paramPrefix : String) ->
              (activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')) ->
              IO (RnnState i o ex dt WithGrad)
@@ -140,6 +140,6 @@ LayerLike RnnState where
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+rnnLayerAny : {0 ex : Executor} -> Backend ex dt =>
               {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

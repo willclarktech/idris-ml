@@ -82,7 +82,7 @@ applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
 ||| under `<prefix>_weight`. HF-aligned modules (HfLlama) re-bind the
 ||| name at registration to `<model.layers.i.input_layernorm.weight>`.
 export
-rmsNormLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+rmsNormLayer : Backend ex dt =>
                {n : Nat} -> (paramPrefix : String) ->
                IO (RmsNormState n n ex dt WithGrad)
 rmsNormLayer paramPrefix = do
@@ -110,7 +110,7 @@ LayerLike RmsNormState where
 
 ||| Wrap an RmsNorm in `AnyLayer`.
 export
-rmsNormLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+rmsNormLayerAny : Backend ex dt =>
                   {n : Nat} -> (paramPrefix : String) ->
                   IO (AnyLayer n n ex dt WithGrad)
 rmsNormLayerAny pid = map (MkAnyLayer RmsNormState) (rmsNormLayer pid)

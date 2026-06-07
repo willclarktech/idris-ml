@@ -26,7 +26,7 @@ data ResidualState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : G
 %default partial
 
 export
-applyResidual : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} ->
+applyResidual : {0 ex : Executor} -> Backend ex dt => {n : Nat} ->
                   ResidualState n n ex dt g ->
                   TVec n ex dt g ->
                   IO (ResidualState n n ex dt g, TVec n ex dt g)

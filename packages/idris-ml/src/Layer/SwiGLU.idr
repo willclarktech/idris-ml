@@ -77,7 +77,7 @@ applySwiGLU st@(MkSwiGLU gateW upW downW) input = do
 ||| HF-aligned modules (HfLlama) re-bind at construction to e.g.
 ||| `model.layers.{i}.mlp.gate_proj.weight`.
 export
-swigluLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+swigluLayer : Backend ex dt =>
               {hidden, intermediate : Nat} -> (paramPrefix : String) ->
               IO (SwiGLUState hidden intermediate ex dt WithGrad)
 swigluLayer paramPrefix = do
@@ -131,7 +131,7 @@ LayerLike SwiGLUStateAnyI where
 ||| Wrap a SwiGLU in `AnyLayer`. The `intermediate` knob is fixed at
 ||| construction; the LayerLike surface only sees (hidden, hidden).
 export
-swigluLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+swigluLayerAny : Backend ex dt =>
                  {hidden, intermediate : Nat} -> (paramPrefix : String) ->
                  IO (AnyLayer hidden hidden ex dt WithGrad)
 swigluLayerAny {intermediate} pid = do

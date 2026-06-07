@@ -37,7 +37,7 @@ record GruState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Grad
 %default partial
 
 export
-applyGru : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {o : Nat} ->
+applyGru : {0 ex : Executor} -> Backend ex dt => {o : Nat} ->
              GruState i o ex dt g ->
              TVec i ex dt g ->
              IO (GruState i o ex dt g, TVec o ex dt g)
@@ -59,7 +59,7 @@ applyGru {o} st input = do
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
-gruLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) ->
+gruLayer : Backend ex dt => {i, o : Nat} -> (paramPrefix : String) ->
              IO (GruState i o ex dt WithGrad)
 gruLayer paramPrefix = do
   -- GRU has 3 gates (reset, update, new); weights are stacked along
@@ -119,5 +119,5 @@ LayerLike GruState where
 
 ||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
+gruLayerAny : Backend ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

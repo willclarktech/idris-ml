@@ -40,7 +40,7 @@ record LstmState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gra
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex => RuntimeDType dt => Linked ex => Compatible ex dt => {o : Nat} ->
+applyLstm : {0 ex : Executor} -> Backend ex dt => {o : Nat} ->
               LstmState i o ex dt g ->
               TVec i ex dt g ->
               IO (LstmState i o ex dt g, TVec o ex dt g)
@@ -70,7 +70,7 @@ applyLstm {o} st input = do
 ||| `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`, `<prefix>_hb`,
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
-lstmLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) ->
+lstmLayer : Backend ex dt => {i, o : Nat} -> (paramPrefix : String) ->
               IO (LstmState i o ex dt WithGrad)
 lstmLayer paramPrefix = do
   -- 4 gates (input, forget, gate, output) stacked along axis=0 →
@@ -146,5 +146,5 @@ LayerLike LstmState where
 
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
+lstmLayerAny : Backend ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)

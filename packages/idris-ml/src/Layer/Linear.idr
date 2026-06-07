@@ -84,7 +84,7 @@ zeroBuf buf off n =
 ||| pair; callers wanting other distributions wire the underlying
 ||| FFI directly.
 export
-mkLinearWith : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat}
+mkLinearWith : Backend ex dt => {i, o : Nat}
             -> (paramPrefix : String)
             -> (weightStd : Double)
             -> (biasStd : Double)
@@ -104,11 +104,11 @@ mkLinearWith pfx wStd bStd = do
 ||| match the new fused-init primitive surface — see plan P3 lock-in.
 ||| Registers under `<paramPrefix>_weights` / `<paramPrefix>_biases`.
 export
-linearLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o ex dt WithGrad)
+linearLayer : Backend ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o ex dt WithGrad)
 linearLayer paramPrefix =
   mkLinearWith paramPrefix (1.0 / sqrt (cast {to=Double} i)) 0.0
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export
-linearLayerAny : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
+linearLayerAny : Backend ex dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o ex dt WithGrad)
 linearLayerAny pid = map (MkAnyLayer LinearState) (linearLayer pid)
