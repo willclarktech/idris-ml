@@ -6,7 +6,6 @@
  * already records a tape entry for each step.
  */
 
-#include "../../tape.h"
 #include "../../arena.h"
 #include "../../tensor.h"
 #include "../../../backend.h"

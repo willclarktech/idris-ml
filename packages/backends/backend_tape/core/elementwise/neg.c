@@ -3,7 +3,6 @@
  * d(-x)/dx = -1.
  */
 
-#include <math.h>
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../tensor.h"

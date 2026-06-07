@@ -6,7 +6,6 @@
  * so no backward arm to migrate.
  */
 
-#include "../../tensor.h"
 #include "../../../backend.h"
 
 TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,

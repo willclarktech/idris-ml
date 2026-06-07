@@ -12,7 +12,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "../arena.h"
 #include "../tape.h"
 #include "../tensor.h"
 #include "../../backend.h"

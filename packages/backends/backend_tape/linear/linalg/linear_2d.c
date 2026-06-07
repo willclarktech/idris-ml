@@ -11,8 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 #ifdef __APPLE__
-// IWYU pragma: keep — umbrella; provides cblas_* + vDSP_* + Cblas* (include-cleaner can't trace).
-#include <Accelerate/Accelerate.h>
+#include <Accelerate/Accelerate.h> // IWYU pragma: keep — umbrella; provides cblas_*+vDSP_*+Cblas*
 #endif
 #include "../../tape.h"
 #include "../../arena.h"

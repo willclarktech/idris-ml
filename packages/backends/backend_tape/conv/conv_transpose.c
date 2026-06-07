@@ -14,7 +14,6 @@
  */
 
 #include <stdlib.h>
-#include "../tape.h"
 #include "../arena.h"
 #include "../tensor.h"
 #include "../../backend.h"

@@ -18,8 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef __APPLE__
-// IWYU pragma: keep — consumed by _kernels.inc stampings (vDSP_*); umbrella untraceable.
-#include <Accelerate/Accelerate.h>
+#include <Accelerate/Accelerate.h> // IWYU pragma: keep — used by _kernels.inc stampings (vDSP_*)
 #endif
 #include "../../arena.h"     // IWYU pragma: keep — arena_alloc used in _kernels.inc stampings
 #include "../../tape.h"

@@ -12,7 +12,6 @@
  */
 
 #include <stdlib.h>
-#include <sys/time.h>
 #include "../../tape.h"
 #include "../../arena.h"
 #include "../../tensor.h"

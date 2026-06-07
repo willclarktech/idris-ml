@@ -7,7 +7,6 @@
 
 #include <stdlib.h>
 #include "../../tensor.h"
-#include "../../arena.h"
 #include "../../../backend.h"
 
 TensorHandle tensor_view_1d(TensorHandle h, int idx) {

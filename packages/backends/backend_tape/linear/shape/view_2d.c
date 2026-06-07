@@ -6,7 +6,6 @@
 
 #include <stdlib.h>
 #include "../../tensor.h"
-#include "../../arena.h"
 #include "../../../backend.h"
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
