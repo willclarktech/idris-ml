@@ -1075,9 +1075,9 @@ KeepAlive (Tensor dims ex dt g) where
 |||  * Different backends → host round-trip. Source's `primToHost`
 |||   copies the tensor into a CPU double buffer; the shape gets
 |||   marshalled into a CPU int buffer; dest's `primCreateFromHost`
-|||   reconstructs the tensor on the target backend. Both temporary
-|||   buffers are explicitly freed via `ioRerun` so Idris-Chez can't
-|||   elide the cleanup. The destination tensor is a *fresh* C handle
+|||   reconstructs the tensor on the target backend. Every step is
+|||   primIO-sequenced and both temporary buffers are freed after the
+|||   create. The destination tensor is a *fresh* C handle
 |||   on the dest backend — registry membership does NOT follow; users
 |||   transferring parameters across backends re-register on the dest
 |||   side.
@@ -1096,28 +1096,30 @@ toExecutor d2 src =
                   src.tensorPtr (deviceName {ex=d2}))
                 src.paramId)
     else do
-      let nI       = cast {to=Int} (product dims)
-      let dataBuf  = primAllocHost {ex=d1} nI
-      let dataBuf' = primToHost {ex=d1} src.tensorPtr dataBuf
-      let rankI    = cast {to=Int} (length dims)
-      let shapeBuf = primAllocIntHost {ex=d2} rankI
-      let shapeBuf' = writeShape shapeBuf 0 dims
-      -- Force primCreateFromHost via primIO so the FFI call fires
-      -- here, not deferred until destPtr is consumed.
+      let nI    = cast {to=Int} (product dims)
+      let rankI = cast {to=Int} (length dims)
+      -- Every FFI step goes through primIO so Idris-2's Chez codegen
+      -- sequences them with %World instead of let-laziness — the
+      -- same pattern as Test.Transfer.makeVec4 (see gotchas.md
+      -- "Pure-typed FFI helpers reorder across sibling lets").
+      dataBuf  <- primIO (\w => MkIORes (primAllocHost {ex=d1} nI) w)
+      dataBuf' <- primIO (\w =>
+        MkIORes (primToHost {ex=d1} src.tensorPtr dataBuf) w)
+      shapeBuf <- primIO (\w => MkIORes (primAllocIntHost {ex=d2} rankI) w)
+      shapeBuf' <- primIO (\w => MkIORes (writeShape shapeBuf 0 dims) w)
       destPtr <- primIO (\w =>
         MkIORes (primCreateFromHost {ex=d2} dataBuf' shapeBuf' rankI 0) w)
-      -- N.B. The host buffers (`dataBuf'`, `shapeBuf'`) leak. We
-      -- previously freed them here, but in chained cross-backend
-      -- `toExecutor` calls (TapeExecutor → TorchExecutor → MlxExecutor → TapeExecutor)
-      -- the per-step `tensor_free_doubles_<b>` of the buffer was
-      -- racing the next step's reads in unclear ways and crashing
-      -- at the third hop. Backend-side `tensor_create_<b>` does
-      -- copy the buffer into its own arena/storage, so the buffers
-      -- become garbage immediately after primCreateFromHost
-      -- returns — but explicitly freeing them broke something we
-      -- haven't fully diagnosed. Leak is small (numel doubles +
-      -- rank ints per toExecutor call); revisit when training-time
-      -- transfer becomes hot.
+      -- Backend-side `tensor_create_<b>` copies the buffer into its
+      -- own arena/storage, so both host buffers are dead here. An
+      -- earlier version leaked them after chained hops crashed at
+      -- the third hop "in unclear ways" — consistent with the
+      -- pure-typed-let reorder/elision class this function used to
+      -- be written in, which the primIO sequencing above excludes
+      -- structurally. A C-level 3-hop probe (tape→torch→mlx→tape,
+      -- optimize-level 3) with immediate frees runs clean, and so
+      -- does Example.PrecisionDemo's 4-hop Part 3.
+      primIO (primFreeHost {ex=d1} dataBuf')
+      primIO (primFreeIntHost {ex=d2} shapeBuf')
       pure (MkTensor destPtr src.paramId)
   where
     writeShape : AnyPtr -> Int -> Vect r Nat -> AnyPtr
