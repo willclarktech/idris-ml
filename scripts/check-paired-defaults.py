@@ -21,6 +21,23 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Type-only: the gate runs under whatever `python3` is on PATH (3.9 on
+    # macOS CommandLineTools), where NotRequired doesn't exist at runtime.
+    # `from __future__ import annotations` keeps all uses stringified.
+    from typing import NotRequired, TypedDict
+
+    class ExampleSpec(TypedDict):
+        """One Idris/Python paired-example mapping row (see EXAMPLES below)."""
+
+        name: str
+        idris: str
+        python: str
+        idris_only: NotRequired[list[str]]
+        python_only: NotRequired[list[str]]
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -31,7 +48,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Common pattern for python-only `--lr-find`: that example doesn't have the
 # lr_find machinery wired on the Idris side. Mostly the supervised/RNN-family
 # ones. Adding it is a separate small task per example, tracked elsewhere.
-EXAMPLES: list[dict] = [
+EXAMPLES: list[ExampleSpec] = [
     {
         "name": "supervised",
         "idris": "packages/idris-ml-examples/src/Example/Supervised.idr",
@@ -296,7 +313,7 @@ def parse_idris(path: Path) -> dict[str, FlagInfo]:
 
     # Compose: {flag: default-value}.
     result: dict[str, FlagInfo] = {}
-    spec_lines = {}
+    spec_lines: dict[str, int] = {}
     for m in spec_pattern.finditer(text):
         spec_lines[m.group(1)] = text[: m.start()].count("\n") + 1
     for flag, field in flag_to_field.items():
@@ -346,9 +363,14 @@ def parse_python(path: Path) -> dict[str, FlagInfo]:
                     isinstance(kw.value, ast.UnaryOp)
                     and isinstance(kw.value.op, ast.USub)
                     and isinstance(kw.value.operand, ast.Constant)
+                    and isinstance(kw.value.operand.value, (int, float))
                 ):
                     default_value = -kw.value.operand.value
-            elif kw.arg == "action" and isinstance(kw.value, ast.Constant):
+            elif (
+                kw.arg == "action"
+                and isinstance(kw.value, ast.Constant)
+                and isinstance(kw.value.value, str)
+            ):
                 action = kw.value.value
 
         if default_value is None and action == "store_true":
@@ -377,7 +399,7 @@ def _values_match(a: object, b: object) -> bool:
     return a == b
 
 
-def compare_example(spec: dict) -> ExampleReport:
+def compare_example(spec: ExampleSpec) -> ExampleReport:
     idris_path = REPO_ROOT / spec["idris"]
     python_path = REPO_ROOT / spec["python"]
     idris_flags = parse_idris(idris_path)
@@ -408,7 +430,7 @@ def compare_example(spec: dict) -> ExampleReport:
 
 def format_value(v: object) -> str:
     if isinstance(v, float):
-        if v == 0:
+        if v == 0.0:
             return "0.0"
         if abs(v) < 1e-3 or abs(v) >= 1e5:
             return f"{v:.6g}"
@@ -472,7 +494,7 @@ def main() -> int:
         any_drift = False
         any_only = False
         for r in reports:
-            status_parts = []
+            status_parts: list[str] = []
             if r.value_mismatches:
                 status_parts.append(f"{len(r.value_mismatches)} mismatch")
                 any_drift = True
@@ -503,7 +525,7 @@ def main() -> int:
         if ok:
             print(f"All {len(reports)} paired examples have matching defaults.")
         else:
-            bits = []
+            bits: list[str] = []
             if any_drift:
                 bits.append("value mismatches present")
             if parse_errors:

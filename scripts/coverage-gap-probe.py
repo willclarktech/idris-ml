@@ -118,8 +118,8 @@ def _rel_to_backends(p: Path | None) -> str:
         return str(p)
 
 
-def build_ops_rows() -> list[dict]:
-    rows: list[dict] = []
+def build_ops_rows() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
     for backend, anchor in BACKENDS_SPEC:
         header = BACKENDS / f"backend_{backend}" / "tape.h"
         backend_dir = BACKENDS / f"backend_{backend}"
@@ -131,7 +131,7 @@ def build_ops_rows() -> list[dict]:
             symbols: list[str] = []
             if source is not None:
                 symbols = sorted(extract_ffi_symbols_from_source(source.read_text()))
-            test_path = None
+            test_path: Path | None = None
             for sym in symbols:
                 hits = grep_word_in_dirs(sym, TEST_ROOTS)
                 if hits:
@@ -153,12 +153,12 @@ def build_ops_rows() -> list[dict]:
     return rows
 
 
-def build_symbols_rows() -> list[dict]:
+def build_symbols_rows() -> list[dict[str, str]]:
     backend_h = BACKENDS / "backend.h"
     if not backend_h.exists():
         return []
     syms = sorted(extract_backend_h_symbols(backend_h.read_text()))
-    rows: list[dict] = []
+    rows: list[dict[str, str]] = []
     for sym in syms:
         if sym in FFI_EXCLUSIONS:
             continue
@@ -167,7 +167,7 @@ def build_symbols_rows() -> list[dict]:
     return rows
 
 
-def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
+def write_csv(path: Path, rows: list[dict[str, str]], fieldnames: list[str]) -> None:
     # Use a StringIO buffer with explicit Unix newlines so the file
     # contents are byte-for-byte stable regardless of platform line-
     # ending defaults.
@@ -180,7 +180,10 @@ def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
 
 
 def print_summary(
-    ops_rows: list[dict], symbols_rows: list[dict], ops_csv: Path, symbols_csv: Path
+    ops_rows: list[dict[str, str]],
+    symbols_rows: list[dict[str, str]],
+    ops_csv: Path,
+    symbols_csv: Path,
 ) -> int:
     missing = [r for r in ops_rows if r["status"] == "MISSING"]
     tape_missing = sum(1 for r in missing if r["backend"] == "tape")
