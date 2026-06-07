@@ -1,0 +1,33 @@
+# Canonical ruff config for the whole repo.
+#
+# Lives at repo root so ruff's ancestor-walk discovery finds it
+# from every .py file in the tree — no per-package
+# `[tool.ruff]` block needed in each pyproject.toml. The per-package
+# `lint-py-<pkg>` Makefile targets each `ruff check <pkg-tree>`
+# and inherit this config automatically.
+#
+# Each Python-bearing package owns its own lint target; the
+# aggregator `lint-py` runs them all. Adding a new package = one
+# new target in the Makefile, no config duplication.
+
+target-version = "py312"
+line-length = 100
+
+extend-exclude = [
+    ".venv",
+    "vendored",
+    "build",
+    "build-cov",
+    "models",
+    "data",
+    "results",
+    "logs",
+    ".tmp",
+]
+
+[lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
+ignore = ["N812"]  # Allow import torch.nn.functional as F (PyTorch convention)
+
+[format]
+quote-style = "double"

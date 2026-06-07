@@ -45,16 +45,9 @@ dev = [
     "vulture>=2.16",
 ]
 
-[tool.ruff]
-target-version = "py312"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
-ignore = ["N812"]  # Allow import torch.nn.functional as F (PyTorch convention)
-
-[tool.ruff.format]
-quote-style = "double"
+# [tool.ruff] config lives at the repo root in ruff.toml — ancestor-
+# walk discovery picks it up from every .py file. Don't duplicate
+# the rule set here.
 
 [tool.pyright]
 pythonVersion = "3.12"

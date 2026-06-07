@@ -1299,34 +1299,51 @@ check: check-idris
 test-integration-lint-paired-defaults:
 	@python3 scripts/check-paired-defaults.py
 
-# Lint the Python surface: every .py file in the repo, covering
-# packages/pytorch/ + the top-level scripts/ + the other monorepo
-# Python (idris-transformers/scripts/, idris-ml-examples/scripts/,
-# jupyter/). ruff check (style + bugprone + import-order), ruff
-# format --check (formatting drift), and vulture (dead code at
-# min-confidence 80%; the threshold lives in
-# packages/pytorch/pyproject.toml [tool.vulture]). Runs inside the
-# packages/pytorch uv venv so the dev deps resolve.
-# Uses `uv run --no-sync` so a stale venv on the lint preflight (which
-# only syncs --only-group dev to skip the heavy torch deps) doesn't
-# re-fetch the project deps; the CI workflow primes the venv up front.
+# Lint the Python surface — split per-package: each Python-bearing
+# package owns its own `lint-py-<pkg>` target. The top-level
+# `lint-py` aggregator depends on all of them. Adding a new
+# Python-bearing package = one new `lint-py-<pkg>` target + add
+# it as a dep of `lint-py`. The canonical ruff config lives at
+# `ruff.toml` at the repo root; ruff's ancestor-walk discovery
+# finds it from every .py file, no per-package config needed.
 #
-# Every path except `.` (packages/pytorch itself) lives outside any
-# pyproject.toml ancestor chain, so ruff would otherwise apply its
-# built-in defaults to those files. Pass `--config pyproject.toml`
-# and every Python tree so one config (line length 100, py312,
-# select=E,F,I,N,UP,B,SIM,TCH, double quotes, N812 ignored) governs
-# the whole Python surface.
+# Each target does file-level discovery within its tree (`ruff
+# check <tree>` finds every .py recursively), so there's no path
+# enumeration to drift out of date. The aggregator is the only
+# place where packages are listed, which is the right granularity.
+#
+# All targets cd into packages/pytorch first because that's where
+# the uv venv with ruff lives (dev dep in pyproject.toml's
+# [dependency-groups] dev). `uv run --no-sync` so a stale venv
+# doesn't re-fetch; CI primes the venv up front.
 #
 # `lint-` is the fourth top-level verb in the codebase, alongside
 # check (compile) / test (behave) / bench (perf). Linting is
 # discrete from testing — it's static analysis, doesn't exercise
 # behaviour, doesn't need a backend.
-PYTHON_LINT_PATHS := . ../../scripts ../idris-transformers/scripts ../idris-ml-examples/scripts ../jupyter
 
-lint-py:
-	@cd packages/pytorch && uv run --no-sync --quiet ruff check $(PYTHON_LINT_PATHS) --config pyproject.toml && uv run --no-sync --quiet ruff format --check $(PYTHON_LINT_PATHS) --config pyproject.toml && uv run --no-sync --quiet vulture
-	@echo "lint-py OK (ruff check + format + vulture)"
+lint-py: lint-py-pytorch lint-py-scripts lint-py-transformers lint-py-examples lint-py-jupyter
+	@echo "lint-py OK (all Python-bearing packages)"
+
+lint-py-pytorch:
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check . && uv run --no-sync --quiet ruff format --check . && uv run --no-sync --quiet vulture
+	@echo "  lint-py-pytorch OK"
+
+lint-py-scripts:
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../../scripts && uv run --no-sync --quiet ruff format --check ../../scripts
+	@echo "  lint-py-scripts OK"
+
+lint-py-transformers:
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../idris-transformers/scripts && uv run --no-sync --quiet ruff format --check ../idris-transformers/scripts
+	@echo "  lint-py-transformers OK"
+
+lint-py-examples:
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../idris-ml-examples/scripts && uv run --no-sync --quiet ruff format --check ../idris-ml-examples/scripts
+	@echo "  lint-py-examples OK"
+
+lint-py-jupyter:
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../jupyter && uv run --no-sync --quiet ruff format --check ../jupyter
+	@echo "  lint-py-jupyter OK"
 
 # Lint the C / C++ backend surface: clang-format (layout drift
 # against the repo-root `.clang-format` — tabs for indent, K&R
