@@ -61,10 +61,15 @@ example-taxi                     avg_return   >=  5
 # CartPole (REINFORCE/DQN/A2C) random ≈ 22; Acrobot (PPO) random ≈ -500;
 # Pendulum (SAC) random ≈ -1500.
 # All thresholds here are NaN/divergence catches, not convergence claims.
+# mountain-car-cont: at 5 smoke epochs SAC is still inside its
+# 1000-step warmup, so the eval measures the untrained actor
+# (≈ -9.4 tape / -5.3 mlx / -1.8 mlx-gpu). Worst non-diverged return
+# is ≈ -100 (999 steps × -0.1·a²); the old -1.0 was a learning claim
+# left over from before the example came off the harness skip list.
 example-reinforce                avg_return   >=  -100
 example-dqn                      avg_return   >=  -300
 example-mountain-car             avg_return   >=  -201
-example-mountain-car-cont        avg_return   >=  -1.0
+example-mountain-car-cont        avg_return   >=  -120
 example-a2c                      avg_return   >=  -100
 example-ppo                      avg_return   >=  -550
 example-sac                      avg_return   >=  -2500
