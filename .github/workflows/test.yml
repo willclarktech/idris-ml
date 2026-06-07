@@ -673,6 +673,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: Free runner disk (android SDK + dotnet)
+        # This job carries the multi-GB HF model cache + torch venv +
+        # a 16 GB swapfile on the root volume; the preinstalled android
+        # SDK and dotnet trees (~10 GB) are the cheapest space to
+        # reclaim.
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet
       - uses: ./.github/actions/setup-idris-ml
         id: setup
         with:
@@ -681,6 +687,11 @@ jobs:
           restore-hf-models: 'true'
           ttc-job: test-e2e-hf
           swap: 'true'
+          # 8 GB swap wasn't enough: the cold HfBitNetInference
+          # elaboration OOM-killed this job's runner in 27373449876
+          # (exit 143), which also skipped the always() cache saves —
+          # so the job stayed cold and died again every run.
+          swap-gb: '16'
 
       # >>> GENERATED (test-e2e-hf) FROM test.yml.spec.json >>>
       - name: Run PyTorch reference correctness suite

@@ -43,8 +43,15 @@ inputs:
       build tree, then the newest tree from any sha.
     default: "build"
   swap:
-    description: Add an 8 GB swapfile (Linux only; no-op on macOS).
+    description: Add a swapfile (Linux only; no-op on macOS).
     default: "false"
+  swap-gb:
+    description: >
+      Swapfile size in GB. The default 8 covers ordinary cold-tree
+      elaboration; the HF-roundtrip job passes 16 (HfBitNet/HfLlama
+      example elaboration OOM-killed the runner at 16 GB RAM + 8 GB
+      swap — run 27373449876).
+    default: "8"
 
 outputs:
   idris2-cache-hit:
@@ -109,15 +116,16 @@ runs:
     # Swap trades speed for survival on the cold path; warm TTC trees
     # don't touch it. /swapfile8 avoids colliding with any
     # image-provided /mnt/swapfile.
-    - name: Add 8 GB swapfile
+    - name: Add swapfile
       if: inputs.swap == 'true' && runner.os == 'Linux'
       shell: bash
       run: |
-        sudo fallocate -l 8G /swapfile8
+        sudo fallocate -l ${{ inputs.swap-gb }}G /swapfile8
         sudo chmod 600 /swapfile8
         sudo mkswap /swapfile8
         sudo swapon /swapfile8
         free -h
+        df -h /
 
     # Idris 2 v0.8.0 built from source, cached across runs to avoid
     # the 5-10 min bootstrap on every job. Idris2's default PREFIX is
