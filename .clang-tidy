@@ -50,9 +50,20 @@
 #   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 #       — "use fprintf_s instead of fprintf" (C11 Annex K, not widely
 #       shipped); ~41 FPs for plain fprintf calls
-#   misc-include-cleaner — ~338 hits, FP-heavy in macro-heavy code; the
-#       unused-include cleanup is a real backlog item separate from
-#       this gate
+#   misc-include-cleaner — disabled in the deny-list, but exercised
+#       by `make lint-c-include-cleaner` (and the matching CI step)
+#       as a SEPARATE gate that runs WITHOUT `-include rename_tape.h`.
+#       The rename machinery preprocessor-rewrites every backend.h
+#       symbol (tensor_*, param_*, ...) before include-cleaner sees
+#       them, which hides ~250 providers and produces architectural
+#       FPs against the renamed view. The rename-free gate sees the
+#       source as written, which is what include-cleaner is designed
+#       to check, and currently runs zero hits on backend_tape after
+#       the cleanup in da63ac03. The cleanup uses IWYU trailing
+#       pragmas (`// IWYU pragma: keep`) for umbrella/macro-provider
+#       false positives (Accelerate.h, _kernels.inc transitives) and
+#       per-call `// NOLINTNEXTLINE(misc-include-cleaner)` for the
+#       macOS Apple SDK abort+BLAS FPs that don't exist on Linux.
 #   readability-braces-around-statements — `misleading-indentation`
 #       already catches the goto-fail class without forcing braces
 #       everywhere

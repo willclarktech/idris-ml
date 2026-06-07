@@ -103,6 +103,18 @@ jobs:
         # live in `.clang-format`; cppcheck flags inline; clang-tidy
         # check set in `.clang-tidy`.
         run: make lint-c
+      - name: Lint C misc-include-cleaner gate (rename-free)
+        # Runs `make lint-c-include-cleaner` — clang-tidy with ONLY
+        # misc-include-cleaner enabled and WITHOUT `-include
+        # rename_tape.h`. The rename macros would otherwise hide every
+        # backend.h-declared symbol from include-cleaner's provider
+        # tracker (~250 architectural FPs). Cannot enable the check
+        # in the default `.clang-tidy` for that reason; this is the
+        # canonical gate for include hygiene on backend_tape.
+        # Targets backend_tape only; torch/mlx share the same rename
+        # FP architecture plus the macOS+nix libtorch-vs-libc++
+        # block — deferred follow-up matching the main clang-tidy gap.
+        run: make lint-c-include-cleaner
 
   test-examples:
     name: test-examples (${{ matrix.os }})
