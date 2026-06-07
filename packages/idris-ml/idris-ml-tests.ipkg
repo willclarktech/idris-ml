@@ -24,6 +24,7 @@ modules = Test.Main
         , Test.GradScaler
         , Test.Hpo.LrFinder
         , Test.Init
+        , Test.LoadOpts
         , Test.Log
         , Test.Lossless
         , Test.LoraLinear

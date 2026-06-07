@@ -14,6 +14,7 @@ import Test.RL.Gae
 import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.ActivationDump
+import Test.LoadOpts
 import Test.Log
 import Test.Lossless
 import Test.LoraLinear
@@ -58,6 +59,7 @@ main = runAll
   , ("RL.ReplayBuffer", Test.RL.ReplayBuffer.tests)
   , ("ActivationDump",  Test.ActivationDump.tests)
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
+  , ("LoadOpts",        Test.LoadOpts.tests)
   , ("Log",             Test.Log.tests)
   , ("Lossless",        Test.Lossless.tests)
   , ("LoraLinear",      Test.LoraLinear.tests)

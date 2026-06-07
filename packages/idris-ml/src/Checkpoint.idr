@@ -24,55 +24,127 @@ saveModel path = do
   rc <- primIO (primParamSave {ex} path)
   pure (rc == 0)
 
-||| Load parameters from a .safetensors file into the existing registry.
-||| Strict-dtype mode: any param whose on-disk dtype differs from the
-||| in-memory destination is an error (the load reports the offending
-||| param name to stderr and returns `False`). The load mutates the
-||| C-side parameter buffers in place, so subsequent forward passes see
-||| the loaded weights with no further refresh needed.
+||| Save everything registered, one file — the registry-wide escape
+||| hatch. Model-scoped saves arrive with the models-as-records work.
+export
+saveAll : UserExecutorTraining ex => String -> IO Bool
+saveAll path = saveModel {ex} path
+
+
+----------------------------------------------------------------------
+-- Typed load surface (v1)
+----------------------------------------------------------------------
+
+||| Why a load failed. Mirrors `param_load`'s C return codes
+||| (see backend.h); `LoadFailed n` is the total escape hatch for
+||| codes this vocabulary doesn't know yet.
 |||
-||| For cross-dtype loads (e.g. an F32-saved checkpoint into an F64
-||| model), use `loadModelAllowCast` to opt in to silent precision
-||| conversion at load time.
+||| A file key missing from the registry is a SKIP, not an error —
+||| the warm-start path (backbone via `only`, fresh head) depends on
+||| it, so there is deliberately no MissingParam constructor.
+public export
+data LoadError
+  = FileNotFound
+  | MalformedFile
+  | DtypeMismatch
+  | ShapeMismatch
+  | UnsupportedDtype
+  | ReadFailed
+  | LoadFailed Int
+
+export
+Eq LoadError where
+  FileNotFound     == FileNotFound     = True
+  MalformedFile    == MalformedFile    = True
+  DtypeMismatch    == DtypeMismatch    = True
+  ShapeMismatch    == ShapeMismatch    = True
+  UnsupportedDtype == UnsupportedDtype = True
+  ReadFailed       == ReadFailed       = True
+  LoadFailed n     == LoadFailed m     = n == m
+  _                == _                = False
+
+export
+Show LoadError where
+  show FileNotFound     = "FileNotFound"
+  show MalformedFile    = "MalformedFile"
+  show DtypeMismatch    = "DtypeMismatch"
+  show ShapeMismatch    = "ShapeMismatch"
+  show UnsupportedDtype = "UnsupportedDtype"
+  show ReadFailed       = "ReadFailed"
+  show (LoadFailed n)   = "LoadFailed " ++ show n
+
+decodeLoadError : Int -> LoadError
+decodeLoadError (-1) = FileNotFound
+decodeLoadError (-2) = MalformedFile
+decodeLoadError (-3) = DtypeMismatch
+decodeLoadError (-4) = ShapeMismatch
+decodeLoadError (-5) = UnsupportedDtype
+decodeLoadError (-6) = ReadFailed
+decodeLoadError n    = LoadFailed n
+
+||| Load options. Build from `defaultLoadOpts` with record updates.
+|||
+||| `allowCast = False` (the safe default) errors on any on-disk vs
+||| destination dtype difference; `True` reads source bytes in their
+||| on-disk width, widens to doubles, and narrows into the
+||| destination's storage dtype (F32 -> F64 lossless, F64 -> F32
+||| precision loss, both well-defined).
+|||
+||| `only = Just pfx` loads only the safetensors keys whose name
+||| starts with `pfx`, leaving every other in-memory param untouched
+||| (warm-start: backbone under "bert.", fresh head elsewhere).
+public export
+record LoadOpts where
+  constructor MkLoadOpts
+  allowCast : Bool
+  only      : Maybe String
+
+public export
+defaultLoadOpts : LoadOpts
+defaultLoadOpts = MkLoadOpts False Nothing
+
+||| Load parameters from a .safetensors file into the existing
+||| registry, by name. The load mutates the C-side parameter buffers
+||| in place, so subsequent forward passes see the loaded weights with
+||| no further refresh needed. File keys missing from the registry are
+||| skipped (not an error); per-entry failures don't abort the rest of
+||| the load, and the FIRST failure becomes the returned `LoadError`.
+export
+load : UserExecutorTraining ex =>
+       (path : String) -> LoadOpts -> IO (Either LoadError ())
+load path opts = do
+  let castFlag : Int
+      castFlag = if opts.allowCast then 1 else 0
+  rc <- case opts.only of
+          Nothing  => primIO (primParamLoadWithPolicy {ex} path castFlag)
+          Just pfx => primIO (primParamLoadWithPrefix {ex} path castFlag pfx)
+  pure (if rc == 0 then Right () else Left (decodeLoadError rc))
+
+||| Strict-dtype load as a bare Bool (wrapper over `load`).
 export
 loadModel : UserExecutorTraining ex => String -> IO Bool
-loadModel path = do
-  rc <- primIO (primParamLoad {ex} path)
-  pure (rc == 0)
+loadModel path = isRight <$> load {ex} path defaultLoadOpts
 
-||| Same as `loadModel` but routes through `param_load_with_policy`
-||| with `allow_cast=1`. On dtype mismatch, the on-disk bytes are
-||| read in their source width (F32 -> 4 bytes/elem, F64 -> 8) and
-||| widened to doubles before being loaded into the destination param
-||| (which the backend then narrows back to its actual storage dtype
-||| as needed). F32 -> F64 is lossless; F64 -> F32 incurs precision
-||| loss but is well-defined.
+||| `loadModel` with silent dtype conversion (wrapper over `load`
+||| with `allowCast`).
 export
 loadModelAllowCast : UserExecutorTraining ex => String -> IO Bool
-loadModelAllowCast path = do
-  rc <- primIO (primParamLoadWithPolicy {ex} path 1)
-  pure (rc == 0)
+loadModelAllowCast path =
+  isRight <$> load {ex} path ({ allowCast := True } defaultLoadOpts)
 
-||| Like `loadModel`, but loads only the safetensors keys whose name
-||| starts with `prefix`. Existing in-memory params whose name does
-||| NOT start with `prefix` are untouched — useful for warm-starting a
-||| pretrained backbone (e.g. `loadModelPrefix "model.safetensors" "bert."`)
-||| while keeping a fresh head at its init.
-||| Strict-dtype mode (matching `loadModel`).
+||| Load only keys under `pfx` (wrapper over `load` with `only`).
 export
 loadModelPrefix : UserExecutorTraining ex => (path : String) -> (pfx : String) -> IO Bool
-loadModelPrefix path pfx = do
-  rc <- primIO (primParamLoadWithPrefix {ex} path 0 pfx)
-  pure (rc == 0)
+loadModelPrefix path pfx =
+  isRight <$> load {ex} path ({ only := Just pfx } defaultLoadOpts)
 
-||| `loadModelPrefix` with `loadModelAllowCast` semantics — silent
-||| F32 ↔ F64 conversion at load time for the prefix-matched keys.
+||| Prefix-filtered load with silent dtype conversion (wrapper over
+||| `load`).
 export
 loadModelPrefixAllowCast : UserExecutorTraining ex =>
                            (path : String) -> (pfx : String) -> IO Bool
-loadModelPrefixAllowCast path pfx = do
-  rc <- primIO (primParamLoadWithPrefix {ex} path 1 pfx)
-  pure (rc == 0)
+loadModelPrefixAllowCast path pfx =
+  isRight <$> load {ex} path ({ allowCast := True, only := Just pfx } defaultLoadOpts)
 
 
 ----------------------------------------------------------------------
