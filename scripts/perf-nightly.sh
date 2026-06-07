@@ -101,7 +101,7 @@ if [ "$DO_AXIS_C" = "1" ]; then
 		PY_OUT=$( mktemp )
 
 		set +e
-		caffeinate -i nice -n 19 env MAKEFLAGS=-j2 \
+		perf_quiet_run env MAKEFLAGS=-j2 \
 			make --no-print-directory "$idris_tgt" \
 			"$idris_var=--epochs $epochs --seed $SEED" \
 			>"$IDRIS_OUT" 2>&1
@@ -175,7 +175,7 @@ if [ "$DO_AXIS_D" = "1" ]; then
 		fi
 
 		set +e
-		caffeinate -i nice -n 19 env MAKEFLAGS=-j2 "${env_args[@]}" \
+		perf_quiet_run env MAKEFLAGS=-j2 "${env_args[@]}" \
 			make --no-print-directory "$idris_tgt" >"$IDRIS_OUT" 2>&1
 		set -e
 		IDRIS_TOK=$( perf_extract_axis_d_tokens "$IDRIS_OUT" )

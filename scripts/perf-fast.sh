@@ -62,23 +62,23 @@ trap 'rm -f "$A_TAPE_OUT" "$A_PYTORCH_OUT" "$B_TAPE_OUT" "$B_PYTORCH_OUT"' EXIT
 
 echo "==> perf-fast: running tape Axis A (op kernels)"
 if [ "$DO_BUILD" = "1" ]; then
-	caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make bench-ops 2>&1 | tee "$A_TAPE_OUT" >&2
+	perf_quiet_run env MAKEFLAGS=-j2 make bench-ops 2>&1 | tee "$A_TAPE_OUT" >&2
 else
 	./build/tape-mlxcpu-torchcpu/bench_ops | tee "$A_TAPE_OUT" >&2
 fi
 
 echo "==> perf-fast: running pytorch Axis A (op kernels)"
-caffeinate -i nice -n 19 make bench-ops-py 2>&1 | tee "$A_PYTORCH_OUT" >&2
+perf_quiet_run make bench-ops-py 2>&1 | tee "$A_PYTORCH_OUT" >&2
 
 echo "==> perf-fast: running tape Axis B (single-layer fwd+bwd)"
 if [ "$DO_BUILD" = "1" ]; then
-	caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make bench-layers 2>&1 | tee "$B_TAPE_OUT" >&2
+	perf_quiet_run env MAKEFLAGS=-j2 make bench-layers 2>&1 | tee "$B_TAPE_OUT" >&2
 else
 	./build/tape-mlxcpu-torchcpu/exec/layers-bench | tee "$B_TAPE_OUT" >&2
 fi
 
 echo "==> perf-fast: running pytorch Axis B (single-layer fwd+bwd)"
-caffeinate -i nice -n 19 make bench-layers-py 2>&1 | tee "$B_PYTORCH_OUT" >&2
+perf_quiet_run make bench-layers-py 2>&1 | tee "$B_PYTORCH_OUT" >&2
 
 echo "==> perf-fast: parsing and logging measurements"
 python3 -m mltools.perf_log parse-op-bench --axis A --runtime tape \

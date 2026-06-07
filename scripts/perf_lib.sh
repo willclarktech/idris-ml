@@ -12,6 +12,8 @@
 #                    can find the package.
 #
 # Functions:
+#   perf_quiet_run CMD...        run CMD under caffeinate -i + nice -n 19
+#                                (plain nice on Linux — no caffeinate there)
 #   perf_commit_with_dirty       short HEAD hash; +dirty if any tracked
 #                                file outside perf-log.jsonl / BENCHMARKS.md
 #                                is modified
@@ -31,6 +33,18 @@
 PERF_REPO_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 PERF_LOG_PATH="$PERF_REPO_ROOT/docs/develop/perf-log.jsonl"
 export PYTHONPATH="$PERF_REPO_ROOT/scripts${PYTHONPATH:+:$PYTHONPATH}"
+
+# Run a command under the heavy-command wrapper (caffeinate + nice).
+# caffeinate is macOS-only — on Linux (CI runners) the binary doesn't
+# exist and the idle-sleep concern doesn't apply, so degrade to plain
+# nice. Callers pass the full command incl. any `env VAR=...` prefix.
+perf_quiet_run() {
+	if [ "$(uname -s)" = "Darwin" ] && command -v caffeinate >/dev/null 2>&1; then
+		caffeinate -i nice -n 19 "$@"
+	else
+		nice -n 19 "$@"
+	fi
+}
 
 perf_commit_with_dirty() {
 	local commit
