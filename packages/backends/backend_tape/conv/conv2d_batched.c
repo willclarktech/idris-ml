@@ -264,24 +264,26 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 	ensure_grad(r);
 
 	Tensor* bias_t = (Tensor*)e->inputs;
-	int need_dW = b && b->requires_grad;
-	int need_dX = a && a->requires_grad;
+	/* d/dW needs X (a) via im2col, d/dX needs W (b) via dgemm — both
+	 * inputs required for either non-bias gradient. */
+	int need_dW = a && b && b->requires_grad;
+	int need_dX = a && b && a->requires_grad;
 	int need_dB = bias_t && bias_t->requires_grad;
 
 	/* For F32 inputs/kernel, widen to double buffers so the existing
 	   cblas_dgemm + conv2d_im2col paths work unchanged. */
 	double* a_data_dbl = NULL;
 	double* b_data_dbl = NULL;
-	const void* a_data_ptr = a->data;
-	const void* b_data_ptr = b->data;
-	if (a->dtype_tag == DT_F32) {
+	const void* a_data_ptr = a ? a->data : NULL;
+	const void* b_data_ptr = b ? b->data : NULL;
+	if (a && a->dtype_tag == DT_F32) {
 		size_t a_n = (size_t)B * inC * HH * WW;
 		a_data_dbl = (double*)malloc(a_n * sizeof(double));
 		for (size_t i = 0; i < a_n; i++)
 			a_data_dbl[i] = (double)((float*)a->data)[i];
 		a_data_ptr = a_data_dbl;
 	}
-	if (b->dtype_tag == DT_F32) {
+	if (b && b->dtype_tag == DT_F32) {
 		size_t b_n = (size_t)outC * inC * kH * kW;
 		b_data_dbl = (double*)malloc(b_n * sizeof(double));
 		for (size_t i = 0; i < b_n; i++)

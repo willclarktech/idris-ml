@@ -117,7 +117,10 @@ static void tape_backward_layer_norm_2d(TapeEntry* e) {
 	LayerNormMeta* meta = (LayerNormMeta*)e->op_meta;
 	int mm = meta->m, nn = meta->n;
 	ensure_grad(r);
-	if (meta->gamma && meta->gamma->requires_grad) {
+	/* meta->gamma set unconditionally non-null by forward construction
+	 * (forward derefs gamma->data directly). Backward can't run without it. */
+	if (!meta->gamma) return;
+	if (meta->gamma->requires_grad) {
 		ensure_grad(meta->gamma);
 		for (int j = 0; j < nn; j++) {
 			double dg = 0;

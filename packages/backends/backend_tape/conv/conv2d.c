@@ -108,8 +108,9 @@ static void tape_backward_conv2d(TapeEntry* e) {
 	int oH = meta->oH, oW = meta->oW;
 	ensure_grad(r);
 
-	/* d_input — tape_load_d on b->data covers F32 kernels. */
-	if (a && a->requires_grad) {
+	/* d_input — tape_load_d on b->data covers F32 kernels. Needs b for
+	 * d(W*X)/dX = W. */
+	if (a && b && a->requires_grad) {
 		ensure_grad(a);
 		for (int oc = 0; oc < outC; oc++)
 			for (int oh = 0; oh < oH; oh++)
@@ -129,8 +130,9 @@ static void tape_backward_conv2d(TapeEntry* e) {
 				}
 	}
 
-	/* d_kernel — tape_load_d on a->data covers F32 inputs. */
-	if (b && b->requires_grad) {
+	/* d_kernel — tape_load_d on a->data covers F32 inputs. Needs a for
+	 * d(W*X)/dW = X. */
+	if (a && b && b->requires_grad) {
 		ensure_grad(b);
 		for (int oc = 0; oc < outC; oc++)
 			for (int ic = 0; ic < inC; ic++)

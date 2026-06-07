@@ -41,6 +41,9 @@ static void tape_backward_pow(TapeEntry* e) {
 	if (a) ensure_grad(a);
 	if (b) ensure_grad(b);
 	ensure_grad(r);
+	/* Both forward inputs required to compute either gradient: d/da needs
+	 * b (exponent), d/db needs a (base via log). */
+	if (!a || !b) return;
 	if (a_match && b_match) {
 		for (int j = 0; j < r->numel; j++) {
 			double av = fmax(tape_load_d(a, j), 1e-20);

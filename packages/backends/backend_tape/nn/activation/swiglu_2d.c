@@ -93,6 +93,9 @@ static void tape_backward_swiglu_2d(TapeEntry* e) {
 	ensure_grad(r);
 	int gNeedsGrad = g && g->requires_grad;
 	int uNeedsGrad = u && u->requires_grad;
+	if (!gNeedsGrad && !uNeedsGrad) return;
+	/* d(SwiGLU)/dg needs u, d/du needs g — both inputs required for either grad */
+	if (!g || !u) return;
 	if (gNeedsGrad) ensure_grad(g);
 	if (uNeedsGrad) ensure_grad(u);
 	for (int i = 0; i < N; i++) {

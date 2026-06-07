@@ -42,8 +42,8 @@ static void tape_backward_mul(TapeEntry* e) {
 	if (a_match && b_match) {
 		for (int j = 0; j < r->numel; j++) {
 			double rg = tape_grad_load_d(r, j);
-			if (a) tape_grad_add_d(a, j, rg * tape_load_d(b, j));
-			if (b) tape_grad_add_d(b, j, rg * tape_load_d(a, j));
+			if (a && b) tape_grad_add_d(a, j, rg * tape_load_d(b, j));
+			if (a && b) tape_grad_add_d(b, j, rg * tape_load_d(a, j));
 		}
 	} else {
 		/* Mixed: scalar / broadcast on either side. Walk r positions. */
@@ -58,8 +58,8 @@ static void tape_backward_mul(TapeEntry* e) {
 				bi += idx[k] * b_str[k];
 			}
 			double rg = tape_grad_load_d(r, i);
-			if (a) tape_grad_add_d(a, ai, rg * tape_load_d(b, bi));
-			if (b) tape_grad_add_d(b, bi, rg * tape_load_d(a, ai));
+			if (a && b) tape_grad_add_d(a, ai, rg * tape_load_d(b, bi));
+			if (a && b) tape_grad_add_d(b, bi, rg * tape_load_d(a, ai));
 			/* idx[k] safe: r->rank <= MAX_BCAST_RANK guaranteed by compute_bcast_shape */
 			for (int k = r->rank - 1; k >= 0; k--) {
 				// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)

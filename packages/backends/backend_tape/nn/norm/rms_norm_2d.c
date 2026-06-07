@@ -122,7 +122,11 @@ static void tape_backward_rms_norm_2d(TapeEntry* e) {
 	RmsNormMeta* meta = (RmsNormMeta*)e->op_meta;
 	int mm = meta->m, nn = meta->n;
 	ensure_grad(r);
-	if (meta->weight && meta->weight->requires_grad) {
+	/* meta->weight set unconditionally non-null by forward construction
+	 * (forward derefs weight->data directly; null weight would have
+	 * aborted there). Backward can't run if forward didn't; nothing to do. */
+	if (!meta->weight) return;
+	if (meta->weight->requires_grad) {
 		ensure_grad(meta->weight);
 		for (int j = 0; j < nn; j++) {
 			double dw = 0;

@@ -83,7 +83,9 @@ static void tape_backward_conv1d(TapeEntry* e) {
 	int inC = meta->inC, outC = meta->outC, LL = meta->L;
 	int kL = meta->kL, pad = meta->pad, str = meta->stride, oL = meta->oL;
 	ensure_grad(r);
-	if (a && a->requires_grad) {
+	/* d/da needs b->data (kernel), d/db needs a->data (input) — both
+	 * inputs required for either gradient. */
+	if (a && b && a->requires_grad) {
 		ensure_grad(a);
 		for (int oc = 0; oc < outC; oc++)
 			for (int ol = 0; ol < oL; ol++) {
@@ -97,7 +99,7 @@ static void tape_backward_conv1d(TapeEntry* e) {
 					}
 			}
 	}
-	if (b && b->requires_grad) {
+	if (a && b && b->requires_grad) {
 		ensure_grad(b);
 		for (int oc = 0; oc < outC; oc++)
 			for (int ic = 0; ic < inC; ic++)

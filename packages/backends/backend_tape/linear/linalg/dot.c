@@ -29,19 +29,19 @@ static void tape_backward_dot(TapeEntry* e) {
 	Tensor* r = e->result;
 	Tensor* a = e->arg1;
 	Tensor* b = e->arg2;
-	if (a && a->numel > 1) {
+	if (a && b && a->numel > 1) {
 		ensure_grad(a);
 		for (int j = 0; j < a->numel; j++)
 			tape_grad_add_d(a, j, tape_grad_load_d(r, 0) * tape_load_d(b, j));
-	} else if (a) {
+	} else if (a && b) {
 		ensure_grad(a);
 		tape_grad_add_d(a, 0, tape_grad_load_d(r, 0) * tape_load_d(b, 0));
 	}
-	if (b && b->numel > 1) {
+	if (a && b && b->numel > 1) {
 		ensure_grad(b);
 		for (int j = 0; j < b->numel; j++)
 			tape_grad_add_d(b, j, tape_grad_load_d(r, 0) * tape_load_d(a, j));
-	} else if (b) {
+	} else if (a && b) {
 		ensure_grad(b);
 		tape_grad_add_d(b, 0, tape_grad_load_d(r, 0) * tape_load_d(a, 0));
 	}

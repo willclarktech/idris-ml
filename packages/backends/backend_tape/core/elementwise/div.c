@@ -41,6 +41,9 @@ static void tape_backward_div(TapeEntry* e) {
 	if (a) ensure_grad(a);
 	if (b) ensure_grad(b);
 	ensure_grad(r);
+	/* Both forward inputs must be present to compute either backward
+	 * gradient (d/da = 1/b needs b; d/db = -a/b² needs both). */
+	if (!a || !b) return;
 	if (a_match && b_match) {
 		for (int j = 0; j < r->numel; j++) {
 			double bv = tape_load_d(b, j);
