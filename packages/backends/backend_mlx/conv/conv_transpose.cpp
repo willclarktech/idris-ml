@@ -45,8 +45,8 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 				for (int kl = 0; kl < kL; kl++) {
 					int ol = il * stride - pad + kl;
 					if (ol >= 0 && ol < oL)
-						out[(size_t)oc * oL + ol] += inpD[(size_t)ic * L + il] *
-						                             kerD[(size_t)ic * outC * kL + oc * kL + kl];
+						out[(size_t)oc * oL + ol] +=
+						    inpD[(size_t)ic * L + il] * kerD[(size_t)ic * outC * kL + oc * kL + kl];
 				}
 	auto result = mx_array_from_doubles(out, {outC, oL}, inp->data.dtype());
 	free(out);

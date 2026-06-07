@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "tape.h"
-#include "arena.h" /* arena_reset (called from tape_reset) */
+#include "arena.h"  /* arena_reset (called from tape_reset) */
 #include "tensor.h" /* Tensor struct (used via tape entries' result/arg fields) */
 
 /* ----------------------------------------------------------------
