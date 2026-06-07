@@ -1,8 +1,11 @@
 """Jupyter kernel for idris-ml wrapping the Idris 2 REPL."""
 
+from __future__ import annotations
+
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 import pexpect
 from ipykernel.kernelbase import Kernel
@@ -47,14 +50,22 @@ class Idris2Kernel(Kernel):
     }
     banner = "Idris 2 (idris-ml) \u2014 Deep learning with dependent types"
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         root = _find_project_root()
         self.repl = Idris2REPL(project_root=root)
 
-    def do_execute(
-        self, code, silent, store_history=True, user_expressions=None, allow_stdin=False
-    ):
+    async def do_execute(
+        self,
+        code: str,
+        silent: bool,
+        store_history: bool = True,
+        user_expressions: dict[str, Any] | None = None,
+        allow_stdin: bool = False,
+        *,
+        cell_meta: dict[str, Any] | None = None,
+        cell_id: str | None = None,
+    ) -> dict[str, Any]:
         commands = parse_cell(code)
         if not commands:
             return {
@@ -64,7 +75,7 @@ class Idris2Kernel(Kernel):
                 "user_expressions": {},
             }
 
-        output_parts = []
+        output_parts: list[str] = []
         has_error = False
 
         for cmd in commands:
@@ -92,7 +103,8 @@ class Idris2Kernel(Kernel):
 
         if not silent and text:
             stream_name = "stderr" if has_error else "stdout"
-            self.send_response(
+            # ipykernel's send_response / iopub_socket are untyped (traitlets Any).
+            self.send_response(  # pyright: ignore[reportUnknownMemberType]
                 self.iopub_socket, "stream", {"name": stream_name, "text": text + "\n"}
             )
 
@@ -112,7 +124,13 @@ class Idris2Kernel(Kernel):
             "user_expressions": {},
         }
 
-    def do_inspect(self, code, cursor_pos, detail_level=0, omit_sections=()):
+    async def do_inspect(
+        self,
+        code: str,
+        cursor_pos: int,
+        detail_level: int = 0,
+        omit_sections: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
         word = _extract_word(code, cursor_pos)
         if not word:
             return {"status": "ok", "found": False, "data": {}, "metadata": {}}
@@ -134,12 +152,12 @@ class Idris2Kernel(Kernel):
             "metadata": {},
         }
 
-    def do_is_complete(self, code):
+    async def do_is_complete(self, code: str) -> dict[str, str]:
         stripped = code.rstrip()
         if stripped.endswith(("=", "where", "do", "of", "\\", ",")):
             return {"status": "incomplete", "indent": "  "}
         return {"status": "complete"}
 
-    def do_shutdown(self, restart):
+    async def do_shutdown(self, restart: bool) -> dict[str, str | bool]:
         self.repl.close()
         return {"status": "ok", "restart": restart}

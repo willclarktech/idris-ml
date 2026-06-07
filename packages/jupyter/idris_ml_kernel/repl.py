@@ -55,7 +55,9 @@ class Idris2REPL:
         env = os.environ.copy()
         env["IDRIS2_PACKAGE_PATH"] = pkg_path
 
-        self.child = pexpect.spawn(
+        # Declared spawn[str]: the stubs can't infer the str specialization
+        # from encoding="utf-8" (the constructor isn't overloaded on it).
+        self.child: pexpect.spawn[str] = pexpect.spawn(
             "idris2",
             [
                 "-p",

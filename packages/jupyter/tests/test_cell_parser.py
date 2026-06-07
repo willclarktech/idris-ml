@@ -1,6 +1,10 @@
 """Unit tests for cell_parser — no REPL or backend needed."""
 
-from idris_ml_kernel.cell_parser import _unclosed_brackets, looks_like_definition, parse_cell
+from idris_ml_kernel.cell_parser import (
+    _unclosed_brackets,  # pyright: ignore[reportPrivateUsage]  # unit-testing the private helper
+    looks_like_definition,
+    parse_cell,
+)
 
 # --- REPL command passthrough ---
 

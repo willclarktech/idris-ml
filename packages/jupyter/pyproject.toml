@@ -22,3 +22,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["idris_ml_kernel*"]
+
+[tool.pyright]
+# Selected via `pyright -p packages/jupyter` (run from the
+# packages/pytorch venv that carries pyright — see mk/lint.mk
+# typecheck-py-jupyter). Import resolution for ipykernel /
+# jupyter_client / pexpect / pytest comes from this package's own
+# pip venv via venvPath, not from the pytorch venv.
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+include = ["idris_ml_kernel", "tests"]
