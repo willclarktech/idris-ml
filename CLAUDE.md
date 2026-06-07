@@ -308,7 +308,8 @@ Exceptions (~rare): `make install` / `make backend` of a hot tree (already-cache
 
 ## Conventions
 
-- **Indentation**: 2 spaces for `.idr` files (see `.editorconfig`)
+- **Indentation**: governed by `.editorconfig` per-extension. Honour it when writing new files — no editor enforces it in your environment. Quick read: `.idr` 2 spaces, `.py` 4 spaces (ruff format), `.c`/`.h`/`.cpp`/`.hpp` tabs (clang-format `ForIndentation`), `.{yml,yaml}` 2 spaces (spec), everything else (`.sh`, `.json`, `.md`, …) tabs (repo-wide default).
+- **Formatters**: where one exists, run it before considering a change done — the gates fail on drift. Python: `make lint-py` (ruff format + ruff check + vulture). C/C++: `make lint-c` (clang-format + cppcheck + clang-tidy). No formatter for shell / markdown / YAML — the `.editorconfig` indent rule is the only contract.
 - **Naming**: PascalCase for types/constructors, camelCase for functions/variables
 - **Imports**: Idris stdlib first, then internal modules alphabetically
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`. ~50 char subject, imperative present tense. One logical change per commit. No ads/branding in messages or PRs.
