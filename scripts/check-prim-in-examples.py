@@ -62,29 +62,26 @@ def main():
         if allowed is None:
             if count > 0:
                 failures.append(
-                    "%s: %d prim__ occurrence(s) in a file outside the baseline "
-                    "(new examples must use the typed construction facade)" % (rel, count)
+                    f"{rel}: {count} prim__ occurrence(s) in a file outside the baseline "
+                    "(new examples must use the typed construction facade)"
                 )
         elif count > allowed:
-            failures.append(
-                "%s: %d prim__ occurrence(s), baseline allows %d" % (rel, count, allowed)
-            )
+            failures.append(f"{rel}: {count} prim__ occurrence(s), baseline allows {allowed}")
         elif count < allowed:
-            opportunities.append(
-                "%s: %d < baseline %d — ratchet the baseline down" % (rel, count, allowed)
-            )
+            opportunities.append(f"{rel}: {count} < baseline {allowed} — ratchet the baseline down")
 
     stale = [rel for rel in BASELINE if rel not in seen]
     for rel in sorted(stale):
-        opportunities.append("%s: in baseline but no longer present — drop the entry" % rel)
+        opportunities.append(f"{rel}: in baseline but no longer present — drop the entry")
 
     for msg in opportunities:
-        print("note: %s" % msg)
+        print(f"note: {msg}")
     if failures:
         for msg in failures:
-            print("FAIL: %s" % msg, file=sys.stderr)
+            print(f"FAIL: {msg}", file=sys.stderr)
         return 1
-    print("prim-ratchet OK (%d baselined files, exempt: %s)" % (len(BASELINE), ", ".join(sorted(EXEMPT))))
+    exempt = ", ".join(sorted(EXEMPT))
+    print(f"prim-ratchet OK ({len(BASELINE)} baselined files, exempt: {exempt})")
     return 0
 
 

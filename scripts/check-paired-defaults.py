@@ -301,7 +301,7 @@ def parse_idris(path: Path) -> dict[str, FlagInfo]:
     field_defaults: dict[str, object] = {}
     # no strict=True: redundant with the length check above, and it
     # breaks macOS system python 3.9 (the only local interpreter).
-    for fld, tok in zip(fields, tokens):
+    for fld, tok in zip(fields, tokens):  # noqa: B905
         field_defaults[fld] = _parse_idris_literal(tok)
 
     # 3. Arg specs: capture (flag, field) pairs.

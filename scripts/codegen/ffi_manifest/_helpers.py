@@ -150,7 +150,7 @@ def gen_scheme_wrapper(cname: str, arg_classes: tuple[str, ...], ret_class: str)
     fp_arg_types = " ".join(scheme_type(c) for c in arg_classes)
     fp_ret_type = scheme_type(ret_class)
     call_args: list[str] = []
-    for nm, cls in zip(arg_names, arg_classes):  # no strict= (3.10+); local python is 3.9
+    for nm, cls in zip(arg_names, arg_classes):  # noqa: B905 — strict= is 3.10+; local python is 3.9
         if cls == "T":
             # v2 layout: raw pointer lives at slot 2 (slot 0 = sentinel,
             # slot 1 = backend tag string).

@@ -32,6 +32,7 @@ import contextlib
 import json
 import re
 import sys
+
 # timezone.utc, not datetime.UTC: the latter is 3.11+ and the only
 # local interpreter is macOS system python 3.9.
 from datetime import datetime, timezone
@@ -219,7 +220,7 @@ def now_ts(_clock: Callable[[], datetime] | None = None) -> tuple[str, str]:
 
     The `_clock` hook is for tests; production callers leave it None.
     """
-    n = _clock() if _clock else datetime.now(timezone.utc)
+    n = _clock() if _clock else datetime.now(timezone.utc)  # noqa: UP017 — datetime.UTC is 3.11+; local python is 3.9
     return n.strftime("%Y-%m-%dT%H:%M:%SZ"), n.strftime("%Y-%m-%d")
 
 

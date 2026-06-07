@@ -65,7 +65,7 @@ def expand_grid(grid: dict[str, list[object]]) -> list[dict[str, str]]:
     # Stringify values up-front; the runner only cares about CLI form.
     value_lists = [[str(v) for v in grid[k]] for k in keys]
     out: list[dict[str, str]] = [{}]
-    for k, vs in zip(keys, value_lists):  # no strict= (3.10+); local python is 3.9
+    for k, vs in zip(keys, value_lists):  # noqa: B905 — strict= is 3.10+; local python is 3.9
         out = [{**cfg, k: v} for cfg in out for v in vs]
     return out
 

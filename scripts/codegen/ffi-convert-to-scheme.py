@@ -110,9 +110,12 @@ def convert_file(path: str) -> dict[str, int]:
 
         # Validate consistency with Idris signature.
         if len(idris_args) != len(arg_classes):
-            print(f"  WARN {cname}: arg-count mismatch idris={len(idris_args)} manifest={len(arg_classes)}")
+            print(
+                f"  WARN {cname}: arg-count mismatch "
+                f"idris={len(idris_args)} manifest={len(arg_classes)}"
+            )
         # no strict=True (3.10+); macOS system python 3.9 is the only local interpreter
-        for i, (idris_t, cls) in enumerate(zip(idris_args, arg_classes)):
+        for i, (idris_t, cls) in enumerate(zip(idris_args, arg_classes)):  # noqa: B905
             expected = idris_type_to_class(idris_t, cls)
             if expected != cls:
                 print(
