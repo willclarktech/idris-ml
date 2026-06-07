@@ -24,7 +24,7 @@
 module BuildConfig
 
 import public Executor
-import Backend
+import BackendLib
 import Hardware
 import public Machine
 import public Machine.Verify

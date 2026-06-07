@@ -17,10 +17,10 @@
 ||| support.
 module Preset
 
-import Backend
+import BackendLib
 import Hardware
 
 public export
-interface Preset (0 b : Backend) (0 h : Hardware) where
+interface Preset (0 b : BackendLib) (0 h : Hardware) where
   presetExecutor : Type
   presetDType    : Type
