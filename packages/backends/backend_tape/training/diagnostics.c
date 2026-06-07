@@ -14,6 +14,7 @@
  * matching environment variable is set.
  */
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +59,14 @@ void _dbg_dump_lstm_traj_if_enabled(void) {
 	if (!getenv("DEBUG_LSTM_TRAJ")) return;
 	int every = 100;
 	const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
-	if (every_s) every = atoi(every_s);
+	if (every_s) {
+		char* endp = NULL;
+		long parsed = strtol(every_s, &endp, 10);
+		/* Treat empty / non-numeric / non-positive as "keep default". atoi()
+		 * silently returned 0 here, which made the `_dbg_traj_step % every`
+		 * divide-by-zero the next line down. */
+		if (endp != every_s && parsed > 0 && parsed <= INT_MAX) every = (int)parsed;
+	}
 	_dbg_traj_step++;
 	if (_dbg_traj_step % every != 0 && _dbg_traj_step != 1) return;
 	for (int i = 0; i < param_count(); i++) {

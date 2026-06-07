@@ -24,6 +24,7 @@ Checks: >
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-reserved-identifier,
+  cert-err34-c,
   clang-analyzer-deadcode.DeadStores,
   clang-analyzer-unix.Malloc,
   misc-definitions-in-headers,
