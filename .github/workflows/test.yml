@@ -110,12 +110,14 @@ jobs:
       # full-venv cache. uv sync below is idempotent on a warm venv.
       # Paired saves at the end of the job, if: always().
       - name: Restore lint venv cache
+        id: lint-venv-cache
         uses: actions/cache/restore@v5
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Restore jupyter venv cache
+        id: jupyter-venv-cache
         uses: actions/cache/restore@v5
         with:
           path: packages/jupyter/.venv
@@ -190,14 +192,16 @@ jobs:
         run: make lint-c-include-cleaner
 
       - name: Save lint venv cache
-        if: always()
+        # Key changes only with uv.lock; a same-key re-save can only
+        # warn on reserve.
+        if: always() && steps.lint-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Save jupyter venv cache
-        if: always()
+        if: always() && steps.jupyter-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: packages/jupyter/.venv
@@ -213,6 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Restore pytorch venv cache
+        id: pytorch-venv-cache
         uses: actions/cache/restore@v5
         with:
           path: packages/pytorch/.venv
@@ -272,7 +277,7 @@ jobs:
       # <<< END GENERATED (lint-full) <<<
 
       - name: Save pytorch venv cache
-        if: always()
+        if: always() && steps.pytorch-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: packages/pytorch/.venv
@@ -327,6 +332,7 @@ jobs:
           idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           ttc-job: build
           save-pytorch-venv: ${{ matrix.os == 'ubuntu-latest' }}
+          pytorch-venv-cache-hit: ${{ steps.setup.outputs.pytorch-venv-cache-hit }}
 
   # Unit layer: the `make test-unit` aggregator's leaves,
   # per-backend-conditioned (tape everywhere; torch on Ubuntu; mlx +
@@ -355,8 +361,18 @@ jobs:
         id: setup
         with:
           os-label: ${{ matrix.os }}
-          backend-deps: ${{ matrix.os == 'ubuntu-latest' && 'torch' || 'mlx' }}
+          # Both legs need torch: Ubuntu for the BACKEND=torch suites,
+          # macOS for test-unit-multi-backend (links all three backends,
+          # so libtorch must be stageable) and for the Test.Tokenizer
+          # buckets' `uv run` subprocess (run 27373449876 failed rc=127
+          # 'uv: command not found' on macOS).
+          backend-deps: ${{ matrix.os == 'ubuntu-latest' && 'torch' || 'mlx torch' }}
           with-pack: 'true'
+          # Carries the Test.Tokenizer fixtures (bert-tiny + distilgpt2)
+          # prefetched into the cache by the test-e2e-hf job's
+          # `make hf-fixtures`; on a miss the Makefile fixture deps
+          # download them directly.
+          restore-hf-models: 'true'
           ttc-job: test-unit
           swap: 'true'
 
@@ -494,6 +510,14 @@ jobs:
           os-label: ${{ matrix.os }}
           idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           save-pack: 'true'
+          # macOS only: no other job populates a macOS hf-models cache
+          # (test-e2e-hf is Ubuntu-only), so this leg saves the fixtures
+          # it downloaded. The Ubuntu key is already saved by test-e2e-hf.
+          save-hf-models: ${{ matrix.os == 'macos-latest' && 'true' || 'false' }}
+          # Likewise the macOS torch venv (for test-unit-multi-backend +
+          # the tokenizer subprocess): only this job stages it on macOS.
+          save-pytorch-venv: ${{ matrix.os == 'macos-latest' && 'true' || 'false' }}
+          pytorch-venv-cache-hit: ${{ steps.setup.outputs.pytorch-venv-cache-hit }}
           ttc-job: test-unit
 
       - name: Upload Criterion JUnit XML artifacts
@@ -661,6 +685,10 @@ jobs:
         with:
           os-label: ${{ matrix.os }}
           idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          # The example matrix is the one job that fetches datasets
+          # (MNIST, SST-2) — everywhere else the dataset save only
+          # warns (missing path or already-reserved key).
+          save-datasets: 'true'
           ttc-job: test-e2e-examples
 
   # E2E HF cross-language gates: the PyTorch reference correctness
@@ -703,6 +731,15 @@ jobs:
           swap-gb: '16'
 
       # >>> GENERATED (test-e2e-hf) FROM test.yml.spec.json >>>
+      - name: Prefetch tokenizer-test fixtures
+        # Fetches the small models (bert-tiny + distilgpt2) that the
+        # Test.Tokenizer buckets in test-unit-idris-transformers
+        # subprocess into, so this job's hf-models cache save carries
+        # them for the test-unit legs' restore. Seconds when the cache
+        # is warm (file-as-make-target: existence check is the cache).
+        if: ${{ !cancelled() }}
+        run: make hf-fixtures
+
       - name: Run PyTorch reference correctness suite
         # pytest over packages/pytorch/torch_ref/correctness/ — the
         # PyTorch side is the correctness oracle for every paired example,

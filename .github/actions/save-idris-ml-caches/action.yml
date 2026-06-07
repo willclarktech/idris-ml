@@ -21,13 +21,27 @@ inputs:
     description: Save the pack cache (jobs that ran with-pack).
     default: "false"
   save-ttc:
-    description: Save the TTC/object + dataset caches.
+    description: Save the TTC/object caches.
     default: "true"
+  save-datasets:
+    description: >
+      Save the dataset cache. Only the jobs that actually fetch
+      datasets (the e2e example matrix) should pass true — everywhere
+      else data/ doesn't exist and the save step warns with a Path
+      Validation Error, or the key already exists and the save warns
+      on reserve (5 of run 27373449876's 10 cache-save warnings).
+    default: "false"
   save-hf-models:
     description: Save the HF model cache (the HF-roundtrip job).
     default: "false"
   save-pytorch-venv:
     description: Save the uv venv (jobs that ran backend-deps torch).
+    default: "false"
+  pytorch-venv-cache-hit:
+    description: >
+      setup-idris-ml's pytorch-venv-cache-hit output; the venv only
+      changes when uv.lock does (= the key changes), so skip the save
+      when the restore hit — it can only warn on reserve.
     default: "false"
   ttc-job:
     description: Job-distinct TTC key suffix (must match setup).
@@ -52,7 +66,7 @@ runs:
         key: ttc-${{ inputs.os-label }}-v2-${{ github.sha }}-${{ inputs.ttc-job }}
 
     - name: Save dataset cache
-      if: inputs.save-ttc == 'true'
+      if: inputs.save-datasets == 'true'
       uses: actions/cache/save@v5
       with:
         path: |
@@ -87,7 +101,7 @@ runs:
         key: idris2-v0.8.0-${{ inputs.os-label }}-v2
 
     - name: Save pytorch venv cache
-      if: inputs.save-pytorch-venv == 'true'
+      if: inputs.save-pytorch-venv == 'true' && inputs.pytorch-venv-cache-hit != 'true'
       uses: actions/cache/save@v5
       with:
         path: packages/pytorch/.venv

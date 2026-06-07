@@ -20,7 +20,11 @@ inputs:
       from runner.os so the pre-composite cache keys stay valid.
     required: true
   backend-deps:
-    description: "Backend Python deps to install: none | torch | mlx"
+    description: >
+      Backend Python deps to install: none | torch | mlx, or a
+      space-separated combination ("mlx torch" — the macOS test-unit
+      leg needs libtorch for test-unit-multi-backend and uv for the
+      tokenizer-test subprocess alongside mlx).
     default: "none"
   with-pack:
     description: >
@@ -60,6 +64,13 @@ outputs:
       so the (slow, immutable) toolchain is only saved after a real
       bootstrap.
     value: ${{ steps.idris2-cache.outputs.cache-hit }}
+  pytorch-venv-cache-hit:
+    description: >
+      Whether packages/pytorch/.venv came from cache (only meaningful
+      when backend-deps included torch). Pass to save-idris-ml-caches
+      so the multi-GB venv is only saved after a real uv sync — a
+      same-key re-save is a guaranteed "unable to reserve" warning.
+    value: ${{ steps.pytorch-venv-cache.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -239,14 +250,15 @@ runs:
     # Python invocation in the test/bench paths goes through `uv run`
     # inside packages/pytorch, so a bare pip3 install is invisible.
     - name: Restore pytorch venv cache
-      if: inputs.backend-deps == 'torch'
+      if: contains(inputs.backend-deps, 'torch')
+      id: pytorch-venv-cache
       uses: actions/cache/restore@v5
       with:
         path: packages/pytorch/.venv
         key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
     - name: Install torch + transformers via uv
-      if: inputs.backend-deps == 'torch'
+      if: contains(inputs.backend-deps, 'torch')
       shell: bash
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -261,7 +273,7 @@ runs:
     # None and the C++ headers moved to the mlx-metal package —
     # detection tries both and picks whichever has {include,lib}.
     - name: Install MLX
-      if: inputs.backend-deps == 'mlx'
+      if: contains(inputs.backend-deps, 'mlx')
       shell: bash
       run: |
         python3 -m pip install --break-system-packages mlx
