@@ -1953,3 +1953,29 @@ genuinely unsolvable from `IO a` — the bracket's contract requires the result 
 tensors, so `ex` cannot appear in `a` by design. The idiom is documented once; the `ML.Simple`
 prelude row owns the real fix (a build-pinned alias). `withNoGradKeep`'s result type can pin
 `ex` when it returns a tensor.
+
+
+## Tensor expression ops: `tgatherRows` / `tmaxRows` + operator aliases (2026-06-12)
+
+**Decision**: implements roadmap.md decision 5 (api-critique §S3/N3 as adjusted). Two new C ops
+with full autograd on all three backends — `tensor_gather_rows` (PyTorch precedent
+`torch.gather(input, 1, idx.unsqueeze(1)).squeeze(1)`) and `tensor_max_rows`
+(`torch.max(input, 1).values`) — plus infix aliases `(+.) (-.) (*.)` / scalar-left `(*:)` on plain
+evaluated tensors returning IO, used with bang notation. No `Num` instance, no IO-carrier
+operators, no `share` combinator: nothing can silently re-execute.
+
+- **Naming**: the row-wise gather is `tgatherRows`, not the critique's `tgather` — that name was
+  taken meanwhile by the torch-only integer-dtyped 1-D index surface (`IsIntegral idt`); both
+  docstrings cross-reference. Indices follow the established double-valued-int convention
+  (tape casts per element, torch coerces kLong, mlx astype int32).
+- **Backward**: gather_rows scatters to the selected cells (index non-grad, arg2 conventions incl.
+  mlx `arg2_is_index` vjp exclusion); max_rows routes to the per-row argmax (tape recomputes from
+  retained arg1; torch/mlx native). Tie-breaking documented unspecified; tests avoid ties.
+- **Acceptance lock**: `Test.TensorExpr.tdLossAcceptance` reproduces the hand-rolled DQN TD loss
+  (ported from `Example/Dqn.idr` as in-test oracle) in four expression lines, equal in loss value
+  and gradients to 1e-12 (gradients compared via the registry walk — cross-backend safe).
+- **Observation filed for the checkpoint/loss-vocabulary row**: `tmseLoss` is a *sum* reduction;
+  PyTorch `F.mse_loss` defaults to mean. The expression form needs an explicit `1/n` scale to match
+  reference code — worth unifying when the loss vocabulary consolidates.
+- **Perf**: no example references the new symbols yet (examples migrate at the sweep), and the
+  aliases are %inline names for existing calls — can't affect hot paths; no bench run required.

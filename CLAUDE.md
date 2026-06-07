@@ -183,6 +183,8 @@ forwardVar : Network i hs o d g -> Tensor [i] d g -> IO (Network i hs o d g, Ten
 
 Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/NaN to stderr without affecting numerics.
 
+**Expression ops**: row-select-by-index and elementwise arithmetic compose without hand recursions — `tgatherRows` ([b,n] × [b] double-valued-int indices → [b]; PyTorch `gather(1, ·)`), `tmaxRows` ([b,n] → [b]; `max(1).values`), and the infix aliases `(+.)` `(-.)` `(*.)` (elementwise) / `(*:)` (scalar-left) on plain evaluated tensors with bang notation: `tgt <- r +. !(gamma *: !(tmaxRows qNext))`. No `Num` instance, no IO-carrier operators (roadmap.md decision 5). Note `tmseLoss` is a *sum* reduction — scale by `1/n` for PyTorch's mean default. (`tgather` is the separate torch-only integer-dtyped 1-D surface.)
+
 **Long eval loops on mlx need per-sequence `withNoGrad`**: a single outer bracket around `traverse evalOne batch` lets mlx Metal MTLBuffer count blow past the Tart/GHA VM ceiling before exit-drain fires. Push the bracket inside: `evalOne dp = withNoGrad $ do { ... }` (NTM-style) or `withNoGrad (evalEp …)` inside `evalN`'s recursion (RL-style). Tape/torch don't need this; the per-sequence pattern is cheap on both.
 
 ### Training (Train.idr)
