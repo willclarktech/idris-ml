@@ -2386,11 +2386,30 @@ bench-ops-compare:
 	done
 	cd packages/pytorch && uv run python -m torch_ref.compare_ops
 
-ref-supervised:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.supervised
+# Plain torch_ref reference runs, collapsed into one static pattern
+# rule: ref-foo-bar -> `python -m torch_ref.scripts.foo_bar`. Static
+# (not a bare `ref-%`) so the member list stays explicit/greppable,
+# .PHONY applies, and a stray file named ref-<x> can't shadow a rule.
+# Exceptions keep explicit rules (file deps, ARGS, or different shapes
+# entirely): ref-setup ref-lint ref-typecheck ref-convergence{,-copy,
+# -recall} ref-hf-{bert,gpt2,llama} ref-bert-classify-sst2-{finetune,
+# lora-finetune} validate-lora-adapter, plus ref-gpt2-lm-finetune and
+# ref-bert-mlm-finetune (colocated with their examples further up).
+REF_SCRIPT_NAMES := supervised bert-classify-finetune rnn lstm gru \
+	ntm-copy ntm-recall dnc-copy dnc-recall transformer gpt reinforce \
+	a2c ppo dqn mountain-car mountain-car-cont
+REF_SCRIPT_TARGETS := $(addprefix ref-,$(REF_SCRIPT_NAMES))
+.PHONY: $(REF_SCRIPT_TARGETS)
+$(REF_SCRIPT_TARGETS): ref-%:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.$(subst -,_,$*)
 
-ref-bert-classify-finetune:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.bert_classify_finetune
+# SAC, tabular RL, and Monte Carlo have no scripts/ wrapper — invoke
+# models/*.py:__main__ directly (paired-side entry point in both cases).
+REF_MODEL_NAMES := sac q-learning sarsa frozen-lake taxi monte-carlo
+REF_MODEL_TARGETS := $(addprefix ref-,$(REF_MODEL_NAMES))
+.PHONY: $(REF_MODEL_TARGETS)
+$(REF_MODEL_TARGETS): ref-%:
+	cd packages/pytorch && uv run python -m torch_ref.models.$(subst -,_,$*)
 
 ref-bert-classify-sst2-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
 		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
@@ -2410,71 +2429,6 @@ validate-lora-adapter: models/google/bert_uncased_L-2_H-128_A-2/config.json
 		--adapter-dir $(realpath $(ADAPTER_DIR)) \
 		--base-model $(realpath models/google/bert_uncased_L-2_H-128_A-2) \
 		--num-labels 2
-
-ref-rnn:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.rnn
-
-ref-lstm:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.lstm
-
-ref-gru:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.gru
-
-ref-ntm-copy:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.ntm_copy
-
-ref-ntm-recall:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.ntm_recall
-
-ref-dnc-copy:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.dnc_copy
-
-ref-dnc-recall:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.dnc_recall
-
-ref-transformer:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.transformer
-
-ref-gpt:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.gpt
-
-ref-reinforce:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.reinforce
-
-ref-a2c:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.a2c
-
-ref-ppo:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.ppo
-
-ref-dqn:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.dqn
-
-ref-mountain-car:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.mountain_car
-
-ref-mountain-car-cont:
-	cd packages/pytorch && uv run python -m torch_ref.scripts.mountain_car_cont
-
-# SAC, tabular RL, and Monte Carlo have no scripts/ wrapper — invoke
-# models/*.py:__main__ directly (paired-side entry point in both cases).
-ref-sac:
-	cd packages/pytorch && uv run python -m torch_ref.models.sac
-
-ref-q-learning:
-	cd packages/pytorch && uv run python -m torch_ref.models.q_learning
-
-ref-sarsa:
-	cd packages/pytorch && uv run python -m torch_ref.models.sarsa
-
-ref-frozen-lake:
-	cd packages/pytorch && uv run python -m torch_ref.models.frozen_lake
-
-ref-taxi:
-	cd packages/pytorch && uv run python -m torch_ref.models.taxi
-
-ref-monte-carlo:
-	cd packages/pytorch && uv run python -m torch_ref.models.monte_carlo
 
 # PyTorch reference inference for the HF-aligned models. Each invokes the
 # canonical HF transformers forward pass for the same model the matching
