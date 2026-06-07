@@ -14,16 +14,17 @@
  * by every op that touches multiple tensors.
  */
 
-#include <math.h>
+#include <math.h>      // IWYU pragma: keep — consumed by _kernels.inc stampings (powf/expf/tanhf/...)
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef __APPLE__
+// IWYU pragma: keep — consumed by _kernels.inc stampings (vDSP_*); umbrella untraceable.
 #include <Accelerate/Accelerate.h>
 #endif
-#include "../../arena.h"
+#include "../../arena.h"     // IWYU pragma: keep — arena_alloc used in _kernels.inc stampings
 #include "../../tape.h"
-#include "../../tensor.h"
-#include "../../broadcast.h"
+#include "../../tensor.h"    // IWYU pragma: keep — Tensor + DT_* used in _kernels.inc stampings
+#include "../../broadcast.h" // IWYU pragma: keep — broadcast helpers used in _kernels.inc stampings
 #include "_helpers.h"
 #include "../../../backend.h"
 
