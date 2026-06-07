@@ -320,8 +320,23 @@ jobs:
       - name: Add pack to PATH + bootstrap pinned collection
         run: |
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+          # pack drops an `idris2` shim into ~/.local/bin which would
+          # shadow ~/.idris2/bin's release v0.8.0 for every make
+          # target (GITHUB_PATH prepends, so the LAST-added dir wins
+          # — and pack's compiler is a different commit; mixing the
+          # two corrupts the make-side TTC trees: observed as
+          # "Package idris2 is not built or not installed" from the
+          # shim during `make install`, public run 27357373726).
+          # Re-add ~/.idris2/bin so it takes precedence again.
+          echo "$HOME/.idris2/bin" >> $GITHUB_PATH
           export PATH="$HOME/.local/bin:$PATH"
           pack info
+          # Front-load what the pack-driven test targets would lazily
+          # install mid-job: installing the shared test harness
+          # (idris-test, carries the hedgehog dep) forces the pinned
+          # collection's compiler to build as a side effect.
+          # Deterministic here + lands in the pack cache.
+          pack --no-prompt install idris-test
 
       - name: Install MLX (macOS)
         if: matrix.os == 'macos-latest'
