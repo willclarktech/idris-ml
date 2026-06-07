@@ -1,0 +1,102 @@
+name: cache-keepalive
+
+# GitHub evicts Actions caches not accessed for 7 days; the
+# publication cadence on this repo is ~weekly, which sits exactly on
+# that boundary — without a mid-week access, every push pays the full
+# cold bootstrap again (idris2 ~8 min, pack collection ~15-25 min,
+# full TTC elaboration). This workflow just *restores* the expensive
+# caches twice a week (Mon + Thu, between weekly pushes) to reset
+# their eviction clocks; nothing is built or saved. Runs per-OS
+# because a cache's internal version incorporates the saving
+# platform's compression — a Linux restore isn't guaranteed to match
+# a macOS-saved entry.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    name: keepalive (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      # Shallow checkout is fine: only hashFiles() needs the tree.
+      - uses: actions/checkout@v4
+
+      - name: Touch Idris 2 cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.idris2
+          key: idris2-v0.8.0-${{ matrix.os }}-v2
+
+      - name: Touch pack cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.local/bin/pack
+            ~/.local/state/pack
+            ~/.config/pack
+          key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-keepalive
+          restore-keys: |
+            pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-
+            pack-${{ matrix.os }}-
+
+      - name: Touch TTC cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build
+            packages/*/build
+            vendored
+            packages/idris-ml-examples/src/BuildConfig.idr
+            packages/idris-ml/src/HwConfig.idr
+            packages/idris-ml/src/HwExecutors.idr
+            packages/idris-ml/src/Test/Config.idr
+            packages/idris-transformers/src/Test/Config.idr
+          key: ttc-${{ matrix.os }}-v2-keepalive
+          restore-keys: ttc-${{ matrix.os }}-v2-
+
+      - name: Touch dataset cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data
+            packages/pytorch/data
+          key: datasets-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
+
+      - name: Touch HF model cache (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models
+            ~/.cache/huggingface
+          key: hf-models-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
+          restore-keys: hf-models-${{ matrix.os }}-
+
+      - name: Touch pytorch venv caches (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+      - name: Touch lint venv cache (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+      - name: Touch jupyter venv cache (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/jupyter/.venv
+          key: jupyter-venv-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
