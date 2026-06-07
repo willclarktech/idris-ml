@@ -92,6 +92,16 @@ jobs:
         # -transformers / -examples) run in the matrix after
         # ref-setup instead.
         run: make typecheck-py-scripts
+      - name: Typecheck Jupyter kernel package (pyright strict)
+        # `make typecheck-py-jupyter` — pyright strict over
+        # packages/jupyter (config root: its pyproject.toml
+        # [tool.pyright], venvPath pointed at the package's own pip
+        # venv for ipykernel/jupyter_client/pexpect resolution). The
+        # target builds that venv from scratch here (~30-40s: python3
+        # -m venv + pip install -e .[dev]) — deliberately NOT
+        # jupyter-install, which dep-chains the heavy backend build.
+        # No torch involved, so it fits the preflight.
+        run: make typecheck-py-jupyter
       - name: Install C-lint tools (clang-format + cppcheck + clang-tidy)
         # apt-installs clang-format + cppcheck + clang-tidy on the
         # Ubuntu preflight runner. ~10s on a warm cache. Local devs
