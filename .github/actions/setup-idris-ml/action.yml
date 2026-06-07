@@ -1,0 +1,320 @@
+name: Setup idris-ml build environment
+description: >
+  Shared setup for every idris-ml CI job: system deps (Chez, BLAS),
+  source-mtime restore for incremental rebuilds, the Idris 2 v0.8.0
+  toolchain (cached), optionally pack + the pinned collection,
+  optionally the backend-specific Python deps (torch via uv / mlx via
+  pip), optionally the TTC + dataset + HF-model cache restores, and
+  optionally a swapfile (Chez elaboration of cold trees peaks past the
+  16 GB runner RAM). Written once here so a setup fix lands in one
+  place instead of being copy-pasted across test / perf / coverage
+  jobs. Paired with the save-idris-ml-caches composite, which jobs
+  call as their last step (composite actions have no post-steps, so
+  the if-always saves can't live here).
+
+inputs:
+  os-label:
+    description: >
+      Runner label used in cache keys (ubuntu-latest / macos-latest).
+      Passed explicitly (matrix.os or hardcoded) rather than derived
+      from runner.os so the pre-composite cache keys stay valid.
+    required: true
+  backend-deps:
+    description: "Backend Python deps to install: none | torch | mlx"
+    default: "none"
+  with-pack:
+    description: >
+      Install pack + bootstrap the pinned collection (needed by the
+      pack-driven test-unit-idris-* targets; the bench/backend paths
+      don't use pack).
+    default: "false"
+  restore-ttc:
+    description: Restore the TTC/object + dataset caches.
+    default: "true"
+  restore-hf-models:
+    description: >
+      Restore the HF model cache (only the job running the HF
+      roundtrip gates needs the multi-GB model store).
+    default: "false"
+  ttc-job:
+    description: >
+      Job-distinct suffix for the per-sha TTC cache key. Each job
+      saves its own enriched tree; restores fall back to the same-sha
+      build tree, then the newest tree from any sha.
+    default: "build"
+  swap:
+    description: Add an 8 GB swapfile (Linux only; no-op on macOS).
+    default: "false"
+
+outputs:
+  idris2-cache-hit:
+    description: >
+      Whether ~/.idris2 came from cache. Pass to save-idris-ml-caches
+      so the (slow, immutable) toolchain is only saved after a real
+      bootstrap.
+    value: ${{ steps.idris2-cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Chez Scheme + BLAS (Ubuntu)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime
+
+    - name: Install Chez Scheme + coreutils + git-restore-mtime (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      # coreutils gives us gtimeout (test-examples falls back to it when
+      # `timeout` isn't on PATH — macOS doesn't ship one). We deliberately
+      # do NOT add libexec/gnubin to PATH: that would expose `stdbuf`
+      # without the `g` prefix, but brew's libstdbuf.so is built for arm64
+      # while macOS's inserted-library loader requires arm64e — every
+      # binary linking system frameworks (i.e. ours) would abort with
+      # "incompatible architecture". The Makefile's $(STDBUF) probe
+      # correctly returns empty when `stdbuf` is off PATH, so no buffering
+      # is applied on macOS CI.
+      #
+      # git-restore-mtime comes from the git-tools pip package (no brew
+      # formula); without it every macOS job would full-rebuild despite a
+      # warm TTC cache (checkout stamps sources newer than the cached
+      # artifacts).
+      run: |
+        brew install chezscheme coreutils
+        pip3 install --break-system-packages git-tools
+
+    # idris2 and make decide rebuilds by mtime. Checkout stamps all
+    # files "now", which would make every cached TTC / object look
+    # stale; restore-mtime resets each file to its last-touching
+    # commit's date so unchanged sources stay older than the cached
+    # build tree and elaboration is skipped. Needs fetch-depth: 0 on
+    # the checkout (per-file last-commit dates).
+    - name: Restore source mtimes for incremental rebuilds
+      shell: bash
+      run: git restore-mtime
+
+    # Chez elaboration of a cold tree (library + a large example in
+    # one cascade) peaks past the 16 GB runner RAM — observed as the
+    # runner's "shutdown signal" OOM kill during the first-ever
+    # torch-tree elaboration of HfBitNetInference (run 27364532457).
+    # Swap trades speed for survival on the cold path; warm TTC trees
+    # don't touch it. /swapfile8 avoids colliding with any
+    # image-provided /mnt/swapfile.
+    - name: Add 8 GB swapfile
+      if: inputs.swap == 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo fallocate -l 8G /swapfile8
+        sudo chmod 600 /swapfile8
+        sudo mkswap /swapfile8
+        sudo swapon /swapfile8
+        free -h
+
+    # Idris 2 v0.8.0 built from source, cached across runs to avoid
+    # the 5-10 min bootstrap on every job. Idris2's default PREFIX is
+    # $HOME/.idris2 — caching that whole tree (binary + libs) is
+    # simplest. Bump the key suffix to force a rebuild. The paired
+    # save lives in save-idris-ml-caches (if: always(), gated on the
+    # cache-hit output above) so a bootstrap on a red run isn't lost.
+    - name: Restore Idris 2 cache
+      id: idris2-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.idris2
+        key: idris2-v0.8.0-${{ inputs.os-label }}-v2
+
+    - name: Build and install Idris 2
+      if: steps.idris2-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        # Locate Chez Scheme. Binary name varies: Ubuntu `chezscheme`
+        # package installs `scheme`; brew `chezscheme` may install
+        # `scheme`, `chez-scheme`, `chez`, or be keg-only.
+        SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez || true)"
+        if [ -z "$SCHEME" ] && command -v brew >/dev/null 2>&1; then
+          BREW_PREFIX="$(brew --prefix chezscheme 2>/dev/null || true)"
+          if [ -n "$BREW_PREFIX" ] && [ -d "$BREW_PREFIX/bin" ]; then
+            for name in scheme chez-scheme chezscheme chez petite; do
+              if [ -x "$BREW_PREFIX/bin/$name" ]; then
+                SCHEME="$BREW_PREFIX/bin/$name"
+                break
+              fi
+            done
+          fi
+        fi
+        if [ -z "$SCHEME" ]; then
+          echo "Chez Scheme not found (PATH=$PATH)" >&2
+          exit 1
+        fi
+        echo "Using SCHEME=$SCHEME"
+        git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
+        cd /tmp/Idris2
+        make bootstrap SCHEME="$SCHEME"
+        make install
+
+    - name: Add Idris 2 to PATH
+      shell: bash
+      run: echo "$HOME/.idris2/bin" >> $GITHUB_PATH
+
+    - name: Verify Idris 2
+      shell: bash
+      run: idris2 --version
+
+    # pack (the Idris package manager) drives the per-package
+    # unit-test builds (test-unit-idris-*): the shared idris-test
+    # harness depends on hedgehog, which only pack's curated
+    # collection provides. The repo-level pack.toml pins the
+    # collection; pack bootstraps that collection's toolchain into
+    # ~/.local/state/pack on first use, all cached here keyed on the
+    # pinned pack.toml. Cold bootstrap is ~15-25 min; warm restore is
+    # seconds. The install step guards on the pack binary, not
+    # cache-hit, since a prefix restore already carries a working pack.
+    - name: Restore pack cache
+      if: inputs.with-pack == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.local/bin/pack
+          ~/.local/state/pack
+          ~/.config/pack
+        key: pack-${{ inputs.os-label }}-${{ hashFiles('pack.toml') }}-${{ github.sha }}
+        restore-keys: |
+          pack-${{ inputs.os-label }}-${{ hashFiles('pack.toml') }}-
+          pack-${{ inputs.os-label }}-
+
+    - name: Install pack (skipped when cache carried a binary)
+      if: inputs.with-pack == 'true'
+      shell: bash
+      run: |
+        if [ -x "$HOME/.local/bin/pack" ]; then
+          echo "pack already present (cache); skipping micropack bootstrap"
+          exit 0
+        fi
+        SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez)"
+        git clone --depth 1 https://github.com/stefan-hoeck/idris2-pack.git /tmp/idris2-pack
+        cd /tmp/idris2-pack
+        make micropack SCHEME="$SCHEME"
+
+    - name: Add pack to PATH + bootstrap pinned collection
+      if: inputs.with-pack == 'true'
+      shell: bash
+      run: |
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        # pack drops an `idris2` shim into ~/.local/bin which would
+        # shadow ~/.idris2/bin's release v0.8.0 for every make target
+        # (GITHUB_PATH prepends, so the LAST-added dir wins — and
+        # pack's compiler is a different commit; mixing the two
+        # corrupts the make-side TTC trees). Re-add ~/.idris2/bin so
+        # it takes precedence again.
+        echo "$HOME/.idris2/bin" >> $GITHUB_PATH
+        export PATH="$HOME/.local/bin:$PATH"
+        pack info
+        # Front-load what the pack-driven test targets would lazily
+        # install mid-job: installing the shared test harness
+        # (idris-test, carries the hedgehog dep) forces the pinned
+        # collection's compiler to build as a side effect.
+        # Deterministic here + lands in the pack cache.
+        pack --no-prompt install idris-test
+
+    # Torch lane: the uv-managed venv under packages/pytorch carries
+    # libtorch (the Makefile's LIBTORCH_PATH detection finds the venv's
+    # torch automatically) plus transformers for the HF oracles. Every
+    # Python invocation in the test/bench paths goes through `uv run`
+    # inside packages/pytorch, so a bare pip3 install is invisible.
+    - name: Restore pytorch venv cache
+      if: inputs.backend-deps == 'torch'
+      uses: actions/cache/restore@v4
+      with:
+        path: packages/pytorch/.venv
+        key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+    - name: Install torch + transformers via uv
+      if: inputs.backend-deps == 'torch'
+      shell: bash
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        export PATH="$HOME/.local/bin:$PATH"
+        make ref-setup
+
+    # MLX is Apple-only. Pip wheel ships C++ headers + libs in the
+    # package's site-packages dir under {include,lib}; the Makefile's
+    # BACKEND=mlx rules read MLX_SITE to find them. mlx 0.31+ split
+    # into a namespace package (mlx + mlx-metal), so `mlx.__file__` is
+    # None and the C++ headers moved to the mlx-metal package —
+    # detection tries both and picks whichever has {include,lib}.
+    - name: Install MLX
+      if: inputs.backend-deps == 'mlx'
+      shell: bash
+      run: |
+        python3 -m pip install --break-system-packages mlx
+        MLX_SITE=$(python3 -c "
+        import importlib.util, os, sys
+        for name in ('mlx', 'mlx_metal'):
+            spec = importlib.util.find_spec(name)
+            if not spec: continue
+            path = spec.submodule_search_locations[0] if spec.submodule_search_locations \
+                else os.path.dirname(spec.origin)
+            if os.path.isdir(os.path.join(path, 'include')):
+                print(path); sys.exit(0)
+        sys.exit(1)
+        ")
+        echo "MLX_SITE=$MLX_SITE" >> $GITHUB_ENV
+
+    # TTC + object cache. Idris elaboration dominates every job's
+    # wall-clock; with restored source mtimes idris2/make skip
+    # everything the cached tree already covers. Per-sha + per-job
+    # keys: each job saves its own enriched tree (via
+    # save-idris-ml-caches); restores prefer the same-sha build tree,
+    # then the newest tree from any prior sha. The cmp-then-mv-guarded
+    # generated sources (BuildConfig.idr etc.) must be cached too —
+    # regenerating them fresh would invalidate every downstream module.
+    # Bump -v2 to force-flush a wedged tree.
+    - name: Restore TTC cache
+      if: inputs.restore-ttc == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          build
+          packages/*/build
+          vendored
+          packages/idris-ml-examples/src/BuildConfig.idr
+          packages/idris-ml/src/HwConfig.idr
+          packages/idris-ml/src/HwExecutors.idr
+          packages/idris-ml/src/Test/Config.idr
+          packages/idris-transformers/src/Test/Config.idr
+        key: ttc-${{ inputs.os-label }}-v2-${{ github.sha }}-${{ inputs.ttc-job }}
+        restore-keys: |
+          ttc-${{ inputs.os-label }}-v2-${{ github.sha }}-
+          ttc-${{ inputs.os-label }}-v2-
+
+    # Datasets the e2e example runs fetch (MNIST, SST-2, the torch_ref
+    # downloads under packages/pytorch/data). The fetch rules are
+    # file-as-make-target, so a restored file is simply not re-fetched.
+    - name: Restore dataset cache
+      if: inputs.restore-ttc == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          data
+          packages/pytorch/data
+        key: datasets-${{ inputs.os-label }}-${{ hashFiles('mk/examples.mk') }}
+        restore-keys: datasets-${{ inputs.os-label }}-
+
+    # HF model + tokenizer cache for the roundtrip gates: models/
+    # holds the Make-fetched safetensors (file-as-target — Make's
+    # existence check is the cache), ~/.cache/huggingface holds the
+    # transformers-side oracle downloads. Keyed on examples.mk so
+    # adding a model target refreshes the cache; prefix restore keeps
+    # the old models while the new one downloads.
+    - name: Restore HF model cache
+      if: inputs.restore-hf-models == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          models
+          ~/.cache/huggingface
+        key: hf-models-${{ inputs.os-label }}-${{ hashFiles('mk/examples.mk') }}
+        restore-keys: hf-models-${{ inputs.os-label }}-

@@ -1,0 +1,94 @@
+name: Save idris-ml caches
+description: >
+  Paired saves for setup-idris-ml's cache restores. Jobs call this as
+  their LAST step with `if: always()` — a mostly-built tree from a red
+  run still saves the next run's elaboration (the plain actions/cache
+  form only saves on job success, which starved every cache while a
+  workflow was red). Composite actions have no post-steps, so this
+  can't live inside setup-idris-ml itself. cache/save skips gracefully
+  when a key already exists (logged as a benign "reserve" failure).
+
+inputs:
+  os-label:
+    description: Runner label used in cache keys (must match setup).
+    required: true
+  idris2-cache-hit:
+    description: >
+      setup-idris-ml's idris2-cache-hit output; the toolchain is
+      immutable per key so it's only saved after a real bootstrap.
+    default: "true"
+  save-pack:
+    description: Save the pack cache (jobs that ran with-pack).
+    default: "false"
+  save-ttc:
+    description: Save the TTC/object + dataset caches.
+    default: "true"
+  save-hf-models:
+    description: Save the HF model cache (the HF-roundtrip job).
+    default: "false"
+  save-pytorch-venv:
+    description: Save the uv venv (jobs that ran backend-deps torch).
+    default: "false"
+  ttc-job:
+    description: Job-distinct TTC key suffix (must match setup).
+    default: "build"
+
+runs:
+  using: composite
+  steps:
+    - name: Save TTC cache
+      if: inputs.save-ttc == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          build
+          packages/*/build
+          vendored
+          packages/idris-ml-examples/src/BuildConfig.idr
+          packages/idris-ml/src/HwConfig.idr
+          packages/idris-ml/src/HwExecutors.idr
+          packages/idris-ml/src/Test/Config.idr
+          packages/idris-transformers/src/Test/Config.idr
+        key: ttc-${{ inputs.os-label }}-v2-${{ github.sha }}-${{ inputs.ttc-job }}
+
+    - name: Save dataset cache
+      if: inputs.save-ttc == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          data
+          packages/pytorch/data
+        key: datasets-${{ inputs.os-label }}-${{ hashFiles('mk/examples.mk') }}
+
+    - name: Save HF model cache
+      if: inputs.save-hf-models == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          models
+          ~/.cache/huggingface
+        key: hf-models-${{ inputs.os-label }}-${{ hashFiles('mk/examples.mk') }}
+
+    - name: Save pack cache
+      if: inputs.save-pack == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ~/.local/bin/pack
+          ~/.local/state/pack
+          ~/.config/pack
+        key: pack-${{ inputs.os-label }}-${{ hashFiles('pack.toml') }}-${{ github.sha }}
+
+    - name: Save Idris 2 cache
+      if: inputs.idris2-cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.idris2
+        key: idris2-v0.8.0-${{ inputs.os-label }}-v2
+
+    - name: Save pytorch venv cache
+      if: inputs.save-pytorch-venv == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: packages/pytorch/.venv
+        key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
