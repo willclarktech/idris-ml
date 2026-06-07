@@ -1443,11 +1443,22 @@ Two ways to make the dependency visible:
      a1)
    ```
 
-We use (2) for `primToHost` instances in `Device/{Tape,Torch,Mlx}.idr`
-to avoid adding more C boilerplate. Pattern: when wrapping a
-side-effecting void C function whose Idris-side need is to thread an
-output buffer downstream, return the buffer at the end of the
-Scheme lambda body.
+**Use (1), not (2).** The `primToHost` instances originally used (2);
+the dlsym-cache wrapper regeneration (`2385e3ff`, 2026-05-17) re-emitted
+them from the manifest template — which has no concept of "call void,
+return arg" — and silently dropped the trailing `a1`. The lambda then
+returned `#<void>`; threading that into `tensor_create` on the next
+backend produced `Exception: invalid memory reference` on every
+cross-backend `toExecutor` hop (Idris2 compiles at `(optimize-level 3)`,
+where Chez elides the foreign-procedure argument check that would
+otherwise have named the bad value). Fixed `a792702b` by rebinding to
+`tensor_to_doubles_return_<b>`. A hand-crafted lambda shape the
+generator can't express is a regen hazard; a `*_return` C shim
+(backend.h "value threading" section) survives regeneration because
+the value-return is in the C signature itself.
+`check-ffi-wrap-template.py` now cross-checks the foreign-procedure
+return type against the Idris signature, so a void-returning wrapper
+bound to a value-expecting Idris decl fails lint.
 
 ### `Tensor`'s `dims : Vect rank Nat` parameter — bind it at non-zero quantity to observe it at runtime
 
