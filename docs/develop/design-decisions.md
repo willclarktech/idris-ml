@@ -1901,3 +1901,55 @@ sub-byte storage docstring);
 + `absmean_ternary_quant`);
 TODO #411 + the upcoming per-backend `tensor_bitlinear_fwd`
 kernel commits.
+
+## `Backend ex dt` constraint bundle (2026-06-12)
+
+**Decision**: one bundling interface `(UserExecutorTraining ex, RuntimeDType dt, Linked ex,
+Compatible ex dt) => Backend (0 ex : Executor) (0 dt : DType)` + one anonymous blanket
+implementation (`Backend.idr`), and every library signature that previously carried the full
+leaf stack reads `Backend ex dt => …`. Implements api-critique §S9/N1 (first workstream of the
+v1 roadmap).
+
+**Shape choices and the evidence behind them**:
+
+- **Four superclasses, not the critique's five** — `UserExecutorCore` arrives through the
+  Training aggregate's superclass chain (Training ⊃ Conv ⊃ NN ⊃ Linear ⊃ Core); `Test.Backend`'s
+  probe resolves Core methods from a Backend-only constraint, so the fifth superclass would be
+  pure dictionary weight.
+- **Blanket implementation, not per-backend one-liners** — precedent
+  `LosslessTo from to => UpcastableTo from to` (DType/Core.idr). BYO backends get the bundle
+  free from their leaf instances. The feared elaborator cost did not materialize: clean
+  `ttc-idris-ml` elaboration 14.0–15.3 s / 705 MB peak RSS before (62 modules) vs
+  14.5–15.2 s / 763 MB after (63 modules) — wall within noise, RSS +8%, far inside the 25%
+  rollback criterion.
+- **Single-dtype by construction** — with `Backend ex pDt` and `Backend ex cDt` both in scope,
+  *every* ex-side leaf search in the body becomes `Backend ex ?u` with two local solutions, and
+  idris2 0.8.0 rejects the ambiguity ("Multiple solutions found"). Mixed-precision signatures
+  (`epochVarMixed`, `perPointLossMixed`, the `LayerLikeMixed` tree) therefore keep their leaf
+  stacks until that tree dies at the models-as-records row.
+- **`backendFrom` explicit assembler** — bridge code that legitimately holds two
+  `(RuntimeDType, Compatible)` dict pairs (the `AsMixed` adapter, where `pDt = cDt` after
+  matching) cannot auto-assemble the bundle (same ambiguity). `backendFrom rdt cmp = %search`
+  takes the chosen leaves as explicit arguments — inside its body they're the only candidates,
+  so the blanket resolves uniquely. Call shape: `applyVar @{dict} @{backendFrom rdtC cmpC} …`.
+- **Error quality is better than the critique feared** — §S9 accepted "errors will name the
+  bundle instead of the leaf"; in practice idris2 0.8.0 walks through the blanket and names the
+  missing leaf: `Can't find an implementation for Linked FakeExecutor`. The negative gate
+  (`test-integration-typegate-backend-linked`, Test/neg/BackendRequiresLinked.idr) asserts
+  exactly that phrase, so a bundle that silently dropped the availability gate fails CI.
+- **`IsFloating` stays outside** (19 sites; gates the loss/training axis, not backend
+  admissibility — bundling it would exclude integer dtypes everywhere). **Deliberate
+  non-targets**: `targsort` (Linear-tier + `Compatible ex I64` — weaker than the bundle by
+  design), the cross-executor transfer path (`Compatible d2 dt` on `toExecutor*` — two
+  executors, different shape), `Layer/Core.idr`'s `freezeNetwork` walker (partial stack, no
+  `RuntimeDType`; bundling would strengthen it for no gain), and dt-less signatures
+  (`withNoGrad`, Checkpoint, Train) which keep plain `UserExecutorTraining ex`.
+- **Tier names reserved, not shipped** — `BackendCore`/`BackendInference`/`BackendStreamed`
+  wait for real populations: `UserExecutorInference` has zero lib use sites and Core-only sites
+  carry no dtype constraints, so an `(ex, dt)` bundle offers them nothing today.
+
+**`withNoGrad {ex=…}` (the TODO row's targeted look — concluded, no API change)**: `ex` is
+genuinely unsolvable from `IO a` — the bracket's contract requires the result to hold no live
+tensors, so `ex` cannot appear in `a` by design. The idiom is documented once; the `ML.Simple`
+prelude row owns the real fix (a build-pinned alias). `withNoGradKeep`'s result type can pin
+`ex` when it returns a tensor.

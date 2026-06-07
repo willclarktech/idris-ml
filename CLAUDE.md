@@ -141,6 +141,8 @@ record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gra
 
 `Array` is the structural type used for input-data marshalling and Math.idr's pure-Idris ops; it is NOT the autograd type. `Tensor` is the daily user-facing autograd handle.
 
+**Canonical constraint**: exported single-dtype signatures use the `Backend ex dt` bundle (`Backend.idr`: `(UserExecutorTraining ex, RuntimeDType dt, Linked ex, Compatible ex dt) => Backend ex dt` + blanket impl) — write `Backend ex dt => ...`, not the four-leaf stack. Leaf constraints survive only where deliberate: dt-less signatures (`withNoGrad` — its `{ex=...}` pin is unsolvable by design, the bracket result must hold no live tensors), mixed dual-dtype signatures (two `Backend ex _` dicts make leaf searches ambiguous — see design-decisions.md), `targsort`-style weaker tiers, and the cross-executor transfer path. Bridge code holding two dtype dict pairs assembles explicitly via `backendFrom`.
+
 The library is **fully polymorphic in dt** — every interface method, smart constructor, and layer state record binds `dt` as an implicit and uses it. Callers pin the concrete dtype at the leaf use site. Hardcoding F64 in method bodies while leaving the record's slot polymorphic caused a 30+ GB elaborator memory blowup; see `docs/develop/gotchas.md` "Polymorphic type-parameter slot vs concrete value in method body."
 
 Examples don't hardcode device or dtype. They reference `ExampleDevice` / `ExampleDType` from `packages/idris-ml-examples/src/BuildConfig.idr` — a Makefile-generated source file (template at `BuildConfig.idr.in`, version-controlled). The generator reads `BACKEND` + `MLX_DEVICE` + `TORCH_DEVICE` at build time and picks the right `(ExampleDevice, ExampleDType)` cell:
