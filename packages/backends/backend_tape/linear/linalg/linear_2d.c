@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 #ifdef __APPLE__
+// IWYU pragma: keep — umbrella; provides cblas_* + vDSP_* + Cblas* (include-cleaner can't trace).
 #include <Accelerate/Accelerate.h>
 #endif
 #include "../../tape.h"
@@ -53,6 +54,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 	if (W->dtype_tag == DT_F32) {
 		float* out_data = arena_alloc((size_t)BB * oo * sizeof(float));
 #ifdef __APPLE__
+		// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 		cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, BB, oo, ii, 1.0f,
 		            (const float*)X->data, ii, (const float*)W->data, ii, 0.0f, out_data, oo);
 #else
@@ -69,8 +71,10 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 		if (bias) {
 			for (int b = 0; b < BB; b++) {
 #ifdef __APPLE__
+				// NOLINTBEGIN(misc-include-cleaner): vDSP_* symbols via Accelerate umbrella
 				vDSP_vadd(out_data + (size_t)b * oo, 1, (const float*)bias->data, 1,
 				          out_data + (size_t)b * oo, 1, (vDSP_Length)oo);
+				// NOLINTEND(misc-include-cleaner)
 #else
 				for (int o = 0; o < oo; o++)
 					out_data[(size_t)b * oo + o] += ((float*)bias->data)[o];
@@ -95,6 +99,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 
 	double* out_data = malloc((size_t)BB * oo * sizeof(double));
 #ifdef __APPLE__
+	// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, BB, oo, ii, 1.0, X->data, ii, W->data, ii,
 	            0.0, out_data, oo);
 #else
@@ -111,6 +116,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 	if (bias) {
 		for (int b = 0; b < BB; b++) {
 #ifdef __APPLE__
+			// NOLINTNEXTLINE(misc-include-cleaner): vDSP_* symbols via Accelerate umbrella
 			vDSP_vaddD(out_data + (size_t)b * oo, 1, bias->data, 1, out_data + (size_t)b * oo, 1,
 			           (vDSP_Length)oo);
 #else

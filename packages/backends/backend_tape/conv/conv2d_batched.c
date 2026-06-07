@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef __APPLE__
+// IWYU pragma: keep — umbrella; provides cblas_* + Cblas* (include-cleaner can't trace).
 #include <Accelerate/Accelerate.h>
 #endif
 #include "../tape.h"
@@ -147,6 +148,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel, Te
 		                  strideW, oH, oW, X_col);
 		float* Y_unf = (float*)calloc((size_t)M * outC, sizeof(float));
 #ifdef __APPLE__
+		// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 		cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, M, outC, K, 1.0f, X_col, K,
 		            (const float*)kernel->data, K, 0.0f, Y_unf, outC);
 #else
@@ -182,6 +184,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel, Te
 		              X_col);
 		double* Y_unf = calloc((size_t)M * outC, sizeof(double));
 #ifdef __APPLE__
+		// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, M, outC, K, 1.0, X_col, K,
 		            kernel->data, K, 0.0, Y_unf, outC);
 #else

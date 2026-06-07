@@ -12,6 +12,7 @@
 
 #include <string.h>
 #ifdef __APPLE__
+// IWYU pragma: keep — umbrella; provides cblas_* + Cblas* (include-cleaner can't trace).
 #include <Accelerate/Accelerate.h>
 #endif
 #include "../../tape.h"
@@ -32,6 +33,7 @@ static TensorHandle tensor_mv_f32(TensorHandle hmat, TensorHandle hvec) {
 		return tape_zero_tensor(out_shape, 1, DT_F32, mat->requires_grad || vec->requires_grad);
 	float* out_data = arena_alloc(m * sizeof(float));
 #ifdef __APPLE__
+	// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 	cblas_sgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0f, (const float*)mat->data, n,
 	            (const float*)vec->data, 1, 0.0f, out_data, 1);
 #else
@@ -71,6 +73,7 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
 		return tape_zero_tensor(out_shape, 1, DT_F64, mat->requires_grad || vec->requires_grad);
 	double* out_data = arena_alloc(m * sizeof(double));
 #ifdef __APPLE__
+	// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 	cblas_dgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0, mat->data, n, vec->data, 1, 0.0, out_data,
 	            1);
 #else
@@ -113,6 +116,7 @@ static void tape_backward_mv(TapeEntry* e) {
 		} else {
 #ifdef __APPLE__
 			/* A.grad [m,n] += grad [m] * x^T [n] — rank-1 outer product */
+			// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 			cblas_dger(CblasRowMajor, m_mv, n_mv, 1.0, r->grad, 1, x_vals, 1, a->grad, n_mv);
 #else
 			for (int ii = 0; ii < m_mv; ii++)
@@ -133,6 +137,7 @@ static void tape_backward_mv(TapeEntry* e) {
 			}
 		} else {
 #ifdef __APPLE__
+			// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 			cblas_dgemv(CblasRowMajor, CblasTrans, m_mv, n_mv, 1.0, a->data, n_mv, r->grad, 1, 1.0,
 			            b->grad, 1);
 #else

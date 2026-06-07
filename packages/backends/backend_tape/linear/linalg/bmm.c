@@ -7,6 +7,7 @@
 
 #include <stdlib.h>
 #ifdef __APPLE__
+// IWYU pragma: keep — umbrella; provides cblas_* + Cblas* (include-cleaner can't trace).
 #include <Accelerate/Accelerate.h>
 #endif
 #include "../../tape.h"
@@ -30,6 +31,7 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 		float* data = arena_alloc((size_t)B * m * k * sizeof(float));
 		for (int bi = 0; bi < B; bi++) {
 #ifdef __APPLE__
+			// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 			cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, k, n, 1.0f,
 			            ((const float*)a->data) + (size_t)bi * m * n, n, (const float*)b->data, k,
 			            0.0f, data + (size_t)bi * m * k, k);
@@ -51,6 +53,7 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 	double* data = calloc((size_t)B * m * k, sizeof(double));
 	for (int bi = 0; bi < B; bi++) {
 #ifdef __APPLE__
+		// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, k, n, 1.0,
 		            ((double*)a->data) + (size_t)bi * m * n, n, b->data, k, 0.0,
 		            data + (size_t)bi * m * k, k);
@@ -91,6 +94,7 @@ static void tape_backward_bmm(TapeEntry* e) {
 					}
 		} else
 #ifdef __APPLE__
+			// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 			cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, BB * mm, nn, kk, 1.0, r->grad, kk,
 			            b->data, kk, 1.0, a->grad, nn);
 #else

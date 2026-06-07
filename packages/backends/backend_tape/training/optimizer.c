@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef __APPLE__
+// IWYU pragma: keep — umbrella; provides cblas_* (include-cleaner can't trace).
 #include <Accelerate/Accelerate.h>
 #else
 #include <cblas.h>
@@ -215,7 +216,9 @@ static void adamw_foreach_param(TapeOptimizer* opt, Tensor* t, int base, double 
 	   call overhead outweighs the vectorized inner; gate by n ≥ 256
 	   (smaller params keep the scalar autovectorized loop). */
 	if (n >= 256) {
+		// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 		cblas_dscal(n, opt->beta1, m, 1);
+		// NOLINTNEXTLINE(misc-include-cleaner): BLAS symbols via Accelerate umbrella
 		cblas_daxpy(n, 1.0 - opt->beta1, g, 1, m, 1);
 	} else {
 		for (int j = 0; j < n; j++)
