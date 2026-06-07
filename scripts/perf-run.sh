@@ -59,7 +59,7 @@ case "$EXAMPLE_KEY" in
 	gpt)                 TGT=example-gpt;                        AVAR=GPT_ARGS ;;
 	matmul-bench)        TGT=example-matmul-bench;               AVAR=MATMUL_BENCH_ARGS ;;
 	mnist)               TGT=example-mnist;                      AVAR=MNIST_ARGS ;;
-	seq-classify)        TGT=example-seq-classify;               AVAR=SEQ_ARGS ;;
+	seq-classify)        TGT=example-seq-classify;               AVAR=SEQ_CLASSIFY_ARGS ;;
 	reinforce)           TGT=example-reinforce;                  AVAR=REINFORCE_ARGS ;;
 	dqn)                 TGT=example-dqn;                        AVAR=DQN_ARGS ;;
 	mountain-car)        TGT=example-mountain-car;               AVAR=MOUNTAIN_CAR_ARGS ;;

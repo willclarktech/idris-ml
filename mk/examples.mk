@@ -518,7 +518,7 @@ example-mnist: install $(MNIST_SENTINEL)
 example-seq-classify: install
 	idris2 $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
 	cp $(LIB) $(BUILD)/exec/seq-classify_app/
-	$(STDBUF) ./$(BUILD)/exec/seq-classify $(SEED_FLAG) $(SEQ_ARGS)
+	$(STDBUF) ./$(BUILD)/exec/seq-classify $(SEED_FLAG) $(SEQ_CLASSIFY_ARGS)
 
 example-reinforce: install
 	idris2 $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
