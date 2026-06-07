@@ -800,16 +800,17 @@ jobs:
           save-hf-models: 'true'
           ttc-job: test-e2e-hf
 
-  # Coverage matrix — advisory only. Builds with
-  # -fprofile-instr-generate -fcoverage-mapping, runs the test binaries,
-  # merges the .profraw via llvm-profdata, emits HTML + text reports
-  # under build-cov/html-<b>/. No CI gate; report-only. Gated to
-  # workflow_dispatch (manual trigger via `gh workflow run`) because
-  # coverage rebuilds with -O0 -g add ~5-10 min per backend lane and
-  # the report is for local inspection rather than per-PR signal.
+  # Coverage matrix — report-only (no gate; artifacts for local
+  # inspection). Builds with -fprofile-instr-generate
+  # -fcoverage-mapping, runs the test binaries, merges the .profraw
+  # via llvm-profdata, emits HTML + text reports under
+  # build-cov/html-<b>/. Runs on push (minutes are free and a
+  # coverage-build failure — different flags — is itself signal) and
+  # on dispatch; skipped for external PRs to keep their queue time
+  # down.
   coverage:
     name: coverage (${{ matrix.backend }} on ${{ matrix.os }})
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
