@@ -1738,6 +1738,41 @@ export %inline
 tmulScalar : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> Double -> IO (Tensor dims ex dt g)
 tmulScalar v s = ioRerun (\_ => MkTensor (primMulScalar {ex} v.tensorPtr s) Nothing)
 
+----------------------------------------------------------------------
+-- Expression operator aliases
+----------------------------------------------------------------------
+--
+-- Infix spellings of the elementwise ops, on plain evaluated tensors,
+-- returning IO — used with bang notation:
+--
+--   tgt <- r +. !(gamma *: !(tmaxRows qNext))
+--
+-- Deliberately NOT a Num instance and NOT on IO carriers (roadmap.md
+-- decision 5): ops consume already-evaluated tensors, so nothing can
+-- silently re-execute and there is no sharing combinator to teach.
+-- Precedences mirror Prelude (+)/(*) so mixed expressions parse as
+-- expected. `(*:)` is scalar-on-the-left, reading like PyTorch's
+-- `0.99 * q`.
+
+export infixl 6 +., -.
+export infixl 7 *., *:
+
+export %inline
+(+.) : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> Tensor dims ex dt g -> IO (Tensor dims ex dt g)
+(+.) = tadd
+
+export %inline
+(-.) : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> Tensor dims ex dt g -> IO (Tensor dims ex dt g)
+(-.) = tsub
+
+export %inline
+(*.) : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> Tensor dims ex dt g -> IO (Tensor dims ex dt g)
+(*.) = tmul
+
+export %inline
+(*:) : {0 ex : Executor} -> UserExecutorCore ex => Double -> Tensor dims ex dt g -> IO (Tensor dims ex dt g)
+(*:) s v = tmulScalar v s
+
 ||| Elementwise exponential (autograd-tracked).
 export %inline
 texp : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> IO (Tensor dims ex dt g)

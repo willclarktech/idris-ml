@@ -47,6 +47,17 @@ maxRowsValues = do
   check "tmaxRows [[1,5],[7,2],[3,4]] = (5,7,4)" (x == 5 && y == 7 && z == 4)
 
 
+operatorAliases : IO Bool
+operatorAliases = do
+  a <- mk32 (1, 2) (3, 4) (5, 6)
+  b <- mk32 (10, 20) (30, 40) (50, 60)
+  viaOps   <- a +. !(2.0 *: b)
+  viaNames <- tadd a !(tmulScalar b 2.0)
+  let ok = all (\i => primItem1d {ex=TestExecutor} viaOps.tensorPtr i
+                    == primItem1d {ex=TestExecutor} viaNames.tensorPtr i)
+               (the (List Int) [0, 1, 2, 3, 4, 5])
+  check "(+.)/(*:) with bang = named ops" ok
+
 export
 tests : List (IO Bool)
-tests = [gatherRowsPicks, maxRowsValues]
+tests = [gatherRowsPicks, maxRowsValues, operatorAliases]
