@@ -135,7 +135,7 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 	int elem_size = t->numel / B;
 	int inner_rank = t->rank - 1;
 	size_t es = tape_elem_size(t->dtype_tag);
-	TensorHandle* handles = malloc(B * sizeof(TensorHandle));
+	TensorHandle* handles = (TensorHandle*)malloc(B * sizeof(TensorHandle));
 	for (int i = 0; i < B; i++) {
 		Tensor* r = arena_alloc(sizeof(Tensor));
 		memset(r, 0, sizeof(Tensor));

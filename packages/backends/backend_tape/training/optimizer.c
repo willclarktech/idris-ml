@@ -320,6 +320,9 @@ void tape_optimizer_step(void* h) {
 				tape_store_d(t, j, w1 - lr * opt->weight_decay * w1);
 				break;
 			}
+			default:
+				fprintf(stderr, "tape optimizer: unknown opt->type=%d\n", opt->type);
+				abort();
 			}
 		}
 	}

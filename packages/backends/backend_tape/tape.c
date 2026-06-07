@@ -151,7 +151,7 @@ void tape_reset(void) {
 			TapeEntry* e = &entries[i];
 			/* Free OP_STACK inputs arrays */
 			if (e->op == OP_STACK && e->inputs) {
-				free(e->inputs);
+				free((void*)e->inputs);
 				e->inputs = NULL;
 			}
 			/* Free OP_LAYER_NORM_2D heap arrays */

@@ -1,31 +1,29 @@
-# Conservative clang-tidy config for the C / C++ backend sources.
+# clang-tidy config for the C / C++ backend sources.
 #
-# Why "conservative": clang-tidy ships dozens of checks; turning them
-# all on at once would produce hundreds of low-signal findings on a
-# codebase that has never run the tool. Start with a narrow set that
-# catches real bug classes (unused symbols, dead stores, unintended
-# returns), prove the gate green, then widen as cleanup commits land.
+# Pattern: enable the whole `bugprone-*` family (it's curated as
+# "bug-finding heuristics" — matches our intent), with two
+# exceptions for checks that are stylistic rather than bug-class.
+# Outside `bugprone-*`, enumerate individually — the other check
+# families (readability-*, modernize-*, cppcoreguidelines-*, etc.)
+# bundle real findings with broad style-preference enforcement we
+# don't want.
 #
-# To expand: add a check, run `make c-lint` locally, decide whether
-# the new findings are real (fix in source) or noisy (ignore via a
-# negated entry like `-readability-isolate-declaration`).
+# When LLVM ships a new bugprone-* check, we get it for free. When
+# the new check turns out to be noisy here, add a negated entry
+# below to disable it (mirror the pattern of the existing
+# exceptions, with a rationale).
+#
+# To expand outside bugprone-*: add a check, run `make lint-c-tape`
+# locally, decide whether the new findings are real (fix in source
+# or guard with NOLINTNEXTLINE) or noisy (drop the entry).
 #
 # Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 
 Checks: >
   -*,
-  bugprone-assignment-in-if-condition,
-  bugprone-branch-clone,
-  bugprone-implicit-widening-of-multiplication-result,
-  bugprone-infinite-loop,
-  bugprone-misplaced-widening-cast,
-  bugprone-not-null-terminated-result,
-  bugprone-signed-char-misuse,
-  bugprone-sizeof-expression,
-  bugprone-suspicious-include,
-  bugprone-suspicious-memset-usage,
-  bugprone-suspicious-string-compare,
-  bugprone-unused-return-value,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
   clang-analyzer-deadcode.DeadStores,
   clang-analyzer-unix.Malloc,
   misc-definitions-in-headers,
@@ -35,8 +33,15 @@ Checks: >
   readability-misleading-indentation,
   readability-redundant-control-flow
 
-# Don't enforce naming or style rules — those would touch every line.
-# Keep this list aligned with the "real bug class" intent above.
+# bugprone-* exceptions, with rationale:
+#   easily-swappable-parameters — tensor APIs are full of
+#     `(int m, int n)` adjacent pairs by necessity; this check
+#     would fire ~92 times across the backend with no
+#     bug-class signal
+#   reserved-identifier — `_var` is the local convention for
+#     tape-internal helpers and statement-expression locals;
+#     intentional, ~13 sites
+
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'packages/backends/.*\.h$'
 FormatStyle: file

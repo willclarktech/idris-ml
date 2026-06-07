@@ -75,14 +75,14 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
 			   STACK backward distributes tape_grad_load_d(r, i) to inputs[i]->grad[0].
 			   The inputs are SELECT views, so their grad flows to the parent. */
 			if (rg_check) {
-				Tensor** inputs = malloc(count * sizeof(Tensor*));
+				Tensor** inputs = (Tensor**)malloc(count * sizeof(Tensor*));
 				for (int i = 0; i < count; i++)
 					inputs[i] = (Tensor*)arr[i];
 				TapeEntry* e = tape_append(OP_STACK, r, NULL, NULL, 0);
 				e->inputs = inputs;
 				e->input_count = count;
 			}
-			free(arr);
+			free((void*)arr);
 			return r;
 		}
 	}
@@ -90,14 +90,14 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
 	/* Slow path: copy values and create new tensor */
 	double* data = malloc(count * sizeof(double));
 	int rg = 0;
-	Tensor** inputs = malloc(count * sizeof(Tensor*));
+	Tensor** inputs = (Tensor**)malloc(count * sizeof(Tensor*));
 	for (int i = 0; i < count; i++) {
 		Tensor* t = (Tensor*)arr[i];
 		data[i] = ((double*)t->data)[0];
 		inputs[i] = t;
 		if (t->requires_grad) rg = 1;
 	}
-	free(arr);
+	free((void*)arr);
 	int shape[] = {count};
 	Tensor* r = make_tensor(data, shape, 1, rg);
 	free(data);
@@ -106,7 +106,7 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
 		e->inputs = inputs;
 		e->input_count = count;
 	} else {
-		free(inputs);
+		free((void*)inputs);
 	}
 	return r;
 }

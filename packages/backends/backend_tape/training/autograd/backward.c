@@ -64,7 +64,8 @@ void tensor_backward(TensorHandle h) {
 	 * explicit guard here is for the static analyzer, which can't prove the
 	 * connection and otherwise flags the malloc-of-size-zero path. */
 	if (_num_chunks_b == 0) return;
-	TypedArenaChunk** _chunks_b = malloc(_num_chunks_b * sizeof(TypedArenaChunk*));
+	TypedArenaChunk** _chunks_b =
+	    (TypedArenaChunk**)malloc(_num_chunks_b * sizeof(TypedArenaChunk*));
 	{
 		int _ci = 0;
 		for (TypedArenaChunk* _c = tape_arena.head; _c; _c = _c->next)
@@ -98,7 +99,7 @@ void tensor_backward(TensorHandle h) {
 			}
 		} /* close inner _j loop */
 	} /* close outer _cidx loop */
-	free(_chunks_b);
+	free((void*)_chunks_b);
 	prof_backward_processed += processed;
 	prof_backward_skipped += skipped;
 	prof_backward_ms += _wall_ms() - t0;
