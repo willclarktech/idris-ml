@@ -50,7 +50,11 @@ make bench-compare              # Side-by-side Idris vs PyTorch (end-to-end trai
 make bench-ops-compare          # Operator-level C backend vs PyTorch (raw speed)
 
 # PyTorch reference
-make ref-setup / ref-test / ref-lint / ref-typecheck / ref-convergence
+make ref-setup / test-e2e-pytorch-ref / ref-lint / ref-typecheck / ref-convergence
+
+# Python typecheck gates (pyright strict, per package — mirrors lint-py-<pkg>)
+make typecheck-py               # umbrella: pytorch + scripts + transformers + examples + jupyter
+make typecheck-py-<pkg>         # one surface (typecheck-py-pytorch ≡ ref-typecheck)
 
 python3 scripts/sweep.py --task copy --parallel 4 [--quick]  # hyperparameter sweep
 ```
@@ -225,7 +229,7 @@ The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it t
 ### Adding new examples
 
 1. Find paper/implementation for ground truth, add to References.
-2. Port to `packages/pytorch/torch_ref/models/`, add tests + benchmark. Verify `make ref-test && make ref-lint && make ref-typecheck`.
+2. Port to `packages/pytorch/torch_ref/models/`, add tests + benchmark. Verify `make test-e2e-pytorch-ref && make ref-lint && make ref-typecheck`.
 3. Implement in `packages/idris-ml-examples/src/Example/`, add to `Bench.idr` + Makefile. Verify `make test && make bench-compare`.
 
 Commit at each step. PyTorch is the correctness oracle.
@@ -318,7 +322,7 @@ Exceptions (~rare): `make install` / `make backend` of a hot tree (already-cache
 ## Conventions
 
 - **Indentation**: governed by `.editorconfig` per-extension. Honour it when writing new files — no editor enforces it in your environment. Quick read: `.idr` 2 spaces, `.py` 4 spaces (ruff format), `.c`/`.h`/`.cpp`/`.hpp` tabs (clang-format `ForIndentation`), `.{yml,yaml}` 2 spaces (spec), everything else (`.sh`, `.json`, `.md`, …) tabs (repo-wide default).
-- **Formatters**: where one exists, run it before considering a change done — the gates fail on drift. Python: `make lint-py` (ruff format + ruff check + vulture). C/C++: `make lint-c` (clang-format + cppcheck + clang-tidy with deny-list config in `.clang-tidy`). No formatter for shell / markdown / YAML — the `.editorconfig` indent rule is the only contract.
+- **Formatters**: where one exists, run it before considering a change done — the gates fail on drift. Python: `make lint-py` (ruff format + ruff check + vulture) **and `make typecheck-py`** (pyright strict on every Python-bearing package; config roots are `packages/pytorch/pyproject.toml` for the pytorch tree and per-surface `pyrightconfig.json` / `[tool.pyright]` selected via `-p` for the rest — pyright discovers config from the project root, not per-file like ruff). C/C++: `make lint-c` (clang-format + cppcheck + clang-tidy with deny-list config in `.clang-tidy`). No formatter for shell / markdown / YAML — the `.editorconfig` indent rule is the only contract.
 - **clang-tidy include hygiene**: `misc-include-cleaner` is disabled in `.clang-tidy` (the `-include rename_tape.h` flag hides every renamed `backend.h` symbol from include-cleaner, producing ~250 architectural FPs) but is exercised as a separate gate `make lint-c-include-cleaner` that runs WITHOUT the rename. Suppression conventions when adding a new BLAS/macro-provider include: `// IWYU pragma: keep` as a **trailing** comment on the include line (the preceding-line form doesn't suppress reliably in clang-tidy 21); `// NOLINTNEXTLINE(misc-include-cleaner)` per call site for macOS-Apple-SDK FPs that don't fire on Linux (`abort`, `cblas_*`, `vDSP_*`). Don't NOLINTBEGIN/END regions unless the call spans multiple lines past NEXTLINE's scope.
 - **Naming**: PascalCase for types/constructors, camelCase for functions/variables
 - **Imports**: Idris stdlib first, then internal modules alphabetically
