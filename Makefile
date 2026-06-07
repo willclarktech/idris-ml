@@ -19,17 +19,21 @@ include mk/ref.mk
 include mk/jupyter.mk
 include mk/e2e.mk
 
-# `clean` removes everything `make install` / `make backend` can regenerate
-# from source: every backend set's tree under `build/`, the coverage tree
-# under `build-cov/`, and the legacy pre-per-set `.idris2/` install prefix
-# (orphan from before commit-XXX). Does NOT touch downloaded deps:
-# `vendored/` (third-party C source), `data/` (datasets), `models/` (HF
-# checkpoints) — those are network-expensive and out of scope for clean.
-# Use `clean-all` to nuke those too.
+# `clean` removes everything `make install` / `make backend` / the test
+# builds can regenerate from source: every backend set's tree under
+# `build/`, the coverage tree under `build-cov/`, the per-package `build/`
+# dirs written by the pack-driven test builds (`pack build *-tests.ipkg`
+# defaults to the package-local builddir), and the legacy pre-per-set
+# `.idris2/` install prefix (orphan from before c5c78ee9, 2026-05-17).
+# Does NOT touch downloaded deps: `vendored/` (third-party C source),
+# datasets, `models/` (HF checkpoints), or the Python venvs — those are
+# network-expensive and out of scope for clean. Use `clean-all` to nuke
+# those too.
 clean:
 	rm -rf build/
 	rm -rf build-cov/
 	rm -rf .idris2/
+	rm -rf packages/*/build/
 
 # Active backend set's tree only — `BACKEND=tape make clean-set` removes
 # `build/tape-mlxcpu-torchcpu/` but leaves other set caches alone. Use
@@ -39,14 +43,16 @@ clean-set:
 	rm -rf $(BUILD)
 
 # Everything that's gitignored: build artifacts + vendored third-party
-# source + downloaded datasets + downloaded HF model checkpoints.
-# Network-expensive (re-running `make backend` will re-clone vendored/,
-# re-running examples will re-download datasets, and HF models are
-# gigabytes). Reach for this when freeing disk space or before a deep
-# refactor; otherwise plain `clean` is enough.
-clean-all: clean clean-models
+# source + downloaded datasets + downloaded HF model checkpoints +
+# Python venvs + run-output dirs. Network-expensive (re-running
+# `make backend` will re-clone vendored/, re-running examples will
+# re-download datasets, HF models are gigabytes, and `make ref-setup` /
+# `make jupyter-install` rebuild the venvs). Reach for this when freeing
+# disk space or before a deep refactor; otherwise plain `clean` is
+# enough. Deliberately untouched: `.claude/` (session/project memory).
+clean-all: clean clean-models clean-datasets clean-venvs
 	rm -rf vendored/
-	rm -rf data/
+	rm -rf logs/ results/ .tmp/
 
 # Downloaded HuggingFace checkpoints, tokenizer vocab files, and the
 # generated test oracle. Kept out of plain `clean` because re-downloading
@@ -57,12 +63,22 @@ clean-models:
 	# Legacy location (pre-2026-05-27 refactor); remove if leftover.
 	rm -rf packages/idris-transformers/models/
 
-# Downloaded + tokenized HF datasets (under data/hf-datasets/). Same
-# rationale as clean-models — slow to re-download, so kept out of
-# plain `clean`. Hand-curated test fixtures
-# (packages/idris-transformers/test-fixtures/) stay untouched.
+# Downloaded datasets: everything under `data/` (MNIST, tinyshakespeare,
+# tokenized HF datasets) plus the PyTorch ref's own download root
+# `packages/pytorch/data/` — torch_ref resolves its relative "data/mnist"
+# from the package cwd, not the repo root. Same rationale as clean-models
+# — slow to re-download, so kept out of plain `clean`. Hand-curated test
+# fixtures (packages/idris-transformers/test-fixtures/) stay untouched.
 clean-datasets:
-	rm -rf data/hf-datasets/
+	rm -rf data/
+	rm -rf packages/pytorch/data/
+
+# Python virtualenvs — recreated by `make ref-setup` (pytorch) and
+# `make jupyter-install` (jupyter). The largest disk consumers after
+# models/ (~1.3 GB combined), so worth a dedicated target.
+clean-venvs:
+	rm -rf packages/pytorch/.venv/
+	rm -rf packages/jupyter/.venv/
 
 # Run everything: unit + gym + examples-unit + multi-backend criterion +
 # specialized + e2e examples + PyTorch ref + jupyter. Multi-hour aggregate;
@@ -122,4 +138,4 @@ check-all: check check-examples
 all: check-all test-all
 
 .PHONY: all check-all test-all check-notebook \
-        clean clean-set clean-all clean-models clean-datasets
+        clean clean-set clean-all clean-models clean-datasets clean-venvs

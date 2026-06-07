@@ -228,7 +228,7 @@ primitives layer on the synthetic example above:
 
    ```bash
    make data-sst2       # fetches train + validation splits
-   make clean-datasets  # removes the cached data/hf-datasets/
+   make clean-datasets  # removes all downloaded datasets (data/ + packages/pytorch/data/)
    ```
 
 The worked example is

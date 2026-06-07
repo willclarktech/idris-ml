@@ -743,10 +743,11 @@ executables, stamps) live under `build/$(BUILD_KEY)/` where
 `(BACKEND, MLX_DEVICE, TORCH_DEVICE)` tuple gets its own warm cache.
 
 Implications:
-- `make clean` removes ALL backend sets' trees + `build-cov/` + legacy
+- `make clean` removes ALL backend sets' trees + `build-cov/` + the
+  per-package `build/` dirs (pack-driven test builds) + legacy
   `.idris2/`. `make clean-set` removes just `$(BUILD)` (active set
-  only). `make clean-all` cascades to `clean-models` + removes
-  `vendored/` + `data/`.
+  only). `make clean-all` cascades to `clean-models` + `clean-datasets`
+  + `clean-venvs` + removes `vendored/` and the run-output dirs.
 - Disk usage scales with sets exercised. Each single-backend tree is
   ~200-300 MB; full triple (`tape,torch,mlx`) is larger. Run `du -sh
   build/*` to inspect; `clean-set BACKEND=<key>` to prune a single set.

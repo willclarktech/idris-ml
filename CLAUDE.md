@@ -70,9 +70,12 @@ Each distinct `(BACKEND, MLX_DEVICE, TORCH_DEVICE)` tuple keeps its own warm
 ttc/install/dylib/exec tree, so switching between sets (e.g. `make test` on
 tape ↔ `BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference`) is
 near-free instead of triggering 60-min cascading re-elaboration. `clean`
-removes every backend set's tree (plus `build-cov/` + legacy `.idris2/`);
+removes every backend set's tree (plus `build-cov/`, the per-package
+`build/` dirs from pack-driven test builds, and legacy `.idris2/`);
 `clean-set` removes just the active set; `clean-all` cascades to
-`clean-models` + removes `vendored/` + `data/`.
+`clean-models` + `clean-datasets` (root `data/` + `packages/pytorch/data/`)
++ `clean-venvs` (pytorch/jupyter `.venv`s) + removes `vendored/` and the
+run-output dirs (`logs/`, `results/`, `.tmp/`).
 
 ## Architecture
 
