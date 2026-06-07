@@ -237,16 +237,35 @@ $(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADE
 # defined unconditionally (only fire if BACKEND_<b>_OBJS pulls them in).
 # Precompiled header for torch — `<torch/torch.h>` is ~30K lines of
 # templates and parsing it 90× per cold build dominates the wall.
-# Build the PCH once into $(BUILD)/torch_pch.gch with the same flags
-# as the per-TU compile, then `-include-pch` it from every TU below.
-# PCH lives in $(BUILD)/ so coverage and normal builds get their own
-# (clang rejects PCHs whose flags don't match the consuming TU).
+# Build the PCH once with the same flags as the per-TU compile, then
+# pull it into every TU below. PCH lives in $(BUILD)/ so coverage and
+# normal builds get their own (clang rejects PCHs whose flags don't
+# match the consuming TU).
+# The two compilers spell PCH consumption differently: clang takes the
+# PCH file explicitly via `-include-pch <f>`; gcc has no such flag (it
+# parses it as `-include` + a file named `-pch`) and instead auto-loads
+# `<hdr>.h.gch` sitting beside the `-include`d header. So the gcc shape
+# copies the header into $(BUILD) and builds the .gch next to the copy.
+# -Winvalid-pch surfaces gcc's otherwise-silent fallback to textual
+# inclusion when the .gch doesn't match the consuming TU's flags.
+ifneq ($(findstring clang,$(shell $(torch_CC) --version 2>/dev/null)),)
+TORCH_PCH := $(BUILD)/torch_pch.gch
+TORCH_PCH_USE := -include-pch $(TORCH_PCH)
+else
+TORCH_PCH := $(BUILD)/torch_pch.h.gch
+TORCH_PCH_USE := -Winvalid-pch -include $(BUILD)/torch_pch.h
+endif
+
 $(BUILD)/torch_pch.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h | $(BUILD)
 	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -x c++-header -c -o $@ $<
 
-$(BUILD)/backend_torch/%.o: $(BACKENDS_DIR)/backend_torch/%.cpp $(BACKEND_TORCH_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_torch.h $(BUILD)/torch_pch.gch | $(BUILD)
+$(BUILD)/torch_pch.h.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h | $(BUILD)
+	cp $< $(BUILD)/torch_pch.h
+	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -x c++-header -c -o $@ $(BUILD)/torch_pch.h
+
+$(BUILD)/backend_torch/%.o: $(BACKENDS_DIR)/backend_torch/%.cpp $(BACKEND_TORCH_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_torch.h $(TORCH_PCH) | $(BUILD)
 	@mkdir -p $(dir $@)
-	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -include-pch $(BUILD)/torch_pch.gch -include $(BACKENDS_DIR)/rename_torch.h -c -o $@ $<
+	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) $(TORCH_PCH_USE) -include $(BACKENDS_DIR)/rename_torch.h -c -o $@ $<
 
 $(BUILD)/backend_mlx/%.o: $(BACKENDS_DIR)/backend_mlx/%.cpp $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_mlx.h | $(BUILD)
 	@mkdir -p $(dir $@)
