@@ -27,9 +27,3 @@ indent_style = space
 # Trimming them would silently corrupt the rendered output.
 [*.md]
 trim_trailing_whitespace = false
-
-# JSON spec doesn't mandate whitespace; 2-space is conventional
-# (json.dumps, jq, prettier all default there) but tabs parse fine
-# and match the repo-wide default.
-[*.json]
-indent_style = tab
