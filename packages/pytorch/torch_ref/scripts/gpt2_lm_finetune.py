@@ -31,7 +31,7 @@ BACKBONE_DIR = REPO_ROOT / "models" / "distilgpt2"
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     p.add_argument("--lr", type=float, default=5e-5)
     p.add_argument("--steps", type=int, default=100)
     p.add_argument("--seed", type=int, default=42)
@@ -88,7 +88,9 @@ def main() -> int:
 
     model = AutoModelForCausalLM.from_pretrained(str(BACKBONE_DIR))
     device = torch.device("cpu")
-    model.to(device)
+    # transformers 5.x wraps Module.to in a decorator whose _Wrapped
+    # type pyright can't bind as a method; the call is fine at runtime.
+    model.to(device)  # pyright: ignore[reportArgumentType]
     model.train(True)
     print("distilgpt2 backbone warm-started.")
 

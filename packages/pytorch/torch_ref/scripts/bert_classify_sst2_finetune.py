@@ -46,7 +46,7 @@ BACKBONE_DIR = REPO_ROOT / "models" / "google" / "bert_uncased_L-2_H-128_A-2"
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--seed", type=int, default=42)
@@ -143,13 +143,18 @@ def main() -> int:
         intermediate_size=INTERMEDIATE,
         max_position_embeddings=MAX_POS,
         type_vocab_size=TYPE_VOCAB,
-        num_labels=NUM_CLASSES,
     )
+    # num_labels is a PretrainedConfig kwarg consumed via **kwargs at
+    # runtime; transformers 5.x's typed BertConfig.__init__ doesn't
+    # declare it, so set the (typed) attribute instead.
+    cfg.num_labels = NUM_CLASSES
     model = BertForSequenceClassification.from_pretrained(
         str(BACKBONE_DIR), config=cfg, ignore_mismatched_sizes=True
     )
     device = torch.device("cpu")
-    model.to(device)
+    # transformers 5.x wraps Module.to in a decorator whose _Wrapped
+    # type pyright can't bind as a method; the call is fine at runtime.
+    model.to(device)  # pyright: ignore[reportArgumentType]
     print("Backbone warm-started; head at fresh init.")
 
     if args.freeze_backbone:

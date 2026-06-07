@@ -50,7 +50,7 @@ BACKBONE_DIR = REPO_ROOT / "models" / "google" / "bert_uncased_L-2_H-128_A-2"
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     # peft tutorial reports lr=1e-4 as a sweet spot for BERT-tiny LoRA;
     # higher than full FT's 2e-5 because only the adapters update.
     p.add_argument("--lr", type=float, default=1e-4)
@@ -146,8 +146,11 @@ def main() -> int:
         intermediate_size=INTERMEDIATE,
         max_position_embeddings=MAX_POS,
         type_vocab_size=TYPE_VOCAB,
-        num_labels=NUM_CLASSES,
     )
+    # num_labels is a PretrainedConfig kwarg consumed via **kwargs at
+    # runtime; transformers 5.x's typed BertConfig.__init__ doesn't
+    # declare it, so set the (typed) attribute instead.
+    cfg.num_labels = NUM_CLASSES
     base = BertForSequenceClassification.from_pretrained(
         str(BACKBONE_DIR), config=cfg, ignore_mismatched_sizes=True
     )

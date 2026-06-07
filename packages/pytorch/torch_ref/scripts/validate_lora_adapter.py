@@ -36,7 +36,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     p.add_argument(
         "--adapter-dir",
         required=True,

@@ -14,8 +14,12 @@ import os
 import platform
 import re
 import subprocess
+from typing import TYPE_CHECKING
 
 import torch
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from torch_ref.bench_ops import main as pytorch_main
 
@@ -200,7 +204,7 @@ def main() -> None:
         print(line)
 
     # Per-backend category summaries
-    cat_map: dict[str, callable] = {
+    cat_map: dict[str, Callable[[str], bool]] = {
         "BLAS (matmul)": lambda lbl: "matmul" in lbl and "vec" not in lbl,
         "BLAS (matvec)": lambda lbl: "matvec" in lbl,
         "Element-wise": lambda lbl: "add+mul" in lbl,

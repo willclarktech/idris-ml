@@ -32,7 +32,10 @@ def main() -> None:
     t0 = time.monotonic()
     inputs = tokenizer(PROMPT, return_tensors="pt")
     with torch.no_grad():
-        gen_ids = model.generate(
+        # transformers 5.x's GenerativePreTrainedModel protocol doesn't
+        # match its own model classes (device property vs mutable attr),
+        # so pyright can't bind .generate; fine at runtime.
+        gen_ids = model.generate(  # pyright: ignore[reportAttributeAccessIssue]
             **inputs,
             max_new_tokens=NUM_TOKENS,
             do_sample=False,

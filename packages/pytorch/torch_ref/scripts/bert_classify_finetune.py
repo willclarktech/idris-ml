@@ -116,12 +116,17 @@ def main() -> None:
         intermediate_size=INTERMEDIATE,
         max_position_embeddings=MAX_POS,
         type_vocab_size=TYPE_VOCAB,
-        num_labels=NUM_CLASSES,
         layer_norm_eps=1e-12,
         hidden_dropout_prob=0.0,
         attention_probs_dropout_prob=0.0,
     )
-    model = BertForSequenceClassification(cfg).to(device, dtype=torch.float64)
+    # num_labels is a PretrainedConfig kwarg consumed via **kwargs at
+    # runtime; transformers 5.x's typed BertConfig.__init__ doesn't
+    # declare it, so set the (typed) attribute instead.
+    cfg.num_labels = NUM_CLASSES
+    # transformers 5.x wraps Module.to in a decorator whose _Wrapped
+    # type pyright can't bind as a method; the call is fine at runtime.
+    model = BertForSequenceClassification(cfg).to(device, dtype=torch.float64)  # pyright: ignore[reportArgumentType]
 
     if args.freeze_backbone:
         print("Freezing backbone (`bert.*`); only classifier head trains.")

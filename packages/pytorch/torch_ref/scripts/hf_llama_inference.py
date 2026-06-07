@@ -40,7 +40,9 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=dtype)
-    model.to(device)
+    # transformers 5.x wraps Module.to in a decorator whose _Wrapped
+    # type pyright can't bind as a method; the call is fine at runtime.
+    model.to(device)  # pyright: ignore[reportArgumentType]
     model.train(False)
 
     print(f"Llama-3.2-1B generation reference - {MODEL_ID} on {device} f32")
@@ -49,7 +51,10 @@ def main() -> None:
     t0 = time.monotonic()
     inputs = tokenizer(PROMPT, return_tensors="pt").to(device)
     with torch.no_grad():
-        gen_ids = model.generate(
+        # transformers 5.x's GenerativePreTrainedModel protocol doesn't
+        # match its own model classes (device property vs mutable attr),
+        # so pyright can't bind .generate; fine at runtime.
+        gen_ids = model.generate(  # pyright: ignore[reportAttributeAccessIssue]
             **inputs,
             max_new_tokens=NUM_TOKENS,
             do_sample=False,

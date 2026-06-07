@@ -40,7 +40,7 @@ BACKBONE_DIR = REPO_ROOT / "models" / "google" / "bert_uncased_L-2_H-128_A-2"
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     p.add_argument("--lr", type=float, default=5e-5)
     p.add_argument("--steps", type=int, default=100)
     p.add_argument("--seed", type=int, default=42)
