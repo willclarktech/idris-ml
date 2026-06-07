@@ -155,13 +155,28 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      # Full history (fetch-depth 0): git-restore-mtime below needs
+      # per-file last-commit dates; a shallow clone would stamp every
+      # file with the HEAD commit's time and defeat the TTC cache.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Chez Scheme + BLAS (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y chezscheme build-essential libopenblas-dev
+          sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime
+
+      # idris2 and make decide rebuilds by mtime. Checkout stamps all
+      # files "now", which would make every cached TTC / object look
+      # stale; restore-mtime resets each file to its last-touching
+      # commit's date so unchanged sources stay older than the cached
+      # build tree and elaboration is skipped. Ubuntu-only (no brew
+      # package): the opt-in macOS lane just eats a full rebuild.
+      - name: Restore source mtimes for incremental rebuilds
+        if: matrix.os == 'ubuntu-latest'
+        run: git restore-mtime
 
       - name: Install Chez Scheme + coreutils (macOS)
         if: matrix.os == 'macos-latest'
@@ -179,10 +194,14 @@ jobs:
       # Idris 2 v0.8.0 built from source, cached across runs to avoid the
       # 5-10 min bootstrap on every push. Idris2's default PREFIX is
       # $HOME/.idris2 — caching that whole tree (binary + libs) is simplest.
-      # Bump the cache key suffix to force a rebuild.
-      - name: Cache Idris 2
+      # Bump the cache key suffix to force a rebuild. Split
+      # restore/save (paired save step at the end of the job) instead
+      # of plain actions/cache: the plain form only saves on job
+      # SUCCESS, so while this job was red the bootstrap was thrown
+      # away and repeated on every single run.
+      - name: Restore Idris 2 cache
         id: idris2-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.idris2
           key: idris2-v0.8.0-${{ matrix.os }}-v2
@@ -237,19 +256,31 @@ jobs:
       # cached here keyed on the pinned pack.toml. Cold bootstrap is
       # ~15-25 min (micropack + collection toolchain); warm restore
       # is seconds.
-      - name: Cache pack
-        id: pack-cache
-        uses: actions/cache@v4
+      # Per-sha key + prefix restore + save-always (paired save step at
+      # the end of the job): the micropack + collection bootstrap is the
+      # single most expensive install (~15-25 min) and must survive a
+      # red run — a success-only cache would have thrown it away on
+      # every failure while the job stabilizes. The install step guards
+      # on the pack binary, not cache-hit, since a prefix restore
+      # already carries a working pack.
+      - name: Restore pack cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.local/bin/pack
             ~/.local/state/pack
             ~/.config/pack
-          key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-v1
+          key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-${{ github.sha }}
+          restore-keys: |
+            pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-
+            pack-${{ matrix.os }}-
 
-      - name: Install pack
-        if: steps.pack-cache.outputs.cache-hit != 'true'
+      - name: Install pack (skipped when cache carried a binary)
         run: |
+          if [ -x "$HOME/.local/bin/pack" ]; then
+            echo "pack already present (cache); skipping micropack bootstrap"
+            exit 0
+          fi
           SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez)"
           git clone --depth 1 https://github.com/stefan-hoeck/idris2-pack.git /tmp/idris2-pack
           cd /tmp/idris2-pack
@@ -293,9 +324,9 @@ jobs:
       # on warm runs. The Makefile's LIBTORCH_PATH detection chain
       # (Makefile:73-81) finds `packages/pytorch/.venv/bin/python3 -c
       # "import torch ..."` automatically once the venv exists.
-      - name: Cache pytorch venv (Ubuntu)
+      - name: Restore pytorch venv cache (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
@@ -306,6 +337,46 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
           make ref-setup
+
+      # TTC + object cache. Idris elaboration of the library + 49
+      # examples dominates this job's wall-clock; with restored source
+      # mtimes (step above) idris2/make skip everything the cached tree
+      # already covers. Per-sha key + prefix restore: every run restores
+      # the most recent prior tree and saves its own (the save step at
+      # the end of the job runs even on failure — a mostly-built tree
+      # from a red run still saves the next run's elaboration). The
+      # cmp-then-mv-guarded generated sources (BuildConfig.idr etc.)
+      # must be cached too — regenerating them fresh would invalidate
+      # every downstream module. Bump -v1 to force-flush a wedged tree.
+      - name: Restore TTC cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build
+            packages/*/build
+            packages/idris-ml-examples/src/BuildConfig.idr
+            packages/idris-ml/src/HwConfig.idr
+            packages/idris-ml/src/HwExecutors.idr
+            packages/idris-ml/src/Test/Config.idr
+            packages/idris-transformers/src/Test/Config.idr
+          key: ttc-${{ matrix.os }}-v1-${{ github.sha }}
+          restore-keys: ttc-${{ matrix.os }}-v1-
+
+      # HF model + tokenizer cache for the roundtrip gates (bert /
+      # gpt2 / bitnet): models/ holds the Make-fetched safetensors
+      # (Pattern A file-as-target — Make's existence check is the
+      # cache), ~/.cache/huggingface holds the transformers-side
+      # oracle downloads. Keyed on examples.mk so adding a model
+      # target refreshes the cache; prefix restore keeps the old
+      # models while the new one downloads.
+      - name: Restore HF model cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models
+            ~/.cache/huggingface
+          key: hf-models-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
+          restore-keys: hf-models-${{ matrix.os }}-
 
       - name: Build tape backend
         run: make BACKEND=tape backend
@@ -611,6 +682,56 @@ jobs:
         run: make typecheck-py-transformers
       # <<< END GENERATED <<<
 
+      # Paired saves for the restore steps above. if: always() — a
+      # mostly-built tree from a failed run is still worth saving;
+      # cache/save skips gracefully if this sha's key already exists.
+      - name: Save TTC cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build
+            packages/*/build
+            packages/idris-ml-examples/src/BuildConfig.idr
+            packages/idris-ml/src/HwConfig.idr
+            packages/idris-ml/src/HwExecutors.idr
+            packages/idris-ml/src/Test/Config.idr
+            packages/idris-transformers/src/Test/Config.idr
+          key: ttc-${{ matrix.os }}-v1-${{ github.sha }}
+
+      - name: Save HF model cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            models
+            ~/.cache/huggingface
+          key: hf-models-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
+
+      - name: Save pack cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.local/bin/pack
+            ~/.local/state/pack
+            ~/.config/pack
+          key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-${{ github.sha }}
+
+      - name: Save Idris 2 cache
+        if: always() && steps.idris2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.idris2
+          key: idris2-v0.8.0-${{ matrix.os }}-v2
+
+      - name: Save pytorch venv cache (Ubuntu)
+        if: always() && matrix.os == 'ubuntu-latest'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
       - name: Upload Criterion JUnit XML artifacts
         # Always uploads, even on test failure, so the GitHub Actions UI
         # can render per-test results from the JUnit XML. Each Criterion
@@ -658,9 +779,12 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: brew install chezscheme coreutils llvm
 
-      - name: Cache Idris 2
+      # Split restore/save (save at end of job, if: always()) — the
+      # plain cache form only saves on success, which starved this
+      # cache while the job was red.
+      - name: Restore Idris 2 cache
         id: idris2-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.idris2
           key: idris2-v0.8.0-${{ matrix.os }}-v2
@@ -707,6 +831,13 @@ jobs:
         # under LLVM_PROFILE_FILE, merges via llvm-profdata, and emits
         # the HTML report under build-cov/html-<b>/.
         run: make BACKEND=${{ matrix.backend }} test-coverage-backend
+
+      - name: Save Idris 2 cache
+        if: always() && steps.idris2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.idris2
+          key: idris2-v0.8.0-${{ matrix.os }}-v2
 
       - name: Upload coverage HTML
         if: always()

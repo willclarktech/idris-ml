@@ -34,15 +34,28 @@ jobs:
     # Axis C/D example builds all happen from scratch.
     timeout-minutes: 60
     steps:
+      # Full history: git-restore-mtime below needs per-file
+      # last-commit dates (see test.yml's test-examples job for the
+      # full rationale on the mtime + TTC-cache interplay).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install chez + openblas
         run: |
           sudo apt-get update
-          sudo apt-get install -y chezscheme libopenblas-dev
+          sudo apt-get install -y chezscheme libopenblas-dev git-restore-mtime
 
-      - name: Cache pytorch venv
-        uses: actions/cache@v4
+      - name: Restore source mtimes for incremental rebuilds
+        run: git restore-mtime
+
+      # All caches in this workflow use split restore/save with
+      # if: always() saves — the plain actions/cache form only saves
+      # on job success, which starved every cache while the workflow
+      # was red (each run re-bootstrapped idris2 + the venv from
+      # scratch).
+      - name: Restore pytorch venv cache
+        uses: actions/cache/restore@v4
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
@@ -70,9 +83,9 @@ jobs:
       # unpinned Idris2 main and `sudo make install`ed it — which lands
       # in /root/.idris2 (sudo resets HOME) and is invisible to later
       # steps' PATH.
-      - name: Cache Idris 2
+      - name: Restore Idris 2 cache
         id: idris2-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.idris2
           key: idris2-v0.8.0-ubuntu-latest-v2
@@ -91,11 +104,77 @@ jobs:
       - name: Verify Idris 2
         run: idris2 --version
 
+      # Same keys as test.yml's Ubuntu lane so the two workflows share
+      # one TTC tree + one HF model store (restore-only here picks up
+      # whatever the test workflow saved for this push, and vice versa).
+      - name: Restore TTC cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build
+            packages/*/build
+            packages/idris-ml-examples/src/BuildConfig.idr
+            packages/idris-ml/src/HwConfig.idr
+            packages/idris-ml/src/HwExecutors.idr
+            packages/idris-ml/src/Test/Config.idr
+            packages/idris-transformers/src/Test/Config.idr
+          key: ttc-ubuntu-latest-v1-${{ github.sha }}
+          restore-keys: ttc-ubuntu-latest-v1-
+
+      - name: Restore HF model cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models
+            ~/.cache/huggingface
+          key: hf-models-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
+          restore-keys: hf-models-ubuntu-latest-
+
       - name: Build tape backend
         run: env BACKEND=tape make backend
 
       - name: Run bench-deep
         run: make bench-deep
+
+      # The test workflow's save uses the same per-sha key; whichever
+      # job finishes first wins and the other skips gracefully. Saving
+      # even on failure keeps partial elaboration progress.
+      - name: Save TTC cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build
+            packages/*/build
+            packages/idris-ml-examples/src/BuildConfig.idr
+            packages/idris-ml/src/HwConfig.idr
+            packages/idris-ml/src/HwExecutors.idr
+            packages/idris-ml/src/Test/Config.idr
+            packages/idris-transformers/src/Test/Config.idr
+          key: ttc-ubuntu-latest-v1-${{ github.sha }}
+
+      - name: Save HF model cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            models
+            ~/.cache/huggingface
+          key: hf-models-ubuntu-latest-${{ hashFiles('mk/examples.mk') }}
+
+      - name: Save Idris 2 cache
+        if: always() && steps.idris2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.idris2
+          key: idris2-v0.8.0-ubuntu-latest-v2
+
+      - name: Save pytorch venv cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Upload perf-log.jsonl
         uses: actions/upload-artifact@v4
