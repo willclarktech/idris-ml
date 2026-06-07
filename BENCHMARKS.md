@@ -21,69 +21,69 @@ after a warmup. Lower ratios are better; ≈1.0 means parity.
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| conv2d 16x12x12->32 k=5x5 | 0.7141 | 0.0437 | 16.34× | 10 | `054ee57a+dirty` |
-| conv2d 1x28x28->16 k=5x5 | 0.2246 | 0.0521 | 4.31× | 10 | `054ee57a+dirty` |
+| conv2d 16x12x12->32 k=5x5 | 0.7141 | 0.0437 | 16.34× | 10 | `0a24f9b9+dirty` |
+| conv2d 1x28x28->16 k=5x5 | 0.2246 | 0.0521 | 4.31× | 10 | `0a24f9b9+dirty` |
 
 ### Element-wise (add + mul)
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| add+mul 1000 | 0.0050 | 0.0012 | 4.02× | 1000 | `054ee57a+dirty` |
-| add+mul 10000 | 0.0429 | 0.0063 | 6.82× | 500 | `054ee57a+dirty` |
-| add+mul 100000 | 0.2088 | 0.0660 | 3.16× | 100 | `054ee57a+dirty` |
+| add+mul 1000 | 0.0050 | 0.0012 | 4.02× | 1000 | `0a24f9b9+dirty` |
+| add+mul 10000 | 0.0429 | 0.0063 | 6.82× | 500 | `0a24f9b9+dirty` |
+| add+mul 100000 | 0.2088 | 0.0660 | 3.16× | 100 | `0a24f9b9+dirty` |
 
 ### Embedding gather
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| embedding vocab=32000 d=128 n=128 | 0.0448 | 0.0034 | 13.05× | 200 | `054ee57a+dirty` |
-| embedding vocab=8000 d=256 n=64 | 0.2310 | 0.0037 | 61.77× | 500 | `054ee57a+dirty` |
+| embedding vocab=32000 d=128 n=128 | 0.0448 | 0.0034 | 13.05× | 200 | `0a24f9b9+dirty` |
+| embedding vocab=8000 d=256 n=64 | 0.2310 | 0.0037 | 61.77× | 500 | `0a24f9b9+dirty` |
 
 ### Matrix multiply
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| matmul 1024x1024x1024 | 8.2077 | 5.7037 | 1.44× | 10 | `054ee57a+dirty` |
-| matmul 256x256x256 | 0.2132 | 0.0848 | 2.51× | 100 | `054ee57a+dirty` |
-| matmul 64x64x64 | 0.0132 | 0.0028 | 4.70× | 500 | `054ee57a+dirty` |
+| matmul 1024x1024x1024 | 8.2077 | 5.7037 | 1.44× | 10 | `0a24f9b9+dirty` |
+| matmul 256x256x256 | 0.2132 | 0.0848 | 2.51× | 100 | `0a24f9b9+dirty` |
+| matmul 64x64x64 | 0.0132 | 0.0028 | 4.70× | 500 | `0a24f9b9+dirty` |
 
 ### Matrix-vector multiply
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| matvec 1024x1024 | 0.0284 | 0.0210 | 1.35× | 200 | `054ee57a+dirty` |
-| matvec 256x256 | 0.0031 | 0.0022 | 1.41× | 1000 | `054ee57a+dirty` |
+| matvec 1024x1024 | 0.0284 | 0.0210 | 1.35× | 200 | `0a24f9b9+dirty` |
+| matvec 256x256 | 0.0031 | 0.0022 | 1.41× | 1000 | `0a24f9b9+dirty` |
 
 ### RMSNorm fused
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| rmsnorm seq=128 h=2048 | 1.2844 | 0.1599 | 8.03× | 100 | `054ee57a+dirty` |
-| rmsnorm seq=128 h=512 | 0.8165 | 0.1209 | 6.75× | 500 | `054ee57a+dirty` |
+| rmsnorm seq=128 h=2048 | 1.2844 | 0.1599 | 8.03× | 100 | `0a24f9b9+dirty` |
+| rmsnorm seq=128 h=512 | 0.8165 | 0.1209 | 6.75× | 500 | `0a24f9b9+dirty` |
 
 ### Scaled-dot-product attention
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| sdpa seq=128 H=8 Hkv=4 d=64 | 1.3314 | 0.4846 | 2.75× | 50 | `054ee57a+dirty` |
-| sdpa seq=128 H=8 Hkv=4 d=64 causal | 2.7869 | 0.5727 | 4.87× | 50 | `054ee57a+dirty` |
-| sdpa seq=64 H=8 Hkv=4 d=64 | 0.4016 | 0.1984 | 2.02× | 100 | `054ee57a+dirty` |
+| sdpa seq=128 H=8 Hkv=4 d=64 | 1.3314 | 0.4846 | 2.75× | 50 | `0a24f9b9+dirty` |
+| sdpa seq=128 H=8 Hkv=4 d=64 causal | 2.7869 | 0.5727 | 4.87× | 50 | `0a24f9b9+dirty` |
+| sdpa seq=64 H=8 Hkv=4 d=64 | 0.4016 | 0.1984 | 2.02× | 100 | `0a24f9b9+dirty` |
 
 ### Softmax
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| softmax 10000 | 0.0411 | 0.0266 | 1.55× | 100 | `054ee57a+dirty` |
-| softmax 1024 | 0.0040 | 0.0032 | 1.26× | 500 | `054ee57a+dirty` |
-| softmax 256 | 0.0010 | 0.0011 | 0.91× | 1000 | `054ee57a+dirty` |
+| softmax 10000 | 0.0411 | 0.0266 | 1.55× | 100 | `0a24f9b9+dirty` |
+| softmax 1024 | 0.0040 | 0.0032 | 1.26× | 500 | `0a24f9b9+dirty` |
+| softmax 256 | 0.0010 | 0.0011 | 0.91× | 1000 | `0a24f9b9+dirty` |
 
 ### Training step (linear fwd+bwd+step)
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| train_step 1024->1024 | 0.7349 | 0.5058 | 1.45× | 10 | `054ee57a+dirty` |
-| train_step 256->256 | 0.0719 | 0.1222 | 0.59× | 100 | `054ee57a+dirty` |
-| train_step 64->64 | 0.0064 | 0.0384 | 0.17× | 200 | `054ee57a+dirty` |
+| train_step 1024->1024 | 0.7349 | 0.5058 | 1.45× | 10 | `0a24f9b9+dirty` |
+| train_step 256->256 | 0.0719 | 0.1222 | 0.59× | 100 | `0a24f9b9+dirty` |
+| train_step 64->64 | 0.0064 | 0.0384 | 0.17× | 200 | `0a24f9b9+dirty` |
 
 ## Axis B — Single-layer forward + backward (vs PyTorch)
 
@@ -96,31 +96,31 @@ that Axis A's pure C-kernel timings don't see.
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| conv2d_block bs=8 3x16x16->16 k=3x3 | 0.7568 | 0.2127 | 3.56× | 100 | `054ee57a+dirty` |
+| conv2d_block bs=8 3x16x16->16 k=3x3 | 0.7568 | 0.2127 | 3.56× | 100 | `0a24f9b9+dirty` |
 
 ### Linear
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| linear bs=32 i=512 o=512 | 0.5363 | 0.3135 | 1.71× | 100 | `054ee57a+dirty` |
+| linear bs=32 i=512 o=512 | 0.5363 | 0.3135 | 1.71× | 100 | `0a24f9b9+dirty` |
 
 ### LstmCell
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| lstm_cell hidden=256 | 0.6242 | 0.2892 | 2.16× | 100 | `054ee57a+dirty` |
+| lstm_cell hidden=256 | 0.6242 | 0.2892 | 2.16× | 100 | `0a24f9b9+dirty` |
 
 ### Ntm
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| ntm n=8 m=4 h=20 batch=1 | 1.7425 | — | — | 30 | `054ee57a+dirty` |
+| ntm n=8 m=4 h=20 batch=1 | 1.7425 | — | — | 30 | `0a24f9b9+dirty` |
 
 ### TransformerBlock
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| transformer_block bs=2 seq=16 d=64 heads=4 | 0.8481 | 0.8414 | 1.01× | 50 | `054ee57a+dirty` |
+| transformer_block bs=2 seq=16 d=64 heads=4 | 0.8481 | 0.8414 | 1.01× | 50 | `0a24f9b9+dirty` |
 
 ## Axis C — End-to-end training (vs PyTorch)
 
@@ -132,31 +132,31 @@ NTM-class / RL). One entry per distinct compute pattern.
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| lstm-train | 0.2646 | 5.3233 | 0.05× | 20 | `6713b3ca+dirty` |
+| lstm-train | 0.2646 | 5.3233 | 0.05× | 20 | `7f1fcdb1+dirty` |
 
 ### ntm-copy-train
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| ntm-copy-train | 4.6230 | 23.1916 | 0.20× | 10 | `6713b3ca+dirty` |
+| ntm-copy-train | 4.6230 | 23.1916 | 0.20× | 10 | `7f1fcdb1+dirty` |
 
 ### reinforce-train
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| reinforce-train | 4.6572 | 25.4418 | 0.18× | 50 | `6713b3ca+dirty` |
+| reinforce-train | 4.6572 | 25.4418 | 0.18× | 50 | `7f1fcdb1+dirty` |
 
 ### supervised-train
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| supervised-train | 0.0400 | 0.9303 | 0.04× | 50 | `6713b3ca+dirty` |
+| supervised-train | 0.0400 | 0.9303 | 0.04× | 50 | `7f1fcdb1+dirty` |
 
 ### transformer-train
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| transformer-train | 1.3976 | 27.1076 | 0.05× | 10 | `6713b3ca+dirty` |
+| transformer-train | 1.3976 | 27.1076 | 0.05× | 10 | `7f1fcdb1+dirty` |
 
 ## Axis D — End-to-end HF inference (vs HF transformers)
 
@@ -168,19 +168,19 @@ Python on the same hardware.
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| hf-bert-inference | 466.5932 | 0.9541 | 489.03× | 25 | `2383c719` |
+| hf-bert-inference | 466.5932 | 0.9541 | 489.03× | 25 | `eb0635dc` |
 
 ### hf-gpt2-inference
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| hf-gpt2-inference | 608.8837 | 16.9123 | 36.00× | 8 | `2383c719` |
+| hf-gpt2-inference | 608.8837 | 16.9123 | 36.00× | 8 | `eb0635dc` |
 
 ### hf-llama-generate-inference
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| hf-llama-generate-inference | 47750.0709 | — | — | 8 | `2383c719` |
+| hf-llama-generate-inference | 47750.0709 | — | — | 8 | `eb0635dc` |
 
 ---
 
