@@ -47,10 +47,6 @@
 #   cert-err33-c — predicted 41 hits across the backend, all
 #       `fprintf(stderr, ...)` discards in diagnostic-logging paths;
 #       wrong noise:signal ratio
-#   clang-analyzer-core.NullDereference — ~7 hits, all overlap with the
-#       deferred deref-before-redundant-null-check cleanup pattern
-#       (also flagged by cppcheck's nullPointerRedundantCheck); enable
-#       after that cleanup lands
 #   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 #       — "use fprintf_s instead of fprintf" (C11 Annex K, not widely
 #       shipped); ~41 FPs for plain fprintf calls
@@ -102,7 +98,6 @@ Checks: >
   -cert-dcl37-c,
   -cert-dcl51-cpp,
   -cert-err33-c,
-  -clang-analyzer-core.NullDereference,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -misc-include-cleaner,
   -readability-braces-around-statements,
