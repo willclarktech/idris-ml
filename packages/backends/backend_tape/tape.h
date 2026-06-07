@@ -77,6 +77,8 @@ enum {
 	OP_CUMPROD,            /* cumulative product along dim 0 */
 	OP_GATHER,             /* gather by index: out[i] = input[index[i]] */
 	OP_SCATTER_ADD,        /* scatter add: out[index[i]] += src[i] */
+	OP_GATHER_ROWS,        /* row-wise gather: out[i] = input[i*n + index[i]] */
+	OP_MAX_ROWS,           /* row-wise max: out[i] = max_j input[i*n + j] */
 	OP_LEAKY_RELU,         /* max(alpha*x, x) — alpha in scalar_arg */
 	OP_SILU,               /* x * sigmoid(x) (Swish activation) */
 	OP_LINEAR_2D,          /* [B,o] = [B,i] @ [o,i]^T + [o] (batched fused linear) */

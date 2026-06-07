@@ -75,6 +75,8 @@ enum {
 	OP_CUMPROD,
 	OP_GATHER,      /* gather along axis 0 by integer indices */
 	OP_SCATTER_ADD, /* scatter-add along axis 0 by integer indices */
+	OP_GATHER_ROWS, /* row-wise gather along axis 1 by per-row integer index */
+	OP_MAX_ROWS,    /* row-wise max along axis 1 */
 	OP_LEAKY_RELU,
 	OP_SILU,
 	OP_SUM_DIM,         /* sum along a single axis with optional keepdim */

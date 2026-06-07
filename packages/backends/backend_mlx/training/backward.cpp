@@ -72,7 +72,9 @@ void tensor_backward(TensorHandle h) {
 			constants.emplace_back(t->pool_idx, t->data);
 		}
 	};
-	auto arg2_is_index = [](int op) { return op == OP_GATHER || op == OP_SCATTER_ADD; };
+	auto arg2_is_index = [](int op) {
+		return op == OP_GATHER || op == OP_SCATTER_ADD || op == OP_GATHER_ROWS;
+	};
 	for (int i = 0; i <= loss->tape_idx; i++) {
 		auto& e = tape[i];
 		add_const(e.result);

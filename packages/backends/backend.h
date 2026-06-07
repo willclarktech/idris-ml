@@ -765,6 +765,18 @@ TensorHandle tensor_gather(TensorHandle input, TensorHandle index, int n);
 /* Scatter: out = zeros; out[index[i]] += src[i] (1D scatter-add) */
 TensorHandle tensor_scatter_add(TensorHandle index, TensorHandle src, int out_size);
 
+/* Row-wise gather: input [b, n] (row-major), index [b] (double-valued
+ * ints) -> out [b], out[i] = input[i*n + index[i]]. PyTorch equivalent:
+ * torch.gather(input, 1, idx.unsqueeze(1)).squeeze(1).
+ * Backward: d_input[i*n + index[i]] += d_out[i]; index non-grad. */
+TensorHandle tensor_gather_rows(TensorHandle input, TensorHandle index, int b, int n);
+
+/* Row-wise max: input [b, n] (row-major) -> out [b],
+ * out[i] = max_j input[i*n + j]. PyTorch: torch.max(input, 1).values.
+ * Backward routes each row's grad to its argmax cell; tie-breaking
+ * across backends is unspecified (tests avoid ties). */
+TensorHandle tensor_max_rows(TensorHandle input, int b, int n);
+
 /* ---------- Sort / Scan ---------- */
 
 /* Argsort: returns integer indices that sort input along dim.

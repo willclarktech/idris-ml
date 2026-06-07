@@ -166,6 +166,7 @@
 #define tensor_expand_mask tensor_expand_mask_tape
 #define tensor_free tensor_free_tape
 #define tensor_gather tensor_gather_tape
+#define tensor_gather_rows tensor_gather_rows_tape
 #define tensor_gelu tensor_gelu_tape
 #define tensor_grad tensor_grad_tape
 #define tensor_group_norm tensor_group_norm_tape
@@ -190,6 +191,7 @@
 #define tensor_max_pool1d tensor_max_pool1d_tape
 #define tensor_max_pool2d tensor_max_pool2d_tape
 #define tensor_max_pool2d_batched tensor_max_pool2d_batched_tape
+#define tensor_max_rows tensor_max_rows_tape
 #define tensor_mean tensor_mean_tape
 #define tensor_min tensor_min_tape
 #define tensor_mlx_compile_enabled tensor_mlx_compile_enabled_tape

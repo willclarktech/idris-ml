@@ -73,18 +73,18 @@ long tensor_perf_op_count(void) {
 
 static const char* op_name(int op) {
 	static const char* names[] = {
-	    "CONST",       "ADD",        "SUB",         "MUL",         "DIV",        "NEG",
-	    "ABS",         "EXP",        "LOG",         "SQRT",        "POW",        "SIGMOID",
-	    "TANH",        "MV",         "LINEAR",      "DOT",         "OUTER",      "SOFTMAX",
-	    "LOG_SOFTMAX", "SUM",        "MEAN",        "BCE_LOGITS",  "LSTM_GATES", "ADD_S",
-	    "MUL_S",       "CLAMP",      "COS_SIM",     "CONV1D_CIRC", "LSTM_CELL",  "STACK",
-	    "RESHAPE",     "SELECT",     "VECMAT",      "CAT",         "NARROW",     "LOG_SM_2D",
-	    "MM",          "TRANS_2D",   "SM_2D",       "MASK_FILL",   "LN_2D",      "BMM",
-	    "BMM_3X3",     "SM_3D",      "TRANS_L2",    "GELU",        "GRU",        "EMBED",
-	    "BATCH_NORM",  "DROPOUT",    "AVGP1D",      "AVGP2D",      "CONV1D",     "MAXP1D",
-	    "CONV2D",      "CONV2D_B",   "MAXP2D",      "MAXP2D_B",    "CUMPROD",    "GATHER",
-	    "SCATTER_ADD", "LEAKY_RELU", "SILU",        "LINEAR_2D",   "CONCAT_2D",  "SOFTPLUS",
-	    "TILE_2D",     "CAST_DTYPE", "RMS_NORM_2D", "SWIGLU_2D"};
+	    "CONST",       "ADD",         "SUB",      "MUL",         "DIV",         "NEG",
+	    "ABS",         "EXP",         "LOG",      "SQRT",        "POW",         "SIGMOID",
+	    "TANH",        "MV",          "LINEAR",   "DOT",         "OUTER",       "SOFTMAX",
+	    "LOG_SOFTMAX", "SUM",         "MEAN",     "BCE_LOGITS",  "LSTM_GATES",  "ADD_S",
+	    "MUL_S",       "CLAMP",       "COS_SIM",  "CONV1D_CIRC", "LSTM_CELL",   "STACK",
+	    "RESHAPE",     "SELECT",      "VECMAT",   "CAT",         "NARROW",      "LOG_SM_2D",
+	    "MM",          "TRANS_2D",    "SM_2D",    "MASK_FILL",   "LN_2D",       "BMM",
+	    "BMM_3X3",     "SM_3D",       "TRANS_L2", "GELU",        "GRU",         "EMBED",
+	    "BATCH_NORM",  "DROPOUT",     "AVGP1D",   "AVGP2D",      "CONV1D",      "MAXP1D",
+	    "CONV2D",      "CONV2D_B",    "MAXP2D",   "MAXP2D_B",    "CUMPROD",     "GATHER",
+	    "SCATTER_ADD", "GATHER_ROWS", "MAX_ROWS", "LEAKY_RELU",  "SILU",        "LINEAR_2D",
+	    "CONCAT_2D",   "SOFTPLUS",    "TILE_2D",  "CAST_DTYPE",  "RMS_NORM_2D", "SWIGLU_2D"};
 	/* Compile-time check: names[] must cover every op tag.
 	   Add to BOTH this list and the enum when introducing new ops. */
 	_Static_assert(sizeof(names) / sizeof(names[0]) == OP_COUNT,
