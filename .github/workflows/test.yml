@@ -335,6 +335,12 @@ jobs:
   test-unit:
     name: test-unit (${{ matrix.os }})
     needs: build
+    # needs is matrix-wide: one failed build leg skips this job on EVERY
+    # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
+    # masked all ubuntu test signal). !cancelled() keeps the job running
+    # on legs whose build succeeded; a leg whose build failed runs
+    # cold-or-red, which is attributable noise, not masking.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -502,6 +508,12 @@ jobs:
   test-integration:
     name: test-integration (${{ matrix.os }})
     needs: build
+    # needs is matrix-wide: one failed build leg skips this job on EVERY
+    # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
+    # masked all ubuntu test signal). !cancelled() keeps the job running
+    # on legs whose build succeeded; a leg whose build failed runs
+    # cold-or-red, which is attributable noise, not masking.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -599,6 +611,12 @@ jobs:
   test-e2e-examples:
     name: test-e2e-examples (${{ matrix.os }})
     needs: build
+    # needs is matrix-wide: one failed build leg skips this job on EVERY
+    # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
+    # masked all ubuntu test signal). !cancelled() keeps the job running
+    # on legs whose build succeeded; a leg whose build failed runs
+    # cold-or-red, which is attributable noise, not masking.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -647,6 +665,9 @@ jobs:
   test-e2e-hf:
     name: test-e2e-hf
     needs: build
+    # See the test-unit comment: don't let a failed build leg on another
+    # os mask this job's signal.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
