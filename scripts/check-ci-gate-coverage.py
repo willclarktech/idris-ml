@@ -90,6 +90,8 @@ def extract_make_targets(block: str) -> set[str]:
     targets: set[str] = set()
     cd_seen = False
     for line in block.splitlines():
+        if line.lstrip().startswith("#"):  # shell comment
+            continue
         if CD_RE.search(line):
             cd_seen = True
         if cd_seen:

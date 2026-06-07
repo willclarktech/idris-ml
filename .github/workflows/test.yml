@@ -1,5 +1,22 @@
 name: test
 
+# Detector-shaped CI: nothing here blocks a merge (development happens
+# on the private mirror; publication pushes land directly on main and
+# results are read after the fact, ~weekly). The structure is
+# optimized for complete diagnosis per run, not cheap early rejection:
+# jobs are independent (the only `needs:` edge is the real data
+# dependency build -> test consumers), every generated gate step runs
+# with !cancelled() so one red gate never hides its siblings, and
+# fail-fast is off everywhere. Jobs are named after, and contain
+# exactly, the make taxonomy layers (lint / test-unit /
+# test-integration / test-e2e-* / coverage); the gate-coverage lint
+# (scripts/check-ci-gate-coverage.py) enforces that mapping against
+# the Makefile aggregators.
+#
+# The make-invocation step lists are generated from
+# test.yml.spec.json by scripts/gen-ci-workflow.py (one marker-bounded
+# region per job); only the scaffolding here is hand-written.
+
 on:
   push:
     branches: [main]
@@ -17,19 +34,32 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # Fast preflight: catches drift between Idris example defaults and the
-  # paired torch_ref/scripts/*.py argparse defaults. Runs in ~1s on any
-  # python3-capable runner; gates the matrix so a paired-side desync fails
-  # the build without burning ~220 minute-units on the long matrix.
-  check-paired-defaults:
-    name: check-paired-defaults
+  # Static gates that need no Idris/backend build: drift checks,
+  # Python + C lint, the dep-light pyright surfaces, and the
+  # CI-vs-spec / CI-vs-Makefile sync lints. Runs in parallel with
+  # everything else (no `needs:` — a lint failure must not hide a
+  # week's worth of matrix information).
+  lint:
+    name: lint
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Verify paired Idris ↔ torch_ref defaults match
-        run: python3 scripts/check-paired-defaults.py
+        # Catches drift between Idris example defaults and the paired
+        # torch_ref/scripts/*.py argparse defaults.
+        run: make test-integration-lint-paired-defaults
+      - name: Verify rename headers are in sync with backend.h
+        # Re-runs scripts/codegen/gen-rename-headers.py --check. Fails
+        # if regenerating packages/backends/rename_<b>.h from backend.h
+        # would change anything. Wired in by the gate-coverage lint —
+        # CLAUDE.md documented this as a CI gate but no workflow ran it.
+        run: make test-integration-lint-rename-headers
       - name: Verify Executor backend method sets are in sync
         # Catches the drift bug class: someone wires a new method into
         # Tape's instance block and silently forgets Torch / Mlx (or
@@ -60,10 +90,10 @@ jobs:
         run: make test-integration-lint-non-io-side-effects
       - name: Verify CI workflow is in sync with its spec
         # Re-runs scripts/gen-ci-workflow.py --check. Fails if anyone
-        # hand-edited the test-invocation block of this workflow
-        # without updating .github/workflows/test.yml.spec.json. Spec
-        # is the single source of truth; add a gate by appending to
-        # the spec and regenerating, not by editing the workflow.
+        # hand-edited a generated job block of this workflow without
+        # updating .github/workflows/test.yml.spec.json. Spec is the
+        # single source of truth; add a gate by appending to the spec
+        # and regenerating, not by editing the workflow.
         run: make test-integration-lint-ci-workflow
       - name: Verify CI covers the make test taxonomy
         # Cross-checks every workflow's make invocations against the
@@ -73,11 +103,11 @@ jobs:
         # run in some workflow or be a named exception / known hole in
         # the spec JSON.
         run: make test-integration-lint-ci-coverage
-      # Distinct key from the matrix jobs' full venv (pytorch-venv-*):
-      # this venv holds ONLY the dev group, and both live at the same
-      # path — sharing a key would poison the full-venv cache that
-      # test-examples restores. uv sync below is idempotent on a warm
-      # venv. Paired saves at the end of the job, if: always().
+      # Distinct key from the build-bearing jobs' full venv
+      # (pytorch-venv-*): this venv holds ONLY the dev group, and both
+      # live at the same path — sharing a key would poison the
+      # full-venv cache. uv sync below is idempotent on a warm venv.
+      # Paired saves at the end of the job, if: always().
       - name: Restore lint venv cache
         uses: actions/cache/restore@v4
         with:
@@ -94,9 +124,8 @@ jobs:
         # `--only-group dev --no-install-project` installs ruff + vulture
         # + their transitive deps WITHOUT pulling in torch / transformers
         # / gymnasium / mlx (the main `[project]` deps). Cold-cache cost
-        # ~5s; the heavier matrix jobs re-sync the full venv via
-        # `make ref-setup`. Adds ~10s wall to the preflight; gates the
-        # ~220 min-unit matrix on Python-side lint drift before it runs.
+        # ~5s; the torch-dependent gates live in the lint-full job
+        # instead.
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -110,12 +139,11 @@ jobs:
       - name: Typecheck stdlib Python scripts (pyright strict)
         # `make typecheck-py-scripts` — pyright strict over the
         # repo-root scripts/ tree (config root scripts/pyrightconfig
-        # .json). Lives in the preflight because the tree is
-        # stdlib-only: pyright is already in the --only-group dev
-        # venv and no torch/transformers imports are involved. The
-        # torch-dependent typecheck gates (typecheck-py-pytorch /
-        # -transformers / -examples) run in the matrix after
-        # ref-setup instead.
+        # .json). Lives in this job because the tree is stdlib-only:
+        # pyright is already in the --only-group dev venv and no
+        # torch/transformers imports are involved. The torch-dependent
+        # typecheck gates (typecheck-py-pytorch / -transformers /
+        # -examples) run in the lint-full job instead.
         run: make typecheck-py-scripts
       - name: Typecheck Jupyter kernel package (pyright strict)
         # `make typecheck-py-jupyter` — pyright strict over
@@ -125,31 +153,30 @@ jobs:
         # target builds that venv from scratch here (~30-40s: python3
         # -m venv + pip install -e .[dev]) — deliberately NOT
         # jupyter-install, which dep-chains the heavy backend build.
-        # No torch involved, so it fits the preflight.
+        # No torch involved, so it fits this job.
         run: make typecheck-py-jupyter
+      - name: Run jupyter cell-parser unit tests
+        # pytest over the kernel's cell parser (no REPL, no backend —
+        # reuses the jupyter venv built by the typecheck step above).
+        # Wired in by the gate-coverage lint.
+        run: make test-integration-jupyter-cellparser
       - name: Install C-lint tools (clang-format + cppcheck + clang-tidy)
         # apt-installs clang-format + cppcheck + clang-tidy on the
-        # Ubuntu preflight runner. ~10s on a warm cache. Local devs
-        # install via `brew install clang-format cppcheck llvm` or
-        # the equivalent nix derivation. The Make target gracefully
-        # skips each tool that isn't on PATH so it doesn't block
-        # pre-commit runs locally. libopenblas-dev provides <cblas.h>,
-        # which clang-tidy needs to parse the tape sources' non-Apple
-        # BLAS branch (the build job installs it too, but this
-        # preflight job has its own apt step).
+        # Ubuntu runner. ~10s on a warm cache. Local devs install via
+        # `brew install clang-format cppcheck llvm` or the equivalent
+        # nix derivation. The Make target gracefully skips each tool
+        # that isn't on PATH so it doesn't block pre-commit runs
+        # locally. libopenblas-dev provides <cblas.h>, which clang-tidy
+        # needs to parse the tape sources' non-Apple BLAS branch.
         run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format cppcheck clang-tidy libopenblas-dev
       - name: Lint C / C++ backend surface (clang-format + cppcheck + clang-tidy)
         # Runs `make lint-c`: clang-format --dry-run + cppcheck on
         # all 3 backends + clang-tidy on tape (tape uses only libc
-        # + BLAS headers; no libtorch / mlx setup needed at preflight
-        # time). Full clang-tidy across the C++ backends (torch + mlx)
-        # is gated behind `C_LINT_FULL_CLANG_TIDY=1` and is currently
-        # NOT wired into any CI job — landing it requires staging a
-        # libtorch + mlx install in a dedicated lint matrix lane (the
-        # preflight job intentionally doesn't carry the libtorch
-        # dependency). Tracked as a follow-up. clang-format rules
-        # live in `.clang-format`; cppcheck flags inline; clang-tidy
-        # check set in `.clang-tidy`.
+        # + BLAS headers; no libtorch / mlx setup needed here). Full
+        # clang-tidy across the torch C++ backend runs in the
+        # lint-full job, which carries libtorch via the uv venv.
+        # clang-format rules live in `.clang-format`; cppcheck flags
+        # inline; clang-tidy check set in `.clang-tidy`.
         run: make lint-c
       - name: Lint C misc-include-cleaner gate (rename-free)
         # Runs `make lint-c-include-cleaner` — clang-tidy with ONLY
@@ -159,9 +186,6 @@ jobs:
         # tracker (~250 architectural FPs). Cannot enable the check
         # in the default `.clang-tidy` for that reason; this is the
         # canonical gate for include hygiene on backend_tape.
-        # Targets backend_tape only; torch/mlx share the same rename
-        # FP architecture plus the macOS+nix libtorch-vs-libc++
-        # block — deferred follow-up matching the main clang-tidy gap.
         run: make lint-c-include-cleaner
 
       - name: Save lint venv cache
@@ -178,440 +202,215 @@ jobs:
           path: packages/jupyter/.venv
           key: jupyter-venv-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
 
-  test-examples:
-    name: test-examples (${{ matrix.os }})
-    needs: check-paired-defaults
-    strategy:
-      fail-fast: false
-      matrix:
-        # macOS is opt-in via `workflow_dispatch -f include_macos=true`
-        # to avoid the 10× billable cost on every PR. See the
-        # workflow_dispatch input above.
-        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
-    runs-on: ${{ matrix.os }}
-    # 60 was enough pre-pack; a cold pack bootstrap (micropack + the
-    # pinned collection's idris2) adds ~15-25 min on a cache miss.
-    timeout-minutes: 90
-
+  # Lint/typecheck gates that need the full torch venv (pyright import
+  # resolution over torch/transformers-importing scripts). No Idris
+  # build involved — the only heavy dependency is ref-setup.
+  lint-full:
+    name: lint-full
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      # Full history (fetch-depth 0): git-restore-mtime below needs
-      # per-file last-commit dates; a shallow clone would stamp every
-      # file with the HEAD commit's time and defeat the TTC cache.
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install Chez Scheme + BLAS (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime
-
-      # idris2 and make decide rebuilds by mtime. Checkout stamps all
-      # files "now", which would make every cached TTC / object look
-      # stale; restore-mtime resets each file to its last-touching
-      # commit's date so unchanged sources stay older than the cached
-      # build tree and elaboration is skipped. Ubuntu-only (no brew
-      # package): the opt-in macOS lane just eats a full rebuild.
-      - name: Restore source mtimes for incremental rebuilds
-        if: matrix.os == 'ubuntu-latest'
-        run: git restore-mtime
-
-      - name: Install Chez Scheme + coreutils (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install chezscheme coreutils
-        # coreutils gives us gtimeout (test-examples falls back to it when
-        # `timeout` isn't on PATH — macOS doesn't ship one). We deliberately
-        # do NOT add libexec/gnubin to PATH: that would expose `stdbuf`
-        # without the `g` prefix, but brew's libstdbuf.so is built for arm64
-        # while macOS's inserted-library loader requires arm64e — every
-        # binary linking system frameworks (i.e. ours) would abort with
-        # "incompatible architecture". The Makefile's $(STDBUF) probe
-        # correctly returns empty when `stdbuf` is off PATH, so no buffering
-        # is applied on macOS CI.
-
-      # Idris 2 v0.8.0 built from source, cached across runs to avoid the
-      # 5-10 min bootstrap on every push. Idris2's default PREFIX is
-      # $HOME/.idris2 — caching that whole tree (binary + libs) is simplest.
-      # Bump the cache key suffix to force a rebuild. Split
-      # restore/save (paired save step at the end of the job) instead
-      # of plain actions/cache: the plain form only saves on job
-      # SUCCESS, so while this job was red the bootstrap was thrown
-      # away and repeated on every single run.
-      - name: Restore Idris 2 cache
-        id: idris2-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.idris2
-          key: idris2-v0.8.0-${{ matrix.os }}-v2
-
-      - name: Build and install Idris 2
-        if: steps.idris2-cache.outputs.cache-hit != 'true'
-        run: |
-          # Locate Chez Scheme. Binary name varies: Ubuntu `chezscheme`
-          # package installs `scheme`; brew `chezscheme` may install `scheme`,
-          # `chez-scheme`, `chez`, or be keg-only.
-          SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez || true)"
-          if [ -z "$SCHEME" ] && command -v brew >/dev/null 2>&1; then
-            BREW_PREFIX="$(brew --prefix chezscheme 2>/dev/null || true)"
-            if [ -n "$BREW_PREFIX" ] && [ -d "$BREW_PREFIX/bin" ]; then
-              echo "brew --prefix chezscheme: $BREW_PREFIX"
-              echo "Cellar bin contents:"
-              ls -la "$BREW_PREFIX/bin/" || true
-              for name in scheme chez-scheme chezscheme chez petite; do
-                if [ -x "$BREW_PREFIX/bin/$name" ]; then
-                  SCHEME="$BREW_PREFIX/bin/$name"
-                  break
-                fi
-              done
-            fi
-          fi
-          if [ -z "$SCHEME" ]; then
-            echo "Chez Scheme not found. Debug info:" >&2
-            echo "PATH=$PATH" >&2
-            command -v brew >/dev/null && brew list chezscheme 2>&1 || true
-            ls /opt/homebrew/bin/ 2>&1 | grep -iE 'chez|scheme|petite' >&2 || true
-            ls /usr/local/bin/ 2>&1 | grep -iE 'chez|scheme|petite' >&2 || true
-            exit 1
-          fi
-          echo "Using SCHEME=$SCHEME"
-          git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
-          cd /tmp/Idris2
-          make bootstrap SCHEME="$SCHEME"
-          make install
-
-      - name: Add Idris 2 to PATH
-        run: echo "$HOME/.idris2/bin" >> $GITHUB_PATH
-
-      - name: Verify Idris 2
-        run: idris2 --version
-
-      # pack (the Idris package manager) drives the per-package
-      # unit-test builds (test-unit-idris-*): the shared idris-test
-      # harness depends on hedgehog, which only pack's curated
-      # collection provides. The repo-level pack.toml pins the
-      # collection; pack bootstraps that collection's toolchain into
-      # ~/.local/state/pack on first use (the `pack info` below), all
-      # cached here keyed on the pinned pack.toml. Cold bootstrap is
-      # ~15-25 min (micropack + collection toolchain); warm restore
-      # is seconds.
-      # Per-sha key + prefix restore + save-always (paired save step at
-      # the end of the job): the micropack + collection bootstrap is the
-      # single most expensive install (~15-25 min) and must survive a
-      # red run — a success-only cache would have thrown it away on
-      # every failure while the job stabilizes. The install step guards
-      # on the pack binary, not cache-hit, since a prefix restore
-      # already carries a working pack.
-      - name: Restore pack cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.local/bin/pack
-            ~/.local/state/pack
-            ~/.config/pack
-          key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-${{ github.sha }}
-          restore-keys: |
-            pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-
-            pack-${{ matrix.os }}-
-
-      - name: Install pack (skipped when cache carried a binary)
-        run: |
-          if [ -x "$HOME/.local/bin/pack" ]; then
-            echo "pack already present (cache); skipping micropack bootstrap"
-            exit 0
-          fi
-          SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez)"
-          git clone --depth 1 https://github.com/stefan-hoeck/idris2-pack.git /tmp/idris2-pack
-          cd /tmp/idris2-pack
-          make micropack SCHEME="$SCHEME"
-
-      - name: Add pack to PATH + bootstrap pinned collection
-        run: |
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          # pack drops an `idris2` shim into ~/.local/bin which would
-          # shadow ~/.idris2/bin's release v0.8.0 for every make
-          # target (GITHUB_PATH prepends, so the LAST-added dir wins
-          # — and pack's compiler is a different commit; mixing the
-          # two corrupts the make-side TTC trees: observed as
-          # "Package idris2 is not built or not installed" from the
-          # shim during `make install`, public run 27357373726).
-          # Re-add ~/.idris2/bin so it takes precedence again.
-          echo "$HOME/.idris2/bin" >> $GITHUB_PATH
-          export PATH="$HOME/.local/bin:$PATH"
-          pack info
-          # Front-load what the pack-driven test targets would lazily
-          # install mid-job: installing the shared test harness
-          # (idris-test, carries the hedgehog dep) forces the pinned
-          # collection's compiler to build as a side effect.
-          # Deterministic here + lands in the pack cache.
-          pack --no-prompt install idris-test
-
-      - name: Install MLX (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          # MLX is Apple-only. Pip wheel ships C++ headers + libs in
-          # the package's site-packages dir under {include,lib}. The
-          # Makefile's BACKEND=mlx rules read MLX_SITE to find them.
-          # --break-system-packages is required on Python >=3.12 (PEP 668)
-          # and is fine on ephemeral CI runners.
-          #
-          # mlx 0.31+ split into a namespace package (mlx + mlx-metal),
-          # so `mlx.__file__` is None and the C++ headers moved to the
-          # mlx-metal package. Detection tries both packages and picks
-          # whichever has the {include,lib} subdirs.
-          python3 -m pip install --break-system-packages mlx
-          MLX_SITE=$(python3 -c "
-          import importlib.util, os, sys
-          for name in ('mlx', 'mlx_metal'):
-              spec = importlib.util.find_spec(name)
-              if not spec: continue
-              path = spec.submodule_search_locations[0] if spec.submodule_search_locations \
-                  else os.path.dirname(spec.origin)
-              if os.path.isdir(os.path.join(path, 'include')):
-                  print(path); sys.exit(0)
-          sys.exit(1)
-          ")
-          echo "MLX_SITE=$MLX_SITE" >> $GITHUB_ENV
-
-      # Torch is Linux-only here (libtorch CPU is bigger; macOS lane already
-      # carries MLX). Cache the uv-managed venv to skip the ~2 min download
-      # on warm runs. The Makefile's LIBTORCH_PATH detection chain
-      # (Makefile:73-81) finds `packages/pytorch/.venv/bin/python3 -c
-      # "import torch ..."` automatically once the venv exists.
-      - name: Restore pytorch venv cache (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Restore pytorch venv cache
         uses: actions/cache/restore@v4
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
-      - name: Install torch via uv (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install torch + transformers via uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
           export PATH="$HOME/.local/bin:$PATH"
           make ref-setup
 
-      # TTC + object cache. Idris elaboration of the library + 49
-      # examples dominates this job's wall-clock; with restored source
-      # mtimes (step above) idris2/make skip everything the cached tree
-      # already covers. Per-sha key + prefix restore: every run restores
-      # the most recent prior tree and saves its own (the save step at
-      # the end of the job runs even on failure — a mostly-built tree
-      # from a red run still saves the next run's elaboration). The
-      # cmp-then-mv-guarded generated sources (BuildConfig.idr etc.)
-      # must be cached too — regenerating them fresh would invalidate
-      # every downstream module. Bump -v1 to force-flush a wedged tree.
-      - name: Restore TTC cache
-        uses: actions/cache/restore@v4
+      # >>> GENERATED (lint-full) FROM test.yml.spec.json >>>
+      - name: Typecheck torch_ref (pyright)
+        # Alias of ref-typecheck: pyright over packages/pytorch/torch_ref/
+        # at the typeCheckingMode pinned in its pyproject.toml. Lives in
+        # this venv-bearing lint job (not the dep-free `lint` job) because
+        # import resolution needs the full uv venv from ref-setup.
+        # Pyright version is pinned by uv.lock.
+        if: ${{ !cancelled() }}
+        run: make typecheck-py-pytorch
+
+      - name: Typecheck idris-ml-examples Python helpers (pyright strict)
+        # pyright strict over packages/idris-ml-examples/scripts/ (config
+        # root: its pyrightconfig.json, selected via -p). verify_dtypes.py
+        # imports torch/safetensors, which only the full ref-setup venv
+        # carries.
+        if: ${{ !cancelled() }}
+        run: make typecheck-py-examples
+
+      - name: Typecheck idris-transformers scripts (pyright strict)
+        # pyright strict over packages/idris-transformers/scripts/ (config
+        # root: its pyrightconfig.json via -p). The oracle/compare scripts
+        # import torch/transformers/safetensors, which only the full
+        # ref-setup venv carries.
+        if: ${{ !cancelled() }}
+        run: make typecheck-py-transformers
+      # <<< END GENERATED (lint-full) <<<
+
+      - name: Save pytorch venv cache
+        if: always()
+        uses: actions/cache/save@v4
         with:
-          path: |
-            build
-            packages/*/build
-            vendored
-            packages/idris-ml-examples/src/BuildConfig.idr
-            packages/idris-ml/src/HwConfig.idr
-            packages/idris-ml/src/HwExecutors.idr
-            packages/idris-ml/src/Test/Config.idr
-            packages/idris-transformers/src/Test/Config.idr
-          key: ttc-${{ matrix.os }}-v1-${{ github.sha }}
-          restore-keys: ttc-${{ matrix.os }}-v1-
+          path: packages/pytorch/.venv
+          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
-      # HF model + tokenizer cache for the roundtrip gates (bert /
-      # gpt2 / bitnet): models/ holds the Make-fetched safetensors
-      # (Pattern A file-as-target — Make's existence check is the
-      # cache), ~/.cache/huggingface holds the transformers-side
-      # oracle downloads. Keyed on examples.mk so adding a model
-      # target refreshes the cache; prefix restore keeps the old
-      # models while the new one downloads.
-      - name: Restore HF model cache
-        uses: actions/cache/restore@v4
+  # The one real data dependency: build the toolchain + library trees
+  # once per OS and save them to the per-sha TTC cache that the
+  # test-unit / test-integration / test-e2e-* jobs restore. Ubuntu
+  # additionally pre-elaborates the torch tree (the first-ever torch
+  # elaboration of library + transformers + a 2B-param example in one
+  # cascade OOM-killed run 27364532457; elaborating the library here,
+  # with swap, leaves downstream jobs only example-level work).
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      # Full history (fetch-depth 0): the composite's git-restore-mtime
+      # needs per-file last-commit dates; a shallow clone would stamp
+      # every file with the HEAD commit's time and defeat the TTC cache.
+      - uses: actions/checkout@v4
         with:
-          path: |
-            models
-            ~/.cache/huggingface
-          key: hf-models-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
-          restore-keys: hf-models-${{ matrix.os }}-
-
-      # Datasets the e2e example runs fetch (MNIST, SST-2, the
-      # torch_ref downloads under packages/pytorch/data). Same Pattern
-      # A logic as the model cache: the fetch rules are
-      # file-as-make-target, so a restored file is simply not
-      # re-fetched. Removes a mid-job network dependency.
-      - name: Restore dataset cache
-        uses: actions/cache/restore@v4
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
         with:
-          path: |
-            data
-            packages/pytorch/data
-          key: datasets-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
-          restore-keys: datasets-${{ matrix.os }}-
+          os-label: ${{ matrix.os }}
+          backend-deps: ${{ matrix.os == 'ubuntu-latest' && 'torch' || 'mlx' }}
+          ttc-job: build
+          swap: 'true'
 
-      - name: Build tape backend
-        run: make BACKEND=tape backend
+      - name: Build tape backend + install libraries
+        run: make BACKEND=tape backend && make install
 
-      - name: Install libraries
-        run: make install
+      - name: Build torch backend + pre-elaborate torch tree (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: make BACKEND=torch install
 
-      # >>> GENERATED FROM test.yml.spec.json >>>
+      - name: Build mlx backend + pre-elaborate mlx tree (macOS)
+        if: matrix.os == 'macos-latest'
+        run: make BACKEND=mlx install
+
+      - name: Save caches
+        if: always()
+        uses: ./.github/actions/save-idris-ml-caches
+        with:
+          os-label: ${{ matrix.os }}
+          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          ttc-job: build
+          save-pytorch-venv: ${{ matrix.os == 'ubuntu-latest' }}
+
+  # Unit layer: the `make test-unit` aggregator's leaves,
+  # per-backend-conditioned (tape everywhere; torch on Ubuntu; mlx +
+  # the multi-backend suite on macOS). pack drives the Idris-side
+  # suites, hence with-pack.
+  test-unit:
+    name: test-unit (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
+        with:
+          os-label: ${{ matrix.os }}
+          backend-deps: ${{ matrix.os == 'ubuntu-latest' && 'torch' || 'mlx' }}
+          with-pack: 'true'
+          ttc-job: test-unit
+          swap: 'true'
+
+      # >>> GENERATED (test-unit) FROM test.yml.spec.json >>>
+      - name: Run Criterion suite (tape)
+        if: ${{ !cancelled() }}
+        run: make BACKEND=tape test-unit-c
+
+      - name: Run Criterion suite (torch, Ubuntu)
+        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
+        run: make BACKEND=torch test-unit-c
+
+      - name: Run Criterion suite (mlx, macOS)
+        if: ${{ matrix.os == 'macos-latest' && !cancelled() }}
+        run: make BACKEND=mlx test-unit-c
+
+      - name: Run idris-gym unit suite
+        # Pure-Idris suite for the gym package (spaces, RNG, classic-control
+        # + toy-text envs, wrappers) via the pack-built test harness. Wired
+        # in by the gate-coverage lint — it was the only test-unit leaf
+        # running in no workflow.
+        if: ${{ !cancelled() }}
+        run: make test-unit-gym
+
       - name: Run idris-transformers unit tests
         # Pure-Idris test harness for the HF-aligned model package
-        # (packages/idris-transformers/). Type-checks the package + builds
-        # the test executable, then runs it. No backend dependency at this
-        # stage — the package wiring is the gate; HfBert model tests land
-        # alongside HfBert.idr in a later commit.
+        # (packages/idris-transformers/): bertParamNames catalogue + an FFI
+        # suite that constructs a real HfBert and asserts the C-side param
+        # registry matches the catalogue.
+        if: ${{ !cancelled() }}
         run: make test-unit-idris-transformers
 
-      - name: Run HfBert oracle generator + pytest (Ubuntu)
-        # Drives packages/idris-transformers/scripts/save_oracle.py through
-        # pytest under the pytorch uv venv (carries the transformers dep).
-        # Downloads google/bert_uncased_L-2_H-128_A-2 from HF Hub on each
-        # run, runs forward on the fixed input, asserts the resulting
-        # oracle is shape [128] F32 finite + non-trivial. Ubuntu-only:
-        # ref-setup runs only there in this matrix.
-        if: matrix.os == 'ubuntu-latest'
-        run: make test-e2e-transformers-oracle-bert
+      - name: Run examples unit suite (tape)
+        # Idris-side suite living in packages/idris-ml-examples (Test.Reinforce,
+        # Test.Generate). Wired in to catch drift like the IO-lift mismatch on
+        # rolloutEpBatched and the bitlinear-test scale formula — both pre-existed
+        # in tree because the target was not previously gated by CI.
+        if: ${{ !cancelled() }}
+        run: make BACKEND=tape test-unit-examples
 
-      - name: Run HfGpt2 oracle generator + pytest (Ubuntu)
-        # Same shape as the HfBert oracle gate but for sshleifer/tiny-gpt2.
-        # Downloads the checkpoint, runs forward on [15496, 995], asserts
-        # the last-position hidden state is shape [2] (sshleifer/tiny-gpt2
-        # is intentionally degenerate at hidden=2 — exercises the
-        # architectural pieces without burning CI disk). Ubuntu-only.
-        if: matrix.os == 'ubuntu-latest'
-        run: make test-e2e-transformers-oracle-gpt2
+      - name: Run examples unit suite (torch, Ubuntu)
+        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
+        run: make BACKEND=torch test-unit-examples
 
-      - name: Run HfBert end-to-end roundtrip (Ubuntu)
-        # The cross-language correctness gate: regenerates the Python
-        # oracle, runs the Idris HfBertInference example (loading the
-        # real Google bert-tiny weights via the HF-aligned HfBert
-        # module), and asserts elementwise agreement within
-        # max-abs-diff 1e-3 on the 128-dim pooled [CLS] output.
-        # Currently passes at 4.1e-4 locally on tape. Ubuntu-only:
-        # depends on the uv venv set up by ref-setup.
-        if: matrix.os == 'ubuntu-latest'
-        run: make test-e2e-hf-bert-roundtrip
+      - name: Run examples unit suite (mlx, macOS)
+        if: ${{ matrix.os == 'macos-latest' && !cancelled() }}
+        run: make BACKEND=mlx test-unit-examples
 
-      - name: Run HfGpt2 end-to-end roundtrip (Ubuntu)
-        # Same gate shape as HfBert but for GPT-2: regenerate the Python
-        # oracle from hf-internal-testing/tiny-random-gpt2, run the Idris
-        # HfGpt2Inference binary, assert the 32-dim last-position hidden
-        # state matches within max-abs-diff 1e-3. Currently passes at
-        # ~1e-6 locally on tape. Ubuntu-only: depends on the uv venv.
-        if: matrix.os == 'ubuntu-latest'
-        run: make test-e2e-hf-gpt2-roundtrip
+      - name: Run Idris unit suite (tape)
+        # Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite
+        # against the tape primary. The test buckets that touch the C
+        # surface (GradMode, ManagedHandle) use `{d=TestExecutor}` which the
+        # Makefile-generated `TestConfig.idr` resolves to TapeExecutor here, so
+        # FFI calls land on tape-suffixed C symbols.
+        if: ${{ !cancelled() }}
+        run: make BACKEND=tape test-unit-idris-ml
 
-      - name: Run HfBitNet end-to-end roundtrip (Ubuntu, torch)
-        # Cross-language gate: regenerate the Python oracle from
-        # microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference
-        # binary --dump-logits, assert argmax on the vocab-128256 logit
-        # row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch
-        # because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu
-        # runner (see Low-priority TODO "Tape F64 large-LM OOM"). BitNet
-        # is not license-gated, so no HF_TOKEN handling needed.
-        if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-e2e-hf-bitnet-roundtrip
+      - name: Run Idris unit suite (torch, Ubuntu)
+        # Same suite as the tape lane but with TestExecutor = TorchExecutor TCpu.
+        # Catches Idris-side regressions that a tape-only run would miss
+        # (broken torch Scheme wrapper, drift in `UserExecutorTransfer`
+        # instances, etc.).
+        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
+        run: make BACKEND=torch test-unit-idris-ml
 
-      - name: Run HfLlama end-to-end roundtrip (Ubuntu, torch)
-        # Cross-language gate for Llama 3.2 1B. Regenerates the Python
-        # oracle from unsloth/Llama-3.2-1B (public mirror of Meta's
-        # weights, no license-gate / no HF_TOKEN), runs the Idris
-        # HfLlamaInference binary --dump-final-hidden, asserts the
-        # 2048-dim last-position hidden state matches the oracle within
-        # max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps
-        # and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu
-        # lane carries the same Idris-side numerics through libtorch CPU.
-        # BACKEND=torch because tape F64 doesn't fit (~10 GB params +
-        # arena vs ~14 GB runner RAM); see Low-priority TODO "Tape F64
-        # large-LM OOM".
-        if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-e2e-hf-llama-roundtrip
+      - name: Run Idris unit suite (mlx, macOS)
+        # Same suite as tape/torch but with TestExecutor = MlxExecutor MCpu.
+        # Catches mlx Scheme-wrapper drift, lazy-eval / handle-lifetime
+        # regressions in the test-managed-handle suite under Metal.
+        if: ${{ matrix.os == 'macos-latest' && !cancelled() }}
+        run: make BACKEND=mlx test-unit-idris-ml
 
-      - name: Run HfLlama multi-step generation roundtrip (Ubuntu, torch)
-        # Cross-language gate for Llama 3.2 1B's *generation* path.
-        # The companion `test-e2e-hf-llama-roundtrip` step above tests a
-        # single forward on one fixed token; this step exercises the
-        # full greedy-decode loop: tokenize "The capital of France
-        # is", generate 4 tokens via `genLoop` (no KV cache yet —
-        # bumps to 8+ once KV cache lands), assert the resulting
-        # token-ID sequence matches HF `model.generate(do_sample=
-        # False, use_cache=True)` element-wise. Catches drift in
-        # tokenization, every layer of the forward, argmax, and the
-        # per-step glue that the single-forward gate can't see.
-        #
-        # BACKEND=torch as the sibling step. Currently more expensive
-        # than the single-forward gate (4 forwards on growing sequences);
-        # the KV cache landing will collapse it back to ~constant per step.
-        if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-e2e-hf-llama-generate-roundtrip
-
-      - name: Verify GradMode gate (NoGrad loss rejected at compile)
-        # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
-        # WithGrad -> Double` still rejects a `NoGrad` loss. If this step
-        # ever passes the negative test (i.e. the gate compiles a NoGrad
-        # loss), the "inference loss silently no-ops training" bug class
-        # has regressed.
-        run: make test-integration-typegate-gradmode
-
-      - name: Verify GradMode aliasing rejection (linear freezeNetwork)
-        # Asserts that linear `freezeNetwork` consumes its input — using
-        # the pre-freeze Network reference afterwards must be a compile
-        # error. Prevents the "freeze net, train via original variable
-        # which silently no-ops" footgun.
-        run: make test-integration-typegate-gradmode-aliasing
-
-      - name: Verify cross-family lossless-cast gate (DType.Core.LosslessTo)
-        # Asserts LosslessTo refuses a mantissa-shrinking direction
-        # (F32 to BF16). Prevents silent precision-losing mid-graph
-        # casts. Pairs with the positive Test.Lossless suite.
-        run: make test-integration-typegate-lossy-cast
-
-      - name: Verify int-overflow lossless-cast gate (#412 F1)
-        # Asserts LosslessTo refuses I64 to F32 (max int value far
-        # exceeds F32 mantissa exact-integer ceiling). Pairs with the
-        # I32 to F64 + U8 to F32 positive cases in Test.Lossless.
-        run: make test-integration-typegate-int-overflow-cast
-
-      - name: Run Tier-1 perf benches + render BENCHMARKS.md + perf-regression gate
-        # Axis A op-kernel benches (matmul / softmax / SDPA / embedding /
-        # RMSNorm) on tape vs PyTorch. Appends kind="op_bench" entries to
-        # perf-log.jsonl and regenerates BENCHMARKS.md. The follow-up
-        # lint asserts BENCHMARKS.md is in sync with the log — catches a
-        # hand-edit of BENCHMARKS.md that drifts from the JSONL truth.
-        # Framework + selection rule: docs/develop/testing-taxonomy.md
-        # (Axis A/B/C/D coverage). Tier 1 cadence: every PR (target
-        # wall <= 5 min).
-        run: make bench-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression
-
-      - name: Run perf-regression gate (kind="run" entries, advisory)
-        # Companion to the kind="op_bench" gate above. Groups
-        # perf-log.jsonl `kind="run"` entries by (example, backend,
-        # args), medians the last 10, and reports OK / WARN (>15%)
-        # / FAIL (>100% slower) for the latest entry per cell.
-        # Advisory only — exits 0 even on FAILs — until the noise
-        # profile is calibrated; promote by setting PERF_GATE=1.
-        # Renders the report in the CI logs regardless.
-        run: make lint-perf-run
-
-      - name: Run coverage gap probe (advisory)
-        # C backend FFI tests per available backend, via the Criterion
-        # harness under `packages/backends/test/`. Per-OS: tape everywhere,
-        # torch on Ubuntu (libtorch installed via uv), mlx on macOS
-        # (MLX_SITE set above). The legacy `test_backend.c` monolith was
-        # retired with the Criterion port — every assertion lives under
-        # `test/common/test_legacy_backend.c` for now, slated for a
-        # per-op file split during the structural Phase 6 work.
-        #
-        # Static probe: parses OP_* enums from backend_<b>/tape.h and
-        # extern "C" decls from backend.h, cross-references against
-        # test/. Writes CSVs to build/coverage-gap-{ops,symbols}.csv.
-        # Exit code is advisory today (0 even on gaps); coverage-policy.md
-        # flips this to gating once W3+W4 close. See
-        # docs/develop/coverage-policy.md for the three-axis target.
-        run: make test-coverage-gap-probe
-
-      - name: Run Criterion suite (tape)
-        run: make BACKEND=tape test-unit-c
+      - name: Run multi-backend Idris suite (macOS)
+        # Adds Test.Transfer (cross-backend `toExecutor` smoke) +
+        # Test.MultiExecutorRegistry (registry isolation invariant) on
+        # top of the per-backend buckets. Forces BACKEND=torch,tape,mlx
+        # so all three sets of C symbols are linked — only feasible on
+        # the macOS lane (Ubuntu has no mlx).
+        if: ${{ matrix.os == 'macos-latest' && !cancelled() }}
+        run: make test-unit-multi-backend
 
       - name: Run Criterion suite under ASan + UBSan (tape, Ubuntu)
         # AddressSanitizer + UndefinedBehaviorSanitizer pass over the
@@ -629,188 +428,336 @@ jobs:
         #
         # Ubuntu-only because asan on macOS requires a separate
         # instrumented runtime and clang invocation.
-        if: matrix.os == 'ubuntu-latest'
+        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
         continue-on-error: true
         run: make test-unit-c-asan-tape
+      # <<< END GENERATED (test-unit) <<<
 
-      - name: Run Idris unit suite (tape)
-        # Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite
-        # against the tape primary. The test buckets that touch the C
-        # surface (GradMode, ManagedHandle) use `{d=TestExecutor}` which the
-        # Makefile-generated `TestConfig.idr` resolves to TapeExecutor here, so
-        # FFI calls land on tape-suffixed C symbols.
-        run: make BACKEND=tape test-unit-idris-ml
-
-      - name: Run Criterion suite (torch, Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-unit-c
-
-      - name: Run Idris unit suite (torch, Ubuntu)
-        # Same suite as the tape lane but with TestExecutor = TorchExecutor TCpu.
-        # Catches Idris-side regressions that a tape-only run would miss
-        # (broken torch Scheme wrapper, drift in `UserExecutorTransfer`
-        # instances, etc.).
-        if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-unit-idris-ml
-
-      - name: Run Criterion suite (mlx, macOS)
-        if: matrix.os == 'macos-latest'
-        run: make BACKEND=mlx test-unit-c
-
-      - name: Run Idris unit suite (mlx, macOS)
-        # Same suite as tape/torch but with TestExecutor = MlxExecutor MCpu.
-        # Catches mlx Scheme-wrapper drift, lazy-eval / handle-lifetime
-        # regressions in the test-managed-handle suite under Metal.
-        if: matrix.os == 'macos-latest'
-        run: make BACKEND=mlx test-unit-idris-ml
-
-      - name: Run examples unit suite (tape)
-        # Idris-side suite living in packages/idris-ml-examples (Test.Reinforce,
-        # Test.Generate). Wired in to catch drift like the IO-lift mismatch on
-        # rolloutEpBatched and the bitlinear-test scale formula — both pre-existed
-        # in tree because the target was not previously gated by CI.
-        run: make BACKEND=tape test-unit-examples
-
-      - name: Run examples unit suite (torch, Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: make BACKEND=torch test-unit-examples
-
-      - name: Run examples unit suite (mlx, macOS)
-        if: matrix.os == 'macos-latest'
-        run: make BACKEND=mlx test-unit-examples
-
-      - name: Run multi-backend Idris suite (macOS)
-        # Adds Test.Transfer (cross-backend `toExecutor` smoke) +
-        # Test.MultiExecutorRegistry (registry isolation invariant) on
-        # top of the per-backend buckets. Forces BACKEND=torch,tape,mlx
-        # so all three sets of C symbols are linked — only feasible on
-        # the macOS lane (Ubuntu has no mlx).
-        if: matrix.os == 'macos-latest'
-        run: make test-unit-multi-backend
-
-      - name: Run typed index-op round-trip (torch, Ubuntu)
-        # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
-        # on torch (Compatible d I64) and runs — the C test covers numerics,
-        # check-all is tape-only and can't resolve the I64 gate. Torch-only:
-        # an integer-dtyped index tensor exists nowhere else.
-        if: matrix.os == 'ubuntu-latest'
-        run: make example-index-ops
-
-      - name: Run integration tests
-        # No SKIP_EXAMPLES: the mlx allocator aborts that used to skip
-        # ntm-copy / ntm-associative-recall / dnc-recall / mountain-car-cont
-        # are fixed by the generation-scoped free (see
-        # docs/develop/tensor-lifecycle.md). The whole matrix runs.
-        run: make test-e2e-examples EXAMPLE_TIMEOUT=900
-
-      - name: Checkpoint resume smoke test
-        # Trains gpt 10 epochs to a checkpoint dir, resumes to 20, and
-        # asserts the sidecar epoch + resume log + completion. Gates the
-        # Train.idr / Checkpoint.idr auto-save / resume integration.
-        run: make test-integration-checkpoint-resume
-
-      - name: Typecheck torch_ref (pyright, Ubuntu)
-        # Alias of ref-typecheck: pyright over packages/pytorch/torch_ref/
-        # at the typeCheckingMode pinned in its pyproject.toml. Lives in
-        # the matrix (not the lint preflight) because import resolution
-        # needs the full uv venv from ref-setup — the preflight venv is
-        # --only-group dev --no-install-project, so torch/transformers
-        # aren't importable there. Pyright version is pinned by uv.lock.
-        # Ubuntu-only: ref-setup runs only there in this matrix.
-        if: matrix.os == 'ubuntu-latest'
-        run: make typecheck-py-pytorch
-
-      - name: Typecheck idris-ml-examples Python helpers (pyright strict, Ubuntu)
-        # pyright strict over packages/idris-ml-examples/scripts/ (config
-        # root: its pyrightconfig.json, selected via -p). Matrix not
-        # preflight: verify_dtypes.py imports torch/safetensors, which
-        # only the full ref-setup venv carries. Ubuntu-only: ref-setup
-        # runs only there in this matrix.
-        if: matrix.os == 'ubuntu-latest'
-        run: make typecheck-py-examples
-
-      - name: Typecheck idris-transformers scripts (pyright strict, Ubuntu)
-        # pyright strict over packages/idris-transformers/scripts/ (config
-        # root: its pyrightconfig.json via -p). Matrix not preflight: the
-        # oracle/compare scripts import torch/transformers/safetensors,
-        # which only the full ref-setup venv carries. Ubuntu-only:
-        # ref-setup runs only there in this matrix.
-        if: matrix.os == 'ubuntu-latest'
-        run: make typecheck-py-transformers
-      # <<< END GENERATED <<<
-
-      # Paired saves for the restore steps above. if: always() — a
-      # mostly-built tree from a failed run is still worth saving;
-      # cache/save skips gracefully if this sha's key already exists.
-      - name: Save TTC cache
+      - name: Save caches
         if: always()
-        uses: actions/cache/save@v4
+        uses: ./.github/actions/save-idris-ml-caches
         with:
-          path: |
-            build
-            packages/*/build
-            vendored
-            packages/idris-ml-examples/src/BuildConfig.idr
-            packages/idris-ml/src/HwConfig.idr
-            packages/idris-ml/src/HwExecutors.idr
-            packages/idris-ml/src/Test/Config.idr
-            packages/idris-transformers/src/Test/Config.idr
-          key: ttc-${{ matrix.os }}-v1-${{ github.sha }}
-
-      - name: Save HF model cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            models
-            ~/.cache/huggingface
-          key: hf-models-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
-
-      - name: Save dataset cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            data
-            packages/pytorch/data
-          key: datasets-${{ matrix.os }}-${{ hashFiles('mk/examples.mk') }}
-
-      - name: Save pack cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.local/bin/pack
-            ~/.local/state/pack
-            ~/.config/pack
-          key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-${{ github.sha }}
-
-      - name: Save Idris 2 cache
-        if: always() && steps.idris2-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.idris2
-          key: idris2-v0.8.0-${{ matrix.os }}-v2
-
-      - name: Save pytorch venv cache (Ubuntu)
-        if: always() && matrix.os == 'ubuntu-latest'
-        uses: actions/cache/save@v4
-        with:
-          path: packages/pytorch/.venv
-          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+          os-label: ${{ matrix.os }}
+          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          save-pack: 'true'
+          ttc-job: test-unit
 
       - name: Upload Criterion JUnit XML artifacts
         # Always uploads, even on test failure, so the GitHub Actions UI
         # can render per-test results from the JUnit XML. Each Criterion
         # invocation writes build/test-criterion-<b>.xml; this collects
-        # all three (per matrix lane: tape always, torch on ubuntu, mlx
-        # on macOS).
+        # all per-lane files (tape always, torch on ubuntu, mlx on macos).
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: criterion-junit-${{ matrix.os }}
           path: build/test-criterion-*.xml
           if-no-files-found: warn
+
+  # Integration layer: negative type-gates, the typed index-op probe,
+  # the checkpoint-resume loop, the coverage gap probe, and (until the
+  # bench workflow absorbs them) the Tier-1 perf benches + their sync
+  # lints.
+  test-integration:
+    name: test-integration (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
+        with:
+          os-label: ${{ matrix.os }}
+          backend-deps: ${{ matrix.os == 'ubuntu-latest' && 'torch' || 'none' }}
+          ttc-job: test-integration
+          swap: 'true'
+
+      # >>> GENERATED (test-integration) FROM test.yml.spec.json >>>
+      - name: Verify GradMode gate (NoGrad loss rejected at compile)
+        # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
+        # WithGrad -> Double` still rejects a `NoGrad` loss. If this step
+        # ever passes the negative test (i.e. the gate compiles a NoGrad
+        # loss), the "inference loss silently no-ops training" bug class
+        # has regressed.
+        if: ${{ !cancelled() }}
+        run: make test-integration-typegate-gradmode
+
+      - name: Verify GradMode aliasing rejection (linear freezeNetwork)
+        # Asserts that linear `freezeNetwork` consumes its input — using
+        # the pre-freeze Network reference afterwards must be a compile
+        # error. Prevents the "freeze net, train via original variable
+        # which silently no-ops" footgun.
+        if: ${{ !cancelled() }}
+        run: make test-integration-typegate-gradmode-aliasing
+
+      - name: Verify cross-family lossless-cast gate (DType.Core.LosslessTo)
+        # Asserts LosslessTo refuses a mantissa-shrinking direction
+        # (F32 to BF16). Prevents silent precision-losing mid-graph
+        # casts. Pairs with the positive Test.Lossless suite.
+        if: ${{ !cancelled() }}
+        run: make test-integration-typegate-lossy-cast
+
+      - name: Verify int-overflow lossless-cast gate (#412 F1)
+        # Asserts LosslessTo refuses I64 to F32 (max int value far
+        # exceeds F32 mantissa exact-integer ceiling). Pairs with the
+        # I32 to F64 + U8 to F32 positive cases in Test.Lossless.
+        if: ${{ !cancelled() }}
+        run: make test-integration-typegate-int-overflow-cast
+
+      - name: Type-check HfLlamaInference example
+        # `idris2 --check` over Example/HfLlamaInference.idr — the example
+        # is too heavy to *run* outside the dedicated roundtrip gates, but
+        # type-drift against the library surface is cheap to catch here.
+        # Wired in by the gate-coverage lint.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-hf-llama-inference
+
+      - name: Run typed index-op round-trip (torch, Ubuntu)
+        # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
+        # on torch (Compatible d I64) and runs — the C test covers numerics,
+        # check-all is tape-only and can't resolve the I64 gate. Torch-only:
+        # an integer-dtyped index tensor exists nowhere else.
+        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
+        run: make example-index-ops
+
+      - name: Run coverage gap probe (advisory)
+        # Static probe: parses OP_* enums from backend_<b>/tape.h and
+        # extern "C" decls from backend.h, cross-references against
+        # test/. Writes CSVs to build/coverage-gap-{ops,symbols}.csv.
+        # Exit code is advisory today (0 even on gaps); coverage-policy.md
+        # flips this to gating once W3+W4 close. See
+        # docs/develop/coverage-policy.md for the three-axis target.
+        if: ${{ !cancelled() }}
+        run: make test-coverage-gap-probe
+
+      - name: Checkpoint resume smoke test
+        # Trains gpt 10 epochs to a checkpoint dir, resumes to 20, and
+        # asserts the sidecar epoch + resume log + completion. Gates the
+        # Train.idr / Checkpoint.idr auto-save / resume integration.
+        if: ${{ !cancelled() }}
+        run: make test-integration-checkpoint-resume
+
+      - name: Run Tier-1 perf benches + render BENCHMARKS.md + perf-regression gate
+        # Axis A op-kernel benches (matmul / softmax / SDPA / embedding /
+        # RMSNorm) on tape vs PyTorch. Appends kind="op_bench" entries to
+        # perf-log.jsonl and regenerates BENCHMARKS.md. The follow-up
+        # lint asserts BENCHMARKS.md is in sync with the log — catches a
+        # hand-edit of BENCHMARKS.md that drifts from the JSONL truth.
+        # Ubuntu-only: the PyTorch side runs through the uv venv.
+        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
+        run: make bench-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression
+
+      - name: Run perf-regression gate (kind="run" entries, advisory)
+        # Companion to the kind="op_bench" gate above. Groups
+        # perf-log.jsonl `kind="run"` entries by (example, backend,
+        # args), medians the last 10, and reports OK / WARN (>15%)
+        # / FAIL (>100% slower) for the latest entry per cell.
+        # Advisory only — exits 0 even on FAILs — until the noise
+        # profile is calibrated; promote by setting PERF_GATE=1.
+        # Renders the report in the CI logs regardless.
+        if: ${{ matrix.os == 'ubuntu-latest' && !cancelled() }}
+        run: make lint-perf-run
+      # <<< END GENERATED (test-integration) <<<
+
+      - name: Save caches
+        if: always()
+        uses: ./.github/actions/save-idris-ml-caches
+        with:
+          os-label: ${{ matrix.os }}
+          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          ttc-job: test-integration
+
+  # E2E example smoke matrix: every example across this runner's
+  # backend lanes at few-epoch thresholds.
+  test-e2e-examples:
+    name: test-e2e-examples (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
+        with:
+          os-label: ${{ matrix.os }}
+          backend-deps: ${{ matrix.os == 'ubuntu-latest' && 'torch' || 'mlx' }}
+          ttc-job: test-e2e-examples
+          swap: 'true'
+
+      # >>> GENERATED (test-e2e-examples) FROM test.yml.spec.json >>>
+      - name: Run example smoke matrix
+        # Every example across the backend lanes available on this runner
+        # (tape + torch on Ubuntu; tape + mlx on macOS), few-epoch smoke
+        # thresholds. No SKIP_EXAMPLES: the mlx allocator aborts that used
+        # to skip ntm-copy / ntm-associative-recall / dnc-recall /
+        # mountain-car-cont are fixed by the generation-scoped free (see
+        # docs/develop/tensor-lifecycle.md).
+        if: ${{ !cancelled() }}
+        run: make test-e2e-examples EXAMPLE_TIMEOUT=900
+      # <<< END GENERATED (test-e2e-examples) <<<
+
+      - name: Save caches
+        if: always()
+        uses: ./.github/actions/save-idris-ml-caches
+        with:
+          os-label: ${{ matrix.os }}
+          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          ttc-job: test-e2e-examples
+
+  # E2E HF cross-language gates: the PyTorch reference correctness
+  # suite, the oracle generators, and the Idris-vs-HF roundtrips in
+  # ascending cost (bert -> gpt2 -> bitnet -> llama -> llama-generate).
+  # Isolated in its own job for resource headroom: multi-GB model
+  # downloads (own HF cache) and elaboration peaks near the 16 GB
+  # runner ceiling (own swapfile, no accumulated state from other
+  # suites). Ubuntu-only: the torch venv lane carries it.
+  test-e2e-hf:
+    name: test-e2e-hf
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
+        with:
+          os-label: ubuntu-latest
+          backend-deps: torch
+          restore-hf-models: 'true'
+          ttc-job: test-e2e-hf
+          swap: 'true'
+
+      # >>> GENERATED (test-e2e-hf) FROM test.yml.spec.json >>>
+      - name: Run PyTorch reference correctness suite
+        # pytest over packages/pytorch/torch_ref/correctness/ — the
+        # PyTorch side is the correctness oracle for every paired example,
+        # so its own suite gates first. Wired in by the gate-coverage
+        # lint — it ran in no workflow despite being the oracle.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-pytorch-ref
+
+      - name: Run RoPE table oracle
+        # Generates the Llama-3 RoPE table oracle (inv_freq + cos/sin
+        # slice) consumed by the Idris-side RoPE tests.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-rope-oracle
+
+      - name: Run HfBert oracle generator + pytest
+        # Drives packages/idris-transformers/scripts/save_oracle.py through
+        # pytest under the pytorch uv venv (carries the transformers dep).
+        # Downloads google/bert_uncased_L-2_H-128_A-2 from HF Hub, runs
+        # forward on the fixed input, asserts the resulting oracle is
+        # shape [128] F32 finite + non-trivial.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-transformers-oracle-bert
+
+      - name: Run HfGpt2 oracle generator + pytest
+        # Same shape as the HfBert oracle gate but for sshleifer/tiny-gpt2.
+        # Downloads the checkpoint, runs forward on [15496, 995], asserts
+        # the last-position hidden state is shape [2] (sshleifer/tiny-gpt2
+        # is intentionally degenerate at hidden=2 — exercises the
+        # architectural pieces without burning CI disk).
+        if: ${{ !cancelled() }}
+        run: make test-e2e-transformers-oracle-gpt2
+
+      - name: Run HfLlama oracle generator + pytest
+        # Oracle-generation pytest for unsloth/Llama-3.2-1B. Wired in by
+        # the gate-coverage lint (the roundtrip regenerates the oracle
+        # anyway, but this gate asserts the generator script's own
+        # invariants and fails earlier + cheaper).
+        if: ${{ !cancelled() }}
+        run: make test-e2e-transformers-oracle-llama
+
+      - name: Run HfLlama generation oracle pytest
+        # Greedy-decode oracle pytest paired with the llama-generate
+        # roundtrip below. Wired in by the gate-coverage lint.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-transformers-oracle-llama-generate
+
+      - name: Run HfBert end-to-end roundtrip
+        # The cross-language correctness gate: regenerates the Python
+        # oracle, runs the Idris HfBertInference example (loading the
+        # real Google bert-tiny weights via the HF-aligned HfBert
+        # module), and asserts elementwise agreement within
+        # max-abs-diff 1e-3 on the 128-dim pooled [CLS] output.
+        # Currently passes at 4.1e-4 locally on tape.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-hf-bert-roundtrip
+
+      - name: Run HfGpt2 end-to-end roundtrip
+        # Same gate shape as HfBert but for GPT-2: regenerate the Python
+        # oracle from hf-internal-testing/tiny-random-gpt2, run the Idris
+        # HfGpt2Inference binary, assert the 32-dim last-position hidden
+        # state matches within max-abs-diff 1e-3. Currently passes at
+        # ~1e-6 locally on tape.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-hf-gpt2-roundtrip
+
+      - name: Run HfBitNet end-to-end roundtrip (torch)
+        # Cross-language gate: regenerate the Python oracle from
+        # microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference
+        # binary --dump-logits, assert argmax on the vocab-128256 logit
+        # row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch
+        # because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu
+        # runner (see Low-priority TODO "Tape F64 large-LM OOM"). BitNet
+        # is not license-gated, so no HF_TOKEN handling needed. The
+        # job-level swapfile absorbs the cold-tree elaboration peak that
+        # OOM-killed run 27364532457.
+        if: ${{ !cancelled() }}
+        run: make BACKEND=torch test-e2e-hf-bitnet-roundtrip
+
+      - name: Run HfLlama end-to-end roundtrip (torch)
+        # Cross-language gate for Llama 3.2 1B. Regenerates the Python
+        # oracle from unsloth/Llama-3.2-1B (public mirror of Meta's
+        # weights, no license-gate / no HF_TOKEN), runs the Idris
+        # HfLlamaInference binary --dump-final-hidden, asserts the
+        # 2048-dim last-position hidden state matches the oracle within
+        # max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps
+        # and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu
+        # lane carries the same Idris-side numerics through libtorch CPU.
+        # BACKEND=torch because tape F64 doesn't fit (~10 GB params +
+        # arena vs ~14 GB runner RAM); see Low-priority TODO "Tape F64
+        # large-LM OOM".
+        if: ${{ !cancelled() }}
+        run: make BACKEND=torch test-e2e-hf-llama-roundtrip
+
+      - name: Run HfLlama multi-step generation roundtrip (torch)
+        # Cross-language gate for Llama 3.2 1B's *generation* path.
+        # The companion single-forward gate above tests one fixed token;
+        # this step exercises the full greedy-decode loop: tokenize "The
+        # capital of France is", generate 4 tokens via `genLoop` (no KV
+        # cache yet — bumps to 8+ once KV cache lands), assert the
+        # resulting token-ID sequence matches HF `model.generate(
+        # do_sample=False, use_cache=True)` element-wise. Catches drift
+        # in tokenization, every layer of the forward, argmax, and the
+        # per-step glue that the single-forward gate can't see.
+        if: ${{ !cancelled() }}
+        run: make BACKEND=torch test-e2e-hf-llama-generate-roundtrip
+      # <<< END GENERATED (test-e2e-hf) <<<
+
+      - name: Save caches
+        if: always()
+        uses: ./.github/actions/save-idris-ml-caches
+        with:
+          os-label: ubuntu-latest
+          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          save-hf-models: 'true'
+          ttc-job: test-e2e-hf
 
   # Coverage matrix — advisory only. Builds with
   # -fprofile-instr-generate -fcoverage-mapping, runs the test binaries,
@@ -822,7 +769,6 @@ jobs:
   coverage:
     name: coverage (${{ matrix.backend }} on ${{ matrix.os }})
     if: github.event_name == 'workflow_dispatch'
-    needs: check-paired-defaults
     strategy:
       fail-fast: false
       matrix:
@@ -835,76 +781,39 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Chez Scheme + BLAS (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chezscheme build-essential libopenblas-dev llvm
-
-      - name: Install Chez Scheme + LLVM (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install chezscheme coreutils llvm
-
-      # Split restore/save (save at end of job, if: always()) — the
-      # plain cache form only saves on success, which starved this
-      # cache while the job was red.
-      - name: Restore Idris 2 cache
-        id: idris2-cache
-        uses: actions/cache/restore@v4
         with:
-          path: ~/.idris2
-          key: idris2-v0.8.0-${{ matrix.os }}-v2
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
+        with:
+          os-label: ${{ matrix.os }}
+          backend-deps: ${{ matrix.backend == 'tape' && 'none' || matrix.backend }}
+          restore-ttc: 'false'
+          swap: 'true'
 
-      - name: Build and install Idris 2
-        if: steps.idris2-cache.outputs.cache-hit != 'true'
-        run: |
-          SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez || true)"
-          git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
-          cd /tmp/Idris2
-          make bootstrap SCHEME="$SCHEME"
-          make install
+      - name: Install LLVM (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y llvm
 
-      - name: Add Idris 2 to PATH
-        run: echo "$HOME/.idris2/bin" >> $GITHUB_PATH
-
-      - name: Install backend-specific deps (mlx)
-        if: matrix.backend == 'mlx'
-        run: |
-          python3 -m pip install --break-system-packages mlx
-          MLX_SITE=$(python3 -c "
-          import importlib.util, os, sys
-          for name in ('mlx', 'mlx_metal'):
-              spec = importlib.util.find_spec(name)
-              if not spec: continue
-              path = spec.submodule_search_locations[0] if spec.submodule_search_locations \
-                  else os.path.dirname(spec.origin)
-              if os.path.isdir(os.path.join(path, 'include')):
-                  print(path); sys.exit(0)
-          sys.exit(1)
-          ")
-          echo "MLX_SITE=$MLX_SITE" >> $GITHUB_ENV
-
-      - name: Install backend-specific deps (torch)
-        if: matrix.backend == 'torch'
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          export PATH="$HOME/.local/bin:$PATH"
-          make ref-setup
+      - name: Install LLVM (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install llvm
 
       - name: Run coverage build
-        # `make test-coverage-backend-<b>` recompiles the dylib + test binaries
-        # with -fprofile-instr-generate -fcoverage-mapping, executes them
-        # under LLVM_PROFILE_FILE, merges via llvm-profdata, and emits
-        # the HTML report under build-cov/html-<b>/.
+        # `make test-coverage-backend` recompiles the dylib + test
+        # binaries with -fprofile-instr-generate -fcoverage-mapping,
+        # executes them under LLVM_PROFILE_FILE, merges via
+        # llvm-profdata, and emits the HTML report under
+        # build-cov/html-<b>/.
         run: make BACKEND=${{ matrix.backend }} test-coverage-backend
 
-      - name: Save Idris 2 cache
-        if: always() && steps.idris2-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+      - name: Save caches
+        if: always()
+        uses: ./.github/actions/save-idris-ml-caches
         with:
-          path: ~/.idris2
-          key: idris2-v0.8.0-${{ matrix.os }}-v2
+          os-label: ${{ matrix.os }}
+          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
+          save-ttc: 'false'
 
       - name: Upload coverage HTML
         if: always()

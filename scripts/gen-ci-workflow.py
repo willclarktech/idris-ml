@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
-"""Generate the test-invocation block of .github/workflows/test.yml from
+"""Generate the make-invocation blocks of .github/workflows/test.yml from
 .github/workflows/test.yml.spec.json.
 
-The workflow's setup boilerplate (Chez install, idris2 cache+build, MLX/torch
-install, artifact upload) stays hand-written. Only the steps between the
-"# >>> GENERATED FROM test.yml.spec.json >>>" and "# <<< END GENERATED <<<"
-marker comments are emitted from the spec.
+The spec's `jobs` map holds one invocation list per workflow job; each
+job in the workflow carries a marker-bounded region
 
-Adding a new gate: append to the spec, run this script, commit both.
+  # >>> GENERATED (<job>) FROM test.yml.spec.json >>>
+  ...
+  # <<< END GENERATED (<job>) <<<
+
+that this script rewrites. Job scaffolding (checkout, composite setup,
+cache saves, artifact upload) stays hand-written.
+
+Every generated step gets `!cancelled()` merged into its condition:
+this CI is a detector, not a gate (results are read after the fact on
+a ~weekly publication cadence), so one red gate must never skip its
+siblings — a masked failure costs a week.
+
+Adding a new gate: append to the right job in the spec, run this
+script, commit both.
 
 Usage:
   scripts/gen-ci-workflow.py            # rewrites the workflow in place
@@ -28,14 +39,20 @@ ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / ".github" / "workflows" / "test.yml.spec.json"
 WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
 
-BEGIN_MARKER = "# >>> GENERATED FROM test.yml.spec.json >>>"
-END_MARKER = "# <<< END GENERATED <<<"
-STEP_INDENT = "      "  # 6 spaces — matches the existing test-examples job
+STEP_INDENT = "      "  # 6 spaces — matches the job step lists
 
 OS_TO_IF = {
     "ubuntu": "matrix.os == 'ubuntu-latest'",
     "macos": "matrix.os == 'macos-latest'",
 }
+
+
+def begin_marker(job: str) -> str:
+    return f"# >>> GENERATED ({job}) FROM test.yml.spec.json >>>"
+
+
+def end_marker(job: str) -> str:
+    return f"# <<< END GENERATED ({job}) <<<"
 
 
 def render_invocation(inv: dict[str, Any]) -> list[str]:
@@ -47,7 +64,8 @@ def render_invocation(inv: dict[str, Any]) -> list[str]:
     for c in comments:
         lines.append(f"{STEP_INDENT}  # {c}" if c else f"{STEP_INDENT}  #")
 
-    # `if:` combining `os` filter and explicit `if`.
+    # `if:` combining the `os` filter, an explicit `if`, and the
+    # unconditional `!cancelled()` (run even after a sibling failed).
     cond_parts: list[str] = []
     if "os" in inv:
         os_val = inv["os"]
@@ -56,8 +74,9 @@ def render_invocation(inv: dict[str, Any]) -> list[str]:
         cond_parts.append(OS_TO_IF[os_val])
     if inv.get("if"):
         cond_parts.append(inv["if"])
-    if cond_parts:
-        lines.append(f"{STEP_INDENT}  if: {' && '.join(cond_parts)}")
+    cond_parts.append("!cancelled()")
+    # ${{ }} wrapper: a bare leading `!` would parse as a YAML tag.
+    lines.append(f"{STEP_INDENT}  if: ${{{{ {' && '.join(cond_parts)} }}}}")
 
     # env block.
     env: dict[str, Any] | None = inv.get("env")
@@ -75,10 +94,9 @@ def render_invocation(inv: dict[str, Any]) -> list[str]:
     return lines
 
 
-def render_block(spec: dict[str, Any]) -> str:
-    """Render the full generated block (between markers) as a string ending in '\n'."""
+def render_block(invocations: list[dict[str, Any]]) -> str:
+    """Render one job's generated block (between markers), ending in '\n'."""
     out_lines: list[str] = []
-    invocations: list[dict[str, Any]] = spec.get("invocations", [])
     for i, inv in enumerate(invocations):
         if i > 0:
             out_lines.append("")  # blank line between steps
@@ -86,17 +104,19 @@ def render_block(spec: dict[str, Any]) -> str:
     return "\n".join(out_lines) + "\n"
 
 
-def splice_workflow(workflow_text: str, generated_block: str) -> str:
-    """Return workflow_text with the BEGIN..END marker region replaced by generated_block."""
-    begin_idx = workflow_text.find(BEGIN_MARKER)
-    end_idx = workflow_text.find(END_MARKER)
+def splice_workflow(workflow_text: str, job: str, generated_block: str) -> str:
+    """Replace the job's BEGIN..END marker region with generated_block."""
+    begin = begin_marker(job)
+    end = end_marker(job)
+    begin_idx = workflow_text.find(begin)
+    end_idx = workflow_text.find(end)
     if begin_idx == -1 or end_idx == -1:
         raise SystemExit(
-            f"missing markers in {WORKFLOW.relative_to(ROOT)}: "
-            f"expected {BEGIN_MARKER!r} and {END_MARKER!r}"
+            f"missing markers for job {job!r} in {WORKFLOW.relative_to(ROOT)}: "
+            f"expected {begin!r} and {end!r}"
         )
     if begin_idx > end_idx:
-        raise SystemExit("BEGIN marker appears after END marker")
+        raise SystemExit(f"BEGIN marker appears after END marker for job {job!r}")
     # Find the start of the BEGIN line (rewind to preceding newline) and the
     # end of the END line (advance to following newline). Replace everything
     # between (exclusive of the marker lines themselves) with the block.
@@ -112,9 +132,15 @@ def main() -> None:
     if not WORKFLOW.exists():
         raise SystemExit(f"workflow not found: {WORKFLOW}")
     spec: dict[str, Any] = json.loads(SPEC.read_text())
+    jobs: dict[str, list[dict[str, Any]]] = spec.get("jobs", {})
+    if not jobs:
+        raise SystemExit("spec has no `jobs` map")
     workflow_text = WORKFLOW.read_text()
-    generated = render_block(spec)
-    new_text = splice_workflow(workflow_text, generated)
+    new_text = workflow_text
+    total = 0
+    for job, invocations in jobs.items():
+        new_text = splice_workflow(new_text, job, render_block(invocations))
+        total += len(invocations)
     if check:
         if new_text != workflow_text:
             print(
@@ -127,9 +153,10 @@ def main() -> None:
         return
     if new_text != workflow_text:
         WORKFLOW.write_text(new_text)
-        invocations: list[dict[str, Any]] = spec.get("invocations", [])
-        n = len(invocations)
-        print(f"Regenerated {WORKFLOW.relative_to(ROOT)} from {n} spec entries.")
+        print(
+            f"Regenerated {WORKFLOW.relative_to(ROOT)}: "
+            f"{total} spec entries across {len(jobs)} jobs."
+        )
     else:
         print(f"No changes; {WORKFLOW.relative_to(ROOT)} already in sync.")
 

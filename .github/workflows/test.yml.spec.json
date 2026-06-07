@@ -1,390 +1,420 @@
 {
-  "_comment": "Spec consumed by scripts/gen-ci-workflow.py. Lists the test-invocation block of .github/workflows/test.yml. Setup boilerplate (Chez install, idris2 cache+build, MLX/torch install, artifact upload) stays hand-written in the workflow itself; only the steps between the GEN markers are generated from this file. Add a new gate here, run scripts/gen-ci-workflow.py, commit both. The make test-integration-lint-ci-workflow target fails CI if this spec disagrees with the on-disk workflow.",
+  "_comment": "Spec consumed by scripts/gen-ci-workflow.py. The `jobs` map lists the make-invocation block of each correspondingly-named job in .github/workflows/test.yml (one marker-bounded generated region per job; the job scaffolding — checkout, composite setup, cache saves, artifact upload — stays hand-written). Every generated step gets `!cancelled()` merged into its condition so one red gate never hides its siblings (detector-not-gate CI: results are read after the fact, so a run must surface every failure at once). Add a new gate by appending to the right job here and running scripts/gen-ci-workflow.py; the make test-integration-lint-ci-workflow target fails CI if this spec disagrees with the on-disk workflow.",
   "_coverage_comment": "ci_coverage_exceptions / ci_coverage_known_holes feed scripts/check-ci-gate-coverage.py (make test-integration-lint-ci-coverage): every test-unit/test-integration/test-e2e/test-coverage aggregator leaf must run in some workflow, be a named exception (permanent, reason required), or be a known hole (temporary; warns, and the lint fails if a hole becomes covered without being removed here).",
   "ci_coverage_exceptions": {
     "test-e2e-jupyter": "dep-chains jupyter-install into a full backend rebuild; run locally when touching the kernel"
   },
-  "ci_coverage_known_holes": [
-    "test-unit-gym",
-    "test-integration-lint-rename-headers",
-    "test-integration-lint-paired-defaults",
-    "test-integration-lint-hf-llama-inference",
-    "test-integration-jupyter-cellparser",
-    "test-e2e-transformers-oracle-llama",
-    "test-e2e-transformers-oracle-llama-generate",
-    "test-e2e-rope-oracle",
-    "test-e2e-pytorch-ref"
-  ],
-  "invocations": [
-    {
-      "name": "Run idris-transformers unit tests",
-      "run": "make test-unit-idris-transformers",
-      "comment": [
-        "Pure-Idris test harness for the HF-aligned model package",
-        "(packages/idris-transformers/). Type-checks the package + builds",
-        "the test executable, then runs it. No backend dependency at this",
-        "stage — the package wiring is the gate; HfBert model tests land",
-        "alongside HfBert.idr in a later commit."
-      ]
-    },
-    {
-      "name": "Run HfBert oracle generator + pytest (Ubuntu)",
-      "run": "make test-e2e-transformers-oracle-bert",
-      "os": "ubuntu",
-      "comment": [
-        "Drives packages/idris-transformers/scripts/save_oracle.py through",
-        "pytest under the pytorch uv venv (carries the transformers dep).",
-        "Downloads google/bert_uncased_L-2_H-128_A-2 from HF Hub on each",
-        "run, runs forward on the fixed input, asserts the resulting",
-        "oracle is shape [128] F32 finite + non-trivial. Ubuntu-only:",
-        "ref-setup runs only there in this matrix."
-      ]
-    },
-    {
-      "name": "Run HfGpt2 oracle generator + pytest (Ubuntu)",
-      "run": "make test-e2e-transformers-oracle-gpt2",
-      "os": "ubuntu",
-      "comment": [
-        "Same shape as the HfBert oracle gate but for sshleifer/tiny-gpt2.",
-        "Downloads the checkpoint, runs forward on [15496, 995], asserts",
-        "the last-position hidden state is shape [2] (sshleifer/tiny-gpt2",
-        "is intentionally degenerate at hidden=2 — exercises the",
-        "architectural pieces without burning CI disk). Ubuntu-only."
-      ]
-    },
-    {
-      "name": "Run HfBert end-to-end roundtrip (Ubuntu)",
-      "run": "make test-e2e-hf-bert-roundtrip",
-      "os": "ubuntu",
-      "comment": [
-        "The cross-language correctness gate: regenerates the Python",
-        "oracle, runs the Idris HfBertInference example (loading the",
-        "real Google bert-tiny weights via the HF-aligned HfBert",
-        "module), and asserts elementwise agreement within",
-        "max-abs-diff 1e-3 on the 128-dim pooled [CLS] output.",
-        "Currently passes at 4.1e-4 locally on tape. Ubuntu-only:",
-        "depends on the uv venv set up by ref-setup."
-      ]
-    },
-    {
-      "name": "Run HfGpt2 end-to-end roundtrip (Ubuntu)",
-      "run": "make test-e2e-hf-gpt2-roundtrip",
-      "os": "ubuntu",
-      "comment": [
-        "Same gate shape as HfBert but for GPT-2: regenerate the Python",
-        "oracle from hf-internal-testing/tiny-random-gpt2, run the Idris",
-        "HfGpt2Inference binary, assert the 32-dim last-position hidden",
-        "state matches within max-abs-diff 1e-3. Currently passes at",
-        "~1e-6 locally on tape. Ubuntu-only: depends on the uv venv."
-      ]
-    },
-    {
-      "name": "Run HfBitNet end-to-end roundtrip (Ubuntu, torch)",
-      "run": "make BACKEND=torch test-e2e-hf-bitnet-roundtrip",
-      "os": "ubuntu",
-      "comment": [
-        "Cross-language gate: regenerate the Python oracle from",
-        "microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference",
-        "binary --dump-logits, assert argmax on the vocab-128256 logit",
-        "row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch",
-        "because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu",
-        "runner (see Low-priority TODO \"Tape F64 large-LM OOM\"). BitNet",
-        "is not license-gated, so no HF_TOKEN handling needed."
-      ]
-    },
-    {
-      "name": "Run HfLlama end-to-end roundtrip (Ubuntu, torch)",
-      "run": "make BACKEND=torch test-e2e-hf-llama-roundtrip",
-      "os": "ubuntu",
-      "comment": [
-        "Cross-language gate for Llama 3.2 1B. Regenerates the Python",
-        "oracle from unsloth/Llama-3.2-1B (public mirror of Meta's",
-        "weights, no license-gate / no HF_TOKEN), runs the Idris",
-        "HfLlamaInference binary --dump-final-hidden, asserts the",
-        "2048-dim last-position hidden state matches the oracle within",
-        "max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps",
-        "and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu",
-        "lane carries the same Idris-side numerics through libtorch CPU.",
-        "BACKEND=torch because tape F64 doesn't fit (~10 GB params +",
-        "arena vs ~14 GB runner RAM); see Low-priority TODO \"Tape F64",
-        "large-LM OOM\"."
-      ]
-    },
-    {
-      "name": "Run HfLlama multi-step generation roundtrip (Ubuntu, torch)",
-      "run": "make BACKEND=torch test-e2e-hf-llama-generate-roundtrip",
-      "os": "ubuntu",
-      "comment": [
-        "Cross-language gate for Llama 3.2 1B's *generation* path.",
-        "The companion `test-e2e-hf-llama-roundtrip` step above tests a",
-        "single forward on one fixed token; this step exercises the",
-        "full greedy-decode loop: tokenize \"The capital of France",
-        "is\", generate 4 tokens via `genLoop` (no KV cache yet —",
-        "bumps to 8+ once KV cache lands), assert the resulting",
-        "token-ID sequence matches HF `model.generate(do_sample=",
-        "False, use_cache=True)` element-wise. Catches drift in",
-        "tokenization, every layer of the forward, argmax, and the",
-        "per-step glue that the single-forward gate can't see.",
-        "",
-        "BACKEND=torch as the sibling step. Currently more expensive",
-        "than the single-forward gate (4 forwards on growing sequences);",
-        "the KV cache landing will collapse it back to ~constant per step."
-      ]
-    },
-    {
-      "name": "Verify GradMode gate (NoGrad loss rejected at compile)",
-      "run": "make test-integration-typegate-gradmode",
-      "comment": [
-        "Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d",
-        "WithGrad -> Double` still rejects a `NoGrad` loss. If this step",
-        "ever passes the negative test (i.e. the gate compiles a NoGrad",
-        "loss), the \"inference loss silently no-ops training\" bug class",
-        "has regressed."
-      ]
-    },
-    {
-      "name": "Verify GradMode aliasing rejection (linear freezeNetwork)",
-      "run": "make test-integration-typegate-gradmode-aliasing",
-      "comment": [
-        "Asserts that linear `freezeNetwork` consumes its input — using",
-        "the pre-freeze Network reference afterwards must be a compile",
-        "error. Prevents the \"freeze net, train via original variable",
-        "which silently no-ops\" footgun."
-      ]
-    },
-    {
-      "name": "Verify cross-family lossless-cast gate (DType.Core.LosslessTo)",
-      "run": "make test-integration-typegate-lossy-cast",
-      "comment": [
-        "Asserts LosslessTo refuses a mantissa-shrinking direction",
-        "(F32 to BF16). Prevents silent precision-losing mid-graph",
-        "casts. Pairs with the positive Test.Lossless suite."
-      ]
-    },
-    {
-      "name": "Verify int-overflow lossless-cast gate (#412 F1)",
-      "run": "make test-integration-typegate-int-overflow-cast",
-      "comment": [
-        "Asserts LosslessTo refuses I64 to F32 (max int value far",
-        "exceeds F32 mantissa exact-integer ceiling). Pairs with the",
-        "I32 to F64 + U8 to F32 positive cases in Test.Lossless."
-      ]
-    },
-    {
-      "name": "Run Tier-1 perf benches + render BENCHMARKS.md + perf-regression gate",
-      "run": "make bench-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression",
-      "comment": [
-        "Axis A op-kernel benches (matmul / softmax / SDPA / embedding /",
-        "RMSNorm) on tape vs PyTorch. Appends kind=\"op_bench\" entries to",
-        "perf-log.jsonl and regenerates BENCHMARKS.md. The follow-up",
-        "lint asserts BENCHMARKS.md is in sync with the log — catches a",
-        "hand-edit of BENCHMARKS.md that drifts from the JSONL truth.",
-        "Framework + selection rule: docs/develop/testing-taxonomy.md",
-        "(Axis A/B/C/D coverage). Tier 1 cadence: every PR (target",
-        "wall <= 5 min)."
-      ]
-    },
-    {
-      "name": "Run perf-regression gate (kind=\"run\" entries, advisory)",
-      "run": "make lint-perf-run",
-      "comment": [
-        "Companion to the kind=\"op_bench\" gate above. Groups",
-        "perf-log.jsonl `kind=\"run\"` entries by (example, backend,",
-        "args), medians the last 10, and reports OK / WARN (>15%)",
-        "/ FAIL (>100% slower) for the latest entry per cell.",
-        "Advisory only — exits 0 even on FAILs — until the noise",
-        "profile is calibrated; promote by setting PERF_GATE=1.",
-        "Renders the report in the CI logs regardless."
-      ]
-    },
-    {
-      "name": "Run coverage gap probe (advisory)",
-      "run": "make test-coverage-gap-probe",
-      "comment": [
-        "C backend FFI tests per available backend, via the Criterion",
-        "harness under `packages/backends/test/`. Per-OS: tape everywhere,",
-        "torch on Ubuntu (libtorch installed via uv), mlx on macOS",
-        "(MLX_SITE set above). The legacy `test_backend.c` monolith was",
-        "retired with the Criterion port — every assertion lives under",
-        "`test/common/test_legacy_backend.c` for now, slated for a",
-        "per-op file split during the structural Phase 6 work.",
-        "",
-        "Static probe: parses OP_* enums from backend_<b>/tape.h and",
-        "extern \"C\" decls from backend.h, cross-references against",
-        "test/. Writes CSVs to build/coverage-gap-{ops,symbols}.csv.",
-        "Exit code is advisory today (0 even on gaps); coverage-policy.md",
-        "flips this to gating once W3+W4 close. See",
-        "docs/develop/coverage-policy.md for the three-axis target."
-      ]
-    },
-    {
-      "name": "Run Criterion suite (tape)",
-      "run": "make BACKEND=tape test-unit-c"
-    },
-    {
-      "name": "Run Criterion suite under ASan + UBSan (tape, Ubuntu)",
-      "run": "make test-unit-c-asan-tape",
-      "os": "ubuntu",
-      "continue-on-error": true,
-      "comment": [
-        "AddressSanitizer + UndefinedBehaviorSanitizer pass over the",
-        "C tape backend + Criterion suite. The Makefile target sets",
-        "EXTRA_CFLAGS='-fsanitize=address,undefined ...' on top of the",
-        "stock -O2 build and lands the artifacts in a distinct",
-        "`build/<key>-asan/` tree (via the ASAN axis in BUILD_KEY)",
-        "so the warm tree stays clean.",
-        "",
-        "First runs may surface latent UB sites — `continue-on-error:",
-        "true` keeps this advisory until the first cleanup commits",
-        "land; promote to hard-fail by dropping that line. mlx + torch",
-        "lanes are deferred (mlx-Metal + asan interactions are messy;",
-        "libtorch + asan is supported but slow to set up).",
-        "",
-        "Ubuntu-only because asan on macOS requires a separate",
-        "instrumented runtime and clang invocation."
-      ]
-    },
-    {
-      "name": "Run Idris unit suite (tape)",
-      "run": "make BACKEND=tape test-unit-idris-ml",
-      "comment": [
-        "Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite",
-        "against the tape primary. The test buckets that touch the C",
-        "surface (GradMode, ManagedHandle) use `{d=TestExecutor}` which the",
-        "Makefile-generated `TestConfig.idr` resolves to TapeExecutor here, so",
-        "FFI calls land on tape-suffixed C symbols."
-      ]
-    },
-    {
-      "name": "Run Criterion suite (torch, Ubuntu)",
-      "run": "make BACKEND=torch test-unit-c",
-      "os": "ubuntu"
-    },
-    {
-      "name": "Run Idris unit suite (torch, Ubuntu)",
-      "run": "make BACKEND=torch test-unit-idris-ml",
-      "os": "ubuntu",
-      "comment": [
-        "Same suite as the tape lane but with TestExecutor = TorchExecutor TCpu.",
-        "Catches Idris-side regressions that a tape-only run would miss",
-        "(broken torch Scheme wrapper, drift in `UserExecutorTransfer`",
-        "instances, etc.)."
-      ]
-    },
-    {
-      "name": "Run Criterion suite (mlx, macOS)",
-      "run": "make BACKEND=mlx test-unit-c",
-      "os": "macos"
-    },
-    {
-      "name": "Run Idris unit suite (mlx, macOS)",
-      "run": "make BACKEND=mlx test-unit-idris-ml",
-      "os": "macos",
-      "comment": [
-        "Same suite as tape/torch but with TestExecutor = MlxExecutor MCpu.",
-        "Catches mlx Scheme-wrapper drift, lazy-eval / handle-lifetime",
-        "regressions in the test-managed-handle suite under Metal."
-      ]
-    },
-    {
-      "name": "Run examples unit suite (tape)",
-      "run": "make BACKEND=tape test-unit-examples",
-      "comment": [
-        "Idris-side suite living in packages/idris-ml-examples (Test.Reinforce,",
-        "Test.Generate). Wired in to catch drift like the IO-lift mismatch on",
-        "rolloutEpBatched and the bitlinear-test scale formula — both pre-existed",
-        "in tree because the target was not previously gated by CI."
-      ]
-    },
-    {
-      "name": "Run examples unit suite (torch, Ubuntu)",
-      "run": "make BACKEND=torch test-unit-examples",
-      "os": "ubuntu"
-    },
-    {
-      "name": "Run examples unit suite (mlx, macOS)",
-      "run": "make BACKEND=mlx test-unit-examples",
-      "os": "macos"
-    },
-    {
-      "name": "Run multi-backend Idris suite (macOS)",
-      "run": "make test-unit-multi-backend",
-      "os": "macos",
-      "comment": [
-        "Adds Test.Transfer (cross-backend `toExecutor` smoke) +",
-        "Test.MultiExecutorRegistry (registry isolation invariant) on",
-        "top of the per-backend buckets. Forces BACKEND=torch,tape,mlx",
-        "so all three sets of C symbols are linked — only feasible on",
-        "the macOS lane (Ubuntu has no mlx)."
-      ]
-    },
-    {
-      "name": "Run typed index-op round-trip (torch, Ubuntu)",
-      "run": "make example-index-ops",
-      "os": "ubuntu",
-      "comment": [
-        "Verifies the typed targsort/tgather/tscatterAdd surface *resolves*",
-        "on torch (Compatible d I64) and runs — the C test covers numerics,",
-        "check-all is tape-only and can't resolve the I64 gate. Torch-only:",
-        "an integer-dtyped index tensor exists nowhere else."
-      ]
-    },
-    {
-      "name": "Run integration tests",
-      "run": "make test-e2e-examples EXAMPLE_TIMEOUT=900",
-      "comment": [
-        "No SKIP_EXAMPLES: the mlx allocator aborts that used to skip",
-        "ntm-copy / ntm-associative-recall / dnc-recall / mountain-car-cont",
-        "are fixed by the generation-scoped free (see",
-        "docs/develop/tensor-lifecycle.md). The whole matrix runs."
-      ]
-    },
-    {
-      "name": "Checkpoint resume smoke test",
-      "run": "make test-integration-checkpoint-resume",
-      "comment": [
-        "Trains gpt 10 epochs to a checkpoint dir, resumes to 20, and",
-        "asserts the sidecar epoch + resume log + completion. Gates the",
-        "Train.idr / Checkpoint.idr auto-save / resume integration."
-      ]
-    },
-    {
-      "name": "Typecheck torch_ref (pyright, Ubuntu)",
-      "run": "make typecheck-py-pytorch",
-      "os": "ubuntu",
-      "comment": [
-        "Alias of ref-typecheck: pyright over packages/pytorch/torch_ref/",
-        "at the typeCheckingMode pinned in its pyproject.toml. Lives in",
-        "the matrix (not the lint preflight) because import resolution",
-        "needs the full uv venv from ref-setup — the preflight venv is",
-        "--only-group dev --no-install-project, so torch/transformers",
-        "aren't importable there. Pyright version is pinned by uv.lock.",
-        "Ubuntu-only: ref-setup runs only there in this matrix."
-      ]
-    },
-    {
-      "name": "Typecheck idris-ml-examples Python helpers (pyright strict, Ubuntu)",
-      "run": "make typecheck-py-examples",
-      "os": "ubuntu",
-      "comment": [
-        "pyright strict over packages/idris-ml-examples/scripts/ (config",
-        "root: its pyrightconfig.json, selected via -p). Matrix not",
-        "preflight: verify_dtypes.py imports torch/safetensors, which",
-        "only the full ref-setup venv carries. Ubuntu-only: ref-setup",
-        "runs only there in this matrix."
-      ]
-    },
-    {
-      "name": "Typecheck idris-transformers scripts (pyright strict, Ubuntu)",
-      "run": "make typecheck-py-transformers",
-      "os": "ubuntu",
-      "comment": [
-        "pyright strict over packages/idris-transformers/scripts/ (config",
-        "root: its pyrightconfig.json via -p). Matrix not preflight: the",
-        "oracle/compare scripts import torch/transformers/safetensors,",
-        "which only the full ref-setup venv carries. Ubuntu-only:",
-        "ref-setup runs only there in this matrix."
-      ]
-    }
-  ]
+  "ci_coverage_known_holes": [],
+  "jobs": {
+    "lint-full": [
+      {
+        "name": "Typecheck torch_ref (pyright)",
+        "run": "make typecheck-py-pytorch",
+        "comment": [
+          "Alias of ref-typecheck: pyright over packages/pytorch/torch_ref/",
+          "at the typeCheckingMode pinned in its pyproject.toml. Lives in",
+          "this venv-bearing lint job (not the dep-free `lint` job) because",
+          "import resolution needs the full uv venv from ref-setup.",
+          "Pyright version is pinned by uv.lock."
+        ]
+      },
+      {
+        "name": "Typecheck idris-ml-examples Python helpers (pyright strict)",
+        "run": "make typecheck-py-examples",
+        "comment": [
+          "pyright strict over packages/idris-ml-examples/scripts/ (config",
+          "root: its pyrightconfig.json, selected via -p). verify_dtypes.py",
+          "imports torch/safetensors, which only the full ref-setup venv",
+          "carries."
+        ]
+      },
+      {
+        "name": "Typecheck idris-transformers scripts (pyright strict)",
+        "run": "make typecheck-py-transformers",
+        "comment": [
+          "pyright strict over packages/idris-transformers/scripts/ (config",
+          "root: its pyrightconfig.json via -p). The oracle/compare scripts",
+          "import torch/transformers/safetensors, which only the full",
+          "ref-setup venv carries."
+        ]
+      }
+    ],
+    "test-unit": [
+      {
+        "name": "Run Criterion suite (tape)",
+        "run": "make BACKEND=tape test-unit-c"
+      },
+      {
+        "name": "Run Criterion suite (torch, Ubuntu)",
+        "run": "make BACKEND=torch test-unit-c",
+        "os": "ubuntu"
+      },
+      {
+        "name": "Run Criterion suite (mlx, macOS)",
+        "run": "make BACKEND=mlx test-unit-c",
+        "os": "macos"
+      },
+      {
+        "name": "Run idris-gym unit suite",
+        "run": "make test-unit-gym",
+        "comment": [
+          "Pure-Idris suite for the gym package (spaces, RNG, classic-control",
+          "+ toy-text envs, wrappers) via the pack-built test harness. Wired",
+          "in by the gate-coverage lint — it was the only test-unit leaf",
+          "running in no workflow."
+        ]
+      },
+      {
+        "name": "Run idris-transformers unit tests",
+        "run": "make test-unit-idris-transformers",
+        "comment": [
+          "Pure-Idris test harness for the HF-aligned model package",
+          "(packages/idris-transformers/): bertParamNames catalogue + an FFI",
+          "suite that constructs a real HfBert and asserts the C-side param",
+          "registry matches the catalogue."
+        ]
+      },
+      {
+        "name": "Run examples unit suite (tape)",
+        "run": "make BACKEND=tape test-unit-examples",
+        "comment": [
+          "Idris-side suite living in packages/idris-ml-examples (Test.Reinforce,",
+          "Test.Generate). Wired in to catch drift like the IO-lift mismatch on",
+          "rolloutEpBatched and the bitlinear-test scale formula — both pre-existed",
+          "in tree because the target was not previously gated by CI."
+        ]
+      },
+      {
+        "name": "Run examples unit suite (torch, Ubuntu)",
+        "run": "make BACKEND=torch test-unit-examples",
+        "os": "ubuntu"
+      },
+      {
+        "name": "Run examples unit suite (mlx, macOS)",
+        "run": "make BACKEND=mlx test-unit-examples",
+        "os": "macos"
+      },
+      {
+        "name": "Run Idris unit suite (tape)",
+        "run": "make BACKEND=tape test-unit-idris-ml",
+        "comment": [
+          "Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite",
+          "against the tape primary. The test buckets that touch the C",
+          "surface (GradMode, ManagedHandle) use `{d=TestExecutor}` which the",
+          "Makefile-generated `TestConfig.idr` resolves to TapeExecutor here, so",
+          "FFI calls land on tape-suffixed C symbols."
+        ]
+      },
+      {
+        "name": "Run Idris unit suite (torch, Ubuntu)",
+        "run": "make BACKEND=torch test-unit-idris-ml",
+        "os": "ubuntu",
+        "comment": [
+          "Same suite as the tape lane but with TestExecutor = TorchExecutor TCpu.",
+          "Catches Idris-side regressions that a tape-only run would miss",
+          "(broken torch Scheme wrapper, drift in `UserExecutorTransfer`",
+          "instances, etc.)."
+        ]
+      },
+      {
+        "name": "Run Idris unit suite (mlx, macOS)",
+        "run": "make BACKEND=mlx test-unit-idris-ml",
+        "os": "macos",
+        "comment": [
+          "Same suite as tape/torch but with TestExecutor = MlxExecutor MCpu.",
+          "Catches mlx Scheme-wrapper drift, lazy-eval / handle-lifetime",
+          "regressions in the test-managed-handle suite under Metal."
+        ]
+      },
+      {
+        "name": "Run multi-backend Idris suite (macOS)",
+        "run": "make test-unit-multi-backend",
+        "os": "macos",
+        "comment": [
+          "Adds Test.Transfer (cross-backend `toExecutor` smoke) +",
+          "Test.MultiExecutorRegistry (registry isolation invariant) on",
+          "top of the per-backend buckets. Forces BACKEND=torch,tape,mlx",
+          "so all three sets of C symbols are linked — only feasible on",
+          "the macOS lane (Ubuntu has no mlx)."
+        ]
+      },
+      {
+        "name": "Run Criterion suite under ASan + UBSan (tape, Ubuntu)",
+        "run": "make test-unit-c-asan-tape",
+        "os": "ubuntu",
+        "continue-on-error": true,
+        "comment": [
+          "AddressSanitizer + UndefinedBehaviorSanitizer pass over the",
+          "C tape backend + Criterion suite. The Makefile target sets",
+          "EXTRA_CFLAGS='-fsanitize=address,undefined ...' on top of the",
+          "stock -O2 build and lands the artifacts in a distinct",
+          "`build/<key>-asan/` tree (via the ASAN axis in BUILD_KEY)",
+          "so the warm tree stays clean.",
+          "",
+          "First runs may surface latent UB sites — `continue-on-error:",
+          "true` keeps this advisory until the first cleanup commits",
+          "land; promote to hard-fail by dropping that line. mlx + torch",
+          "lanes are deferred (mlx-Metal + asan interactions are messy;",
+          "libtorch + asan is supported but slow to set up).",
+          "",
+          "Ubuntu-only because asan on macOS requires a separate",
+          "instrumented runtime and clang invocation."
+        ]
+      }
+    ],
+    "test-integration": [
+      {
+        "name": "Verify GradMode gate (NoGrad loss rejected at compile)",
+        "run": "make test-integration-typegate-gradmode",
+        "comment": [
+          "Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d",
+          "WithGrad -> Double` still rejects a `NoGrad` loss. If this step",
+          "ever passes the negative test (i.e. the gate compiles a NoGrad",
+          "loss), the \"inference loss silently no-ops training\" bug class",
+          "has regressed."
+        ]
+      },
+      {
+        "name": "Verify GradMode aliasing rejection (linear freezeNetwork)",
+        "run": "make test-integration-typegate-gradmode-aliasing",
+        "comment": [
+          "Asserts that linear `freezeNetwork` consumes its input — using",
+          "the pre-freeze Network reference afterwards must be a compile",
+          "error. Prevents the \"freeze net, train via original variable",
+          "which silently no-ops\" footgun."
+        ]
+      },
+      {
+        "name": "Verify cross-family lossless-cast gate (DType.Core.LosslessTo)",
+        "run": "make test-integration-typegate-lossy-cast",
+        "comment": [
+          "Asserts LosslessTo refuses a mantissa-shrinking direction",
+          "(F32 to BF16). Prevents silent precision-losing mid-graph",
+          "casts. Pairs with the positive Test.Lossless suite."
+        ]
+      },
+      {
+        "name": "Verify int-overflow lossless-cast gate (#412 F1)",
+        "run": "make test-integration-typegate-int-overflow-cast",
+        "comment": [
+          "Asserts LosslessTo refuses I64 to F32 (max int value far",
+          "exceeds F32 mantissa exact-integer ceiling). Pairs with the",
+          "I32 to F64 + U8 to F32 positive cases in Test.Lossless."
+        ]
+      },
+      {
+        "name": "Type-check HfLlamaInference example",
+        "run": "make test-integration-lint-hf-llama-inference",
+        "comment": [
+          "`idris2 --check` over Example/HfLlamaInference.idr — the example",
+          "is too heavy to *run* outside the dedicated roundtrip gates, but",
+          "type-drift against the library surface is cheap to catch here.",
+          "Wired in by the gate-coverage lint."
+        ]
+      },
+      {
+        "name": "Run typed index-op round-trip (torch, Ubuntu)",
+        "run": "make example-index-ops",
+        "os": "ubuntu",
+        "comment": [
+          "Verifies the typed targsort/tgather/tscatterAdd surface *resolves*",
+          "on torch (Compatible d I64) and runs — the C test covers numerics,",
+          "check-all is tape-only and can't resolve the I64 gate. Torch-only:",
+          "an integer-dtyped index tensor exists nowhere else."
+        ]
+      },
+      {
+        "name": "Run coverage gap probe (advisory)",
+        "run": "make test-coverage-gap-probe",
+        "comment": [
+          "Static probe: parses OP_* enums from backend_<b>/tape.h and",
+          "extern \"C\" decls from backend.h, cross-references against",
+          "test/. Writes CSVs to build/coverage-gap-{ops,symbols}.csv.",
+          "Exit code is advisory today (0 even on gaps); coverage-policy.md",
+          "flips this to gating once W3+W4 close. See",
+          "docs/develop/coverage-policy.md for the three-axis target."
+        ]
+      },
+      {
+        "name": "Checkpoint resume smoke test",
+        "run": "make test-integration-checkpoint-resume",
+        "comment": [
+          "Trains gpt 10 epochs to a checkpoint dir, resumes to 20, and",
+          "asserts the sidecar epoch + resume log + completion. Gates the",
+          "Train.idr / Checkpoint.idr auto-save / resume integration."
+        ]
+      },
+      {
+        "name": "Run Tier-1 perf benches + render BENCHMARKS.md + perf-regression gate",
+        "run": "make bench-fast && make test-integration-lint-benchmarks && make test-integration-lint-perf-regression",
+        "os": "ubuntu",
+        "comment": [
+          "Axis A op-kernel benches (matmul / softmax / SDPA / embedding /",
+          "RMSNorm) on tape vs PyTorch. Appends kind=\"op_bench\" entries to",
+          "perf-log.jsonl and regenerates BENCHMARKS.md. The follow-up",
+          "lint asserts BENCHMARKS.md is in sync with the log — catches a",
+          "hand-edit of BENCHMARKS.md that drifts from the JSONL truth.",
+          "Ubuntu-only: the PyTorch side runs through the uv venv."
+        ]
+      },
+      {
+        "name": "Run perf-regression gate (kind=\"run\" entries, advisory)",
+        "run": "make lint-perf-run",
+        "os": "ubuntu",
+        "comment": [
+          "Companion to the kind=\"op_bench\" gate above. Groups",
+          "perf-log.jsonl `kind=\"run\"` entries by (example, backend,",
+          "args), medians the last 10, and reports OK / WARN (>15%)",
+          "/ FAIL (>100% slower) for the latest entry per cell.",
+          "Advisory only — exits 0 even on FAILs — until the noise",
+          "profile is calibrated; promote by setting PERF_GATE=1.",
+          "Renders the report in the CI logs regardless."
+        ]
+      }
+    ],
+    "test-e2e-examples": [
+      {
+        "name": "Run example smoke matrix",
+        "run": "make test-e2e-examples EXAMPLE_TIMEOUT=900",
+        "comment": [
+          "Every example across the backend lanes available on this runner",
+          "(tape + torch on Ubuntu; tape + mlx on macOS), few-epoch smoke",
+          "thresholds. No SKIP_EXAMPLES: the mlx allocator aborts that used",
+          "to skip ntm-copy / ntm-associative-recall / dnc-recall /",
+          "mountain-car-cont are fixed by the generation-scoped free (see",
+          "docs/develop/tensor-lifecycle.md)."
+        ]
+      }
+    ],
+    "test-e2e-hf": [
+      {
+        "name": "Run PyTorch reference correctness suite",
+        "run": "make test-e2e-pytorch-ref",
+        "comment": [
+          "pytest over packages/pytorch/torch_ref/correctness/ — the",
+          "PyTorch side is the correctness oracle for every paired example,",
+          "so its own suite gates first. Wired in by the gate-coverage",
+          "lint — it ran in no workflow despite being the oracle."
+        ]
+      },
+      {
+        "name": "Run RoPE table oracle",
+        "run": "make test-e2e-rope-oracle",
+        "comment": [
+          "Generates the Llama-3 RoPE table oracle (inv_freq + cos/sin",
+          "slice) consumed by the Idris-side RoPE tests."
+        ]
+      },
+      {
+        "name": "Run HfBert oracle generator + pytest",
+        "run": "make test-e2e-transformers-oracle-bert",
+        "comment": [
+          "Drives packages/idris-transformers/scripts/save_oracle.py through",
+          "pytest under the pytorch uv venv (carries the transformers dep).",
+          "Downloads google/bert_uncased_L-2_H-128_A-2 from HF Hub, runs",
+          "forward on the fixed input, asserts the resulting oracle is",
+          "shape [128] F32 finite + non-trivial."
+        ]
+      },
+      {
+        "name": "Run HfGpt2 oracle generator + pytest",
+        "run": "make test-e2e-transformers-oracle-gpt2",
+        "comment": [
+          "Same shape as the HfBert oracle gate but for sshleifer/tiny-gpt2.",
+          "Downloads the checkpoint, runs forward on [15496, 995], asserts",
+          "the last-position hidden state is shape [2] (sshleifer/tiny-gpt2",
+          "is intentionally degenerate at hidden=2 — exercises the",
+          "architectural pieces without burning CI disk)."
+        ]
+      },
+      {
+        "name": "Run HfLlama oracle generator + pytest",
+        "run": "make test-e2e-transformers-oracle-llama",
+        "comment": [
+          "Oracle-generation pytest for unsloth/Llama-3.2-1B. Wired in by",
+          "the gate-coverage lint (the roundtrip regenerates the oracle",
+          "anyway, but this gate asserts the generator script's own",
+          "invariants and fails earlier + cheaper)."
+        ]
+      },
+      {
+        "name": "Run HfLlama generation oracle pytest",
+        "run": "make test-e2e-transformers-oracle-llama-generate",
+        "comment": [
+          "Greedy-decode oracle pytest paired with the llama-generate",
+          "roundtrip below. Wired in by the gate-coverage lint."
+        ]
+      },
+      {
+        "name": "Run HfBert end-to-end roundtrip",
+        "run": "make test-e2e-hf-bert-roundtrip",
+        "comment": [
+          "The cross-language correctness gate: regenerates the Python",
+          "oracle, runs the Idris HfBertInference example (loading the",
+          "real Google bert-tiny weights via the HF-aligned HfBert",
+          "module), and asserts elementwise agreement within",
+          "max-abs-diff 1e-3 on the 128-dim pooled [CLS] output.",
+          "Currently passes at 4.1e-4 locally on tape."
+        ]
+      },
+      {
+        "name": "Run HfGpt2 end-to-end roundtrip",
+        "run": "make test-e2e-hf-gpt2-roundtrip",
+        "comment": [
+          "Same gate shape as HfBert but for GPT-2: regenerate the Python",
+          "oracle from hf-internal-testing/tiny-random-gpt2, run the Idris",
+          "HfGpt2Inference binary, assert the 32-dim last-position hidden",
+          "state matches within max-abs-diff 1e-3. Currently passes at",
+          "~1e-6 locally on tape."
+        ]
+      },
+      {
+        "name": "Run HfBitNet end-to-end roundtrip (torch)",
+        "run": "make BACKEND=torch test-e2e-hf-bitnet-roundtrip",
+        "comment": [
+          "Cross-language gate: regenerate the Python oracle from",
+          "microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference",
+          "binary --dump-logits, assert argmax on the vocab-128256 logit",
+          "row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch",
+          "because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu",
+          "runner (see Low-priority TODO \"Tape F64 large-LM OOM\"). BitNet",
+          "is not license-gated, so no HF_TOKEN handling needed. The",
+          "job-level swapfile absorbs the cold-tree elaboration peak that",
+          "OOM-killed run 27364532457."
+        ]
+      },
+      {
+        "name": "Run HfLlama end-to-end roundtrip (torch)",
+        "run": "make BACKEND=torch test-e2e-hf-llama-roundtrip",
+        "comment": [
+          "Cross-language gate for Llama 3.2 1B. Regenerates the Python",
+          "oracle from unsloth/Llama-3.2-1B (public mirror of Meta's",
+          "weights, no license-gate / no HF_TOKEN), runs the Idris",
+          "HfLlamaInference binary --dump-final-hidden, asserts the",
+          "2048-dim last-position hidden state matches the oracle within",
+          "max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps",
+          "and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu",
+          "lane carries the same Idris-side numerics through libtorch CPU.",
+          "BACKEND=torch because tape F64 doesn't fit (~10 GB params +",
+          "arena vs ~14 GB runner RAM); see Low-priority TODO \"Tape F64",
+          "large-LM OOM\"."
+        ]
+      },
+      {
+        "name": "Run HfLlama multi-step generation roundtrip (torch)",
+        "run": "make BACKEND=torch test-e2e-hf-llama-generate-roundtrip",
+        "comment": [
+          "Cross-language gate for Llama 3.2 1B's *generation* path.",
+          "The companion single-forward gate above tests one fixed token;",
+          "this step exercises the full greedy-decode loop: tokenize \"The",
+          "capital of France is\", generate 4 tokens via `genLoop` (no KV",
+          "cache yet — bumps to 8+ once KV cache lands), assert the",
+          "resulting token-ID sequence matches HF `model.generate(",
+          "do_sample=False, use_cache=True)` element-wise. Catches drift",
+          "in tokenization, every layer of the forward, argmax, and the",
+          "per-step glue that the single-forward gate can't see."
+        ]
+      }
+    ]
+  }
 }
