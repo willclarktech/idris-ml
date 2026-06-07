@@ -1,4 +1,4 @@
-name: perf-nightly
+name: perf
 
 # Tier 2 perf cadence (see docs/develop/testing-taxonomy.md). Runs the
 # `bench-nightly` aggregator end-to-end on Ubuntu and uploads the
@@ -7,18 +7,27 @@ name: perf-nightly
 # the BERT + GPT-2 cells of Axis D (HF inference). The Llama-generate
 # cell of Axis D needs torch-mps F32 (Apple Silicon) — it's not
 # available on this Ubuntu runner so it lands on a developer's local
-# perf-nightly.sh run, not this CI workflow. The same job is
-# `workflow_dispatch`-able so ad-hoc nightlies can be triggered from
-# the Actions UI.
+# perf-nightly.sh run, not this CI workflow.
+#
+# Trigger is push-to-main, not a nightly cron: day-to-day work happens
+# on the private mirror (CI disabled) and this public repo only moves
+# when a reviewed publication push lands (~weekly). A cron would
+# re-measure identical code daily; one snapshot per publication push
+# is the natural perf-regression granularity. `workflow_dispatch`
+# stays for ad-hoc runs from the Actions UI.
 
 on:
-  schedule:
-    - cron: '17 7 * * *'      # 07:17 UTC every day (off-peak)
+  push:
+    branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  perf-nightly:
-    name: perf-nightly (tape)
+  perf:
+    name: perf (tape)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

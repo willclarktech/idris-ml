@@ -159,8 +159,8 @@ TorchBench / DeepBench use at scale:
 |---|---|---|---|
 | **A. Op kernel** | Per-kernel wall-clock vs PyTorch on the same hardware. Pure forward, no autograd. | Tier 1 (CI) | "Is our matmul / SDPA / conv kernel competitive at the primitive level?" |
 | **B. Layer composition** | Forward + backward through one layer type at representative sizes. | Tier 1 (CI) | "Does our FFI + tape wrap cost dominate the kernel?" |
-| **C. End-to-end training** | Full training loop (data → forward → backward → optimizer) for one workload per training mode. | Tier 2 (nightly) | "How fast does a user-facing example train vs a PyTorch reference?" |
-| **D. End-to-end inference** | Pretrained HF model forward / generate. | Tier 2 (nightly) | "How fast does a real production model run on this stack vs HF transformers?" |
+| **C. End-to-end training** | Full training loop (data → forward → backward → optimizer) for one workload per training mode. | Tier 2 (per publication push) | "How fast does a user-facing example train vs a PyTorch reference?" |
+| **D. End-to-end inference** | Pretrained HF model forward / generate. | Tier 2 (per publication push) | "How fast does a real production model run on this stack vs HF transformers?" |
 
 **Selection rule per axis**: a workload earns a slot iff it
 exercises a *distinct* compute pattern not covered by an existing
