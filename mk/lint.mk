@@ -20,10 +20,18 @@
         test-integration-typegate-gradmode-aliasing \
         test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast \
-        test-integration-typegate-backend-linked
+        test-integration-typegate-backend-linked \
+        test-integration-lint-prim-ratchet
 
 rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py
+
+# Ratchet gate: prim__ usage in examples must not grow (per-file
+# baseline inside the script; BringYourOwn.idr exempt — it IS the
+# bring-your-own-backend recipe). The example-migration sweep drives
+# the baseline to zero.
+test-integration-lint-prim-ratchet:
+	@python3 scripts/check-prim-in-examples.py
 
 test-integration-lint-rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py --check

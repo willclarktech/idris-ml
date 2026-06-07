@@ -254,6 +254,16 @@
         ]
       },
       {
+        "name": "Lint: prim__ ratchet in examples",
+        "run": "make test-integration-lint-prim-ratchet",
+        "comment": [
+          "Per-file baseline of raw prim__ FFI occurrences in",
+          "idris-ml-examples; fails on any increase or any new file.",
+          "BringYourOwn.idr exempt (it IS the BYO recipe). The",
+          "example-migration sweep drives the baseline to zero."
+        ]
+      },
+      {
         "name": "Run typed index-op round-trip (torch, Ubuntu)",
         "run": "make example-index-ops",
         "os": "ubuntu",
