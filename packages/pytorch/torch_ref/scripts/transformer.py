@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import sys
+from typing import cast
 
 import torch
 
@@ -31,6 +32,11 @@ D_MODEL = 16
 NUM_HEADS = 4
 HEAD_DIM = 4
 BATCH_SIZE = 16
+
+
+def _int_list(t: torch.Tensor) -> list[int]:
+    """Typed view of an integer tensor — tolist() returns list[Unknown] in torch's stubs."""
+    return cast("list[int]", t.tolist())  # pyright: ignore[reportUnknownMemberType]
 
 
 def token_name(n: int) -> str:
@@ -64,7 +70,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
 
     print("=== Transformer: Sequence Sorting ===")
     print(f"Config: lr={args.lr} epochs={args.epochs} patience={args.patience} seed={args.seed}")
@@ -112,7 +119,7 @@ def main() -> None:
         device=args.device,
     )
 
-    epochs_done, final_loss = run_training(epoch_fn, config, metrics_fn)
+    epochs_done, _final_loss = run_training(epoch_fn, config, metrics_fn)
 
     # Evaluation
     print()
@@ -123,9 +130,9 @@ def main() -> None:
         logits = model(inp_onehot)
         preds = logits.argmax(dim=-1)
 
-    input_decoded = inp_onehot.argmax(dim=-1).tolist()
-    target_decoded = target_indices.tolist()
-    predicted = preds.tolist()
+    input_decoded = _int_list(inp_onehot.argmax(dim=-1))
+    target_decoded = _int_list(target_indices)
+    predicted = _int_list(preds)
 
     input_tokens = input_decoded[:INPUT_LEN]
     sort_target = target_decoded[INPUT_LEN:]

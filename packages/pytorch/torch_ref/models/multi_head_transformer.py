@@ -179,7 +179,7 @@ def generate_sorting_data(
 
     Returns list of (input_onehot, target_indices) pairs.
     """
-    data = []
+    data: list[tuple[Tensor, Tensor]] = []
     base_vocab = vocab_size - 2
     device = get_device()
     for _ in range(num_samples):
@@ -215,7 +215,7 @@ def generate_reversal_data(
 
     Returns list of (input_onehot, target_indices) pairs.
     """
-    data = []
+    data: list[tuple[Tensor, Tensor]] = []
     base_vocab = vocab_size - 2
     device = get_device()
     for _ in range(num_samples):
@@ -256,7 +256,8 @@ def train_reversal_epoch(
         total_loss = total_loss + loss
 
     avg_loss = total_loss / len(data)
-    avg_loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    avg_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     return avg_loss.item()

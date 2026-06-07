@@ -28,6 +28,8 @@ embeds them as constants.
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 from torch import Tensor
 
@@ -179,6 +181,16 @@ def fixture_inputs(dtype: torch.dtype = torch.float64) -> dict[str, Tensor]:
     }
 
 
+def _as_floats(t: Tensor) -> list[float]:
+    """Typed view of Tensor.tolist() for 1-D float tensors (stub returns list[Unknown])."""
+    return cast("list[float]", t.tolist())  # pyright: ignore[reportUnknownMemberType]
+
+
+def _as_int_rows(t: Tensor) -> list[list[int]]:
+    """Typed view of Tensor.tolist() for 2-D integer tensors (stub returns list[Unknown])."""
+    return cast("list[list[int]]", t.tolist())  # pyright: ignore[reportUnknownMemberType]
+
+
 def fixture_expected_y(dtype: torch.dtype = torch.float64) -> list[float]:
     """Compute the expected MLP-block output for the embedded fixture."""
     fx = fixture_inputs(dtype=dtype)
@@ -192,7 +204,7 @@ def fixture_expected_y(dtype: torch.dtype = torch.float64) -> list[float]:
         up_bias=fx["up_bias"],
         down_bias=fx["down_bias"],
     )
-    return y.tolist()
+    return _as_floats(y)
 
 
 def _pack_row_2bit(row: list[int]) -> list[int]:
@@ -215,7 +227,7 @@ def _pack_row_2bit(row: list[int]) -> list[int]:
     return out
 
 
-def _fmt_doubles(xs) -> str:
+def _fmt_doubles(xs: list[float]) -> str:
     """Idris Vect-of-Double literal body: `[d0, d1, ...]` with no wrapper."""
     return "[" + ", ".join(f"{float(v):.17g}" for v in xs) + "]"
 
@@ -237,9 +249,9 @@ def dump_idris_fixture() -> None:
     h, m = FIXTURE_HIDDEN, FIXTURE_INTERMEDIATE
 
     # Per-row packed bytes for each ternary weight matrix.
-    gate_rows = fx["gate_t"].tolist()  # [m, h]
-    up_rows = fx["up_t"].tolist()
-    down_rows = fx["down_t"].tolist()  # [h, m]
+    gate_rows = _as_int_rows(fx["gate_t"])  # [m, h]
+    up_rows = _as_int_rows(fx["up_t"])
+    down_rows = _as_int_rows(fx["down_t"])  # [h, m]
     gate_packed: list[list[int]] = [_pack_row_2bit(r) for r in gate_rows]
     up_packed: list[list[int]] = [_pack_row_2bit(r) for r in up_rows]
     down_packed: list[list[int]] = [_pack_row_2bit(r) for r in down_rows]
@@ -255,7 +267,7 @@ def dump_idris_fixture() -> None:
     print(f"FIXTURE_INTERMEDIATE = {m}")
     print()
     print(f"FIXTURE_X : Vect {h} Double")
-    print(f"FIXTURE_X = {_fmt_doubles(fx['x'].tolist())}")
+    print(f"FIXTURE_X = {_fmt_doubles(_as_floats(fx['x']))}")
     print()
 
     # Each ternary matrix is dumped row-by-row as a list-of-bytes; the
@@ -269,9 +281,9 @@ def dump_idris_fixture() -> None:
     print(f"FIXTURE_GATE_W_BYTES : Vect {m * bytes_per_h} Int")
     print(f"FIXTURE_GATE_W_BYTES = {_fmt_bytes(flat_gate)}")
     print(f"FIXTURE_GATE_S : Vect {m} Double")
-    print(f"FIXTURE_GATE_S = {_fmt_doubles(fx['gate_s'].tolist())}")
+    print(f"FIXTURE_GATE_S = {_fmt_doubles(_as_floats(fx['gate_s']))}")
     print(f"FIXTURE_GATE_B : Vect {m} Double")
-    print(f"FIXTURE_GATE_B = {_fmt_doubles(fx['gate_bias'].tolist())}")
+    print(f"FIXTURE_GATE_B = {_fmt_doubles(_as_floats(fx['gate_bias']))}")
     print()
 
     print(f"-- up_proj weight: shape [{m}, {h}], packed bytes per row = {bytes_per_h}")
@@ -279,9 +291,9 @@ def dump_idris_fixture() -> None:
     print(f"FIXTURE_UP_W_BYTES : Vect {m * bytes_per_h} Int")
     print(f"FIXTURE_UP_W_BYTES = {_fmt_bytes(flat_up)}")
     print(f"FIXTURE_UP_S : Vect {m} Double")
-    print(f"FIXTURE_UP_S = {_fmt_doubles(fx['up_s'].tolist())}")
+    print(f"FIXTURE_UP_S = {_fmt_doubles(_as_floats(fx['up_s']))}")
     print(f"FIXTURE_UP_B : Vect {m} Double")
-    print(f"FIXTURE_UP_B = {_fmt_doubles(fx['up_bias'].tolist())}")
+    print(f"FIXTURE_UP_B = {_fmt_doubles(_as_floats(fx['up_bias']))}")
     print()
 
     print(f"-- down_proj weight: shape [{h}, {m}], packed bytes per row = {bytes_per_m}")
@@ -289,13 +301,13 @@ def dump_idris_fixture() -> None:
     print(f"FIXTURE_DOWN_W_BYTES : Vect {h * bytes_per_m} Int")
     print(f"FIXTURE_DOWN_W_BYTES = {_fmt_bytes(flat_down)}")
     print(f"FIXTURE_DOWN_S : Vect {h} Double")
-    print(f"FIXTURE_DOWN_S = {_fmt_doubles(fx['down_s'].tolist())}")
+    print(f"FIXTURE_DOWN_S = {_fmt_doubles(_as_floats(fx['down_s']))}")
     print(f"FIXTURE_DOWN_B : Vect {h} Double")
-    print(f"FIXTURE_DOWN_B = {_fmt_doubles(fx['down_bias'].tolist())}")
+    print(f"FIXTURE_DOWN_B = {_fmt_doubles(_as_floats(fx['down_bias']))}")
     print()
 
     print(f"FIXTURE_FFN_SUB_NORM : Vect {m} Double")
-    print(f"FIXTURE_FFN_SUB_NORM = {_fmt_doubles(fx['ffn_sub_norm_weight'].tolist())}")
+    print(f"FIXTURE_FFN_SUB_NORM = {_fmt_doubles(_as_floats(fx['ffn_sub_norm_weight']))}")
     print()
     print(f"FIXTURE_EXPECTED_Y : Vect {h} Double")
     print(f"FIXTURE_EXPECTED_Y = {_fmt_doubles(fixture_expected_y())}")

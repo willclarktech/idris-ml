@@ -44,8 +44,8 @@ def _dtype_for_device(d: str) -> torch.dtype:
 def set_device(d: str) -> None:
     """Set the active device and auto-derive the dtype."""
     global _DEVICE, _DTYPE
-    _DEVICE = d
-    _DTYPE = _dtype_for_device(d)
+    _DEVICE = d  # pyright: ignore[reportConstantRedefinition]  # mutable module singleton
+    _DTYPE = _dtype_for_device(d)  # pyright: ignore[reportConstantRedefinition]  # mutable module singleton
 
 
 def get_device() -> str:
@@ -200,7 +200,7 @@ def mem_suffix() -> str:
     global _PEAK_MB
     cur_mb = _PROC.memory_info().rss // (1024 * 1024)
     if cur_mb > _PEAK_MB:
-        _PEAK_MB = cur_mb
+        _PEAK_MB = cur_mb  # pyright: ignore[reportConstantRedefinition]  # mutable module singleton
     return f"\tpeak={_PEAK_MB}MB\tcur={cur_mb}MB"
 
 

@@ -2,6 +2,7 @@
 
 import math
 import random
+from typing import cast
 
 import torch
 
@@ -36,7 +37,7 @@ class TestNtmRecallQuick:
 
     def test_loss_decreases(self) -> None:
         """Loss should decrease over 1000 training steps."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         random.seed(42)
 
         cfg = _recall_config()
@@ -88,7 +89,7 @@ class TestNtmRecallQuick:
 
 def _train_small_recall(steps: int, seed: int = 42) -> tuple[NtmModel, list[float]]:
     """Train a small recall model, returning model and loss history."""
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
     random.seed(seed)
 
     cfg = _recall_config()
@@ -147,7 +148,7 @@ class TestNtmRecallGradientFlow:
     """Gradients flow through all parameter groups."""
 
     def test_all_params_have_gradients(self) -> None:
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         random.seed(42)
 
         cfg = _recall_config()
@@ -161,7 +162,11 @@ class TestNtmRecallGradientFlow:
 
         for name, param in model.named_parameters():
             assert param.grad is not None, f"No gradient for {name}"
-            grad_norm = param.grad.norm().item()
+            # Tensor.norm carries untyped dim/dtype params in torch's stubs
+            grad_norm = cast(
+                "float",
+                param.grad.norm().item(),  # pyright: ignore[reportUnknownMemberType]
+            )
             assert not math.isnan(grad_norm), f"NaN gradient for {name}"
 
 
@@ -169,7 +174,7 @@ class TestNtmRecallMemoryState:
     """Memory state is non-trivial after encoding."""
 
     def test_memory_modified_after_encoding(self) -> None:
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         random.seed(42)
 
         cfg = _recall_config()
@@ -199,7 +204,7 @@ class TestNtmRecallDiagnostics:
     def test_no_degenerate_strategies(self) -> None:
         model, _ = _train_small_recall(3000)
 
-        torch.manual_seed(99)
+        torch.manual_seed(99)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         random.seed(99)
 
         input_seq, target_seq = generate_recall_sequence(

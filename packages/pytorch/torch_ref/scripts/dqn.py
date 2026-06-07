@@ -56,7 +56,7 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType] - untyped `seed` param in torch stubs
     rng = random.Random(args.seed)
 
     print("=== DQN on CartPole ===")

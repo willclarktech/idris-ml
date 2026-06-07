@@ -35,7 +35,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
 
     print("=== SeqClassify: 1D Waveform Classification ===")

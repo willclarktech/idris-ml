@@ -5,12 +5,13 @@ Output format matches Idris Example.Supervised.
 
 import argparse
 import sys
+from typing import cast
 
 import torch
 
 from torch_ref.models.supervised import (
     SupervisedModel,
-    _make_supervised_data,
+    _make_supervised_data,  # pyright: ignore[reportPrivateUsage]  # shared with the paired script
     train_supervised_epoch,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
@@ -42,7 +43,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
 
     print("=== Supervised Classification ===")
     print(f"Config: lr={args.lr} epochs={args.epochs} seed={args.seed}")
@@ -64,7 +66,7 @@ def main() -> None:
         sys.exit(0)
 
     config = TrainConfig(total_epochs=args.epochs, log_every=100, device=args.device)
-    epochs_done, final_loss = run_training(epoch_fn, config)
+    epochs_done, _final_loss = run_training(epoch_fn, config)
 
     # Evaluation
     print()
@@ -82,7 +84,9 @@ def main() -> None:
             pred_class = pred.argmax().item()
             target_class = y.argmax().item()
             ok = "ok" if pred_class == target_class else "WRONG"
-            print(f"  {x.tolist()} -> class {pred_class} {ok}")
+            # tolist() returns list[Unknown] in torch's stubs.
+            x_vals = cast("list[float]", x.tolist())  # pyright: ignore[reportUnknownMemberType]
+            print(f"  {x_vals} -> class {pred_class} {ok}")
 
     print()
     print(

@@ -11,9 +11,15 @@ Idris bench — wordpiece counts across the three sentences).
 """
 
 import time
+from typing import cast
 
 import torch
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+from transformers import (
+    AutoModelForMaskedLM,
+    AutoTokenizer,
+    BertForMaskedLM,
+    PreTrainedTokenizerBase,
+)
 
 MODEL_ID = "google/bert_uncased_L-2_H-128_A-2"
 
@@ -24,7 +30,9 @@ SENTENCES = [
 ]
 
 
-def run_mask_demo(tokenizer, model, sentence: str) -> None:
+def run_mask_demo(
+    tokenizer: PreTrainedTokenizerBase, model: BertForMaskedLM, sentence: str
+) -> None:
     inputs = tokenizer(sentence, return_tensors="pt")
     with torch.no_grad():
         outputs = model(**inputs)
@@ -40,8 +48,16 @@ def run_mask_demo(tokenizer, model, sentence: str) -> None:
 
 
 def main() -> None:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForMaskedLM.from_pretrained(MODEL_ID).double()
+    # transformers 5.x lazy attrs make Auto* from_pretrained return a
+    # loose union pyright can't narrow; cast to the typed base/class.
+    tokenizer = cast(
+        "PreTrainedTokenizerBase",
+        AutoTokenizer.from_pretrained(MODEL_ID),  # pyright: ignore[reportUnknownMemberType]
+    )
+    model = cast(
+        "BertForMaskedLM",
+        AutoModelForMaskedLM.from_pretrained(MODEL_ID).double(),  # pyright: ignore[reportUnknownMemberType]
+    )
     # equivalent of .eval(); using train(False) to avoid pre-tool-hook
     # security flag on the literal method name.
     model.train(False)

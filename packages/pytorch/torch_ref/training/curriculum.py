@@ -29,7 +29,9 @@ class Stage:
     generate: Callable[[], list[tuple[list[Tensor], list[Tensor]]]]
 
 
-def _one_cycle_lr(
+# Unreferenced reference implementation kept for schedule parity with the
+# Idris-side one-cycle schedule.
+def _one_cycle_lr(  # pyright: ignore[reportUnusedFunction]
     base_lr: float,
     peak_ratio: float,
     div_final: float,
@@ -59,7 +61,12 @@ def run_curriculum(
     schedule_fn: Callable[[int], float],
     post_step_fn: Callable[[], None] | None = None,
     train_step_fn: Callable[
-        [Any, list[tuple[list[Tensor], list[Tensor]]], Callable, torch.optim.Optimizer],
+        [
+            Any,
+            list[tuple[list[Tensor], list[Tensor]]],
+            Callable[[Tensor, Tensor], Tensor],
+            torch.optim.Optimizer,
+        ],
         float,
     ]
     | None = None,

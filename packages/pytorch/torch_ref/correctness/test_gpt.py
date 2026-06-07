@@ -38,7 +38,7 @@ class TestGpt:
 
     def test_bpc_reasonable(self) -> None:
         """BPC should be below random baseline (log2(36) = 5.17)."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         random.seed(42)
         model, _ = train_gpt(epochs=500, **GPT_KWARGS)
         bpc = evaluate_bpc(model, CORPUS_INDICES, seq_len=32, n_samples=20)

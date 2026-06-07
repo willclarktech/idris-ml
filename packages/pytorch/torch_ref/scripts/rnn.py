@@ -6,6 +6,7 @@ Pattern: [0,1,0,0,1,0,...] — predict next element.
 
 import argparse
 import sys
+from typing import cast
 
 import torch
 
@@ -37,7 +38,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
 
     print("=== RNN Pattern Prediction ===")
     print(f"Config: lr={args.lr} epochs={args.epochs} seed={args.seed}")
@@ -64,7 +66,7 @@ def main() -> None:
         sys.exit(0)
 
     config = TrainConfig(total_epochs=args.epochs, log_every=100, device=args.device)
-    epochs_done, final_loss = run_training(epoch_fn, config)
+    epochs_done, _final_loss = run_training(epoch_fn, config)
 
     # Evaluation
     print()
@@ -76,7 +78,7 @@ def main() -> None:
     with torch.no_grad():
         for xs, ys in data:
             model.reset_state()
-            preds = []
+            preds: list[torch.Tensor] = []
             for x in xs:
                 pred = model(x)
                 preds.append(pred)
@@ -85,7 +87,8 @@ def main() -> None:
             from torch_ref.training.losses import bce_with_logits
 
             seq_loss = sum(bce_with_logits(p, y) for p, y in zip(preds, ys, strict=True))
-            eval_loss += seq_loss.item() / len(xs)  # type: ignore[union-attr]
+            # Sequences are non-empty, so the sum is a Tensor (never the int 0 start).
+            eval_loss += cast("torch.Tensor", seq_loss).item() / len(xs)
         eval_loss /= len(data)
 
     print(f"  Loss: {eval_loss}")

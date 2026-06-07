@@ -19,9 +19,10 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import torch
-from transformers import AutoModelForMaskedLM
+from transformers import AutoModelForMaskedLM, BertForMaskedLM
 
 SEQ_LEN = 32
 
@@ -72,9 +73,9 @@ def apply_hf_masking(window: list[int]) -> tuple[list[int], list[int], list[int]
     of those, 80% become [MASK], 10% become a fixed mid-vocab id
     (id=200, matching the Idris shortcut), 10% keep the original.
     CLS / SEP are never masked."""
-    masked_input = []
-    target = []
-    flags = []
+    masked_input: list[int] = []
+    target: list[int] = []
+    flags: list[int] = []
     for tok in window:
         if tok in (CLS_ID, SEP_ID) or random.random() > MASK_PROB:
             masked_input.append(tok)
@@ -104,7 +105,8 @@ def sample_window(tokens: list[int], cap_max_start: int) -> tuple[list[int], lis
 
 def main() -> int:
     args = parse_args()
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
 
     print("=== BertMlmFinetune (PyTorch ref) ===")
@@ -118,9 +120,16 @@ def main() -> int:
         print(f"ERROR: corpus has only {len(tokens)} tokens (need >= {SEQ_LEN}).", file=sys.stderr)
         return 1
 
-    model = AutoModelForMaskedLM.from_pretrained(str(BACKBONE_DIR))
+    # transformers 5.x lazy attrs make Auto* from_pretrained return a
+    # loose union pyright can't narrow; cast to the concrete class.
+    model = cast(
+        "BertForMaskedLM",
+        AutoModelForMaskedLM.from_pretrained(str(BACKBONE_DIR)),  # pyright: ignore[reportUnknownMemberType]
+    )
     device = torch.device("cpu")
-    model.to(device)
+    # transformers 5.x wraps Module.to in a decorator whose _Wrapped
+    # type pyright can't bind as a method; the call is fine at runtime.
+    model.to(device)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
     model.train(True)
     print("bert-tiny backbone + MLM head warm-started.")
 
@@ -146,7 +155,8 @@ def main() -> int:
         loss = outputs.loss
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step()
+        # torch's Optimizer.step stub leaves `closure` unannotated.
+        opt.step()  # pyright: ignore[reportUnknownMemberType]
         last_loss = loss.item()
         acc_loss += last_loss
         if step % 10 == 0:

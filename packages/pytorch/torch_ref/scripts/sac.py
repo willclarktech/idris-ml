@@ -48,7 +48,8 @@ def main() -> None:
         print("the LR-range-test pattern. See docs/develop/hyperparameter-tuning-2026.md.")
         sys.exit(0)
 
-    torch.manual_seed(args.seed)
+    # torch stub: manual_seed's seed param is unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
 
     print("=== SAC on Pendulum ===")
     print(

@@ -61,6 +61,7 @@ def train_supervised_epoch(
         logits = model(x)
         total_loss = total_loss + bce_with_logits(logits, y)
     loss = total_loss / len(data)
-    loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     optimizer.step()
     return loss.item()

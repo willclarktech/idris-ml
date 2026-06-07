@@ -98,7 +98,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
 
     # --- Corpus + vocab -----------------------------------------------------
@@ -188,7 +189,7 @@ def main() -> None:
         device=args.device,
     )
 
-    epochs_done, final_loss = run_training(epoch_fn, config, metrics_fn)
+    epochs_done, _final_loss = run_training(epoch_fn, config, metrics_fn)
 
     # Final eval — held-out val_bpc on a larger sample
     print()

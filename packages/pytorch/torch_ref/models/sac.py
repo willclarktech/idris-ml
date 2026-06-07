@@ -21,6 +21,7 @@ import math
 import random
 import time
 from collections import deque
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -38,8 +39,13 @@ MAX_STEPS = 200  # gymnasium Pendulum-v1 default TimeLimit
 # `Example.Sac.NumEnvs`.
 NUM_ENVS = 4
 
+# Pendulum-v1: Box observations and Box actions (both np.ndarray).
+# gymnasium's `gym.make` stub returns `Env[Unknown, Unknown]`, so call
+# sites pin this alias for pyright strict.
+PendulumEnv = gym.Env[np.ndarray, np.ndarray]
 
-def _reset_to_pi(env: gym.Env) -> np.ndarray:
+
+def _reset_to_pi(env: PendulumEnv) -> np.ndarray:
     """Return obs [cos(theta), sin(theta), theta_dot] of the env's current
     (just-reset) state as float64.
 
@@ -47,7 +53,11 @@ def _reset_to_pi(env: gym.Env) -> np.ndarray:
     deterministic reset; idris-gym now randomizes per Gymnasium (theta ~
     U(-π, π), theta_dot ~ U(-1, 1)) and the PyTorch side follows.
     """
-    th, dth = env.unwrapped.state  # pyright: ignore[reportAttributeAccessIssue]
+    # `state` isn't on the Env stub (Pendulum-specific 2-float array).
+    th, dth = cast(
+        "tuple[float, float]",
+        env.unwrapped.state,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    )
     return np.array([math.cos(th), math.sin(th), dth], dtype=np.float64)
 
 
@@ -60,8 +70,8 @@ def make_pendulum_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     and randomized per Gymnasium on each reset."""
 
     def _make(idx: int):
-        def _f():
-            return gym.make("Pendulum-v1")
+        def _f() -> PendulumEnv:
+            return cast("PendulumEnv", gym.make("Pendulum-v1"))  # pyright: ignore[reportUnknownMemberType]
 
         return _f
 
@@ -181,25 +191,31 @@ def sac_update(
     obs, actions, rewards, next_obs, dones = buffer.sample(batch_size, rng)
     with torch.no_grad():
         next_action, next_logp = actor.sample(next_obs)
-        target_q = torch.min(q1_target(next_obs, next_action), q2_target(next_obs, next_action))
+        # nn.Module.__call__ is untyped in torch's stubs, so torch.min's
+        # overload resolution yields Unknown — pin the Tensor result.
+        target_q = cast(
+            "Tensor",
+            torch.min(q1_target(next_obs, next_action), q2_target(next_obs, next_action)),
+        )
         target = rewards + gamma * (1.0 - dones) * (target_q - alpha * next_logp)
 
     # Q losses (Bellman MSE)
     q1_loss = F.mse_loss(q1(obs, actions), target)
     q2_loss = F.mse_loss(q2(obs, actions), target)
     q1_opt.zero_grad()
-    q1_loss.backward()
+    # torch stub: Tensor.backward's params are unannotated.
+    q1_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     q1_opt.step()
     q2_opt.zero_grad()
-    q2_loss.backward()
+    q2_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     q2_opt.step()
 
     # Actor loss: E[α * log π(a|s) - min(Q1(s,a), Q2(s,a))]
     sampled_action, logp = actor.sample(obs)
-    q_min = torch.min(q1(obs, sampled_action), q2(obs, sampled_action))
+    q_min = cast("Tensor", torch.min(q1(obs, sampled_action), q2(obs, sampled_action)))
     actor_loss = (alpha * logp - q_min).mean()
     actor_opt.zero_grad()
-    actor_loss.backward()
+    actor_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     actor_opt.step()
 
     return float(actor_loss.item())
@@ -232,7 +248,8 @@ def train_sac(
 ) -> tuple[Actor, list[float]]:
     """Polyak soft update τ=0.005 every step, matching the Idris port which
     calls `polyakBlend` after each gradient step."""
-    torch.manual_seed(seed)
+    # torch stub: manual_seed's seed param is unannotated.
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]
     rng = random.Random(seed)
     actor = Actor().to(get_device())
     q1 = QNet().to(get_device())
@@ -264,8 +281,10 @@ def train_sac(
             with torch.no_grad():
                 a_t, _ = actor.sample(obs_t)
                 actions_np = a_t.cpu().numpy().astype(np.float64)
-        next_obs_np, rewards_np, _terms, _truncs, _ = vec_env.step(
-            actions_np.astype(np.float32).reshape(NUM_ENVS, 1)
+        # SyncVectorEnv.step's stub returns unsolved TypeVars (Unknown).
+        next_obs_np, rewards_np, _terms, _truncs, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec_env.step(actions_np.astype(np.float32).reshape(NUM_ENVS, 1)),
         )
         next_obs_np = next_obs_np.astype(np.float64)
         ep_lens += 1
@@ -318,7 +337,7 @@ def train_sac(
 
 
 def evaluate(actor: Actor, n_episodes: int = 20) -> float:
-    env = gym.make("Pendulum-v1")
+    env = cast("PendulumEnv", gym.make("Pendulum-v1"))  # pyright: ignore[reportUnknownMemberType]
     env.reset(seed=0)
     total = 0.0
     for _ in range(n_episodes):

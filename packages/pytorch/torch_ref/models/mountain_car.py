@@ -22,6 +22,7 @@ import copy
 import random
 import time
 from collections import deque
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -38,23 +39,30 @@ MAX_STEPS = 200  # gymnasium MountainCar-v0 default TimeLimit
 # `Example.MountainCar.NumEnvs`.
 NUM_ENVS = 4
 
+# MountainCar-v0: Box obs (np.ndarray) and Discrete(3) actions (int).
+# `gym.make` returns a bare (unparameterized) `Env`, so the concrete
+# type is applied via cast at construction.
+type MountainCarEnv = gym.Env[np.ndarray, int]
 
-def make_mountaincar_env(seed: int) -> gym.Env:
+
+def make_mountaincar_env(seed: int) -> MountainCarEnv:
     """Create a MountainCar-v0 env seeded once at construction. Per-episode
     resets advance the env's PRNG and randomize pos ~ U(-0.6, -0.4) per
     Gymnasium, matching idris-gym's randomized `Env.reset`."""
-    env = gym.make("MountainCar-v0")
+    env = cast("MountainCarEnv", gym.make("MountainCar-v0"))  # pyright: ignore[reportUnknownMemberType]
     env.reset(seed=seed)
     return env
 
 
-def reset_to_center(env: gym.Env) -> np.ndarray:
+def reset_to_center(env: MountainCarEnv) -> np.ndarray:
     """Return obs of the env's current (just-reset) state as float64.
 
     Previously pinned to (-0.5, 0.0); idris-gym now randomizes per
     Gymnasium and the PyTorch side follows.
     """
-    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
+    # `state` is a dynamic attr on the raw MountainCarEnv, invisible to
+    # gymnasium's `Env` type.
+    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
@@ -112,7 +120,7 @@ def make_mountaincar_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorE
     and randomized per Gymnasium on each reset."""
 
     def _make(idx: int):
-        def _f():
+        def _f() -> MountainCarEnv:
             return make_mountaincar_env(seed + idx)
 
         return _f
@@ -163,14 +171,15 @@ def dqn_update(
         target_vals = rewards + gamma * target_max * (1.0 - dones)
     loss = F.mse_loss(q_vals, target_vals)
     optimizer.zero_grad()
-    loss.backward()
+    # torch stubs leave Tensor.backward's params untyped.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     torch.nn.utils.clip_grad_norm_(q.parameters(), 10.0)
     optimizer.step()
     return float(loss.item())
 
 
 def dqn_episode(
-    env: gym.Env,
+    env: MountainCarEnv,
     q: QNetwork,
     target: QNetwork,
     optimizer: torch.optim.Optimizer,
@@ -239,7 +248,11 @@ def dqn_episode_batched(
         obs_t = obs_tensor(obs_np)
         epsilon = linear_epsilon(step_count, eps_start, eps_end, eps_decay)
         actions_np = eps_greedy_batched(q, obs_t, epsilon, rng)
-        next_obs_np, raw_rewards, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        # SyncVectorEnv is unparameterized upstream; narrow its step() products.
+        next_obs_np, raw_rewards, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec_env.step(actions_np),
+        )
         next_obs_np = next_obs_np.astype(np.float64)
         dones_np = np.logical_or(terms_np, truncs_np)
         ep_return += float(raw_rewards[0])
@@ -284,7 +297,7 @@ def train_dqn(
 ) -> tuple[QNetwork, list[float]]:
     """Batched DQN. NUM_ENVS envs collect transitions in lockstep via
     `gym.vector.SyncVectorEnv`. Each "episode" = env-0's primary episode."""
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType] - untyped `seed` param in torch stubs
     rng = random.Random(seed)
     q = QNetwork()
     target = copy.deepcopy(q)

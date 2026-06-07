@@ -18,6 +18,7 @@ import copy
 import random
 import time
 from collections import deque
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -38,20 +39,24 @@ from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem
 # `Example.Dqn.NumEnvs`.
 NUM_ENVS = 4
 
+# CartPole-v1: Box obs (np.ndarray) and Discrete(2) actions (int).
+type CartPoleEnv = gym.Env[np.ndarray, int]
+
 
 def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     """N independent CartPole envs in a SyncVectorEnv, each reset to all-zero
     to mirror idris-gym's `Gym.ClassicControl.CartPole.reset`."""
 
     def _make(idx: int):
-        def _f():
+        def _f() -> CartPoleEnv:
             return make_cartpole_env(seed + idx)
 
         return _f
 
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
-    for sub in vec.envs:
+    # SyncVectorEnv.envs is untyped upstream (bare `Env`).
+    for sub in cast("list[CartPoleEnv]", vec.envs):  # pyright: ignore[reportUnknownMemberType]
         reset_to_zero(sub)
     return vec
 
@@ -145,14 +150,15 @@ def dqn_update(
         target_vals = rewards + gamma * target_max * (1.0 - dones)
     loss = F.mse_loss(q_vals, target_vals)
     optimizer.zero_grad()
-    loss.backward()
+    # torch stubs leave Tensor.backward's params untyped.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     torch.nn.utils.clip_grad_norm_(q.parameters(), 10.0)
     optimizer.step()
     return float(loss.item())
 
 
 def dqn_episode(
-    env: gym.Env,
+    env: CartPoleEnv,
     q: QNetwork,
     target: QNetwork,
     optimizer: torch.optim.Optimizer,
@@ -211,11 +217,17 @@ def dqn_episode_batched(
 
     Returns (new_step_count, env-0's episode return, new obs_np)."""
     ep_return = 0.0
+    # SyncVectorEnv.envs is untyped upstream (bare `Env`).
+    envs = cast("list[CartPoleEnv]", vec_env.envs)  # pyright: ignore[reportUnknownMemberType]
     for _ in range(MAX_STEPS):
         obs_t = obs_tensor(obs_np)  # [N, 4]
         epsilon = linear_epsilon(step_count)
         actions_np = eps_greedy_batched(q, obs_t, epsilon, rng)
-        next_obs_np, rewards_np, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        # SyncVectorEnv is unparameterized upstream; narrow its step() products.
+        next_obs_np, rewards_np, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec_env.step(actions_np),
+        )
         next_obs_np = next_obs_np.astype(np.float64)
         dones_np = np.logical_or(terms_np, truncs_np)
         for i in range(NUM_ENVS):
@@ -230,7 +242,7 @@ def dqn_episode_batched(
         # Auto-reset terminated envs back to zero state.
         for i in range(NUM_ENVS):
             if dones_np[i]:
-                reset_to_zero(vec_env.envs[i])
+                reset_to_zero(envs[i])
                 next_obs_np[i] = 0.0
         obs_np = next_obs_np
         step_count += 1
@@ -258,7 +270,7 @@ def train_dqn(
 ) -> tuple[QNetwork, list[float]]:
     """Batched DQN. NUM_ENVS envs collect transitions in lockstep via
     `gym.vector.SyncVectorEnv`. Each "episode" = env-0's primary episode."""
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType] - untyped `seed` param in torch stubs
     rng = random.Random(seed)
     q = QNetwork()
     target = copy.deepcopy(q)

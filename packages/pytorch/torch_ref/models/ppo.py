@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 import random
 import time
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -38,25 +39,34 @@ MAX_STEPS = 500  # gymnasium Acrobot-v1 default TimeLimit
 # `Example.Ppo.NumEnvs`. Compile-time on Idris; module-level here.
 NUM_ENVS = 4
 
+# Acrobot-v1: Box observations (np.ndarray) and Discrete actions (int).
+# gymnasium's `gym.make` stub returns `Env[Unknown, Unknown]`, so call
+# sites pin this alias for pyright strict.
+AcrobotEnv = gym.Env[np.ndarray, int]
 
-def make_acrobot_env(seed: int) -> gym.Env:
+
+def make_acrobot_env(seed: int) -> AcrobotEnv:
     """Create an Acrobot-v1 env seeded once at construction. Per-episode
     resets advance the env's PRNG and randomize the 4 state components
     ~ U(-0.1, 0.1) per Gymnasium, matching idris-gym's randomized
     `Env.reset`."""
-    env = gym.make("Acrobot-v1")
+    env = cast("AcrobotEnv", gym.make("Acrobot-v1"))  # pyright: ignore[reportUnknownMemberType]
     env.reset(seed=seed)
     return env
 
 
-def reset_to_zero(env: gym.Env) -> np.ndarray:
+def reset_to_zero(env: AcrobotEnv) -> np.ndarray:
     """Return obs [cos(th1), sin(th1), cos(th2), sin(th2), dth1, dth2]
     derived from the env's current (just-reset) state, as float64.
 
     Previously pinned state to (0, 0, 0, 0); idris-gym now randomizes
     per Gymnasium and the PyTorch side follows.
     """
-    th1, th2, dth1, dth2 = env.unwrapped.state  # pyright: ignore[reportAttributeAccessIssue]
+    # `state` isn't on the Env stub (Acrobot-specific 4-float array).
+    th1, th2, dth1, dth2 = cast(
+        "tuple[float, float, float, float]",
+        env.unwrapped.state,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    )
     return np.array(
         [math.cos(th1), math.sin(th1), math.cos(th2), math.sin(th2), dth1, dth2],
         dtype=np.float64,
@@ -102,7 +112,9 @@ def sample_action(actor: Actor, obs: Tensor, rng: random.Random) -> tuple[int, f
         u = rng.random()
         cum = 0.0
         a = 0
-        for i, p in enumerate(probs.tolist()):
+        # torch stub: Tensor.tolist() returns list[Unknown].
+        probs_list: list[float] = probs.tolist()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+        for i, p in enumerate(probs_list):
             cum += p
             if u <= cum:
                 a = i
@@ -240,19 +252,24 @@ def collect_rollout(
                     break
             actions_np[env_idx] = a
             lps_np[env_idx] = float(log_probs_np[env_idx, a])
-        # Step all envs.
-        next_obs_np, rewards_np, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        # Step all envs. SyncVectorEnv.step's stub returns unsolved
+        # TypeVars (Unknown).
+        next_obs_np, rewards_np, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec_env.step(actions_np),
+        )
         ep_lens = ep_lens + 1
         gym_dones = np.logical_or(terms_np, truncs_np)
         len_trunc = ep_lens >= max_ep_len
         dones_np = np.logical_or(gym_dones, len_trunc)
-        # Record per-step batch.
+        # Record per-step batch. torch stub: from_numpy's ndarray param
+        # is unannotated.
         obs_list.append(obs_t)
-        act_list.append(torch.from_numpy(actions_np).to(device))
-        lp_list.append(torch.from_numpy(lps_np.astype(np.float64)).to(device, dtype))
-        rew_list.append(torch.from_numpy(rewards_np.astype(np.float64)).to(device, dtype))
+        act_list.append(torch.from_numpy(actions_np).to(device))  # pyright: ignore[reportUnknownMemberType]
+        lp_list.append(torch.from_numpy(lps_np.astype(np.float64)).to(device, dtype))  # pyright: ignore[reportUnknownMemberType]
+        rew_list.append(torch.from_numpy(rewards_np.astype(np.float64)).to(device, dtype))  # pyright: ignore[reportUnknownMemberType]
         val_list.append(values_t.detach().to(dtype))
-        done_list.append(torch.from_numpy(dones_np.astype(np.float64)).to(device, dtype))
+        done_list.append(torch.from_numpy(dones_np.astype(np.float64)).to(device, dtype))  # pyright: ignore[reportUnknownMemberType]
         # Per-env episode accounting. Gymnasium's SyncVectorEnv auto-resets
         # any terminated/truncated sub-env and returns the new randomized
         # obs in next_obs_np[env_idx], so we don't need to reset manually.
@@ -314,13 +331,14 @@ def ppo_update(
             entropy = -(torch.exp(log_probs) * log_probs).sum(dim=-1).mean()
             actor_loss = policy_loss - entropy_coef * entropy
             actor_opt.zero_grad()
-            actor_loss.backward()
+            # torch stub: Tensor.backward's params are unannotated.
+            actor_loss.backward()  # pyright: ignore[reportUnknownMemberType]
             torch.nn.utils.clip_grad_norm_(actor.parameters(), 0.5)
             actor_opt.step()
             v_b = critic(o_b)
             critic_loss = F.mse_loss(v_b, ret_b)
             critic_opt.zero_grad()
-            critic_loss.backward()
+            critic_loss.backward()  # pyright: ignore[reportUnknownMemberType]
             torch.nn.utils.clip_grad_norm_(critic.parameters(), 0.5)
             critic_opt.step()
 
@@ -343,7 +361,8 @@ def train_ppo(
     (pre-batched used rollout_steps=1024 with one env; default here is
     256 steps × 4 envs = 1024 total to keep the per-update sample budget
     constant, matching Idris-side `Example.Ppo.RolloutLen`)."""
-    torch.manual_seed(seed)
+    # torch stub: manual_seed's seed param is unannotated.
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]
     rng = random.Random(seed)
     actor = Actor().to(get_device())
     critic = Critic().to(get_device())

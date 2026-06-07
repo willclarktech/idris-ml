@@ -18,10 +18,11 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, GPT2LMHeadModel
 
 SEQ_LEN = 32
 
@@ -70,7 +71,8 @@ def sample_window(tokens: list[int], cap_max_start: int) -> tuple[list[int], lis
 
 def main() -> int:
     args = parse_args()
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
 
     print("=== Gpt2LmFinetune (PyTorch ref) ===")
@@ -86,11 +88,16 @@ def main() -> int:
         )
         return 1
 
-    model = AutoModelForCausalLM.from_pretrained(str(BACKBONE_DIR))
+    # transformers 5.x lazy attrs make Auto* from_pretrained return a
+    # loose union pyright can't narrow; cast to the concrete class.
+    model = cast(
+        GPT2LMHeadModel,  # noqa: TC006 - unquoted so vulture sees the import used
+        AutoModelForCausalLM.from_pretrained(str(BACKBONE_DIR)),  # pyright: ignore[reportUnknownMemberType]
+    )
     device = torch.device("cpu")
     # transformers 5.x wraps Module.to in a decorator whose _Wrapped
     # type pyright can't bind as a method; the call is fine at runtime.
-    model.to(device)  # pyright: ignore[reportArgumentType]
+    model.to(device)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
     model.train(True)
     print("distilgpt2 backbone warm-started.")
 
@@ -111,7 +118,8 @@ def main() -> int:
         loss = loss_fn(logits, targets)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step()
+        # torch's Optimizer.step stub leaves `closure` unannotated.
+        opt.step()  # pyright: ignore[reportUnknownMemberType]
         last_loss = loss.item()
         acc_loss += last_loss
         if step % 10 == 0:

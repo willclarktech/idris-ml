@@ -47,7 +47,7 @@ def generate_waveform(label: int, length: int = SEQ_LEN) -> list[float]:
     freq = random.uniform(1.0, 3.0)
     phase = random.uniform(0, 2 * math.pi)
     noise = 0.1
-    result = []
+    result: list[float] = []
     for i in range(length):
         t = i / length * 2 * math.pi * freq + phase
         if label == 0:  # sine
@@ -64,8 +64,8 @@ def generate_batch(
     batch_size: int,
 ) -> tuple[Tensor, Tensor]:
     """Generate a batch of (input [B,1,SEQ_LEN], labels [B])."""
-    inputs = []
-    labels = []
+    inputs: list[list[float]] = []
+    labels: list[int] = []
     for _ in range(batch_size):
         label = random.randint(0, NUM_CLASSES - 1)
         wave = generate_waveform(label)
@@ -88,7 +88,8 @@ def train_epoch(
     optimizer.zero_grad()
     output = model(data)
     loss = F.nll_loss(output, target)
-    loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     optimizer.step()
     return loss.item()
 

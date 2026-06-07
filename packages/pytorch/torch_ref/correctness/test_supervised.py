@@ -10,7 +10,7 @@ from torch_ref.training.runner import get_dtype
 class TestSupervised:
     def test_loss_decreases(self) -> None:
         """Loss should decrease over 100 epochs."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         # Match SUPERVISED_DATA's dtype (= get_dtype(), F64 default).
         # Without the cast, nn.Linear's default-F32 weight mismatches
         # the F64 input tensors. scripts/supervised.py uses the same
@@ -62,7 +62,7 @@ class TestSupervised:
         commit that added the .to(dtype=get_dtype()) cast) was
         masking it pre-2026-06-04.
         """
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         # Match SUPERVISED_DATA's dtype (= get_dtype(), F64 default).
         # Without the cast, nn.Linear's default-F32 weight mismatches
         # the F64 input tensors. scripts/supervised.py uses the same

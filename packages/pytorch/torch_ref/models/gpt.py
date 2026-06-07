@@ -176,7 +176,7 @@ def generate_gpt_data(
     Input = tokens[0:seq_len] one-hot, Target = tokens[1:seq_len+1] indices.
     """
     max_start = len(corpus) - seq_len - 1
-    data = []
+    data: list[tuple[Tensor, Tensor]] = []
     device = get_device()
     for _ in range(batch_size):
         start = random.randint(0, max_start)
@@ -208,7 +208,8 @@ def train_gpt_epoch(
         total_loss = total_loss + loss
 
     avg_loss = total_loss / len(data)
-    avg_loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    avg_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     return avg_loss.item()
@@ -286,7 +287,8 @@ def train_gpt(
     batch_size: int = 32,
 ) -> tuple[MultiHeadTransformer, list[float]]:
     """Train a char-level GPT and return (model, loss_history)."""
-    torch.manual_seed(seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(seed)
 
     model = MultiHeadTransformer(

@@ -29,7 +29,7 @@ class TestNtmCopyQuick:
 
     def test_loss_decreases(self) -> None:
         """Loss should decrease over 200 training steps."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         random.seed(42)
 
         cfg = _copy_config()
@@ -60,7 +60,7 @@ class TestNtmCopyConvergence:
 
     def test_small_copy_converges(self) -> None:
         """Copy with short sequences should reach low loss in 1500 steps."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         random.seed(42)
 
         cfg = _copy_config(seq_width=4, lr=1e-3)

@@ -6,6 +6,7 @@ for train/test comparison.
 
 import math
 from dataclasses import dataclass, field
+from typing import cast
 
 import torch
 from torch import Tensor
@@ -62,8 +63,8 @@ class NtmSummary:
     read_addr_peak_mass: float
     write_monotonic: bool
     read_monotonic: bool
-    write_argmaxes: list[int] = field(default_factory=list)
-    read_argmaxes: list[int] = field(default_factory=list)
+    write_argmaxes: list[int] = field(default_factory=list[int])
+    read_argmaxes: list[int] = field(default_factory=list[int])
     slots_used: int = 0
     num_slots: int = 0
     seq_len: int = 0
@@ -79,7 +80,8 @@ def _read_head_input_width(w: int) -> int:
     return addressing_params_width(w)
 
 
-def _write_head_input_width(w: int) -> int:
+# Unreferenced helper kept as documentation of the write-head layout.
+def _write_head_input_width(w: int) -> int:  # pyright: ignore[reportUnusedFunction]
     return addressing_params_width(w) + w  # addressing + add vector
 
 
@@ -114,7 +116,8 @@ def _extract_write_params(
 def _extract_timestep(model: NtmModel, t: int, x: Tensor, y: Tensor, w: int) -> NtmTimestep:
     """Run one timestep and extract diagnostics."""
     _ = model(x)
-    diag: dict[str, Tensor] = model.ntm._diag
+    # Deliberate reach into the NTM's diagnostics-only stash.
+    diag: dict[str, Tensor] = model.ntm._diag  # pyright: ignore[reportPrivateUsage]
 
     read_raw = diag["read_params"]
     write_raw = diag["write_params"]
@@ -238,7 +241,8 @@ def _is_strictly_increasing(xs: list[int]) -> bool:
 
 def _count_slots_used(memory: Tensor, threshold: float = 0.01) -> int:
     """Count memory rows with norm > threshold."""
-    norms = memory.norm(dim=-1)
+    # Tensor.norm has untyped params in torch stubs -> partially unknown member.
+    norms = cast("Tensor", memory.norm(dim=-1))  # pyright: ignore[reportUnknownMemberType]
     return int((norms > threshold).sum().item())
 
 

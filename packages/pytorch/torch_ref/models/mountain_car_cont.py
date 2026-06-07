@@ -24,6 +24,7 @@ import math
 import random
 import time
 from collections import deque
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -41,20 +42,27 @@ MAX_STEPS = 999  # Gymnasium's MountainCarContinuous-v0 default TimeLimit
 # `Example.MountainCarCont.NumEnvs`.
 NUM_ENVS = 4
 
+# MountainCarContinuous-v0: Box obs and Box(1,) actions, both np.ndarray.
+# `gym.make` returns a bare (unparameterized) `Env`, so the concrete
+# type is applied via cast at construction.
+type MountainCarContEnv = gym.Env[np.ndarray, np.ndarray]
 
-def make_mountaincarcont_env(seed: int) -> gym.Env:
-    env = gym.make("MountainCarContinuous-v0")
+
+def make_mountaincarcont_env(seed: int) -> MountainCarContEnv:
+    env = cast("MountainCarContEnv", gym.make("MountainCarContinuous-v0"))  # pyright: ignore[reportUnknownMemberType]
     env.reset(seed=seed)
     return env
 
 
-def reset_to_center(env: gym.Env) -> np.ndarray:
+def reset_to_center(env: MountainCarContEnv) -> np.ndarray:
     """Return obs of the env's current (just-reset) state as float64.
 
     Previously pinned to (-0.5, 0.0); idris-gym now randomizes per
     Gymnasium and the PyTorch side follows.
     """
-    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
+    # `state` is a dynamic attr on the raw env, invisible to gymnasium's
+    # `Env` type.
+    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
@@ -67,7 +75,7 @@ def make_mountaincarcont_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVec
     Idris-side `Gym.Vector.resetAll`)."""
 
     def _make(idx: int):
-        def _f():
+        def _f() -> MountainCarContEnv:
             return make_mountaincarcont_env(seed + idx)
 
         return _f
@@ -161,21 +169,27 @@ def sac_update(
     obs, actions, rewards, next_obs, dones = buffer.sample(batch_size, rng)
     with torch.no_grad():
         next_action, next_logp = actor.sample(next_obs)
-        target_q = torch.min(q1_target(next_obs, next_action), q2_target(next_obs, next_action))
+        # nn.Module.__call__ returns Any, so torch.min's overload result is
+        # unknown — pin the Tensor type.
+        target_q = cast(
+            "Tensor",
+            torch.min(q1_target(next_obs, next_action), q2_target(next_obs, next_action)),
+        )
         target = rewards + gamma * (1.0 - dones) * (target_q - alpha * next_logp)
     q1_loss = F.mse_loss(q1(obs, actions), target)
     q2_loss = F.mse_loss(q2(obs, actions), target)
     q1_opt.zero_grad()
-    q1_loss.backward()
+    # torch stubs leave Tensor.backward's params untyped.
+    q1_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     q1_opt.step()
     q2_opt.zero_grad()
-    q2_loss.backward()
+    q2_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     q2_opt.step()
     sampled_action, logp = actor.sample(obs)
-    q_min = torch.min(q1(obs, sampled_action), q2(obs, sampled_action))
+    q_min = cast("Tensor", torch.min(q1(obs, sampled_action), q2(obs, sampled_action)))
     actor_loss = (alpha * logp - q_min).mean()
     actor_opt.zero_grad()
-    actor_loss.backward()
+    actor_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     actor_opt.step()
     return float(actor_loss.item())
 
@@ -202,7 +216,7 @@ def train_sac(
     """Batched SAC. NUM_ENVS parallel envs in lockstep — each outer step
     pushes NUM_ENVS transitions to the buffer and does one gradient
     update. Total env-steps per `total_steps` outer = total_steps * N."""
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType] - untyped `seed` param in torch stubs
     rng = random.Random(seed)
     actor = Actor().to(get_device())
     q1 = QNet().to(get_device())
@@ -230,8 +244,10 @@ def train_sac(
             with torch.no_grad():
                 a_t, _ = actor.sample(obs_t)
                 actions_np = a_t.cpu().numpy().astype(np.float64)
-        next_obs_np, raw_rewards, terms_np, truncs_np, _ = vec_env.step(
-            actions_np.astype(np.float32).reshape(NUM_ENVS, 1)
+        # SyncVectorEnv is unparameterized upstream; narrow its step() products.
+        next_obs_np, raw_rewards, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec_env.step(actions_np.astype(np.float32).reshape(NUM_ENVS, 1)),
         )
         next_obs_np = next_obs_np.astype(np.float64)
         is_dones = np.logical_or(terms_np, truncs_np)

@@ -52,7 +52,7 @@ def generate_copy_batch(
 
     Each element is (input_seq, target_seq) with varying seq_len.
     """
-    batch = []
+    batch: list[tuple[Tensor, Tensor]] = []
     for _ in range(batch_size):
         seq_len = random.randint(seq_min, seq_max)
         batch.append(generate_copy_sequence(seq_len, seq_width))

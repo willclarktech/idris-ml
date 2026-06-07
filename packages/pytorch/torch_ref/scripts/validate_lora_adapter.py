@@ -30,9 +30,15 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 from peft import PeftModel
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    BertForSequenceClassification,
+    PreTrainedTokenizerBase,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,13 +76,20 @@ def main() -> int:
         return 1
 
     print(f"Loading base model: {args.base_model}")
-    base = AutoModelForSequenceClassification.from_pretrained(
-        args.base_model, num_labels=args.num_labels
+    # transformers 5.x lazy attrs make Auto* from_pretrained return a
+    # loose union pyright can't narrow; cast to the concrete class.
+    base = cast(
+        "BertForSequenceClassification",
+        AutoModelForSequenceClassification.from_pretrained(  # pyright: ignore[reportUnknownMemberType]
+            args.base_model, num_labels=args.num_labels
+        ),
     )
 
     print(f"Loading LoRA adapter from {adapter_dir}")
     try:
-        peft_model = PeftModel.from_pretrained(base, str(adapter_dir))
+        # peft's from_pretrained stub carries PathLike[Unknown] params;
+        # the return type (PeftModel) is concrete.
+        peft_model = PeftModel.from_pretrained(base, str(adapter_dir))  # pyright: ignore[reportUnknownMemberType]
     except (RuntimeError, KeyError, ValueError) as e:
         print(f"ERROR: PeftModel.from_pretrained failed: {e}", file=sys.stderr)
         return 2
@@ -88,7 +101,12 @@ def main() -> int:
     # expected shape.
     print("Running forward-pass smoke check...")
     try:
-        tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+        # transformers 5.x lazy attrs hide AutoTokenizer's return type;
+        # cast to the typed base.
+        tokenizer = cast(
+            "PreTrainedTokenizerBase",
+            AutoTokenizer.from_pretrained(args.base_model),  # pyright: ignore[reportUnknownMemberType]
+        )
         inputs = tokenizer("the quick brown fox jumps over the lazy dog", return_tensors="pt")
         outputs = peft_model(**inputs)
         logits = outputs.logits

@@ -92,7 +92,7 @@ def _train_ntm_epoch(
 
         # Output phase: feed zeros, compute loss on targets
         zero_input = torch.zeros(input_width, device=device)
-        outputs = []
+        outputs: list[torch.Tensor] = []
         for _ in range(seq_len):
             out = model(zero_input)
             outputs.append(out)
@@ -102,7 +102,7 @@ def _train_ntm_epoch(
         total_loss = total_loss + loss
 
     avg_loss = total_loss / len(batch)
-    avg_loss.backward()
+    avg_loss.backward()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     clip_grad_value_(model.parameters(), clip_value)
     optimizer.step()
     return avg_loss.item()
@@ -110,7 +110,7 @@ def _train_ntm_epoch(
 
 def bench_supervised() -> tuple[float, float, float]:
     """Benchmark supervised model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
-    torch.manual_seed(123456)
+    torch.manual_seed(123456)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     model = SupervisedModel()
     data = SUPERVISED_DATA
     lr = 0.03
@@ -124,7 +124,7 @@ def bench_supervised() -> tuple[float, float, float]:
 
 def bench_rnn() -> tuple[float, float, float]:
     """Benchmark RNN model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
-    torch.manual_seed(123456)
+    torch.manual_seed(123456)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     model = LinearRNNCell(1, 1)
     data = generate_rnn_dataset(8)
     lr = 0.03
@@ -142,7 +142,7 @@ def bench_ntm() -> tuple[float, float, float]:
     Small NTM (w=3, n=10, m=5, h=20, batch=5) matching Idris benchNtm.
     """
     random.seed(123456)
-    torch.manual_seed(123456)
+    torch.manual_seed(123456)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     w, n, m, h = 3, 10, 5, 20
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
@@ -166,7 +166,7 @@ def bench_ntm_copy() -> tuple[float, float, float]:
     Production NTM (w=8, n=128, m=20, h=100, batch=16) matching Idris NtmCopy.
     """
     random.seed(123456)
-    torch.manual_seed(123456)
+    torch.manual_seed(123456)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     w, n, m, h = 8, 128, 20, 100
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
@@ -190,7 +190,7 @@ def bench_ntm_copy_1k() -> tuple[float, float, float]:
     Realistic benchmark: fresh batch each epoch, momentum=0.9, matching Idris benchNtmCopy1k.
     """
     random.seed(123456)
-    torch.manual_seed(123456)
+    torch.manual_seed(123456)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     w, n, m, h = 8, 128, 20, 100
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
@@ -214,7 +214,7 @@ def bench_ntm_recall() -> tuple[float, float, float]:
     Production NTM recall (w=6, n=128, m=20, h=100, batch=16) matching Idris NtmAssociativeRecall.
     """
     random.seed(123456)
-    torch.manual_seed(123456)
+    torch.manual_seed(123456)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     w, n, m, h = 6, 128, 20, 100
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
@@ -238,7 +238,7 @@ def bench_multi_head_transformer() -> tuple[float, float, float]:
     Fresh data each epoch, loss only on reversal portion (matching Idris).
     Returns (elapsed_ms, final_loss, peak_rss_mb).
     """
-    torch.manual_seed(123456)
+    torch.manual_seed(123456)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     vocab_size, input_len, seq_len = 10, 5, 11
     sep_token, eos_token = 8, 9
     d_model, num_heads = 32, 4

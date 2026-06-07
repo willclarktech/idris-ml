@@ -51,7 +51,7 @@ dev = [
 
 [tool.pyright]
 pythonVersion = "3.12"
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 
 [tool.vulture]
 # 80% strikes the right balance: 60% (default) flags too many false

@@ -166,7 +166,7 @@ def generate_rnn_data(n: int) -> tuple[list[float], list[float]]:
 
 def generate_rnn_dataset(n: int) -> list[tuple[list[Tensor], list[Tensor]]]:
     """Generate n sequences with lengths 3, 4, ..., n+2."""
-    dataset = []
+    dataset: list[tuple[list[Tensor], list[Tensor]]] = []
     device = get_device()
     for i in range(n):
         length = i + 3
@@ -200,7 +200,8 @@ def train_lstm_epoch(
             seq_loss = seq_loss + bce_with_logits(pred, y)
         total_loss = total_loss + seq_loss / len(xs)
     loss = total_loss / len(data)
-    loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     optimizer.step()
     return loss.item()
 
@@ -222,7 +223,8 @@ def train_gru_epoch(
             seq_loss = seq_loss + bce_with_logits(pred, y)
         total_loss = total_loss + seq_loss / len(xs)
     loss = total_loss / len(data)
-    loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     optimizer.step()
     return loss.item()
 
@@ -248,6 +250,7 @@ def train_rnn_epoch(
             seq_loss = seq_loss + bce_with_logits(pred, y)
         total_loss = total_loss + seq_loss / len(xs)
     loss = total_loss / len(data)
-    loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     optimizer.step()
     return loss.item()

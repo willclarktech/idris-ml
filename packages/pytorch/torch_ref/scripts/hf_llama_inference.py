@@ -16,9 +16,15 @@ is mps on Apple Silicon, cpu otherwise.
 
 import os
 import time
+from typing import cast
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    LlamaForCausalLM,
+    PreTrainedTokenizerBase,
+)
 
 MODEL_ID = "unsloth/Llama-3.2-1B"
 PROMPT = "The capital of France is"
@@ -38,11 +44,19 @@ def main() -> None:
     device = pick_device()
     dtype = torch.float32
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=dtype)
+    # transformers 5.x lazy attrs make Auto* from_pretrained return a
+    # loose union pyright can't narrow; cast to the typed base/class.
+    tokenizer = cast(
+        "PreTrainedTokenizerBase",
+        AutoTokenizer.from_pretrained(MODEL_ID),  # pyright: ignore[reportUnknownMemberType]
+    )
+    model = cast(
+        LlamaForCausalLM,  # noqa: TC006 - unquoted so vulture sees the import used
+        AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=dtype),  # pyright: ignore[reportUnknownMemberType]
+    )
     # transformers 5.x wraps Module.to in a decorator whose _Wrapped
     # type pyright can't bind as a method; the call is fine at runtime.
-    model.to(device)  # pyright: ignore[reportArgumentType]
+    model.to(device)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
     model.train(False)
 
     print(f"Llama-3.2-1B generation reference - {MODEL_ID} on {device} f32")
@@ -54,13 +68,17 @@ def main() -> None:
         # transformers 5.x's GenerativePreTrainedModel protocol doesn't
         # match its own model classes (device property vs mutable attr),
         # so pyright can't bind .generate; fine at runtime.
-        gen_ids = model.generate(  # pyright: ignore[reportAttributeAccessIssue]
-            **inputs,
-            max_new_tokens=NUM_TOKENS,
-            do_sample=False,
-            pad_token_id=tokenizer.eos_token_id,
+        gen_ids = cast(
+            "torch.Tensor",
+            model.generate(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                **inputs,
+                max_new_tokens=NUM_TOKENS,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
+            ),
         )
-    _text = tokenizer.decode(gen_ids[0], skip_special_tokens=True)
+    # decode's stub carries **kwargs: Unknown; the call itself is typed.
+    _text = tokenizer.decode(gen_ids[0], skip_special_tokens=True)  # pyright: ignore[reportUnknownMemberType]
     t1 = time.monotonic()
     wall_ms = (t1 - t0) * 1000.0
 

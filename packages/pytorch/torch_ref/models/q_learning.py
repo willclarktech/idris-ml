@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import random
 import time
+from typing import cast
 
 import gymnasium as gym
 import numpy as np
+import numpy.typing as npt
 
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
@@ -27,7 +29,7 @@ NUM_ACTIONS = 4  # 0=up, 1=right, 2=down, 3=left
 MAX_STEPS = 100
 
 
-def eps_greedy(q_row: np.ndarray, epsilon: float, rng: random.Random) -> int:
+def eps_greedy(q_row: npt.NDArray[np.float64], epsilon: float, rng: random.Random) -> int:
     """Epsilon-greedy action selection. Ties broken by first-argmax."""
     if rng.random() < epsilon:
         return rng.randrange(NUM_ACTIONS)
@@ -35,8 +37,8 @@ def eps_greedy(q_row: np.ndarray, epsilon: float, rng: random.Random) -> int:
 
 
 def q_learning_episode(
-    env: gym.Env,
-    q: np.ndarray,
+    env: gym.Env[int, int],
+    q: npt.NDArray[np.float64],
     alpha: float,
     gamma: float,
     epsilon: float,
@@ -68,10 +70,14 @@ def train_q_learning(
     epsilon: float = 0.1,
     seed: int = 42,
     log_every: int = 100,
-) -> tuple[np.ndarray, list[float]]:
+) -> tuple[npt.NDArray[np.float64], list[float]]:
     """Train Q-learning on CliffWalking. Returns (Q-table, history of returns)."""
     rng = random.Random(seed)
-    env = gym.make("CliffWalking-v1")
+    # gym.make returns an unparameterized Env; CliffWalking obs/actions are ints
+    env = cast(
+        "gym.Env[int, int]",
+        gym.make("CliffWalking-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
@@ -88,9 +94,13 @@ def train_q_learning(
     return q, history
 
 
-def evaluate(q: np.ndarray, n_episodes: int = 100) -> float:
+def evaluate(q: npt.NDArray[np.float64], n_episodes: int = 100) -> float:
     """Greedy evaluation. Returns mean return."""
-    env = gym.make("CliffWalking-v1")
+    # gym.make returns an unparameterized Env; CliffWalking obs/actions are ints
+    env = cast(
+        "gym.Env[int, int]",
+        gym.make("CliffWalking-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=0)
     total = 0.0
     for _ in range(n_episodes):

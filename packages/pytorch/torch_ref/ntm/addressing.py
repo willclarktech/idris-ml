@@ -1,5 +1,7 @@
 """NTM addressing operations: content addressing, interpolation, shift, focus."""
 
+from typing import cast
+
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -15,8 +17,11 @@ def addressing_params_width(key_size: int) -> int:
 def cosine_similarity(key: Tensor, row: Tensor, eps: float = 1e-6) -> Tensor:
     """Cosine similarity between key and row vectors."""
     dot = (key * row).sum(dim=-1)
-    norm_key = key.norm(dim=-1).clamp(min=eps)
-    norm_row = row.norm(dim=-1).clamp(min=eps)
+    # Tensor.norm has untyped params in torch stubs -> partially unknown member.
+    norm_key = cast("Tensor", key.norm(dim=-1))  # pyright: ignore[reportUnknownMemberType]
+    norm_key = norm_key.clamp(min=eps)
+    norm_row = cast("Tensor", row.norm(dim=-1))  # pyright: ignore[reportUnknownMemberType]
+    norm_row = norm_row.clamp(min=eps)
     return dot / (norm_key * norm_row)
 
 

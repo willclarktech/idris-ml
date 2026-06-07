@@ -22,9 +22,15 @@ from __future__ import annotations
 
 import random
 import time
+from typing import cast
 
 import gymnasium as gym
 import numpy as np
+import numpy.typing as npt
+
+# Runtime import (not TYPE_CHECKING) so vulture sees the cast usage;
+# behavior-neutral — gym.make("Taxi-v4") loads this module anyway.
+from gymnasium.envs.toy_text.taxi import TaxiEnv  # noqa: TC002
 
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
@@ -38,25 +44,30 @@ START_PASS_IDX = 0  # R
 START_DEST_IDX = 3  # B
 
 
-def _pin_start(env: gym.Env) -> int:
+def _pin_start(env: gym.Env[int, int]) -> int:
     """Pin env state to the fixed default start (taxi=(2,2), pass=R, dest=B)
     and return the encoded state index."""
-    encoded = env.unwrapped.encode(  # pyright: ignore[reportAttributeAccessIssue]
-        START_TAXI_ROW, START_TAXI_COL, START_PASS_IDX, START_DEST_IDX
+    taxi = cast(TaxiEnv, env.unwrapped)  # noqa: TC006 - unquoted so vulture sees the import used
+    # TaxiEnv.encode / TaxiEnv.s are untyped upstream
+    encoded = cast(
+        "int",
+        taxi.encode(  # pyright: ignore[reportUnknownMemberType]
+            START_TAXI_ROW, START_TAXI_COL, START_PASS_IDX, START_DEST_IDX
+        ),
     )
-    env.unwrapped.s = encoded  # pyright: ignore[reportAttributeAccessIssue]
+    taxi.s = encoded
     return int(encoded)
 
 
-def eps_greedy(q_row: np.ndarray, epsilon: float, rng: random.Random) -> int:
+def eps_greedy(q_row: npt.NDArray[np.float64], epsilon: float, rng: random.Random) -> int:
     if rng.random() < epsilon:
         return rng.randrange(NUM_ACTIONS)
     return int(np.argmax(q_row))
 
 
 def q_learning_episode(
-    env: gym.Env,
-    q: np.ndarray,
+    env: gym.Env[int, int],
+    q: npt.NDArray[np.float64],
     alpha: float,
     gamma: float,
     epsilon: float,
@@ -87,9 +98,10 @@ def train_q_learning(
     epsilon: float = 0.1,
     seed: int = 42,
     log_every: int = 2000,
-) -> tuple[np.ndarray, list[float]]:
+) -> tuple[npt.NDArray[np.float64], list[float]]:
     rng = random.Random(seed)
-    env = gym.make("Taxi-v4")
+    # gym.make returns an unparameterized Env; Taxi obs/actions are ints
+    env = cast("gym.Env[int, int]", gym.make("Taxi-v4"))  # pyright: ignore[reportUnknownMemberType]
     env.reset(seed=seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
@@ -106,10 +118,11 @@ def train_q_learning(
     return q, history
 
 
-def evaluate(q: np.ndarray, n_episodes: int = 100) -> float:
+def evaluate(q: npt.NDArray[np.float64], n_episodes: int = 100) -> float:
     """Greedy evaluation. Deterministic env + fixed start = single trajectory
     repeated; loop kept for parity with the Idris example's output format."""
-    env = gym.make("Taxi-v4")
+    # gym.make returns an unparameterized Env; Taxi obs/actions are ints
+    env = cast("gym.Env[int, int]", gym.make("Taxi-v4"))  # pyright: ignore[reportUnknownMemberType]
     env.reset(seed=0)
     total = 0.0
     for _ in range(n_episodes):

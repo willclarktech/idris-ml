@@ -46,14 +46,15 @@ CLS_TOKEN = 0
 SEP_TOKEN = 1
 
 
-def build_example(label: int) -> list:
+def build_example(label: int) -> list[int]:
     label_tok = LABEL_TOKENS[label]
     distractors = [random.randint(DISTRACTOR_LO, DISTRACTOR_HI) for _ in range(5)]
     return [CLS_TOKEN, label_tok, *distractors, SEP_TOKEN]
 
 
-def gen_batch(n: int, device: torch.device):
-    inputs, labels = [], []
+def gen_batch(n: int, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+    inputs: list[list[int]] = []
+    labels: list[int] = []
     for _ in range(n):
         c = random.randint(0, NUM_CLASSES - 1)
         inputs.append(build_example(c))
@@ -63,7 +64,7 @@ def gen_batch(n: int, device: torch.device):
 
 
 @torch.no_grad()
-def held_out_accuracy(model, device) -> float:
+def held_out_accuracy(model: BertForSequenceClassification, device: torch.device) -> float:
     was_training = model.training
     model.train(False)
     ids, lbls = gen_batch(32, device)
@@ -93,7 +94,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
     device = torch.device(args.device)
 
@@ -126,7 +128,7 @@ def main() -> None:
     cfg.num_labels = NUM_CLASSES
     # transformers 5.x wraps Module.to in a decorator whose _Wrapped
     # type pyright can't bind as a method; the call is fine at runtime.
-    model = BertForSequenceClassification(cfg).to(device, dtype=torch.float64)  # pyright: ignore[reportArgumentType]
+    model = BertForSequenceClassification(cfg).to(device, dtype=torch.float64)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
 
     if args.freeze_backbone:
         print("Freezing backbone (`bert.*`); only classifier head trains.")
@@ -160,7 +162,8 @@ def main() -> None:
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
+        # torch's Optimizer.step stub leaves `closure` unannotated.
+        optimizer.step()  # pyright: ignore[reportUnknownMemberType]
 
         epochs_done = epoch + 1
         last_loss_val = loss.item()

@@ -5,8 +5,8 @@ import torch
 from torch_ref.models.reinforce import (
     PolicyNetwork,
     evaluate,
-    make_cartpole_env,
-    reinforce_epoch,
+    make_cartpole_env,  # pyright: ignore[reportUnknownVariableType]  # bare-Env signature
+    reinforce_epoch,  # pyright: ignore[reportUnknownVariableType]  # bare-Env signature
     train_reinforce,
 )
 
@@ -14,10 +14,10 @@ from torch_ref.models.reinforce import (
 class TestReinforce:
     def test_returns_improve(self) -> None:
         """Average returns should increase over 200 epochs."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         policy = PolicyNetwork()
         optimizer = torch.optim.Adam(policy.parameters(), lr=0.001)
-        env = make_cartpole_env(seed=42)
+        env = make_cartpole_env(seed=42)  # pyright: ignore[reportUnknownVariableType]
 
         early_returns: list[float] = []
         for _ in range(50):
@@ -33,7 +33,7 @@ class TestReinforce:
 
     def test_converges(self) -> None:
         """REINFORCE should solve CartPole (avg return >= 195) within 3000 epochs."""
-        policy, history = train_reinforce(epochs=3000, seed=42)
+        _, history = train_reinforce(epochs=3000, seed=42)
         assert len(history) >= 100
         recent_avg = sum(history[-100:]) / 100
         assert recent_avg >= 150.0, f"Expected >= 150, got {recent_avg:.1f}"

@@ -63,7 +63,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch stub: manual_seed's seed param is unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
 
     print("=== A2C on CartPole (separate actor + critic) ===")
     print(

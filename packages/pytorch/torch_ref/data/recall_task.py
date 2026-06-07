@@ -95,7 +95,7 @@ def generate_recall_batch(
     seq_width: int = 6,
 ) -> list[tuple[Tensor, Tensor]]:
     """Generate a batch of associative recall sequences."""
-    batch = []
+    batch: list[tuple[Tensor, Tensor]] = []
     for _ in range(batch_size):
         num_items = random.randint(min_items, max_items)
         batch.append(generate_recall_sequence(num_items, seq_len, seq_width))

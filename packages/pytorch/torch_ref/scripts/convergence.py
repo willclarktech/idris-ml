@@ -19,7 +19,9 @@ from dataclasses import dataclass, field
 
 import torch
 
-from torch_ref.benchmark import _train_ntm_epoch
+from torch_ref.benchmark import (
+    _train_ntm_epoch,  # pyright: ignore[reportPrivateUsage]  # shared by design
+)
 from torch_ref.data.copy_task import generate_copy_batch, generate_copy_sequence
 from torch_ref.data.recall_task import generate_recall_batch, generate_recall_sequence
 from torch_ref.diagnostics.ntm_diagnostics import (
@@ -56,7 +58,7 @@ class TaskConfig:
     generate_batch: Callable[[], list[tuple[torch.Tensor, torch.Tensor]]] = field(
         default_factory=lambda: lambda: []
     )
-    extra_info: list[str] = field(default_factory=list)
+    extra_info: list[str] = field(default_factory=list[str])
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +143,7 @@ def _eval_copy(model: NtmModel) -> None:
                 model.reset_state()
                 for t in range(input_seq.shape[0]):
                     model(input_seq[t])
-                outputs = []
+                outputs: list[torch.Tensor] = []
                 for _ in range(test_len):
                     out = model(torch.zeros(input_seq.shape[1], device=get_device()))
                     outputs.append(out)
@@ -216,7 +218,7 @@ def _eval_recall(model: NtmModel) -> None:
                     model(input_seq[t])
 
                 zero_input = torch.zeros(input_seq.shape[1], device=get_device())
-                outputs = []
+                outputs: list[torch.Tensor] = []
                 for _ in range(seq_len):
                     out = model(zero_input)
                     outputs.append(out)
@@ -347,7 +349,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
 
     if args.task in ("copy", "both"):

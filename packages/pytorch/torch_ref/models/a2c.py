@@ -17,6 +17,7 @@ Reset state pinned to (0, 0, 0, 0) to mirror idris-gym's
 from __future__ import annotations
 
 import time
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -27,6 +28,7 @@ from torch import Tensor
 
 from torch_ref.models.reinforce import (
     MAX_STEPS,
+    CartPoleEnv,
     make_cartpole_env,
     obs_tensor,
     reset_to_zero,
@@ -81,7 +83,8 @@ def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
 
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
-    for sub in vec.envs:
+    # SyncVectorEnv.envs is list[Env[Unknown, Unknown]] in gymnasium's stubs.
+    for sub in cast("list[CartPoleEnv]", vec.envs):  # pyright: ignore[reportUnknownMemberType]
         reset_to_zero(sub)
     return vec
 
@@ -111,7 +114,11 @@ def collect_rollout(
         probs = F.softmax(logits, dim=-1)
         actions_t = multinomial_safe(probs, 1).squeeze(-1)  # [N]
         actions_np = actions_t.cpu().numpy().astype(np.int64)
-        next_obs_np, rewards_np, terms_np, truncs_np, _ = vec_env.step(actions_np)
+        # SyncVectorEnv.step's stub returns unsolved TypeVars (Unknown).
+        next_obs_np, rewards_np, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec_env.step(actions_np),
+        )
         dones_np = np.logical_or(terms_np, truncs_np)
         device, dtype = get_device(), get_dtype()
         obs_list.append(obs_t)
@@ -125,7 +132,7 @@ def collect_rollout(
         next_obs_np = next_obs_np.astype(np.float64)
         for i in range(n):
             if dones_np[i]:
-                reset_to_zero(vec_env.envs[i])
+                reset_to_zero(cast("CartPoleEnv", vec_env.envs[i]))  # pyright: ignore[reportUnknownMemberType]
                 next_obs_np[i] = 0.0
         obs_np = next_obs_np
     return (
@@ -186,7 +193,8 @@ def a2c_update(
     value_loss = F.mse_loss(values, returns)
     loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
     optimizer.zero_grad()
-    loss.backward()
+    # torch stub: Tensor.backward's params are unannotated.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     torch.nn.utils.clip_grad_norm_(
         list(actor.parameters()) + list(critic.parameters()),
         0.5,
@@ -209,7 +217,8 @@ def train_a2c(
     """Hyperparameters match Idris `Example.A2c.defaultConfig`:
     lr=7e-4, entropy=0.01, rollout=20, gamma=0.99, lam=0.95. Batched
     across NUM_ENVS parallel envs (mirrors Idris-side NumEnvs)."""
-    torch.manual_seed(seed)
+    # torch stub: manual_seed's seed param is unannotated.
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]
     actor = Actor().to(get_device())
     critic = Critic().to(get_device())
     optimizer = torch.optim.Adam(

@@ -28,7 +28,7 @@ SORT_EOS = 7
 class TestMultiHeadTransformer:
     def test_output_shape(self) -> None:
         """Output should be [seqLen, vocabSize]."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
         inp = torch.randn(SEQ_LEN, VOCAB_SIZE)
         out = model(inp)
@@ -36,7 +36,7 @@ class TestMultiHeadTransformer:
 
     def test_output_shape_batched(self) -> None:
         """Output should be [batch, seqLen, vocabSize] for batched input."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
         inp = torch.randn(4, SEQ_LEN, VOCAB_SIZE)
         out = model(inp)
@@ -44,7 +44,7 @@ class TestMultiHeadTransformer:
 
     def test_loss_decreases(self) -> None:
         """Loss should decrease over 200 epochs (reversal-only loss)."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -62,7 +62,7 @@ class TestMultiHeadTransformer:
 
     def test_converges(self) -> None:
         """After sufficient training, should achieve high reversal accuracy."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -76,7 +76,7 @@ class TestMultiHeadTransformer:
 
     def test_data_generation(self) -> None:
         """Verify reversal data structure."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         data = generate_reversal_data(4, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
         assert len(data) == 4
 
@@ -89,7 +89,7 @@ class TestMultiHeadTransformer:
 
     def test_causal_masking(self) -> None:
         """Verify causal mask prevents attending to future positions."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
 
         # Two inputs identical except at last position
@@ -108,7 +108,7 @@ class TestMultiHeadTransformer:
 
     def test_sorting_converges(self) -> None:
         """Sorting task should converge with 2 blocks."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = MultiHeadTransformer(SORT_VOCAB, SEQ_LEN, D_MODEL, NUM_HEADS, num_blocks=2)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 

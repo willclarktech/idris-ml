@@ -12,6 +12,7 @@ import copy
 import random
 import sys
 import time
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -20,6 +21,7 @@ from torch_ref.models.mountain_car_cont import (
     MAX_ACTION,
     NUM_ENVS,
     Actor,
+    MountainCarContEnv,
     QNet,
     ReplayBuffer,
     evaluate,
@@ -64,7 +66,7 @@ def main() -> None:
         print("the LR-range-test pattern. See docs/develop/hyperparameter-tuning-2026.md.")
         sys.exit(0)
 
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType] - untyped `seed` param in torch stubs
     rng = random.Random(args.seed)
 
     print("=== SAC on MountainCarContinuous ===")
@@ -88,6 +90,8 @@ def main() -> None:
     print()
     history: list[float] = []
     vec_env = make_mountaincarcont_vec_env(args.seed, NUM_ENVS)
+    # SyncVectorEnv.envs is untyped upstream (bare `Env`).
+    envs = cast("list[MountainCarContEnv]", vec_env.envs)  # pyright: ignore[reportUnknownMemberType]
     obs_np = np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))
     ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     t_start = time.monotonic()
@@ -102,8 +106,10 @@ def main() -> None:
             with torch.no_grad():
                 a_t, _ = actor.sample(obs_t)
                 actions_np = a_t.cpu().numpy().astype(np.float64)
-        next_obs_np, raw_rewards, terms_np, truncs_np, _ = vec_env.step(
-            actions_np.astype(np.float32).reshape(NUM_ENVS, 1)
+        # SyncVectorEnv is unparameterized upstream; narrow its step() products.
+        next_obs_np, raw_rewards, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec_env.step(actions_np.astype(np.float32).reshape(NUM_ENVS, 1)),
         )
         next_obs_np = next_obs_np.astype(np.float64)
         is_dones = np.logical_or(terms_np, truncs_np)
@@ -121,7 +127,7 @@ def main() -> None:
             if is_dones[i]:
                 history.append(float(ep_returns_running[i]))
                 ep_returns_running[i] = 0.0
-                reset_to_center(vec_env.envs[i])
+                reset_to_center(envs[i])
                 next_obs_np[i] = np.array([-0.5, 0.0], dtype=np.float64)
         obs_np = next_obs_np
         if len(buffer) >= max(args.batch, args.warmup):

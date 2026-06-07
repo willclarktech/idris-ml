@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import random
 import time
+from typing import cast
 
 import gymnasium as gym
 import numpy as np
+import numpy.typing as npt
 
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
@@ -25,15 +27,15 @@ NUM_ACTIONS = 4  # 0=left, 1=down, 2=right, 3=up
 MAX_STEPS = 100  # gymnasium FrozenLake-v1 default TimeLimit
 
 
-def eps_greedy(q_row: np.ndarray, epsilon: float, rng: random.Random) -> int:
+def eps_greedy(q_row: npt.NDArray[np.float64], epsilon: float, rng: random.Random) -> int:
     if rng.random() < epsilon:
         return rng.randrange(NUM_ACTIONS)
     return int(np.argmax(q_row))
 
 
 def q_learning_episode(
-    env: gym.Env,
-    q: np.ndarray,
+    env: gym.Env[int, int],
+    q: npt.NDArray[np.float64],
     alpha: float,
     gamma: float,
     epsilon: float,
@@ -64,9 +66,13 @@ def train_q_learning(
     epsilon: float = 0.3,
     seed: int = 42,
     log_every: int = 1000,
-) -> tuple[np.ndarray, list[float]]:
+) -> tuple[npt.NDArray[np.float64], list[float]]:
     rng = random.Random(seed)
-    env = gym.make("FrozenLake-v1")
+    # gym.make returns an unparameterized Env; FrozenLake obs/actions are ints
+    env = cast(
+        "gym.Env[int, int]",
+        gym.make("FrozenLake-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=seed)  # seed the env's slip RNG once
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
@@ -83,10 +89,14 @@ def train_q_learning(
     return q, history
 
 
-def evaluate(q: np.ndarray, n_episodes: int = 100, seed: int = 0) -> float:
+def evaluate(q: npt.NDArray[np.float64], n_episodes: int = 100, seed: int = 0) -> float:
     """Greedy evaluation. Slip dynamics still apply, so even an optimal
     policy fails some episodes. avg_return == success rate."""
-    env = gym.make("FrozenLake-v1")
+    # gym.make returns an unparameterized Env; FrozenLake obs/actions are ints
+    env = cast(
+        "gym.Env[int, int]",
+        gym.make("FrozenLake-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=seed)
     total = 0.0
     for _ in range(n_episodes):

@@ -8,12 +8,12 @@ from torch_ref.models.rnn import RNN_DATA, LinearRNNCell, train_rnn_epoch
 class TestRnn:
     def test_loss_decreases(self) -> None:
         """Loss should decrease over 100 epochs."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = LinearRNNCell(1, 1)
         data = RNN_DATA
         lr = 0.03
 
-        losses = []
+        losses: list[float] = []
         for _ in range(100):
             optimizer = torch.optim.SGD(model.parameters(), lr=lr)
             loss_val = train_rnn_epoch(model, data, optimizer)
@@ -23,7 +23,7 @@ class TestRnn:
 
     def test_converges(self) -> None:
         """After 1000 epochs, loss should be low and pattern predicted."""
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         model = LinearRNNCell(1, 1)
         data = RNN_DATA
         lr = 0.03
@@ -39,7 +39,7 @@ class TestRnn:
         with torch.no_grad():
             model.reset_state()
             xs, ys = data[0]  # length 3: [0,1,0] → [1,0,1]
-            predictions = []
+            predictions: list[float] = []
             for x in xs:
                 pred = model(x)
                 predictions.append((pred > 0).float().item())

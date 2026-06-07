@@ -77,7 +77,7 @@ def train_dnc_step(
 
     # Output phase: feed zeros, collect seq_len outputs
     zero_input = torch.zeros(num_inputs)
-    outputs = []
+    outputs: list[Tensor] = []
     for _ in range(seq_len):
         out = model(zero_input)
         outputs.append(out)
@@ -85,7 +85,7 @@ def train_dnc_step(
     pred = torch.stack(outputs)  # (seq_len, output_width) -- raw logits
     loss = F.binary_cross_entropy_with_logits(pred, target_seq)
 
-    loss.backward()
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     if clip_mode == "norm":
         clip_grad_norm_(model.parameters(), model.cfg.clip_value)
     else:

@@ -11,17 +11,19 @@ from __future__ import annotations
 
 import random
 import time
+from typing import cast
 
 import gymnasium as gym
 import numpy as np
+import numpy.typing as npt
 
 from torch_ref.models.q_learning import MAX_STEPS, NUM_ACTIONS, NUM_STATES, eps_greedy
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
 
 def sarsa_episode(
-    env: gym.Env,
-    q: np.ndarray,
+    env: gym.Env[int, int],
+    q: npt.NDArray[np.float64],
     alpha: float,
     gamma: float,
     epsilon: float,
@@ -56,10 +58,14 @@ def train_sarsa(
     epsilon: float = 0.1,
     seed: int = 42,
     log_every: int = 100,
-) -> tuple[np.ndarray, list[float]]:
+) -> tuple[npt.NDArray[np.float64], list[float]]:
     """Train SARSA on CliffWalking. Returns (Q-table, history)."""
     rng = random.Random(seed)
-    env = gym.make("CliffWalking-v1")
+    # gym.make returns an unparameterized Env; CliffWalking obs/actions are ints
+    env = cast(
+        "gym.Env[int, int]",
+        gym.make("CliffWalking-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
@@ -76,9 +82,13 @@ def train_sarsa(
     return q, history
 
 
-def evaluate(q: np.ndarray, n_episodes: int = 100) -> float:
+def evaluate(q: npt.NDArray[np.float64], n_episodes: int = 100) -> float:
     """Greedy evaluation. Returns mean return."""
-    env = gym.make("CliffWalking-v1")
+    # gym.make returns an unparameterized Env; CliffWalking obs/actions are ints
+    env = cast(
+        "gym.Env[int, int]",
+        gym.make("CliffWalking-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=0)
     total = 0.0
     for _ in range(n_episodes):

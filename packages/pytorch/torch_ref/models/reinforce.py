@@ -14,6 +14,7 @@ truncate at 200 ourselves for paired-side parity.
 from __future__ import annotations
 
 import time
+from typing import cast
 
 import gymnasium as gym
 import numpy as np
@@ -31,25 +32,31 @@ from torch_ref.training.runner import (
 
 MAX_STEPS = 200
 
+# CartPole-v1: Box observations (np.ndarray) and Discrete actions (int).
+# gymnasium's `gym.make` stub returns `Env[Unknown, Unknown]`, so call
+# sites pin this alias for pyright strict.
+CartPoleEnv = gym.Env[np.ndarray, int]
 
-def make_cartpole_env(seed: int) -> gym.Env:
+
+def make_cartpole_env(seed: int) -> CartPoleEnv:
     """Create a CartPole-v1 env seeded once at construction. Per-episode
     resets advance the env's PRNG and randomize the start state per
     Gymnasium's U(-0.05, 0.05)^4, matching idris-gym's randomized
     `Env.reset`."""
-    env = gym.make("CartPole-v1")
+    env = cast("CartPoleEnv", gym.make("CartPole-v1"))  # pyright: ignore[reportUnknownMemberType]
     env.reset(seed=seed)
     return env
 
 
-def reset_to_zero(env: gym.Env) -> np.ndarray:
+def reset_to_zero(env: CartPoleEnv) -> np.ndarray:
     """Return the obs of the env's current (just-reset) state as float64.
 
     Previously pinned env state to (0, 0, 0, 0) to match idris-gym's
     deterministic reset; idris-gym now randomizes per Gymnasium and the
     PyTorch side follows suit. Function name kept for call-site stability.
     """
-    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
+    # `state` isn't on the Env stub (CartPole-specific attribute).
+    return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
@@ -67,7 +74,7 @@ class PolicyNetwork(nn.Module):
 
 
 def collect_episode(
-    env: gym.Env, policy: PolicyNetwork, max_steps: int = MAX_STEPS
+    env: CartPoleEnv, policy: PolicyNetwork, max_steps: int = MAX_STEPS
 ) -> tuple[list[Tensor], list[float]]:
     """Run one episode, return (log_probs, rewards)."""
     env.reset()
@@ -101,7 +108,7 @@ def discounted_returns(rewards: list[float], gamma: float = 0.99) -> list[float]
 
 
 def reinforce_epoch(
-    env: gym.Env,
+    env: CartPoleEnv,
     policy: PolicyNetwork,
     optimizer: torch.optim.Optimizer,
     batch_size: int = 10,
@@ -129,7 +136,8 @@ def reinforce_epoch(
         loss = loss - lp * adv
     loss = loss / len(all_log_probs)
     loss_val = float(loss.item())
-    loss.backward()
+    # torch stub: Tensor.backward's params are unannotated.
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
     optimizer.step()
     return sum(episode_returns) / len(episode_returns), loss_val
@@ -144,7 +152,8 @@ def train_reinforce(
     log_every: int = 100,
 ) -> tuple[PolicyNetwork, list[float]]:
     """Train REINFORCE on CartPole. Returns (policy, history of avg returns)."""
-    torch.manual_seed(seed)
+    # torch stub: manual_seed's seed param is unannotated.
+    torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]
     policy = PolicyNetwork()
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
     env = make_cartpole_env(seed)

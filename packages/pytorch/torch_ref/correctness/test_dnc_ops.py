@@ -204,7 +204,7 @@ class TestGradientFlow:
         usage = torch.tensor([0.1, 0.9, 0.5, 0.2], requires_grad=True)
         alloc = allocation_weighting(usage)
         loss = alloc.sum()
-        loss.backward()
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]  # params untyped
         assert usage.grad is not None
         assert not torch.any(torch.isnan(usage.grad))
 
@@ -214,7 +214,7 @@ class TestGradientFlow:
         ww = torch.tensor([0.5, 0.5, 0.0, 0.0], requires_grad=True)
         new_link, new_prec = update_link_matrix(link, prec, ww)
         loss = new_link.sum() + new_prec.sum()
-        loss.backward()
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]  # params untyped
         assert ww.grad is not None
         assert not torch.any(torch.isnan(ww.grad))
 
@@ -234,7 +234,7 @@ class TestGradientFlow:
         new_mem = erase_add_write(memory, ww, erase, add)
         output = read_op(cw, new_mem)
         loss = output.sum()
-        loss.backward()
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]  # params untyped
 
         assert memory.grad is not None
         assert key.grad is not None

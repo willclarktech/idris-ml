@@ -50,7 +50,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
 
     print("=== MNIST: Convolutional Neural Network ===")
     print(
@@ -78,8 +79,9 @@ def main() -> None:
             optimizer.zero_grad()
             logits = model(inputs)
             loss = F.cross_entropy(logits, targets)
-            loss.backward()
-            optimizer.step()
+            # torch's Tensor.backward / Adam.step stubs are unannotated.
+            loss.backward()  # pyright: ignore[reportUnknownMemberType]
+            optimizer.step()  # pyright: ignore[reportUnknownMemberType]
             return loss.item()
 
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)

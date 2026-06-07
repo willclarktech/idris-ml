@@ -9,6 +9,8 @@ Reference: Graves et al. 2016, "Hybrid computing using a neural network
 with dynamic external memory", Nature 538.
 """
 
+from typing import cast
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor
@@ -21,8 +23,11 @@ from torch import Tensor
 def cosine_similarity(key: Tensor, memory: Tensor, eps: float = 1e-6) -> Tensor:
     """Cosine similarity between key [m] and each memory row [n, m] -> [n]."""
     dot = (key.unsqueeze(0) * memory).sum(dim=-1)
-    norm_key = key.norm().clamp(min=eps)
-    norm_rows = memory.norm(dim=-1).clamp(min=eps)
+    # Tensor.norm has untyped params in torch stubs -> partially unknown member.
+    norm_key = cast("Tensor", key.norm())  # pyright: ignore[reportUnknownMemberType]
+    norm_key = norm_key.clamp(min=eps)
+    norm_rows = cast("Tensor", memory.norm(dim=-1))  # pyright: ignore[reportUnknownMemberType]
+    norm_rows = norm_rows.clamp(min=eps)
     return dot / (norm_key * norm_rows)
 
 

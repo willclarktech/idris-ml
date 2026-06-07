@@ -224,7 +224,7 @@ def main() -> None:
     for cat, pred in cat_map.items():
         line = f"  {cat:<20}"
         for name in backend_names:
-            ratios = []
+            ratios: list[float] = []
             for label in all_labels:
                 if not pred(label):
                     continue

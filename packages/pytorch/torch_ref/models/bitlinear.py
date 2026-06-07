@@ -21,6 +21,8 @@ result matches within 1e-4.
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 from torch import Tensor
 
@@ -88,7 +90,7 @@ def bitlinear_forward(
             raise ValueError(f"x must be [{i}], got {tuple(x.shape)}")
         y = w_dequant @ x  # [o]
     elif x.ndim == 2:
-        b, i2 = x.shape
+        _b, i2 = x.shape
         if i2 != i:
             raise ValueError(f"x must be [b, {i}], got {tuple(x.shape)}")
         y = x @ w_dequant.t()  # [b, o]
@@ -124,7 +126,8 @@ def fixture_expected_y() -> list[float]:
     x = torch.tensor(FIXTURE_X, dtype=torch.float64)
     b = torch.tensor(FIXTURE_BIAS, dtype=torch.float64)
     y = bitlinear_forward(w_t, s, x, b)
-    return y.tolist()
+    # Tensor.tolist() is list[Unknown] in the torch stubs; this is a 1-D float tensor.
+    return cast("list[float]", y.tolist())  # pyright: ignore[reportUnknownMemberType]
 
 
 if __name__ == "__main__":

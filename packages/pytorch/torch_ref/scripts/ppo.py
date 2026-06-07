@@ -73,7 +73,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
-    torch.manual_seed(args.seed)
+    # torch stub: manual_seed's seed param is unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     rng = random.Random(args.seed)
 
     print("=== PPO on Acrobot (separate actor + critic, categorical policy) ===")

@@ -175,8 +175,8 @@ class DNCLayer(nn.Module):
         )
 
         # 9. Read heads
-        new_read_weights = []
-        new_read_outputs = []
+        new_read_weights: list[Tensor] = []
+        new_read_outputs: list[Tensor] = []
         for i in range(self.num_reads):
             # Content addressing for this read head
             rc_w = content_address(read_betas[i], self.memory, read_keys[i])

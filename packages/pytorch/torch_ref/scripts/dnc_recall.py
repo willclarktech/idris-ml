@@ -47,7 +47,7 @@ def _train_dnc_epoch(
         for t in range(input_seq.shape[0]):
             model(input_seq[t])
         zero_input = torch.zeros(input_width, device=device)
-        outputs = []
+        outputs: list[torch.Tensor] = []
         for _ in range(seq_len):
             out = model(zero_input)
             outputs.append(out)
@@ -55,7 +55,8 @@ def _train_dnc_epoch(
         loss = F.binary_cross_entropy_with_logits(pred, target_seq)
         total_loss = total_loss + loss
     avg_loss = total_loss / len(batch)
-    avg_loss.backward()
+    # torch's Tensor.backward stub leaves its params unannotated.
+    avg_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     clip_grad_value_(model.parameters(), clip_value)
     optimizer.step()
     return avg_loss.item()
@@ -71,7 +72,7 @@ def _bit_accuracy(model: DncModel, batch: list[tuple[torch.Tensor, torch.Tensor]
             for t in range(input_seq.shape[0]):
                 model(input_seq[t])
             zero_input = torch.zeros(input_seq.shape[1], device=device)
-            outputs = []
+            outputs: list[torch.Tensor] = []
             for _ in range(target_seq.shape[0]):
                 out = model(zero_input)
                 outputs.append(out)
@@ -110,7 +111,8 @@ def main() -> None:
 
     set_device(args.device)
     random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
 
     print("=== DNC Associative Recall ===")
     print(

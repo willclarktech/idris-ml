@@ -15,9 +15,14 @@ Ace=2/13, 10=3/13 weighting).
 from __future__ import annotations
 
 import random
+from typing import cast
 
 import gymnasium as gym
 import numpy as np
+import numpy.typing as npt
+
+# Blackjack observation: (player_sum, dealer_show, usable_ace)
+BlackjackObs = tuple[int, int, int]
 
 NUM_ACTIONS = 2  # 0=stick, 1=hit
 # State: (player_sum in 4..21, dealer_show in 1..10, usable in {0,1})
@@ -33,8 +38,8 @@ def encode(player_sum: int, dealer_show: int, usable: bool) -> int:
 
 
 def play_hand(
-    env: gym.Env,
-    q: np.ndarray,
+    env: gym.Env[BlackjackObs, int],
+    q: npt.NDArray[np.float64],
     epsilon: float,
     rng: random.Random,
     greedy: bool = False,
@@ -63,9 +68,9 @@ def play_hand(
 
 
 def mc_episode(
-    env: gym.Env,
-    q: np.ndarray,
-    counts: np.ndarray,
+    env: gym.Env[BlackjackObs, int],
+    q: npt.NDArray[np.float64],
+    counts: npt.NDArray[np.int64],
     epsilon: float,
     rng: random.Random,
 ) -> float:
@@ -85,10 +90,14 @@ def train_mc(
     epsilon: float = 0.1,
     seed: int = 42,
     log_every: int = 10000,
-) -> tuple[np.ndarray, list[float]]:
+) -> tuple[npt.NDArray[np.float64], list[float]]:
     """Train first-visit MC on Blackjack. Returns (Q, history)."""
     rng = random.Random(seed)
-    env = gym.make("Blackjack-v1")
+    # gym.make returns an unparameterized Env; see BlackjackObs above
+    env = cast(
+        "gym.Env[BlackjackObs, int]",
+        gym.make("Blackjack-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     counts = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.int64)
@@ -103,10 +112,16 @@ def train_mc(
     return q, history
 
 
-def evaluate(q: np.ndarray, n_episodes: int = 10000, seed: int = 0) -> dict[str, float]:
+def evaluate(
+    q: npt.NDArray[np.float64], n_episodes: int = 10000, seed: int = 0
+) -> dict[str, float]:
     """Greedy evaluation. Returns {win, draw, loss, avg_reward}."""
     rng = random.Random(seed)
-    env = gym.make("Blackjack-v1")
+    # gym.make returns an unparameterized Env; see BlackjackObs above
+    env = cast(
+        "gym.Env[BlackjackObs, int]",
+        gym.make("Blackjack-v1"),  # pyright: ignore[reportUnknownMemberType]
+    )
     env.reset(seed=seed)
     wins = draws = losses = 0
     total_reward = 0.0

@@ -12,17 +12,22 @@ Uses torchvision for data loading.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import cast
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+# Runtime imports (not TYPE_CHECKING): the unquoted Dataset cast below
+# evaluates at runtime so vulture can see the usage; torch.utils.data
+# is loaded by the DataLoader construction anyway.
+from torch.utils.data import DataLoader, Dataset  # noqa: TC002
+
 from torch_ref.training.runner import get_device
 
-if TYPE_CHECKING:
-    from torch.utils.data import DataLoader
+# Batch type yielded by the MNIST loaders: (images [B,1,28,28], labels [B]).
+MnistBatch = tuple[Tensor, Tensor]
 
 # ---------------------------------------------------------------------------
 # Model
@@ -56,19 +61,23 @@ def get_mnist_loaders(
     batch_size: int = 64,
     data_dir: str = "data/mnist",
     train_count: int = 0,
-) -> tuple[DataLoader, DataLoader]:
+) -> tuple[DataLoader[MnistBatch], DataLoader[MnistBatch]]:
     """Load MNIST from torchvision, returns (train_loader, test_loader).
 
     `train_count`: if > 0, cap training set to first N images (used by smoke tests).
     """
-    from torchvision import datasets, transforms
+    # torchvision ships no py.typed marker, so its datasets are untyped.
+    from torchvision import datasets, transforms  # pyright: ignore[reportMissingTypeStubs]
 
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
     )
-    train = datasets.MNIST(data_dir, train=True, download=True, transform=transform)
-    test = datasets.MNIST(data_dir, train=False, transform=transform)
-    if train_count > 0 and train_count < len(train):
+    mnist_train = datasets.MNIST(data_dir, train=True, download=True, transform=transform)
+    # MNIST's item type is unknown (no stubs); after ToTensor + default
+    # collate the loader yields (image batch, label batch) Tensor pairs.
+    train = cast(Dataset[MnistBatch], mnist_train)  # noqa: TC006 - unquoted so vulture sees the import used
+    test = cast("Dataset[MnistBatch]", datasets.MNIST(data_dir, train=False, transform=transform))
+    if train_count > 0 and train_count < len(mnist_train):
         train = torch.utils.data.Subset(train, range(train_count))
     train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(test, batch_size=batch_size, shuffle=False)
@@ -82,7 +91,7 @@ def get_mnist_loaders(
 
 def train_epoch(
     model: MnistCNN,
-    loader: DataLoader,
+    loader: DataLoader[MnistBatch],
     optimizer: torch.optim.Optimizer,
     clip_norm: float = 1.0,
 ) -> float:
@@ -100,7 +109,8 @@ def train_epoch(
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        loss.backward()
+        # torch's Tensor.backward stub leaves its params unannotated.
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]
         if clip_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), clip_norm)
         optimizer.step()
@@ -109,7 +119,7 @@ def train_epoch(
     return total_loss / count
 
 
-def evaluate(model: MnistCNN, loader: DataLoader) -> tuple[float, float]:
+def evaluate(model: MnistCNN, loader: DataLoader[MnistBatch]) -> tuple[float, float]:
     """Evaluate model, return (loss, accuracy)."""
     model.eval()
     total_loss = 0.0

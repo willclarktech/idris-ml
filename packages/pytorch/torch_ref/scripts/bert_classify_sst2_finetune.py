@@ -121,7 +121,8 @@ def evaluate_model(
 
 def main() -> int:
     args = parse_args()
-    torch.manual_seed(args.seed)
+    # torch's manual_seed stub leaves `seed` unannotated.
+    torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
 
     print("=== BertClassifySst2Finetune (PyTorch ref) ===")
@@ -148,13 +149,15 @@ def main() -> int:
     # runtime; transformers 5.x's typed BertConfig.__init__ doesn't
     # declare it, so set the (typed) attribute instead.
     cfg.num_labels = NUM_CLASSES
-    model = BertForSequenceClassification.from_pretrained(
+    # from_pretrained's stub carries PathLike[Unknown] params; the
+    # return type is the concrete class, so only the member is loose.
+    model = BertForSequenceClassification.from_pretrained(  # pyright: ignore[reportUnknownMemberType]
         str(BACKBONE_DIR), config=cfg, ignore_mismatched_sizes=True
     )
     device = torch.device("cpu")
     # transformers 5.x wraps Module.to in a decorator whose _Wrapped
     # type pyright can't bind as a method; the call is fine at runtime.
-    model.to(device)  # pyright: ignore[reportArgumentType]
+    model.to(device)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
     print("Backbone warm-started; head at fresh init.")
 
     if args.freeze_backbone:
@@ -180,9 +183,9 @@ def main() -> int:
         n_batches = 0
         for i in range(0, len(train_items), args.batch_size):
             batch = train_items[i : i + args.batch_size]
-            ids_batch = []
-            mask_batch = []
-            label_batch = []
+            ids_batch: list[list[int]] = []
+            mask_batch: list[list[int]] = []
+            label_batch: list[int] = []
             for ids, label in batch:
                 padded_ids, mask = pad_or_truncate(ids, SEQ_LEN, PAD_ID)
                 ids_batch.append(padded_ids)
@@ -197,7 +200,8 @@ def main() -> int:
             loss = loss_fn(logits, labels)
             loss.backward()
             torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0)
-            opt.step()
+            # torch's Optimizer.step stub leaves `closure` unannotated.
+            opt.step()  # pyright: ignore[reportUnknownMemberType]
 
             epoch_loss += loss.item()
             n_batches += 1

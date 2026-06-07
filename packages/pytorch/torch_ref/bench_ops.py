@@ -197,8 +197,8 @@ def bench_train_step(input_dim: int, output_dim: int, iters: int) -> None:
         y = w @ x + b
         loss = y.sum()
         opt.zero_grad()
-        loss.backward()
-        opt.step()
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     t0 = wall_ms()
     for _ in range(iters):
@@ -206,8 +206,8 @@ def bench_train_step(input_dim: int, output_dim: int, iters: int) -> None:
         y = w @ x + b
         loss = y.sum()
         opt.zero_grad()
-        loss.backward()
-        opt.step()
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     elapsed = wall_ms() - t0
 
     print(f"train_step {input_dim}->{output_dim}:\t{elapsed:.3f} ms  ({iters} iters)")

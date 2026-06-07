@@ -29,7 +29,7 @@ def bench_linear(in_dim: int, out_dim: int, batch: int, iters: int, warmup: int)
     Mirrors Idris-side `Example.LayersBench.benchLinear`: 100 fwd+bwd+step
     cycles at batch=32, in=512, out=512 on F64 CPU; sum-MSE loss; SGD lr=0.01.
     """
-    torch.manual_seed(42)
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     model = nn.Linear(in_dim, out_dim).double()
     opt = torch.optim.SGD(model.parameters(), lr=0.01)
     inp = torch.full((batch, in_dim), 0.1, dtype=torch.float64)
@@ -41,7 +41,7 @@ def bench_linear(in_dim: int, out_dim: int, batch: int, iters: int, warmup: int)
         diff = pred - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     t0 = wall_ms()
     for _ in range(iters):
@@ -50,7 +50,7 @@ def bench_linear(in_dim: int, out_dim: int, batch: int, iters: int, warmup: int)
         diff = pred - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     elapsed = wall_ms() - t0
 
     print(f"linear bs={batch} i={in_dim} o={out_dim}:\t{elapsed:.3f} ms\t({iters} iters)")
@@ -66,7 +66,7 @@ def bench_lstm_cell(hidden: int, iters: int, warmup: int) -> None:
     same MSE-against-constant-target target. The Idris LstmState carries
     h/c across iters; here we explicitly thread them through.
     """
-    torch.manual_seed(42)
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     cell = nn.LSTMCell(input_size=hidden, hidden_size=hidden).double()
     opt = torch.optim.SGD(cell.parameters(), lr=0.01)
     inp = torch.full((1, hidden), 0.1, dtype=torch.float64)
@@ -80,7 +80,7 @@ def bench_lstm_cell(hidden: int, iters: int, warmup: int) -> None:
         diff = h - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     t0 = wall_ms()
     for _ in range(iters):
@@ -89,7 +89,7 @@ def bench_lstm_cell(hidden: int, iters: int, warmup: int) -> None:
         diff = h - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     elapsed = wall_ms() - t0
 
     print(f"lstm_cell hidden={hidden}:\t{elapsed:.3f} ms\t({iters} iters)")
@@ -116,7 +116,7 @@ def bench_conv2d_block(
     `[batch, c_in*h*w]` and the layer reshapes internally; here we
     pass 4D since PyTorch's nn.Conv2d takes that natively).
     """
-    torch.manual_seed(42)
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     conv = nn.Conv2d(in_c, out_c, kernel_size=(kh, kw), padding=0).double()
     opt = torch.optim.SGD(conv.parameters(), lr=0.01)
     inp = torch.full((batch, in_c, h, w), 0.1, dtype=torch.float64)
@@ -130,7 +130,7 @@ def bench_conv2d_block(
         diff = pred - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     t0 = wall_ms()
     for _ in range(iters):
@@ -139,7 +139,7 @@ def bench_conv2d_block(
         diff = pred - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     elapsed = wall_ms() - t0
 
     print(
@@ -167,7 +167,7 @@ def bench_transformer_block(
     measurement is dominated by the attention + FFN + LayerNorm pattern,
     not the embedding/projection wrappers.
     """
-    torch.manual_seed(42)
+    torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     class TinyTransformer(nn.Module):
         def __init__(self) -> None:
@@ -199,7 +199,7 @@ def bench_transformer_block(
         diff = pred - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
 
     t0 = wall_ms()
     for _ in range(iters):
@@ -208,7 +208,7 @@ def bench_transformer_block(
         diff = pred - tgt
         loss = (diff * diff).sum()
         loss.backward()
-        opt.step()
+        opt.step()  # pyright: ignore[reportUnknownMemberType]  # untyped torch stub
     elapsed = wall_ms() - t0
 
     print(
