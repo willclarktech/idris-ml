@@ -227,6 +227,12 @@ prim__concat2dAxis1Tape : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-gather-tape)) (set-top-level-value! 'idris-ffi-tensor-gather-tape (foreign-procedure \"tensor_gather_tape\" (void* void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-gather-tape) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__gatherTape : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-tensor-gather-rows-tape)) (set-top-level-value! 'idris-ffi-tensor-gather-rows-tape (foreign-procedure \"tensor_gather_rows_tape\" (void* void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-gather-rows-tape) (vector-ref a0 2) (vector-ref a1 2) a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__gatherRowsTape : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-max-rows-tape)) (set-top-level-value! 'idris-ffi-tensor-max-rows-tape (foreign-procedure \"tensor_max_rows_tape\" (void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-max-rows-tape) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__maxRowsTape : AnyPtr -> Int -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-scatter-add-tape)) (set-top-level-value! 'idris-ffi-tensor-scatter-add-tape (foreign-procedure \"tensor_scatter_add_tape\" (void* void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-scatter-add-tape) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__scatterAddTape : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
@@ -248,9 +254,11 @@ UserExecutorLinear TapeExecutor where
   primCumprod = prim__cumprodTape
   primDot = prim__dotTape
   primGather = prim__gatherTape
+  primGatherRows = prim__gatherRowsTape
   primLinear = prim__linearTape
   primLinear2d = prim__linear2dTape
   primMatmul = prim__matmulTape
+  primMaxRows = prim__maxRowsTape
   primMean = prim__meanTape
   primMm = prim__mmTape
   primMv = prim__mvTape

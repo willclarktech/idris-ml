@@ -1647,6 +1647,27 @@ tAbsmeanTernaryQuant2d w = do
 -- builders: pluck a row from a [b, o] result, then a scalar from the
 -- row, then build (q - target)^2 etc.) ---------------------------------
 
+||| Row-wise gather: out[i] = t[i, indices[i]] — the typed
+||| `q.gather(1, a.unsqueeze(1)).squeeze(1)` (PyTorch). Indices are a
+||| [b] tensor of double-valued ints (the established index
+||| convention; cf. the integer-dtyped 1-D `tgather` below, which is
+||| torch-only); they carry no gradient, so any GradMode is accepted
+||| on the index side. Backward scatters to the selected cells.
+export %inline
+tgatherRows : {0 ex : Executor} -> UserExecutorTraining ex => {b, n : Nat} ->
+              Tensor [b, n] ex dt g -> Tensor [b] ex dt gi -> IO (Tensor [b] ex dt g)
+tgatherRows t idx = ioRerun (\_ =>
+  MkTensor (primGatherRows {ex} t.tensorPtr idx.tensorPtr (cast {to=Int} b) (cast {to=Int} n)) Nothing)
+
+||| Row-wise max: out[i] = max_j t[i, j] — PyTorch's
+||| `t.max(1).values`. Backward routes each row's gradient to its
+||| argmax cell (tie-breaking unspecified across backends).
+export %inline
+tmaxRows : {0 ex : Executor} -> UserExecutorTraining ex => {b, n : Nat} ->
+           Tensor [b, n] ex dt g -> IO (Tensor [b] ex dt g)
+tmaxRows t = ioRerun (\_ =>
+  MkTensor (primMaxRows {ex} t.tensorPtr (cast {to=Int} b) (cast {to=Int} n)) Nothing)
+
 ||| Select row `k` from a [b, n] Tensor, returning the n-vector slice.
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export

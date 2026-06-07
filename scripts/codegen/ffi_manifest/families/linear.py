@@ -27,6 +27,12 @@ ENTRIES = {
     "tensor_gather": Entry(
         args=("T", "T", "i"), ret="T", slice="UserExecutorLinear", idris_method="primGather"
     ),
+    "tensor_gather_rows": Entry(
+        args=("T", "T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primGatherRows"
+    ),
+    "tensor_max_rows": Entry(
+        args=("T", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primMaxRows"
+    ),
     "tensor_linear_2d": Entry(
         args=("T", "T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primLinear2d"
     ),

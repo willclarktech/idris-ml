@@ -259,6 +259,12 @@ prim__concat2dAxis1Torch : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-gather-torch)) (set-top-level-value! 'idris-ffi-tensor-gather-torch (foreign-procedure \"tensor_gather_torch\" (void* void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-gather-torch) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__gatherTorch : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-tensor-gather-rows-torch)) (set-top-level-value! 'idris-ffi-tensor-gather-rows-torch (foreign-procedure \"tensor_gather_rows_torch\" (void* void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-gather-rows-torch) (vector-ref a0 2) (vector-ref a1 2) a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__gatherRowsTorch : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-max-rows-torch)) (set-top-level-value! 'idris-ffi-tensor-max-rows-torch (foreign-procedure \"tensor_max_rows_torch\" (void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-max-rows-torch) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__maxRowsTorch : AnyPtr -> Int -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-scatter-add-torch)) (set-top-level-value! 'idris-ffi-tensor-scatter-add-torch (foreign-procedure \"tensor_scatter_add_torch\" (void* void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-scatter-add-torch) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__scatterAddTorch : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
@@ -280,9 +286,11 @@ public export
   primCumprod = prim__cumprodTorch
   primDot = prim__dotTorch
   primGather = prim__gatherTorch
+  primGatherRows = prim__gatherRowsTorch
   primLinear = prim__linearTorch
   primLinear2d = prim__linear2dTorch
   primMatmul = prim__matmulTorch
+  primMaxRows = prim__maxRowsTorch
   primMean = prim__meanTorch
   primMm = prim__mmTorch
   primMv = prim__mvTorch

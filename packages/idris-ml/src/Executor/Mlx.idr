@@ -277,6 +277,12 @@ prim__concat2dAxis1MlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_gather_mlx_streamed\" (void* void* int int) void*) (vector-ref a0 2) (vector-ref a1 2) a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__gatherMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_gather_rows_mlx_streamed\" (void* void* int int int) void*) (vector-ref a0 2) (vector-ref a1 2) a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__gatherRowsMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_max_rows_mlx_streamed\" (void* int int int) void*) (vector-ref a0 2) a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__maxRowsMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_scatter_add_mlx_streamed\" (void* void* int int) void*) (vector-ref a0 2) (vector-ref a1 2) a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__scatterAddMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
@@ -298,9 +304,11 @@ public export
   primCumprod a0 a1 = prim__cumprodMlxStreamed a0 a1 (streamTag s)
   primDot a0 a1 = prim__dotMlxStreamed a0 a1 (streamTag s)
   primGather a0 a1 a2 = prim__gatherMlxStreamed a0 a1 a2 (streamTag s)
+  primGatherRows a0 a1 a2 a3 = prim__gatherRowsMlxStreamed a0 a1 a2 a3 (streamTag s)
   primLinear a0 a1 a2 = prim__linearMlxStreamed a0 a1 a2 (streamTag s)
   primLinear2d a0 a1 a2 = prim__linear2dMlxStreamed a0 a1 a2 (streamTag s)
   primMatmul a0 a1 = prim__matmulMlxStreamed a0 a1 (streamTag s)
+  primMaxRows a0 a1 a2 = prim__maxRowsMlxStreamed a0 a1 a2 (streamTag s)
   primMean a0 = prim__meanMlxStreamed a0 (streamTag s)
   primMm a0 a1 = prim__mmMlxStreamed a0 a1 (streamTag s)
   primMv a0 a1 = prim__mvMlxStreamed a0 a1 (streamTag s)

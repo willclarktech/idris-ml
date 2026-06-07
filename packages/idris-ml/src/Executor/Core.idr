@@ -241,6 +241,8 @@ interface UserExecutorCore ex => UserExecutorLinear (0 ex : Executor) where
 
   -- Indexing ----------------------------------------------------------
   primGather      : AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primGatherRows  : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primMaxRows     : AnyPtr -> Int -> Int -> AnyPtr
   primScatterAdd  : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
   -- Sort / scan -------------------------------------------------------
