@@ -19,9 +19,6 @@ import Preset
 %foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-torch)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-torch (foreign-procedure \"tensor_create_scalar_torch\" (double int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-torch) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__createScalarTorch : Double -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-torch)) (set-top-level-value! 'idris-ffi-tensor-create-torch (foreign-procedure \"tensor_create_torch\" (void* void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-torch) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
-prim__createTorch : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-free-torch)) (set-top-level-value! 'idris-ffi-tensor-free-torch (foreign-procedure \"tensor_free_torch\" (void*) void))) ((top-level-value 'idris-ffi-tensor-free-torch) (vector-ref a0 2)))"
 prim__freeTorch : AnyPtr -> ()
 
@@ -818,16 +815,17 @@ prim__freeIntHostTorch : AnyPtr -> PrimIO ()
 prim__setIntHostTorch : AnyPtr -> Int -> Int -> AnyPtr
 
 ||| Create from host data + auto-migrate to the target torch hw.
-||| The closure here calls the rank-generic `tensor_create_torch`
-||| (which lands on CPU by default in libtorch) then
+||| Calls the dtag-dispatch `prim__createStreamedTorch` (stream tag
+||| pinned to 0 — streams are an mlx concept; the create lands on
+||| CPU with storage matching the type-level `dt`) then
 ||| `tensor_to_device_torch(handle, "mps"|"cuda:n")` so the returned
-||| tensor is on the right hardware variant. The non-streamed
-||| `prim__createTorch` FFI binding it wraps stays alive for this
-||| purpose (the typeclass method that used to drive it from
-||| `UserExecutorCore` was deleted as dead code).
-prim__createFromHostTorch : (d : TorchHwDev) -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-prim__createFromHostTorch d dat sh rank rg =
-  prim__toDeviceTorch (prim__createTorch dat sh rank rg) (torchHwDevName d)
+||| tensor is on the right hardware variant. Constructing in the
+||| right dtype *before* the migrate is load-bearing: MPS rejects
+||| F64, so the pre-dtag F64-always create made every F32 hop onto
+||| TMps abort inside `tensor_to_device`.
+prim__createFromHostTorch : (d : TorchHwDev) -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+prim__createFromHostTorch d dat sh rank rg dtag =
+  prim__toDeviceTorch (prim__createStreamedTorch dat sh rank rg 0 dtag) (torchHwDevName d)
 
 public export
 {d : TorchHwDev} -> UserExecutorTransfer (TorchExecutor d) where

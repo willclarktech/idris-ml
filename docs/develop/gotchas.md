@@ -209,7 +209,7 @@ makeVec4 (a, b, c, d) = do
   -- ... more sets
   let sh   = primAllocIntHost {ex} 1       -- side effect
   let sh1  = primSetIntHost {ex} sh 0 4
-  let ptr  = primCreateFromHost {ex} buf4 sh1 1 1
+  let ptr  = primCreateFromHost {ex} buf4 sh1 1 1 (dtypeTag {t=dt})
   primIO (\w => MkIORes (primFreeIntHost {ex} sh1)  w)
   primIO (\w => MkIORes (primFreeHost    {ex} buf4) w)
   pure (MkTensor ptr Nothing)
@@ -224,7 +224,7 @@ makeVec4 (a, b, c, d) = do
   buf  <- primIO (\w => MkIORes (primAllocHost {ex} 4) w)
   buf1 <- primIO (\w => MkIORes (prim__setDouble buf 0 a) w)
   -- ...
-  ptr  <- primIO (\w => MkIORes (primCreateFromHost {ex} buf4 sh1 1 1) w)
+  ptr  <- primIO (\w => MkIORes (primCreateFromHost {ex} buf4 sh1 1 1 (dtypeTag {t=dt})) w)
   primIO (\w => MkIORes (primFreeIntHost {ex} sh1)  w)
   primIO (\w => MkIORes (primFreeHost    {ex} buf4) w)
   pure (MkTensor ptr Nothing)

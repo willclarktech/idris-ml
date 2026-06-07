@@ -700,8 +700,13 @@ prim__freeIntHostTape : AnyPtr -> PrimIO ()
 %foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostTape : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-tape)) (set-top-level-value! 'idris-ffi-tensor-create-tape (foreign-procedure \"tensor_create_tape\" (void* void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-tape) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
-prim__createFromHostTape : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+||| Dtag-aware create-from-host: delegates to the dtag-dispatch
+||| `prim__createStreamedTape` (stream pinned to 0 — tape has no
+||| stream concept) so destination storage matches the type-level
+||| `dt` instead of unconditionally constructing F64.
+prim__createFromHostTape : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+prim__createFromHostTape dat sh rank rg dtag =
+  prim__createStreamedTape dat sh rank rg 0 dtag
 
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-device-tape)) (set-top-level-value! 'idris-ffi-tensor-to-device-tape (foreign-procedure \"tensor_to_device_tape\" (void* string) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-to-device-tape) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__intraMigrateTape : AnyPtr -> String -> AnyPtr
@@ -712,13 +717,14 @@ UserExecutorTransfer TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primAllocHost = prim__allocHostTape
   primAllocIntHost = prim__allocIntHostTape
-  primCreateFromHost = prim__createFromHostTape
   primFreeHost = prim__freeHostTape
   primFreeIntHost = prim__freeIntHostTape
   primIntraMigrate = prim__intraMigrateTape
   primSetIntHost = prim__setIntHostTape
   primToHost = prim__toHostTape
   -- <<< END GENERATED <<<
+  -- Hand-written overrides:
+  primCreateFromHost = prim__createFromHostTape
 
 
 ----------------------------------------------------------------------

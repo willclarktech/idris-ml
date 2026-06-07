@@ -584,17 +584,10 @@ example-sac: install
 # backends linked so the example can call tape / torch / mlx C
 # symbols in a single process. Exits 0 with RESULT line on success;
 # crashes at FFI resolution if any backend's symbols are missing.
-#
-# Torch is the primary because the F32 hop uses `tcastUnsafe` (a
-# RuntimeDType operation), which routes via unified C names; only
-# the primary backend's `tensor_cast_dtype_*` survives the link-time
-# aliasing. Tape's `tensor_cast_dtype_f32` aborts at runtime (no
-# F32 arena); mlx and torch implement it for real. Torch-primary is
-# also necessary for the *Torch* cells' creation path —
-# `prim__createTorch` is hardcoded F64 today, so the F32-typed
-# starting tensor lands F64 and gets narrowed to F32 by
-# `tcastUnsafe`, which needs the cast op to land on a backend that
-# supports it.
+# Every leg constructs in its declared dtype directly —
+# `primCreateFromHost` threads the RuntimeDType dtag through each
+# backend's `tensor_create_streamed`, so the F32 hop needs no cast
+# workaround and the primary choice carries no dtype significance.
 example-transfer:
 	$(MAKE) BACKEND=torch,tape,mlx install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr

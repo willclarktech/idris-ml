@@ -760,11 +760,15 @@ interface UserExecutorCore ex => UserExecutorTransfer (0 ex : Executor) where
   primSetIntHost   : AnyPtr -> Int -> Int -> AnyPtr
 
   ||| Create a tensor on this device from a host-allocated double
-  ||| buffer + int shape buffer. The (data, shape, rank, rg) tuple
-  ||| matches `tensor_create`'s ABI; the migration to this device's
-  ||| hardware variant (e.g. TMps) happens internally so the
-  ||| returned handle is on the right hw.
-  primCreateFromHost : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  ||| buffer + int shape buffer. The (data, shape, rank, rg, dtag)
+  ||| tuple matches `tensor_create_streamed`'s ABI minus the stream
+  ||| tag (each backend pins its own stream / hw routing internally,
+  ||| including the migration to the hardware variant, e.g. TMps, so
+  ||| the returned handle is on the right hw). `dtag` is the
+  ||| `RuntimeDType` tag — destination storage must match the
+  ||| type-level `dt`, not silently default to F64 (tape/torch) or
+  ||| F32 (mlx) like the plain `tensor_create` it used to wrap.
+  primCreateFromHost : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 
   ||| Intra-backend hardware migration. Only sound when caller has
   ||| verified shared backend via `backendTag`. Mutates the

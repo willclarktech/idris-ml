@@ -834,8 +834,14 @@ prim__freeIntHostMlx : AnyPtr -> PrimIO ()
 %foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostMlx : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-mlx (foreign-procedure \"tensor_create_mlx\" (void* void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-mlx) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
-prim__createFromHostMlx : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+||| Dtag-aware create-from-host: delegates to the dtag-dispatch
+||| `prim__createStreamedMlx` so destination storage matches the
+||| type-level `dt` instead of unconditionally constructing F32
+||| (mlx's `tensor_create` default — note the *opposite* lie to
+||| tape/torch's F64). The stream is threaded per-instance below.
+prim__createFromHostMlx : Int -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+prim__createFromHostMlx stream dat sh rank rg dtag =
+  prim__createStreamedMlx dat sh rank rg stream dtag
 
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-device-mlx)) (set-top-level-value! 'idris-ffi-tensor-to-device-mlx (foreign-procedure \"tensor_to_device_mlx\" (void* string) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-to-device-mlx) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 prim__intraMigrateMlx : AnyPtr -> String -> AnyPtr
@@ -846,13 +852,14 @@ public export
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primAllocHost = prim__allocHostMlx
   primAllocIntHost = prim__allocIntHostMlx
-  primCreateFromHost = prim__createFromHostMlx
   primFreeHost = prim__freeHostMlx
   primFreeIntHost = prim__freeIntHostMlx
   primIntraMigrate = prim__intraMigrateMlx
   primSetIntHost = prim__setIntHostMlx
   primToHost = prim__toHostMlx
   -- <<< END GENERATED <<<
+  -- Hand-written overrides:
+  primCreateFromHost = prim__createFromHostMlx (streamTag s)
 
 
 ----------------------------------------------------------------------

@@ -19,14 +19,22 @@ ENTRIES = {
         c_symbol="tensor_alloc_ints",
         mlx="direct",
     ),
+    # All-bespoke: each backend hand-writes a thin wrapper over its
+    # existing `prim__createStreamed<B>` binding (the dtag-dispatch
+    # create), fixing the stream/hw routing per backend — tape pins
+    # stream 0, mlx threads `streamTag s`, torch creates on CPU then
+    # migrates to the hw variant. The trailing arg is the RuntimeDType
+    # dtag, so cross-backend `toExecutor` hops construct destination
+    # storage matching the type-level `dt`.
     "tensor_create_from_host": Entry(
-        args=("R", "R", "i", "i"),
+        args=("R", "R", "i", "i", "i"),
         ret="T",
         slice="UserExecutorTransfer",
         idris_method="primCreateFromHost",
-        c_symbol="tensor_create",
+        c_symbol="tensor_create_streamed",
+        tape="bespoke",
         torch="bespoke",
-        mlx="direct",
+        mlx="bespoke",
     ),
     "tensor_free_host": Entry(
         args=("T",),

@@ -39,7 +39,7 @@ import Tensor
 ||| tripped libsystem_malloc's "pointer being freed was not
 ||| allocated" abort.
 makeVec4 : {0 ex : Type} -> {0 dt : DType} ->
-           UserExecutorTransfer ex => Compatible ex dt =>
+           UserExecutorTransfer ex => RuntimeDType dt => Compatible ex dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] ex dt WithGrad)
 makeVec4 (a, b, c, dd) = do
@@ -51,7 +51,7 @@ makeVec4 (a, b, c, dd) = do
   sh   <- primIO (\w => MkIORes (primAllocIntHost {ex} 1)       w)
   sh1  <- primIO (\w => MkIORes (primSetIntHost   {ex} sh 0 4)  w)
   ptr  <- primIO (\w =>
-            MkIORes (primCreateFromHost {ex} buf4 sh1 1 1) w)
+            MkIORes (primCreateFromHost {ex} buf4 sh1 1 1 (dtypeTag {t=dt})) w)
   _ <- primIO (\w => MkIORes (primFreeIntHost {ex} sh1)  w)
   _ <- primIO (\w => MkIORes (primFreeHost    {ex} buf4) w)
   pure (MkTensor ptr Nothing)
@@ -99,21 +99,18 @@ intraTapeSmoke = do
 ||| pre-empts the type, but we still need to land on F32 at runtime).
 intraTorchHwSmoke : IO Bool
 intraTorchHwSmoke = do
-  -- Build F64 (today's primCreateFromHost on torch is F64-only),
-  -- narrow to F32 for MPS compatibility.
+  -- Build F64 then narrow to F32 via tcastUnsafe — keeps the cast
+  -- path exercised alongside the direct F32 create the
+  -- f32StorageProbe / roundtripF32Smoke tests below use.
   src64 <- makeVec4 {ex=TorchExecutor TCpu} {dt = F64} expected
   src   <- tcastUnsafe F32 src64
   dst   <- toExecutor (TorchExecutor TMps) src
   check "intra-torch TorchExecutor TCpu→TMps preserves value"
         (matchesExpected (read4 dst))
 
--- (intra-mlx fast path is exercised by `roundtripF32Smoke` below.
--- A direct `intraMlxStreamSmoke` would need to land an F32 tensor
--- on mlx, which requires `tcastUnsafe` — and tcastUnsafe dispatches
--- via RuntimeDType's unified C symbols, which under torch-primary
--- resolve to the torch backend's cast and crash on mlx handles.
--- The roundtrip path keeps the cast on torch, hops to mlx in F32,
--- and exercises the intra-mlx primIntraMigrate cleanly.)
+-- (intra-mlx fast path is exercised by `roundtripF32Smoke` below,
+-- whose MGpu→MCpu leg goes through the intra-mlx primIntraMigrate;
+-- a separate direct smoke would duplicate that coverage.)
 
 
 ----------------------------------------------------------------------
@@ -158,18 +155,46 @@ roundtripF64Smoke = do
   check "F64 roundtrip TapeExecutor→Torch→Mlx→TapeExecutor preserves value"
         (matchesExpected (read4 v3))
 
--- (4-step F32 hop Torch→TMps→MlxGpu→MlxCpu→Torch is exercised in
--- `Example.Transfer`, which prints values at every step. We don't
--- replicate it here as a unit test yet: the F32 path crashes at
--- process-exit GC in the unit-test infrastructure because today's
--- mlx `primCreateFromHost` is F64-only (the type-level dt isn't
--- threaded through `tensor_create_mlx`), so an "F32" tensor on mlx
--- is actually F64 storage, and the tensor-guardian's free at exit
--- hits an MPS dtype-validation assertion. The example runs the
--- same chain successfully — the difference is the unit-test
--- harness exits abruptly with handles still in scope, vs the
--- example's normal exit path. Tracked under the existing
--- "Broaden runtime dtype coverage across backends" TODO row.)
+----------------------------------------------------------------------
+-- F32 storage probes (dtag-threaded primCreateFromHost)
+----------------------------------------------------------------------
+
+||| 0.1 is not representable in F32; the nearest F32 value read back
+||| as a double is 0.100000001490116…. A create-from-host that honours
+||| `dt = F32` must round; one that silently builds F64 storage (the
+||| pre-dtag bug this guards against) preserves 0.1 exactly.
+f32Rounded : Double
+f32Rounded = 0.10000000149011612
+
+||| True iff `a` is 0.1-rounded-to-F32 (storage really is F32).
+roundsToF32 : Double -> Bool
+roundsToF32 a = abs (a - f32Rounded) < 0.000000000001
+
+f32StorageProbe : {0 ex : Type} ->
+                  UserExecutorTransfer ex => Compatible ex F32 =>
+                  String -> IO Bool
+f32StorageProbe label = do
+  t <- makeVec4 {ex} {dt = F32} (0.1, 2.0, 3.0, 4.0)
+  let (a, _, _, _) = read4 t
+  check ("F32 create-from-host on " ++ label ++ " stores real F32 storage")
+        (roundsToF32 a)
+
+||| 4-step F32 hop: TorchExecutor TCpu → TMps → MlxExecutor MGpu →
+||| MlxExecutor MCpu → TorchExecutor TCpu. Mirrors Example.Transfer's
+||| Part 3. Inputs are exactly representable in F32, so the hop must
+||| exact-match end-to-end. Before the dtag threading this crashed the
+||| unit-test harness at process-exit GC: the mlx leg's "F32" tensor
+||| was really F64 storage and the tensor-guardian's free tripped an
+||| MPS dtype-validation assertion.
+roundtripF32Smoke : IO Bool
+roundtripF32Smoke = do
+  v0 <- makeVec4 {ex=TorchExecutor TCpu} {dt = F32} expected
+  v1 <- toExecutor (TorchExecutor TMps) v0
+  v2 <- toExecutor (MlxExecutor MGpu) v1
+  v3 <- toExecutor (MlxExecutor MCpu) v2
+  v4 <- toExecutor (TorchExecutor TCpu) v3
+  check "F32 roundtrip Torch TCpu→TMps→MlxGpu→MlxCpu→TCpu preserves value"
+        (matchesExpected (read4 v4))
 
 
 ----------------------------------------------------------------------
@@ -185,4 +210,8 @@ tests =
   , crossTorchToMlxSmoke
   , crossMlxToTapeSmoke
   , roundtripF64Smoke
+  , f32StorageProbe {ex=TapeExecutor} "TapeExecutor"
+  , f32StorageProbe {ex=TorchExecutor TCpu} "TorchExecutor TCpu"
+  , f32StorageProbe {ex=MlxExecutor MCpu} "MlxExecutor MCpu"
+  , roundtripF32Smoke
   ]

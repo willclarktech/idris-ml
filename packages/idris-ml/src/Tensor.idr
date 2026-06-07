@@ -1073,20 +1073,30 @@ KeepAlive (Tensor dims ex dt g) where
 |||   param-registry membership.
 |||
 |||  * Different backends → host round-trip. Source's `primToHost`
-|||   copies the tensor into a CPU double buffer; the shape gets
-|||   marshalled into a CPU int buffer; dest's `primCreateFromHost`
-|||   reconstructs the tensor on the target backend. Every step is
-|||   primIO-sequenced and both temporary buffers are freed after the
-|||   create. The destination tensor is a *fresh* C handle
+|||   copies the tensor into a CPU double buffer (F32 storage is
+|||   promoted losslessly); the shape gets marshalled into a CPU int
+|||   buffer; dest's `primCreateFromHost` reconstructs the tensor on
+|||   the target backend with storage matching the type-level `dt`
+|||   (the `RuntimeDType dt` tag is threaded through, so an F32
+|||   tensor that hops backends stays F32 storage instead of
+|||   silently landing in the destination's default dtype). Every
+|||   step is primIO-sequenced and both temporary buffers are freed
+|||   after the create. The destination tensor is a *fresh* C handle
 |||   on the dest backend — registry membership does NOT follow; users
 |||   transferring parameters across backends re-register on the dest
 |||   side.
+|||
+||| The `Compatible d2 dt` constraint makes inadmissible hops
+||| unrepresentable — e.g. moving an F64 tensor onto Metal
+||| (`MlxExecutor MGpu` / `TorchExecutor TMps`) fails to typecheck
+||| instead of aborting in the backend.
 |||
 ||| `paramId` is preserved on the Idris-side `Tensor` record either
 ||| way; only the C-side registry differs.
 export
 toExecutor : {0 d1 : Type} -> (0 d2 : Type) ->
            UserExecutorTransfer d1 => UserExecutorTransfer d2 =>
+           RuntimeDType dt => Compatible d2 dt =>
            {rank : Nat} -> {dims : Vect rank Nat} ->
            Tensor dims d1 dt WithGrad -> IO (Tensor dims d2 dt WithGrad)
 toExecutor d2 src =
@@ -1108,7 +1118,8 @@ toExecutor d2 src =
       shapeBuf <- primIO (\w => MkIORes (primAllocIntHost {ex=d2} rankI) w)
       shapeBuf' <- primIO (\w => MkIORes (writeShape shapeBuf 0 dims) w)
       destPtr <- primIO (\w =>
-        MkIORes (primCreateFromHost {ex=d2} dataBuf' shapeBuf' rankI 0) w)
+        MkIORes (primCreateFromHost {ex=d2} dataBuf' shapeBuf' rankI 0
+                  (dtypeTag {t=dt})) w)
       -- Backend-side `tensor_create_<b>` copies the buffer into its
       -- own arena/storage, so both host buffers are dead here. An
       -- earlier version leaked them after chained hops crashed at
@@ -1178,6 +1189,7 @@ attemptOn act = do
 export
 toExecutorChecked : {0 d1 : Type} -> (0 d2 : Type) ->
                   UserExecutorTransfer d1 => UserExecutorTransfer d2 =>
+                  RuntimeDType dt => Compatible d2 dt =>
                   {rank : Nat} -> {dims : Vect rank Nat} ->
                   Tensor dims d1 dt WithGrad ->
                   IO (Either ExecutorError (Tensor dims d2 dt WithGrad))

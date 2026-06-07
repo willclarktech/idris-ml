@@ -58,7 +58,7 @@ import BuildConfig
 ||| "pointer being freed was not allocated" abort. The same
 ||| structure exists (and is tested) in `Test.Transfer.makeVec4`.
 makeVec4 : {0 ex : Type} -> {0 dt : DType} ->
-           UserExecutorTransfer ex => Compatible ex dt =>
+           UserExecutorTransfer ex => RuntimeDType dt => Compatible ex dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] ex dt WithGrad)
 makeVec4 (a, b, c, dd) = do
@@ -70,7 +70,7 @@ makeVec4 (a, b, c, dd) = do
   sh   <- primIO (\w => MkIORes (primAllocIntHost {ex} 1)       w)
   sh1  <- primIO (\w => MkIORes (primSetIntHost   {ex} sh 0 4)  w)
   ptr  <- primIO (\w =>
-            MkIORes (primCreateFromHost {ex} buf4 sh1 1 1) w)
+            MkIORes (primCreateFromHost {ex} buf4 sh1 1 1 (dtypeTag {t=dt})) w)
   primIO (primFreeIntHost {ex} sh1)
   primIO (primFreeHost    {ex} buf4)
   pure (MkTensor ptr Nothing)
@@ -152,31 +152,22 @@ hopF64 = do
 -- Exercises both intra-backend fast paths (matching backendTag →
 -- in-place hardware migration via libtorch's `.to()` / mlx's
 -- stream switch) and cross-backend round-trips (host buffer hop).
--- F32 only — TapeExecutor is excluded because it doesn't admit F32
--- (no parallel `float*` arena, see TODO row "Broaden runtime
--- dtype coverage across backends").
+-- Every leg constructs real F32 storage — `primCreateFromHost`
+-- threads the RuntimeDType tag, so the F32 create lands directly.
 ----------------------------------------------------------------------
 
 hopF32 : IO Bool
 hopF32 = do
   putStrLn ""
   putStrLn "=== F32 hop (includes Metal GPU cells, 4 cells) ==="
-  putStrLn "    Starts on TorchExecutor TCpu (built F64, narrowed to F32"
-  putStrLn "    via tcastUnsafe — see TODO 'Broaden runtime dtype"
-  putStrLn "    coverage' for why primCreateFromHost is F64-only on"
-  putStrLn "    torch today). Hops intra-torch (fast path via"
-  putStrLn "    libtorch's `.to('mps')`) to TorchExecutor TMps, cross-"
-  putStrLn "    backend to MlxExecutor MGpu, intra-mlx to MlxExecutor MCpu,"
-  putStrLn "    back cross-backend to TorchExecutor TCpu."
+  putStrLn "    Starts on TorchExecutor TCpu as F32. Hops intra-torch"
+  putStrLn "    (fast path via libtorch's `.to('mps')`) to TorchExecutor"
+  putStrLn "    TMps, cross-backend to MlxExecutor MGpu, intra-mlx to"
+  putStrLn "    MlxExecutor MCpu, back cross-backend to TorchExecutor"
+  putStrLn "    TCpu."
   putStrLn ""
 
-  -- Build F64 then narrow to F32 (exactly representable for these
-  -- integer inputs). This sidesteps the primCreateFromHost dtype
-  -- gap on the torch backend (always lands F64) — once the cascade
-  -- threads dt through tensor_create_torch, makeVec4 {dt=F32} will
-  -- work directly and this tcastUnsafe step can go.
-  v_torch_cpu64 <- makeVec4 {ex=TorchExecutor TCpu} {dt = F64} expected
-  v_torch_cpu   <- tcastUnsafe F32 v_torch_cpu64
+  v_torch_cpu <- makeVec4 {ex=TorchExecutor TCpu} {dt = F32} expected
   ok1 <- reportStep "TorchExecutor TCpu (F32):"  (read4 v_torch_cpu)
 
   v_torch_mps <- toExecutor (TorchExecutor TMps) v_torch_cpu
