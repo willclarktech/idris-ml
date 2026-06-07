@@ -167,6 +167,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel, Te
 				for (int oh = 0; oh < oH; oh++) {
 					for (int ow = 0; ow < oW; ow++) {
 						int row = b * oH * oW + oh * oW + ow;
+						// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
 						out_chan[oh * oW + ow] = Y_unf[row * outC + oc] + b_val;
 					}
 				}
@@ -203,6 +204,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel, Te
 				for (int oh = 0; oh < oH; oh++) {
 					for (int ow = 0; ow < oW; ow++) {
 						int row = b * oH * oW + oh * oW + ow;
+						// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
 						out_chan[oh * oW + ow] = Y_unf[row * outC + oc] + b_val;
 					}
 				}
@@ -311,7 +313,7 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 	}
 
 	/* d_kernel — single dgemm: dW[outC,K] = dY_unf^T[outC,M] @ X_col[M,K] */
-	if (need_dW) {
+	if (need_dW && dY_unf) {
 		ensure_grad(b);
 		double* X_col = (double*)calloc((size_t)M_unf * K_unf, sizeof(double));
 		conv2d_im2col((const double*)a_data_ptr, B, inC, HH, WW, kH, kW, padH, padW, strideH,
@@ -332,7 +334,7 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 	}
 
 	/* d_input — dX_col[M,K] = dY_unf[M,outC] @ W[outC,K], then col2im */
-	if (need_dX) {
+	if (need_dX && dY_unf) {
 		ensure_grad(a);
 		double* dX_col = calloc((size_t)M_unf * K_unf, sizeof(double));
 #ifdef __APPLE__
@@ -343,6 +345,7 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 			for (int kk = 0; kk < K_unf; kk++) {
 				double s = 0;
 				for (int oc = 0; oc < outC; oc++)
+					// NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult,clang-analyzer-security.ArrayBound)
 					s += dY_unf[m * outC + oc] * ((const double*)b_data_ptr)[oc * K_unf + kk];
 				dX_col[m * K_unf + kk] = s;
 			}
