@@ -22,6 +22,7 @@ import Test.BitLinear
 import Test.BitNet
 import Test.CheckpointSubset
 import Test.MixedLayerLike
+import Test.Optimizer
 import Test.Properties.F32GradParity as Props.F32GradParity
 import Test.Properties.GoldenDemo as Props.GoldenDemo
 import Test.Properties.Reshape as Props.Reshape
@@ -65,6 +66,7 @@ main = runAll
   , ("BitNet",          Test.BitNet.tests)
   , ("CheckpointSubset", Test.CheckpointSubset.tests)
   , ("MixedLayerLike",  Test.MixedLayerLike.tests)
+  , ("Optimizer",       Test.Optimizer.tests)
   , ("Properties",      Props.Softmax.tests ++ Props.Reshape.tests ++ Props.GoldenDemo.tests
                                             ++ Props.RmsNorm.tests ++ Props.RoPE.tests
                                             ++ Props.F32GradParity.tests)

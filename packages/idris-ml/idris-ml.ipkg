@@ -58,6 +58,7 @@ modules = Compat.Random
         , Layer.SwiGLU
         , Layer.Transformer
         , Math
+        , Optimizer
         , RL.Gae
         , RL.ReplayBuffer
         , Sampler

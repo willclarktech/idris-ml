@@ -30,6 +30,7 @@ modules = Test.Main
         , Test.ManagedHandle
         , Test.Math
         , Test.MixedLayerLike
+        , Test.Optimizer
         , Test.Properties.F32GradParity
         , Test.Properties.GoldenDemo
         , Test.Properties.Reshape
