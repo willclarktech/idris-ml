@@ -2041,3 +2041,32 @@ IO (Either LoadError ())`, `saveAll` escape hatch.
   lifecycle annotations in code — pre-user, no backwards compatibility).
 - **Math.idr**: no demotion annotation either; the module is deleted wholesale at the sweep
   (`argmax`/`oneHotEncode` relocate to Util.idr then — no Tensor-side `targmax` exists).
+
+## Construction facade: `tensor` / `param` × `InitSpec` + `Tensor.Internal` fence (2026-06-12)
+
+**Decision**: implements the construction-facade row (api-critique §S2). One construction
+surface — `tensor : InitSpec (Numel dims) -> IO (Tensor dims ex dt NoGrad)` and
+`param : LTE rank 4 => (name : String) -> InitSpec (Numel dims) -> IO (… WithGrad)` — over an
+indexed `data InitSpec : Nat -> Type` (`Zeros | Const | Normal | Uniform | FromVect`) in
+Init.idr. The raw construction ABI (`prim__alloc*`/`prim__set*`, the `dtCreate*` dispatch
+family) moved to `Tensor/Internal.idr`, re-exported `import public` from Tensor.idr so the
+~100 pre-facade call sites compile unchanged until the migration sweep (the prim__ ratchet
+gate, `scripts/check-prim-in-examples.py`, holds examples at 53 occurrences and falls to
+zero there).
+
+- **Indexed `FromVect`**: length ties to `Numel dims` at compile time — data/shape mismatch
+  is a type error, not a runtime crash. The feared elaboration cost (plan-B: unindexed +
+  runtime-checked `tensorE`) didn't materialise; suite elaboration is unchanged.
+- **`Numel` singleton clause**: `Numel [n] = n` definitionally (no `n * 1` wart), so 1-D
+  `FromVect` literals check without rewrites, and `fromRows : Vect b (Vect i Double) ->
+  InitSpec (b * i)` lines up with `Data.Vect.concat`'s index.
+- **`param` rank ceiling**: `{auto rankOk : LTE rank 4}` — the C param-create surface stops
+  at 4-D; rank 5 fails at compile time. The proof is a *relevant* auto implicit: an erased
+  `0 rankOk` can't drive the rank≥5 refutation ("not a valid impossible case") because
+  erased data can't be matched at runtime; the cost is a ≤5-deep constructor chain per
+  construction (cold path).
+- **Fused-init routing**: `Normal`/`Const`/`Zeros` hit the `dtCreateParam<r>{Normal,Const}`
+  backend-side init prims (memory-bandwidth fill, registry included); `Uniform`/`FromVect`
+  fill a host buffer per element — fine for a construction path.
+- **Registry assertions in tests are set-membership**, never "newly-added slot counts" —
+  `param_register` dedups by name and replaces in place.

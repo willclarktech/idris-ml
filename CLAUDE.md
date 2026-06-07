@@ -173,6 +173,10 @@ let model = ll ~~> OutputLayer reluLayerAny -- registers "ll0_weights" + "ll0_bi
 
 Each `*LayerAny` constructor takes a paramPrefix and registers parameters in the C-side optimizer registry. **Parameters without a paramId are invisible to the optimizer** — always pass a prefix. For multi-network examples, scope each network's prefix distinctly (`actor_ll0`, `critic_ll0`).
 
+### Construction
+
+`tensor {dims=[2,3]} (Const 0.5)` / `param "w" (Normal 0.0 0.02)` — one construction surface over `InitSpec` (`Zeros | Const x | Normal mu sd | Uniform lo hi | FromVect xs`; `fromRows` stacks a `Vect b (Vect i Double)` for the batch case). `FromVect`'s length is tied to `Numel dims` at compile time; `param` requires rank <= 4 (compile error past the C surface's ceiling) and always registers. Raw `prim__*` + `dtCreate*` construction lives in `Tensor.Internal` (backend authors only); the prim ratchet gate keeps examples from growing new raw-prim call sites.
+
 ### Forward pass
 
 ```idris
