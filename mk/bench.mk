@@ -3,7 +3,7 @@
 # the perf-regression lint gates.
 
 .PHONY: bench-py bench-compare bench-ops bench-ops-py bench-layers \
-        bench-layers-py bench-fast bench-nightly bench-full bench \
+        bench-layers-py bench-fast bench-deep bench-full bench \
         test-integration-lint-benchmarks \
         test-integration-lint-perf-regression lint-perf-run \
         bench-ops-compare
@@ -56,7 +56,7 @@ bench-layers-py:
 # Principled perf benchmark suite (testing-taxonomy Axis A / B / C / D).
 # Three cadence tiers:
 #   bench-fast    — Tier 1, CI, <= 5 min (Axis A + B).
-#   bench-nightly — Tier 2, scheduled, <= 20 min (Axes A + B + C + D).
+#   bench-deep — Tier 2, scheduled, <= 20 min (Axes A + B + C + D).
 #   bench-full    — Tier 3, manual / pre-tag (the cross-backend sweep).
 # `bench` aliases `bench-fast` (the daily-driver default).
 # All three append to docs/develop/perf-log.jsonl and regenerate
@@ -67,14 +67,14 @@ bench-layers-py:
 bench-fast:
 	bash scripts/perf-fast.sh
 
-bench-nightly:
-	bash scripts/perf-nightly.sh
+bench-deep:
+	bash scripts/perf-deep.sh
 
 bench-full:
 	bash scripts/perf-sweep.sh
 
 # Default `bench` aggregator — alias for the fast tier. For deeper
-# perf coverage use `bench-nightly` or `bench-full`.
+# perf coverage use `bench-deep` or `bench-full`.
 bench: bench-fast
 
 # CI preflight: BENCHMARKS.md must agree with perf-log.jsonl.

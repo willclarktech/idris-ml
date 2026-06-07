@@ -34,7 +34,7 @@ catches:
 | `test-integration` | ~5 min | Negative-type gates (`test-integration-typegate-*`), lint drift (`test-integration-lint-*`), checkpoint resume, jupyter cell parser, NTM grad/timestep | Full example training |
 | `test-e2e` | tens of minutes | Example smoke matrix × 5 backend lanes, HF-roundtrip gates, transformer / oracle gates, jupyter notebook execution | Multi-seed sensitivity (single seed=42 only); strict convergence quality |
 | `bench` (`= bench-fast`) | ≤5 min | Op-kernel + single-layer fwd+bwd regressions vs PyTorch | E2E training perf, HF inference perf |
-| `bench-nightly` | ≤20 min | Tier 1 + e2e training perf + HF inference perf, tape only | Cross-backend perf |
+| `bench-deep` | ≤20 min | Tier 1 + e2e training perf + HF inference perf, tape only | Cross-backend perf |
 | `bench-full` | hours | Cross-backend perf — every example × every backend | Correctness (perf signal only) |
 | `test-coverage` | ~10 min | Three-axis target (symbol + OP_* backward + F32 oracle) | Convergence; advisory only |
 | `test-convergence` | hours | "Model trains in the wrong direction"; optimizer-step bugs that drop convergence rate | Multi-seed sensitivity (single seed=42 only); cross-backend (tape only) |
@@ -73,7 +73,7 @@ parses both files. Default expect file is `test-examples.expect`.
   *making convergence claims in PR descriptions / docs*, not as a
   CI gate. If a multi-seed regression shows up in the wild, run
   the per-example target manually with several seeds.
-- **PyTorch parity per example** — `bench-nightly` Axis C
+- **PyTorch parity per example** — `bench-deep` Axis C
   exists for the representative panel; we don't enforce parity on
   every example automatically. Drift between Idris and PyTorch is
   captured in `docs/develop/reference-alignment.md`.
@@ -126,7 +126,7 @@ triaged fast):
 | When you suspect a math/primitive regression | `make test` |
 | Iterating on one example | `make example-<name>` |
 | Pre-release validation | `make test-convergence` + `make bench-full` (both hours) |
-| Comparing Idris to PyTorch | `make bench-nightly` (then read `BENCHMARKS.md`) |
+| Comparing Idris to PyTorch | `make bench-deep` (then read `BENCHMARKS.md`) |
 | Investigating a flaky training run | re-run the example with several `--seed` values manually |
 
 ## Threshold philosophy in one paragraph

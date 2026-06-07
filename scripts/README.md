@@ -27,7 +27,7 @@ scripts/
 ├── perf-baseline.sh                kind=baseline (single example, in-script marker)
 ├── perf-sweep.sh                   kind=baseline (Tier 3 cross-backend sweep)
 ├── perf-fast.sh                    kind=op_bench (Tier 1 Axes A/B, ≤ 5 min)
-├── perf-nightly.sh                 kind=op_bench (Tier 2 + Axes C/D)
+├── perf-deep.sh                 kind=op_bench (Tier 2 + Axes C/D)
 ├── perf-run-quiet.sh               caffeinate + nice wrapper around perf-run.sh
 ├── render-benchmarks.py            BENCHMARKS.md from perf-log.jsonl
 ├── check-perf-regression.py        median-window regression gate on perf-log.jsonl

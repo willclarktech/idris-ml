@@ -1,13 +1,13 @@
 name: perf
 
 # Tier 2 perf cadence (see docs/develop/testing-taxonomy.md). Runs the
-# `bench-nightly` aggregator end-to-end on Ubuntu and uploads the
+# `bench-deep` aggregator end-to-end on Ubuntu and uploads the
 # refreshed perf-log.jsonl + BENCHMARKS.md as artifacts. Today covers
 # Axes A (op kernels), B (single-layer fwd+bwd), C (e2e training), and
 # the BERT + GPT-2 cells of Axis D (HF inference). The Llama-generate
 # cell of Axis D needs torch-mps F32 (Apple Silicon) — it's not
 # available on this Ubuntu runner so it lands on a developer's local
-# perf-nightly.sh run, not this CI workflow.
+# perf-deep.sh run, not this CI workflow.
 #
 # Trigger is push-to-main, not a nightly cron: day-to-day work happens
 # on the private mirror (CI disabled) and this public repo only moves
@@ -29,7 +29,7 @@ jobs:
   perf:
     name: perf (tape)
     runs-on: ubuntu-latest
-    # bench-nightly itself is ≤20 min warm, but this runner is cold:
+    # bench-deep itself is ≤20 min warm, but this runner is cold:
     # idris2 bootstrap (~8 min) + `make install` elaboration + the
     # Axis C/D example builds all happen from scratch.
     timeout-minutes: 60
@@ -58,7 +58,7 @@ jobs:
         # Llama-generate cell of Axis D is locally-gated (torch-mps)
         # and naturally skips on this runner since no MPS is
         # available. uv lands in ~/.local/bin; persist it on PATH
-        # for the bench-nightly step via GITHUB_PATH.
+        # for the bench-deep step via GITHUB_PATH.
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -74,8 +74,8 @@ jobs:
       - name: Build tape backend
         run: env BACKEND=tape make backend
 
-      - name: Run bench-nightly
-        run: make bench-nightly
+      - name: Run bench-deep
+        run: make bench-deep
 
       - name: Upload perf-log.jsonl
         uses: actions/upload-artifact@v4

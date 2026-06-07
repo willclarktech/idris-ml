@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/perf-nightly.sh — Tier 2 perf gate (Axes A+B+C+D, tape only).
+# scripts/perf-deep.sh — Tier 2 perf gate (Axes A+B+C+D, tape only).
 #
 # Runs the Tier-1 op-kernel + layer benches via perf-fast.sh, then
 # extends with Axis C (end-to-end training, one workload per training
@@ -18,9 +18,9 @@
 #     "commit": "...", "ts": "...", "date": "..." }
 #
 # Usage:
-#   scripts/perf-nightly.sh                # full Tier 1 + Axes C + D
-#   scripts/perf-nightly.sh --axis-c-only  # skip Tier 1, skip Axis D
-#   scripts/perf-nightly.sh --axis-d-only  # skip Tier 1, skip Axis C
+#   scripts/perf-deep.sh                # full Tier 1 + Axes C + D
+#   scripts/perf-deep.sh --axis-c-only  # skip Tier 1, skip Axis D
+#   scripts/perf-deep.sh --axis-d-only  # skip Tier 1, skip Axis C
 #
 # Workloads (one per distinct training mode):
 #   supervised   — feedforward
@@ -49,14 +49,14 @@ for arg in "$@"; do
 			exit 0
 			;;
 		*)
-			echo "perf-nightly.sh: unknown arg: $arg" >&2
+			echo "perf-deep.sh: unknown arg: $arg" >&2
 			exit 2
 			;;
 	esac
 done
 
 if [ "$DO_TIER1" = "1" ]; then
-	echo "==> perf-nightly: running Tier 1 (Axes A + B)"
+	echo "==> perf-deep: running Tier 1 (Axes A + B)"
 	bash scripts/perf-fast.sh --no-render
 fi
 
@@ -92,7 +92,7 @@ log_axis_c_pair() {
 }
 
 if [ "$DO_AXIS_C" = "1" ]; then
-	echo "==> perf-nightly: running Axis C (e2e training)"
+	echo "==> perf-deep: running Axis C (e2e training)"
 	for row in "${AXIS_C_WORKLOADS[@]}"; do
 		read -r key idris_tgt idris_var ref_mod epochs <<< "$row"
 		echo "  -> $key (epochs=$epochs)"
@@ -158,7 +158,7 @@ log_axis_d_pair() {
 }
 
 if [ "$DO_AXIS_D" = "1" ]; then
-	echo "==> perf-nightly: running Axis D (HF inference)"
+	echo "==> perf-deep: running Axis D (HF inference)"
 	for row in "${AXIS_D_WORKLOADS[@]}"; do
 		read -r key idris_tgt ref_mod idris_env <<< "$row"
 		echo "  -> $key"
@@ -192,7 +192,7 @@ if [ "$DO_AXIS_D" = "1" ]; then
 	done
 fi
 
-echo "==> perf-nightly: rendering BENCHMARKS.md"
+echo "==> perf-deep: rendering BENCHMARKS.md"
 python3 scripts/render-benchmarks.py
 
-echo "==> perf-nightly: done"
+echo "==> perf-deep: done"

@@ -63,7 +63,7 @@ runs unit + integration + e2e per-backend.
 | Target | Scope | Wall (warm) |
 |---|---|---|
 | `bench` (= `bench-fast`) | Tier 1: Axis A (op kernels) + Axis B (single-layer fwd+bwd), tape only | ≤5 min |
-| `bench-nightly` | Tier 2: Tier 1 + Axis C (e2e training) + Axis D (HF inference), tape only | ≤20 min |
+| `bench-deep` | Tier 2: Tier 1 + Axis C (e2e training) + Axis D (HF inference), tape only | ≤20 min |
 | `bench-full` | Tier 3: the cross-backend sweep (every example × every backend) | hours |
 
 All three append to `docs/develop/perf-log.jsonl` and regenerate
@@ -270,7 +270,7 @@ inference). Three cadence tiers + a handful of axis drivers:
 | Target | What |
 |---|---|
 | `bench` (= `bench-fast`) | Tier 1: Axes A + B, tape only, ≤5 min |
-| `bench-nightly` | Tier 2: Axes A + B + C + D, tape only, ≤20 min |
+| `bench-deep` | Tier 2: Axes A + B + C + D, tape only, ≤20 min |
 | `bench-full` | Tier 3: cross-backend sweep, hours, wraps `scripts/perf-sweep.sh` |
 | `bench-ops` | Axis A driver (Idris-side op-level wall-clock) |
 | `bench-ops-py` | Axis A driver (PyTorch reference) |
@@ -373,7 +373,7 @@ diverges from the regenerated output.
 | Touched an example or training-loop module | also `make test-e2e` |
 | Touched any C kernel | also `make test-unit-c-{tape,mlx,torch}` for the backends you touched |
 | Touched an example you want to compile-test | `make check-examples` (or just `make check-all`) |
-| Investigating a perf regression | `make bench` (Tier 1) → `make bench-nightly` (Tier 2) |
+| Investigating a perf regression | `make bench` (Tier 1) → `make bench-deep` (Tier 2) |
 | Pre-release validation | `make test-convergence` + `make bench-full` |
 | Iterating on one example | `make example-<name>` |
 
