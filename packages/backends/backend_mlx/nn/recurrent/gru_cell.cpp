@@ -32,10 +32,12 @@ extern "C" TensorHandle tensor_gru_cell_mlx_streamed(TensorHandle hih, TensorHan
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_GRU_CELL, r, ih, hh, 0);
-		auto meta = new GruCellReplayMeta();
-		meta->o = o;
-		meta->prev_pool_idx = prev->pool_idx;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto meta = new GruCellReplayMeta();
+			meta->o = o;
+			meta->prev_pool_idx = prev->pool_idx;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

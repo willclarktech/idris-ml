@@ -31,13 +31,15 @@ extern "C" TensorHandle tensor_conv1d_mlx_streamed(TensorHandle hinput, TensorHa
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_CONV1D, r, inp, ker, 0);
-		auto* meta = new Conv1DReplayMeta();
-		meta->pad = pad;
-		meta->stride = stride;
-		meta->inC = inC;
-		meta->L = L;
-		meta->bias_pool_idx = bias ? bias->pool_idx : -1;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto* meta = new Conv1DReplayMeta();
+			meta->pad = pad;
+			meta->stride = stride;
+			meta->inC = inC;
+			meta->L = L;
+			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

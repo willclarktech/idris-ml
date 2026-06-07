@@ -22,13 +22,15 @@ extern "C" TensorHandle tensor_max_pool1d_mlx_streamed(TensorHandle hinput, int 
 	auto r = new Tensor(result, inp->requires_grad);
 	if (inp->requires_grad) {
 		int idx = tape_append(OP_MAX_POOL1D, r, inp, nullptr, 0);
-		auto* meta = new MaxPool1DReplayMeta();
-		meta->C = C;
-		meta->L = L;
-		meta->kL = kL;
-		meta->stride = stride;
-		meta->oL = oL;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto* meta = new MaxPool1DReplayMeta();
+			meta->C = C;
+			meta->L = L;
+			meta->kL = kL;
+			meta->stride = stride;
+			meta->oL = oL;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

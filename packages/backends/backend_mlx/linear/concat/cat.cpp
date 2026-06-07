@@ -16,10 +16,12 @@ static TensorHandle cat_impl(TensorHandle* tensors, int count, int dim) {
 	auto r = new Tensor(mx::concatenate(arrs, dim), rg);
 	if (rg) {
 		int idx = tape_append(OP_CAT_MULTI, r, nullptr, nullptr, (double)dim);
-		auto* indices = new std::vector<int>();
-		for (int i = 0; i < count; i++)
-			indices->push_back(((Tensor*)tensors[i])->pool_idx);
-		tape[idx].meta = (void*)indices;
+		if (idx >= 0) {
+			auto* indices = new std::vector<int>();
+			for (int i = 0; i < count; i++)
+				indices->push_back(((Tensor*)tensors[i])->pool_idx);
+			tape[idx].meta = (void*)indices;
+		}
 	}
 	return (TensorHandle)r;
 }

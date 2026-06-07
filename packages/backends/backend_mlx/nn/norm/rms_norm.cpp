@@ -31,10 +31,12 @@ extern "C" TensorHandle tensor_rms_norm_2d_mlx_streamed(TensorHandle h, TensorHa
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_RMS_NORM_2D, r, t, nullptr, eps);
-		auto meta = new RmsNormReplayMeta();
-		meta->weight_pool_idx = weight->pool_idx;
-		meta->eps = eps;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto meta = new RmsNormReplayMeta();
+			meta->weight_pool_idx = weight->pool_idx;
+			meta->eps = eps;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

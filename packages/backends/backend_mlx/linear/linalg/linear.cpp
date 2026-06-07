@@ -43,9 +43,11 @@ extern "C" TensorHandle tensor_linear_2d_mlx_streamed(TensorHandle hW, TensorHan
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_LINEAR_2D, r, X, W, 0);
-		auto meta = new LinearReplayMeta();
-		meta->bias_pool_idx = bias ? bias->pool_idx : -1;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto meta = new LinearReplayMeta();
+			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

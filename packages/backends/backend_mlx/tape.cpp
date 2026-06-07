@@ -32,6 +32,15 @@ extern "C" void free(void*);
 std::vector<TapeEntry> tape;
 long prof_tape_appends_mlx = 0;
 
+/* CONTRACT: returns -1 while no_grad_depth_mlx > 0 (params keep
+ * requires_grad=true inside withNoGrad, so meta-carrying call sites
+ * still reach their `if (rg)` block under no-grad). Every
+ * `tape[idx].meta = ...` MUST be guarded with `if (idx >= 0)` —
+ * an unguarded write lands at tape[-1], the word before the tape
+ * vector's heap block (heap underrun; or a near-NULL write when the
+ * tape is empty). That underrun was the layout-dependent SIGABRT /
+ * "invalid memory reference" that killed the mlx RL examples in CI
+ * run 27373449876. Gated by the mlx_no_grad_meta criterion suite. */
 int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
 	if (no_grad_depth_mlx > 0) {
 		if (result) {

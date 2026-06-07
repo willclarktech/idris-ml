@@ -54,13 +54,15 @@ extern "C" TensorHandle tensor_batch_norm_mlx_streamed(TensorHandle hinput, Tens
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_BATCH_NORM, r, inp, nullptr, 0);
-		auto* meta = new BatchNormReplayMeta();
-		meta->gamma_pool_idx = gamma->pool_idx;
-		meta->beta_pool_idx = beta->pool_idx;
-		meta->C = C;
-		meta->spatial = spatial;
-		meta->eps = eps;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto* meta = new BatchNormReplayMeta();
+			meta->gamma_pool_idx = gamma->pool_idx;
+			meta->beta_pool_idx = beta->pool_idx;
+			meta->C = C;
+			meta->spatial = spatial;
+			meta->eps = eps;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

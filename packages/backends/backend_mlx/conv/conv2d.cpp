@@ -33,16 +33,18 @@ extern "C" TensorHandle tensor_conv2d_mlx_streamed(TensorHandle hinput, TensorHa
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_CONV2D, r, inp, ker, 0);
-		auto* meta = new Conv2DReplayMeta();
-		meta->padH = padH;
-		meta->padW = padW;
-		meta->strH = strideH;
-		meta->strW = strideW;
-		meta->inC = inC;
-		meta->H = H;
-		meta->W = W;
-		meta->bias_pool_idx = bias ? bias->pool_idx : -1;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto* meta = new Conv2DReplayMeta();
+			meta->padH = padH;
+			meta->padW = padW;
+			meta->strH = strideH;
+			meta->strW = strideW;
+			meta->inC = inC;
+			meta->H = H;
+			meta->W = W;
+			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }
@@ -76,17 +78,19 @@ extern "C" TensorHandle tensor_conv2d_batched_mlx_streamed(TensorHandle hinput,
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_CONV2D_BATCHED, r, inp, ker, 0);
-		auto* meta = new Conv2DBatchedReplayMeta();
-		meta->padH = padH;
-		meta->padW = padW;
-		meta->strH = strideH;
-		meta->strW = strideW;
-		meta->B = B;
-		meta->inC = inC;
-		meta->H = H;
-		meta->W = W;
-		meta->bias_pool_idx = bias ? bias->pool_idx : -1;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto* meta = new Conv2DBatchedReplayMeta();
+			meta->padH = padH;
+			meta->padW = padW;
+			meta->strH = strideH;
+			meta->strW = strideW;
+			meta->B = B;
+			meta->inC = inC;
+			meta->H = H;
+			meta->W = W;
+			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

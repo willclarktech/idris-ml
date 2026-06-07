@@ -31,18 +31,20 @@ extern "C" TensorHandle tensor_max_pool2d_batched_mlx_streamed(TensorHandle hinp
 	auto r = new Tensor(result, inp->requires_grad);
 	if (inp->requires_grad) {
 		int idx = tape_append(OP_MAX_POOL2D_BATCHED, r, inp, nullptr, 0);
-		auto* meta = new MaxPool2DBatchedReplayMeta();
-		meta->B = B;
-		meta->C = C;
-		meta->H = H;
-		meta->W = W;
-		meta->kH = kH;
-		meta->kW = kW;
-		meta->strH = strideH;
-		meta->strW = strideW;
-		meta->oH = oH;
-		meta->oW = oW;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto* meta = new MaxPool2DBatchedReplayMeta();
+			meta->B = B;
+			meta->C = C;
+			meta->H = H;
+			meta->W = W;
+			meta->kH = kH;
+			meta->kW = kW;
+			meta->strH = strideH;
+			meta->strW = strideW;
+			meta->oH = oH;
+			meta->oW = oW;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

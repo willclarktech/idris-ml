@@ -28,11 +28,13 @@ extern "C" TensorHandle tensor_layer_norm_2d_mlx_streamed(TensorHandle h, Tensor
 	auto r = new Tensor(result, rg);
 	if (rg) {
 		int idx = tape_append(OP_LAYER_NORM_2D, r, t, nullptr, eps);
-		auto meta = new LayerNormReplayMeta();
-		meta->gamma_pool_idx = gamma->pool_idx;
-		meta->bias_pool_idx = bias->pool_idx;
-		meta->eps = eps;
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto meta = new LayerNormReplayMeta();
+			meta->gamma_pool_idx = gamma->pool_idx;
+			meta->bias_pool_idx = bias->pool_idx;
+			meta->eps = eps;
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

@@ -31,8 +31,10 @@ extern "C" TensorHandle tensor_sum_dim_mlx_streamed(TensorHandle h, int dim, int
 	    new Tensor(mx::sum(t->data, std::vector<int>{normalized}, keepdim != 0), t->requires_grad);
 	if (t->requires_grad) {
 		int idx = tape_append(OP_SUM_DIM, r, t, nullptr, 0);
-		auto meta = new SumDimReplayMeta{normalized, keepdim != 0 ? 1 : 0};
-		tape[idx].meta = meta;
+		if (idx >= 0) {
+			auto meta = new SumDimReplayMeta{normalized, keepdim != 0 ? 1 : 0};
+			tape[idx].meta = meta;
+		}
 	}
 	return (TensorHandle)r;
 }

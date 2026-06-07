@@ -280,8 +280,10 @@ void tensor_backward(TensorHandle h) {
 						        "[NAN_TRAP] first NaN at tape[%d] op=%s (id=%d) result.size=%ld "
 						        "nan_count=%d arg1.op=%d arg2.op=%d\n",
 						        i, opn, e.op, n, nan_count,
-						        e.arg1 ? (int)tape[e.arg1->tape_idx].op : -1,
-						        e.arg2 ? (int)tape[e.arg2->tape_idx].op : -1);
+						        (e.arg1 && e.arg1->tape_idx >= 0) ? (int)tape[e.arg1->tape_idx].op
+						                                          : -1,
+						        (e.arg2 && e.arg2->tape_idx >= 0) ? (int)tape[e.arg2->tape_idx].op
+						                                          : -1);
 						// Sample arg1/arg2 values to spot inputs that are
 						// already large/small.
 						if (e.arg1) {
