@@ -17,6 +17,7 @@ Checks: >
   bugprone-assignment-in-if-condition,
   bugprone-branch-clone,
   bugprone-infinite-loop,
+  bugprone-not-null-terminated-result,
   bugprone-signed-char-misuse,
   bugprone-sizeof-expression,
   bugprone-suspicious-include,
