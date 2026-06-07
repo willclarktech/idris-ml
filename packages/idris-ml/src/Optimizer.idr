@@ -66,3 +66,30 @@ rmsprop lr {alpha} {momentum} opts = ioRerun (\_ =>
   MkNativeOptimizer
     (primOptimizerCreateRmsprop {ex} lr alpha opts.eps 0.0 momentum)
     opts.clip)
+
+||| Adam. `scope` restricts the optimizer to params whose registry
+||| paramId starts with that prefix — the multi-network pattern (SAC
+||| actor / q1 / q2), one optimizer per net so one network's loss can't
+||| leak updates into another's weights. Empty scope (the default)
+||| manages every param. Reads beta1/beta2/eps/clip from opts.
+export
+adam : {0 ex : Executor} -> UserExecutorTraining ex =>
+       {default "" scope : String} -> (lr : Double) -> OptimOpts -> IO (Optimizer ex)
+adam {scope} lr opts = ioRerun (\_ =>
+  MkNativeOptimizer
+    (case scope of
+       "" => primOptimizerCreateAdam {ex} lr opts.beta1 opts.beta2 opts.eps
+       _  => primOptimizerCreateAdamGroup {ex} lr opts.beta1 opts.beta2 opts.eps scope)
+    opts.clip)
+
+||| AdamW (decoupled weight decay). `weightDecay` is positional — only
+||| AdamW's C prim consumes it; a shared OptimOpts field would be
+||| silently ignored by the other constructors. Reads
+||| beta1/beta2/eps/clip from opts.
+export
+adamW : {0 ex : Executor} -> UserExecutorTraining ex =>
+        (lr : Double) -> (weightDecay : Double) -> OptimOpts -> IO (Optimizer ex)
+adamW lr wd opts = ioRerun (\_ =>
+  MkNativeOptimizer
+    (primOptimizerCreateAdamW {ex} lr opts.beta1 opts.beta2 opts.eps wd)
+    opts.clip)
