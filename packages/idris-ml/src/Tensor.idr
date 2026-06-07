@@ -585,20 +585,17 @@ RuntimeDType Ternary where
 -- (trailing `streamTag : Int`) so existing call sites only gain `{ex}`.
 
 public export
-dtCreateScalar : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                 Linked ex => Compatible ex t =>
+dtCreateScalar : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                  Double -> Int -> Int -> AnyPtr
 dtCreateScalar v rg stream = primCreateScalarStreamed {ex} v rg stream (dtypeTag {t})
 
 public export
-dtCreate : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-           Linked ex => Compatible ex t =>
+dtCreate : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
            AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 dtCreate dat sh r rg stream = primCreateStreamed {ex} dat sh r rg stream (dtypeTag {t})
 
 public export
-dtCreate1d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-             Linked ex => Compatible ex t =>
+dtCreate1d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
              Int -> AnyPtr -> Int -> Int -> AnyPtr
 dtCreate1d n dat rg stream = primCreate1dStreamed {ex} n dat rg stream (dtypeTag {t})
 
@@ -612,39 +609,33 @@ dtCreate1d n dat rg stream = primCreate1dStreamed {ex} n dat rg stream (dtypeTag
 ||| always reshape-flattened at the call site, so the 1-D shape here
 ||| saves an FFI hop without changing user code's downstream view.
 public export
-idxImage : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-           Linked ex => Compatible ex t =>
+idxImage : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
            AnyPtr -> Int -> Int -> AnyPtr
 idxImage ds idx flatLen =
   dtCreate1d {ex} {t} flatLen (prim__idxImageDoubles ds idx) 0 (deviceStreamTag {ex})
 
 public export
-dtCreate2d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-             Linked ex => Compatible ex t =>
+dtCreate2d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
              Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
 dtCreate2d r c dat rg stream = primCreate2dStreamed {ex} r c dat rg stream (dtypeTag {t})
 
 public export
-dtCreateParam1d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                  Linked ex => Compatible ex t =>
+dtCreateParam1d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                   Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam1d n dat stream = primCreateParam1dStreamed {ex} n dat stream (dtypeTag {t})
 
 public export
-dtCreateParam2d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                  Linked ex => Compatible ex t =>
+dtCreateParam2d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                   Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam2d r c dat stream = primCreateParam2dStreamed {ex} r c dat stream (dtypeTag {t})
 
 public export
-dtCreateParam3d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                  Linked ex => Compatible ex t =>
+dtCreateParam3d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                   Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam3d a b c dat stream = primCreateParam3dStreamed {ex} a b c dat stream (dtypeTag {t})
 
 public export
-dtCreateParam4d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                  Linked ex => Compatible ex t =>
+dtCreateParam4d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                   Int -> Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam4d a b c e dat stream = primCreateParam4dStreamed {ex} a b c e dat stream (dtypeTag {t})
 
@@ -658,68 +649,57 @@ dtCreateParam4d a b c e dat stream = primCreateParam4dStreamed {ex} a b c e dat 
 -- the C backend (libtorch's `torch::nn::init::normal_` or
 -- `t.fill_`), at memory-bandwidth speed.
 public export
-dtCreateParam1dNormal : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                        Linked ex => Compatible ex t =>
+dtCreateParam1dNormal : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                         Int -> Double -> Double -> Int -> AnyPtr
 dtCreateParam1dNormal n mean std stream = primCreateParam1dNormalStreamed {ex} n mean std stream (dtypeTag {t})
 
 public export
-dtCreateParam2dNormal : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                        Linked ex => Compatible ex t =>
+dtCreateParam2dNormal : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                         Int -> Int -> Double -> Double -> Int -> AnyPtr
 dtCreateParam2dNormal r c mean std stream = primCreateParam2dNormalStreamed {ex} r c mean std stream (dtypeTag {t})
 
 public export
-dtCreateParam3dNormal : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                        Linked ex => Compatible ex t =>
+dtCreateParam3dNormal : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                         Int -> Int -> Int -> Double -> Double -> Int -> AnyPtr
 dtCreateParam3dNormal a b c mean std stream = primCreateParam3dNormalStreamed {ex} a b c mean std stream (dtypeTag {t})
 
 public export
-dtCreateParam4dNormal : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                        Linked ex => Compatible ex t =>
+dtCreateParam4dNormal : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                         Int -> Int -> Int -> Int -> Double -> Double -> Int -> AnyPtr
 dtCreateParam4dNormal a b c e mean std stream = primCreateParam4dNormalStreamed {ex} a b c e mean std stream (dtypeTag {t})
 
 public export
-dtCreateParam1dConst : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                       Linked ex => Compatible ex t =>
+dtCreateParam1dConst : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                        Int -> Double -> Int -> AnyPtr
 dtCreateParam1dConst n value stream = primCreateParam1dConstStreamed {ex} n value stream (dtypeTag {t})
 
 public export
-dtCreateParam2dConst : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                       Linked ex => Compatible ex t =>
+dtCreateParam2dConst : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                        Int -> Int -> Double -> Int -> AnyPtr
 dtCreateParam2dConst r c value stream = primCreateParam2dConstStreamed {ex} r c value stream (dtypeTag {t})
 
 public export
-dtCreateParam3dConst : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                       Linked ex => Compatible ex t =>
+dtCreateParam3dConst : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                        Int -> Int -> Int -> Double -> Int -> AnyPtr
 dtCreateParam3dConst a b c value stream = primCreateParam3dConstStreamed {ex} a b c value stream (dtypeTag {t})
 
 public export
-dtCreateParam4dConst : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                       Linked ex => Compatible ex t =>
+dtCreateParam4dConst : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                        Int -> Int -> Int -> Int -> Double -> Int -> AnyPtr
 dtCreateParam4dConst a b c e value stream = primCreateParam4dConstStreamed {ex} a b c e value stream (dtypeTag {t})
 
 public export
-dtCreateState1d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                  Linked ex => Compatible ex t =>
+dtCreateState1d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                   Int -> AnyPtr -> Int -> AnyPtr
 dtCreateState1d n dat stream = primCreateState1dStreamed {ex} n dat stream (dtypeTag {t})
 
 public export
-dtCreateState2d : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-                  Linked ex => Compatible ex t =>
+dtCreateState2d : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
                   Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateState2d r c dat stream = primCreateState2dStreamed {ex} r c dat stream (dtypeTag {t})
 
 public export
-dtCastFrom : {0 ex : Executor} -> UserExecutorTraining ex => {0 t : Type} -> RuntimeDType t =>
-             Linked ex => Compatible ex t =>
+dtCastFrom : {0 ex : Executor} -> {0 t : Type} -> Backend ex t =>
              AnyPtr -> Int -> AnyPtr
 dtCastFrom tns stream = primCastStreamed {ex} tns stream (dtypeTag {t})
 
@@ -877,7 +857,7 @@ getCurrentRssMB _ = prim__getCurrentRssMB
 ||| The underlying C `tensor_create_1d_f64` (via dtCreate1d) frees the
 ||| input buffer after copying.
 export
-bulkToTensor : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} -> Vector n Double -> AnyPtr
+bulkToTensor : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -894,7 +874,7 @@ bulkToTensor {n} (VArray elems) =
 ||| The C tensor_create_2d function frees the input buffer after copying.
 ||| Use to stack a per-sample input batch into a single batched tensor.
 export
-bulkToTensor2d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
+bulkToTensor2d : {0 ex : Executor} -> Backend ex dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
 bulkToTensor2d {b} {i} rows =
   let bI = cast {to=Int} b
       iI = cast {to=Int} i
@@ -917,7 +897,7 @@ bulkToTensor2d {b} {i} rows =
 ||| Persistent tensors survive tape resets — use when data is created once
 ||| and reused across training epochs.
 export
-vectorToTensorPersistent : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} -> Vector n Double -> AnyPtr
+vectorToTensorPersistent : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Vector n Double -> AnyPtr
 vectorToTensorPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -930,7 +910,7 @@ vectorToTensorPersistent {n} (VArray elems) =
 
 ||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
 export
-toTDP : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
+toTDP : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
 toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {ex} {dt} (x dp)) (vectorToTensorPersistent {ex} {dt} (y dp))
 
 
@@ -1300,8 +1280,8 @@ ioRerun f = primIO (\w => MkIORes (f ()) w)
 ||| op becomes a node in the autograd graph on backends that trace
 ||| it (mlx/torch).
 export
-tcast : {0 ex : Executor} -> UserExecutorTraining ex =>
-        (UpcastableTo from to, IsDType from, IsDType to, RuntimeDType to, Compatible ex to, Linked ex) =>
+tcast : {0 ex : Executor} -> Backend ex to =>
+        (UpcastableTo from to, IsDType from, IsDType to) =>
         Tensor dims ex from g -> IO (Tensor dims ex to g)
 tcast v = ioRerun (\_ => MkTensor (dtCastFrom {ex} {t=to} v.tensorPtr (deviceStreamTag {ex})) Nothing)
 
@@ -1321,15 +1301,15 @@ tcast v = ioRerun (\_ => MkTensor (dtCastFrom {ex} {t=to} v.tensorPtr (deviceStr
 ||| Runtime path is the same as `tcast` (both dispatch through
 ||| `dtCastFrom`); the difference is purely the type-system gate.
 export
-tcastUnsafe : {0 ex : Executor} -> UserExecutorTraining ex =>
-              (0 to : DType) -> (IsDType from, IsDType to, RuntimeDType to, Compatible ex to, Linked ex) =>
+tcastUnsafe : {0 ex : Executor} -> (0 to : DType) -> Backend ex to =>
+              (IsDType from, IsDType to) =>
               Tensor dims ex from g -> IO (Tensor dims ex to g)
 tcastUnsafe to v = ioRerun (\_ => MkTensor (dtCastFrom {ex} {t=to} v.tensorPtr (deviceStreamTag {ex})) Nothing)
 
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.
 export
-tparam2d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] ex dt WithGrad)
+tparam2d : {0 ex : Executor} -> Backend ex dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] ex dt WithGrad)
 tparam2d {o} {i} pid buf = ioRerun (\_ =>
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -1338,7 +1318,7 @@ tparam2d {o} {i} pid buf = ioRerun (\_ =>
 
 ||| Create a registered learnable [n] parameter from a double buffer.
 export
-tparam1d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] ex dt WithGrad)
+tparam1d : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] ex dt WithGrad)
 tparam1d {n} pid buf = ioRerun (\_ =>
   let nI = cast {to=Int} n
       reg = primParamRegister {ex} pid (dtCreateParam1d {ex} {t=dt} nI buf (deviceStreamTag {ex}))
@@ -1362,7 +1342,7 @@ tparam1d {n} pid buf = ioRerun (\_ =>
 ||| distribution `N(mean, std)`. Backend RNG is seeded once via
 ||| `tsetInitSeed` — runs are otherwise deterministic per (seed, dtype).
 export
-tparam2dNormal : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam2dNormal : {0 ex : Executor} -> Backend ex dt
               => {o, i : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
               -> IO (Tensor [o, i] ex dt WithGrad)
 tparam2dNormal {o} {i} pid mean std = ioRerun (\_ =>
@@ -1373,7 +1353,7 @@ tparam2dNormal {o} {i} pid mean std = ioRerun (\_ =>
 
 ||| Registered learnable [n] parameter initialised from `N(mean, std)`.
 export
-tparam1dNormal : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam1dNormal : {0 ex : Executor} -> Backend ex dt
               => {n : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
               -> IO (Tensor [n] ex dt WithGrad)
 tparam1dNormal {n} pid mean std = ioRerun (\_ =>
@@ -1383,7 +1363,7 @@ tparam1dNormal {n} pid mean std = ioRerun (\_ =>
 
 ||| Registered learnable [d0, d1, d2] parameter initialised from `N(mean, std)`.
 export
-tparam3dNormal : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam3dNormal : {0 ex : Executor} -> Backend ex dt
               => {a, b, c : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
               -> IO (Tensor [a, b, c] ex dt WithGrad)
 tparam3dNormal {a} {b} {c} pid mean std = ioRerun (\_ =>
@@ -1395,7 +1375,7 @@ tparam3dNormal {a} {b} {c} pid mean std = ioRerun (\_ =>
 
 ||| Registered learnable [d0, d1, d2, d3] parameter initialised from `N(mean, std)`.
 export
-tparam4dNormal : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam4dNormal : {0 ex : Executor} -> Backend ex dt
               => {a, b, c, e : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
               -> IO (Tensor [a, b, c, e] ex dt WithGrad)
 tparam4dNormal {a} {b} {c} {e} pid mean std = ioRerun (\_ =>
@@ -1409,7 +1389,7 @@ tparam4dNormal {a} {b} {c} {e} pid mean std = ioRerun (\_ =>
 ||| Registered learnable [o, i] parameter filled with `value`. Covers
 ||| RmsNorm's weight=1.0, BatchNorm beta=0, etc.
 export
-tparam2dConst : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam2dConst : {0 ex : Executor} -> Backend ex dt
              => {o, i : Nat} -> (paramId : String) -> (value : Double)
              -> IO (Tensor [o, i] ex dt WithGrad)
 tparam2dConst {o} {i} pid value = ioRerun (\_ =>
@@ -1420,7 +1400,7 @@ tparam2dConst {o} {i} pid value = ioRerun (\_ =>
 
 ||| Registered learnable [n] parameter filled with `value`.
 export
-tparam1dConst : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam1dConst : {0 ex : Executor} -> Backend ex dt
              => {n : Nat} -> (paramId : String) -> (value : Double)
              -> IO (Tensor [n] ex dt WithGrad)
 tparam1dConst {n} pid value = ioRerun (\_ =>
@@ -1430,7 +1410,7 @@ tparam1dConst {n} pid value = ioRerun (\_ =>
 
 ||| Registered learnable [a, b, c] parameter filled with `value`.
 export
-tparam3dConst : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam3dConst : {0 ex : Executor} -> Backend ex dt
              => {a, b, c : Nat} -> (paramId : String) -> (value : Double)
              -> IO (Tensor [a, b, c] ex dt WithGrad)
 tparam3dConst {a} {b} {c} pid value = ioRerun (\_ =>
@@ -1442,7 +1422,7 @@ tparam3dConst {a} {b} {c} pid value = ioRerun (\_ =>
 
 ||| Registered learnable [a, b, c, e] parameter filled with `value`.
 export
-tparam4dConst : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+tparam4dConst : {0 ex : Executor} -> Backend ex dt
              => {a, b, c, e : Nat} -> (paramId : String) -> (value : Double)
              -> IO (Tensor [a, b, c, e] ex dt WithGrad)
 tparam4dConst {a} {b} {c} {e} pid value = ioRerun (\_ =>
@@ -1697,7 +1677,7 @@ export
 ||| construct scalars via their own `UserExecutorCore.primCreateScalar`
 ||| directly. Same compromise applies to `tparamScalar` and
 ||| `freshZeroLossT`.
-tconstScalar : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => Double -> IO (Tensor [] ex dt WithGrad)
+tconstScalar : {0 ex : Executor} -> Backend ex dt => Double -> IO (Tensor [] ex dt WithGrad)
 tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {ex} {t=dt} v 0 (deviceStreamTag {ex})) Nothing)
 
 ||| Build a `SomeExecutor` candidate for a concrete `(device, dtype)`.
@@ -1706,8 +1686,7 @@ tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {ex} {t=dt} v 0 (device
 ||| `False`; a backend whose construction never fails reports `True`.
 export
 someExecutor : {0 ex : Executor} -> {0 dt : DType} ->
-             UserExecutorTraining ex => RuntimeDType dt => Linked ex =>
-             Compatible ex dt => HardwareClassed ex => SomeExecutor
+             Backend ex dt => HardwareClassed ex => SomeExecutor
 someExecutor =
   MkSomeExecutor (deviceName {ex}) (hardwareClass {ex})
     (do r <- attemptOn {ex} (tconstScalar {ex} {dt} 0.0)
@@ -1752,7 +1731,7 @@ tlog v = ioRerun (\_ => MkTensor (primLog {ex} v.tensorPtr) Nothing)
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => (paramId : String) -> (val : Double) -> IO (Tensor [] ex dt WithGrad)
+tparamScalar : {0 ex : Executor} -> Backend ex dt => (paramId : String) -> (val : Double) -> IO (Tensor [] ex dt WithGrad)
 tparamScalar pid val = ioRerun (\_ =>
   let ptr = dtCreateScalar {ex} {t=dt} val 1 (deviceStreamTag {ex})    -- requires_grad=true
       reg = primParamRegister {ex} pid ptr
@@ -1948,7 +1927,7 @@ tlstmGatesPair {n} combined prevCell = ioRerun (\_ =>
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
 ||| survives tape reset.
 export
-tzeroState1d : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => {n : Nat} -> IO (Tensor [n] ex dt g)
+tzeroState1d : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> IO (Tensor [n] ex dt g)
 tzeroState1d {n} = ioRerun (\_ =>
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
