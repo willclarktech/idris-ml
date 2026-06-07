@@ -21,16 +21,17 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Manual trigger to opt into the macOS lane on demand. The default
-  # matrix is Ubuntu-only because macos-latest is billed 10× the
-  # standard rate (and produces rate-limit notification noise on every
-  # PR). Run macOS via the Actions UI / `gh workflow run test.yml -f
-  # include_macos=true` when touching the macOS-specific build paths
-  # (mlx backend, libtorch macOS lane, brew chezscheme detection, etc.).
+  # macOS runs on every push (the ~weekly publication cadence) — this
+  # repo is public, so Actions minutes are free on macOS runners too
+  # (the 10× multiplier only bills private repos), and the macOS lane
+  # is the mlx backend's only CI coverage (all three backends are
+  # first-class). pull_request stays Ubuntu-only to keep external-PR
+  # queue time down; opt a PR into macOS via the Actions UI /
+  # `gh workflow run test.yml -f include_macos=true`.
   workflow_dispatch:
     inputs:
       include_macos:
-        description: 'Include macos-latest in the matrix (10× billable)'
+        description: 'Include macos-latest in the matrix'
         type: boolean
         default: false
 
@@ -289,7 +290,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.include_macos)) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -337,7 +338,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.include_macos)) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -504,7 +505,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.include_macos)) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -622,7 +623,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.include_macos)) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
