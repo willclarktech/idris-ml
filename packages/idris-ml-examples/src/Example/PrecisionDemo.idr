@@ -56,7 +56,7 @@ import BuildConfig
 ||| module-level constant whose lambda still references buffers
 ||| allocated at module load, double-freeing on the next call.
 makeVec3 : {0 ex : Type} -> {0 dt : DType} ->
-           UserExecutorTransfer ex => Compatible ex dt =>
+           UserExecutorTransfer ex => Compatible ex dt => RuntimeDType dt =>
            (Double, Double, Double) ->
            IO (Tensor [3] ex dt WithGrad)
 makeVec3 (a, b, c) = do
@@ -67,7 +67,7 @@ makeVec3 (a, b, c) = do
   sh   <- primIO (\w => MkIORes (primAllocIntHost {ex} 1)       w)
   sh1  <- primIO (\w => MkIORes (primSetIntHost   {ex} sh 0 3)  w)
   ptr  <- primIO (\w =>
-            MkIORes (primCreateFromHost {ex} buf3 sh1 1 1) w)
+            MkIORes (primCreateFromHost {ex} buf3 sh1 1 1 (dtypeTag {t=dt})) w)
   primIO (primFreeIntHost {ex} sh1)
   primIO (primFreeHost    {ex} buf3)
   pure (MkTensor ptr Nothing)

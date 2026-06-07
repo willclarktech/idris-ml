@@ -117,7 +117,6 @@ prim__roundBYO : AnyPtr -> AnyPtr
 public export
 UserExecutorCore BYO where
   deviceName       = "byo"
-  deviceStreamTag  = 0      -- no stream concept (like tape/torch)
   primCreateScalar = prim__createScalarBYO
   primFree         = prim__freeBYO
   primItem         = prim__itemBYO
@@ -157,10 +156,10 @@ Linked BYO where
 ----------------------------------------------------------------------
 
 ||| Compute `(a + b) * c` using only `UserExecutorCore` methods.
-||| Polymorphic in `d`; works with any backend that implements the
+||| Polymorphic in `ex`; works with any backend that implements the
 ||| interface.
-fma : (0 d : Type) -> UserExecutorCore ex => Double -> Double -> Double -> Double
-fma d a b c =
+fma : (0 ex : Executor) -> UserExecutorCore ex => Double -> Double -> Double -> Double
+fma ex a b c =
   primItem {ex}
     (primMul {ex}
       (primAdd {ex} (primCreateScalar {ex} a 0) (primCreateScalar {ex} b 0))

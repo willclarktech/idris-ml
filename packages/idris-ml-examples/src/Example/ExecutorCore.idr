@@ -18,9 +18,9 @@ import BuildConfig
 ||| to resolve `UserExecutorCore TapeExecutor` and the runtime to actually
 ||| call `_tensor_add_tape` via the interface dispatch.
 addViaInterface :
-  (0 d : Type) -> UserExecutorCore ex =>
+  (0 ex : Executor) -> UserExecutorCore ex =>
   Double -> Double -> Double
-addViaInterface d a b =
+addViaInterface ex a b =
   primItem {ex}
     (primAdd {ex} (primCreateScalar {ex} a 0) (primCreateScalar {ex} b 0))
 
