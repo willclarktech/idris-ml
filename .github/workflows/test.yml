@@ -603,7 +603,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-typegate-backend-linked
 
-
       - name: Run typed index-op round-trip (torch, Ubuntu)
         # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
         # on torch (Compatible d I64) and runs — the C test covers numerics,

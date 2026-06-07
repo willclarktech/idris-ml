@@ -19,24 +19,24 @@
         check-gym check-transformers check-idris check
 
 install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(BUILD)/.library-cache-stamp
-	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --install idris-ml.ipkg >/dev/null
+	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --install idris-ml.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-ml-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-ml-install.log; exit 1; }
 
 # Install gym to local prefix
 install-gym: $(BUILD)/.library-cache-stamp
-	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-gym --install idris-gym.ipkg >/dev/null
+	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-gym --install idris-gym.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-gym-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-gym-install.log; exit 1; }
 
 # Install idris-transformers (HF-aligned model library) to local prefix.
 # Depends on install-core because every Hf* module imports from idris-ml.
 install-transformers: install-core
-	@cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-transformers --install idris-transformers.ipkg >/dev/null
+	@cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-transformers --install idris-transformers.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-transformers-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-transformers-install.log; exit 1; }
 
 # Install notebook prelude to local prefix
 install-notebook: install-core
-	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --install idris-ml-notebook.ipkg >/dev/null
+	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --install idris-ml-notebook.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook-install.log; exit 1; }
 
 # Install idris-ml-examples as a library (needed by its test harness)
 install-examples: install-core install-gym install-transformers $(BUILDCONFIG_IDR)
-	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-examples --install idris-ml-examples.ipkg >/dev/null
+	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-examples --install idris-ml-examples.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-ml-examples-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-ml-examples-install.log; exit 1; }
 
 # Install the shared test harness (Test.Harness) used by every package's
 # test/ suite. Pure-Idris harness PLUS hedgehog adapter. Since

@@ -298,7 +298,9 @@ runs:
     # then the newest tree from any prior sha. The cmp-then-mv-guarded
     # generated sources (BuildConfig.idr etc.) must be cached too —
     # regenerating them fresh would invalidate every downstream module.
-    # Bump -v2 to force-flush a wedged tree.
+    # Bump -v3 to force-flush a wedged tree. (v2 -> v3: 2026-06-12, pre-rebase
+# trees restored via prefix fallback were incoherent after the history
+# rewrite and one poisoned a same-sha key.)
     - name: Restore TTC cache
       if: inputs.restore-ttc == 'true'
       uses: actions/cache/restore@v5
@@ -312,10 +314,10 @@ runs:
           packages/idris-ml/src/HwExecutors.idr
           packages/idris-ml/src/Test/Config.idr
           packages/idris-transformers/src/Test/Config.idr
-        key: ttc-${{ inputs.os-label }}-v2-${{ github.sha }}-${{ inputs.ttc-job }}
+        key: ttc-${{ inputs.os-label }}-v3-${{ github.sha }}-${{ inputs.ttc-job }}
         restore-keys: |
-          ttc-${{ inputs.os-label }}-v2-${{ github.sha }}-
-          ttc-${{ inputs.os-label }}-v2-
+          ttc-${{ inputs.os-label }}-v3-${{ github.sha }}-
+          ttc-${{ inputs.os-label }}-v3-
 
     # Datasets the e2e example runs fetch (MNIST, SST-2, the torch_ref
     # downloads under packages/pytorch/data). The fetch rules are
