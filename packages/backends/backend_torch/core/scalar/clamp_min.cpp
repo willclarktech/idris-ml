@@ -3,5 +3,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_clamp_min(TensorHandle h, double min_val) {
-    return from_tensor(torch::clamp_min(*to_tensor(h), min_val));
+	return from_tensor(torch::clamp_min(*to_tensor(h), min_val));
 }

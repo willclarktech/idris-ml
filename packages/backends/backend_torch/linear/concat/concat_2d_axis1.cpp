@@ -3,5 +3,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_concat_2d_axis1(TensorHandle A, TensorHandle B) {
-    return from_tensor(torch::cat({*to_tensor(A), *to_tensor(B)}, 1));
+	return from_tensor(torch::cat({*to_tensor(A), *to_tensor(B)}, 1));
 }

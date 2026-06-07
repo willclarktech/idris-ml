@@ -16,33 +16,33 @@
  * to the per-op submission overhead tracked under TODO #393. */
 #include "../../tensor.h"
 
-extern "C" TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
-    (void)n; (void)embedDim;
-    auto& weight = *to_tensor(hweight);
-    auto& indices = *to_tensor(hindices);
-    auto idx_long = (indices.scalar_type() == torch::kLong &&
-                     indices.device() == weight.device())
-                    ? indices
-                    : indices.to(torch::TensorOptions()
-                                 .dtype(torch::kLong)
-                                 .device(weight.device()));
-    auto out = torch::embedding(weight, idx_long);
-    return from_tensor(out.reshape({-1}));
+extern "C" TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n,
+                                         int embedDim) {
+	(void)n;
+	(void)embedDim;
+	auto& weight = *to_tensor(hweight);
+	auto& indices = *to_tensor(hindices);
+	auto idx_long =
+	    (indices.scalar_type() == torch::kLong && indices.device() == weight.device())
+	        ? indices
+	        : indices.to(torch::TensorOptions().dtype(torch::kLong).device(weight.device()));
+	auto out = torch::embedding(weight, idx_long);
+	return from_tensor(out.reshape({-1}));
 }
 
 /* 2D-returning variant: keeps the [n, embedDim] shape that
  * torch::embedding produces natively. Callers in HfLlama / HfBert /
  * HfGpt2 / HfBitNet / Layer/Transformer drop their trailing
  * primReshape2d when they use this. */
-extern "C" TensorHandle tensor_embedding_2d(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
-    (void)n; (void)embedDim;
-    auto& weight = *to_tensor(hweight);
-    auto& indices = *to_tensor(hindices);
-    auto idx_long = (indices.scalar_type() == torch::kLong &&
-                     indices.device() == weight.device())
-                    ? indices
-                    : indices.to(torch::TensorOptions()
-                                 .dtype(torch::kLong)
-                                 .device(weight.device()));
-    return from_tensor(torch::embedding(weight, idx_long));
+extern "C" TensorHandle tensor_embedding_2d(TensorHandle hweight, TensorHandle hindices, int n,
+                                            int embedDim) {
+	(void)n;
+	(void)embedDim;
+	auto& weight = *to_tensor(hweight);
+	auto& indices = *to_tensor(hindices);
+	auto idx_long =
+	    (indices.scalar_type() == torch::kLong && indices.device() == weight.device())
+	        ? indices
+	        : indices.to(torch::TensorOptions().dtype(torch::kLong).device(weight.device()));
+	return from_tensor(torch::embedding(weight, idx_long));
 }

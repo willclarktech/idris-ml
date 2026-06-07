@@ -16,6 +16,6 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
-    auto t = to_tensor(h)->narrow(dim, start, len);
-    return from_tensor(std::move(t));
+	auto t = to_tensor(h)->narrow(dim, start, len);
+	return from_tensor(std::move(t));
 }

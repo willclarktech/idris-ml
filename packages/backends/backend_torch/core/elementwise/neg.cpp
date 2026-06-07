@@ -2,5 +2,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_neg(TensorHandle h) {
-    return from_tensor(torch::neg(*to_tensor(h)));
+	return from_tensor(torch::neg(*to_tensor(h)));
 }

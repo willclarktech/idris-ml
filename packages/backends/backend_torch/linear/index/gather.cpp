@@ -3,9 +3,9 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
-    (void)n;
-    auto& inp = *to_tensor(hinput);
-    auto& idx = *to_tensor(hindex);
-    auto idx_long = idx.to(torch::kLong);
-    return from_tensor(torch::index_select(inp, 0, idx_long));
+	(void)n;
+	auto& inp = *to_tensor(hinput);
+	auto& idx = *to_tensor(hindex);
+	auto idx_long = idx.to(torch::kLong);
+	return from_tensor(torch::index_select(inp, 0, idx_long));
 }

@@ -7,14 +7,16 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
-    std::vector<at::Tensor> vec(count);
-    for (int i = 0; i < count; i++) vec[i] = *to_tensor(tensors[i]);
-    return from_tensor(torch::stack(vec, dim));
+	std::vector<at::Tensor> vec(count);
+	for (int i = 0; i < count; i++)
+		vec[i] = *to_tensor(tensors[i]);
+	return from_tensor(torch::stack(vec, dim));
 }
 
 extern "C" TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
-    std::vector<at::Tensor> vec(count);
-    for (int i = 0; i < count; i++) vec[i] = *to_tensor(arr[i]);
-    free(arr);
-    return from_tensor(torch::stack(vec, dim));
+	std::vector<at::Tensor> vec(count);
+	for (int i = 0; i < count; i++)
+		vec[i] = *to_tensor(arr[i]);
+	free(arr);
+	return from_tensor(torch::stack(vec, dim));
 }

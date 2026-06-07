@@ -2,5 +2,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_mul_scalar(TensorHandle h, double s) {
-    return from_tensor(*to_tensor(h) * s);
+	return from_tensor(*to_tensor(h) * s);
 }

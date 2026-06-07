@@ -16,7 +16,7 @@
 extern double prof_backward_ms_torch;
 extern double prof_optimizer_ms_torch;
 extern double prof_optimizer_math_ms_torch;
-extern int    prof_epochs_torch;
+extern int prof_epochs_torch;
 
 /* TODO #393 op-submission diagnostic: bumped at every from_tensor()
  * call in intermediates.cpp so we can count graph nodes per forward

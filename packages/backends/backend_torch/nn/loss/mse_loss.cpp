@@ -3,5 +3,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target) {
-    return from_tensor(torch::mse_loss(*to_tensor(input), *to_tensor(target)));
+	return from_tensor(torch::mse_loss(*to_tensor(input), *to_tensor(target)));
 }

@@ -7,9 +7,9 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_cast_dtype_f32(TensorHandle src) {
-    return from_tensor(to_tensor(src)->to(torch::kFloat32));
+	return from_tensor(to_tensor(src)->to(torch::kFloat32));
 }
 
 extern "C" TensorHandle tensor_cast_dtype_f64(TensorHandle src) {
-    return from_tensor(to_tensor(src)->to(torch::kFloat64));
+	return from_tensor(to_tensor(src)->to(torch::kFloat64));
 }

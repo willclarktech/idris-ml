@@ -4,5 +4,5 @@
 #include "../../tensor.h"
 
 extern "C" double tensor_item(TensorHandle h) {
-    return to_tensor(h)->cpu().item<double>();
+	return to_tensor(h)->cpu().item<double>();
 }

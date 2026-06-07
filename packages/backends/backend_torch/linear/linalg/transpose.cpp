@@ -19,9 +19,9 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_transpose_2d(TensorHandle h) {
-    return from_tensor(to_tensor(h)->t());
+	return from_tensor(to_tensor(h)->t());
 }
 
 extern "C" TensorHandle tensor_transpose_last2(TensorHandle h) {
-    return from_tensor(to_tensor(h)->transpose(-2, -1));
+	return from_tensor(to_tensor(h)->transpose(-2, -1));
 }

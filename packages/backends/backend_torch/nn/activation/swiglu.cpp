@@ -10,8 +10,8 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_swiglu_2d(TensorHandle gate, TensorHandle up) {
-    auto& g = *to_tensor(gate);
-    auto& u = *to_tensor(up);
-    auto out = at::mul(at::silu(g), u);
-    return from_tensor(std::move(out));
+	auto& g = *to_tensor(gate);
+	auto& u = *to_tensor(up);
+	auto out = at::mul(at::silu(g), u);
+	return from_tensor(std::move(out));
 }

@@ -18,15 +18,16 @@ extern "C" int param_count(void);
 extern "C" void* param_tensor(int i);
 extern "C" void param_clear(void);
 
-extern "C" const char* backend_name(void) { return "torch"; }
+extern "C" const char* backend_name(void) {
+	return "torch";
+}
 
 extern "C" void backend_reset_for_eval(void) {
-    free_intermediates();
-    for (int i_ = 0; i_ < param_count(); i_++) {
-        auto* tensor = (at::Tensor*)param_tensor(i_);
-        if (tensor->grad().defined())
-            tensor->grad().zero_();
-    }
+	free_intermediates();
+	for (int i_ = 0; i_ < param_count(); i_++) {
+		auto* tensor = (at::Tensor*)param_tensor(i_);
+		if (tensor->grad().defined()) tensor->grad().zero_();
+	}
 }
 
 /* See backend.h: explicit pre-exit cleanup of every persistent
@@ -51,30 +52,35 @@ extern "C" void backend_reset_for_eval(void) {
  * release that runs at process exit is fine on GPU lanes. We probe
  * the first param's device and bail when it's not CPU. */
 extern "C" void backend_release_all_persistent(void) {
-    int n = param_count();
-    if (n > 0) {
-        auto* first = (at::Tensor*)param_tensor(0);
-        if (first && !first->is_cpu()) {
-            /* GPU lane — async device release is cheap; explicit
-             * delete forces sync per tensor and regresses wall. */
-            return;
-        }
-    }
-    free_intermediates();
-    for (int i_ = 0; i_ < n; i_++) {
-        auto* tensor = (at::Tensor*)param_tensor(i_);
-        delete tensor;
-    }
-    param_clear();
+	int n = param_count();
+	if (n > 0) {
+		auto* first = (at::Tensor*)param_tensor(0);
+		if (first && !first->is_cpu()) {
+			/* GPU lane — async device release is cheap; explicit
+			 * delete forces sync per tensor and regresses wall. */
+			return;
+		}
+	}
+	free_intermediates();
+	for (int i_ = 0; i_ < n; i_++) {
+		auto* tensor = (at::Tensor*)param_tensor(i_);
+		delete tensor;
+	}
+	param_clear();
 }
 
 extern "C" void tensor_print(TensorHandle h) {
-    // std::cout << at::Tensor requires the tensor to live on CPU.
-    std::cout << to_tensor(h)->cpu() << std::endl;
+	// std::cout << at::Tensor requires the tensor to live on CPU.
+	std::cout << to_tensor(h)->cpu() << std::endl;
 }
 
 /* mx::compile is mlx-only; torch backend always reports disabled
    regardless of MLX_COMPILE env var. */
-extern "C" int  tensor_mlx_compile_enabled(void) { return 0; }
-extern "C" int  tensor_mlx_compile_invocations(void) { return 0; }
-extern "C" void tensor_mlx_compile_reset_stats(void) { }
+extern "C" int tensor_mlx_compile_enabled(void) {
+	return 0;
+}
+extern "C" int tensor_mlx_compile_invocations(void) {
+	return 0;
+}
+extern "C" void tensor_mlx_compile_reset_stats(void) {
+}

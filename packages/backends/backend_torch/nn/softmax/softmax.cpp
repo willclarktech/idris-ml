@@ -5,13 +5,13 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_softmax(TensorHandle h, int dim) {
-    return from_tensor(torch::softmax(*to_tensor(h), dim));
+	return from_tensor(torch::softmax(*to_tensor(h), dim));
 }
 
 extern "C" TensorHandle tensor_softmax_2d(TensorHandle h) {
-    return from_tensor(torch::softmax(*to_tensor(h), -1));
+	return from_tensor(torch::softmax(*to_tensor(h), -1));
 }
 
 extern "C" TensorHandle tensor_softmax_3d(TensorHandle h) {
-    return from_tensor(torch::softmax(*to_tensor(h), -1));
+	return from_tensor(torch::softmax(*to_tensor(h), -1));
 }

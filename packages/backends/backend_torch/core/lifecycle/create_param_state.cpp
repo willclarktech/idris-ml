@@ -23,10 +23,10 @@
 #include <cstdlib>
 
 extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
-    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    free(data);
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor(std::move(t));
+	auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+	free(data);
+	if (requires_grad) t.requires_grad_(true);
+	return from_tensor(std::move(t));
 }
 
 /* Unsuffixed `tensor_create_{param,state}_{1,2,3,4}d` retired — the F64
@@ -35,11 +35,11 @@ extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int r
    directly. */
 
 extern "C" TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
-    /* Returns a 0-dim view that shares storage with the parent tensor.
-       Must be persistent — views into param tensors survive free_intermediates. */
-    return from_tensor_persistent(to_tensor(h)->select(0, row).select(0, col));
+	/* Returns a 0-dim view that shares storage with the parent tensor.
+	   Must be persistent — views into param tensors survive free_intermediates. */
+	return from_tensor_persistent(to_tensor(h)->select(0, row).select(0, col));
 }
 
 extern "C" TensorHandle tensor_view_1d(TensorHandle h, int idx) {
-    return from_tensor_persistent(to_tensor(h)->select(0, idx));
+	return from_tensor_persistent(to_tensor(h)->select(0, idx));
 }

@@ -5,5 +5,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_min(TensorHandle h) {
-    return from_tensor(to_tensor(h)->min().detach());
+	return from_tensor(to_tensor(h)->min().detach());
 }

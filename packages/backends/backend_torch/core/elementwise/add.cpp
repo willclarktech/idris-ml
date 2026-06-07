@@ -5,5 +5,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_add(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::add(*to_tensor(a), *to_tensor(b)));
+	return from_tensor(torch::add(*to_tensor(a), *to_tensor(b)));
 }

@@ -7,6 +7,12 @@
  * `second`, not through the pair itself. */
 #include "../../tensor.h"
 
-extern "C" TensorHandle tensor_pair_first(TensorPair* p)  { return p->first; }
-extern "C" TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
-extern "C" void         tensor_pair_free(TensorPair* p)   { delete p; }
+extern "C" TensorHandle tensor_pair_first(TensorPair* p) {
+	return p->first;
+}
+extern "C" TensorHandle tensor_pair_second(TensorPair* p) {
+	return p->second;
+}
+extern "C" void tensor_pair_free(TensorPair* p) {
+	delete p;
+}

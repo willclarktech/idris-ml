@@ -11,12 +11,11 @@
  */
 #include "../../tensor.h"
 
-extern "C" TensorHandle tensor_rms_norm_2d(TensorHandle input, TensorHandle weight,
-                                           double eps) {
-    auto& x = *to_tensor(input);
-    auto& w = *to_tensor(weight);
-    auto variance = at::mean(at::pow(x, 2), {-1}, /*keepdim=*/true);
-    auto rstd = at::rsqrt(at::add(variance, eps));
-    auto out = at::mul(at::mul(x, rstd), w);
-    return from_tensor(std::move(out));
+extern "C" TensorHandle tensor_rms_norm_2d(TensorHandle input, TensorHandle weight, double eps) {
+	auto& x = *to_tensor(input);
+	auto& w = *to_tensor(weight);
+	auto variance = at::mean(at::pow(x, 2), {-1}, /*keepdim=*/true);
+	auto rstd = at::rsqrt(at::add(variance, eps));
+	auto out = at::mul(at::mul(x, rstd), w);
+	return from_tensor(std::move(out));
 }

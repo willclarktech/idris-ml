@@ -59,14 +59,18 @@ TensorHandle torch_cast_dtype_dtag(TensorHandle src, int dtag);
    init in-place (libtorch's `torch::nn::init::normal_` or `t.fill_`),
    then cast + migrate + requires_grad_ via `make_param_leaf_empty_init`
    (mirrors the leaf discipline of `make_param_leaf` exactly). */
-TensorHandle torch_create_param_1d_normal_dtag(int n,                                    double mean, double std, int dtag);
-TensorHandle torch_create_param_2d_normal_dtag(int rows, int cols,                       double mean, double std, int dtag);
-TensorHandle torch_create_param_3d_normal_dtag(int d0, int d1, int d2,                   double mean, double std, int dtag);
-TensorHandle torch_create_param_4d_normal_dtag(int d0, int d1, int d2, int d3,           double mean, double std, int dtag);
-TensorHandle torch_create_param_1d_const_dtag (int n,                                    double value,            int dtag);
-TensorHandle torch_create_param_2d_const_dtag (int rows, int cols,                       double value,            int dtag);
-TensorHandle torch_create_param_3d_const_dtag (int d0, int d1, int d2,                   double value,            int dtag);
-TensorHandle torch_create_param_4d_const_dtag (int d0, int d1, int d2, int d3,           double value,            int dtag);
+TensorHandle torch_create_param_1d_normal_dtag(int n, double mean, double std, int dtag);
+TensorHandle torch_create_param_2d_normal_dtag(int rows, int cols, double mean, double std,
+                                               int dtag);
+TensorHandle torch_create_param_3d_normal_dtag(int d0, int d1, int d2, double mean, double std,
+                                               int dtag);
+TensorHandle torch_create_param_4d_normal_dtag(int d0, int d1, int d2, int d3, double mean,
+                                               double std, int dtag);
+TensorHandle torch_create_param_1d_const_dtag(int n, double value, int dtag);
+TensorHandle torch_create_param_2d_const_dtag(int rows, int cols, double value, int dtag);
+TensorHandle torch_create_param_3d_const_dtag(int d0, int d1, int d2, double value, int dtag);
+TensorHandle torch_create_param_4d_const_dtag(int d0, int d1, int d2, int d3, double value,
+                                              int dtag);
 
 /* Seed the torch global RNG (torch::manual_seed). Called via the
    shared port's set_init_seed slot. */

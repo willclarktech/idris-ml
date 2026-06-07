@@ -47,52 +47,48 @@
    to the pre-existing behaviour. */
 c10::Device g_torch_target_device = at::kCPU;
 
-__attribute__((constructor))
-static void torch_mps_eager_init(void) {
-    if (!at::hasMPS()) return;
-    try {
-        auto opts = torch::TensorOptions()
-            .dtype(torch::kFloat32)
-            .device(torch::Device(at::DeviceType::MPS));
-        auto warm = torch::zeros({1}, opts);
-        // Touch the data once to force the Metal command buffer to drain
-        // (synchronize). The `.cpu()` round-trip is what
-        // tensor_to_doubles_torch does at runtime — same code path.
-        (void)warm.cpu();
-        // `warm` falls out of scope; its storage refcount hits zero
-        // and libtorch returns the MPS buffer to the allocator pool.
-    } catch (...) {
-        // First-touch failures (paravirt-MPS quirks on Tart VMs etc.)
-        // shouldn't prevent dylib load. Subsequent Idris-side MPS use
-        // will surface the real error.
-    }
+__attribute__((constructor)) static void torch_mps_eager_init(void) {
+	if (!at::hasMPS()) return;
+	try {
+		auto opts = torch::TensorOptions()
+		                .dtype(torch::kFloat32)
+		                .device(torch::Device(at::DeviceType::MPS));
+		auto warm = torch::zeros({1}, opts);
+		// Touch the data once to force the Metal command buffer to drain
+		// (synchronize). The `.cpu()` round-trip is what
+		// tensor_to_doubles_torch does at runtime — same code path.
+		(void)warm.cpu();
+		// `warm` falls out of scope; its storage refcount hits zero
+		// and libtorch returns the MPS buffer to the allocator pool.
+	} catch (...) {
+		// First-touch failures (paravirt-MPS quirks on Tart VMs etc.)
+		// shouldn't prevent dylib load. Subsequent Idris-side MPS use
+		// will surface the real error.
+	}
 }
 
-__attribute__((constructor))
-static void torch_target_device_init(void) {
-    const char* env = std::getenv("TORCH_DEVICE");
-    if (!env || *env == '\0') return;            // leave at kCPU
-    if (std::strcmp(env, "cpu") == 0) {
-        g_torch_target_device = at::kCPU;
-    } else if (std::strcmp(env, "mps") == 0) {
-        // Normalize to indexed (Device(MPS, 0)) to match what
-        // `tensor.device()` returns after a .to() lands on MPS — bare
-        // `Device(MPS, -1)` would never compare equal to a tensor's
-        // device, defeating the "skip .to() when already on target"
-        // no-op check in torch_migrate_to_target / the inline opt-out
-        // branches. There's only one Metal device per Mac, so index 0
-        // is the canonical form.
-        g_torch_target_device = at::Device(at::DeviceType::MPS, 0);
-    } else if (std::strncmp(env, "cuda", 4) == 0) {
-        // accepts "cuda" or "cuda:N"; bare "cuda" parses to
-        // Device(CUDA, -1) which libtorch then resolves to the current
-        // CUDA device on first use, so the same .device()-mismatch
-        // concern applies. Normalize unindexed to 0 explicitly.
-        std::string s(env);
-        g_torch_target_device = (s == "cuda")
-            ? at::Device(at::DeviceType::CUDA, 0)
-            : at::Device(s);
-    }
-    // Unknown strings fall through silently — the first .to() will throw
-    // and the EAFP gate surfaces it.
+__attribute__((constructor)) static void torch_target_device_init(void) {
+	const char* env = std::getenv("TORCH_DEVICE");
+	if (!env || *env == '\0') return; // leave at kCPU
+	if (std::strcmp(env, "cpu") == 0) {
+		g_torch_target_device = at::kCPU;
+	} else if (std::strcmp(env, "mps") == 0) {
+		// Normalize to indexed (Device(MPS, 0)) to match what
+		// `tensor.device()` returns after a .to() lands on MPS — bare
+		// `Device(MPS, -1)` would never compare equal to a tensor's
+		// device, defeating the "skip .to() when already on target"
+		// no-op check in torch_migrate_to_target / the inline opt-out
+		// branches. There's only one Metal device per Mac, so index 0
+		// is the canonical form.
+		g_torch_target_device = at::Device(at::DeviceType::MPS, 0);
+	} else if (std::strncmp(env, "cuda", 4) == 0) {
+		// accepts "cuda" or "cuda:N"; bare "cuda" parses to
+		// Device(CUDA, -1) which libtorch then resolves to the current
+		// CUDA device on first use, so the same .device()-mismatch
+		// concern applies. Normalize unindexed to 0 explicitly.
+		std::string s(env);
+		g_torch_target_device = (s == "cuda") ? at::Device(at::DeviceType::CUDA, 0) : at::Device(s);
+	}
+	// Unknown strings fall through silently — the first .to() will throw
+	// and the EAFP gate surfaces it.
 }

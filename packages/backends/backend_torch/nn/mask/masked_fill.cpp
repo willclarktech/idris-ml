@@ -4,5 +4,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle mask, double value) {
-    return from_tensor(to_tensor(h)->masked_fill(to_tensor(mask)->to(torch::kBool), value));
+	return from_tensor(to_tensor(h)->masked_fill(to_tensor(mask)->to(torch::kBool), value));
 }

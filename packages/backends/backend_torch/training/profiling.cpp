@@ -12,25 +12,25 @@
 double prof_backward_ms_torch = 0;
 double prof_optimizer_ms_torch = 0;
 double prof_optimizer_math_ms_torch = 0;
-int    prof_epochs_torch = 0;
-long   prof_op_count_torch = 0;
+int prof_epochs_torch = 0;
+long prof_op_count_torch = 0;
 
 double _wall_ms_torch(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
 }
 
 /* param_count() is exposed by shared/training/param_registry. */
 extern "C" int param_count(void);
 
 extern "C" void backend_epoch_begin(void) {
-    /* No-op for torch: profiling is backward + optimizer only. */
+	/* No-op for torch: profiling is backward + optimizer only. */
 }
 
 extern "C" void backend_profile_reset(void) {
-    prof_backward_ms_torch = prof_optimizer_ms_torch = prof_optimizer_math_ms_torch = 0;
-    prof_epochs_torch = 0;
+	prof_backward_ms_torch = prof_optimizer_ms_torch = prof_optimizer_math_ms_torch = 0;
+	prof_epochs_torch = 0;
 }
 
 /* TODO #393 op-submission counter. Bumped at every from_tensor() call
@@ -38,24 +38,25 @@ extern "C" void backend_profile_reset(void) {
  * passes through to wrap its at::Tensor result. Reset between forward
  * passes to isolate per-forward op counts; reads as int64. */
 extern "C" void tensor_perf_reset(void) {
-    prof_op_count_torch = 0;
+	prof_op_count_torch = 0;
 }
 
 extern "C" long tensor_perf_op_count(void) {
-    return prof_op_count_torch;
+	return prof_op_count_torch;
 }
 
 extern "C" void backend_profile_report(void) {
-    fprintf(stderr, "=== Profile Report (torch backend) ===\n");
-    fprintf(stderr, "  Epochs: %d\n", prof_epochs_torch);
-    fprintf(stderr, "  Params: %d tensors\n", (int)param_count());
-    fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
-            prof_backward_ms_torch, prof_epochs_torch > 0 ? prof_backward_ms_torch / prof_epochs_torch : 0);
-    fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
-            prof_optimizer_ms_torch, prof_epochs_torch > 0 ? prof_optimizer_ms_torch / prof_epochs_torch : 0);
-    fprintf(stderr, "    of which math: %.1fms total (%.2fms/epoch)\n",
-            prof_optimizer_math_ms_torch, prof_epochs_torch > 0 ? prof_optimizer_math_ms_torch / prof_epochs_torch : 0);
-    double total = prof_backward_ms_torch + prof_optimizer_ms_torch;
-    fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
-            total, prof_epochs_torch > 0 ? total / prof_epochs_torch : 0);
+	fprintf(stderr, "=== Profile Report (torch backend) ===\n");
+	fprintf(stderr, "  Epochs: %d\n", prof_epochs_torch);
+	fprintf(stderr, "  Params: %d tensors\n", (int)param_count());
+	fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n", prof_backward_ms_torch,
+	        prof_epochs_torch > 0 ? prof_backward_ms_torch / prof_epochs_torch : 0);
+	fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n", prof_optimizer_ms_torch,
+	        prof_epochs_torch > 0 ? prof_optimizer_ms_torch / prof_epochs_torch : 0);
+	fprintf(stderr, "    of which math: %.1fms total (%.2fms/epoch)\n",
+	        prof_optimizer_math_ms_torch,
+	        prof_epochs_torch > 0 ? prof_optimizer_math_ms_torch / prof_epochs_torch : 0);
+	double total = prof_backward_ms_torch + prof_optimizer_ms_torch;
+	fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n", total,
+	        prof_epochs_torch > 0 ? total / prof_epochs_torch : 0);
 }

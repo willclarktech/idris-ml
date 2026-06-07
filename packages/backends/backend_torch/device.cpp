@@ -16,22 +16,20 @@
 #include <string>
 
 extern "C" TensorHandle tensor_to_device(TensorHandle h, const char* device) {
-    try {
-        return from_tensor(to_tensor(h)->to(std::string(device)));
-    } catch (const std::exception& e) {
-        fprintf(stderr, "[torch] tensor_to_device(%s) failed: %s\n",
-                device, e.what());
-        return nullptr;
-    } catch (...) {
-        fprintf(stderr, "[torch] tensor_to_device(%s) failed: unknown\n",
-                device);
-        return nullptr;
-    }
+	try {
+		return from_tensor(to_tensor(h)->to(std::string(device)));
+	} catch (const std::exception& e) {
+		fprintf(stderr, "[torch] tensor_to_device(%s) failed: %s\n", device, e.what());
+		return nullptr;
+	} catch (...) {
+		fprintf(stderr, "[torch] tensor_to_device(%s) failed: unknown\n", device);
+		return nullptr;
+	}
 }
 
 extern "C" const char* tensor_device(TensorHandle h) {
-    static thread_local std::string device_str;
-    auto d = to_tensor(h)->device();
-    device_str = d.str();
-    return device_str.c_str();
+	static thread_local std::string device_str;
+	auto d = to_tensor(h)->device();
+	device_str = d.str();
+	return device_str.c_str();
 }

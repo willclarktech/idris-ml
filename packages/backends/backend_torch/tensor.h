@@ -24,7 +24,7 @@
 #include "../backend.h"
 
 static inline at::Tensor* to_tensor(TensorHandle h) {
-    return static_cast<at::Tensor*>(h);
+	return static_cast<at::Tensor*>(h);
 }
 
 TensorHandle from_tensor(at::Tensor t);

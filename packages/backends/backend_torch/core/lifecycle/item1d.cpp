@@ -8,5 +8,5 @@
 #include "../../tensor.h"
 
 extern "C" double tensor_item_1d(TensorHandle h, int idx) {
-    return to_tensor(h)->flatten()[idx].cpu().item<double>();
+	return to_tensor(h)->flatten()[idx].cpu().item<double>();
 }

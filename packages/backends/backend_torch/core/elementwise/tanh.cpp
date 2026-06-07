@@ -2,5 +2,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_tanh(TensorHandle h) {
-    return from_tensor(torch::tanh(*to_tensor(h)));
+	return from_tensor(torch::tanh(*to_tensor(h)));
 }

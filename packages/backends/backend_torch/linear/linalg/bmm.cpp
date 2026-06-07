@@ -8,15 +8,15 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_bmm(TensorHandle a, TensorHandle b) {
-    auto& ta = *to_tensor(a);
-    auto& tb = *to_tensor(b);
-    int B = ta.size(0);
-    std::vector<at::Tensor> results;
-    for (int i = 0; i < B; i++)
-        results.push_back(torch::mm(ta[i], tb));
-    return from_tensor(torch::stack(results));
+	auto& ta = *to_tensor(a);
+	auto& tb = *to_tensor(b);
+	int B = ta.size(0);
+	std::vector<at::Tensor> results;
+	for (int i = 0; i < B; i++)
+		results.push_back(torch::mm(ta[i], tb));
+	return from_tensor(torch::stack(results));
 }
 
 extern "C" TensorHandle tensor_bmm_3x3(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::bmm(*to_tensor(a), *to_tensor(b)));
+	return from_tensor(torch::bmm(*to_tensor(a), *to_tensor(b)));
 }

@@ -9,9 +9,9 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target) {
-    auto& in = *to_tensor(input);
-    auto& tg = *to_tensor(target);
-    auto ls = at::log_softmax(in, 0);
-    auto loss = -(tg * ls).sum() / static_cast<double>(ls.numel());
-    return from_tensor(loss);
+	auto& in = *to_tensor(input);
+	auto& tg = *to_tensor(target);
+	auto ls = at::log_softmax(in, 0);
+	auto loss = -(tg * ls).sum() / static_cast<double>(ls.numel());
+	return from_tensor(loss);
 }

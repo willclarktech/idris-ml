@@ -2,5 +2,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_max(TensorHandle h) {
-    return from_tensor(to_tensor(h)->max().detach());
+	return from_tensor(to_tensor(h)->max().detach());
 }

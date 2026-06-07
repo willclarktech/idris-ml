@@ -13,25 +13,27 @@
 
 extern c10::Device g_torch_target_device;
 
-static TensorHandle tensor_create_scalar_impl(double value, int requires_grad, torch::ScalarType dt) {
-    auto t = torch::tensor(value, torch::dtype(dt));
-    // Effective target degrades to CPU on (MPS, F64) — Metal rejects F64.
-    c10::Device target = (g_torch_target_device.type() == c10::DeviceType::MPS
-                          && dt == torch::kFloat64) ? at::kCPU
-                                                    : g_torch_target_device;
-    if (target != at::kCPU) t = t.to(target);
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
+static TensorHandle tensor_create_scalar_impl(double value, int requires_grad,
+                                              torch::ScalarType dt) {
+	auto t = torch::tensor(value, torch::dtype(dt));
+	// Effective target degrades to CPU on (MPS, F64) — Metal rejects F64.
+	c10::Device target =
+	    (g_torch_target_device.type() == c10::DeviceType::MPS && dt == torch::kFloat64)
+	        ? at::kCPU
+	        : g_torch_target_device;
+	if (target != at::kCPU) t = t.to(target);
+	if (requires_grad) t.requires_grad_(true);
+	return from_tensor_persistent(std::move(t));
 }
 
 extern "C" TensorHandle tensor_create_scalar_f32(double value, int requires_grad) {
-    return tensor_create_scalar_impl(value, requires_grad, torch::kFloat32);
+	return tensor_create_scalar_impl(value, requires_grad, torch::kFloat32);
 }
 
 extern "C" TensorHandle tensor_create_scalar_f64(double value, int requires_grad) {
-    return tensor_create_scalar_impl(value, requires_grad, torch::kFloat64);
+	return tensor_create_scalar_impl(value, requires_grad, torch::kFloat64);
 }
 
 extern "C" TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    return tensor_create_scalar_f64(value, requires_grad);
+	return tensor_create_scalar_f64(value, requires_grad);
 }

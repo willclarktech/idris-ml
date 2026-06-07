@@ -11,5 +11,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
-    return from_tensor(to_tensor(hmask)->unsqueeze(0).expand({(int64_t)B, -1, -1}));
+	return from_tensor(to_tensor(hmask)->unsqueeze(0).expand({(int64_t)B, -1, -1}));
 }

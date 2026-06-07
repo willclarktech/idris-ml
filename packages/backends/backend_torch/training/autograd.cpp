@@ -24,49 +24,49 @@
 extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
 
 void tensor_backward(TensorHandle h) {
-    double t0 = _wall_ms_torch();
-    to_tensor(h)->backward();
-    prof_backward_ms_torch += _wall_ms_torch() - t0;
-    /* Per-param gradient L2-norm dump (DEBUG_PARAM_GRADS=1).
-       Implementation lives in backend_torch/training/diagnostics.cpp. */
-    _dbg_dump_param_grads_if_enabled_torch();
+	double t0 = _wall_ms_torch();
+	to_tensor(h)->backward();
+	prof_backward_ms_torch += _wall_ms_torch() - t0;
+	/* Per-param gradient L2-norm dump (DEBUG_PARAM_GRADS=1).
+	   Implementation lives in backend_torch/training/diagnostics.cpp. */
+	_dbg_dump_param_grads_if_enabled_torch();
 }
 
 TensorHandle tensor_grad(TensorHandle h) {
-    auto& g = to_tensor(h)->grad();
-    if (!g.defined()) return nullptr;
-    return from_tensor(g);
+	auto& g = to_tensor(h)->grad();
+	if (!g.defined()) return nullptr;
+	return from_tensor(g);
 }
 
 void tensor_zero_grad(TensorHandle h) {
-    auto& t = *to_tensor(h);
-    if (t.grad().defined()) {
-        t.grad().zero_();
-    }
+	auto& t = *to_tensor(h);
+	if (t.grad().defined()) {
+		t.grad().zero_();
+	}
 }
 
 int tensor_requires_grad(TensorHandle h) {
-    return to_tensor(h)->requires_grad() ? 1 : 0;
+	return to_tensor(h)->requires_grad() ? 1 : 0;
 }
 
 TensorHandle tensor_detach(TensorHandle h) {
-    return from_tensor(to_tensor(h)->detach());
+	return from_tensor(to_tensor(h)->detach());
 }
 
 TensorHandle tensor_with_grad(TensorHandle h) {
-    auto t = to_tensor(h)->detach().clone();
-    t.requires_grad_(true);
-    return from_tensor(std::move(t));
+	auto t = to_tensor(h)->detach().clone();
+	t.requires_grad_(true);
+	return from_tensor(std::move(t));
 }
 
 void tensor_set_requires_grad(TensorHandle h, int requires_grad) {
-    auto t = to_tensor(h);
-    /* torch throws if you request grad on a non-floating tensor. Inference
-       dtypes (int/bool) can be registered (e.g. via registerParam, for
-       serialization) but can't carry gradients — silently leave grad off
-       rather than abort. */
-    if (requires_grad && !idrisml_is_floating_st(t->scalar_type())) return;
-    t->requires_grad_(requires_grad != 0);
+	auto t = to_tensor(h);
+	/* torch throws if you request grad on a non-floating tensor. Inference
+	   dtypes (int/bool) can be registered (e.g. via registerParam, for
+	   serialization) but can't carry gradients — silently leave grad off
+	   rather than abort. */
+	if (requires_grad && !idrisml_is_floating_st(t->scalar_type())) return;
+	t->requires_grad_(requires_grad != 0);
 }
 
 /* No-grad scope. Counter (not bool) so nested withNoGrad scopes
@@ -76,21 +76,23 @@ static thread_local int no_grad_depth = 0;
 static thread_local std::unique_ptr<torch::NoGradGuard> no_grad_guard;
 
 void tensor_no_grad_begin(void) {
-    if (no_grad_depth == 0) {
-        no_grad_guard = std::make_unique<torch::NoGradGuard>();
-    }
-    no_grad_depth++;
+	if (no_grad_depth == 0) {
+		no_grad_guard = std::make_unique<torch::NoGradGuard>();
+	}
+	no_grad_depth++;
 }
 
 void tensor_no_grad_end(void) {
-    if (no_grad_depth > 0) {
-        no_grad_depth--;
-        if (no_grad_depth == 0) {
-            no_grad_guard.reset();
-        }
-    }
+	if (no_grad_depth > 0) {
+		no_grad_depth--;
+		if (no_grad_depth == 0) {
+			no_grad_guard.reset();
+		}
+	}
 }
 
 /* No buffer ceiling on torch; per-epoch generation free is a no-op. */
-void tensor_epoch_begin(void) {}
-void tensor_epoch_end(void) {}
+void tensor_epoch_begin(void) {
+}
+void tensor_epoch_end(void) {
+}

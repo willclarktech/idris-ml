@@ -2,5 +2,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_dot(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::dot(*to_tensor(a), *to_tensor(b)));
+	return from_tensor(torch::dot(*to_tensor(a), *to_tensor(b)));
 }

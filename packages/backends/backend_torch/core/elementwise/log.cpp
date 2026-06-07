@@ -2,5 +2,5 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_log(TensorHandle h) {
-    return from_tensor(torch::log(*to_tensor(h)));
+	return from_tensor(torch::log(*to_tensor(h)));
 }

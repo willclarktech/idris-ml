@@ -14,37 +14,39 @@
 
 extern c10::Device g_torch_target_device;
 
-static TensorHandle tensor_create_impl(double* data, int* shape, int rank,
-                                       int requires_grad, torch::ScalarType dt) {
-    std::vector<int64_t> dims(rank);
-    for (int i = 0; i < rank; i++) dims[i] = shape[i];
-    auto opts0 = torch::TensorOptions().dtype(torch::kFloat64);
-    auto t = torch::from_blob(data, dims, opts0).clone();
-    // Effective target degrades to CPU on (MPS, F64) — Metal rejects F64
-    // at construction. Lets Transfer.idr explicitly create F64-on-CPU even
-    // under a `TORCH_DEVICE=mps` build, then migrate later with the typed
-    // `toExecutor` (which gates on `Compatible`).
-    c10::Device target = (g_torch_target_device.type() == c10::DeviceType::MPS
-                          && dt == torch::kFloat64) ? at::kCPU
-                                                    : g_torch_target_device;
-    bool need_cast = dt != torch::kFloat64;
-    bool need_move = target != at::kCPU;
-    if (need_cast || need_move) {
-        auto opts = torch::TensorOptions().dtype(dt).device(target);
-        t = t.to(opts);
-    }
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
+static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad,
+                                       torch::ScalarType dt) {
+	std::vector<int64_t> dims(rank);
+	for (int i = 0; i < rank; i++)
+		dims[i] = shape[i];
+	auto opts0 = torch::TensorOptions().dtype(torch::kFloat64);
+	auto t = torch::from_blob(data, dims, opts0).clone();
+	// Effective target degrades to CPU on (MPS, F64) — Metal rejects F64
+	// at construction. Lets Transfer.idr explicitly create F64-on-CPU even
+	// under a `TORCH_DEVICE=mps` build, then migrate later with the typed
+	// `toExecutor` (which gates on `Compatible`).
+	c10::Device target =
+	    (g_torch_target_device.type() == c10::DeviceType::MPS && dt == torch::kFloat64)
+	        ? at::kCPU
+	        : g_torch_target_device;
+	bool need_cast = dt != torch::kFloat64;
+	bool need_move = target != at::kCPU;
+	if (need_cast || need_move) {
+		auto opts = torch::TensorOptions().dtype(dt).device(target);
+		t = t.to(opts);
+	}
+	if (requires_grad) t.requires_grad_(true);
+	return from_tensor_persistent(std::move(t));
 }
 
 extern "C" TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat32);
+	return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat32);
 }
 
 extern "C" TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat64);
+	return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat64);
 }
 
 extern "C" TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_f64(data, shape, rank, requires_grad);
+	return tensor_create_f64(data, shape, rank, requires_grad);
 }

@@ -10,5 +10,5 @@
 #include "../../tensor.h"
 
 extern "C" void tensor_free(TensorHandle h) {
-    (void)h;
+	(void)h;
 }

@@ -6,14 +6,14 @@
  * need to thread per-gate weights. */
 #include "../../tensor.h"
 
-extern "C" TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
-                                        TensorHandle hprev, int o) {
-    auto& ih = *to_tensor(hih);
-    auto& hh = *to_tensor(hhh);
-    auto& prev = *to_tensor(hprev);
-    auto z = torch::sigmoid(ih.slice(0, 0, o) + hh.slice(0, 0, o));
-    auto r = torch::sigmoid(ih.slice(0, o, 2*o) + hh.slice(0, o, 2*o));
-    auto n = torch::tanh(ih.slice(0, 2*o, 3*o) + r * hh.slice(0, 2*o, 3*o));
-    auto h_new = (1.0 - z) * n + z * prev;
-    return from_tensor(h_new);
+extern "C" TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, TensorHandle hprev,
+                                        int o) {
+	auto& ih = *to_tensor(hih);
+	auto& hh = *to_tensor(hhh);
+	auto& prev = *to_tensor(hprev);
+	auto z = torch::sigmoid(ih.slice(0, 0, o) + hh.slice(0, 0, o));
+	auto r = torch::sigmoid(ih.slice(0, o, 2 * o) + hh.slice(0, o, 2 * o));
+	auto n = torch::tanh(ih.slice(0, 2 * o, 3 * o) + r * hh.slice(0, 2 * o, 3 * o));
+	auto h_new = (1.0 - z) * n + z * prev;
+	return from_tensor(h_new);
 }

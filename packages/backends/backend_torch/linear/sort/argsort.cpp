@@ -9,7 +9,7 @@
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
-    auto& t = *to_tensor(ht);
-    auto result = torch::argsort(t, dim, (bool)descending).to(torch::kLong);
-    return from_tensor(result);
+	auto& t = *to_tensor(ht);
+	auto result = torch::argsort(t, dim, (bool)descending).to(torch::kLong);
+	return from_tensor(result);
 }
