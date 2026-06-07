@@ -60,9 +60,13 @@ runs:
     - name: Install Chez Scheme + BLAS (Ubuntu)
       if: runner.os == 'Linux'
       shell: bash
+      # libcriterion-dev backs the test-unit-c / coverage criterion
+      # suites (mk/tests.mk autodetects /usr when the nix profile is
+      # absent); installed unconditionally because it's tiny and the
+      # composite serves every job.
       run: |
         sudo apt-get update
-        sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime
+        sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime libcriterion-dev
 
     - name: Install Chez Scheme + coreutils + git-restore-mtime (macOS)
       if: runner.os == 'macOS'
@@ -77,13 +81,16 @@ runs:
       # correctly returns empty when `stdbuf` is off PATH, so no buffering
       # is applied on macOS CI.
       #
-      # git-restore-mtime comes from the git-tools pip package (no brew
-      # formula); without it every macOS job would full-rebuild despite a
-      # warm TTC cache (checkout stamps sources newer than the cached
+      # git-restore-mtime comes from the homebrew-core git-tools formula
+      # (MestreLion/git-tools). NOT the PyPI package of the same name —
+      # that's an unrelated 6 kB stub that installs no git subcommand and
+      # broke the first macOS run (2026-06-11, run 27370628186). Without
+      # restore-mtime every macOS job would full-rebuild despite a warm
+      # TTC cache (checkout stamps sources newer than the cached
       # artifacts).
-      run: |
-        brew install chezscheme coreutils
-        pip3 install --break-system-packages git-tools
+      # criterion backs the test-unit-c / coverage suites (mk/tests.mk
+      # autodetects /opt/homebrew when the nix profile is absent).
+      run: brew install chezscheme coreutils git-tools criterion
 
     # idris2 and make decide rebuilds by mtime. Checkout stamps all
     # files "now", which would make every cached TTC / object look

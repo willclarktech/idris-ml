@@ -23,7 +23,17 @@
         test-unit-multi-backend test-unit-gym \
         test-unit-idris-transformers bench-gym test-unit-examples
 
+# Criterion prefix autodetection: nix profile (local dev), then brew
+# (macOS CI), then /usr (Ubuntu CI's libcriterion-dev). Explicit
+# CRITERION_PREFIX= still overrides. Falls back to the nix profile when
+# nothing is found so the error stays "criterion.h not found" rather
+# than a cryptic -I/include.
+CRITERION_DETECT := $(firstword $(wildcard $(HOME)/.nix-profile/include/criterion /opt/homebrew/include/criterion /usr/include/criterion))
+ifeq ($(CRITERION_DETECT),)
 CRITERION_PREFIX ?= $(HOME)/.nix-profile
+else
+CRITERION_PREFIX ?= $(patsubst %/include/criterion,%,$(CRITERION_DETECT))
+endif
 CRITERION_CFLAGS := -I$(CRITERION_PREFIX)/include
 CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERION_PREFIX)/lib
 # Runtime flags forwarded to the criterion binary on the command line.
