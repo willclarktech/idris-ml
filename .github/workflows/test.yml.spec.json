@@ -254,7 +254,7 @@
         ]
       },
       {
-        "name": "Lint: prim__ ratchet in examples",
+        "name": "Verify prim__ ratchet in examples",
         "run": "make test-integration-lint-prim-ratchet",
         "comment": [
           "Per-file baseline of raw prim__ FFI occurrences in",

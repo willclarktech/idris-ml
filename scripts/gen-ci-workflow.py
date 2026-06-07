@@ -57,6 +57,13 @@ def end_marker(job: str) -> str:
 
 def render_invocation(inv: dict[str, Any]) -> list[str]:
     """Render one invocation as a list of YAML lines (no trailing newlines)."""
+    # Names are emitted as unquoted plain scalars: a ": " inside one makes
+    # the workflow file unparseable (zero-job startup failure on GitHub —
+    # observed 2026-06-12 with "Lint: prim__ ratchet in examples").
+    if ": " in inv["name"] or inv["name"].endswith(":"):
+        raise SystemExit(
+            f"step name contains a colon (invalid as plain YAML scalar): {inv['name']!r}"
+        )
     lines = [f"{STEP_INDENT}- name: {inv['name']}"]
 
     # Block comment (# lines) preceding the step body.

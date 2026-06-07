@@ -603,7 +603,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-typegate-backend-linked
 
-      - name: Lint: prim__ ratchet in examples
+      - name: Verify prim__ ratchet in examples
         # Per-file baseline of raw prim__ FFI occurrences in
         # idris-ml-examples; fails on any increase or any new file.
         # BringYourOwn.idr exempt (it IS the BYO recipe). The
