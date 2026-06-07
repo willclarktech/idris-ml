@@ -52,6 +52,14 @@ written against it, then pack publication.
    forms (single sample = `b=1`); recurrent/memory modules (RNN/LSTM/NTM/DNC) keep their natural
    per-sequence forms. Under records there is no uniform interface forcing fake batched
    implementations; the type says what each module supports.
+9. **CLI parsing** (adjusts api-critique §N6's destination): leaves the library for a new
+   general-purpose zero-dep package `packages/idris-args/` (landed 2026-06-11), not the examples
+   package. The only off-the-shelf candidate in the nix toolchain, contrib's
+   `System.Console.GetOpt`, has no failure channel in `ReqArg` (typed value errors can't name the
+   flag) — judged not decent enough. `idris-args` depends on base only: typed readers
+   (`natArg`/`doubleArg`/`bits64Arg`/`enumArg`/…), `--flag value` + `--flag=value`, built-in
+   `--help`/`-h`, `--` terminator, and errors on unknown flags / bad values — `ArgSpec`'s
+   silent-skip (the CLI twin of the paramId-typo class) dies with the old surfaces at the sweep.
 
 ## Workstream sequence
 
@@ -129,7 +137,7 @@ it *changes* one, the change is deliberate and recorded here.
 | Single-sample-first signatures | **changed** → batched-first where it earns it: dense/conv/transformer modules ship `[b, …]`; recurrent/memory modules keep per-sequence forms (decision 8) | api-critique §S2/S5 |
 | Mixed precision as parallel interface tree | **changed** → `fit` config | api-critique §S5 |
 | `Num (Tensor …)` instance | **changed** → deleted, nothing claims its place; operator aliases on plain tensors + bang replace it (decision 5 rejected `Num` on IO carriers) | api-critique §S10/N3 |
-| CLI arg parsing in `Train.idr` | **changed** → moves to the examples package | api-critique §N6 |
+| CLI arg parsing in `Train.idr` | **changed** → general-purpose zero-dep `packages/idris-args/` (landed 2026-06-11, decision 9), not the examples package | api-critique §N6 |
 | `Math.idr` parallel loss surface | **changed** → demoted/internal | api-critique §S3 |
 | Flat `Hf*` module names | **changed** → `Transformers.*` namespaces | api-critique §S8 |
 | LICENSE | **deferred** (blocks publish) | decision 3 above |
