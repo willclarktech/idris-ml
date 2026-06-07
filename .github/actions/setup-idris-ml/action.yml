@@ -120,7 +120,7 @@ runs:
     # cache-hit output above) so a bootstrap on a red run isn't lost.
     - name: Restore Idris 2 cache
       id: idris2-cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: ~/.idris2
         key: idris2-v0.8.0-${{ inputs.os-label }}-v2
@@ -173,7 +173,7 @@ runs:
     # cache-hit, since a prefix restore already carries a working pack.
     - name: Restore pack cache
       if: inputs.with-pack == 'true'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: |
           ~/.local/bin/pack
@@ -225,7 +225,7 @@ runs:
     # inside packages/pytorch, so a bare pip3 install is invisible.
     - name: Restore pytorch venv cache
       if: inputs.backend-deps == 'torch'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: packages/pytorch/.venv
         key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
@@ -274,7 +274,7 @@ runs:
     # Bump -v2 to force-flush a wedged tree.
     - name: Restore TTC cache
       if: inputs.restore-ttc == 'true'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: |
           build
@@ -295,7 +295,7 @@ runs:
     # file-as-make-target, so a restored file is simply not re-fetched.
     - name: Restore dataset cache
       if: inputs.restore-ttc == 'true'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: |
           data
@@ -311,7 +311,7 @@ runs:
     # the old models while the new one downloads.
     - name: Restore HF model cache
       if: inputs.restore-hf-models == 'true'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: |
           models

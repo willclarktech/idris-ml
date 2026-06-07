@@ -43,7 +43,7 @@ jobs:
     steps:
       # Full history: the composite's git-restore-mtime needs per-file
       # last-commit dates for the TTC-cache reuse.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -96,14 +96,14 @@ jobs:
 
       - name: Upload perf-log.jsonl
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: perf-log
           path: docs/develop/perf-log.jsonl
 
       - name: Upload BENCHMARKS.md
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: benchmarks-md
           path: BENCHMARKS.md

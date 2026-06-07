@@ -38,7 +38,7 @@ runs:
   steps:
     - name: Save TTC cache
       if: inputs.save-ttc == 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: |
           build
@@ -53,7 +53,7 @@ runs:
 
     - name: Save dataset cache
       if: inputs.save-ttc == 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: |
           data
@@ -62,7 +62,7 @@ runs:
 
     - name: Save HF model cache
       if: inputs.save-hf-models == 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: |
           models
@@ -71,7 +71,7 @@ runs:
 
     - name: Save pack cache
       if: inputs.save-pack == 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: |
           ~/.local/bin/pack
@@ -81,14 +81,14 @@ runs:
 
     - name: Save Idris 2 cache
       if: inputs.idris2-cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: ~/.idris2
         key: idris2-v0.8.0-${{ inputs.os-label }}-v2
 
     - name: Save pytorch venv cache
       if: inputs.save-pytorch-venv == 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: packages/pytorch/.venv
         key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
