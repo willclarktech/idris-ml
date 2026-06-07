@@ -251,9 +251,17 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config
 # Same install dep as the full build so dependent libraries (idris-ml,
 # idris-transformers) are present; the difference is that the example
 # file itself is `--check`ed rather than `-o`'d.
+#
+# Shares $(BUILD) with the example builds (not an isolated check dir):
+# elaborating HfLlamaInference cold peaks past CI runner RAM — it
+# OOM-killed the Ubuntu test-integration leg and burned the macOS
+# leg's whole 60-min budget in run 27373449876. With the shared dir
+# the check is nearly free whenever the example (or the roundtrip
+# gate) already elaborated in this build set, and the --check ttc
+# warms the later `-o` build in turn.
 test-integration-lint-hf-llama-inference: install
 	IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 -p contrib -p idris-ml -p idris-gym -p idris-transformers \
-		--build-dir $(BUILD)/check-hf-llama-inference --source-dir $(EXAMPLE_SRC) \
+		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 
 # Build + run Example/HfBitNetInference. Fetches microsoft/bitnet-b1.58-2B-4T

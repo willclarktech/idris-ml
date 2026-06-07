@@ -244,16 +244,6 @@
         ]
       },
       {
-        "name": "Type-check HfLlamaInference example",
-        "run": "make test-integration-lint-hf-llama-inference",
-        "comment": [
-          "`idris2 --check` over Example/HfLlamaInference.idr — the example",
-          "is too heavy to *run* outside the dedicated roundtrip gates, but",
-          "type-drift against the library surface is cheap to catch here.",
-          "Wired in by the gate-coverage lint."
-        ]
-      },
-      {
         "name": "Run typed index-op round-trip (torch, Ubuntu)",
         "run": "make example-index-ops",
         "os": "ubuntu",
@@ -427,6 +417,20 @@
           "do_sample=False, use_cache=True)` element-wise. Catches drift",
           "in tokenization, every layer of the forward, argmax, and the",
           "per-step glue that the single-forward gate can't see."
+        ]
+      },
+      {
+        "name": "Type-check HfLlamaInference example (torch)",
+        "run": "make BACKEND=torch test-integration-lint-hf-llama-inference",
+        "comment": [
+          "`idris2 --check` over Example/HfLlamaInference.idr — catches",
+          "type-drift against the library surface. Lives in this job, NOT",
+          "test-integration: elaborating the example cold peaks past the",
+          "runner ceiling (it OOM-killed the Ubuntu test-integration leg",
+          "and burned the macOS leg's 60-min budget in run 27373449876).",
+          "Ordered after the llama roundtrips with BACKEND=torch and a",
+          "shared --build-dir, so the elaboration this step needs has",
+          "always just happened in-job and the check is nearly free."
         ]
       }
     ]

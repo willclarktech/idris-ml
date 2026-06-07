@@ -571,14 +571,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-typegate-int-overflow-cast
 
-      - name: Type-check HfLlamaInference example
-        # `idris2 --check` over Example/HfLlamaInference.idr — the example
-        # is too heavy to *run* outside the dedicated roundtrip gates, but
-        # type-drift against the library surface is cheap to catch here.
-        # Wired in by the gate-coverage lint.
-        if: ${{ !cancelled() }}
-        run: make test-integration-lint-hf-llama-inference
-
       - name: Run typed index-op round-trip (torch, Ubuntu)
         # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
         # on torch (Compatible d I64) and runs — the C test covers numerics,
@@ -796,6 +788,18 @@ jobs:
         # per-step glue that the single-forward gate can't see.
         if: ${{ !cancelled() }}
         run: make BACKEND=torch test-e2e-hf-llama-generate-roundtrip
+
+      - name: Type-check HfLlamaInference example (torch)
+        # `idris2 --check` over Example/HfLlamaInference.idr — catches
+        # type-drift against the library surface. Lives in this job, NOT
+        # test-integration: elaborating the example cold peaks past the
+        # runner ceiling (it OOM-killed the Ubuntu test-integration leg
+        # and burned the macOS leg's 60-min budget in run 27373449876).
+        # Ordered after the llama roundtrips with BACKEND=torch and a
+        # shared --build-dir, so the elaboration this step needs has
+        # always just happened in-job and the check is nearly free.
+        if: ${{ !cancelled() }}
+        run: make BACKEND=torch test-integration-lint-hf-llama-inference
       # <<< END GENERATED (test-e2e-hf) <<<
 
       - name: Save caches
