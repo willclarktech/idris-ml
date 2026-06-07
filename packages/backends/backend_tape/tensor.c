@@ -4,6 +4,7 @@
  * Standalone TU compiled into backend_tape_tensor.o.
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "tensor.h"
