@@ -62,11 +62,11 @@ ENTRIES = {
         mlx="direct",
     ),
     "tensor_to_host": Entry(
-        args=("T", "T"),
-        ret="T",
+        args=("T", "R"),
+        ret="R",
         slice="UserExecutorTransfer",
         idris_method="primToHost",
-        c_symbol="tensor_to_doubles",
+        c_symbol="tensor_to_doubles_return",
         mlx="direct",
     ),
 }

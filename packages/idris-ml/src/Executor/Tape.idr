@@ -677,7 +677,7 @@ UserExecutorTraining TapeExecutor where
 -- C-side `tensor_to_device_tape` returns the input handle as-is).
 ----------------------------------------------------------------------
 
-%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-tape)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-tape (foreign-procedure \"tensor_to_doubles_tape\" (void* void*) void))) ((top-level-value 'idris-ffi-tensor-to-doubles-tape) (vector-ref a0 2) a1))"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-return-tape)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-return-tape (foreign-procedure \"tensor_to_doubles_return_tape\" (void* void*) void*))) ((top-level-value 'idris-ffi-tensor-to-doubles-return-tape) (vector-ref a0 2) a1))"
 prim__toHostTape : AnyPtr -> AnyPtr -> AnyPtr
 
 -- The host buffer helpers (alloc / free / write-return for doubles

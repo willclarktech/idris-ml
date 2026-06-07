@@ -47,7 +47,12 @@ ENTRIES = {
     "tensor_subtract_scalar_inplace": Entry(args=("T", "d"), ret="T"),
     "tensor_swiglu_2d": Entry(args=("T", "T"), ret="T"),
     "tensor_to_device": Entry(args=("T", "s"), ret="T"),
-    "tensor_to_doubles": Entry(args=("T", "R"), ret="v"),
+    # The plain void-returning `tensor_to_doubles` must NOT be bound
+    # directly where Idris expects the buffer back — the wrapper would
+    # return #<void>, which at optimize-level 3 segfaults downstream
+    # (the 2026-06-10 toExecutor P1). Use the `*_return` value-threading
+    # shim (shared/training/ffi_shims.c) instead.
+    "tensor_to_doubles_return": Entry(args=("T", "R"), ret="R"),
     "tensor_unbatch": Entry(args=("T", "R"), ret="R"),
     "tensor_zero_grad": Entry(args=("T",), ret="v"),
 }

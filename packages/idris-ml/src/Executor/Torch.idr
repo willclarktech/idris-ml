@@ -798,7 +798,7 @@ public export
 -- allocating a fresh handle, preserving param-registry membership.
 ----------------------------------------------------------------------
 
-%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-torch)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-torch (foreign-procedure \"tensor_to_doubles_torch\" (void* void*) void))) ((top-level-value 'idris-ffi-tensor-to-doubles-torch) (vector-ref a0 2) a1))"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-return-torch)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-return-torch (foreign-procedure \"tensor_to_doubles_return_torch\" (void* void*) void*))) ((top-level-value 'idris-ffi-tensor-to-doubles-return-torch) (vector-ref a0 2) a1))"
 prim__toHostTorch : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Host buffer helpers — unified across backends, see Executor/Tape.idr.

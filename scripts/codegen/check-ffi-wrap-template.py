@@ -231,6 +231,22 @@ def check_file(path, errors):
             )
             continue
 
+        # Cross-check Idris return type against the manifest ret class.
+        # A void-returning foreign-procedure bound to an Idris signature
+        # that expects a value hands Chez's #<void> to Idris; at
+        # optimize-level 3 (Idris2's setting) it then flows unchecked
+        # into downstream void* args and segfaults ("invalid memory
+        # reference" — the cross-backend toExecutor P1, 2026-06-10).
+        # Bind a *_return shim (backend.h "value threading" section) or
+        # fix the manifest ret class instead.
+        if manifest_ret == "v" and idris_ret.strip() not in ("()", "PrimIO ()"):
+            errors.append(
+                f"{path}: {name} (C:{cname}) foreign-procedure returns "
+                f"void but Idris signature returns {idris_ret.strip()!r} "
+                f"— the wrapper would return #<void> to Idris"
+            )
+            continue
+
         issues = lint_scheme_body(body, cname, list(manifest_args), manifest_ret)
         for issue in issues:
             errors.append(f"{path}: {name} (C:{cname}): {issue}")

@@ -815,7 +815,7 @@ Compatible (MlxExecutor MGpu) Binary where
 -- with TapeExecutor / TorchExecutor.
 ----------------------------------------------------------------------
 
-%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-mlx)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-mlx (foreign-procedure \"tensor_to_doubles_mlx\" (void* void*) void))) ((top-level-value 'idris-ffi-tensor-to-doubles-mlx) (vector-ref a0 2) a1))"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-doubles-return-mlx)) (set-top-level-value! 'idris-ffi-tensor-to-doubles-return-mlx (foreign-procedure \"tensor_to_doubles_return_mlx\" (void* void*) void*))) ((top-level-value 'idris-ffi-tensor-to-doubles-return-mlx) (vector-ref a0 2) a1))"
 prim__toHostMlx : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Host buffer helpers — unified across backends, see Executor/Tape.idr.
