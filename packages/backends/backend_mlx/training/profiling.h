@@ -16,7 +16,7 @@
 extern double prof_backward_ms_mlx;
 extern double prof_optimizer_ms_mlx;
 extern double prof_optimizer_math_ms_mlx;
-extern int    prof_epochs_mlx;
+extern int prof_epochs_mlx;
 /* prof_tape_appends_mlx is declared by backend_mlx/tape.h. */
 
 double _wall_ms_mlx(void);

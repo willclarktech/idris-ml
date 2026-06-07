@@ -9,59 +9,63 @@
 #include "../../training/autograd/op_dispatch.h"
 #include "../../precision.h"
 
-extern "C" TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    mx::Shape sh(shape, shape + rank);
-    auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
-    return (TensorHandle)r;
+extern "C" TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank,
+                                                    int stream_tag) {
+	WITH_STREAM(stream_tag);
+	auto t = (Tensor*)h;
+	mx::Shape sh(shape, shape + rank);
+	auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
+	if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
+	return (TensorHandle)r;
 }
 
 extern "C" TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
-    return tensor_reshape_mlx_streamed(h, shape, rank, default_stream_tag());
+	return tensor_reshape_mlx_streamed(h, shape, rank, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_reshape_1d_mlx_streamed(TensorHandle h, int n, int stream_tag) {
-    int shape[] = {n};
-    return tensor_reshape_mlx_streamed(h, shape, 1, stream_tag);
+	int shape[] = {n};
+	return tensor_reshape_mlx_streamed(h, shape, 1, stream_tag);
 }
 
 extern "C" TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
-    return tensor_reshape_1d_mlx_streamed(h, n, default_stream_tag());
+	return tensor_reshape_1d_mlx_streamed(h, n, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_reshape_2d_mlx_streamed(TensorHandle h, int rows, int cols, int stream_tag) {
-    int shape[] = {rows, cols};
-    return tensor_reshape_mlx_streamed(h, shape, 2, stream_tag);
+extern "C" TensorHandle tensor_reshape_2d_mlx_streamed(TensorHandle h, int rows, int cols,
+                                                       int stream_tag) {
+	int shape[] = {rows, cols};
+	return tensor_reshape_mlx_streamed(h, shape, 2, stream_tag);
 }
 
 extern "C" TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
-    return tensor_reshape_2d_mlx_streamed(h, rows, cols, default_stream_tag());
+	return tensor_reshape_2d_mlx_streamed(h, rows, cols, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_reshape_3d_mlx_streamed(TensorHandle h, int d0, int d1, int d2, int stream_tag) {
-    int shape[] = {d0, d1, d2};
-    return tensor_reshape_mlx_streamed(h, shape, 3, stream_tag);
+extern "C" TensorHandle tensor_reshape_3d_mlx_streamed(TensorHandle h, int d0, int d1, int d2,
+                                                       int stream_tag) {
+	int shape[] = {d0, d1, d2};
+	return tensor_reshape_mlx_streamed(h, shape, 3, stream_tag);
 }
 
 extern "C" TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
-    return tensor_reshape_3d_mlx_streamed(h, d0, d1, d2, default_stream_tag());
+	return tensor_reshape_3d_mlx_streamed(h, d0, d1, d2, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_reshape_4d_mlx_streamed(TensorHandle h, int d0, int d1, int d2, int d3, int stream_tag) {
-    int shape[] = {d0, d1, d2, d3};
-    return tensor_reshape_mlx_streamed(h, shape, 4, stream_tag);
+extern "C" TensorHandle tensor_reshape_4d_mlx_streamed(TensorHandle h, int d0, int d1, int d2,
+                                                       int d3, int stream_tag) {
+	int shape[] = {d0, d1, d2, d3};
+	return tensor_reshape_mlx_streamed(h, shape, 4, stream_tag);
 }
 
 extern "C" TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
-    return tensor_reshape_4d_mlx_streamed(h, d0, d1, d2, d3, default_stream_tag());
+	return tensor_reshape_4d_mlx_streamed(h, d0, d1, d2, d3, default_stream_tag());
 }
 
 static void mlx_replay_reshape(std::vector<mx::array>& pool, TapeEntry& e) {
-    int out = e.result->pool_idx;
-    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
-    pool[out] = mx::reshape(a, e.result->data.shape());
+	int out = e.result->pool_idx;
+	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	pool[out] = mx::reshape(a, e.result->data.shape());
 }
 MLX_REGISTER_REPLAY(OP_RESHAPE, mlx_replay_reshape)

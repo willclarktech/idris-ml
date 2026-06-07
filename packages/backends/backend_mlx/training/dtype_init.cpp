@@ -41,80 +41,97 @@
 namespace {
 
 mx::Dtype dt_for_dtag(const char* sym, int dtag) {
-    switch (dtag) {
-        case 13: return mx::float16;
-        case 14: return mx::float32;
-        case 15: return mx::float64;
-        case 17: return mx::bfloat16;
-        default:
-            fprintf(stderr,
-                "[mlx backend] %s called with dtag=%d. This randn/const "
-                "init path supports floating dtags only (f16=13, f32=14, "
-                "f64=15, bf16=17). I32 (dtag=10) storage is wired for "
-                "bulk creation + serialization, but randn-initialised "
-                "I32 params don't have semantics; construct I32 tensors "
-                "via the bulk path instead, or build with BACKEND=torch "
-                "for the wider dtype surface.\n", sym, dtag);
-            abort();
-    }
+	switch (dtag) {
+	case 13:
+		return mx::float16;
+	case 14:
+		return mx::float32;
+	case 15:
+		return mx::float64;
+	case 17:
+		return mx::bfloat16;
+	default:
+		fprintf(stderr,
+		        "[mlx backend] %s called with dtag=%d. This randn/const "
+		        "init path supports floating dtags only (f16=13, f32=14, "
+		        "f64=15, bf16=17). I32 (dtag=10) storage is wired for "
+		        "bulk creation + serialization, but randn-initialised "
+		        "I32 params don't have semantics; construct I32 tensors "
+		        "via the bulk path instead, or build with BACKEND=torch "
+		        "for the wider dtype surface.\n",
+		        sym, dtag);
+		abort();
+	}
 }
 
 TensorHandle wrap_param(mx::array arr) {
-    auto* t = new Tensor(std::move(arr), /*requires_grad=*/true);
-    tape_append(OP_CONST, t, nullptr, nullptr, 0);
-    return (TensorHandle)t;
+	auto* t = new Tensor(std::move(arr), /*requires_grad=*/true);
+	tape_append(OP_CONST, t, nullptr, nullptr, 0);
+	return (TensorHandle)t;
 }
 
-}  // namespace
+} // namespace
 
 /* ---- Normal(mean, std) initialisation ---- */
-extern "C" TensorHandle tensor_create_param_1d_normal_streamed(int n, double mean, double std, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_1d_normal_streamed", dtag);
-    return wrap_param(mx::random::normal(mx::Shape{n}, dt, (float)mean, (float)std));
+extern "C" TensorHandle tensor_create_param_1d_normal_streamed(int n, double mean, double std,
+                                                               int stream_tag, int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_1d_normal_streamed", dtag);
+	return wrap_param(mx::random::normal(mx::Shape{n}, dt, (float)mean, (float)std));
 }
 
-extern "C" TensorHandle tensor_create_param_2d_normal_streamed(int rows, int cols, double mean, double std, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_2d_normal_streamed", dtag);
-    return wrap_param(mx::random::normal(mx::Shape{rows, cols}, dt, (float)mean, (float)std));
+extern "C" TensorHandle tensor_create_param_2d_normal_streamed(int rows, int cols, double mean,
+                                                               double std, int stream_tag,
+                                                               int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_2d_normal_streamed", dtag);
+	return wrap_param(mx::random::normal(mx::Shape{rows, cols}, dt, (float)mean, (float)std));
 }
 
-extern "C" TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, int d2, double mean, double std, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_3d_normal_streamed", dtag);
-    return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2}, dt, (float)mean, (float)std));
+extern "C" TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, int d2, double mean,
+                                                               double std, int stream_tag,
+                                                               int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_3d_normal_streamed", dtag);
+	return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2}, dt, (float)mean, (float)std));
 }
 
-extern "C" TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, int d2, int d3, double mean, double std, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_4d_normal_streamed", dtag);
-    return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2, d3}, dt, (float)mean, (float)std));
+extern "C" TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, int d2, int d3,
+                                                               double mean, double std,
+                                                               int stream_tag, int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_4d_normal_streamed", dtag);
+	return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2, d3}, dt, (float)mean, (float)std));
 }
 
 /* ---- Constant fill ---- */
-extern "C" TensorHandle tensor_create_param_1d_const_streamed(int n, double value, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_1d_const_streamed", dtag);
-    return wrap_param(mx::full(mx::Shape{n}, value, dt));
+extern "C" TensorHandle tensor_create_param_1d_const_streamed(int n, double value, int stream_tag,
+                                                              int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_1d_const_streamed", dtag);
+	return wrap_param(mx::full(mx::Shape{n}, value, dt));
 }
 
-extern "C" TensorHandle tensor_create_param_2d_const_streamed(int rows, int cols, double value, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_2d_const_streamed", dtag);
-    return wrap_param(mx::full(mx::Shape{rows, cols}, value, dt));
+extern "C" TensorHandle tensor_create_param_2d_const_streamed(int rows, int cols, double value,
+                                                              int stream_tag, int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_2d_const_streamed", dtag);
+	return wrap_param(mx::full(mx::Shape{rows, cols}, value, dt));
 }
 
-extern "C" TensorHandle tensor_create_param_3d_const_streamed(int d0, int d1, int d2, double value, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_3d_const_streamed", dtag);
-    return wrap_param(mx::full(mx::Shape{d0, d1, d2}, value, dt));
+extern "C" TensorHandle tensor_create_param_3d_const_streamed(int d0, int d1, int d2, double value,
+                                                              int stream_tag, int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_3d_const_streamed", dtag);
+	return wrap_param(mx::full(mx::Shape{d0, d1, d2}, value, dt));
 }
 
-extern "C" TensorHandle tensor_create_param_4d_const_streamed(int d0, int d1, int d2, int d3, double value, int stream_tag, int dtag) {
-    WITH_STREAM(stream_tag);
-    auto dt = dt_for_dtag("tensor_create_param_4d_const_streamed", dtag);
-    return wrap_param(mx::full(mx::Shape{d0, d1, d2, d3}, value, dt));
+extern "C" TensorHandle tensor_create_param_4d_const_streamed(int d0, int d1, int d2, int d3,
+                                                              double value, int stream_tag,
+                                                              int dtag) {
+	WITH_STREAM(stream_tag);
+	auto dt = dt_for_dtag("tensor_create_param_4d_const_streamed", dtag);
+	return wrap_param(mx::full(mx::Shape{d0, d1, d2, d3}, value, dt));
 }
 
 /* ---- Init RNG seed ----
@@ -122,6 +139,6 @@ extern "C" TensorHandle tensor_create_param_4d_const_streamed(int d0, int d1, in
    `random::normal` / `random::uniform`. Stream-agnostic; the RNG state
    is per-thread (see mlx/random.h KeySequence::default_), not per-stream. */
 extern "C" void tensor_set_init_seed_streamed(unsigned long long seed, int stream_tag) {
-    (void)stream_tag;
-    mx::random::seed((uint64_t)seed);
+	(void)stream_tag;
+	mx::random::seed((uint64_t)seed);
 }

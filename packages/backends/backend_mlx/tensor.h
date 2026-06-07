@@ -23,22 +23,22 @@ namespace mx = mlx::core;
    already in scope via the include above. */
 
 struct Tensor {
-    mx::array data;
-    mx::array grad;
-    bool requires_grad;
-    bool has_grad;
-    int tape_idx;
-    int pool_idx;    /* unique index for replay pool */
-    /* Reference count = number of long-term holders pointing at this
-       Tensor: the Idris-side wrap, each tape entry that has it as an
-       arg, the param_registry, etc. Ctor sets it to 0 — the first
-       holder takes the first retain. When the count drops to 0, the
-       Tensor is removed from all_tensors and deleted, freeing the
-       underlying mx::array → MetalAllocator releases the MTLBuffer. */
-    int refcount;
-    long create_id;  /* generation marker: g_mlx_create_calls_global at construction */
+	mx::array data;
+	mx::array grad;
+	bool requires_grad;
+	bool has_grad;
+	int tape_idx;
+	int pool_idx; /* unique index for replay pool */
+	/* Reference count = number of long-term holders pointing at this
+	   Tensor: the Idris-side wrap, each tape entry that has it as an
+	   arg, the param_registry, etc. Ctor sets it to 0 — the first
+	   holder takes the first retain. When the count drops to 0, the
+	   Tensor is removed from all_tensors and deleted, freeing the
+	   underlying mx::array → MetalAllocator releases the MTLBuffer. */
+	int refcount;
+	long create_id; /* generation marker: g_mlx_create_calls_global at construction */
 
-    Tensor(mx::array d, bool rg = false);
+	Tensor(mx::array d, bool rg = false);
 };
 
 /* Tracking globals — defined in backend_mlx.cpp, referenced from any

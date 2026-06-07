@@ -25,52 +25,52 @@
 #ifdef BACKEND_MLX
 
 static double* heap_copy(const double* src, int n) {
-    double* buf = (double*)malloc(n * sizeof(double));
-    memcpy(buf, src, n * sizeof(double));
-    return buf;
+	double* buf = (double*)malloc(n * sizeof(double));
+	memcpy(buf, src, n * sizeof(double));
+	return buf;
 }
 
 Test(mlx_core_lifecycle_cast_dtype, f64_to_f32_round_trip) {
-    /* Default mlx tensor is F32 (per project_mlx_gpu_environment.md);
-     * cast to F64 then back to F32 should preserve values within F32
-     * precision (since the original was already F32-representable). */
-    param_clear();
-    double xd[] = {1.0, 2.5, -3.75, 0.125};
-    TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
-    /* x defaults to F32 storage on mlx; cast to F64 then back. */
-    TensorHandle as_f64 = tensor_cast_dtype_f64(x);
-    cr_assert_str_eq(tensor_dtype_name(as_f64), "F64",
-        "after cast_dtype_f64, dtype should be F64 (got %s)",
-        tensor_dtype_name(as_f64));
-    TensorHandle as_f32_again = tensor_cast_dtype_f32(as_f64);
-    cr_assert_str_eq(tensor_dtype_name(as_f32_again), "F32",
-        "after cast_dtype_f32, dtype should be F32 (got %s)",
-        tensor_dtype_name(as_f32_again));
-    double buf[4];
-    tensor_to_doubles(as_f32_again, buf);
-    for (int i = 0; i < 4; i++) {
-        cr_assert_float_eq(buf[i], xd[i], TEST_TOL_RELAXED,
-            "round-trip buf[%d] should match input %.3f (got %.9f)",
-            i, xd[i], buf[i]);
-    }
+	/* Default mlx tensor is F32 (per project_mlx_gpu_environment.md);
+	 * cast to F64 then back to F32 should preserve values within F32
+	 * precision (since the original was already F32-representable). */
+	param_clear();
+	double xd[] = {1.0, 2.5, -3.75, 0.125};
+	TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
+	/* x defaults to F32 storage on mlx; cast to F64 then back. */
+	TensorHandle as_f64 = tensor_cast_dtype_f64(x);
+	cr_assert_str_eq(tensor_dtype_name(as_f64), "F64",
+	                 "after cast_dtype_f64, dtype should be F64 (got %s)",
+	                 tensor_dtype_name(as_f64));
+	TensorHandle as_f32_again = tensor_cast_dtype_f32(as_f64);
+	cr_assert_str_eq(tensor_dtype_name(as_f32_again), "F32",
+	                 "after cast_dtype_f32, dtype should be F32 (got %s)",
+	                 tensor_dtype_name(as_f32_again));
+	double buf[4];
+	tensor_to_doubles(as_f32_again, buf);
+	for (int i = 0; i < 4; i++) {
+		cr_assert_float_eq(buf[i], xd[i], TEST_TOL_RELAXED,
+		                   "round-trip buf[%d] should match input %.3f (got %.9f)", i, xd[i],
+		                   buf[i]);
+	}
 }
 
 Test(mlx_core_lifecycle_cast_dtype, backward_passes_gradient) {
-    /* Forward: y = cast_dtype_f64(x); loss = sum(y); dL/dx = 1 elementwise. */
-    param_clear();
-    double xd[] = {1.0, 2.0, 3.0};
-    TensorHandle x = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
-    param_register("x", x);
-    TensorHandle y = tensor_cast_dtype_f64(x);
-    TensorHandle loss = tensor_sum(y);
-    cr_assert_float_eq(tensor_item(loss), 6.0, TEST_TOL_RELAXED,
-        "sum after cast should be 6 (got %.9f)", tensor_item(loss));
-    tensor_backward(loss);
-    for (int i = 0; i < 3; i++) {
-        cr_assert_float_eq(param_grad_item_at(0, i), 1.0, TEST_TOL_RELAXED,
-            "grad x[%d] should pass through as 1 (got %.9f)",
-            i, param_grad_item_at(0, i));
-    }
+	/* Forward: y = cast_dtype_f64(x); loss = sum(y); dL/dx = 1 elementwise. */
+	param_clear();
+	double xd[] = {1.0, 2.0, 3.0};
+	TensorHandle x = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
+	param_register("x", x);
+	TensorHandle y = tensor_cast_dtype_f64(x);
+	TensorHandle loss = tensor_sum(y);
+	cr_assert_float_eq(tensor_item(loss), 6.0, TEST_TOL_RELAXED,
+	                   "sum after cast should be 6 (got %.9f)", tensor_item(loss));
+	tensor_backward(loss);
+	for (int i = 0; i < 3; i++) {
+		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, TEST_TOL_RELAXED,
+		                   "grad x[%d] should pass through as 1 (got %.9f)", i,
+		                   param_grad_item_at(0, i));
+	}
 }
 
 #endif /* BACKEND_MLX */

@@ -18,29 +18,29 @@
 extern "C" {
 
 TensorHandle tensor_view_2d_mlx_streamed(TensorHandle mat, int row, int col, int stream_tag) {
-    WITH_STREAM(stream_tag);
+	WITH_STREAM(stream_tag);
 
-    auto t = (Tensor*)mat;
-    // Return a scalar tensor sharing the value
-    int cols = t->data.shape(1);
-    auto val = mx::take(mx::flatten(t->data), mx::array(row * cols + col));
-    auto r = new Tensor(val, t->requires_grad);
-    return (TensorHandle)r;
+	auto t = (Tensor*)mat;
+	// Return a scalar tensor sharing the value
+	int cols = t->data.shape(1);
+	auto val = mx::take(mx::flatten(t->data), mx::array(row * cols + col));
+	auto r = new Tensor(val, t->requires_grad);
+	return (TensorHandle)r;
 }
 TensorHandle tensor_view_2d(TensorHandle mat, int row, int col) {
-    return tensor_view_2d_mlx_streamed(mat, row, col, default_stream_tag());
+	return tensor_view_2d_mlx_streamed(mat, row, col, default_stream_tag());
 }
 
 TensorHandle tensor_view_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag) {
-    WITH_STREAM(stream_tag);
+	WITH_STREAM(stream_tag);
 
-    auto t = (Tensor*)vec;
-    auto val = mx::take(t->data, mx::array(idx));
-    auto r = new Tensor(val, t->requires_grad);
-    return (TensorHandle)r;
+	auto t = (Tensor*)vec;
+	auto val = mx::take(t->data, mx::array(idx));
+	auto r = new Tensor(val, t->requires_grad);
+	return (TensorHandle)r;
 }
 TensorHandle tensor_view_1d(TensorHandle vec, int idx) {
-    return tensor_view_1d_mlx_streamed(vec, idx, default_stream_tag());
+	return tensor_view_1d_mlx_streamed(vec, idx, default_stream_tag());
 }
 
 } // extern "C"

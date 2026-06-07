@@ -9,11 +9,11 @@
 #include "tensor.h"
 
 extern "C" TensorHandle tensor_to_device(TensorHandle t, const char* device) {
-    (void)device;
-    return t;
+	(void)device;
+	return t;
 }
 
 extern "C" const char* tensor_device(TensorHandle t) {
-    (void)t;
-    return "gpu";
+	(void)t;
+	return "gpu";
 }

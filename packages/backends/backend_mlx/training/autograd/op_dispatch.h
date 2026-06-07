@@ -55,8 +55,9 @@ MlxReplayFn mlx_dispatch_get(int op);
 
        MLX_REGISTER_REPLAY(OP_ADD, mlx_replay_add)
 */
-#define MLX_REGISTER_REPLAY(op, fn)                                      \
-    __attribute__((constructor))                                         \
-    static void _mlx_reg_##op##_##fn(void) { mlx_register_replay(op, fn); }
+#define MLX_REGISTER_REPLAY(op, fn)                                                                \
+	__attribute__((constructor)) static void _mlx_reg_##op##_##fn(void) {                          \
+		mlx_register_replay(op, fn);                                                               \
+	}
 
 #endif /* IDRISML_BACKEND_MLX_OP_DISPATCH_H */

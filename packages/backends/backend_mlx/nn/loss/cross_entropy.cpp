@@ -14,8 +14,8 @@ extern "C" TensorHandle tensor_neg(TensorHandle h);
 extern "C" TensorHandle tensor_mean(TensorHandle h);
 
 extern "C" TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
-    TensorHandle ls = tensor_log_softmax(hinput, 0);
-    TensorHandle prod = tensor_mul(htarget, ls);
-    TensorHandle neg = tensor_neg(prod);
-    return tensor_mean(neg);
+	TensorHandle ls = tensor_log_softmax(hinput, 0);
+	TensorHandle prod = tensor_mul(htarget, ls);
+	TensorHandle neg = tensor_neg(prod);
+	return tensor_mean(neg);
 }

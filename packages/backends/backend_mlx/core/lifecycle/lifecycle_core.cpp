@@ -17,39 +17,42 @@
 std::vector<Tensor*> all_tensors;
 std::vector<TensorPair*> all_pairs;
 int next_pool_idx = 0;
-long g_mlx_create_calls_global = 0;  /* monotonic Tensor-creation counter (feeds create_id) */
-long g_mlx_peak_live = 0;            /* high-water mark of all_tensors.size() */
+long g_mlx_create_calls_global = 0; /* monotonic Tensor-creation counter (feeds create_id) */
+long g_mlx_peak_live = 0;           /* high-water mark of all_tensors.size() */
 
 Tensor::Tensor(mx::array d, bool rg)
-    : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
-      has_grad(false), tape_idx(-1),
+    : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg), has_grad(false), tape_idx(-1),
       pool_idx(next_pool_idx++), refcount(0) {
-    create_id = g_mlx_create_calls_global++;
-    all_tensors.push_back(this);
-    if ((long)all_tensors.size() > g_mlx_peak_live) g_mlx_peak_live = (long)all_tensors.size();
+	create_id = g_mlx_create_calls_global++;
+	all_tensors.push_back(this);
+	if ((long)all_tensors.size() > g_mlx_peak_live) g_mlx_peak_live = (long)all_tensors.size();
 }
 
 void tensor_retain_internal(Tensor* t) {
-    if (t) t->refcount++;
+	if (t) t->refcount++;
 }
 
 void tensor_release_internal(Tensor* t) {
-    if (t && t->refcount > 0) t->refcount--;
+	if (t && t->refcount > 0) t->refcount--;
 }
 
 // C-exported retain/release for FFI consumers (Idris-side managed handles,
 // Scheme guardian-drain callbacks).
 extern "C" {
 void tensor_retain_handle(void* h) {
-    tensor_retain_internal(reinterpret_cast<Tensor*>(h));
+	tensor_retain_internal(reinterpret_cast<Tensor*>(h));
 }
 void tensor_release_handle(void* h) {
-    tensor_release_internal(reinterpret_cast<Tensor*>(h));
+	tensor_release_internal(reinterpret_cast<Tensor*>(h));
 }
 
 // Live-handle accessors — read from all_tensors / g_mlx_peak_live (above).
 // Surfaced for Idris-side live-tensor dashboards + the test suite's
 // "no leaks at end of epoch" assertions.
-int tensor_live_count(void) { return (int)all_tensors.size(); }
-int tensor_peak_live_count(void) { return (int)g_mlx_peak_live; }
-}  // extern "C"
+int tensor_live_count(void) {
+	return (int)all_tensors.size();
+}
+int tensor_peak_live_count(void) {
+	return (int)g_mlx_peak_live;
+}
+} // extern "C"

@@ -27,28 +27,28 @@
 
 #include <cstdlib>
 #include <cstring>
-#include "tensor.h"   /* for `namespace mx = mlx::core;` */
+#include "tensor.h" /* for `namespace mx = mlx::core;` */
 
 inline mx::Stream& cpu_stream() {
-    static const mx::Stream* s = new mx::Stream(mx::default_stream(mx::Device(mx::Device::cpu)));
-    return *const_cast<mx::Stream*>(s);
+	static const mx::Stream* s = new mx::Stream(mx::default_stream(mx::Device(mx::Device::cpu)));
+	return *const_cast<mx::Stream*>(s);
 }
 
 inline mx::Stream& gpu_stream() {
-    static const mx::Stream* s = new mx::Stream(mx::default_stream(mx::Device(mx::Device::gpu)));
-    return *const_cast<mx::Stream*>(s);
+	static const mx::Stream* s = new mx::Stream(mx::default_stream(mx::Device(mx::Device::gpu)));
+	return *const_cast<mx::Stream*>(s);
 }
 
 inline mx::Stream& stream_for_tag(int tag) {
-    return tag == 1 ? gpu_stream() : cpu_stream();
+	return tag == 1 ? gpu_stream() : cpu_stream();
 }
 
 inline int default_stream_tag() {
-    static const int cached = []() {
-        const char* env = std::getenv("MLX_DEVICE");
-        return (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) ? 1 : 0;
-    }();
-    return cached;
+	static const int cached = []() {
+		const char* env = std::getenv("MLX_DEVICE");
+		return (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) ? 1 : 0;
+	}();
+	return cached;
 }
 
 #define WITH_STREAM(stream_tag) mx::StreamContext _stream_guard(stream_for_tag(stream_tag))

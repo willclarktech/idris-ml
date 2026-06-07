@@ -14,21 +14,23 @@
 #include <cstdlib>
 
 extern "C" TensorHandle tensor_pair_first_mlx_streamed(TensorPair* p, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return p->first;
+	WITH_STREAM(stream_tag);
+	return p->first;
 }
 
 extern "C" TensorHandle tensor_pair_first(TensorPair* p) {
-    return tensor_pair_first_mlx_streamed(p, default_stream_tag());
+	return tensor_pair_first_mlx_streamed(p, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_pair_second_mlx_streamed(TensorPair* p, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return p->second;
+	WITH_STREAM(stream_tag);
+	return p->second;
 }
 
 extern "C" TensorHandle tensor_pair_second(TensorPair* p) {
-    return tensor_pair_second_mlx_streamed(p, default_stream_tag());
+	return tensor_pair_second_mlx_streamed(p, default_stream_tag());
 }
 
-extern "C" void tensor_pair_free(TensorPair* p) { if (p) free(p); }
+extern "C" void tensor_pair_free(TensorPair* p) {
+	if (p) free(p);
+}

@@ -17,17 +17,20 @@
 #include "../../stream.h"
 
 extern "C" void tensor_free_mlx_streamed(TensorHandle h, int stream_tag) {
-    (void)stream_tag;  /* no kernel — pure C-side bookkeeping */
-    if (!h) return;
-    auto t = (Tensor*)h;
-    for (int i_ = 0; i_ < param_count(); i_++) {
-        if ((Tensor*)param_tensor(i_) == t) return;
-    }
-    for (auto* alive : all_tensors) {
-        if (alive == t) { tensor_release_internal(t); return; }
-    }
+	(void)stream_tag; /* no kernel — pure C-side bookkeeping */
+	if (!h) return;
+	auto t = (Tensor*)h;
+	for (int i_ = 0; i_ < param_count(); i_++) {
+		if ((Tensor*)param_tensor(i_) == t) return;
+	}
+	for (auto* alive : all_tensors) {
+		if (alive == t) {
+			tensor_release_internal(t);
+			return;
+		}
+	}
 }
 
 extern "C" void tensor_free(TensorHandle h) {
-    tensor_free_mlx_streamed(h, default_stream_tag());
+	tensor_free_mlx_streamed(h, default_stream_tag());
 }

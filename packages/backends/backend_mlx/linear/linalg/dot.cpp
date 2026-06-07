@@ -8,18 +8,19 @@
 #include "../../stream.h"
 
 extern "C" TensorHandle tensor_dot_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::sum(mx::multiply(a->data, b->data)), rg);
-    if (rg) {
-        auto prod = new Tensor(mx::multiply(a->data, b->data), rg);
-        tape_append(OP_MUL, prod, a, b, 0);
-        tape_append(OP_SUM, r, prod, nullptr, 0);
-    }
-    return (TensorHandle)r;
+	WITH_STREAM(stream_tag);
+	auto a = (Tensor*)ha;
+	auto b = (Tensor*)hb;
+	bool rg = a->requires_grad || b->requires_grad;
+	auto r = new Tensor(mx::sum(mx::multiply(a->data, b->data)), rg);
+	if (rg) {
+		auto prod = new Tensor(mx::multiply(a->data, b->data), rg);
+		tape_append(OP_MUL, prod, a, b, 0);
+		tape_append(OP_SUM, r, prod, nullptr, 0);
+	}
+	return (TensorHandle)r;
 }
 
 extern "C" TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
-    return tensor_dot_mlx_streamed(ha, hb, default_stream_tag());
+	return tensor_dot_mlx_streamed(ha, hb, default_stream_tag());
 }

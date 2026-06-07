@@ -7,54 +7,59 @@
 
 extern "C" TensorHandle tensor_max_pool2d_mlx_streamed(TensorHandle hinput, int kH, int kW,
                                                        int strideH, int strideW, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto inp = (Tensor*)hinput;
-    int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
-    int oH = (H - kH) / strideH + 1;
-    int oW = (W - kW) / strideW + 1;
+	WITH_STREAM(stream_tag);
+	auto inp = (Tensor*)hinput;
+	int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+	int oH = (H - kH) / strideH + 1;
+	int oW = (W - kW) / strideW + 1;
 
-    mx::array result = mx::full({C, oH, oW}, -1e30, inp->data.dtype());
-    for (int kh = 0; kh < kH; kh++) {
-        for (int kw = 0; kw < kW; kw++) {
-            auto sliced = mx::slice(inp->data,
-                {0, kh, kw}, {C, kh + oH * strideH, kw + oW * strideW}, {1, strideH, strideW});
-            result = mx::maximum(result, sliced);
-        }
-    }
+	mx::array result = mx::full({C, oH, oW}, -1e30, inp->data.dtype());
+	for (int kh = 0; kh < kH; kh++) {
+		for (int kw = 0; kw < kW; kw++) {
+			auto sliced =
+			    mx::slice(inp->data, {0, kh, kw}, {C, kh + oH * strideH, kw + oW * strideW},
+			              {1, strideH, strideW});
+			result = mx::maximum(result, sliced);
+		}
+	}
 
-    auto r = new Tensor(result, inp->requires_grad);
-    if (inp->requires_grad) {
-        int idx = tape_append(OP_MAX_POOL2D, r, inp, nullptr, 0);
-        auto* meta = new MaxPool2DReplayMeta();
-        meta->C = C; meta->H = H; meta->W = W;
-        meta->kH = kH; meta->kW = kW;
-        meta->strH = strideH; meta->strW = strideW;
-        meta->oH = oH; meta->oW = oW;
-        tape[idx].meta = meta;
-    }
-    return (TensorHandle)r;
+	auto r = new Tensor(result, inp->requires_grad);
+	if (inp->requires_grad) {
+		int idx = tape_append(OP_MAX_POOL2D, r, inp, nullptr, 0);
+		auto* meta = new MaxPool2DReplayMeta();
+		meta->C = C;
+		meta->H = H;
+		meta->W = W;
+		meta->kH = kH;
+		meta->kW = kW;
+		meta->strH = strideH;
+		meta->strW = strideW;
+		meta->oH = oH;
+		meta->oW = oW;
+		tape[idx].meta = meta;
+	}
+	return (TensorHandle)r;
 }
 
-extern "C" TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
-                                          int strideH, int strideW) {
-    return tensor_max_pool2d_mlx_streamed(hinput, kH, kW, strideH, strideW, default_stream_tag());
+extern "C" TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW, int strideH,
+                                          int strideW) {
+	return tensor_max_pool2d_mlx_streamed(hinput, kH, kW, strideH, strideW, default_stream_tag());
 }
 
 static void mlx_replay_max_pool2d(std::vector<mx::array>& pool, TapeEntry& e) {
-    int out = e.result->pool_idx;
-    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
-    auto* pm = (MaxPool2DReplayMeta*)e.meta;
-                    mx::array res = mx::full({pm->C, pm->oH, pm->oW}, -1e30, a.dtype());
-                    for (int kh = 0; kh < pm->kH; kh++) {
-                        for (int kw = 0; kw < pm->kW; kw++) {
-                            auto sliced = mx::slice(a,
-                                {0, kh, kw},
-                                {pm->C, kh + pm->oH * pm->strH, kw + pm->oW * pm->strW},
-                                {1, pm->strH, pm->strW});
-                            res = mx::maximum(res, sliced);
-                        }
-                    }
-                    pool[out] = res;
+	int out = e.result->pool_idx;
+	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	auto* pm = (MaxPool2DReplayMeta*)e.meta;
+	mx::array res = mx::full({pm->C, pm->oH, pm->oW}, -1e30, a.dtype());
+	for (int kh = 0; kh < pm->kH; kh++) {
+		for (int kw = 0; kw < pm->kW; kw++) {
+			auto sliced =
+			    mx::slice(a, {0, kh, kw}, {pm->C, kh + pm->oH * pm->strH, kw + pm->oW * pm->strW},
+			              {1, pm->strH, pm->strW});
+			res = mx::maximum(res, sliced);
+		}
+	}
+	pool[out] = res;
 }
 MLX_REGISTER_REPLAY(OP_MAX_POOL2D, mlx_replay_max_pool2d)

@@ -9,51 +9,58 @@
 #include "../../stream.h"
 #include "../../precision.h"
 
-static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad, mx::Dtype dt) {
-    mx::Shape sh(shape, shape + rank);
-    auto t = new Tensor(mx_array_from_doubles(data, sh, dt), requires_grad != 0);
-    if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
-    return (TensorHandle)t;
+static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad,
+                                       mx::Dtype dt) {
+	mx::Shape sh(shape, shape + rank);
+	auto t = new Tensor(mx_array_from_doubles(data, sh, dt), requires_grad != 0);
+	if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+	return (TensorHandle)t;
 }
 
-extern "C" TensorHandle tensor_create_f32_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::float32);
+extern "C" TensorHandle tensor_create_f32_mlx_streamed(double* data, int* shape, int rank,
+                                                       int requires_grad, int stream_tag) {
+	WITH_STREAM(stream_tag);
+	return tensor_create_impl(data, shape, rank, requires_grad, mx::float32);
 }
 
 extern "C" TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
+	return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_create_f64_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::float64);
+extern "C" TensorHandle tensor_create_f64_mlx_streamed(double* data, int* shape, int rank,
+                                                       int requires_grad, int stream_tag) {
+	WITH_STREAM(stream_tag);
+	return tensor_create_impl(data, shape, rank, requires_grad, mx::float64);
 }
 
 extern "C" TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_f64_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
+	return tensor_create_f64_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_create_bf16_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::bfloat16);
+extern "C" TensorHandle tensor_create_bf16_mlx_streamed(double* data, int* shape, int rank,
+                                                        int requires_grad, int stream_tag) {
+	WITH_STREAM(stream_tag);
+	return tensor_create_impl(data, shape, rank, requires_grad, mx::bfloat16);
 }
 
-extern "C" TensorHandle tensor_create_f16_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::float16);
+extern "C" TensorHandle tensor_create_f16_mlx_streamed(double* data, int* shape, int rank,
+                                                       int requires_grad, int stream_tag) {
+	WITH_STREAM(stream_tag);
+	return tensor_create_impl(data, shape, rank, requires_grad, mx::float16);
 }
 
-extern "C" TensorHandle tensor_create_i32_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::int32);
+extern "C" TensorHandle tensor_create_i32_mlx_streamed(double* data, int* shape, int rank,
+                                                       int requires_grad, int stream_tag) {
+	WITH_STREAM(stream_tag);
+	return tensor_create_impl(data, shape, rank, requires_grad, mx::int32);
 }
 
-extern "C" TensorHandle tensor_create_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
+extern "C" TensorHandle tensor_create_mlx_streamed(double* data, int* shape, int rank,
+                                                   int requires_grad, int stream_tag) {
+	WITH_STREAM(stream_tag);
+	return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
 }
 
 extern "C" TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
+	return tensor_create_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
 }

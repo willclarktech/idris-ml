@@ -28,7 +28,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <unistd.h>      // _exit
+#include <unistd.h> // _exit
 #include <signal.h>
 #include <execinfo.h>
 #include <cstdio>
@@ -36,65 +36,67 @@
 static bool g_mlx_past_main = false;
 static std::terminate_handler g_prev_terminate_handler = nullptr;
 
-static void mlx_set_past_main(void) { g_mlx_past_main = true; }
-
-static void mlx_terminate_handler(void) {
-    if (g_mlx_past_main) {
-        // Process already exited cleanly; this is a destructor-order
-        // crash we can't fix without a libmlx-upstream change. Exit 0.
-        _exit(0);
-    }
-    if (g_prev_terminate_handler) g_prev_terminate_handler();
-    std::abort();
+static void mlx_set_past_main(void) {
+	g_mlx_past_main = true;
 }
 
-__attribute__((constructor))
-static void mlx_backend_init(void) {
-    const char* env = std::getenv("MLX_DEVICE");
-    if (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
-        mx::set_default_device(mx::Device(mx::Device::gpu));
-    } else {
-        mx::set_default_device(mx::Device(mx::Device::cpu));
-    }
-    // Leave memory_limit / cache_limit at mlx's defaults. The
-    // "[malloc] Unable to allocate N bytes" failure on Apple
-    // Virtualization VMs (Tart, GHA macOS) is *not* hit because of an
-    // mlx limit — it's MetalAllocator throwing when paravirtualized
-    // Metal refuses a new MTLBuffer (per-process resource limit, not
-    // bytes). Stack trace confirms: throw originates in
-    // MetalAllocator::malloc even when MLX_DEVICE=cpu, because on
-    // Apple Silicon mlx routes all buffer allocations through Metal
-    // (unified memory). The real fix is keeping live MTLBuffer count
-    // low; see the refcount-driven Tensor lifecycle work.
-    g_prev_terminate_handler = std::set_terminate(mlx_terminate_handler);
-    std::atexit(mlx_set_past_main);
+static void mlx_terminate_handler(void) {
+	if (g_mlx_past_main) {
+		// Process already exited cleanly; this is a destructor-order
+		// crash we can't fix without a libmlx-upstream change. Exit 0.
+		_exit(0);
+	}
+	if (g_prev_terminate_handler) g_prev_terminate_handler();
+	std::abort();
+}
 
-    // Crash-trace install — opt-in via MLX_CRASH_TRACE=1. On SIGSEGV/SIGILL/
-    // SIGBUS, write a host-side backtrace to stderr then re-raise the
-    // signal with default disposition (which kills the process). Chez's
-    // signal handler normally swallows these with "invalid memory
-    // reference" — installing ours after the constructor leaves Chez's
-    // later sigaction call to overwrite us, so we re-install on the
-    // first FFI entry too. For diagnosis only.
-    if (std::getenv("MLX_CRASH_TRACE")) {
-        struct sigaction sa;
-        std::memset(&sa, 0, sizeof(sa));
-        sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
-        sa.sa_sigaction = [](int signo, siginfo_t* info, void*) {
-            const char* sname = signo == SIGSEGV ? "SIGSEGV" :
-                                signo == SIGILL  ? "SIGILL"  :
-                                signo == SIGBUS  ? "SIGBUS"  : "SIG?";
-            std::fprintf(stderr, "\n=== mlx crash-trace: %s at addr=%p ===\n",
-                         sname, info ? info->si_addr : nullptr);
-            void* frames[64];
-            int n = backtrace(frames, 64);
-            backtrace_symbols_fd(frames, n, 2);
-            std::fflush(stderr);
-            // Re-raise (SA_RESETHAND restored default disposition)
-            raise(signo);
-        };
-        sigaction(SIGSEGV, &sa, nullptr);
-        sigaction(SIGILL,  &sa, nullptr);
-        sigaction(SIGBUS,  &sa, nullptr);
-    }
+__attribute__((constructor)) static void mlx_backend_init(void) {
+	const char* env = std::getenv("MLX_DEVICE");
+	if (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
+		mx::set_default_device(mx::Device(mx::Device::gpu));
+	} else {
+		mx::set_default_device(mx::Device(mx::Device::cpu));
+	}
+	// Leave memory_limit / cache_limit at mlx's defaults. The
+	// "[malloc] Unable to allocate N bytes" failure on Apple
+	// Virtualization VMs (Tart, GHA macOS) is *not* hit because of an
+	// mlx limit — it's MetalAllocator throwing when paravirtualized
+	// Metal refuses a new MTLBuffer (per-process resource limit, not
+	// bytes). Stack trace confirms: throw originates in
+	// MetalAllocator::malloc even when MLX_DEVICE=cpu, because on
+	// Apple Silicon mlx routes all buffer allocations through Metal
+	// (unified memory). The real fix is keeping live MTLBuffer count
+	// low; see the refcount-driven Tensor lifecycle work.
+	g_prev_terminate_handler = std::set_terminate(mlx_terminate_handler);
+	std::atexit(mlx_set_past_main);
+
+	// Crash-trace install — opt-in via MLX_CRASH_TRACE=1. On SIGSEGV/SIGILL/
+	// SIGBUS, write a host-side backtrace to stderr then re-raise the
+	// signal with default disposition (which kills the process). Chez's
+	// signal handler normally swallows these with "invalid memory
+	// reference" — installing ours after the constructor leaves Chez's
+	// later sigaction call to overwrite us, so we re-install on the
+	// first FFI entry too. For diagnosis only.
+	if (std::getenv("MLX_CRASH_TRACE")) {
+		struct sigaction sa;
+		std::memset(&sa, 0, sizeof(sa));
+		sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+		sa.sa_sigaction = [](int signo, siginfo_t* info, void*) {
+			const char* sname = signo == SIGSEGV  ? "SIGSEGV"
+			                    : signo == SIGILL ? "SIGILL"
+			                    : signo == SIGBUS ? "SIGBUS"
+			                                      : "SIG?";
+			std::fprintf(stderr, "\n=== mlx crash-trace: %s at addr=%p ===\n", sname,
+			             info ? info->si_addr : nullptr);
+			void* frames[64];
+			int n = backtrace(frames, 64);
+			backtrace_symbols_fd(frames, n, 2);
+			std::fflush(stderr);
+			// Re-raise (SA_RESETHAND restored default disposition)
+			raise(signo);
+		};
+		sigaction(SIGSEGV, &sa, nullptr);
+		sigaction(SIGILL, &sa, nullptr);
+		sigaction(SIGBUS, &sa, nullptr);
+	}
 }

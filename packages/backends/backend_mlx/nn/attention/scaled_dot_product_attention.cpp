@@ -35,53 +35,50 @@
 #include <mlx/fast.h>
 #include <cmath>
 
-extern "C" TensorHandle tensor_sdpa_2d_mlx_streamed(
-    TensorHandle hq, TensorHandle hk, TensorHandle hv,
-    int numHeads, int numKvHeads, int headDim, int isCausal,
-    int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto q = (Tensor*)hq;
-    auto k = (Tensor*)hk;
-    auto v = (Tensor*)hv;
-    int q_seq  = (int)q->data.shape(0);
-    int kv_seq = (int)k->data.shape(0);
-    // [seq, h*hd] -> [1, seq, h, hd] -> [1, h, seq, hd]
-    auto q3 = mx::transpose(mx::reshape(q->data, {1, q_seq,  numHeads,   headDim}), {0, 2, 1, 3});
-    auto k3 = mx::transpose(mx::reshape(k->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
-    auto v3 = mx::transpose(mx::reshape(v->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
-    float scale = 1.0f / std::sqrt((float)headDim);
-    // mlx::fast::scaled_dot_product_attention in the pinned mlx
-    // version (see packages/pytorch/.venv/.../mlx/include/mlx/fast.h)
-    // only accepts a string `mask_mode`, not an explicit array mask.
-    // We trust mask_mode="causal" to do the right lower-right
-    // alignment under asymmetric q_seq != kv_seq (newer mlx kernel
-    // documentation makes this promise). If a token-sequence gate
-    // ever fails on mlx-gpu with the cache-aware decode the way
-    // torch-cpu math-impl did 2026-06-04, the fix is either an mlx
-    // version bump or a hand-rolled `mm(softmax(scale*mm(Q, K^T) +
-    // mask), V)` path here. Until then, trust the docs.
-    std::string mask_mode = isCausal ? "causal" : "";
-    auto out3 = mx::fast::scaled_dot_product_attention(q3, k3, v3, scale, mask_mode);
-    // [1, h, q_seq, hd] -> [1, q_seq, h, hd] -> [q_seq, h*hd]
-    auto out2 = mx::reshape(mx::transpose(out3, {0, 2, 1, 3}),
-                            {q_seq, numHeads * headDim});
+extern "C" TensorHandle tensor_sdpa_2d_mlx_streamed(TensorHandle hq, TensorHandle hk,
+                                                    TensorHandle hv, int numHeads, int numKvHeads,
+                                                    int headDim, int isCausal, int stream_tag) {
+	WITH_STREAM(stream_tag);
+	auto q = (Tensor*)hq;
+	auto k = (Tensor*)hk;
+	auto v = (Tensor*)hv;
+	int q_seq = (int)q->data.shape(0);
+	int kv_seq = (int)k->data.shape(0);
+	// [seq, h*hd] -> [1, seq, h, hd] -> [1, h, seq, hd]
+	auto q3 = mx::transpose(mx::reshape(q->data, {1, q_seq, numHeads, headDim}), {0, 2, 1, 3});
+	auto k3 = mx::transpose(mx::reshape(k->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
+	auto v3 = mx::transpose(mx::reshape(v->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
+	float scale = 1.0f / std::sqrt((float)headDim);
+	// mlx::fast::scaled_dot_product_attention in the pinned mlx
+	// version (see packages/pytorch/.venv/.../mlx/include/mlx/fast.h)
+	// only accepts a string `mask_mode`, not an explicit array mask.
+	// We trust mask_mode="causal" to do the right lower-right
+	// alignment under asymmetric q_seq != kv_seq (newer mlx kernel
+	// documentation makes this promise). If a token-sequence gate
+	// ever fails on mlx-gpu with the cache-aware decode the way
+	// torch-cpu math-impl did 2026-06-04, the fix is either an mlx
+	// version bump or a hand-rolled `mm(softmax(scale*mm(Q, K^T) +
+	// mask), V)` path here. Until then, trust the docs.
+	std::string mask_mode = isCausal ? "causal" : "";
+	auto out3 = mx::fast::scaled_dot_product_attention(q3, k3, v3, scale, mask_mode);
+	// [1, h, q_seq, hd] -> [1, q_seq, h, hd] -> [q_seq, h*hd]
+	auto out2 = mx::reshape(mx::transpose(out3, {0, 2, 1, 3}), {q_seq, numHeads * headDim});
 
-    bool rg = q->requires_grad || k->requires_grad || v->requires_grad;
-    auto r = new Tensor(out2, rg);
-    /* No backward yet — inference only (per #399 plan "Out of scope:
-     * Training-side autograd integration of fused ops"). Caller is in
-     * `withNoGrad` so requires_grad propagates to false anyway; the
-     * tape_append guard below is a safety net for the unexpected. */
-    if (rg) {
-        /* If training-side ever calls this, the lack of backward will
-         * surface as a missing OP_SDPA case in autograd dispatch. */
-    }
-    return (TensorHandle)r;
+	bool rg = q->requires_grad || k->requires_grad || v->requires_grad;
+	auto r = new Tensor(out2, rg);
+	/* No backward yet — inference only (per #399 plan "Out of scope:
+	 * Training-side autograd integration of fused ops"). Caller is in
+	 * `withNoGrad` so requires_grad propagates to false anyway; the
+	 * tape_append guard below is a safety net for the unexpected. */
+	if (rg) {
+		/* If training-side ever calls this, the lack of backward will
+		 * surface as a missing OP_SDPA case in autograd dispatch. */
+	}
+	return (TensorHandle)r;
 }
 
-extern "C" TensorHandle tensor_sdpa_2d(
-    TensorHandle hq, TensorHandle hk, TensorHandle hv,
-    int numHeads, int numKvHeads, int headDim, int isCausal) {
-    return tensor_sdpa_2d_mlx_streamed(hq, hk, hv, numHeads, numKvHeads, headDim,
-                                       isCausal, default_stream_tag());
+extern "C" TensorHandle tensor_sdpa_2d(TensorHandle hq, TensorHandle hk, TensorHandle hv,
+                                       int numHeads, int numKvHeads, int headDim, int isCausal) {
+	return tensor_sdpa_2d_mlx_streamed(hq, hk, hv, numHeads, numKvHeads, headDim, isCausal,
+	                                   default_stream_tag());
 }
