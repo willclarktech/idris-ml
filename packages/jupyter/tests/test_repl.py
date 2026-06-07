@@ -23,14 +23,14 @@ def test_repl_starts(repl: Idris2REPL) -> None:
 
 
 def test_type_query(repl: Idris2REPL) -> None:
-    result = repl.send(":t Var")
+    result = repl.send(":t MkTensor")
     assert "AnyPtr" in result
-    assert "Variable" in result
+    assert "Tensor" in result
 
 
 def test_doc_query(repl: Idris2REPL) -> None:
-    result = repl.send(":doc Var")
-    assert "Variable" in result
+    result = repl.send(":doc MkTensor")
+    assert "Tensor" in result
 
 
 def test_module_import(repl: Idris2REPL) -> None:
@@ -50,21 +50,35 @@ def test_expression_eval(repl: Idris2REPL) -> None:
     assert "5" in result
 
 
+# The :exec expressions below anchor the dylib load with a
+# `primIO (primParamCount ...)` call: idris2's :exec only emits
+# `load-shared-object "libidrisml.dylib"` for `%foreign "C:...,libidrisml"`
+# declarations that survive DCE, and the Tensor-touching prims are all
+# scheme-wrapped (the C symbol is a string inside Scheme, invisible to
+# the loader). primParamCount is a plain C decl, so threading one call
+# through the IO chain forces the load.
+_LIB_ANCHOR = "_ <- primIO (primParamCount {ex=TapeExecutor}); "
+
+
 def test_ffi_tensor_create(repl: Idris2REPL) -> None:
     """Core FFI test: create a scalar tensor and read its value."""
     result = repl.send(
-        ":exec (let t = prim__createScalar 3.14 0 in putStrLn (show (prim__item t)))"
+        ":exec do { " + _LIB_ANCHOR + "putStrLn (show (primItem {ex=TapeExecutor} "
+        "(primCreateScalar {ex=TapeExecutor} 3.14 0))) }"
     )
+    # The error path quotes the source line (which contains 3.14), so a
+    # bare substring check can false-pass — also require a clean result.
     assert "3.14" in result
+    assert "Error" not in result and "Exception" not in result
 
 
 def test_ffi_tensor_arithmetic(repl: Idris2REPL) -> None:
-    """FFI test: tensor multiply."""
+    """FFI test: tensor multiply (6.0 appears nowhere in the source)."""
     result = repl.send(
-        ":exec (let a = prim__createScalar 2.0 1 in "
-        "let b = prim__createScalar 3.0 0 in "
-        "let c = prim__mul a b in "
-        "putStrLn (show (prim__item c)))"
+        ":exec do { " + _LIB_ANCHOR + "putStrLn (show (primItem {ex=TapeExecutor} "
+        "(primMul {ex=TapeExecutor} "
+        "(primCreateScalar {ex=TapeExecutor} 2.0 1) "
+        "(primCreateScalar {ex=TapeExecutor} 3.0 0)))) }"
     )
     assert "6.0" in result
 
@@ -87,6 +101,6 @@ def test_error_handling(repl: Idris2REPL) -> None:
 
 
 def test_browse(repl: Idris2REPL) -> None:
-    result = repl.send(":browse Variable")
-    assert "Var" in result
+    result = repl.send(":browse Tensor")
+    assert "MkTensor" in result
     assert "NativeOptimizer" in result

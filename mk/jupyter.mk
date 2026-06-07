@@ -32,10 +32,12 @@ jupyter-lab: jupyter-install
 	$(JUPYTER_PIP) install -q jupyterlab
 	$(JUPYTER_VENV)/bin/jupyter lab --notebook-dir=packages/jupyter/notebooks
 
-# Jupyter kernel tests (requires backend + idris2)
+# Jupyter kernel tests (requires backend + idris2). IDRIS_ML_BUILD_DIR
+# pins the REPL wrapper to the per-set tree this make just built
+# (repl.py falls back to newest-dylib discovery without it).
 test-e2e-jupyter: backend check $(JUPYTER_VENV)/bin/activate
 	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
-	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/ -v
+	cd packages/jupyter && IDRIS_ML_BUILD_DIR=$(CURDIR)/$(BUILD) ../../$(JUPYTER_PYTEST) tests/ -v
 
 # Quick: just cell parser (no REPL, no backend needed)
 test-integration-jupyter-cellparser: $(JUPYTER_VENV)/bin/activate

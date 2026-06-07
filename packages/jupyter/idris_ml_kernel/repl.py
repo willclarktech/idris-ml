@@ -6,12 +6,9 @@ import contextlib
 import platform
 import shutil
 import termios
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pexpect
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class Idris2REPL:
@@ -37,23 +34,60 @@ class Idris2REPL:
     def _lib_name(self) -> str:
         return f"libidrisml{self._LIB_EXT}"
 
+    def _build_dir(self) -> Path:
+        """Resolve the active per-set build tree (`build/<BUILD_KEY>/`).
+
+        Builds live under per-set trees since the BUILD_KEY refactor
+        (c5c78ee9, 2026-05-17) — there is no top-level `build/exec` or
+        `.idris2/` prefix anymore. Resolution order:
+          1. `IDRIS_ML_BUILD_DIR` env var — set by the Make recipes
+             (test-e2e-jupyter etc.) so tests pin the exact set Make
+             just built.
+          2. Newest `build/*/libidrisml.*` tree — the standalone-kernel
+             path (Jupyter launched from the kernelspec, no Make env).
+        """
+        import os
+
+        env_dir = os.environ.get("IDRIS_ML_BUILD_DIR")
+        if env_dir:
+            return Path(env_dir)
+        candidates = sorted(
+            (p.parent for p in self.root.glob(f"build/*/{self._lib_name()}")),
+            key=lambda p: (p / self._lib_name()).stat().st_mtime,
+        )
+        if not candidates:
+            raise RuntimeError(
+                f"no build/<set>/{self._lib_name()} found under {self.root} — "
+                "run `make install` first (or set IDRIS_ML_BUILD_DIR)"
+            )
+        return candidates[-1]
+
     def _ensure_dylib(self) -> None:
-        """Copy the backend dylib where :exec's temp Chez directory expects it."""
+        """Copy the backend dylib where :exec's temp Chez directory expects it.
+
+        The destination is NOT per-set: idris2's `:exec` writes its temp
+        Chez app to `<cwd>/build/exec/_tmpchez_app/` unconditionally (the
+        REPL runs with cwd = repo root), so the dylib must land there.
+        Only the *source* lives in the per-set tree.
+        """
         tmpchez = self.root / "build" / "exec" / "_tmpchez_app"
         tmpchez.mkdir(parents=True, exist_ok=True)
-        dylib = self.root / "build" / self._lib_name()
+        dylib = self._build_dir() / self._lib_name()
         dest = tmpchez / self._lib_name()
         if dylib.exists():
             shutil.copy2(dylib, dest)
 
     def _spawn(self) -> None:
         """Start the idris2 REPL with Notebook.Prelude loaded via installed packages."""
-        # Set IDRIS2_PACKAGE_PATH so idris2 finds locally-installed packages
-        pkg_path = str(self.root / ".idris2" / "idris2-0.8.0")
         import os
 
         env = os.environ.copy()
-        env["IDRIS2_PACKAGE_PATH"] = pkg_path
+        # Make's config.mk exports the correct per-set IDRIS2_PACKAGE_PATH
+        # to recipe subprocesses — respect it when present; otherwise
+        # derive it from the resolved build tree (standalone kernel).
+        if "IDRIS2_PACKAGE_PATH" not in env:
+            pkg_path = self._build_dir() / "idris2-prefix" / "idris2-0.8.0"
+            env["IDRIS2_PACKAGE_PATH"] = str(pkg_path)
 
         # Declared spawn[str]: the stubs can't infer the str specialization
         # from encoding="utf-8" (the constructor isn't overloaded on it).
