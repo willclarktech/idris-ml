@@ -725,7 +725,7 @@ ExampleDType = @DTYPE@          -- F64 or F32
 ```
 
 The generation rule mirrors the existing `.backend-stamp` pattern in
-the Makefile (line ~313): a `.buildconfig-stamp` records the active
+`mk/genconfig.mk`: a `.buildconfig-stamp` records the active
 `$(PRIMARY):$(MLX_DEVICE)` tuple, regeneration fires only when the
 tuple changes (so no-op rebuilds don't churn TTC files and trigger
 unnecessary example recompiles).

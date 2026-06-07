@@ -55,7 +55,13 @@ make ref-setup / ref-test / ref-lint / ref-typecheck / ref-convergence
 python3 scripts/sweep.py --task copy --parallel 4 [--quick]  # hyperparameter sweep
 ```
 
-See the `Makefile` for the full target list (jupyter, safetensors, ntm-grad, etc.).
+The root `Makefile` is wiring only; the build logic lives in `mk/*.mk` fragments
+included in dependency order (config → backends → genconfig → lint → tests →
+install → examples → bench → ref → jupyter → e2e). Find a target by its domain
+fragment (e.g. `example-*` in `mk/examples.mk`, lint gates in `mk/lint.mk`);
+target names are a public API (CI spec, perf scripts, docs) — keep them stable.
+The two big e2e recipes live in `scripts/test-e2e-examples.sh` /
+`scripts/test-convergence.sh`, shelled out from `mk/e2e.mk`.
 
 Build artifacts live under `build/<BUILD_KEY>/` where
 `BUILD_KEY := <backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>` (e.g.
