@@ -7,6 +7,7 @@
 # (in CI) gates that they stay in sync with backend.h.
 .PHONY: rename-headers test-integration-lint-rename-headers \
         test-integration-lint-ci-workflow \
+        test-integration-lint-ci-coverage \
         test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects \
         test-integration-lint-paired-defaults lint-py lint-py-pytorch \
@@ -35,6 +36,15 @@ test-integration-lint-rename-headers:
 # of the test-rationalization epic.
 test-integration-lint-ci-workflow:
 	@python3 scripts/gen-ci-workflow.py --check
+
+# Gate: cross-check the CI workflows against the make taxonomy. Two
+# invariants: every `make <target>` a workflow invokes must resolve
+# (catches removed-target landmines), and every test-unit /
+# test-integration / test-e2e / test-coverage aggregator leaf must run
+# in some workflow or be a named exception / known hole in the spec
+# JSON. See the spec's _coverage_comment.
+test-integration-lint-ci-coverage:
+	@python3 scripts/check-ci-gate-coverage.py
 
 # Verify every Tensor-touching %foreign declaration matches the
 # wrap-on-return Scheme template. See

@@ -266,6 +266,7 @@ test: test-unit
 # test means adding the target name to this list.
 test-integration: \
 		test-integration-lint-rename-headers \
+		test-integration-lint-ci-coverage \
 		test-integration-lint-ffi-wrap-template \
 		test-integration-lint-non-io-side-effects \
 		test-integration-lint-paired-defaults \

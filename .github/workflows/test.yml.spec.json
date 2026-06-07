@@ -1,5 +1,20 @@
 {
   "_comment": "Spec consumed by scripts/gen-ci-workflow.py. Lists the test-invocation block of .github/workflows/test.yml. Setup boilerplate (Chez install, idris2 cache+build, MLX/torch install, artifact upload) stays hand-written in the workflow itself; only the steps between the GEN markers are generated from this file. Add a new gate here, run scripts/gen-ci-workflow.py, commit both. The make test-integration-lint-ci-workflow target fails CI if this spec disagrees with the on-disk workflow.",
+  "_coverage_comment": "ci_coverage_exceptions / ci_coverage_known_holes feed scripts/check-ci-gate-coverage.py (make test-integration-lint-ci-coverage): every test-unit/test-integration/test-e2e/test-coverage aggregator leaf must run in some workflow, be a named exception (permanent, reason required), or be a known hole (temporary; warns, and the lint fails if a hole becomes covered without being removed here).",
+  "ci_coverage_exceptions": {
+    "test-e2e-jupyter": "dep-chains jupyter-install into a full backend rebuild; run locally when touching the kernel"
+  },
+  "ci_coverage_known_holes": [
+    "test-unit-gym",
+    "test-integration-lint-rename-headers",
+    "test-integration-lint-paired-defaults",
+    "test-integration-lint-hf-llama-inference",
+    "test-integration-jupyter-cellparser",
+    "test-e2e-transformers-oracle-llama",
+    "test-e2e-transformers-oracle-llama-generate",
+    "test-e2e-rope-oracle",
+    "test-e2e-pytorch-ref"
+  ],
   "invocations": [
     {
       "name": "Run idris-transformers unit tests",

@@ -65,6 +65,14 @@ jobs:
         # is the single source of truth; add a gate by appending to
         # the spec and regenerating, not by editing the workflow.
         run: make test-integration-lint-ci-workflow
+      - name: Verify CI covers the make test taxonomy
+        # Cross-checks every workflow's make invocations against the
+        # Makefile: invoked targets must resolve (catches removed-target
+        # landmines like test-unit-safetensors), and every aggregator
+        # leaf of test-unit/test-integration/test-e2e/test-coverage must
+        # run in some workflow or be a named exception / known hole in
+        # the spec JSON.
+        run: make test-integration-lint-ci-coverage
       # Distinct key from the matrix jobs' full venv (pytorch-venv-*):
       # this venv holds ONLY the dev group, and both live at the same
       # path — sharing a key would poison the full-venv cache that
