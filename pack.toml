@@ -7,13 +7,18 @@
 # in scope.
 #
 # Hedgehog and other external Idris-2 deps come from the curated
-# pack collection (pinned via pack's user config). Run `pack install
-# hedgehog` to install it the first time; subsequent invocations
-# pick it up from ~/.local/state/pack/install/<idris2-commit>/...
+# pack collection. Run `pack install hedgehog` to install it the
+# first time; subsequent invocations pick it up from
+# ~/.local/state/pack/install/<idris2-commit>/...
 #
 # Why pack at all: Test.Golden and Hedgehog are not in the nix-built
 # Idris-2 contrib (the nix derivation strips the Test/ subdir).
 # `pack install` is the canonical way to get them on Idris-2.
+
+# Pin the collection at project level so CI and every dev box build
+# against the same package set + idris2 commit (a fresh pack install
+# would otherwise float to the latest nightly).
+collection = "nightly-260604"
 
 # Local packages — declared once at the top level so pack sees them
 # from any working directory inside the repo. The path is relative

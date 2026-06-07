@@ -150,7 +150,9 @@ jobs:
         # workflow_dispatch input above.
         os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # 60 was enough pre-pack; a cold pack bootstrap (micropack + the
+    # pinned collection's idris2) adds ~15-25 min on a cache miss.
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -225,6 +227,39 @@ jobs:
 
       - name: Verify Idris 2
         run: idris2 --version
+
+      # pack (the Idris package manager) drives the per-package
+      # unit-test builds (test-unit-idris-*): the shared idris-test
+      # harness depends on hedgehog, which only pack's curated
+      # collection provides. The repo-level pack.toml pins the
+      # collection; pack bootstraps that collection's toolchain into
+      # ~/.local/state/pack on first use (the `pack info` below), all
+      # cached here keyed on the pinned pack.toml. Cold bootstrap is
+      # ~15-25 min (micropack + collection toolchain); warm restore
+      # is seconds.
+      - name: Cache pack
+        id: pack-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/bin/pack
+            ~/.local/state/pack
+            ~/.config/pack
+          key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-v1
+
+      - name: Install pack
+        if: steps.pack-cache.outputs.cache-hit != 'true'
+        run: |
+          SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez)"
+          git clone --depth 1 https://github.com/stefan-hoeck/idris2-pack.git /tmp/idris2-pack
+          cd /tmp/idris2-pack
+          make micropack SCHEME="$SCHEME"
+
+      - name: Add pack to PATH + bootstrap pinned collection
+        run: |
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.local/bin:$PATH"
+          pack info
 
       - name: Install MLX (macOS)
         if: matrix.os == 'macos-latest'
