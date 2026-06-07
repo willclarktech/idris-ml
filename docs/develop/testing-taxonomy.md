@@ -215,6 +215,11 @@ renamed. In-repo callsites (`scripts/*.sh`, in-Makefile invocations,
 | `test-mlx-compile` | `test-unit-mlx-compile` |
 | *(new)* | `test-unit` — aggregator |
 
+(Historical table — the four standalone-main() targets in the last
+rows were subsequently converted to Criterion suites on 2026-06-05
+and their dedicated recipes deleted; their assertions now ride
+`test-unit-c` via the glob discovery.)
+
 ### Integration layer (10 entries)
 
 | Old | New |
@@ -355,13 +360,24 @@ is what stays; the row closes without code change.
 
 ## CI workflow consumption
 
-`.github/workflows/test.yml` is generated from a spec
-(`.github/workflows/test.yml.spec.yaml`) by `scripts/gen-ci-workflow.sh`
-(Phase 4). The spec lists which aggregators run on which platform
-with which env. Adding a new gate to `test-unit` auto-includes it in
-the CI's unit job — no separate workflow edit. The preflight
-`make check-ci-workflow` fails CI if a hand-edit of `test.yml`
-diverges from the regenerated output.
+CI jobs mirror the taxonomy one-to-one (the 2026-06-11 detector
+restructure): `.github/workflows/test.yml` has jobs named `lint`,
+`lint-full`, `build`, `test-unit`, `test-integration`,
+`test-e2e-examples`, `test-e2e-hf`, and `coverage`;
+`.github/workflows/perf.yml` runs `bench-deep`. Each test job's
+make-invocation block is generated from
+`.github/workflows/test.yml.spec.json` by
+`scripts/gen-ci-workflow.py` (one marker-bounded region per job; the
+generator also injects `!cancelled()` into every step so one red
+gate never hides its siblings). Two lints keep the three layers in
+sync: `make test-integration-lint-ci-workflow` fails CI if a
+hand-edit of `test.yml` diverges from the spec, and
+`make test-integration-lint-ci-coverage`
+(`scripts/check-ci-gate-coverage.py`) fails if a workflow invokes a
+nonexistent make target or if an aggregator leaf runs in no workflow
+without being a named exception in the spec. So adding a new gate to
+an aggregator means adding it to the spec too — the coverage lint
+reminds you.
 
 ## When to run what
 
@@ -385,8 +401,9 @@ single rule above:
 - "What's the right gate for this change?" — pick the layer.
   Aggregator name reveals it.
 - "Add a new gate" — drop it in the right `test-{layer}-{topic}`
-  slot; the aggregator picks it up automatically; the CI workflow
-  picks it up automatically (Phase 4 generation).
+  slot; the aggregator picks it up automatically; the CI coverage
+  lint then demands a matching spec entry (see "CI workflow
+  consumption").
 - "`make test` is a partial aggregator" — replaced by `test-unit`
   (true unit aggregator) + per-layer aggregators above it.
 - "Per-package harnesses are not uniform" — Phase 2 collapses the

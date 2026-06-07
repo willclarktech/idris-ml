@@ -36,7 +36,7 @@ make BACKEND=mlx MLX_DEVICE=gpu install   # F32 mode: examples target Tensor [..
 make BACKEND=torch TORCH_DEVICE=mps install # F32 on Metal via libtorch: Tensor [..] (TorchExecutor TMps) F32
 make BACKEND=torch TORCH_DEVICE=cuda install # CUDA (when on a CUDA box): Tensor [..] (TorchExecutor (TCuda 0)) F64
 make rename-headers                       # Regen packages/backends/rename_<b>.h from backend.h
-make check-rename-headers                 # CI gate: errors if regen would change anything
+make test-integration-lint-rename-headers # CI gate: errors if regen would change anything
 make install                              # Install core lib + gym (required for examples/tests)
 make example-<name>                       # Build and run an example (all accept --epochs, --lr, --seed)
 
