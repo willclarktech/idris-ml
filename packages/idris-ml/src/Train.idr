@@ -527,7 +527,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
 
 
 ||| Run training with an IO-typed epoch function. After the
-||| smart-constructor IO refactor, epochVar / epochVarTensor etc. all
+||| smart-constructor IO refactor, epochVar etc. all
 ||| return `IO (model, Double)`, so this is now a thin alias for
 ||| `runTrainingIO`.
 export

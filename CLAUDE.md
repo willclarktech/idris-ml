@@ -197,8 +197,7 @@ Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/
 | Mode | Epoch function | Data type | Use case |
 |------|---------------|-----------|----------|
 | Supervised | `epochVar` | `DataPoint i o ty` | Feedforward nets |
-| Supervised (pre-tensored) | `epochVarTensor` | `Vect n (TensorDataPoint i o)` | MNIST |
-| Supervised (batched) | `epochVarTensorBatch` | `Vect n (TensorDataPoint i o)` | Transformer/GPT |
+| Supervised (batched) | `epochVarTensorBatch` | `Vect n (TensorDataPoint i o)` | MNIST/Transformer/GPT |
 | Recurrent | `epochRecurrentVar` | `RecurrentDataPoint i o ty` | RNN/LSTM/GRU |
 | TwoPhase | `epochTwoPhaseVar` | `TwoPhaseDataPoint i o ty` | NTM/DNC copy/recall |
 | RL | custom (uses `runTrainingIO`) | varies | REINFORCE / DQN / A2C / PPO / SAC / tabular |
