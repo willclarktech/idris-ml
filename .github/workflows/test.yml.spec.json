@@ -37,6 +37,22 @@
           "import torch/transformers/safetensors, which only the full",
           "ref-setup venv carries."
         ]
+      },
+      {
+        "name": "Full clang-tidy over torch C++ backend (advisory)",
+        "run": "make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch",
+        "continue-on-error": true,
+        "comment": [
+          "The default `lint-c` runs clang-tidy on tape only; the torch",
+          "C++ sources need libtorch headers, which this job carries for",
+          "free via the ref-setup venv (the Makefile's LIBTORCH_PATH",
+          "detection finds the venv's torch). Closes the long-deferred",
+          "\"full clang-tidy needs libtorch staged\" follow-up. Advisory",
+          "until the first run's findings are triaged — the torch C++",
+          "tree has never been clang-tidy'd and can't be linted locally",
+          "(macOS+nix clang-tidy rejects Apple SDK headers); promote by",
+          "dropping continue-on-error once clean."
+        ]
       }
     ],
     "test-unit": [
@@ -136,6 +152,22 @@
           "top of the per-backend buckets. Forces BACKEND=torch,tape,mlx",
           "so all three sets of C symbols are linked — only feasible on",
           "the macOS lane (Ubuntu has no mlx)."
+        ]
+      },
+      {
+        "name": "Full clang-tidy over mlx C++ backend (macOS, advisory)",
+        "run": "make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx",
+        "os": "macos",
+        "continue-on-error": true,
+        "comment": [
+          "The default `lint-c` runs clang-tidy on tape only; the mlx C++",
+          "sources need the MLX headers, which only this macOS lane stages",
+          "(MLX_SITE from the composite). brew's clang-tidy is installed by",
+          "the scaffolding step above. Advisory: the mlx tree has never",
+          "been clang-tidy'd, and the Apple-SDK-vs-llvm pre-include skew",
+          "that blocks nix clang-tidy locally may produce FPs here too —",
+          "promote by dropping continue-on-error once a run comes back",
+          "clean."
         ]
       },
       {

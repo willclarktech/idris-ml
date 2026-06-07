@@ -224,6 +224,11 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           make ref-setup
 
+      - name: Install clang-tidy + BLAS headers (for the torch C++ lint)
+        # clang-tidy for the C_LINT_FULL_CLANG_TIDY lane below;
+        # libopenblas-dev so shared sources' non-Apple BLAS branch parses.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-tidy libopenblas-dev
+
       # >>> GENERATED (lint-full) FROM test.yml.spec.json >>>
       - name: Typecheck torch_ref (pyright)
         # Alias of ref-typecheck: pyright over packages/pytorch/torch_ref/
@@ -249,6 +254,20 @@ jobs:
         # ref-setup venv carries.
         if: ${{ !cancelled() }}
         run: make typecheck-py-transformers
+
+      - name: Full clang-tidy over torch C++ backend (advisory)
+        # The default `lint-c` runs clang-tidy on tape only; the torch
+        # C++ sources need libtorch headers, which this job carries for
+        # free via the ref-setup venv (the Makefile's LIBTORCH_PATH
+        # detection finds the venv's torch). Closes the long-deferred
+        # "full clang-tidy needs libtorch staged" follow-up. Advisory
+        # until the first run's findings are triaged — the torch C++
+        # tree has never been clang-tidy'd and can't be linted locally
+        # (macOS+nix clang-tidy rejects Apple SDK headers); promote by
+        # dropping continue-on-error once clean.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch
       # <<< END GENERATED (lint-full) <<<
 
       - name: Save pytorch venv cache
@@ -334,6 +353,14 @@ jobs:
           ttc-job: test-unit
           swap: 'true'
 
+      - name: Install clang-tidy (macOS, for the advisory mlx lint)
+        # brew llvm is keg-only; expose its bin dir for the
+        # C_LINT_FULL_CLANG_TIDY mlx step in the generated block.
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+
       # >>> GENERATED (test-unit) FROM test.yml.spec.json >>>
       - name: Run Criterion suite (tape)
         if: ${{ !cancelled() }}
@@ -411,6 +438,19 @@ jobs:
         # the macOS lane (Ubuntu has no mlx).
         if: ${{ matrix.os == 'macos-latest' && !cancelled() }}
         run: make test-unit-multi-backend
+
+      - name: Full clang-tidy over mlx C++ backend (macOS, advisory)
+        # The default `lint-c` runs clang-tidy on tape only; the mlx C++
+        # sources need the MLX headers, which only this macOS lane stages
+        # (MLX_SITE from the composite). brew's clang-tidy is installed by
+        # the scaffolding step above. Advisory: the mlx tree has never
+        # been clang-tidy'd, and the Apple-SDK-vs-llvm pre-include skew
+        # that blocks nix clang-tidy locally may produce FPs here too —
+        # promote by dropping continue-on-error once a run comes back
+        # clean.
+        if: ${{ matrix.os == 'macos-latest' && !cancelled() }}
+        continue-on-error: true
+        run: make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx
 
       - name: Run Criterion suite under ASan + UBSan (tape, Ubuntu)
         # AddressSanitizer + UndefinedBehaviorSanitizer pass over the
