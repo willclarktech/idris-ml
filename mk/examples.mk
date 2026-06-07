@@ -165,9 +165,7 @@ ref-bert-mlm-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
 # HuggingFace BERT inference example. Loads google/bert_uncased_L-2_H-128_A-2
 # weights via the HF-aligned HfBert layer module (from idris-transformers)
 # and dumps the 128-dim pooled [CLS] output to stdout, one value per line.
-# Pre-requisite: bash packages/idris-transformers/scripts/hf-download.sh
-# google/bert_uncased_L-2_H-128_A-2 must have run at least once to populate
-# packages/idris-transformers/models/.
+# The checkpoint is fetched on demand via the pattern rule below.
 # Pattern rule for any HuggingFace single-file checkpoint. Make-native
 # dep tracking: each example/gate declares the safetensors path as a
 # prerequisite; Make skips the recipe when the file is already on disk.

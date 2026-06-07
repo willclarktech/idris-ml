@@ -64,9 +64,8 @@ make example-hf-bert-inference
 This:
 
 1. Downloads `google/bert_uncased_L-2_H-128_A-2` (weights + `vocab.txt`)
-   via the `scripts/hf-download.sh` helper into
-   `packages/idris-transformers/models/` (gitignored local cache —
-   `make clean-models` removes it).
+   via the `scripts/hf-download.sh` helper into the top-level
+   `models/` (gitignored local cache — `make clean-models` removes it).
 2. Builds the Idris example.
 3. Loads the checkpoint via plain `loadModel` (44 params: 39 encoder +
    pooler + 5 MLM-head).
@@ -124,8 +123,8 @@ bash packages/idris-transformers/scripts/hf-download.sh \
     private-org/gated-model
 ```
 
-Files land in `packages/idris-transformers/models/<repo>/`,
-which is gitignored. `make clean-models` wipes the whole cache.
+Files land in the top-level `models/<repo>/`, which is gitignored.
+`make clean-models` wipes the whole cache.
 
 ## Writing your own HF-aligned module
 

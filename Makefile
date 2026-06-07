@@ -60,8 +60,6 @@ clean-all: clean clean-models clean-datasets clean-venvs
 # a fresh fetch.
 clean-models:
 	rm -rf models/
-	# Legacy location (pre-2026-05-27 refactor); remove if leftover.
-	rm -rf packages/idris-transformers/models/
 
 # Downloaded datasets: everything under `data/` (MNIST, tinyshakespeare,
 # tokenized HF datasets) plus the PyTorch ref's own download root
