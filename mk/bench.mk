@@ -56,7 +56,7 @@ bench-layers-py:
 # Principled perf benchmark suite (testing-taxonomy Axis A / B / C / D).
 # Three cadence tiers:
 #   bench-fast    — Tier 1, CI, <= 5 min (Axis A + B).
-#   bench-deep — Tier 2, scheduled, <= 20 min (Axes A + B + C + D).
+#   bench-deep    — Tier 2, CI per publication push, <= 20 min (Axes A+B+C+D).
 #   bench-full    — Tier 3, manual / pre-tag (the cross-backend sweep).
 # `bench` aliases `bench-fast` (the daily-driver default).
 # All three append to docs/develop/perf-log.jsonl and regenerate

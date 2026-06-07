@@ -65,11 +65,31 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           make ref-setup
 
-      - name: Install idris2
+      # Same cache key as test.yml's Ubuntu lane so the two workflows
+      # share one warm ~/.idris2 tree. The old form here cloned an
+      # unpinned Idris2 main and `sudo make install`ed it — which lands
+      # in /root/.idris2 (sudo resets HOME) and is invisible to later
+      # steps' PATH.
+      - name: Cache Idris 2
+        id: idris2-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.idris2
+          key: idris2-v0.8.0-ubuntu-latest-v2
+
+      - name: Build and install Idris 2
+        if: steps.idris2-cache.outputs.cache-hit != 'true'
         run: |
-          # Match the install path used by .github/workflows/test.yml.
-          git clone --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
-          cd /tmp/Idris2 && make bootstrap SCHEME=chezscheme && sudo make install
+          git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
+          cd /tmp/Idris2
+          make bootstrap SCHEME=scheme
+          make install
+
+      - name: Add Idris 2 to PATH
+        run: echo "$HOME/.idris2/bin" >> $GITHUB_PATH
+
+      - name: Verify Idris 2
+        run: idris2 --version
 
       - name: Build tape backend
         run: env BACKEND=tape make backend
