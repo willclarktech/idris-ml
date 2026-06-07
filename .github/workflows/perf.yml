@@ -29,19 +29,41 @@ jobs:
   perf:
     name: perf (tape)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # bench-nightly itself is ≤20 min warm, but this runner is cold:
+    # idris2 bootstrap (~8 min) + `make install` elaboration + the
+    # Axis C/D example builds all happen from scratch.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install chez + pip deps
+      - name: Install chez + openblas
         run: |
           sudo apt-get update
-          sudo apt-get install -y chezscheme python3-pip libopenblas-dev
-          # transformers is needed for Axis D BERT + GPT-2 (Idris-side
-          # tokenize subprocess + PyTorch ref). The Llama-generate cell
-          # of Axis D is locally-gated (torch-mps) and naturally skips
-          # on this runner since no MPS is available.
-          pip3 install --user torch numpy transformers
+          sudo apt-get install -y chezscheme libopenblas-dev
+
+      - name: Cache pytorch venv
+        uses: actions/cache@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+      - name: Install torch + transformers via uv
+        # Every Python invocation in the bench path goes through
+        # `uv run` inside packages/pytorch (bench-ops-py /
+        # bench-layers-py, the Axis C/D PyTorch refs, and the
+        # Idris-side hf_tokenize subprocess), so provision the
+        # uv-managed venv like test.yml does — a bare pip3 install
+        # is invisible to `uv run`. transformers comes in via the
+        # package's main dependency group (pyproject.toml). The
+        # Llama-generate cell of Axis D is locally-gated (torch-mps)
+        # and naturally skips on this runner since no MPS is
+        # available. uv lands in ~/.local/bin; persist it on PATH
+        # for the bench-nightly step via GITHUB_PATH.
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.local/bin:$PATH"
+          make ref-setup
 
       - name: Install idris2
         run: |
