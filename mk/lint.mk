@@ -11,7 +11,8 @@
         test-integration-lint-non-io-side-effects \
         test-integration-lint-paired-defaults lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
-        lint-py-jupyter lint-c lint-c-tape lint-c-include-cleaner \
+        lint-py-jupyter typecheck-py typecheck-py-pytorch \
+        lint-c lint-c-tape lint-c-include-cleaner \
         lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing \
         test-integration-typegate-lossy-cast \
@@ -101,6 +102,25 @@ lint-py-examples:
 lint-py-jupyter:
 	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../jupyter && uv run --no-sync --quiet ruff format --check ../jupyter
 	@echo "  lint-py-jupyter OK"
+
+# Typecheck the Python surface — same per-package split as lint-py.
+# One pyright (dev dep of packages/pytorch, version pinned by its
+# uv.lock) drives every run; per-surface strictness comes from the
+# config root pyright resolves: packages/pytorch/pyproject.toml for
+# the pytorch tree (cwd discovery — the mechanism ref-typecheck has
+# always used), an explicit `-p <dir>` pyrightconfig.json for the
+# others (pyright discovers config from the project root, NOT by
+# per-file ancestor walk like ruff, so out-of-tree paths need -p).
+#
+# typecheck-py-pytorch is an alias of ref-typecheck (the public
+# name, in mk/ref.mk) so the typecheck-py-* family is uniform for
+# CI/docs.
+
+typecheck-py: typecheck-py-pytorch
+	@echo "typecheck-py OK (all Python-bearing packages)"
+
+typecheck-py-pytorch: ref-typecheck
+	@echo "  typecheck-py-pytorch OK"
 
 # Lint the C / C++ backend surface: clang-format (layout drift
 # against the repo-root `.clang-format` — tabs for indent, K&R

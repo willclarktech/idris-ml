@@ -350,6 +350,20 @@
         "asserts the sidecar epoch + resume log + completion. Gates the",
         "Train.idr / Checkpoint.idr auto-save / resume integration."
       ]
+    },
+    {
+      "name": "Typecheck torch_ref (pyright, Ubuntu)",
+      "run": "make typecheck-py-pytorch",
+      "os": "ubuntu",
+      "comment": [
+        "Alias of ref-typecheck: pyright over packages/pytorch/torch_ref/",
+        "at the typeCheckingMode pinned in its pyproject.toml. Lives in",
+        "the matrix (not the lint preflight) because import resolution",
+        "needs the full uv venv from ref-setup — the preflight venv is",
+        "--only-group dev --no-install-project, so torch/transformers",
+        "aren't importable there. Pyright version is pinned by uv.lock.",
+        "Ubuntu-only: ref-setup runs only there in this matrix."
+      ]
     }
   ]
 }
