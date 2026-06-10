@@ -386,7 +386,7 @@ classification, QA) follow the same shape: one Linear under the
 HF-canonical prefix, composed with the backbone's pooled output.
 
 The worked example (`Example/BertClassifyFinetune.idr`,
-commit `54b6bf43`) deliberately uses a TINY config (vocab=64,
+commit `4ec3fca5`) deliberately uses a TINY config (vocab=64,
 hidden=32, layers=1) and a synthetic dataset rather than the full
 bertTinyConfig + a real pretrained checkpoint. The trade-off:
 self-contained example that converges in seconds across all three
@@ -993,7 +993,7 @@ The `MACHINE` + `HARDWARE` Makefile knobs replace the orthogonal `MLX_DEVICE` + 
 
 The existing runtime-value `HardwareClass = HostCpu | AppleGpu | Nvidia Nat | Other String` (in `Executor.Core`, used by `someExecutor` discovery for reporting) coexists with the new type-level `Hardware.AppleGpu` despite the shared name — Idris disambiguates by context since one is a `HardwareClass` constructor and the other is a `Type`.
 
-### Sub-slice split rather than monolith collapse (2026-06-07, commit `ceda8f30`)
+### Sub-slice split rather than monolith collapse (2026-06-07, commit `cbf29bd8`)
 
 The 2026-04 "Pluggable Device" entry above settled on sliced typeclasses (`UserExecutorCore` / `Linear` / `NN` / `Conv` / `Training`) over a 160-method monolith or a record dictionary. A subsequent open question was whether to *re-merge* the slices — the directional idea in the original "DRY-up + conceptual rework" backlog row was "collapse `UserExecutorCore` / `UserExecutorTraining` / etc. into one interface with a smaller method set + composable mixin extensions." That direction was rejected. The actual landing went the opposite way: `UserExecutorTraining` (57 methods) split into 6 cohesive sub-interfaces — `UserExecutorAutograd` (7) / `UserExecutorParamRegistry` (8) / `UserExecutorOptimizer` (9) / `UserExecutorSerialize` (5) / `UserExecutorProfiling` (10) / `UserExecutorTensorCreate` (18) — plus 3 fused inference ops (`primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d`) lifted from `Training` into `UserExecutorNN`. The aggregate `UserExecutorTraining ex` is preserved as a constraint synonym so ~270 consumer constraints didn't move; the change is implementer-side only.
 
@@ -1010,7 +1010,7 @@ Two audit waves following the sub-slice split refined the surface further with *
 - **`UserExecutorMemoryHygiene`** (Round 2): `primEpochBegin/End`, `primReleaseAllPersistent`, `primResetForEval`. The four methods are asymmetric — mlx implements meaningfully (managed-handle pool drain across epoch boundaries); tape and torch keep cheap arena reset / `free_intermediates` bodies for backwards compatibility. The opt-in surface clarifies that these are managed-handle-pool hooks, not mandatory profiling primitives.
 - **`UserExecutorDiagnostics`** (Round 2): `primLiveCount`, `primPeakLiveCount`, `primPerfOpCount`. All three in-tree backends expose meaningful counters; BYO backends opt in only if they expose handle-count / op-submission tracking. `UserExecutorProfiling` is now down to its three genuine op-timing methods.
 
-The four new slices are listed in `scripts/check-executor-method-drift.py`'s `OPT_IN_SLICES` (landed in `f9dfd1aa`). Methods in opt-in slices skip the cross-backend union check (the drift gate's purpose is to enforce "every mandatory method on every backend," which doesn't apply to opt-ins). All four slices are superclasses of `UserExecutorTraining` (and the relevant ones of `UserExecutorInference`), so existing consumer code resolves unchanged — the changes are implementer-side.
+The four new slices are listed in `scripts/check-executor-method-drift.py`'s `OPT_IN_SLICES` (landed in `b46ea347`). Methods in opt-in slices skip the cross-backend union check (the drift gate's purpose is to enforce "every mandatory method on every backend," which doesn't apply to opt-ins). All four slices are superclasses of `UserExecutorTraining` (and the relevant ones of `UserExecutorInference`), so existing consumer code resolves unchanged — the changes are implementer-side.
 
 **Per-method `Int -> Int` constant-folding workaround retired** (Round 2). `primLiveCount` / `primPeakLiveCount` flipped from `Int -> Int` (with an ignored dummy arg) to `PrimIO Int`. The original shape was a workaround for Idris-Chez constant-folding the zero-arg FFI call, but the right answer was always `PrimIO Int` — the FFI return depends on backend mutable state, so it should never have been typed pure. C side dropped the matching `int dummy` parameter; the Idris call sites in `Train.idr` restructure into `liveH <- primIO (primLiveCount {ex})` before the `logInfo` string interpolation.
 

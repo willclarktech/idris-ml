@@ -51,7 +51,7 @@ narrow-bug fixes for transformer + DNC). Prior tables below are
 historical snapshots; this section is current.
 
 **Note (2026-06-08)**: tape numbers in the table predate the Adam/AdamW
-foreach landing (`4da11736` + `fdcd5a1c`). On tape workloads where Adam
+foreach landing (`fcd64c33` + `a932f1e0`). On tape workloads where Adam
 or AdamW is the optimizer, the new ratios are tighter than the 0.04-0.16
 shown above — measured deltas of ~−20% (transformer), ~−37% (BERT-tiny
 finetune), and ~−67-70% (GPT-2 base finetune); see `perf-changes.md`

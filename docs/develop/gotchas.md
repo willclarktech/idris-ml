@@ -1452,7 +1452,7 @@ returned `#<void>`; threading that into `tensor_create` on the next
 backend produced `Exception: invalid memory reference` on every
 cross-backend `toExecutor` hop (Idris2 compiles at `(optimize-level 3)`,
 where Chez elides the foreign-procedure argument check that would
-otherwise have named the bad value). Fixed `a792702b` by rebinding to
+otherwise have named the bad value). Fixed `659253e9` by rebinding to
 `tensor_to_doubles_return_<b>`. A hand-crafted lambda shape the
 generator can't express is a regen hazard; a `*_return` C shim
 (backend.h "value threading" section) survives regeneration because

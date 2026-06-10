@@ -3783,7 +3783,7 @@ BitLinear classes with different algebra" entry;
 compare_bitnet_blocks}.py` (new bisection scripts kept checked
 in for any future adapter's numerical work).
 
-### 2026-06-08 — Tape AdamW foreach (BLAS-1 moment update) — `4da11736`
+### 2026-06-08 — Tape AdamW foreach (BLAS-1 moment update) — `fcd64c33`
 
 **Plan job**: Medium TODO row "Tape optimizer foreach fast path".
 
@@ -3800,7 +3800,7 @@ in for any future adapter's numerical work).
 
 The gpt result is the floor: too-small model (VocabSize=65, hidden tiny) → optimizer wall is sub-noise on this VM. Bert-tiny (~4M params, vocab=30522, hidden=128) is the first AdamW workload where the optimizer takes a meaningful slice of wall and the foreach win is well above the ~15-20% single-run noise floor (`feedback_vm_perf_noise`). Both pairs of bert-mlm runs ran with the mlx F32 hf-llama measurement running concurrently (separate BUILD_KEY tree, both nice -19), so any contention is symmetric across scalar/foreach.
 
-**Outcome**: landed and collapsed. The env-var gate stays one commit (`4da11736`); the follow-up commit removes the gate (and the F64 AdamW case from the scalar inner switch), making the foreach path the default for F64 AdamW. F32 AdamW + SGD/RMSprop/Adam keep the existing scalar inner.
+**Outcome**: landed and collapsed. The env-var gate stays one commit (`fcd64c33`); the follow-up commit removes the gate (and the F64 AdamW case from the scalar inner switch), making the foreach path the default for F64 AdamW. F32 AdamW + SGD/RMSprop/Adam keep the existing scalar inner.
 
 **perf-log entries**:
 - `2026-06-08T13:56:07Z` gpt / tape scalar (cold) wall 68188ms
@@ -3812,7 +3812,7 @@ The gpt result is the floor: too-small model (VocabSize=65, hidden tiny) → opt
 
 **Cross-references**: `backend_tape/training/optimizer.c` (adamw_foreach_param + dispatch); `packages/idris-test-c/src/test_optimizers.c` (Criterion paired test); TODO row deleted; CHANGELOG closure entry.
 
-### 2026-06-08 — Tape Adam (type 2) foreach extension — `fdcd5a1c`
+### 2026-06-08 — Tape Adam (type 2) foreach extension — `a932f1e0`
 
 **Plan job**: follow-up to the AdamW foreach landing earlier today; the gate `opt->type == 3` was missing every workload using `nativeAdamGroup` (Sac, Dqn, MountainCar, MountainCarCont) or `nativeAdamGlobalClip` (A2c, Mnist, Ppo, Reinforce, SeqClassify, Transformer) — both Idris-side wrappers lower to `tape_optimizer_create_adam` (`opt->type == 2`).
 
@@ -3843,13 +3843,13 @@ The win profile matches the prior session's AdamW characterization: scales with 
 
 **Cross-references**: `backend_tape/training/optimizer.c` (gate widen + comment update); `packages/idris-test-c/src/test_optimizers.c` (new paired Adam test, original AdamW pair retained); ran concurrently with the in-flight mlx F32 hf-llama bg measurement (separate BUILD_KEY tree `tape-mlxcpu-torchcpu-machmac-m-series-hwcpu` vs `mlx-mlxgpu-…-mdtF32`, no contention).
 
-### 2026-06-08 — Tape Adam/AdamW foreach: cross-workload characterisation — `cc126bda`
+### 2026-06-08 — Tape Adam/AdamW foreach: cross-workload characterisation — `a4af9f14`
 
 **Plan job**: Task C of the follow-up plan — verify the foreach wall reduction across the remaining AdamW-using tape examples, characterise where the win lives.
 
 **Motivation**: the AdamW landing measured bert-mlm-finetune (−43%) but only one workload. Task B extended foreach to Adam (type 2) and measured transformer (~−20%) + mnist (noise). This entry closes the picture across the BERT/GPT family.
 
-**Impact** — paired warm-tree perf-run.sh measurements on `cc126bda`:
+**Impact** — paired warm-tree perf-run.sh measurements on `a4af9f14`:
 
 | (example, backend) | scalar wall | foreach wall | wall delta | converged? |
 |---|---:|---:|---:|---|
@@ -3876,13 +3876,13 @@ The full picture across all tape Adam/AdamW measurements this session:
 
 Pattern is monotone in trainable param count × steps: tiny workloads stay in noise; mid-size BERT-tiny lands in the −37% to −43% band; GPT-2 base hits −67-70%. The foreach payoff is the BLAS-1 m-update amortising over the registered-param sweep — bigger sweep, bigger win.
 
-**Outcome**: no further code changes. The Adam (type 2) gate widen at `fdcd5a1c` + AdamW (type 3) foreach at `4da11736` already cover both type tags. The TODO row stays deleted (was closed in the AdamW commit's CHANGELOG entry); no need for additional follow-up unless RMSprop (type 1) becomes a hot path on some new workload (different math shape, separate ticket).
+**Outcome**: no further code changes. The Adam (type 2) gate widen at `a932f1e0` + AdamW (type 3) foreach at `fcd64c33` already cover both type tags. The TODO row stays deleted (was closed in the AdamW commit's CHANGELOG entry); no need for additional follow-up unless RMSprop (type 1) becomes a hot path on some new workload (different math shape, separate ticket).
 
-**perf-log entries**: bert-classify-finetune (1 pair), bert-classify-sst2-finetune (2 pairs), bert-classify-sst2-lora (1 pair), gpt2-lm-finetune (2 pairs), all timestamped `2026-06-08T<later>Z` against commit `cc126bda`.
+**perf-log entries**: bert-classify-finetune (1 pair), bert-classify-sst2-finetune (2 pairs), bert-classify-sst2-lora (1 pair), gpt2-lm-finetune (2 pairs), all timestamped `2026-06-08T<later>Z` against commit `a4af9f14`.
 
 **Cross-references**: prior entries this session (AdamW foreach + Adam extension); no source changes for this characterisation, only `docs/develop/perf-log.jsonl` appends.
 
-### 2026-06-08 — A2c worked-example batched policy forward port — `aff7eb72`
+### 2026-06-08 — A2c worked-example batched policy forward port — `8db1280e`
 
 **Plan job**: Task E of the follow-up plan — worked example for the TODO row "Port batched policy forward to remaining RL examples". Picked A2c first because it's the closest sibling to Reinforce structurally (single env state, fixed RolloutLen) — proves the pattern before rolling out to Ppo / Sac / Dqn / MountainCar*.
 
@@ -3915,9 +3915,9 @@ Total wall per update is similar to pre-batched on both sides (within ±10%), bu
 
 **perf-log entries**: 5 paired Idris-tape seed entries + 5 PyTorch-CPU runs (the PyTorch side isn't auto-logged; only Idris-side runs land in `perf-log.jsonl` via `perf-run.sh`). The PyTorch numbers above are from inline `make ref-a2c --seed N` runs captured in this session.
 
-**Cross-references**: `packages/idris-ml-examples/src/Example/A2c.idr` (Idris batched impl); `packages/pytorch/torch_ref/models/a2c.py` + `scripts/a2c.py` (paired PyTorch side); `Gym.Vector.VecEnv` (already used by Reinforce post-`a6e74996`).
+**Cross-references**: `packages/idris-ml-examples/src/Example/A2c.idr` (Idris batched impl); `packages/pytorch/torch_ref/models/a2c.py` + `scripts/a2c.py` (paired PyTorch side); `Gym.Vector.VecEnv` (already used by Reinforce post-`5d1e17b7`).
 
-### 2026-06-08 — Ppo batched policy forward port — `3874d917`
+### 2026-06-08 — Ppo batched policy forward port — `9411c6c3`
 
 **Plan job**: Task E continuation (Phase 3a) — second worked example for the batched-policy-forward TODO row. PPO is structurally similar to A2c (on-policy, single env state, fixed rolloutLen) with two PPO-specific additions: per-env stepsLeft for truncation and oldLogProb recording at rollout time for the importance ratio. Acrobot env (NumActions=3, ObsDim=6) instead of CartPole.
 
@@ -3950,9 +3950,9 @@ The 2.3× Idris-tape vs PyTorch-CPU ratio compares against the prior `perf-basel
 
 **perf-log entries**: 5 paired Idris-tape seed entries + 5 PyTorch-CPU runs (PyTorch side not auto-logged; numbers above from inline runs).
 
-**Cross-references**: `packages/idris-ml-examples/src/Example/Ppo.idr`; `packages/pytorch/torch_ref/models/ppo.py` + `scripts/ppo.py`; A2c port `aff7eb72` (sibling pattern).
+**Cross-references**: `packages/idris-ml-examples/src/Example/Ppo.idr`; `packages/pytorch/torch_ref/models/ppo.py` + `scripts/ppo.py`; A2c port `8db1280e` (sibling pattern).
 
-### 2026-06-08 — Dqn batched action-selection port (Phase 3b proof-of-concept) — `bfe1520e`
+### 2026-06-08 — Dqn batched action-selection port (Phase 3b proof-of-concept) — `600ba033`
 
 **Plan job**: first off-policy worked example for the batched-policy-forward TODO row. Validates that the VecEnv pattern (used by A2c + Ppo) carries to off-policy + replay-buffer training.
 
@@ -3969,7 +3969,7 @@ The replay-ratio effectively shifts by N: 4× as many transitions per gradient u
 
 | Side | seed=42 | seed=123 | seed=456 | seed=789 | seed=2024 | Mean | ≥150 | ≥100 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Idris tape (pre-batched, ref @ 2a5990b0) | 124.0 | — | — | — | — | — | n/a | n/a |
+| Idris tape (pre-batched, ref @ 1142e8c7) | 124.0 | — | — | — | — | — | n/a | n/a |
 | Idris tape (batched) | 187.0 | 139.0 | 189.0 | 200.0 | **12.0** | 145.4 | 3/5 | 4/5 |
 | PyTorch CPU (batched) | 200.0 | 200.0 | 200.0 | 200.0 | **103.0** | 180.6 | 4/5 | 5/5 |
 
@@ -3989,19 +3989,19 @@ Batched Idris tape wall is within noise of pre-batched per episode, but each bat
 
 **perf-log entries**: 5 paired Idris-tape seed entries + 5 PyTorch-CPU runs (PyTorch not auto-logged).
 
-**Cross-references**: `packages/idris-ml-examples/src/Example/Dqn.idr`; `packages/pytorch/torch_ref/models/dqn.py` + `scripts/dqn.py`. Sibling commits: A2c `aff7eb72`, Ppo `3874d917`.
+**Cross-references**: `packages/idris-ml-examples/src/Example/Dqn.idr`; `packages/pytorch/torch_ref/models/dqn.py` + `scripts/dqn.py`. Sibling commits: A2c `8db1280e`, Ppo `9411c6c3`.
 
-### 2026-06-08 — Note: `844a4e1b` commit-body impact claim was overbroad
+### 2026-06-08 — Note: `1fffd659` commit-body impact claim was overbroad
 
-The fix-itself is correct (perf-run.sh's case arm for `hf-llama-generate` was renamed `test-e2e-hf-llama-generate-roundtrip` on 2026-05-24 in `5351a82e` but the script wasn't updated). However the commit body claimed "all hf-llama-generate perf-run measurements have been silently exit-2 / wall ~0.5s since 2026-05-24" — perf-log shows several successful runs between 2026-05-24 and the fix: `676830b9+dirty` (61.9s wall, exit 0, 2026-06-04 11:11), `2c7d371f` (28-37 min wall, exit 0, 2026-06-04 14:09 + 14:46), `1b268fed+dirty` (22 min wall, exit 0, 2026-06-04 15:12). The 2026-06-04 successes were the in-flight HfLlama measurements that continued working until something between `1b268fed+dirty` (succeeded) and `3e08ad3d` (failed 2026-06-08 12:16, triggering the fix) broke them. The script bug was real; the "silently broken for two weeks" framing was not. Noting here for future archeology — no code change.
+The fix-itself is correct (perf-run.sh's case arm for `hf-llama-generate` was renamed `test-e2e-hf-llama-generate-roundtrip` on 2026-05-24 in `5351a82e` but the script wasn't updated). However the commit body claimed "all hf-llama-generate perf-run measurements have been silently exit-2 / wall ~0.5s since 2026-05-24" — perf-log shows several successful runs between 2026-05-24 and the fix: `676830b9+dirty` (61.9s wall, exit 0, 2026-06-04 11:11), `2c7d371f` (28-37 min wall, exit 0, 2026-06-04 14:09 + 14:46), `1b268fed+dirty` (22 min wall, exit 0, 2026-06-04 15:12). The 2026-06-04 successes were the in-flight HfLlama measurements that continued working until something between `1b268fed+dirty` (succeeded) and `873dae03` (failed 2026-06-08 12:16, triggering the fix) broke them. The script bug was real; the "silently broken for two weeks" framing was not. Noting here for future archeology — no code change.
 
-### 2026-06-08 — mlx-gpu BF16 vs F32 HfLlama-1B inference gap re-measured → closed — `e658faa9`
+### 2026-06-08 — mlx-gpu BF16 vs F32 HfLlama-1B inference gap re-measured → closed — `7e5a89d9`
 
 **Plan job**: Task 2a (remeasure) — the open row in TODO.md was "Localize mlx-gpu BF16 vs F32 wall gap on HfLlama-1B inference (was: audit mlx fused-op constant pool)". Original reframe 2026-06-06 ruled out the fused-op constant-pool hypothesis and listed BF16-vs-F32 candidate causes (mlx Metal kernels, embedding gather, RoPE tables, attention scale, RMSNorm eps). Plan said: re-measure first on current commit, then Phase 2b per-op instrumentation only if the gap persists.
 
 **Motivation**: the +62% BF16-slower-than-F32 measurement that opened the row was at `6bf2ca8+dirty` ~2 weeks ago. Many changes since (SDPA, RMSNorm, SwiGLU, embedding fused ops landed in 2026-05-30..2026-06-03 — see "Match PyTorch's fused-op catalogue" row's shipped sub-items). The fused-op work was directly relevant: BF16 paths benefit from the same per-op-overhead reduction. Re-measure before instrumenting.
 
-**Change**: no code change — just measurement. Four runs on commit `e658faa9` via `MLX_DEVICE=gpu [MLX_DTYPE=BF16] bash scripts/perf-run-quiet.sh hf-llama-generate mlx`. The same commit also contains the only code touched this session: `perf-run.sh` tee'd output (this entry's prerequisite), since the earlier mktemp redirect hid visibility for the operator during cold elaboration runs.
+**Change**: no code change — just measurement. Four runs on commit `7e5a89d9` via `MLX_DEVICE=gpu [MLX_DTYPE=BF16] bash scripts/perf-run-quiet.sh hf-llama-generate mlx`. The same commit also contains the only code touched this session: `perf-run.sh` tee'd output (this entry's prerequisite), since the earlier mktemp redirect hid visibility for the operator during cold elaboration runs.
 
 **Impact**:
 
@@ -4018,9 +4018,9 @@ Warm-vs-warm: BF16 ~43s vs F32 ~48s pure decode. **BF16 is now within ±10% of F
 
 **Outcome**: row closed in TODO.md. Phase 2b (per-op instrumentation) and Phase 2c (upstream mlx issue) skipped — the trigger condition ("+60%+ gap persists") doesn't fire.
 
-**Cross-references**: perf-log.jsonl entries at `e658faa9` (F32 cold/warm + BF16 cold/warm, all 2026-06-08); the 2026-05-31 `6bf2ca8+dirty` entry that originally captured the +62% gap; the "Match PyTorch's fused-op catalogue" row in TODO.md (SDPA / RMSNorm / SwiGLU / embedding sub-items shipped 2026-05-30..2026-06-03 are the most-likely-attributed cause of the gap closure).
+**Cross-references**: perf-log.jsonl entries at `7e5a89d9` (F32 cold/warm + BF16 cold/warm, all 2026-06-08); the 2026-05-31 `6bf2ca8+dirty` entry that originally captured the +62% gap; the "Match PyTorch's fused-op catalogue" row in TODO.md (SDPA / RMSNorm / SwiGLU / embedding sub-items shipped 2026-05-30..2026-06-03 are the most-likely-attributed cause of the gap closure).
 
-### 2026-06-09 — `forwardVarTraced` activation-dump expansion: zero overhead at INFO, expected overhead at TRACE — `7bcf1237`
+### 2026-06-09 — `forwardVarTraced` activation-dump expansion: zero overhead at INFO, expected overhead at TRACE — `27fcbac7`
 
 **Change**: `forwardVarTraced` (`packages/idris-ml/src/Layer/Core.idr`) now branches on `IDRISML_LOG_LEVEL`: < DEBUG fast-path to `forwardVar`, DEBUG keeps existing min/max/mean stderr summary (now via `logDebug`), TRACE adds SafeTensors dump of per-layer activations.
 
@@ -4030,11 +4030,11 @@ Warm-vs-warm: BF16 ~43s vs F32 ~48s pure decode. **BF16 is now within ±10% of F
 
 | Mode | MNIST tape (1k train, 5 epochs) | Δ vs INFO |
 |---|---:|---:|
-| INFO (default, fast-path) | 56s, 97.6% acc (commit `7bcf1237+dirty`, perf-log.jsonl) | baseline |
+| INFO (default, fast-path) | 56s, 97.6% acc (commit `27fcbac7+dirty`, perf-log.jsonl) | baseline |
 | TRACE, `EVERY_N=200`, 6 dumps | ~95s, 45.0% acc (1 epoch only — verification run) | per-dump ~8 layer × (register + save_by_name + erase_by_prefix) on a [9216]+[2304]+[2048]+[512]+[10] activation set ≈ ~200KB file write + 8 paramRegister/paramErase calls |
 
 INFO is bit-identical to pre-change behavior — the only overhead is a single `getLogLevel` FFI call per `forwardVarTraced` invocation (one cached `int` load, ns-scale). DEBUG keeps existing summary cost (one min/max/mean + format per layer); TRACE adds per-dump file-write cost gated by `IDRISML_ACTIVATION_EVERY_N`.
 
 **Outcome**: shipped. The feature is debug-only, so the "INFO has zero regression" property is the load-bearing one; the TRACE overhead is the user's opt-in cost and they'll tune `EVERY_N` accordingly.
 
-**Cross-references**: commit `7bcf1237` (`feat(layer): log-level-gated activation dump in forwardVarTraced`); plumbing in `b21f7792` (`feat(param-registry): add param_erase_by_prefix`) + `f71c68f9` (manifest cleanup) + `5156ef51` (`getLogLevel` FFI); MNIST wire-up `<this commit>`. Default-fast-path verification via perf-log.jsonl `mnist tape` entry at 2026-06-09T11:46:45Z (`7bcf1237+dirty`, 56s wall, 97.6% accuracy — matches prior INFO baseline within VM noise band).
+**Cross-references**: commit `27fcbac7` (`feat(layer): log-level-gated activation dump in forwardVarTraced`); plumbing in `65d2fd8e` (`feat(param-registry): add param_erase_by_prefix`) + `789751ca` (manifest cleanup) + `38c4519e` (`getLogLevel` FFI); MNIST wire-up `<this commit>`. Default-fast-path verification via perf-log.jsonl `mnist tape` entry at 2026-06-09T11:46:45Z (`27fcbac7+dirty`, 56s wall, 97.6% accuracy — matches prior INFO baseline within VM noise band).
