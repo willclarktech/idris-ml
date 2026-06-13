@@ -4054,5 +4054,5 @@ below measurement granularity), confirming the restructure has no measurable per
 Correctness pinned bit-exactly by the equivalence oracle (Test.TrainEngine) and ntm-copy accuracies
 identical pre/post (0.511875 / 0.49367948042991594).
 
-**Commit**: the fit-driver series (baseline `55fa4fb9`, rewire in the runEpochLoop commit).
+**Commit**: the fit-driver series (baseline `d4998196`, rewire in the runEpochLoop commit).
 **Outcome**: landed — no regression.
