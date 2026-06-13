@@ -1473,7 +1473,10 @@ Test(legacy_backend, safetensors_roundtrip) {
 
     /* Register a 2D param and a 1D param with known values */
     double w_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle w = tensor_create_param_2d_f64(2, 3, tensor_alloc_doubles(0));
+    /* alloc must cover the 6 elements the create copies — the
+       zero-length buffer here was a heap-buffer-overflow READ the
+       ASAN lane caught (values are overwritten just below). */
+    TensorHandle w = tensor_create_param_2d_f64(2, 3, tensor_alloc_doubles(6));
     /* Fill via our own buffer */
     {
         double* buf = tensor_alloc_doubles(6);

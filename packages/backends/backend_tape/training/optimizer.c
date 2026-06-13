@@ -341,7 +341,10 @@ void tape_optimizer_step(void* h) {
 	for (int j = 0; j < param_count(); j++) {
 		Tensor* t = (Tensor*)param_tensor(j);
 		t->tape_idx = -1;
-		if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
+		/* Width by dtype: an F32 param's grad buffer is numel * 4 bytes —
+		   the sizeof(double) form overflowed it by numel * 4 (caught by
+		   the ASAN lane via the F32 gradcheck oracle, 2026-06-12). */
+		if (t->grad) memset(t->grad, 0, t->numel * tape_elem_size(t->dtype_tag));
 		tape_append(OP_CONST, t, NULL, NULL, 0);
 	}
 	prof_optimizer_ms += _wall_ms() - t0_opt;
