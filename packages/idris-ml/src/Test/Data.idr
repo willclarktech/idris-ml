@@ -4,6 +4,8 @@ import Data.Vect
 import Data.Fin
 import Data.List
 import Data.Maybe
+import System
+import System.File
 
 import Test.Harness
 import Dataset
@@ -107,8 +109,38 @@ batched1Collates = do
                (the (List (Int, Int, Double)) [ (0,0,7.0),(0,1,8.0),(1,0,9.0),(1,1,1.0) ])
   check "batched1 collates single [2,2] (value-checked)" ok
 
+-- idxDataset: gated on the MNIST data being present (CI without the
+-- dataset stays green via PASS-skip). When present: load, check size > 0,
+-- pull item 0, assert the image is [784], the target [10], and the
+-- one-hot label sums to 1.0.
+fileExists : String -> IO Bool
+fileExists path = do
+  Right f <- openFile path Read | Left _ => pure False
+  closeFile f
+  pure True
+
+idxDatasetLoads : IO Bool
+idxDatasetLoads = do
+  let img = "data/mnist/train-images-idx3-ubyte"
+      lbl = "data/mnist/train-labels-idx1-ubyte"
+  present <- fileExists img
+  if not present
+    then check "idxDataset: MNIST data absent — skipped" True
+    else do
+      let d = idxDataset {ex=TestExecutor} {dt=TestDType} img lbl 784 10
+      case natToFin 0 d.size of
+        Nothing => check "idxDataset: size > 0" False
+        Just f0 => do
+          (imgT, tgtT) <- d.item f0
+          let onehotSum = sum (map (\j => primItem1d {ex=TestExecutor} tgtT.tensorPtr j)
+                                   (the (List Int) [0,1,2,3,4,5,6,7,8,9]))
+              img0 = primItem1d {ex=TestExecutor} imgT.tensorPtr 0
+          check ("idxDataset loads (size=" ++ show d.size ++ ", one-hot sum="
+                 ++ show onehotSum ++ ", img[0]=" ++ show img0 ++ ")")
+                (d.size > 0 && abs (onehotSum - 1.0) < 1.0e-9)
+
 export
 tests : List (IO Bool)
 tests = [ fromVectRoundTrip, fromIndexedSquares
         , streamNoShuffleInOrder, streamShufflePermutes, generateRepeats
-        , batchedCollates, batched1Collates ]
+        , batchedCollates, batched1Collates, idxDatasetLoads ]
