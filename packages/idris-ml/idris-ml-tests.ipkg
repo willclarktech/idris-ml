@@ -48,6 +48,7 @@ modules = Test.Main
         , Test.Sampler
         , Test.Schedule
         , Test.TensorExpr
+        , Test.TrainEngine
 
 main = Test.Main
 

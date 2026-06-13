@@ -11,6 +11,7 @@ import Test.Schedule
 import Test.Init
 import Test.Sampler
 import Test.TensorExpr
+import Test.TrainEngine
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
@@ -55,6 +56,7 @@ main = runAll
   , ("Math",            Test.Math.tests)
   , ("Schedule",        Test.Schedule.tests)
   , ("TensorExpr",      Test.TensorExpr.tests)
+  , ("TrainEngine",     Test.TrainEngine.tests)
   , ("Init",            Test.Init.tests)
   , ("Sampler",         Test.Sampler.tests)
   , ("RL.Gae",          Test.RL.Gae.tests)

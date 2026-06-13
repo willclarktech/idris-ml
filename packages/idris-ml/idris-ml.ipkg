@@ -64,6 +64,7 @@ modules = Compat.Random
         , Sampler
         , Schedule
         , Train
+        , Train.Engine
         , Train.Freeze
         , Util
         , Util.Log

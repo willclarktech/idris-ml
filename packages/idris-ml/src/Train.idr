@@ -14,6 +14,7 @@ import Executor
 import Tensor
 import Schedule
 import Checkpoint
+import public Train.Engine  -- MetricsFn, EarlyStopConfig, showFix + the shared engine pieces
 
 
 ----------------------------------------------------------------------
@@ -64,63 +65,13 @@ export
 formatResult : List (String, String) -> String
 formatResult kvs = "RESULT" ++ concatMap (\(k, v) => "\t" ++ k ++ "=" ++ v) kvs
 
-||| Show a Double with `digits` fixed decimal places (rounded half-up).
-||| Mirrors Python's `f"{x:.<digits>f}"` so paired-side logs diff cleanly.
-||| Handles negatives, NaN, and ±infinity.
-export
-showFix : (digits : Nat) -> Double -> String
-showFix d x =
-  if x /= x then "nan"
-  else if x == 1.0/0.0 then "inf"
-  else if x == -1.0/0.0 then "-inf"
-  else
-    let sign     : String  = if x < 0 then "-" else ""
-        absX     : Double  = if x < 0 then -x else x
-        scaleD   : Double  = pow 10.0 (cast {to=Double} (cast {to=Integer} d))
-        scaledI  : Integer = cast {to=Integer} (absX * scaleD + 0.5)
-        scaleI   : Integer = cast {to=Integer} scaleD
-        intPart  : Integer = scaledI `div` scaleI
-        fracPart : Integer = scaledI `mod` scaleI
-        fracStr  : String  = padZeros d (show fracPart)
-    in if d == 0
-         then sign ++ show intPart
-         else sign ++ show intPart ++ "." ++ fracStr
-  where
-    padZeros : Nat -> String -> String
-    padZeros n s =
-      if length s >= n
-        then s
-        else pack (List.replicate (n `minus` length s) '0') ++ s
-
-
-----------------------------------------------------------------------
--- Early Stopping Strategies
-----------------------------------------------------------------------
-
-||| Early stopping configuration.
-public export
-data EarlyStopConfig
-  = NoEarlyStop
-  | Patience Nat Double              -- patience, minDelta
-  | WindowedAvg Double Nat Nat       -- threshold, window, patience
-  | WindowedPercentile Double Double Nat Nat
-    -- percentile (0.0–1.0), threshold, window, patience.
-    -- Splits `window` epochs into 100-epoch chunks (same as WindowedAvg),
-    -- sorts the chunk-means, picks the chunk-mean at index
-    -- `floor(percentile * num_chunks)`, and compares to `threshold`. With
-    -- bimodal losses (variable-length-sequence tasks), picking p10 is the
-    -- "best 100-epoch chunk in the window" — fires reliably once the model
-    -- converges on at least the easier sequences.
+-- `showFix`, `EarlyStopConfig`, and `MetricsFn` moved to Train.Engine
+-- (re-exported above via `import public Train.Engine`).
 
 
 ----------------------------------------------------------------------
 -- Training Configuration
 ----------------------------------------------------------------------
-
-||| Extra metrics to log at each logging step (e.g. accuracy, memory).
-public export
-0 MetricsFn : Type -> Type
-MetricsFn model = model -> IO (List (String, String))
 
 ||| Per-epoch return + rolling-window state for RL examples. Lets RL
 ||| epoch closures push the most recent episodic return into a metrics
