@@ -712,7 +712,11 @@ jobs:
     # os mask this job's signal.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 90 was hit (91m32s, cancelled) on a cold ttc cache — the HF model
+    # roundtrips + HfBitNetInference cold elaboration against the 16 GB
+    # swapfile balloon the cold path. Bumped to 120 for headroom; warm
+    # runs come in far under.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
         with:
