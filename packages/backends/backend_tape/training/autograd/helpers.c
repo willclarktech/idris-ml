@@ -73,6 +73,12 @@ TensorHandle tensor_to_device(TensorHandle t, const char* device) {
 	(void)device;
 	return t;
 }
+/* Param-lifetime variant (see backend.h). Tape has no step-time
+   intermediates cleanup, so it shares the identity implementation. */
+TensorHandle tensor_to_device_persistent(TensorHandle t, const char* device) {
+	(void)device;
+	return t;
+}
 const char* tensor_device(TensorHandle t) {
 	(void)t;
 	return "cpu";

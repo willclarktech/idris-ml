@@ -259,6 +259,14 @@ void tensor_epoch_end(void);
 /* ---------- Device ---------- */
 
 TensorHandle tensor_to_device(TensorHandle t, const char* device); /* "cpu", "mps", "cuda" */
+/* Param-lifetime variant: identical migration semantics (incl. the
+   EAFP NULL-on-failure contract), but the result is exempt from
+   step-time intermediates cleanup. Use for tensors that must survive
+   optimizer steps (params, user-held migrated tensors). On torch the
+   tracked variant's result is deleted by the first optimizer step --
+   registering it as a param is a use-after-free (the Hpo.LrFinder
+   SIGABRT class, root-caused 2026-06-12). */
+TensorHandle tensor_to_device_persistent(TensorHandle t, const char* device);
 const char* tensor_device(TensorHandle t);
 
 /* ---------- GRU ---------- */

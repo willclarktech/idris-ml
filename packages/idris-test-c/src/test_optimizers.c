@@ -19,6 +19,69 @@ static double* heap_copy(const double* src, int n) {
     return p;
 }
 
+/* Fused entry point: zero_grad + backward + clip + step in one call —
+   the path Idris's nativeTrainStep drives. The unfused sequence above
+   (scalar_quadratic_convergence) passed on every backend while the
+   Idris suite segfaulted inside this entry on torch, so the fused
+   path needs its own coverage. loss = w*w from w=1 at lr=0.1: one
+   step gives w = 1 - 0.1*2 = 0.8. */
+#ifdef BACKEND_TORCH
+/* Lifecycle contract behind the 2026-06-12 use-after-free: torch's
+   create-then-migrate param path must use the PERSISTENT to_device
+   variant. The tracked tensor_to_device pushes its result onto the
+   intermediates vector, so the first optimizer_step's
+   free_intermediates() deleted params created through it — every
+   later read (tensor_item, registry walks, saves) was a
+   use-after-free (the Idris Optimizer-suite segfault and the
+   Hpo.LrFinder SIGABRT class). */
+extern int tensor_live_count(void);
+extern TensorHandle tensor_to_device(TensorHandle t, const char* device);
+extern TensorHandle tensor_to_device_persistent(TensorHandle t, const char* device);
+
+Test(training_optimizer_sgd, to_device_persistent_param_survives_steps) {
+    param_clear();
+    TensorHandle w0 = tensor_create_scalar(1.0, 1);
+    int live0 = tensor_live_count();
+    TensorHandle tracked = tensor_to_device(w0, "cpu");
+    cr_assert_eq(tensor_live_count(), live0 + 1,
+                 "tracked to_device is intermediates-tracked (contrast case)");
+    (void)tracked;
+    TensorHandle w = tensor_to_device_persistent(w0, "cpu");
+    cr_assert_eq(tensor_live_count(), live0 + 1,
+                 "persistent to_device must NOT be intermediates-tracked");
+    param_register("tdp_w", w);
+    TensorHandle loss = tensor_mul(w, w);
+    OptimizerHandle opt = optimizer_create_sgd(0.1);
+    native_train_step(opt, 0, 0.0, loss, 1.0);
+    /* free_intermediates ran inside the step; the migrated param must
+       still be readable — this read was the Idris crash site. */
+    double w1 = tensor_item(w);
+    cr_assert_float_eq(w1, 0.8, 1e-12, "param survives first fused step (got %.15f)", w1);
+    TensorHandle loss2 = tensor_mul(w, w);
+    native_train_step(opt, 0, 0.0, loss2, tensor_item(loss2));
+    double w2 = tensor_item(w);
+    cr_assert_float_eq(w2, 0.64, 1e-12, "param survives second fused step (got %.15f)", w2);
+    optimizer_free(opt);
+    param_clear();
+}
+#endif /* BACKEND_TORCH */
+
+Test(training_optimizer_sgd, native_train_step_fused) {
+    param_clear();
+    TensorHandle w = tensor_create_scalar(1.0, 1);
+    param_register("nts_w", w);
+    TensorHandle loss = tensor_mul(w, w);
+    OptimizerHandle opt = optimizer_create_sgd(0.1);
+    double lv = native_train_step(opt, /*clip_mode=*/0, /*clip_val=*/0.0, loss, 1.0);
+    cr_assert_float_eq(lv, 1.0, 1e-12, "fused step returns loss_val (got %f)", lv);
+    /* 1e-6 tolerance: mlx's legacy tensor_create_scalar routes to F32
+       (see backend.h), so the step lands at F32 precision there. */
+    double w1 = tensor_item(w);
+    cr_assert_float_eq(w1, 0.8, 1e-6, "w after one fused sgd step: got %.15f", w1);
+    optimizer_free(opt);
+    param_clear();
+}
+
 Test(training_optimizer_sgd, scalar_quadratic_convergence) {
     /* loss = (w*2 - 3)^2 → optimal w = 1.5. Train 100 SGD steps from
        w=0.5 at lr=0.01 and assert w lands within 0.01 of 1.5. */

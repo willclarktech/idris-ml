@@ -13,6 +13,13 @@ extern "C" TensorHandle tensor_to_device(TensorHandle t, const char* device) {
 	return t;
 }
 
+/* Param-lifetime variant (see backend.h). mlx tensors are refcounted,
+   not step-swept, so it shares the identity implementation. */
+extern "C" TensorHandle tensor_to_device_persistent(TensorHandle t, const char* device) {
+	(void)device;
+	return t;
+}
+
 extern "C" const char* tensor_device(TensorHandle t) {
 	(void)t;
 	return "gpu";

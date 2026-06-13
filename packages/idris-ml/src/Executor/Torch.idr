@@ -113,11 +113,18 @@ torchHwDevName (TCuda n) = "cuda:" ++ show n
 public export
 data TorchExecutor : TorchHwDev -> Type where MkTorchExecutor : TorchExecutor d
 
-||| FFI binding for libtorch's `tensor.to(device_str)`. Used by every
+||| FFI binding for the PARAM-LIFETIME `tensor.to(device_str)` variant
+||| (`tensor_to_device_persistent`): the result is exempt from
+||| optimizer-step intermediates cleanup. Used by every
 ||| `UserExecutorCore (TorchExecutor d)` create method to migrate fresh
-||| (CPU-allocated) tensors to the target hardware. On `TCpu` the
-||| migration is a self-move (`.to("cpu")` is a no-op for CPU tensors).
-%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-device-torch)) (set-top-level-value! 'idris-ffi-tensor-to-device-torch (foreign-procedure \"tensor_to_device_torch\" (void* string) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-to-device-torch) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+||| (CPU-allocated) tensors to the target hardware, and by
+||| `primIntraMigrate` — both produce params or user-held tensors that
+||| must survive `optimizer_step`. Binding the TRACKED `tensor_to_device`
+||| here made every such tensor a use-after-free once the first step's
+||| `free_intermediates` ran (Hpo.LrFinder SIGABRT class; root-caused
+||| 2026-06-12). On `TCpu` the migration is a self-move (`.to("cpu")`
+||| is a no-op for CPU tensors).
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-to-device-torch)) (set-top-level-value! 'idris-ffi-tensor-to-device-torch (foreign-procedure \"tensor_to_device_persistent_torch\" (void* string) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-to-device-torch) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__toDeviceTorch : AnyPtr -> String -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-item-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-item-2d-torch (foreign-procedure \"tensor_item_2d_torch\" (void* int int) double))) ((top-level-value 'idris-ffi-tensor-item-2d-torch) (vector-ref a0 2) a1 a2))"
