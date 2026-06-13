@@ -6,8 +6,50 @@ import Test.Harness
 import Executor
 import Optimizer
 import Tensor
+import Train
 import Train.Engine
 import Test.Config
+
+
+----------------------------------------------------------------------
+-- Equivalence oracle: runTrainingIO's early-stop behaviour, captured
+-- BEFORE the runEpochLoop rewire and asserted after. A scripted epochFn
+-- (model = Nat epoch counter, loss = scriptLoss epoch) isolates the
+-- LOOP logic (which the rewire changes) from the numerics (unchanged),
+-- so any drift in epoch-count / early-stop firing / final-loss surfaces
+-- here. Golden values captured on the pre-rewire runTrainingIO.
+----------------------------------------------------------------------
+
+scriptRun : TrainConfig Nat -> (Nat -> Double) -> IO (Nat, Double)
+scriptRun cfg scriptLoss = do
+  (_, epochsDone, finalLoss) <-
+    runTrainingIO {ex=TestExecutor}
+      (\n, _ => pure (S n, scriptLoss n)) (pure ()) cfg 0
+  pure (epochsDone, finalLoss)
+
+oracleNoEarlyStop : IO Bool
+oracleNoEarlyStop = do
+  (ed, fl) <- scriptRun (simpleConfig 5) (\i => 0.5 - 0.1 * cast i)
+  check ("oracle NoEarlyStop -> (" ++ show ed ++ ", " ++ showFix 6 fl ++ ")")
+        (ed == 5 && abs (fl - 0.1) < 1.0e-9)
+
+oraclePatience : IO Bool
+oraclePatience = do
+  (ed, fl) <- scriptRun (patienceConfig 20 2) (\i => if i < 3 then 1.0 - 0.1 * cast i else 0.7)
+  check ("oracle Patience -> (" ++ show ed ++ ", " ++ showFix 6 fl ++ ")")
+        (ed == 6 && abs (fl - 0.7) < 1.0e-9)
+
+oracleWindowedAvg : IO Bool
+oracleWindowedAvg = do
+  (ed, fl) <- scriptRun (windowedConfig 150 0.1 100 1) (\_ => 0.05)
+  check ("oracle WindowedAvg -> (" ++ show ed ++ ", " ++ showFix 6 fl ++ ")")
+        (ed == 100 && abs (fl - 0.05) < 1.0e-9)
+
+oracleWindowedPct : IO Bool
+oracleWindowedPct = do
+  (ed, fl) <- scriptRun (windowedPercentileConfig 150 0.5 0.1 100 1) (\_ => 0.05)
+  check ("oracle WindowedPercentile -> (" ++ show ed ++ ", " ++ showFix 6 fl ++ ")")
+        (ed == 100 && abs (fl - 0.05) < 1.0e-9)
 
 
 -- Registered scalar param at the test backend/dtype (mirrors Test.Optimizer).
@@ -65,4 +107,5 @@ showFixRounds =
 export
 tests : List (IO Bool)
 tests = [ handLoopConverges, isDivergedDetectsNaN, shouldLogCadence
-        , divisibleByCases, showFixRounds ]
+        , divisibleByCases, showFixRounds
+        , oracleNoEarlyStop, oraclePatience, oracleWindowedAvg, oracleWindowedPct ]

@@ -23,8 +23,6 @@ import Executor
 import Tensor
 import Checkpoint
 
-%default total
-
 
 ----------------------------------------------------------------------
 -- Shared types (were in Train.idr; re-exported there for source compat)
@@ -230,3 +228,177 @@ returnBestCheckpoint : Maybe CheckpointPolicy -> IO ()
 returnBestCheckpoint Nothing    = pure ()
 returnBestCheckpoint (Just pol) =
   when pol.keepBest $ ignore $ pol.loadState (pol.dir ++ "/best")
+
+
+----------------------------------------------------------------------
+-- Unified epoch loop + pluggable early-stop state machines
+----------------------------------------------------------------------
+
+||| One early-stop decision: keep iterating with updated state, or halt
+||| now (the loop then returns the current model + `S epoch` + loss).
+public export
+data EsDecision : Type -> Type where
+  EsKeep : s -> EsDecision s
+  EsHalt : EsDecision s
+
+||| Pluggable early-stop step: given (t0, epoch, loss, state), update the
+||| state or halt. Does its own convergence/early-stop logging.
+public export
+0 EarlyStopStep : Type -> Type
+EarlyStopStep s = Clock Monotonic -> (epoch : Nat) -> (loss : Double) -> s -> IO (EsDecision s)
+
+-- NoEarlyStop: never halts; terminal loss is the last epoch's loss.
+esNone : EarlyStopStep ()
+esNone _ _ _ _ = pure (EsKeep ())
+
+-- Patience: state = (bestLoss, stale). Halts after `pat` consecutive
+-- non-improving epochs (improvement = loss < bestLoss - minDelta).
+esPatience : (pat : Nat) -> (minD : Double) -> EarlyStopStep (Double, Nat)
+esPatience pat minD t0 ep loss (bestLoss, stale) =
+  let improved = loss < bestLoss - minD
+      best'     = if improved then loss else bestLoss
+      stale'    = if improved then 0 else stale + 1
+  in if pat > 0 && stale' >= pat
+       then do now <- clockTime Monotonic
+               logInfo $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch "
+                        ++ show (ep + 1) ++ " (patience=" ++ show pat ++ ")"
+               pure EsHalt
+       else pure (EsKeep (best', stale'))
+
+-- Windowed-average: state = (iSum, iCount, avgs, convCount). Splits into
+-- 100-epoch chunks, keeps the last `win/100` chunk-means, halts when
+-- their average stays below `thresh` for `pat` consecutive checks.
+esWindowedAvg : (thresh : Double) -> (win : Nat) -> (pat : Nat) ->
+                EarlyStopStep (Double, Nat, List Double, Nat)
+esWindowedAvg thresh win pat t0 ep loss (iSum, iCount, avgs, convCount) =
+  let iSum'   = iSum + loss
+      iCount' = iCount + 1
+  in if iCount' < 100
+       then pure (EsKeep (iSum', iCount', avgs, convCount))
+       else let avg   = iSum' / 100.0
+                avgs' = avg :: avgs
+                wc    = max 1 (div win 100)
+            in if length avgs' < wc
+                 then pure (EsKeep (0.0, 0, avgs', convCount))
+                 else let windowAvg = foldl (+) 0.0 (take wc avgs') / cast wc
+                      in if windowAvg >= thresh
+                           then pure (EsKeep (0.0, 0, avgs', 0))
+                           else let cc = convCount + 1
+                                in if cc >= pat
+                                     then do now <- clockTime Monotonic
+                                             logInfo $ "  " ++ formatElapsed t0 now
+                                                      ++ " Converged at epoch " ++ show (ep + 1)
+                                                      ++ " (window_avg=" ++ show windowAvg ++ ")"
+                                             pure EsHalt
+                                     else do now <- clockTime Monotonic
+                                             logInfo $ "    " ++ formatElapsed t0 now
+                                                      ++ " convergence " ++ show cc ++ "/" ++ show pat
+                                                      ++ " (window_avg=" ++ show windowAvg ++ ")"
+                                             pure (EsKeep (0.0, 0, avgs', cc))
+
+-- Windowed-percentile: state = (recent, epochsSinceCheck, convCount).
+-- Maintains the last `win` raw per-epoch losses; every 100 epochs sorts
+-- them, takes the `pct` percentile, halts when it stays below `thresh`
+-- for `pat` consecutive checks. (Raw losses, not chunk-means — robust
+-- to bimodal variable-length-sequence losses.)
+esWindowedPct : (pct : Double) -> (thresh : Double) -> (win : Nat) -> (pat : Nat) ->
+                EarlyStopStep (List Double, Nat, Nat)
+esWindowedPct pct thresh win pat t0 ep loss (recent, esc, convCount) =
+  let recent' = take win (loss :: recent)
+      esc'    = esc + 1
+  in if esc' < 100 || length recent' < win
+       then pure (EsKeep (recent', esc', convCount))
+       else let sorted = sort recent'
+                idx    = min (minus win 1)
+                             (cast {to=Nat} (the Integer (cast (pct * cast win))))
+                pctVal = case drop idx sorted of
+                           (x :: _) => x
+                           []       => 0.0
+            in if pctVal >= thresh
+                 then pure (EsKeep (recent', 0, 0))
+                 else let cc = convCount + 1
+                      in if cc >= pat
+                           then do now <- clockTime Monotonic
+                                   logInfo $ "  " ++ formatElapsed t0 now
+                                            ++ " Converged at epoch " ++ show (ep + 1)
+                                            ++ " (p" ++ show (cast {to=Int} (pct * 100.0))
+                                            ++ "_loss=" ++ show pctVal ++ ")"
+                                   pure EsHalt
+                           else do now <- clockTime Monotonic
+                                   logInfo $ "    " ++ formatElapsed t0 now
+                                            ++ " convergence " ++ show cc ++ "/" ++ show pat
+                                            ++ " (p" ++ show (cast {to=Int} (pct * 100.0))
+                                            ++ "_loss=" ++ show pctVal ++ ")"
+                                   pure (EsKeep (recent', 0, cc))
+
+||| Dispatch an `EarlyStopConfig` to its (step, initial-state,
+||| terminal-loss) triple. `terminal st lastLoss` is the loss returned
+||| when training reaches `totalEpochs` without early-stopping:
+||| NoEarlyStop yields the last epoch's loss, Patience the best seen,
+||| the windowed strategies 0.0 (matching the legacy loops).
+export
+earlyStopMachine : EarlyStopConfig ->
+                   (s ** (EarlyStopStep s, s, s -> Double -> Double))
+earlyStopMachine NoEarlyStop =
+  (() ** (esNone, (), \_, last => last))
+earlyStopMachine (Patience pat minD) =
+  ((Double, Nat) ** (esPatience pat minD, (1.0/0.0, 0), \(best, _), _ => best))
+earlyStopMachine (WindowedAvg thresh win pat) =
+  ((Double, Nat, List Double, Nat) **
+   (esWindowedAvg thresh win pat, (0.0, 0, [], 0), \_, _ => 0.0))
+earlyStopMachine (WindowedPercentile pct thresh win pat) =
+  ((List Double, Nat, Nat) **
+   (esWindowedPct pct thresh win pat, ([], 0, 0), \_, _ => 0.0))
+
+-- The recursive driver. Top-level (not a where-clause) so its single
+-- interface-constraint binding is unambiguous. Loop-invariant params
+-- are threaded each call; (st, lastLoss, ep, m) vary.
+epochLoopGo :
+  {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
+  {0 m : Type} -> {0 s : Type} ->
+  (totalEpochs : Nat) -> (logEvery : Nat) -> MetricsFn m ->
+  Maybe CheckpointPolicy -> IORef Double -> (nanIsDivergence : Bool) ->
+  EarlyStopStep s -> (esTerminal : s -> Double -> Double) ->
+  (perEpoch : m -> Nat -> IO (m, Double)) -> Clock Monotonic ->
+  s -> (lastLoss : Double) -> Nat -> m -> IO (m, Nat, Double)
+epochLoopGo totalEpochs logEvery metrics checkpoint bestRef nanIsDivergence
+            esStep esTerminal perEpoch t0 st lastLoss ep m =
+  if ep >= totalEpochs then pure (m, ep, esTerminal st lastLoss)
+  else do
+    (m', loss) <- withEpoch {ex} $ do
+      (m', loss) <- perEpoch m ep
+      when (shouldLog logEvery ep) $ logEpoch {ex} metrics t0 ep loss m'
+      pure (m', loss)
+    if nanIsDivergence && isDiverged loss
+      then diverged t0 ep m' loss
+      else do
+        postEpoch {ex} checkpoint bestRef ep loss
+        dec <- esStep t0 ep loss st
+        case dec of
+          EsHalt     => pure (m', S ep, loss)
+          EsKeep st' => epochLoopGo {ex} totalEpochs logEvery metrics checkpoint bestRef
+                                    nanIsDivergence esStep esTerminal perEpoch t0
+                                    st' loss (S ep) m'
+
+||| The unified epoch loop driving both `runTrainingIO` and `fit`.
+||| Owns: the `totalEpochs` terminator, the `withEpoch` generation
+||| bracket around `perEpoch` + conditional `logEpoch`, the NaN branch
+||| (`nanIsDivergence` True = single precision halts on NaN; False =
+||| mixed precision treats NaN as an overflow-skip and continues),
+||| `postEpoch` checkpointing, and the early-stop state machine. The
+||| caller supplies `perEpoch` (its own beforeEpoch/tick + data pull +
+||| step) and the early-stop triple (from `earlyStopMachine`).
+export
+runEpochLoop :
+  {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
+  {0 m : Type} -> {0 s : Type} ->
+  (totalEpochs : Nat) -> (logEvery : Nat) -> MetricsFn m ->
+  Maybe CheckpointPolicy -> (bestRef : IORef Double) -> (nanIsDivergence : Bool) ->
+  EarlyStopStep s -> (esInit : s) -> (esTerminal : s -> Double -> Double) ->
+  (perEpoch : m -> Nat -> IO (m, Double)) ->
+  Clock Monotonic -> (startEp : Nat) -> (m0 : m) ->
+  IO (m, Nat, Double)
+runEpochLoop totalEpochs logEvery metrics checkpoint bestRef nanIsDivergence
+             esStep esInit esTerminal perEpoch t0 startEp m0 =
+  epochLoopGo {ex} totalEpochs logEvery metrics checkpoint bestRef nanIsDivergence
+              esStep esTerminal perEpoch t0 esInit 0.0 startEp m0
