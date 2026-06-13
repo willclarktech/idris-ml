@@ -11,6 +11,8 @@ modules = Compat.Random
         , Backprop
         , Checkpoint
         , Curriculum
+        , Dataset
+        , DataStream
         , DataLoader
         , DataPoint
         , Executor

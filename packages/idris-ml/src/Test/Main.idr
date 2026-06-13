@@ -4,6 +4,7 @@ import Test.Harness
 import Test.Array
 import Test.Backend
 import Test.Construct
+import Test.Data
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
@@ -51,6 +52,7 @@ main = runAll
   [ ("Array",           Test.Array.tests)
   , ("Backend",         Test.Backend.tests)
   , ("Construct",       Test.Construct.tests)
+  , ("Data",            Test.Data.tests)
   , ("GradMode",        Test.GradMode.tests)
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)

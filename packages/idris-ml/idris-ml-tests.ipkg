@@ -21,6 +21,7 @@ modules = Test.Main
         , Test.BitNet
         , Test.CheckpointSubset
         , Test.Construct
+        , Test.Data
         , Test.GradMode
         , Test.GradScaler
         , Test.Hpo.LrFinder
