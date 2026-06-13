@@ -1,8 +1,11 @@
 module Test.TrainEngine
 
 import Data.Vect
+import Data.IORef
+import System.Clock
 
 import Test.Harness
+import Checkpoint
 import Executor
 import Optimizer
 import Tensor
@@ -104,8 +107,38 @@ showFixRounds =
         && showFix 1 0.25 == "0.3"       -- half-up: 2.5 → 3
         && showFix 6 (0.0/0.0) == "nan")
 
+----------------------------------------------------------------------
+-- RL-reuse: the exported engine pieces compose into a hand-rolled
+-- threaded loop WITHOUT fit — the migration path for state-threading RL
+-- (DQN's DqnState etc.). runEpochLoop threads the model (here a Nat
+-- "episode count"); the perEpoch does its own nativeTrainStep; a custom
+-- EarlyStopStep halts after 3 epochs. No example touched.
+----------------------------------------------------------------------
+
+rlReuseComposesEngine : IO Bool
+rlReuseComposesEngine = do
+  w <- mkW "te_rl_w" 1.0
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
+  bestRef <- newIORef (the Double (1.0/0.0))
+  t0 <- clockTime Monotonic
+  let perEpoch : Nat -> Nat -> IO (Nat, Double)
+      perEpoch episodes _ = do
+        loss <- tmul w w
+        d <- nativeTrainStep opt loss
+        pure (S episodes, d)            -- thread state: DqnState-style
+  let esStep : EarlyStopStep Nat
+      esStep _ _ _ n = pure (if n >= 2 then EsHalt else EsKeep (S n))
+  (finalEpisodes, epochsRun, _) <-
+    runEpochLoop {ex=TestExecutor} 100 0 (const (pure [])) Nothing bestRef True
+                 esStep 0 (\_, _ => 0.0) perEpoch t0 0 0
+  let v = tensorItem w
+  check ("RL-reuse: hand-rolled threaded loop via runEpochLoop (episodes="
+         ++ show finalEpisodes ++ ", epochs=" ++ show epochsRun ++ ", w=" ++ show v ++ ")")
+        (finalEpisodes == epochsRun && epochsRun == 3 && v < 1.0)
+
 export
 tests : List (IO Bool)
 tests = [ handLoopConverges, isDivergedDetectsNaN, shouldLogCadence
         , divisibleByCases, showFixRounds
-        , oracleNoEarlyStop, oraclePatience, oracleWindowedAvg, oracleWindowedPct ]
+        , oracleNoEarlyStop, oraclePatience, oracleWindowedAvg, oracleWindowedPct
+        , rlReuseComposesEngine ]
