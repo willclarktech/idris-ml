@@ -22,6 +22,7 @@ modules = Test.Main
         , Test.CheckpointSubset
         , Test.Construct
         , Test.Data
+        , Test.Fit
         , Test.GradMode
         , Test.GradScaler
         , Test.Hpo.LrFinder

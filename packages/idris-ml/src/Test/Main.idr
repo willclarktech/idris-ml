@@ -5,6 +5,7 @@ import Test.Array
 import Test.Backend
 import Test.Construct
 import Test.Data
+import Test.Fit
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
@@ -53,6 +54,7 @@ main = runAll
   , ("Backend",         Test.Backend.tests)
   , ("Construct",       Test.Construct.tests)
   , ("Data",            Test.Data.tests)
+  , ("Fit",             Test.Fit.tests)
   , ("GradMode",        Test.GradMode.tests)
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)
