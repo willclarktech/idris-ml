@@ -763,6 +763,21 @@ bulkToTensor2d {b} {i} rows =
       let buf' = packRow buf off row
       in packRows buf' (off + cast {to=Int} i) rest
 
+||| Concatenate a list of per-sample [k] tensor handles into one [n*k]
+||| handle. Routes through `primCat2 {ex}` so the MLX stream tag follows
+||| the type-level device. Generic tensor-stack primitive (used by the
+||| batched epoch runners and the `Data.Stream` collator); not a
+||| backprop concept, so it lives here next to `bulkToTensor2d`. Pair
+||| with `primReshape2d` to get a [n, k] batch.
+||| `partial`: the empty-list case crashes (callers always pass a
+||| non-empty batch); Backprop carried it under `%default partial`.
+export
+partial
+catAllTensors : {0 ex : Executor} -> UserExecutorLinear ex => List AnyPtr -> AnyPtr
+catAllTensors [] = idris_crash "catAllTensors: empty list"
+catAllTensors [x] = x
+catAllTensors (x :: y :: rest) = catAllTensors {ex} (primCat2 {ex} x y :: rest)
+
 ||| Bulk-convert a Vector of Doubles to a persistent C tensor handle.
 ||| Persistent tensors survive tape resets — use when data is created once
 ||| and reused across training epochs.

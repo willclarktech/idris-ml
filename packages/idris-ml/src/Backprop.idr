@@ -187,13 +187,8 @@ epochVarMixed opt gs dataPoints lossFn model = do
   pure (model, loss)
 
 
--- Concatenate a vector of per-sample [k] tensors into a single [n, k].
--- Routes through `primCat2 {ex}` so the MLX stream tag follows the
--- type-level device.
-catAllTensors : {0 ex : Executor} -> UserExecutorLinear ex => List AnyPtr -> AnyPtr
-catAllTensors [] = idris_crash "catAllTensors: empty list"
-catAllTensors [x] = x
-catAllTensors (x :: y :: rest) = catAllTensors {ex} (primCat2 {ex} x y :: rest)
+-- `catAllTensors` (per-sample [k] handles -> [n*k]) now lives in
+-- Tensor.idr next to `bulkToTensor2d`; imported via `import Tensor`.
 
 -- Per-sample loss for batched-forward shape.
 perRowLoss : {0 ex : Executor} -> UserExecutorTraining ex => {n, o : Nat} ->
