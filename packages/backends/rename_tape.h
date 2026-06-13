@@ -252,6 +252,7 @@
 #define tensor_ternary_quant_with_scale_2d tensor_ternary_quant_with_scale_2d_tape
 #define tensor_tile_2d tensor_tile_2d_tape
 #define tensor_to_device tensor_to_device_tape
+#define tensor_to_device_persistent tensor_to_device_persistent_tape
 #define tensor_to_doubles tensor_to_doubles_tape
 #define tensor_to_doubles_return tensor_to_doubles_return_tape
 #define tensor_to_floats tensor_to_floats_tape
