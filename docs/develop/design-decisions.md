@@ -2070,3 +2070,61 @@ zero there).
   fill a host buffer per element — fine for a construction path.
 - **Registry assertions in tests are set-membership**, never "newly-added slot counts" —
   `param_register` dedups by name and replaces in place.
+
+## `fit` driver + `Dataset`/`DataStream` data redesign (2026-06-13)
+
+**Decision**: collapse the 8-cell `epoch*` cross-product + `runTraining`/`runTrainingIO` into one
+`fit` driver, and replace the four data-point types + `DataLoader` with `Dataset` (indexed access) +
+`DataStream` (ordering/iteration/batching). Library surface only — old surfaces coexist until the
+example-migration sweep (roadmap decision 2). Implements the first XL roadmap row.
+
+### `fit`: orchestrates, Step owns the optimizer step (refines api-critique §N6)
+
+The north-star §N6 had `fit` *own* zero-grad/backward/step (Step returns just the loss tensor). That
+can't express DQN (many optimizer steps per episode) or PPO (K-epoch minibatch update) — so it would
+not be the "one interface for everything" the redesign wants. The shape that already unifies every
+example, including all RL, is `runTrainingIO`'s `epochFn : m -> dp -> IO (m, Double)`: the step owns
+control-flow + the optimizer step + (optional) model-state threading; the driver owns the loop,
+schedule tick, early stop, checkpoint, NaN handling, generation hygiene. We adopt that contract:
+`EpochStep m batch = m -> batch -> IO (m, Double)`, with `fitSupervised` / `fitSupervisedMixed`
+convenience wrappers so the supervised 90% pass a loss fn and never touch `nativeTrainStep`. RL/custom
+multi-step loops compose the **exported** engine pieces (`runEpochLoop` + a custom `EarlyStopStep`,
+`withEpoch`, `postEpoch`) instead — proven by a test that hand-rolls a state-threading loop without
+`fit` (the DQN migration path). Decided per the user's "one interface, users never pick variants"
+directive over the literal north-star.
+
+### Shared engine extraction, oracle-guarded rewire
+
+`Train.Engine` holds the composable pieces (`withEpoch` generation bracket, `logEpoch` eval bracket,
+`postEpoch`/resume/return-best checkpointing, `diverged`/`isDiverged`, and `runEpochLoop` — the 4
+early-stop loops collapsed into one driver over a pluggable `EarlyStopStep` state machine).
+`runTrainingIO` was rewired onto `runEpochLoop` (behaviour-identical), guarded by an equivalence
+oracle: a scripted `epochFn` (model = Nat epoch counter, loss = scriptLoss epoch) pins each
+`EarlyStopConfig`'s `(epochsDone, finalLoss)` — golden captured pre-rewire, bit-identical after
+(NoEarlyStop (5,0.1), Patience (6,0.7), WindowedAvg/Percentile (100,0.05)). Perf: ntm-copy 3.3 vs
+3.5 ms/epoch (noise; loop restructure can't change per-epoch work). `fit` is opaque in the model
+(`{0 m}`, no `Params` constraint — that comes from the next XL row which depends on this one).
+
+### Data: `Dataset` / `DataStream`, NOT `Data.*`
+
+`Dataset { size : Nat; item : Fin size -> IO sample }` (the `Fin` makes OOB unrepresentable) +
+`DataStream { next : IO a; epochLen : Maybe Nat }` with `stream`/`generate`/`batched`/`batched1`.
+`stream` reuses the Fisher-Yates C engine (re-bound `PrimIO` here — cleaner than DataLoader's
+pure-typed force hack); `batched` collates existing device handles C-side via `catAllTensors` +
+`primReshape2d` (no host readback — `catAllTensors` relocated from Backprop to Tensor for reuse).
+`DataStream`, the option-A record-of-IO (matches the legacy `dataSrc : IO dp`), with one pull =
+one epoch (matches current behaviour; `epochLen` advisory). **Named `DataStream`/`Dataset`, not
+`Data.Stream`/`Data.Dataset`**: the `Data.*` namespace collides three ways on this stack — the repo's
+`data/` gitignore rule vs case-insensitive macOS APFS (swallows `src/Data/`); base's `Data.Stream`
+module; and `Prelude.Stream.Stream` (auto-imported, making the type `Stream` ambiguous and poisoning
+the whole module's elaboration). `Dataset` is clash-free; `Stream` → `DataStream`.
+
+### Deferred (follow-up rows)
+
+- **Full-pass epoch semantics**: `fit` v1 keeps one-pull-per-epoch (= the legacy "epoch"); true
+  "one epoch = one full dataset pass" (driving step count from `DataStream.epochLen`) is non-breaking
+  to add later.
+- **Seeded per-stream shuffle**: `Shuffle` uses global `rand()` (matches today's `srand` model); a
+  per-stream seed needs a C signature change.
+- **Single-FFI-call collation**: `batched` uses pairwise `catAllTensors`; a one-shot `tensor_batch`
+  needs a `tensor_ptr_array_*` Idris binding.

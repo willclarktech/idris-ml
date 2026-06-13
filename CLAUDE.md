@@ -84,7 +84,7 @@ run-output dirs (`logs/`, `results/`, `.tmp/`).
 
 ## Architecture
 
-Module dependency order (leaves first): **Device → Floating → Util → Sampler → Init → Array → Math → Schedule → Tensor → Optimizer → DataPoint → DataLoader → Layer.\* → Hpo → Backprop → Train → Curriculum → Checkpoint → Notebook.Prelude**. Single `import Layer` brings in all layer modules (Linear, Activation, LayerNorm, BatchNorm, Conv, Dropout, Embedding, Residual, Rnn/Lstm/Gru, Ntm, Dnc, Transformer).
+Module dependency order (leaves first): **Device → Floating → Util → Sampler → Init → Array → Math → Schedule → Tensor → Optimizer → DataPoint → DataLoader → Dataset → DataStream → Layer.\* → Hpo → Backprop → Train.Engine → Train → Fit → Curriculum → Checkpoint → Notebook.Prelude**. Single `import Layer` brings in all layer modules (Linear, Activation, LayerNorm, BatchNorm, Conv, Dropout, Embedding, Residual, Rnn/Lstm/Gru, Ntm, Dnc, Transformer).
 
 ### Core type signatures
 
@@ -191,16 +191,35 @@ Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/
 
 **Long eval loops on mlx need per-sequence `withNoGrad`**: a single outer bracket around `traverse evalOne batch` lets mlx Metal MTLBuffer count blow past the Tart/GHA VM ceiling before exit-drain fires. Push the bracket inside: `evalOne dp = withNoGrad $ do { ... }` (NTM-style) or `withNoGrad (evalEp …)` inside `evalN`'s recursion (RL-style). Tape/torch don't need this; the per-sequence pattern is cheap on both.
 
-### Training (Train.idr)
+### Training — `fit` driver (v1, Fit.idr)
 
 ```idris
-(trained, epochs, loss) <- runTraining
-  (\m, d => epochVar opt d lossFn m) (pure data) (simpleConfig 1000) model
+(trained, epochs, loss) <- fitSupervised opt lossFn (batched dataStream) (simpleConfig 1000) model
 ```
 
-`runTraining` handles: epoch loop, NaN detection, progress logging, early stopping, timing summary. Use `runTrainingIO` when the per-epoch step needs IO. Attach an LR schedule via `withSchedule sched opt` + `{ beforeEpoch := tick opt }`.
+One driver for everything. `EpochStep m batch = m -> batch -> IO (m, Double)`: the step owns
+control-flow + the optimizer step + (optional) model-state threading; `fit` owns the epoch loop,
+schedule `tick`, early stop, checkpointing, NaN handling, and mlx generation hygiene (all via
+`Train.Engine.runEpochLoop`, the shared engine `runTrainingIO` also uses). `fit` reuses `TrainConfig`.
 
-### Training modes
+- **Supervised (90%)**: `fitSupervised opt lossFn stream cfg model` — pass a loss fn, never call
+  `nativeTrainStep`. `fitSupervisedMixed opt gradScaler lossFn …` for mixed precision.
+- **Recurrent / two-phase**: a `Step` that folds over timesteps into one loss — no driver variant.
+- **RL / custom**: pass your own `EpochStep` to `fit` (rollout + your own `nativeTrainStep`s + state
+  threading), or compose the exported engine pieces (`runEpochLoop`, `withEpoch`, `postEpoch`,
+  `earlyStopMachine`) directly for multi-step loops fit can't express (DQN replay, PPO K-epoch).
+
+This refines api-critique §N6 (which had `fit` own the step) — see design-decisions.md
+"`fit` driver". Data: `Dataset { size : Nat; item : Fin size -> IO sample }` (`fromVect`/
+`fromIndexed`/`idxDataset`) + `DataStream` (`stream shuffleSpec ds` / `generate ioAction` /
+`batched` collating `(Tensor [i], Tensor [o])` pairs into `([b,i],[b,o])` C-side). See **Data
+redesign** below.
+
+### Training modes — legacy (pre-migration; deleted at the example sweep)
+
+`runTraining`/`runTrainingIO` + the `epoch*` family still exist (examples use them until the sweep);
+`runTrainingIO`'s internals now route through `Train.Engine.runEpochLoop` (behaviour-identical, see
+the equivalence oracle). New library code uses `fit`.
 
 | Mode | Epoch function | Data type | Use case |
 |------|---------------|-----------|----------|
@@ -209,6 +228,20 @@ Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/
 | Recurrent | `epochRecurrentVar` | `RecurrentDataPoint i o ty` | RNN/LSTM/GRU |
 | TwoPhase | `epochTwoPhaseVar` | `TwoPhaseDataPoint i o ty` | NTM/DNC copy/recall |
 | RL | custom (uses `runTrainingIO`) | varies | REINFORCE / DQN / A2C / PPO / SAC / tabular |
+
+### Data redesign (v1: Dataset.idr / DataStream.idr)
+
+PyTorch's three orthogonal joints: `Dataset` (indexed access) / `ShuffleSpec` (order) / `DataStream`
+(batching+collation). `Dataset { size : Nat; item : Fin size -> IO sample }` — `Fin` makes
+out-of-bounds unrepresentable; `fromVect` (in-memory), `fromIndexed size cb` (file/IO), `idxDataset`
+(MNIST-family, lifts the idx C reader). `DataStream { next : IO a; epochLen : Maybe Nat }` —
+`stream spec ds` iterates a dataset in (shuffled) index order via the Fisher-Yates C engine
+(reshuffle on epoch wrap), `generate ioAction` wraps a raw feed (synthetic/RL), `batched` collates
+`(Tensor [i], Tensor [o])` pairs into `([b,i],[b,o])` C-side (catAllTensors + reshape, no readback;
+`batched1` for the single-tensor shape). **Named `DataStream` not `Data.Stream`** — the `Data.*`
+namespace collides with `data/` (gitignore × case-insensitive APFS), base `Data.Stream`, and
+`Prelude.Stream.Stream`. Legacy `DataPoint`/`TensorDataPoint`/`RecurrentDataPoint`/`TwoPhaseDataPoint`
++ `DataLoader` coexist until the example sweep.
 
 ### Optimizer
 

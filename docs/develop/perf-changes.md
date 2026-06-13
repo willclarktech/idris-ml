@@ -4038,3 +4038,21 @@ INFO is bit-identical to pre-change behavior — the only overhead is a single `
 **Outcome**: shipped. The feature is debug-only, so the "INFO has zero regression" property is the load-bearing one; the TRACE overhead is the user's opt-in cost and they'll tune `EVERY_N` accordingly.
 
 **Cross-references**: commit `27fcbac7` (`feat(layer): log-level-gated activation dump in forwardVarTraced`); plumbing in `65d2fd8e` (`feat(param-registry): add param_erase_by_prefix`) + `789751ca` (manifest cleanup) + `38c4519e` (`getLogLevel` FFI); MNIST wire-up `<this commit>`. Default-fast-path verification via perf-log.jsonl `mnist tape` entry at 2026-06-09T11:46:45Z (`27fcbac7+dirty`, 56s wall, 97.6% accuracy — matches prior INFO baseline within VM noise band).
+
+## `fit` driver + runEpochLoop rewire (2026-06-13)
+
+**Motivation**: collapse the 4 duplicated early-stop loops into one shared `runEpochLoop` that both
+`runTrainingIO` and the new `fit` driver use. Pure loop-structure refactor — the per-epoch *work*
+(the `epochFn`/step) is called identically; only the surrounding plumbing changed.
+
+**Change**: extracted `Train.Engine` (withEpoch/logEpoch/postEpoch/runEpochLoop + pluggable
+`EarlyStopStep`); `runTrainingIO` rewired onto it; `fit` built on the same engine.
+
+**Impact** (tape, seed 42): ntm-copy 3.5 → 3.3 ms/epoch (C profiler) — noise-level (the loop
+restructure can't change per-epoch compute). supervised + lstm are sub-millisecond (loop plumbing
+below measurement granularity), confirming the restructure has no measurable per-epoch cost.
+Correctness pinned bit-exactly by the equivalence oracle (Test.TrainEngine) and ntm-copy accuracies
+identical pre/post (0.511875 / 0.49367948042991594).
+
+**Commit**: the fit-driver series (baseline `55fa4fb9`, rewire in the runEpochLoop commit).
+**Outcome**: landed — no regression.
