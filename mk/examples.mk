@@ -455,11 +455,22 @@ example-dtype-serialize:
 # Type-safe integral index API demo. Forces BACKEND=torch (an I64 index
 # tensor is Compatible only on torch-cpu/cuda), then runs the typed
 # targsort/tgather/tscatterAdd round-trip with order-sensitive readouts.
-example-index-ops:
-	$(MAKE) BACKEND=torch install >/dev/null
+# The whole recipe must run under the torch build key: an inner
+# `$(MAKE) BACKEND=torch install` alone leaves IDRIS_FLAGS/BUILD/LIB
+# expanded for the caller's backend, and the example then elaborates
+# against a tree whose generated HwConfig lacks
+# Linked (TorchExecutor TCpu) — latent since the constraint-bundle
+# sweep put Linked inside Backend; surfaced in CI run 27434768856
+# once the ttc cache fixes let test-integration reach this step.
+ifeq ($(BACKEND),torch)
+example-index-ops: install
 	idris2 $(IDRIS_FLAGS) -o index-ops $(EXAMPLE_SRC)/Example/IndexOps.idr
 	cp $(LIB) $(BUILD)/exec/index-ops_app/
 	./$(BUILD)/exec/index-ops
+else
+example-index-ops:
+	$(MAKE) BACKEND=torch example-index-ops
+endif
 
 # Compile-time (device, dtype) Compatible gate demo. The example's `ok*`
 # witnesses typecheck against the real constructor across all backends;
