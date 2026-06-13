@@ -8,8 +8,12 @@ module DataStream
 
 import Data.IORef
 import Data.Fin
+import Data.Nat
+import Data.Vect
 
 import Dataset
+import Executor
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -98,3 +102,57 @@ stream spec ds@(MkDataset sz _) = do
     NoShuffle => pure ()
   posRef <- newIORef (the Int 0)
   pure $ MkDataStream (pullSample spec ds arr sizeI posRef) (Just sz)
+
+
+----------------------------------------------------------------------
+-- Batching / collation (C-side, no host readback)
+----------------------------------------------------------------------
+
+-- Pull n elements from an IO action into a Vect.
+pullN : (n : Nat) -> IO a -> IO (Vect n a)
+pullN Z     _   = pure []
+pullN (S k) act = do
+  x <- act
+  rest <- pullN k act
+  pure (x :: rest)
+
+-- ceil(n / b); the (advisory) batched epoch length.
+batchEpochs : Nat -> Nat -> Nat
+batchEpochs _ Z     = 0
+batchEpochs n (S k) = divNatNZ (n + k) (S k) ItIsSucc
+
+-- Stack b single-[k] tensor handles into one [b, k] tensor, entirely
+-- C-side: pairwise cat of the existing device handles + one reshape
+-- (the proven epochVarTensorBatch collation; no host readback). The
+-- catAllTensors call is asserted total — `b` is always >= 1 for a real
+-- batch, so its empty-list crash is unreachable.
+collate : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {b, n : Nat} ->
+          UserExecutorLinear ex => Vect b (Tensor [n] ex dt g) -> Tensor [b, n] ex dt g
+collate {b} {n} samples =
+  let ptrs    = toList (map tensorPtr samples)
+      stacked = assert_total (catAllTensors {ex} ptrs)
+      r2d     = primReshape2d {ex} stacked (cast b) (cast n)
+  in MkTensor r2d Nothing
+
+||| Collate a stream of single [i] tensors into batches of [b, i].
+||| Matches the north-star shape; for supervised (input, target) pairs
+||| use `batched`.
+export
+batched1 : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {b, i : Nat} ->
+           UserExecutorLinear ex =>
+           DataStream (Tensor [i] ex dt g) -> DataStream (Tensor [b, i] ex dt g)
+batched1 {b} (MkDataStream nxt el) =
+  MkDataStream (collate {b} <$> pullN b nxt) (map (\m => batchEpochs m b) el)
+
+||| Collate a stream of (input, target) tensor pairs into batch pairs
+||| ([b, i], [b, o]) — the supervised default the `fit` Step consumes.
+export
+batched : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {b, i, o : Nat} ->
+          UserExecutorLinear ex =>
+          DataStream (Tensor [i] ex dt g, Tensor [o] ex dt g) ->
+          DataStream (Tensor [b, i] ex dt g, Tensor [b, o] ex dt g)
+batched {b} (MkDataStream nxt el) =
+  MkDataStream
+    (do pairs <- pullN b nxt
+        pure (collate {b} (map fst pairs), collate {b} (map snd pairs)))
+    (map (\m => batchEpochs m b) el)

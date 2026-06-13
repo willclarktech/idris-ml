@@ -8,6 +8,9 @@ import Data.Maybe
 import Test.Harness
 import Dataset
 import DataStream
+import Executor
+import Tensor
+import Test.Config
 
 
 -- Access a dataset at a raw Nat index via natToFin (no compile-time
@@ -67,7 +70,45 @@ generateRepeats = do
   check ("generate repeats + epochLen Nothing (" ++ show xs ++ ")")
         (xs == [7, 7, 7] && isNothing s.epochLen)
 
+-- batched collation value-check: 3 (input[2], target[1]) pairs with
+-- known values, NoShuffle so order is preserved, b=3 → one ([3,2],[3,1])
+-- batch. Read back every cell via primItem2d and compare to the source.
+vec2 : Double -> Double -> IO (Tensor [2] TestExecutor TestDType NoGrad)
+vec2 a b = tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [a, b])
+
+vec1 : Double -> IO (Tensor [1] TestExecutor TestDType NoGrad)
+vec1 a = tensor {ex=TestExecutor} {dt=TestDType} {dims=[1]} (FromVect [a])
+
+batchedCollates : IO Bool
+batchedCollates = do
+  i0 <- vec2 1.0 2.0; o0 <- vec1 10.0
+  i1 <- vec2 3.0 4.0; o1 <- vec1 20.0
+  i2 <- vec2 5.0 6.0; o2 <- vec1 30.0
+  let ds = fromVect [(i0, o0), (i1, o1), (i2, o2)]
+  s <- stream NoShuffle ds
+  let bs = batched {b = 3} {i = 2} {o = 1} s
+  (inB, tgtB) <- bs.next
+  let inOk = all (\(r, c, v) => primItem2d {ex=TestExecutor} inB.tensorPtr r c == v)
+                 (the (List (Int, Int, Double))
+                   [ (0,0,1.0),(0,1,2.0),(1,0,3.0),(1,1,4.0),(2,0,5.0),(2,1,6.0) ])
+      tgtOk = all (\(r, v) => primItem2d {ex=TestExecutor} tgtB.tensorPtr r 0 == v)
+                  (the (List (Int, Double)) [ (0,10.0),(1,20.0),(2,30.0) ])
+  check "batched collates ([3,2] inputs + [3,1] targets, value-checked)" (inOk && tgtOk)
+
+batched1Collates : IO Bool
+batched1Collates = do
+  i0 <- vec2 7.0 8.0
+  i1 <- vec2 9.0 1.0
+  let ds = fromVect [i0, i1]
+  s <- stream NoShuffle ds
+  let bs = batched1 {b = 2} {i = 2} s
+  inB <- bs.next
+  let ok = all (\(r, c, v) => primItem2d {ex=TestExecutor} inB.tensorPtr r c == v)
+               (the (List (Int, Int, Double)) [ (0,0,7.0),(0,1,8.0),(1,0,9.0),(1,1,1.0) ])
+  check "batched1 collates single [2,2] (value-checked)" ok
+
 export
 tests : List (IO Bool)
 tests = [ fromVectRoundTrip, fromIndexedSquares
-        , streamNoShuffleInOrder, streamShufflePermutes, generateRepeats ]
+        , streamNoShuffleInOrder, streamShufflePermutes, generateRepeats
+        , batchedCollates, batched1Collates ]
