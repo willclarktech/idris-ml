@@ -1,0 +1,32 @@
+# LeakSanitizer suppressions for the C unit-test ASan lane
+# (make test-unit-c-asan-tape). Wired in via LSAN_OPTIONS in mk/tests.mk.
+#
+# Scope is deliberately narrow: lsan_teardown.c already frees everything
+# the tape/arena legitimately own (op_meta, non-persistent grads, arena
+# chunks) before LSan's exit check, so the only records left are tape's
+# genuinely-unfreeable-on-tape *persistent* allocations. On tape
+# `tensor_free` is a no-op (the tape holds non-owning pointers), so a
+# persistent tensor created by a bare unit test has no safe per-tensor
+# free path — it lives until process exit by design (see
+# create_scalar.c, param_create.c, design-decisions.md "Pluggable
+# Device"). Each entry matches the allocation site; LSan also suppresses
+# the indirect children (the tensor's data/shape/grad) hanging off it.
+#
+# These match the renamed tape symbols (…_tape) by substring.
+
+# Persistent 0-rank scalars — always persistent=1 (create_scalar.c).
+leak:tensor_create_scalar
+
+# Persistent learnable params (1d/2d, f64/f32) — param_create.c.
+leak:tensor_create_param
+
+# Persistent non-learnable state (NTM/DNC) — param_create.c.
+leak:tensor_create_state
+
+# Persistent f32 params/state via the dtype-streamed path — dtype_dispatch.c.
+leak:tape_persistent_f32_from_doubles
+
+# Test-helper buffer handed to tensor_create_*_f32, which routes to the
+# f32-unsupported tape stub (per_dtype_legacy.c) that returns without
+# consuming its input. Test-only (test_legacy_backend.c).
+leak:heap_copy

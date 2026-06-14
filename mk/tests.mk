@@ -80,9 +80,15 @@ CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/backend_tape -name '
 CRITERION_TEST_SRCS := $(TEST_C_DIR)/src/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
 TEST_C_INCLUDES := -I$(BACKENDS_DIR) -I$(TEST_C_DIR)/include
 
+# Under ASan, point LeakSanitizer at the suppression file for tape's
+# by-design persistent allocations (lsan_teardown.c frees the rest
+# before the exit-time check). Empty in non-ASan runs.
+LSAN_SUPP := $(TEST_C_DIR)/lsan.supp
+TEST_RUN_ENV := $(if $(ASAN),LSAN_OPTIONS=suppressions=$(abspath $(LSAN_SUPP)))
+
 test-unit-c: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
 	$(TEST_CC) -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
-	./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
+	$(TEST_RUN_ENV) ./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
 test-unit-c-tape:
 	$(MAKE) BACKEND=tape test-unit-c
