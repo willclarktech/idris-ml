@@ -150,21 +150,21 @@ mutual
   ||| (`PClaim` is already fully deep there; `PFixity`/`PDirective`/`PBuiltin`
   ||| are single-line and reindent-inert).
   sigDeclNoFC : PDeclNoFC -> String
-  sigDeclNoFC (PDef cls)                = "PDef{" ++ sigClauses cls ++ "}"
-  sigDeclNoFC (PData _ _ _ dd)          = "PData{" ++ sigData dd ++ "}"
-  sigDeclNoFC (PParameters _ ds)        = "PParameters{" ++ sigDecls ds ++ "}"
-  sigDeclNoFC (PUsing _ ds)             = "PUsing{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PDef cls)                    = "PDef{" ++ sigClauses cls ++ "}"
+  sigDeclNoFC (PData _ _ _ dd)              = "PData{" ++ sigData dd ++ "}"
+  sigDeclNoFC (PParameters _ ds)            = "PParameters{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PUsing _ ds)                 = "PUsing{" ++ sigDecls ds ++ "}"
   sigDeclNoFC (PInterface _ _ n _ _ _ _ ds) =
     "PInterface " ++ show n ++ "{" ++ sigDecls ds ++ "}"
   sigDeclNoFC (PImplementation _ _ _ _ _ n _ _ _ mds) =
     "PImpl " ++ show n ++ "{" ++ maybe "" sigDecls mds ++ "}"
-  sigDeclNoFC (PRecord _ _ _ rd)        = "PRecord{" ++ sigRecord rd ++ "}"
-  sigDeclNoFC (PFail _ ds)              = "PFail{" ++ sigDecls ds ++ "}"
-  sigDeclNoFC (PMutual ds)              = "PMutual{" ++ sigDecls ds ++ "}"
-  sigDeclNoFC (PNamespace _ ds)         = "PNamespace{" ++ sigDecls ds ++ "}"
-  sigDeclNoFC (PTransform s a b)        = "PTransform " ++ s ++ " " ++ show a ++ " " ++ show b
-  sigDeclNoFC (PRunElabDecl t)          = "PRunElabDecl " ++ show t
-  sigDeclNoFC d                         = show d
+  sigDeclNoFC (PRecord _ _ _ rd) = "PRecord{" ++ sigRecord rd ++ "}"
+  sigDeclNoFC (PFail _ ds)       = "PFail{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PMutual ds)       = "PMutual{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PNamespace _ ds)  = "PNamespace{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PTransform s a b) = "PTransform " ++ s ++ " " ++ show a ++ " " ++ show b
+  sigDeclNoFC (PRunElabDecl t)   = "PRunElabDecl " ++ show t
+  sigDeclNoFC d                  = show d
 
 ||| Deep, FC-insensitive structural signature of the top-level declarations —
 ||| the reindentation oracle. Unlike `astSig` it descends `where` blocks and
