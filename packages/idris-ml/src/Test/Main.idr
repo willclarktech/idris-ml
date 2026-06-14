@@ -29,6 +29,7 @@ import Test.Nn.LoraLinear
 import Test.Nn.Lstm
 import Test.Nn.Module
 import Test.Nn.Ntm
+import Test.Nn.Pool
 import Test.Nn.Recurrent
 import Test.Nn.Residual
 import Test.Nn.RmsNorm
@@ -104,6 +105,7 @@ main = runAll
   , ("Nn.Lstm",         Test.Nn.Lstm.tests)
   , ("Nn.Module",       Test.Nn.Module.tests)
   , ("Nn.Ntm",          Test.Nn.Ntm.tests)
+  , ("Nn.Pool",         Test.Nn.Pool.tests)
   , ("Nn.Recurrent",    Test.Nn.Recurrent.tests)
   , ("Nn.Residual",     Test.Nn.Residual.tests)
   , ("Nn.RmsNorm",      Test.Nn.RmsNorm.tests)

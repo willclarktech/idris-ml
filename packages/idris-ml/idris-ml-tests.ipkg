@@ -53,6 +53,7 @@ modules = Test.Main
         , Test.Nn.Lstm
         , Test.Nn.Module
         , Test.Nn.Ntm
+        , Test.Nn.Pool
         , Test.Nn.Residual
         , Test.Nn.Recurrent
         , Test.Nn.RmsNorm

@@ -42,6 +42,29 @@ smartCtorNames = do
   check "conv2d registers cnn.conv2d_0.weight + .bias"
         (("cnn.conv2d_0.weight" `elem` names) && ("cnn.conv2d_0.bias" `elem` names))
 
+-- Conv1D, inC=1 outC=1 len=3 kL=2 pad=0, kernel [1,2], bias 0, input
+-- [1,2,3]. Cross-correlation (PyTorch conv1d): out[0]=1·1+2·2=5,
+-- out[1]=2·1+3·2=8. ConvOutDim 3 2 0 = 2. Batched b=1: [1,3] -> [1,2].
+forward1dComputes : IO Bool
+forward1dComputes = do
+  ker <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 1, 2]} "c1.k" (FromVect [1.0, 2.0])
+  bia <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}       "c1.b" (Const 0.0)
+  let cv = the (Conv1D 1 1 3 2 0 3 2 TestExecutor TestDType WithGrad) (MkConv1D ker bia)
+  x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 3]} (FromVect [1.0, 2.0, 3.0])
+  out <- forward {b=1} cv (retypeGrad x)
+  let vs = [ primItem2d {ex=TestExecutor} out.tensorPtr 0 j | j <- the (List Int) [0,1] ]
+  check ("Conv1D [1,2] over [1,2,3] (got " ++ show vs ++ ")")
+        (vs == [5.0, 8.0])
+
+smartCtor1dNames : IO Bool
+smartCtor1dNames = do
+  _ <- runInit $ scoped "cnn1"
+         (conv1d {ex=TestExecutor} {dt=TestDType} {inC=1} {outC=2} {len=8} {kL=3} {pad=0})
+  cnt <- getParamCount {ex=TestExecutor}
+  names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
+  check "conv1d registers cnn1.conv1d_0.weight + .bias"
+        (("cnn1.conv1d_0.weight" `elem` names) && ("cnn1.conv1d_0.bias" `elem` names))
+
 export
 tests : List (IO Bool)
-tests = [forwardComputes, paramsExposed, smartCtorNames]
+tests = [forwardComputes, paramsExposed, smartCtorNames, forward1dComputes, smartCtor1dNames]

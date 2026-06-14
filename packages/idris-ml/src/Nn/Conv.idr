@@ -79,3 +79,62 @@ conv2d = do
   ker  <- liftIO $ tparam4dNormal {ex} {dt} {a=outC} {b=inC} {c=kH} {e=kW} (name ++ ".weight") 0.0 kerStd
   bias <- liftIO $ tparam1dConst  {ex} {dt} {n=outC} (name ++ ".bias") 0.0
   pure (MkConv2D ker bias)
+
+----------------------------------------------------------------------
+-- Conv1D
+----------------------------------------------------------------------
+
+||| 1-D conv: kernel `[outC, inC, kL]`, bias `[outC]`. There is no batched
+||| 1-D conv prim, so the batched forward runs the existing batched 2-D op
+||| with a unit height (`[b, inC, 1, len]` × `[outC, inC, 1, kL]`, padH=0),
+||| reusing the tested `primConv2dBatched`. Trailing two indices are the
+||| flattened in/out sizes (so the kind fits Module/Params).
+public export
+data Conv1D :
+  (inC : Nat) -> (outC : Nat) -> (len : Nat) -> (kL : Nat) -> (pad : Nat) ->
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+  where
+  MkConv1D :
+    Tensor [outC, inC, kL] ex dt g ->
+    TVec outC ex dt g ->
+    Conv1D inC outC len kL pad
+           (inC * len)
+           (outC * ConvOutDim len kL pad)
+           ex dt g
+
+public export
+{inC, outC, len, kL, pad : Nat} -> Module (Conv1D inC outC len kL pad) where
+  forward (MkConv1D ker bias) input = ioRerun (\_ =>
+    let bI     = cast {to=Int} b
+        inCI   = cast {to=Int} inC
+        lenI   = cast {to=Int} len
+        outCI  = cast {to=Int} outC
+        kLI    = cast {to=Int} kL
+        inp4d  = primReshape4d {ex} input.tensorPtr bI inCI 1 lenI
+        ker4d  = primReshape4d {ex} ker.tensorPtr outCI inCI 1 kLI
+        outT   = primConv2dBatched {ex} inp4d ker4d bias.tensorPtr 0 (cast {to=Int} pad) 1 1
+        outFlat = outC * ConvOutDim len kL pad
+        out2d  = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
+    in MkTensor out2d Nothing)
+
+public export
+{inC, outC, len, kL, pad : Nat} -> Params (Conv1D inC outC len kL pad) where
+  params (MkConv1D ker bias) = [toParam ker, toParam bias]
+  castGrad (MkConv1D ker bias) = MkConv1D (retypeGrad ker) (retypeGrad bias)
+
+||| Construct a `Conv1D` inside an `Init` derivation. He-normal kernel
+||| (std = √(2/fan_in), fan_in = inC·kL), zero bias. Registers
+||| `<scope>.conv1d_<n>.weight` (kernel) / `.bias`.
+export partial
+conv1d : {0 ex : Executor} -> Backend ex dt =>
+         {inC, outC, len, kL, pad : Nat} ->
+         Init (Conv1D inC outC len kL pad
+                      (inC * len)
+                      (outC * ConvOutDim len kL pad)
+                      ex dt WithGrad)
+conv1d = do
+  name <- freshChild "conv1d"
+  let kerStd = sqrt (2.0 / cast {to=Double} (inC * kL))
+  ker  <- liftIO $ tparam3dNormal {ex} {dt} {a=outC} {b=inC} {c=kL} (name ++ ".weight") 0.0 kerStd
+  bias <- liftIO $ tparam1dConst  {ex} {dt} {n=outC} (name ++ ".bias") 0.0
+  pure (MkConv1D ker bias)

@@ -83,6 +83,7 @@ modules = Compat.Random
         , Nn.Lstm
         , Nn.Module
         , Nn.Ntm
+        , Nn.Pool
         , Nn.Residual
         , Nn.Recurrent
         , Nn.RmsNorm

@@ -22,6 +22,7 @@ import public Nn.LoraLinear
 import public Nn.SwiGLU
 import public Nn.BatchNorm
 import public Nn.Conv
+import public Nn.Pool
 import public Nn.BitLinear
 import public Nn.Attention
 import public Nn.Transformer
