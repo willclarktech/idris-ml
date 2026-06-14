@@ -10,21 +10,24 @@
 .PHONY: fmt check-fmt test-integration-lint-fmt test-unit-fmt idris-fmt-build
 
 IDRIS_FMT  := ./packages/idris-fmt/build/exec/idris-fmt
-FMT_FILES  := $(shell find packages -name '*.idr' -not -path '*/build/*')
+# Only tracked .idr files — git ls-files excludes generated sources
+# (ML/Config.idr, HwConfig.idr, … are .gitignored codegen output) and
+# anything under build/. The formatter never touches generated files.
+FMT_FILES  := $(shell git ls-files '*.idr')
 
 # Build the formatter executable (cheap once warm).
 idris-fmt-build:
 	cd packages/idris-fmt && pack --no-prompt build idris-fmt.ipkg
 
-# Reformat every .idr file in place.
+# Reformat every tracked .idr file in place.
 fmt: idris-fmt-build
-	$(IDRIS_FMT) --write $(FMT_FILES)
+	@$(IDRIS_FMT) --write $(FMT_FILES)
 
 # CI gate: non-zero exit if any .idr file is not formatted. `check-fmt`
 # is the friendly spelling; `test-integration-lint-fmt` is the taxonomy
 # name CI invokes (shares the recipe).
 check-fmt test-integration-lint-fmt: idris-fmt-build
-	$(IDRIS_FMT) --check $(FMT_FILES)
+	@$(IDRIS_FMT) --check $(FMT_FILES) && echo "idris-fmt: all files formatted"
 
 # Formatter unit tests (round-trip oracle + render). Colocated dual-ipkg
 # pattern, same as test-unit-args.
