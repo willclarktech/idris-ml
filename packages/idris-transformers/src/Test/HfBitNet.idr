@@ -24,7 +24,7 @@ import Data.Vect
 import Executor
 import Executor.Core
 import HfBitNet
-import Layer.RoPE
+import Nn.RoPE
 import Tensor
 import Test.Config
 import Test.Harness

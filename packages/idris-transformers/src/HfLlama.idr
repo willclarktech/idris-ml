@@ -57,7 +57,7 @@ import Executor
 import HfCommon
 import Init
 import KVCache
-import Layer.RoPE
+import Nn.RoPE
 import Sampler
 import Tensor
 
@@ -398,32 +398,11 @@ writeCausalMask buf i j n =
   else let buf' = prim__setDouble buf (i * n + j) 1.0
        in writeCausalMask buf' i (j + 1) n
 
--- All-heads RoPE helper: reshape flat [seq, numH*headDim] projection
--- to rank-3 [seq, numH, headDim], call `applyRopeAllHeads` (which
--- handles all heads in one call via broadcast cos/sin over the head
--- axis), reshape back to flat. The flat ↔ rank-3 reshapes are
--- metadata-only on torch + mlx (view-with-strides) and copy-free on
--- tape (shape metadata only).
---
--- Replaces the per-head `buildRopedHeads` loop (closed 2026-05-30,
--- predecessor commit `6850366`) which emitted ~31 per-head concats
--- per layer × 2 (Q + K) × 16 layers ≈ ~1,000 concats per forward.
--- All-heads RoPE collapses that to ~7 ops per Q or K per layer
--- (broadcast muls + narrow + reshape + 1 concat for the rotate-half).
-ropeAllHeadsFlat :
-     {0 ex : Executor} -> UserExecutorTraining ex =>
-     {seq, numH, headDim, maxPos : Nat} ->
-     RoPETables maxPos headDim ex dt g ->
-     (full : AnyPtr) ->                     -- [seq, numH * headDim]
-     (sI, nHI, hdI : Int) ->
-     (positionOffset : Nat) ->
-     IO AnyPtr
-ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI offset = do
-  full3 <- ioRerun (\_ =>
-            the (Tensor [seq, numH, headDim] ex dt g)
-                (MkTensor (primReshape3d {ex} full sI nHI hdI) Nothing))
-  rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables offset full3
-  ioRerun (\_ => primReshape2d {ex} rot3.tensorPtr sI (nHI * hdI))
+
+-- `ropeAllHeadsFlat` (the flat [seq, numH*headDim] ↔ rank-3 reshape
+-- wrapper around `applyRopeAllHeads`) is now imported from `Nn.RoPE`,
+-- where it was consolidated from the identical definitions this module
+-- and `HfBitNet` each carried.
 
 ||| Full multi-head causal self-attention with GQA + RoPE.
 applyAttention : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>

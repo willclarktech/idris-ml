@@ -65,7 +65,7 @@ import Compat.Random
 import Executor
 import HfCommon
 import Init
-import Layer.RoPE
+import Nn.RoPE
 import Sampler
 import Tensor
 
@@ -576,20 +576,12 @@ applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
--- All-heads RoPE helper — same shape as HfLlama's `ropeAllHeadsFlat`.
-ropeAllHeadsFlat :
-     {0 ex : Executor} -> UserExecutorTraining ex =>
-     {seq, numH, headDim, maxPos : Nat} ->
-     RoPETables maxPos headDim ex dt g ->
-     (full : AnyPtr) ->
-     (sI, nHI, hdI : Int) ->
-     IO AnyPtr
-ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = do
-  full3 <- ioRerun (\_ =>
-            the (Tensor [seq, numH, headDim] ex dt g)
-                (MkTensor (primReshape3d {ex} full sI nHI hdI) Nothing))
-  rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables 0 full3
-  ioRerun (\_ => primReshape2d {ex} rot3.tensorPtr sI (nHI * hdI))
+
+-- `ropeAllHeadsFlat` is now imported from `Nn.RoPE` (consolidated from
+-- the identical definitions HfLlama and this module each carried).
+-- BitNet uses RoPE only at prefill, so the call sites pass a fixed
+-- positionOffset of 0 (the Nn.RoPE wrapper takes the offset that
+-- HfLlama's incremental-decode path threads through).
 
 ||| Full multi-head causal self-attention with GQA + RoPE +
 ||| BitNet-specific `attn_sub_norm` between context aggregation and
@@ -612,9 +604,9 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
       nHI   = cast {to=Int} numHeads
       nKvHI = cast {to=Int} numKvHeads
   qRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numHeads}
-                                {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI
+                                {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI 0
   kRopedPtr <- ropeAllHeadsFlat {ex} {seq} {numH=numKvHeads}
-                                {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI
+                                {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI 0
   ctxPtr <- ioRerun (\_ =>
               primSdpa2d {ex} qRopedPtr kRopedPtr v.tensorPtr
                          nHI nKvHI hdI 1)
