@@ -14,6 +14,7 @@
 ||| `posEncVal`/`writePE` (which die with `Layer/` at the migration sweep).
 module Nn.PosEncoding
 
+import Control.Linear.LIO as LIO
 import Data.Vect
 
 import Executor
@@ -71,3 +72,13 @@ sinusoidalPE = ioRerun (\_ =>
       buf' = writePE dModel buf 0 0 sI dI
       ptr  = dtCreateState2d {ex} {t=dt} sI dI buf' (deviceStreamTag {ex})
   in MkTensor ptr Nothing)
+
+||| `L IO` twin of `sinusoidalPE`, for building the PE table inside a model
+||| `forward` / `runInitL` block without a `liftIO1` seam at the call site.
+||| Same deferral semantics (`liftIO1` over the `ioRerun`-deferred body =
+||| `ioRerunL` of that body); kept a free function, not a `Module` — the
+||| table holds no learnable parameter.
+export partial
+sinusoidalPEL : {0 ex : Executor} -> Backend ex dt => {seqLen, dModel : Nat} ->
+                LIO.L IO (Tensor [seqLen, dModel] ex dt g)
+sinusoidalPEL = liftIO1 sinusoidalPE

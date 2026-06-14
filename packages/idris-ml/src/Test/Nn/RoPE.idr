@@ -1,8 +1,12 @@
 module Test.Nn.RoPE
 
+import Control.Linear.LIO
 import Data.Vect
 
+import Executor
 import Nn.RoPE
+import Tensor
+import Test.Config
 import Test.Harness
 
 -- Value-pin tests for the relocated `Nn.RoPE` free functions against the
@@ -105,6 +109,57 @@ testNoScalingIsIdentity =
          pure False
 
 ----------------------------------------------------------------------
+-- Bucket 4: the `L IO` twins compose + match the IO rotations
+----------------------------------------------------------------------
+--
+-- `applyRopeL`/`applyRopeAllHeadsL` are thin `liftIO1` lifts of the IO
+-- rotations, so values must agree exactly; the point of the test is that
+-- they compose inside a `Control.Linear.LIO.run` block with no `liftIO1`
+-- at the call site (the model-forward use case).
+
+ropeInput8 : Vect 8 Double
+ropeInput8 = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+
+testApplyRopeLComposes : IO Bool
+testApplyRopeLComposes = do
+  tables <- buildLlamaRoPETables {ex=TestExecutor} {dt=TestDType} {maxPos=4} {headDim=4}
+              ropeBase noScaling
+  x0 <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 4]} (FromVect ropeInput8)
+  let x = the (Tensor [2, 4] TestExecutor TestDType WithGrad) (retypeGrad x0)
+  ioOut <- applyRope  {seq=2} {headDim=4} {maxPos=4} tables 0 x
+  lOut  <- Control.Linear.LIO.run (applyRopeL {seq=2} {headDim=4} {maxPos=4} tables 0 x)
+  let rd : AnyPtr -> Int -> Int -> Double
+      rd p i j = primItem2d {ex=TestExecutor} p i j
+      idxs     = the (List (Int, Int)) [(0,0),(0,1),(0,2),(0,3),(1,0),(1,1),(1,2),(1,3)]
+      worst    = foldl (\m, (i, j) => max m (abs (rd ioOut.tensorPtr i j - rd lOut.tensorPtr i j))) 0.0 idxs
+  if worst < tol
+    then check "applyRopeL composes in L IO + equals applyRope" True
+    else do
+      putStrLn ("  FAIL: applyRopeL drifted from applyRope by " ++ show worst)
+      pure False
+
+testApplyRopeAllHeadsLComposes : IO Bool
+testApplyRopeAllHeadsLComposes = do
+  tables <- buildLlamaRoPETables {ex=TestExecutor} {dt=TestDType} {maxPos=4} {headDim=4}
+              ropeBase noScaling
+  x0 <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 1, 4]} (FromVect ropeInput8)
+  let x = the (Tensor [2, 1, 4] TestExecutor TestDType WithGrad) (retypeGrad x0)
+  ioOut <- applyRopeAllHeads  {seq=2} {numHeads=1} {headDim=4} {maxPos=4} tables 0 x
+  lOut  <- Control.Linear.LIO.run
+             (applyRopeAllHeadsL {seq=2} {numHeads=1} {headDim=4} {maxPos=4} tables 0 x)
+  -- No primItem3d; reshape the [2,1,4] outputs to [2,4] to read elementwise.
+  let ioR  = primReshape2d {ex=TestExecutor} ioOut.tensorPtr 2 4
+      lR   = primReshape2d {ex=TestExecutor} lOut.tensorPtr 2 4
+      idxs = the (List (Int, Int)) [(0,0),(0,1),(0,2),(0,3),(1,0),(1,1),(1,2),(1,3)]
+      worst = foldl (\m, (i, j) => max m (abs (primItem2d {ex=TestExecutor} ioR i j
+                                              - primItem2d {ex=TestExecutor} lR i j))) 0.0 idxs
+  if worst < tol
+    then check "applyRopeAllHeadsL composes in L IO + equals applyRopeAllHeads" True
+    else do
+      putStrLn ("  FAIL: applyRopeAllHeadsL drifted by " ++ show worst)
+      pure False
+
+----------------------------------------------------------------------
 -- Suite
 ----------------------------------------------------------------------
 
@@ -116,4 +171,6 @@ tests =
   , testInvFreqMidFreqBand
   , testInvFreqLowFreqBand
   , testNoScalingIsIdentity
+  , testApplyRopeLComposes
+  , testApplyRopeAllHeadsLComposes
   ]

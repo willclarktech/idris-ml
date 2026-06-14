@@ -1,5 +1,6 @@
 module Test.Nn.PosEncoding
 
+import Control.Linear.LIO
 import Data.Vect
 
 import Executor
@@ -66,6 +67,29 @@ testTableMatches = do
       putStrLn ("  FAIL: table drifted from posEncVal by " ++ show worst)
       pure False
 
+----------------------------------------------------------------------
+-- Bucket 3: the `L IO` twin composes + matches the IO table
+----------------------------------------------------------------------
+
+-- `sinusoidalPEL` built inside a `Control.Linear.LIO.run` block (no
+-- `liftIO1` at the call site) yields the same [3,4] table as `sinusoidalPE`.
+testTwinComposes : IO Bool
+testTwinComposes = do
+  pe <- Control.Linear.LIO.run
+          (sinusoidalPEL {ex=TestExecutor} {dt=TestDType} {seqLen=3} {dModel=4}
+            {g=WithGrad})
+  let at : Int -> Int -> Double
+      at i j = primItem2d {ex=TestExecutor} pe.tensorPtr i j
+      pairs  = the (List (Double, Double))
+                  [ (at 0 0, 0.0), (at 0 1, 1.0)
+                  , (at 1 0, sin 1.0), (at 1 2, sin 0.01), (at 1 3, cos 0.01) ]
+      worst = foldl (\m, (g, w) => max m (abs (g - w))) 0.0 pairs
+  if worst < tol
+    then check "sinusoidalPEL composes in L IO + matches posEncVal" True
+    else do
+      putStrLn ("  FAIL: L twin table drifted by " ++ show worst)
+      pure False
+
 export
 tests : List (IO Bool)
 tests =
@@ -75,4 +99,5 @@ tests =
   , testPosOneDim2
   , testPosOneDim3
   , testTableMatches
+  , testTwinComposes
   ]

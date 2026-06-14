@@ -9,6 +9,7 @@
 ||| `Transformers.BitNet`) used to each define privately.
 module Nn.RoPE
 
+import Control.Linear.LIO as LIO
 import Data.Vect
 
 import Executor
@@ -277,6 +278,19 @@ applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioReru
       result    = primConcat2dAxis1 {ex} firstOut secondOut
   in MkTensor result Nothing)
 
+||| `L IO` twin of `applyRope`, for use inside a model `forward` block
+||| without a `liftIO1` seam. Same deferral semantics; kept a free function
+||| (RoPE holds no learnable parameter and its true signature — Q+K per-head
+||| + a position offset — can't pass through `Module.forward`).
+export
+applyRopeL : {0 ex : Executor} -> UserExecutorTraining ex =>
+             {seq, headDim, maxPos : Nat} ->
+             RoPETables maxPos headDim ex dt g ->
+             (positionOffset : Nat) ->
+             Tensor [seq, headDim] ex dt g ->
+             LIO.L IO (Tensor [seq, headDim] ex dt g)
+applyRopeL tables positionOffset input = liftIO1 (applyRope tables positionOffset input)
+
 ----------------------------------------------------------------------
 -- applyRopeAllHeads — vectorized rotation across the head axis
 ----------------------------------------------------------------------
@@ -344,6 +358,19 @@ applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOf
       concat2    = primConcat2dAxis1 {ex} firstOut2 secondOut2  -- [seq*nH, headDim]
       result     = primReshape3d {ex} concat2 seqI numHI headDI
   in MkTensor result Nothing)
+
+||| `L IO` twin of `applyRopeAllHeads`, for use inside a model `forward`
+||| block without a `liftIO1` seam. Same deferral semantics; free function
+||| for the same reason as `applyRopeL`.
+export
+applyRopeAllHeadsL : {0 ex : Executor} -> UserExecutorTraining ex =>
+                     {seq, numHeads, headDim, maxPos : Nat} ->
+                     RoPETables maxPos headDim ex dt g ->
+                     (positionOffset : Nat) ->
+                     Tensor [seq, numHeads, headDim] ex dt g ->
+                     LIO.L IO (Tensor [seq, numHeads, headDim] ex dt g)
+applyRopeAllHeadsL tables positionOffset input =
+  liftIO1 (applyRopeAllHeads tables positionOffset input)
 
 ----------------------------------------------------------------------
 -- ropeAllHeadsFlat — flat [seq, numH*headDim] convenience wrapper
