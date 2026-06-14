@@ -1,8 +1,10 @@
 -- | Transformer Sequence Sorting Example
 -- |
--- | Sort a sequence of digits using a multi-block transformer with
--- | learned embeddings, sinusoidal PE, multi-head causal self-attention,
--- | and layer normalization.
+-- | Sort a sequence of digits using a multi-block pre-norm transformer with
+-- | learned embeddings, sinusoidal PE, multi-head causal self-attention, and
+-- | layer normalization — assembled on the `Nn` models-as-records surface
+-- | (`Nn.Embedding` + `Nn.transformerBlock` stacked in a `Seq` + bias-free
+-- | head) and trained via the `fit` driver.
 -- |
 -- | Input (teacher-forced): [t0, t1, ..., t4, SEP, sorted_0, ..., sorted_4, EOS]
 -- | Target: predict next token at each position.
@@ -11,22 +13,18 @@ module Example.Transformer
 
 import Data.List
 import Data.Vect
-import Decidable.Equality
 import System
 
-import Array
-import Backprop
 import BuildConfig
 import Checkpoint
 import Compat.Random
-import DataPoint
+import DataStream
 import Executor
-import Floating
+import Fit
 import Generate
 import Hpo.LrFinder
-import Layer.Core
-import Layer.Transformer
-import Math
+import Nn
+import Optimizer
 import Tensor
 import Train
 import Util
@@ -64,56 +62,146 @@ SepToken = 6
 EosToken : Nat
 EosToken = 7
 
-InputDim : Nat
-InputDim = SeqLen
-
-OutputDim : Nat
-OutputDim = SeqLen * VocabSize
-
 BatchSize : Nat
 BatchSize = 16
 
 ----------------------------------------------------------------------
--- Per-position categorical cross-entropy loss (reversal portion only)
+-- Model (Nn surface): embedding + sinusoidal PE + transformer blocks +
+-- final norm + bias-free output head.
 ----------------------------------------------------------------------
 
--- Number of positions in the reversal portion (SEP + reversed + EOS)
-ReversalLen : Nat
-ReversalLen = SeqLen `minus` InputLen
+public export
+record TfmModel (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
+  constructor MkTfmModel
+  embed : Embedding VocabSize DModel ex dt g
+  body  : Seq DModel DModel ex dt g
+  headW : TMat VocabSize DModel ex dt g
+  pe    : Tensor [SeqLen, DModel] ex dt g
 
-|||  typed-surface CE loss on per-sample logits + target [seqLen *
-||| vocabSize]. Masks the random-prefix positions so only the reversal
-||| portion contributes (V1 `reversalCE` parity, returning a Tensor [] CPU).
-catCELossVar : TVec OutputDim ExampleExecutor ExampleDType WithGrad -> TVec OutputDim ExampleExecutor ExampleDType WithGrad -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-catCELossVar predV targetV = ioRerun (\_ =>
-  let vsI = cast {to=Int} VocabSize
-      sI     = cast {to=Int} SeqLen
-      skip   = cast {to=Int} InputLen
-      revLen = sI - skip
-      -- Narrow at axis 0 with ROW indices: rows `skip..skip+revLen-1`
-      -- of the [seqLen, vocab] reshape. The pre-bd61bef8 (2026-05-26)
-      -- mlx/torch `primNarrow` flattened the tensor and treated start
-      -- + length as 1D element counts — so `primNarrow logitsFull 0
-      -- (skip * vsI) (revLen * vsI)` accidentally did the right thing
-      -- (skip=5, vsI=8, revLen=6 → flat slice 40..87 = rows 5..10 of
-      -- the [11, 8]). When bd61bef8 fixed `tensor_narrow` to honor
-      -- the axis arg properly, this loss silently broke: row-axis
-      -- narrow with start=40 length=48 on an 11-row tensor returns
-      -- an empty array, then the downstream `primReshape2d ... revLen
-      -- vsI` aborts with "Cannot reshape array of size 0 into shape
-      -- (6, 8)". Fix: row indices instead of flat indices.
-      logitsFull = primReshape2d {ex=ExampleExecutor} predV.tensorPtr sI vsI
-      targetFull = primReshape2d {ex=ExampleExecutor} targetV.tensorPtr sI vsI
-      logitsR    = primNarrow {ex=ExampleExecutor} logitsFull 0 skip revLen
-      logProbs   = primLogSoftmax2d {ex=ExampleExecutor} logitsR
-      tgtsR      = primNarrow {ex=ExampleExecutor} targetFull 0 skip revLen
-      product    = primMul {ex=ExampleExecutor} logProbs tgtsR
-      totalSum   = primSum {ex=ExampleExecutor} product
-      loss       = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
+Model : Type
+Model = TfmModel ExampleExecutor ExampleDType WithGrad
+
+-- NumBlocks pre-norm transformer blocks followed by the final LayerNorm.
+buildBody : (k : Nat) -> Init (Seq DModel DModel ExampleExecutor ExampleDType WithGrad)
+buildBody Z = do
+  ln <- layerNorm {ex=ExampleExecutor} {dt=ExampleDType} {n=DModel}
+  pure (ln :: Nil)
+buildBody (S j) = do
+  blk  <- scopedChild "block"
+            (transformerBlock {ex=ExampleExecutor} {dt=ExampleDType}
+                              {dModel=DModel} {numHeads=NumHeads} {headDim=HeadDim})
+  rest <- buildBody j
+  pure (blk :: rest)
+
+partial
+mkModel : IO Model
+mkModel = do
+  (emb, bdy, hw) <- runInit $ do
+    e <- scoped "embed" (embedding {ex=ExampleExecutor} {dt=ExampleDType}
+                                   {vocab=VocabSize} {embedDim=DModel})
+    b <- buildBody NumBlocks
+    hn <- freshChild "head"
+    hw <- liftIO $ tparam2dNormal {ex=ExampleExecutor} {dt=ExampleDType}
+                                  {o=VocabSize} {i=DModel}
+                                  (hn ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} DModel))
+    pure (e, b, hw)
+  pe <- sinusoidalPE {ex=ExampleExecutor} {dt=ExampleDType} {seqLen=SeqLen} {dModel=DModel}
+  pure (MkTfmModel emb bdy hw pe)
+
+-- Forward one sequence `[SeqLen]` → per-position logits `[SeqLen, VocabSize]`.
+partial
+tfmForward : Model -> Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad ->
+             IO (Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad)
+tfmForward (MkTfmModel emb body headW pe) tokens = do
+  embFlat <- embeddingForward {ex=ExampleExecutor} {seqLen=SeqLen} {embedDim=DModel}
+                              {vocab=VocabSize} emb tokens
+  let sI = cast {to=Int} SeqLen
+      dI = cast {to=Int} DModel
+  emb2d <- ioRerun (\_ =>
+    the (Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad)
+        (MkTensor (primReshape2d {ex=ExampleExecutor} embFlat.tensorPtr sI dI) Nothing))
+  h0 <- tadd emb2d pe
+  hN <- forwardSeq {b=SeqLen} body h0
+  ioRerun (\_ =>
+    MkTensor (primMm {ex=ExampleExecutor} hN.tensorPtr
+                     (primTranspose2d {ex=ExampleExecutor} headW.tensorPtr)) Nothing)
+
+----------------------------------------------------------------------
+-- Data generation (sorting task)
+----------------------------------------------------------------------
+
+packDoubleBuf : AnyPtr -> Int -> List Int -> AnyPtr
+packDoubleBuf buf _ []          = buf
+packDoubleBuf buf off (x :: xs) =
+  packDoubleBuf (prim__setDouble buf off (cast x)) (off + 1) xs
+
+packIntBuf : AnyPtr -> Int -> List Int -> AnyPtr
+packIntBuf buf _ []          = buf
+packIntBuf buf off (x :: xs) =
+  packIntBuf (prim__setInt buf off x) (off + 1) xs
+
+-- One (input ids, one-hot target) sorting pair:
+--   input  = [t0..t4, SEP, sorted_0..sorted_4]  (first SeqLen of the full seq)
+--   target = the same shifted by 1 (next token), one-hot [SeqLen, VocabSize].
+TfmSample : Type
+TfmSample = ( Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad
+            , Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad )
+
+sortingSample : IO TfmSample
+sortingSample = do
+  tokens <- sequence (replicate InputLen (randomInt 0 (minus VocabSize 3)))
+  let sorted = Data.List.sort tokens
+      fullSeq    = tokens ++ [SepToken] ++ sorted ++ [EosToken]
+      inputToks  = map (cast {to=Int} . cast {to=Integer}) (Data.List.take SeqLen fullSeq)
+      targetToks = map (cast {to=Int} . cast {to=Integer}) (Data.List.take SeqLen (drop 1 fullSeq))
+      sI         = cast {to=Int} SeqLen
+      vI         = cast {to=Int} VocabSize
+      inT        = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
+      tgtIdxBuf  = packIntBuf (prim__allocInts sI) 0 targetToks
+      tgtFlat    = primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
+      tgt2d      = primReshape2d {ex=ExampleExecutor} tgtFlat sI vI
+  pure (MkTensor inT Nothing, MkTensor tgt2d Nothing)
+
+sortingBatch : (n : Nat) -> IO (Vect n TfmSample)
+sortingBatch Z     = pure []
+sortingBatch (S k) = do
+  s    <- sortingSample
+  rest <- sortingBatch k
+  pure (s :: rest)
+
+----------------------------------------------------------------------
+-- Per-position categorical cross-entropy (sorted portion only)
+----------------------------------------------------------------------
+
+-- CE on `[SeqLen, VocabSize]` logits + one-hot target, masked to the
+-- sorted/output portion (rows InputLen..SeqLen-1) so the random-prefix
+-- positions don't contribute. Mirrors the legacy `catCELossVar`.
+tfmLoss : Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad ->
+          Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad ->
+          IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+tfmLoss logits targets = ioRerun (\_ =>
+  let sI     = cast {to=Int} SeqLen
+      skip     = cast {to=Int} InputLen
+      revLen   = sI - skip
+      logitsR  = primNarrow {ex=ExampleExecutor} logits.tensorPtr 0 skip revLen
+      logProbs = primLogSoftmax2d {ex=ExampleExecutor} logitsR
+      tgtsR    = primNarrow {ex=ExampleExecutor} targets.tensorPtr 0 skip revLen
+      product  = primMul {ex=ExampleExecutor} logProbs tgtsR
+      totalSum = primSum {ex=ExampleExecutor} product
+      loss     = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
   in MkTensor loss Nothing)
 
+-- Mean loss over a batch.
+partial
+batchLoss : Model -> Vect BatchSize TfmSample -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+batchLoss model batch = do
+  losses <- traverse (\(ids, tgt) => do logits <- tfmForward model ids; tfmLoss logits tgt) (toList batch)
+  zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "tfm.epoch_zero" 0.0
+  summed <- foldlM (\acc, l => tadd acc l) zero losses
+  tmulScalar summed (1.0 / cast {to=Double} BatchSize)
+
 ----------------------------------------------------------------------
--- Helpers
+-- Helpers (decoding / accuracy)
 ----------------------------------------------------------------------
 
 tokenName : Nat -> String
@@ -124,7 +212,7 @@ tokenName n = if n < 6
   else "?"
 
 ||| Argmax over vocabSize logits at a given position, reading directly
-||| from a tensor pointer.
+||| from a (row-major) tensor pointer.
 argmaxAtPtr : (vocabSize : Nat) -> AnyPtr -> Nat -> Nat
 argmaxAtPtr vocabSize t pos =
   let scan : Int -> Nat -> Double -> Nat
@@ -180,8 +268,7 @@ main = do
   srand cfg.seed
   tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
-  let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
-      positions = map finToNat (toList (Data.Vect.Fin.range {len=SeqLen}))
+  let positions = map finToNat (toList (Data.Vect.Fin.range {len=SeqLen}))
 
   putStrLn "=== Transformer: Sequence Sorting ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
@@ -190,30 +277,30 @@ main = do
            ++ " heads=" ++ show NumHeads ++ " headDim=" ++ show HeadDim
            ++ " blocks=" ++ show NumBlocks ++ " vocab=" ++ show VocabSize
 
-  tfmAny <- transformerLayerAny
-              {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
-               headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
-              "tfm0"
-  let model : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer tfmAny
+  model <- mkModel
+  -- Adam with global grad-clip norm 1.0 (was nativeAdamGlobalClip).
+  opt <- adam {ex=ExampleExecutor} cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
   putStrLn ""
 
-  let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
-      genBatch = sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
+  -- One fused training step (used by both fit and lrFind).
+  let stepFn : Model -> Vect BatchSize TfmSample -> IO (Model, Double)
+      stepFn m b = do
+        loss <- batchLoss m b
+        d    <- nativeTrainStep opt loss
+        pure (m, d)
 
-  -- Per-epoch metrics: accuracy on a fresh eval batch via single-sample forwardVar.
-  let evalMetrics : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
+  -- Per-epoch metrics: sorted-portion accuracy on a fresh eval batch.
+  let evalMetrics : Model -> IO (List (String, String))
       evalMetrics m = do
-        evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
-        results <- traverse (\dp => do
-              let inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor (inputTensor dp) Nothing)
-              (_, predV) <- forwardVar m inV
+        evalData <- sortingBatch BatchSize
+        results <- traverse (\(ids, tgt) => do
+              predV <- tfmForward m ids
               let predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
-                  expected = map (argmaxAtPtr VocabSize (targetTensor dp)) positions
+                  expected = map (argmaxAtPtr VocabSize tgt.tensorPtr) positions
                   sortPred = drop InputLen predicted
                   sortExp  = drop InputLen expected
-              pure (countMatches sortPred sortExp)) evalData
-        let totalCorrect = foldl (+) 0 (toList results)
+              pure (countMatches sortPred sortExp)) (toList evalData)
+        let totalCorrect = foldl (+) 0 results
             totalPositions = BatchSize * (SeqLen `minus` InputLen)
         pure [("sort_acc", show totalCorrect ++ "/" ++ show totalPositions)]
 
@@ -227,26 +314,23 @@ main = do
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
-    _ <- lrFind lrCfg
-      (\m, d => epochVarTensorBatch opt d catCELossVar m)
-      genBatch opt model
+    _ <- lrFind lrCfg stepFn (sortingBatch BatchSize) opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  (trained, epochsDone, finalLoss) <- runTraining {ex=ExampleExecutor}
-    (\m, d => epochVarTensorBatch opt d catCELossVar m) genBatch trainCfg model
+  let stream = generate (sortingBatch BatchSize)
+
+  (trained, epochsDone, finalLoss) <-
+    fitSupervised {ex=ExampleExecutor} opt batchLoss stream trainCfg model
 
   -- Single-sample eval
   putStrLn ""
   putStrLn "Evaluation:"
-  evalRaw <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
-  let tdp = index FZ evalRaw
-      inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor (inputTensor tdp) Nothing)
-  (_, predV) <- forwardVar trained inV
-  let inpT = inputTensor tdp
-      inputDecoded  = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {ex=ExampleExecutor} inpT (cast p)))) positions
-      targetDecoded = map (argmaxAtPtr VocabSize (targetTensor tdp)) positions
+  (inIds, tgt) <- sortingSample
+  predV <- tfmForward trained inIds
+  let inputDecoded  = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {ex=ExampleExecutor} inIds.tensorPtr (cast p)))) positions
+      targetDecoded = map (argmaxAtPtr VocabSize tgt.tensorPtr) positions
       predicted     = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
       sortCorrect   = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
       sortTotal     = SeqLen `minus` InputLen
