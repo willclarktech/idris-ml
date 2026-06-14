@@ -31,16 +31,20 @@ Params LayerNorm where
   params (MkLayerNorm gamma beta)   = [toParam gamma, toParam beta]
   castGrad (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
 
-||| Linear-resource `Module`. `gamma`/`beta` are ω tensors: they feed the IO
-||| `forward`, the reflected param list, and the rebuild.
+||| Linear-resource params. `gamma`/`beta` are ω tensors: they feed the
+||| reflected param list and the rebuild.
+public export
+ParamsL LayerNorm where
+  reflectL (MkLayerNorm gamma beta)  = MkBang [toParam gamma, toParam beta] # MkLayerNorm gamma beta
+  castGradL (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
+  discardL (MkLayerNorm _ _)         = pure ()
+
+||| Linear-resource `Module` — reuses the IO `forward` under `liftIO1`.
 public export
 ModuleL LayerNorm where
   forwardL (MkLayerNorm gamma beta) x = do
     y <- liftIO1 (forward (MkLayerNorm gamma beta) x)
     pure1 (MkBang y # MkLayerNorm gamma beta)
-  reflectL (MkLayerNorm gamma beta)  = MkBang [toParam gamma, toParam beta] # MkLayerNorm gamma beta
-  castGradL (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
-  discardL (MkLayerNorm _ _)         = pure ()
 
 ||| Construct a `LayerNorm n n` inside an `Init` derivation. Registers
 ||| `<scope>.layer_norm_<n>.weight` (gamma, init 1) / `.bias` (beta, init 0).

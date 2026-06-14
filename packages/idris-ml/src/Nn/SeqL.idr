@@ -84,10 +84,13 @@ discardSeqL (l :: rest) = do
   discardL l
   discardSeqL rest
 
-||| `SeqL` is a `ModuleL`: lets a `SeqL` nest inside another `SeqL`.
+||| `SeqL` is a `ParamsL` + `ModuleL`: lets a `SeqL` nest inside another.
 public export
-ModuleL SeqL where
-  forwardL  = forwardSeqL
+ParamsL SeqL where
   reflectL  = reflectSeqL
   castGradL = castGradSeqL
   discardL  = discardSeqL
+
+public export
+ModuleL SeqL where
+  forwardL = forwardSeqL

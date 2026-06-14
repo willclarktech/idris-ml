@@ -36,16 +36,20 @@ Params Dropout where
   params _                        = []
   castGrad (MkDropout p training) = MkDropout p training
 
-||| Linear-resource `Module` (stateless — no params). `p`/`training` ride at
-||| ω quantity through the IO `forward` call and the rebuild.
+||| Linear-resource params (stateless — empty param list). `p`/`training`
+||| ride at ω quantity through the rebuild.
+public export
+ParamsL Dropout where
+  reflectL (MkDropout p t)  = MkBang [] # MkDropout p t
+  castGradL (MkDropout p t) = MkDropout p t
+  discardL (MkDropout _ _)  = pure ()
+
+||| Linear-resource `Module` — reuses the IO `forward` under `liftIO1`.
 public export
 ModuleL Dropout where
   forwardL (MkDropout p t) x = do
     y <- liftIO1 (forward (MkDropout p t) x)
     pure1 (MkBang y # MkDropout p t)
-  reflectL (MkDropout p t)  = MkBang [] # MkDropout p t
-  castGradL (MkDropout p t) = MkDropout p t
-  discardL (MkDropout _ _)  = pure ()
 
 ||| Dropout with drop probability `p`, starting in training mode.
 public export

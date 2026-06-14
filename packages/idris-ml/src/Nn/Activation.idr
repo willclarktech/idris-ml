@@ -43,17 +43,20 @@ Params Activation where
   params _                  = []
   castGrad (MkActivation k) = MkActivation k
 
-||| Linear-resource `Module` (stateless — no params to reflect). The tag `k`
-||| is bound at its ω constructor quantity, so it feeds the IO `forward` and
-||| rebuilds the record.
+||| Linear-resource params (stateless — empty param list). The tag `k` is
+||| bound at its ω constructor quantity, so it feeds the rebuild.
+public export
+ParamsL Activation where
+  reflectL (MkActivation k)  = MkBang [] # MkActivation k
+  castGradL (MkActivation k) = MkActivation k
+  discardL (MkActivation _)  = pure ()
+
+||| Linear-resource `Module` — reuses the IO `forward` under `liftIO1`.
 public export
 ModuleL Activation where
   forwardL (MkActivation k) x = do
     y <- liftIO1 (forward (MkActivation k) x)
     pure1 (MkBang y # MkActivation k)
-  reflectL (MkActivation k)  = MkBang [] # MkActivation k
-  castGradL (MkActivation k) = MkActivation k
-  discardL (MkActivation _)  = pure ()
 
 -- Constructors (no Init needed — stateless, registers nothing).
 public export

@@ -178,39 +178,44 @@ interface ParamsMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0
 -- Linear-resource surface (`L IO`) — the migration target
 ----------------------------------------------------------------------
 
-||| `ModuleL` is `Module`+`Params` re-expressed for **linear** model
-||| handling under `Control.Linear.LIO.L IO`. A model is a single-owner
-||| resource: every operation **consumes** the handle `(1 _ : l …)` and
-||| **returns** a fresh one, so a stale alias (the classic "freeze a model,
-||| then reuse the old handle to train" no-op) is a *compile-time* linearity
-||| error rather than a silent afternoon-waster.
+||| `ParamsL` is `Params` re-expressed for **linear** model handling under
+||| `Control.Linear.LIO.L IO` — the base capability every linear layer has,
+||| whether it is a batched `ModuleL` or a per-timestep `RecurrentL` (mirrors
+||| the IO design, where `Params` is the base and `Module`/`Recurrent` are
+||| separate capabilities). A model is a single-owner resource: every method
+||| **consumes** the handle `(1 _ : l …)`, so a stale alias (the classic
+||| "freeze a model, then reuse the old handle to train" no-op) is a
+||| *compile-time* linearity error rather than a silent afternoon-waster.
 |||
-||| Four methods, all consuming the model exactly once:
-|||   * `forwardL` — batched forward; the (unrestricted) output tensor rides
-||| the linear return pair wrapped in the `(!*)` bang (`MkBang`), beside the
-||| rebuilt model. Tensors stay unrestricted — reverse-mode AD shares them.
 |||   * `reflectL` — expose the param list (for the C `requires_grad` flips)
-||| without consuming the model: returns `(!* params) # model`.
+||| without losing the model: returns `(!* params) # model`.
 |||   * `castGradL` — the linear `castGrad` (`g → g'`); pure, phantom retype.
 |||   * `discardL` — the explicit linear consumer: a use-once model that isn't
 ||| threaded onward must be discarded (it can't fall out of scope).
 |||
-||| Coexists with the IO `Module`/`Params` during the migration; the IO
-||| surface is deleted when every caller is on `L IO`. The per-layer impl
-||| pattern-matches the constructor (binding param fields at their ω
-||| constructor quantity — free to reuse in the matmul *and* rebuild the
-||| record); never `.field`-projects a linear value.
+||| The per-layer impl pattern-matches the constructor (binding param fields
+||| at their ω constructor quantity — free to reuse *and* rebuild the record);
+||| never `.field`-projects a linear value.
 public export
-interface ModuleL (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
-  forwardL : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o, b : Nat} ->
-             (1 _ : l i o ex dt g) -> Tensor [b, i] ex dt g ->
-             L IO {use=1} (LPair (!* (Tensor [b, o] ex dt g)) (l i o ex dt g))
+interface ParamsL (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
   reflectL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
              (1 _ : l i o ex dt g) -> LPair (!* (List SomeParam)) (l i o ex dt g)
   castGradL : {0 ex : Executor} -> {0 dt : DType} -> {0 g, g' : GradMode} -> {0 i, o : Nat} ->
               (1 _ : l i o ex dt g) -> l i o ex dt g'
   discardL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
              (1 _ : l i o ex dt g) -> L IO ()
+
+||| `ModuleL` is `Module` for the linear surface: the batched `forwardL` on
+||| top of `ParamsL`. `forwardL` consumes the model and returns the
+||| (unrestricted) output tensor wrapped in the `(!*)` bang (`MkBang`) — so it
+||| can ride the linear return pair — beside the rebuilt model. Tensors stay
+||| unrestricted (reverse-mode AD shares them). Coexists with the IO `Module`;
+||| the IO surface is deleted when every caller is on `L IO`.
+public export
+interface ParamsL l => ModuleL (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
+  forwardL : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o, b : Nat} ->
+             (1 _ : l i o ex dt g) -> Tensor [b, i] ex dt g ->
+             L IO {use=1} (LPair (!* (Tensor [b, o] ex dt g)) (l i o ex dt g))
 
 ||| A frozen *linear* model — the `L IO` counterpart of `Frozen`. Its field
 ||| is **linear** (`1 _`) so it can hold a linearly-produced model (an ω
@@ -229,7 +234,7 @@ record FrozenL (m : Type) where
 export
 evalL : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
         {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
-        UserExecutorTraining ex => ModuleL l =>
+        UserExecutorTraining ex => ParamsL l =>
         (1 _ : l i o ex dt WithGrad) -> L IO {use=1} (l i o ex dt NoGrad)
 evalL m = do
   let (MkBang ps # m') = reflectL m
@@ -243,7 +248,7 @@ evalL m = do
 export
 freezeL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
           {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
-          UserExecutorTraining ex => ModuleL l =>
+          UserExecutorTraining ex => ParamsL l =>
           (1 _ : l i o ex dt g) -> L IO {use=1} (FrozenL (l i o ex dt g))
 freezeL m = do
   let (MkBang ps # m') = reflectL m
@@ -254,7 +259,7 @@ freezeL m = do
 export
 unfreezeL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
             {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
-            UserExecutorTraining ex => ModuleL l =>
+            UserExecutorTraining ex => ParamsL l =>
             (1 _ : FrozenL (l i o ex dt g)) -> L IO {use=1} (l i o ex dt g)
 unfreezeL (MkFrozenL m) = do
   let (MkBang ps # m') = reflectL m
@@ -266,7 +271,7 @@ unfreezeL (MkFrozenL m) = do
 export
 trainableL : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
              {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
-             UserExecutorTraining ex => ModuleL l =>
+             UserExecutorTraining ex => ParamsL l =>
              (1 _ : l i o ex dt NoGrad) -> L IO {use=1} (l i o ex dt WithGrad)
 trainableL m = do
   let (MkBang ps # m') = reflectL m

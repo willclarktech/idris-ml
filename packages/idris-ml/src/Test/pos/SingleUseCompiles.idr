@@ -15,8 +15,10 @@ import Nn.Dropout
 import Nn.LayerNorm
 import Nn.Linear
 import Nn.Module
+import Nn.Recurrent
 import Nn.Residual
 import Nn.SeqL
+import Tensor
 
 -- Leaf: consume the trainable model exactly once, return the inference one.
 okSingle : (1 _ : Linear 2 3 TapeExecutor F64 WithGrad) ->
@@ -45,3 +47,16 @@ okLayerNorm n = evalL n
 okResidual : (1 _ : ResidualL 4 4 TapeExecutor F64 WithGrad) ->
              L IO {use=1} (ResidualL 4 4 TapeExecutor F64 NoGrad)
 okResidual r = evalL r
+
+-- Recurrent: one linear timestep (consume cell, return banged output + cell).
+-- `TVec` aliases dodge the `[2]`/`[3]` list-literal `(::)` ambiguity (SeqL /
+-- Data.Linear `(::)` are in scope here).
+okRnnStep : (1 _ : Rnn 2 3 TapeExecutor F64 WithGrad) -> TVec 2 TapeExecutor F64 WithGrad ->
+            L IO {use=1} (LPair (!* (TVec 3 TapeExecutor F64 WithGrad))
+                                (Rnn 2 3 TapeExecutor F64 WithGrad))
+okRnnStep r x = recurStepL r x
+
+-- Recurrent layers are `ParamsL`, so `evalL` works on them too.
+okRnnEval : (1 _ : Rnn 2 3 TapeExecutor F64 WithGrad) ->
+            L IO {use=1} (Rnn 2 3 TapeExecutor F64 NoGrad)
+okRnnEval r = evalL r

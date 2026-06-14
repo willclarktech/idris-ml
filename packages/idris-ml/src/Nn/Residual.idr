@@ -56,6 +56,14 @@ data ResidualL : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradM
                 ModuleL l =>
                 (1 _ : l n n ex dt g) -> ResidualL n n ex dt g
 
+||| Params recurse into the sublayer.
+public export
+ParamsL ResidualL where
+  reflectL (MkResidualL sub) =
+    let (MkBang ps # sub') = reflectL sub in MkBang ps # MkResidualL sub'
+  castGradL (MkResidualL sub) = MkResidualL (castGradL sub)
+  discardL (MkResidualL sub)  = discardL sub
+
 ||| `forward x = x + sublayer(x)`, threading the sublayer linearly. `x` is an
 ||| unrestricted tensor, so it feeds both the sublayer and the add.
 public export
@@ -64,10 +72,6 @@ ModuleL ResidualL where
     (MkBang fx # sub') <- forwardL sub x
     y <- liftIO1 (tadd x fx)
     pure1 (MkBang y # MkResidualL sub')
-  reflectL (MkResidualL sub) =
-    let (MkBang ps # sub') = reflectL sub in MkBang ps # MkResidualL sub'
-  castGradL (MkResidualL sub) = MkResidualL (castGradL sub)
-  discardL (MkResidualL sub)  = discardL sub
 
 ||| Wrap a sublayer in a linear residual connection.
 public export
