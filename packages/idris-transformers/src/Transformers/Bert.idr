@@ -21,6 +21,7 @@ import Data.Vect
 
 import Compat.Random
 import Executor
+import GradMode
 import Transformers.Common
 import Init
 import Nn.Embedding
@@ -199,45 +200,63 @@ fillConst buf off n v =
 -- record holds the typed handles for use at forward time. The pfx
 -- is the *Linear*'s prefix (e.g. `bert.encoder.layer.0.attention.self.query`),
 -- NOT the parent block.
-makeBertLinear : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBertLinear : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
               => {i, o : Nat}
               -> (paramPrefix : String)
-              -> IO (Linear i o ex dt WithGrad)
+              -> IO (Linear i o ex dt g)
 makeBertLinear pfx = do
   -- Fused C-side create + in-place init. Weight: normal(0, 0.02)
   -- matching HF's default Linear init; bias: zero. Replaces the per-
   -- element `traverse normalSample` + `packDs` chain that dominated
   -- state construction on 1B-param models (see
   -- docs/develop/perf-changes.md).
-  w <- tparam2dNormal {o} {i} (pfx ++ ".weight") 0.0 0.02
-  b <- tparam1dConst  {n=o}   (pfx ++ ".bias")   0.0
-  pure (MkLinear w b)
+  w <- tparam2dNormal {ex} {dt} {o} {i} (pfx ++ ".weight") 0.0 0.02
+  b <- tparam1dConst {ex} {dt} {n=o}   (pfx ++ ".bias")   0.0
+  -- Build the requested grad-mode directly: WithGrad keeps the freshly
+  -- registered (requires_grad=1) params; NoGrad weakens them in place
+  -- (requires_grad=0 + retype) so the inference model is genuinely
+  -- tape-free with no post-construction `eval` flip.
+  case sgrad {g} of
+    SWithGrad => pure (MkLinear w b)
+    SNoGrad => do
+      w' <- weakenGrad w
+      b' <- weakenGrad b
+      pure (MkLinear w' b')
 
 -- HF-named Embedding: registers `<pfx>.weight` (`[vocab, dim]`).
-makeBertEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBertEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                  => {vocab, dim : Nat}
                  -> (paramPrefix : String)
-                 -> IO (Embedding vocab dim ex dt WithGrad)
+                 -> IO (Embedding vocab dim ex dt g)
 makeBertEmbedding pfx = do
   -- Fused C-side create + normal(0, 0.02) init. See makeBertLinear
   -- for the bottleneck this replaces.
-  w <- tparam2dNormal {o=vocab} {i=dim} (pfx ++ ".weight") 0.0 0.02
-  pure (MkEmbedding w)
+  w <- tparam2dNormal {ex} {dt} {o=vocab} {i=dim} (pfx ++ ".weight") 0.0 0.02
+  case sgrad {g} of
+    SWithGrad => pure (MkEmbedding w)
+    SNoGrad => do
+      w' <- weakenGrad w
+      pure (MkEmbedding w')
 
 -- HF-named LayerNorm: registers `<pfx>.weight` (γ, init 1.0) and
 -- `<pfx>.bias` (β, init 0.0). HF capitalises `LayerNorm` in the path
 -- so callers pass e.g. `bert.embeddings.LayerNorm`.
-makeBertLN : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBertLN : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {n : Nat}
           -> (paramPrefix : String)
-          -> IO (LayerNorm n n ex dt WithGrad)
+          -> IO (LayerNorm n n ex dt g)
 makeBertLN pfx = do
   -- Fused C-side const fill. γ = 1.0 (HF LayerNorm weight default),
   -- β = 0.0 (bias default). Replaces the host-side fillConst/zeroBuf
   -- loops + per-element prim__setDouble FFI.
-  g <- tparam1dConst {n} (pfx ++ ".weight") 1.0
-  b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
-  pure (MkLayerNorm g b)
+  gw <- tparam1dConst {ex} {dt} {n} (pfx ++ ".weight") 1.0
+  b  <- tparam1dConst {ex} {dt} {n} (pfx ++ ".bias")   0.0
+  case sgrad {g} of
+    SWithGrad => pure (MkLayerNorm gw b)
+    SNoGrad => do
+      gw' <- weakenGrad gw
+      b'  <- weakenGrad b
+      pure (MkLayerNorm gw' b')
 
 ----------------------------------------------------------------------
 -- BERT state records
@@ -312,10 +331,10 @@ record BertModelState
 -- Constructors
 ----------------------------------------------------------------------
 
-makeEmbeddings : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeEmbeddings : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
               => {vocab, hidden, maxPos, typeVocab : Nat}
               -> (paramPrefix : String)
-              -> IO (BertEmbeddingsState vocab hidden maxPos typeVocab ex dt WithGrad)
+              -> IO (BertEmbeddingsState vocab hidden maxPos typeVocab ex dt g)
 makeEmbeddings pfx = do
   let p = embeddingsPrefix pfx
   we <- makeBertEmbedding {vocab} {dim=hidden} (p ++ ".word_embeddings")
@@ -324,10 +343,10 @@ makeEmbeddings pfx = do
   ln <- makeBertLN {n=hidden} (p ++ ".LayerNorm")
   pure (MkBertEmbeddings we pe te ln)
 
-makeSelfAttn : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeSelfAttn : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
             => {hidden : Nat}
             -> (paramPrefix : String)
-            -> IO (BertSelfAttentionState hidden ex dt WithGrad)
+            -> IO (BertSelfAttentionState hidden ex dt g)
 makeSelfAttn pfx = do
   let p = pfx ++ ".attention.self"
   q <- makeBertLinear {i=hidden} {o=hidden} (p ++ ".query")
@@ -335,39 +354,39 @@ makeSelfAttn pfx = do
   v <- makeBertLinear {i=hidden} {o=hidden} (p ++ ".value")
   pure (MkBertSelfAttn q k v)
 
-makeSelfOut : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeSelfOut : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
            => {hidden : Nat}
            -> (paramPrefix : String)
-           -> IO (BertSelfOutputState hidden ex dt WithGrad)
+           -> IO (BertSelfOutputState hidden ex dt g)
 makeSelfOut pfx = do
   let p = pfx ++ ".attention.output"
   dn <- makeBertLinear {i=hidden} {o=hidden} (p ++ ".dense")
   ln <- makeBertLN {n=hidden} (p ++ ".LayerNorm")
   pure (MkBertSelfOut dn ln)
 
-makeIntermed : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeIntermed : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
             => {hidden, intermediate : Nat}
             -> (paramPrefix : String)
-            -> IO (BertIntermediateState hidden intermediate ex dt WithGrad)
+            -> IO (BertIntermediateState hidden intermediate ex dt g)
 makeIntermed pfx = do
   dn <- makeBertLinear {i=hidden} {o=intermediate} (pfx ++ ".intermediate.dense")
   pure (MkBertIntermediate dn)
 
-makeOutput : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeOutput : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {hidden, intermediate : Nat}
           -> (paramPrefix : String)
-          -> IO (BertOutputState hidden intermediate ex dt WithGrad)
+          -> IO (BertOutputState hidden intermediate ex dt g)
 makeOutput pfx = do
   let p = pfx ++ ".output"
   dn <- makeBertLinear {i=intermediate} {o=hidden} (p ++ ".dense")
   ln <- makeBertLN {n=hidden} (p ++ ".LayerNorm")
   pure (MkBertOut dn ln)
 
-makeLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeLayer : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
          => {hidden, intermediate : Nat}
          -> (layerIdx : Nat)
          -> (paramPrefix : String)
-         -> IO (BertLayerState hidden intermediate ex dt WithGrad)
+         -> IO (BertLayerState hidden intermediate ex dt g)
 makeLayer i pfx = do
   let p = encoderLayerPrefix pfx i
   sa <- makeSelfAttn  {hidden} p
@@ -381,11 +400,11 @@ makeLayer i pfx = do
 -- projectors — the `where`-helper form trips Idris's lowercase-name
 -- shadowing warning that can't be silenced without breaking
 -- unification at the recursive call.
-makeLayersGo : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeLayersGo : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
             => {hidden, intermediate : Nat}
             -> (paramPrefix : String)
             -> (idx : Nat) -> (remaining : Nat)
-            -> IO (Vect remaining (BertLayerState hidden intermediate ex dt WithGrad))
+            -> IO (Vect remaining (BertLayerState hidden intermediate ex dt g))
 makeLayersGo _   _   Z     = pure []
 makeLayersGo pfx idx (S k) = do
   l  <- makeLayer {hidden} {intermediate} idx pfx
@@ -394,17 +413,17 @@ makeLayersGo pfx idx (S k) = do
 
 -- Build N layers in ascending index order (0, 1, …, N-1). Registers
 -- params in the order the catalogue lists them.
-makeLayers : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeLayers : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {hidden, intermediate : Nat}
           -> (count : Nat)
           -> (paramPrefix : String)
-          -> IO (Vect count (BertLayerState hidden intermediate ex dt WithGrad))
+          -> IO (Vect count (BertLayerState hidden intermediate ex dt g))
 makeLayers count pfx = makeLayersGo pfx Z count
 
-makePooler : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makePooler : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {hidden : Nat}
           -> (paramPrefix : String)
-          -> IO (BertPoolerState hidden ex dt WithGrad)
+          -> IO (BertPoolerState hidden ex dt g)
 makePooler pfx = do
   dn <- makeBertLinear {i=hidden} {o=hidden} (poolerPrefix pfx ++ ".dense")
   pure (MkBertPooler dn)
@@ -420,10 +439,10 @@ makePooler pfx = do
 ||| 39 (for numLayers=2) param names appear in the C registry in
 ||| exactly the order `bertParamNames cfg paramPrefix` returns.
 export
-hfBertModel : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+hfBertModel : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
            => {vocab, hidden, numLayers, numHeads, intermediate, maxPos, typeVocab : Nat}
            -> (paramPrefix : String)
-           -> IO (BertModelState vocab hidden numLayers intermediate maxPos typeVocab ex dt WithGrad)
+           -> IO (BertModelState vocab hidden numLayers intermediate maxPos typeVocab ex dt g)
 hfBertModel pfx = do
   emb    <- makeEmbeddings {vocab} {hidden} {maxPos} {typeVocab} pfx
   layers <- makeLayers     {hidden} {intermediate} numLayers pfx
@@ -707,18 +726,24 @@ record BertMlmHeadState
 ||| Register the 5 MLM-head params under `<clsPrefix>.predictions.*`.
 ||| Real callers pass `"cls"` to match HF; tests pass a distinct prefix
 ||| to avoid C-side param-registry collisions.
-makeMlmHead : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeMlmHead : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
            => {vocab, hidden : Nat}
            -> (clsPrefix : String)
-           -> IO (BertMlmHeadState vocab hidden ex dt WithGrad)
+           -> IO (BertMlmHeadState vocab hidden ex dt g)
 makeMlmHead clsPfx = do
   let p = clsPfx ++ ".predictions"
-  td <- makeBertLinear {i=hidden} {o=hidden} (p ++ ".transform.dense")
-  tn <- makeBertLN     {n=hidden}            (p ++ ".transform.LayerNorm")
+  td <- makeBertLinear {ex} {dt} {g} {i=hidden} {o=hidden} (p ++ ".transform.dense")
+  tn <- makeBertLN     {ex} {dt} {g} {n=hidden}            (p ++ ".transform.LayerNorm")
   -- Standalone decoder bias. The decoder *weight* is tied to the word
   -- embedding and is not registered separately — only the bias is.
-  bias <- tparam1dConst {n=vocab} (p ++ ".bias") 0.0
-  pure (MkBertMlmHead td tn bias)
+  bias <- tparam1dConst {ex} {dt} {n=vocab} (p ++ ".bias") 0.0
+  -- td/tn are already at `g` (their make*s wove it); only the standalone
+  -- bias needs the explicit grad-mode build.
+  case sgrad {g} of
+    SWithGrad => pure (MkBertMlmHead td tn bias)
+    SNoGrad => do
+      bias' <- weakenGrad bias
+      pure (MkBertMlmHead td tn bias')
 
 public export
 record BertForMaskedLmState
@@ -741,10 +766,10 @@ record BertForMaskedLmState
 ||| the v1 demo (one model per process); a future row can parameterise
 ||| the prefix if multi-model workflows arrive.
 export
-hfBertForMaskedLm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+hfBertForMaskedLm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                  => {vocab, hidden, numLayers, numHeads, intermediate, maxPos, typeVocab : Nat}
                  -> (paramPrefix : String)
-                 -> IO (BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab ex dt WithGrad)
+                 -> IO (BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab ex dt g)
 hfBertForMaskedLm pfx = do
   base <- hfBertModel {vocab} {hidden} {numLayers} {numHeads}
                       {intermediate} {maxPos} {typeVocab} pfx

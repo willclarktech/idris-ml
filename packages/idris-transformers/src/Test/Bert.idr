@@ -143,7 +143,7 @@ testConstructorRegistersHfNames = do
   let cfg = bertTinyConfig
   -- Build the model. Discard the returned state — we only care that
   -- the C-side param registry now holds all 39 HF-native names.
-  _ <- hfBertModel {ex=TestExecutor} {dt=TestDType}
+  _ <- hfBertModel {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
                    {vocab = cfg.vocabSize}
                    {hidden = cfg.hidden}
                    {numLayers = cfg.numLayers}
@@ -201,7 +201,7 @@ testForwardShapeAndFinite = do
   -- Tiny config: hidden=8, layers=1, heads=2, headDim=4, intermediate=16.
   -- Distinct paramPrefix from bertTinyConfig's "bert" so this test
   -- doesn't collide with the bucket-2 registry.
-  model <- hfBertModel {ex=TestExecutor} {dt=TestDType}
+  model <- hfBertModel {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
                        {vocab        = 4}
                        {hidden       = 8}
                        {numLayers    = 1}

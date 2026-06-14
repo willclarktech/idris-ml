@@ -239,7 +239,10 @@ main = do
   t0 <- clockTime Monotonic
 
   -- Build the full BertForMaskedLM (encoder + pooler + MLM head, 44 params).
-  model <- hfBertForMaskedLm {ex=ExampleExecutor} {dt=ExampleDType}
+  -- Construct the inference model directly in NoGrad: every param is born
+  -- with requires_grad=0 (no post-construction `eval` flip), so the forward
+  -- below is genuinely tape-free and this model can't be fed to an optimizer.
+  model <- hfBertForMaskedLm {ex=ExampleExecutor} {dt=ExampleDType} {g=NoGrad}
                              {vocab        = VocabSize}
                              {hidden       = Hidden}
                              {numLayers    = NumLayers}
@@ -257,14 +260,8 @@ main = do
     else pure ()
   stageStamp "loadModelAllowCast ok" t0
 
-  -- Inference model: flip every param's requires_grad off + retype
-  -- WithGrad -> NoGrad. The forward below is then genuinely tape-free
-  -- (no withNoGrad bracket) and this model can't be fed to an optimizer.
-  evalModel <- evalBertForMaskedLm model
-  stageStamp "eval (inference NoGrad) ok" t0
-
   if dumpPooled
-    then runPooledDump evalModel
+    then runPooledDump model
     else do
       -- Construct the BERT tokenizer once; each demo reuses it for both
       -- the input-string encode AND the top-5 token-id decode. The
@@ -284,9 +281,9 @@ main = do
           -- id 103 (by AutoTokenizer); runMaskDemo searches for it to
           -- locate the position to score.
           benchT0 <- clockTime Monotonic
-          runMaskDemo tok evalModel "paris is the capital of [MASK] ."
-          runMaskDemo tok evalModel "i went to the [MASK] to buy bread ."
-          runMaskDemo tok evalModel "the man worked as a [MASK] ."
+          runMaskDemo tok model "paris is the capital of [MASK] ."
+          runMaskDemo tok model "i went to the [MASK] to buy bread ."
+          runMaskDemo tok model "the man worked as a [MASK] ."
           benchT1 <- clockTime Monotonic
           -- Axis D perf marker: token count = 25 (wordpiece-aware:
           -- 8 + 8 + 9 across the three sentences including [CLS]/[SEP]
