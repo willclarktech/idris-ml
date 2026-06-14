@@ -30,6 +30,8 @@
 |||     (`applyMlmHead` at Transformers.Bert.idr:769).
 module Transformers.Gpt2
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 import Decidable.Equality
 
@@ -553,6 +555,22 @@ hfGpt2ForwardLm {hidden} {vocab} {numHeads} {headDim} model tokenIds posIds = do
   -- [vocab, hidden]; tlinear2d wants weight as [out, in] = [vocab, hidden].
   -- Bias is zero (no separate LM bias in GPT-2).
   projectTiedLmHead model.wte.weightT hFinal
+
+||| Linear (`L IO`) twin of `hfGpt2ForwardLm`: consume the model handle, run the
+||| read-only LM forward, return the `[seqLen, vocab]` logits (banged) beside the
+||| rebuilt model (single-owner per forward; see `hfBertSeqClassifyForwardL`).
+export
+hfGpt2ForwardLmL : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
+                   {seqLen, vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
+                -> {auto prf : hidden = numHeads * headDim}
+                -> (1 _ : Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt g)
+                -> Tensor [seqLen] ex dt g
+                -> Tensor [seqLen] ex dt g
+                -> L IO {use = 1} (LPair (!* (Tensor [seqLen, vocab] ex dt g))
+                                        (Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt g))
+hfGpt2ForwardLmL (MkGpt2Model wte wpe blocks lnF) tokenIds posIds = do
+  out <- liftIO1 (hfGpt2ForwardLm {numHeads} {headDim} (MkGpt2Model wte wpe blocks lnF) tokenIds posIds)
+  pure1 (MkBang out # MkGpt2Model wte wpe blocks lnF)
 
 ----------------------------------------------------------------------
 -- fromPretrained

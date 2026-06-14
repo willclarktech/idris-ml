@@ -17,6 +17,8 @@
 ||| `hfBertModel` constructor.
 module Transformers.Bert
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Backend
@@ -819,6 +821,25 @@ hfBertMlmForward (MkBertForMaskedLm (MkBertModel emb layers _) head) i p t mask 
   hEmb <- applyEmbeddings emb i p t
   hEnc <- applyEncoder {numHeads} {headDim} layers (map (\m => m.tensorPtr) mask) hEmb
   applyMlmHead head emb.wordEmb.weightT hEnc
+
+||| Linear (`L IO`) twin of `hfBertMlmForward`: consume the model handle, run the
+||| read-only MLM forward, return the `[seqLen, vocab]` logits (banged) beside
+||| the rebuilt model (single-owner per forward; see `hfBertSeqClassifyForwardL`).
+export
+hfBertMlmForwardL : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
+                 => {seqLen, vocab, hidden, numLayers, numHeads, headDim,
+                     intermediate, maxPos, typeVocab : Nat}
+                 -> {auto prf : hidden = numHeads * headDim}
+                 -> (1 _ : BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab ex dt g)
+                 -> (inputIds     : Tensor [seqLen] ex dt g)
+                 -> (positionIds  : Tensor [seqLen] ex dt g)
+                 -> (tokenTypeIds : Tensor [seqLen] ex dt g)
+                 -> (attentionMask : Maybe (Tensor [seqLen, seqLen] ex dt g))
+                 -> L IO {use = 1} (LPair (!* (Tensor [seqLen, vocab] ex dt g))
+                                         (BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab ex dt g))
+hfBertMlmForwardL (MkBertForMaskedLm base head) i p t mask = do
+  out <- liftIO1 (hfBertMlmForward {numHeads} {headDim} (MkBertForMaskedLm base head) i p t mask)
+  pure1 (MkBang out # MkBertForMaskedLm base head)
 
 ----------------------------------------------------------------------
 -- Grad-mode retype + `eval` (inference)

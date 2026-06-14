@@ -2150,6 +2150,18 @@ export %inline
 ioRerunL : (() -> a) -> LIO.L IO a
 ioRerunL f = liftIO1 (ioRerun f)
 
+||| Born-linear construction from an `IO` action (the IO-constructor analog of
+||| `runInitL`): run the action, re-emit its result at `use = 1` so the bound
+||| value is **linear** and the caller must thread it. For model surfaces whose
+||| constructors are plain `IO` (the HF `hf*` builders) rather than `Init` — a
+||| `liftIO1` alone would hand back an unrestricted value, losing the
+||| single-owner discipline at the construction seam.
+export
+bornL : {0 a : Type} -> (1 act : IO a) -> LIO.L IO {use = 1} a
+bornL act = do
+  x <- liftIO1 act
+  pure1 x
+
 export %inline
 taddL : {0 ex : Executor} -> UserExecutorCore ex =>
         Tensor dims ex dt g -> Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)

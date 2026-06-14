@@ -21,6 +21,8 @@
 |||   -- train: backward through tnllLoss, nativeTrainStep
 module Transformers.BertForClassification
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Executor
@@ -169,3 +171,28 @@ hfBertSeqClassifyForward :
 hfBertSeqClassifyForward (MkBertForSeqClassify base (MkBertClassifierHead head)) i p t mask = do
   pooled <- hfBertForward {numHeads} {headDim} base i p t mask
   tlinear head.weightT pooled head.biasT
+
+||| Linear (`L IO`) twin of `hfBertSeqClassifyForward`: consume the model handle,
+||| run the (read-only) forward, return the `[numClasses]` logits (banged)
+||| beside the rebuilt model. The model is single-owner *per forward* (the
+||| backbone + head bind at ω inside; the BERT forward mutates nothing), so a
+||| fine-tune step threads it through every example's forward. Same delegate-
+||| then-rebuild shape as `forwardL`'s `ioRerunL` body, scaled to the nested
+||| HF record.
+export
+hfBertSeqClassifyForwardL :
+     {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
+  => {seqLen, vocab, hidden, numLayers, numHeads, headDim,
+      intermediate, maxPos, typeVocab, numClasses : Nat}
+  -> {auto prf : hidden = numHeads * headDim}
+  -> (1 _ : BertForSequenceClassificationState vocab hidden numLayers intermediate maxPos typeVocab numClasses ex dt g)
+  -> (inputIds     : Tensor [seqLen] ex dt g)
+  -> (positionIds  : Tensor [seqLen] ex dt g)
+  -> (tokenTypeIds : Tensor [seqLen] ex dt g)
+  -> (attentionMask : Maybe (Tensor [seqLen, seqLen] ex dt g))
+  -> L IO {use = 1} (LPair (!* (Tensor [numClasses] ex dt g))
+                          (BertForSequenceClassificationState vocab hidden numLayers intermediate maxPos typeVocab numClasses ex dt g))
+hfBertSeqClassifyForwardL (MkBertForSeqClassify base classifier) i p t mask = do
+  out <- liftIO1 (hfBertSeqClassifyForward {numHeads} {headDim}
+                    (MkBertForSeqClassify base classifier) i p t mask)
+  pure1 (MkBang out # MkBertForSeqClassify base classifier)
