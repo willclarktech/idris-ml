@@ -608,6 +608,7 @@ main = do
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   putStrLn "=== PPO on Acrobot (separate actor + critic, categorical policy) ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr

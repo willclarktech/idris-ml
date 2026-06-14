@@ -168,6 +168,7 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   putStrLn "=== SeqClassify: 1D Waveform Classification ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs

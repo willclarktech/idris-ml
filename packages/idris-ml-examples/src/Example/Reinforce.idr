@@ -311,6 +311,7 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
 

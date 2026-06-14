@@ -315,6 +315,7 @@ main = do
   argv <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 argv)
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   putStrLn "=== BertClassifySst2Lora ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr

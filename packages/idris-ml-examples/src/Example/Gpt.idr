@@ -354,6 +354,7 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   let opt = nativeAdamW cfg.lr 0.9 0.99 1.0e-8 0.1 1.0
 

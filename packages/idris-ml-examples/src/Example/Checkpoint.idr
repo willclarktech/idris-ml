@@ -191,6 +191,7 @@ main = do
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   llAny <- linearLayerAny {i=2} {o=3} "ll"
   let model : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad

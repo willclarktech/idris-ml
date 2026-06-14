@@ -133,6 +133,7 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   putStrLn "=== NTM Copy ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr

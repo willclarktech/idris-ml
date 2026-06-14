@@ -403,6 +403,7 @@ main = do
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   putStrLn "=== DQN on CartPole ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr

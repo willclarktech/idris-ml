@@ -125,6 +125,7 @@ main : IO ()
 main = do
   requireMachine {m = ChosenMachine}
   srand 123456
+  tsetInitSeed {ex = ExampleExecutor} 123456
 
   putStrLn "=== NTM Copy Forward-Pass Profile ==="
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H

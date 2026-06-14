@@ -491,6 +491,7 @@ main = do
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
+  tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
   putStrLn "=== SAC on MountainCarContinuous ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
