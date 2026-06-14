@@ -1,24 +1,19 @@
+-- | End-to-end training microbenchmark, on the v1 Nn/fit surface.
+-- |
+-- | Times warmup + a timed window of fwd+bwd+step epochs across the
+-- | core model families (Linear, RNN, NTM copy/recall at several
+-- | scales). Keeps manual warm/timed loops (not `fit`) for timing
+-- | control. Loss values are not asserted — only wall time + peak RSS.
+
 module Example.Bench
 
 import Data.List
-import Data.Stream
 import Data.Vect
 import System
 import System.Clock
 import Compat.Random
 
-import Backprop
-import DataPoint
-import Floating
-import Generate
-import Layer.Core
-import Layer.Linear
-import Layer.Ntm
-import Layer.Rnn
-import Array
-import Util
-import Executor
-import Tensor
+import ML.Simple
 import BuildConfig
 
 ----------------------------------------------------------------------
@@ -31,7 +26,6 @@ elapsedMs t0 t1 =
       ns = cast {to=Double} (nanoseconds t1 - nanoseconds t0)
   in s * 1000.0 + ns / 1000000.0
 
--- IO fold for the warm/bench epoch loops below.
 repeatEpoch : Nat -> (m -> IO (m, Double)) -> m -> Double -> IO (m, Double)
 repeatEpoch Z _ m loss = pure (m, loss)
 repeatEpoch (S k) step m _ = do
@@ -39,253 +33,239 @@ repeatEpoch (S k) step m _ = do
   repeatEpoch k step m' loss'
 
 ----------------------------------------------------------------------
--- Supervised: Linear classifier, raw logits + BCE-with-logits loss
+-- Shared random data helpers (raw values; tensors built fresh per epoch)
 ----------------------------------------------------------------------
 
-supervisedData : Vect 5 (DataPoint 2 3 Double)
-supervisedData =
-  [ MkDataPoint (VArray [1.5, -2.7]) (VArray [0, 1, 0])
-  , MkDataPoint (VArray [-3.2, 4.1]) (VArray [0, 1, 0])
-  , MkDataPoint (VArray [5.7, 0]) (VArray [0, 0, 1])
-  , MkDataPoint (VArray [-1.3, 8.8]) (VArray [0, 1, 0])
-  , MkDataPoint (VArray [2.9, -1.4]) (VArray [1, 0, 0])
-  ]
+randomInt : (lo, hi : Nat) -> IO Nat
+randomInt lo hi = do
+  n <- randomRIO (cast {to=Int32} (natToInteger lo), cast {to=Int32} (natToInteger hi))
+  pure (fromInteger (cast {to=Integer} n))
+
+randomBitVec : (w : Nat) -> IO (Vect w Double)
+randomBitVec w = traverse (\_ => do b <- randomRIO (the Int32 0, 1)
+                                    pure (if b == 1 then 1.0 else 0.0))
+                          (Vect.replicate w ())
+
+----------------------------------------------------------------------
+-- Generic two-phase (NTM) loss — encode all input rows, decode targets.
+----------------------------------------------------------------------
+
+TwoPhaseSeq : (i, o : Nat) -> Type
+TwoPhaseSeq i o = (List (Vect i Double), List (Vect o Double))
+
+sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
+sumLosses [] = assert_total $ idris_crash "Bench.sumLosses: empty"
+sumLosses (x :: xs) = go x xs
+  where
+    go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
+    go acc []        = pure acc
+    go acc (y :: ys) = do s <- tadd acc y; go s ys
+
+encodeAll : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
+            List (Vect i Double) -> IO (Ntm n m h i o Ex F WithGrad)
+encodeAll cell [] = pure cell
+encodeAll cell (row :: rest) = do
+  x <- retypeGrad <$> tensor {dims = [i]} (FromVect row)
+  (cell', _) <- recurStep cell x
+  encodeAll cell' rest
+
+decodeLosses : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
+               List (Vect o Double) -> IO (List (Tensor [] Ex F WithGrad))
+decodeLosses _ [] = pure []
+decodeLosses cell (trow :: rest) = do
+  z <- retypeGrad <$> tensor {dims = [i]} (Const 0.0)
+  (cell', out) <- recurStep cell z
+  y <- retypeGrad <$> tensor {dims = [o]} (FromVect trow)
+  l <- tbceLoss out y
+  ls <- decodeLosses cell' rest
+  pure (l :: ls)
+
+twoPhaseLoss : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
+               TwoPhaseSeq i o -> IO (Tensor [] Ex F WithGrad)
+twoPhaseLoss model (encIns, targs) = do
+  enc <- encodeAll (recurReset model) encIns
+  ls  <- decodeLosses enc targs
+  s   <- sumLosses ls
+  (1.0 / cast (length targs)) *: s
+
+ntmEpoch : {n, m, h, i, o : Nat} -> Optimizer Ex -> List (TwoPhaseSeq i o) ->
+           Ntm n m h i o Ex F WithGrad -> IO (Ntm n m h i o Ex F WithGrad, Double)
+ntmEpoch opt batch model = do
+  ls   <- traverse (twoPhaseLoss model) batch
+  s    <- sumLosses ls
+  mean <- (1.0 / cast (length batch)) *: s
+  d    <- nativeTrainStep opt mean
+  pure (model, d)
+
+-- Copy-style two-phase sequence: input rows = data ++ [0] then a delimiter
+-- row, target rows = the data rows. Generic over i = o + 1 isn't enforced;
+-- we just emit `i`-wide input rows and `o`-wide target rows.
+genCopyBatch : {i, o : Nat} -> (count, minLen, maxLen : Nat) -> IO (List (TwoPhaseSeq i o))
+genCopyBatch Z _ _ = pure []
+genCopyBatch (S k) minLen maxLen = do
+  len <- randomInt minLen maxLen
+  ins  <- sequence (List.replicate (S len) (randomBitVec i))
+  outs <- sequence (List.replicate len (randomBitVec o))
+  rest <- genCopyBatch k minLen maxLen
+  pure ((ins, outs) :: rest)
+
+----------------------------------------------------------------------
+-- Supervised: Linear classifier, full-batch (b=5), batched NLL loss
+----------------------------------------------------------------------
+
+supIn : Vect 10 Double
+supIn = [1.5, -2.7, -3.2, 4.1, 5.7, 0.0, -1.3, 8.8, 2.9, -1.4]
+
+supTgt : Vect 15 Double
+supTgt = [0,1,0, 0,1,0, 0,0,1, 0,1,0, 1,0,0]
+
+supStep : Optimizer Ex -> Linear 2 3 Ex F WithGrad -> IO (Linear 2 3 Ex F WithGrad, Double)
+supStep opt model = do
+  x   <- tensor {dims=[5,2]} (FromVect supIn)
+  tgt <- tensor {dims=[5,3]} (FromVect supTgt)
+  out <- forward {b=5} model (retypeGrad x)
+  l   <- tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
+  d   <- nativeTrainStep opt l
+  pure (model, d)
 
 benchSupervised : IO ()
 benchSupervised = do
-  llAny <- linearLayerAny {i=2} {o=3} "ll"
-  let model : Network 2 [] 3 ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer llAny
-  let opt = nativeSgd 0.03
-
-  -- Warmup: 100 epochs
-  (warmModel, _) <- repeatEpoch 100 (\m => epochVar opt supervisedData tbceLoss m) model 0.0
-
-  -- Benchmark: 1000 epochs
+  model <- runInit (linear {i=2} {o=3})
+  opt <- sgd 0.03 defaultOpts
+  (warmModel, _) <- repeatEpoch 100 (supStep opt) model 0.0
   t0 <- clockTime Monotonic
-  (_, finalLoss) <- repeatEpoch 1000 (\m => epochVar opt supervisedData tbceLoss m) warmModel 0.0
+  (_, finalLoss) <- repeatEpoch 1000 (supStep opt) warmModel 0.0
   t1 <- clockTime Monotonic
-
   putStrLn $ "Supervised (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show finalLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 0) ++ " MB"
 
 ----------------------------------------------------------------------
--- RNN (same config as Rnn.idr)
+-- RNN (i=1, o=1, 8 fixed pattern sequences, BCE per timestep)
 ----------------------------------------------------------------------
 
-generateRnnData : Nat -> (List Double, List Double)
-generateRnnData n =
-  let infinitePattern = cycle [0, 1, 0]
-  in (take n infinitePattern, take n (drop 1 infinitePattern))
+patternSeq : Nat -> (List Double, List Double)
+patternSeq len =
+  let p = List.take (len + 1) (concat (List.replicate (len + 1) [0.0, 1.0, 0.0]))
+  in (List.take len p, List.take len (List.drop 1 p))
 
-generateRnnDataSet : {n : Nat} -> Vect n (List Double, List Double)
-generateRnnDataSet = map (generateRnnData . (+3) . finToNat) Data.Vect.Fin.range
+rnnSeqs : Vect 8 (List Double, List Double)
+rnnSeqs = map (patternSeq . (+ 3) . finToNat) (Data.Vect.Fin.range {len = 8})
 
-rnnRawData : (n : Nat) -> Vect n (RecurrentDataPoint 1 1 Double)
-rnnRawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ generateRnnDataSet {n}
+rnnSeqLoss : Rnn 1 1 Ex F WithGrad -> (List Double, List Double) ->
+             IO (Tensor [] Ex F WithGrad)
+rnnSeqLoss cell0 (is, os) = do
+  (sumL, cnt) <- go (recurReset cell0) Nothing 0 (zip is os)
+  if cnt == 0 then pure sumL else (1.0 / cast cnt) *: sumL
   where
-    prep : (ns : List Double) -> List (Vector 1 Double)
-    prep ns = map (flatten . SArray) ns
+    go : Rnn 1 1 Ex F WithGrad -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
+         List (Double, Double) -> IO (Tensor [] Ex F WithGrad, Nat)
+    go _ acc c [] = case acc of
+      Just s  => pure (s, c)
+      Nothing => assert_total $ idris_crash "Bench.rnnSeqLoss: empty"
+    go cell acc c ((xi, yi) :: rest) = do
+      x          <- retypeGrad <$> tensor {dims=[1]} (FromVect [xi])
+      (cell', h) <- recurStep cell x
+      y          <- retypeGrad <$> tensor {dims=[1]} (FromVect [yi])
+      l          <- tbceLoss h y
+      acc'       <- case acc of Just s => Just <$> tadd s l; Nothing => pure (Just l)
+      go cell' acc' (S c) rest
+
+rnnEpoch : Optimizer Ex -> Rnn 1 1 Ex F WithGrad -> IO (Rnn 1 1 Ex F WithGrad, Double)
+rnnEpoch opt model = do
+  ls   <- traverse (rnnSeqLoss model) (toList rnnSeqs)
+  s    <- sumLosses ls
+  mean <- (1.0 / cast (the Nat 8)) *: s
+  d    <- nativeTrainStep opt mean
+  pure (model, d)
 
 benchRnn : IO ()
 benchRnn = do
-  rnnAny <- rnnLayerAny {i=1} {o=1} "rnn"
-  let model : Network 1 [] 1 ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer rnnAny
-  let dataPoints = rnnRawData 8
-  let opt = nativeSgd 0.03
-
-  -- Warmup: 100 epochs
-  (warmModel, _) <- repeatEpoch 100 (\m => epochRecurrentVar opt dataPoints tbceLoss m) model 0.0
-
-  -- Benchmark: 1000 epochs
+  model <- runInit (rnn {i=1} {o=1} ttanh)
+  opt <- sgd 0.03 defaultOpts
+  (warmModel, _) <- repeatEpoch 100 (rnnEpoch opt) model 0.0
   t0 <- clockTime Monotonic
-  (_, finalLoss) <- repeatEpoch 1000 (\m => epochRecurrentVar opt dataPoints tbceLoss m) warmModel 0.0
+  (_, finalLoss) <- repeatEpoch 1000 (rnnEpoch opt) warmModel 0.0
   t1 <- clockTime Monotonic
-
   putStrLn $ "RNN (1000 epochs):        " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show finalLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 1) ++ " MB"
 
 ----------------------------------------------------------------------
--- NTM Copy Task (binary, two-phase, matching PyTorch benchmark)
+-- NTM small (n=10 m=5 h=20, copy, batch=5)
 ----------------------------------------------------------------------
-
-BenchW : Nat
-BenchW = 3
-
-BenchInputW : Nat
-BenchInputW = S BenchW
-
-BenchOutputW : Nat
-BenchOutputW = BenchW
-
-BenchN : Nat
-BenchN = 10
-
-BenchM : Nat
-BenchM = 5
-
-BenchH : Nat
-BenchH = 20
-
-BenchBatch : Nat
-BenchBatch = 5
 
 benchNtm : IO ()
 benchNtm = do
-  ntmAny <- ntmLayerAny {i=BenchInputW, o=BenchOutputW, n=BenchN, m=BenchM, h=BenchH} "ntm"
-  let model : Network BenchInputW [] BenchOutputW ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ntmAny
-
-  -- Generate fixed training data (raw Doubles; epochTwoPhaseVar converts internally)
-  batch <- copyTaskBinaryBatchVect {w = BenchW} BenchBatch 2 4
-  let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.0
-
-  -- Warmup: 10 epochs
-  (warmModel, _) <- repeatEpoch 10 (\m => epochTwoPhaseVar opt batch tbceLoss m) model 0.0
-
-  -- Benchmark: 100 epochs
+  model <- runInit (ntm {n=10} {m=5} {h=20} {i=4} {o=3})
+  opt <- rmsprop 0.0001 {alpha=0.95} {momentum=0.0} ({ clip := NormClip 10.0 } defaultOpts)
+  batch <- genCopyBatch {i=4} {o=3} 5 2 4
+  (warmModel, _) <- repeatEpoch 10 (ntmEpoch opt batch) model 0.0
   t0 <- clockTime Monotonic
-  (_, benchLoss) <- repeatEpoch 100 (\m => epochTwoPhaseVar opt batch tbceLoss m) warmModel 0.0
+  (_, benchLoss) <- repeatEpoch 100 (ntmEpoch opt batch) warmModel 0.0
   t1 <- clockTime Monotonic
-
   putStrLn $ "NTM (100 epochs):         " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show benchLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 2) ++ " MB"
 
 ----------------------------------------------------------------------
--- NTM Copy Production Scale (matching NtmCopy.idr architecture)
+-- NTM copy production scale (n=128 m=20 h=100, batch=16)
 ----------------------------------------------------------------------
-
-CopyW : Nat
-CopyW = 8
-
-CopyInputW : Nat
-CopyInputW = S CopyW
-
-CopyOutputW : Nat
-CopyOutputW = CopyW
-
-CopyN : Nat
-CopyN = 128
-
-CopyM : Nat
-CopyM = 20
-
-CopyH : Nat
-CopyH = 100
-
-CopyBatch : Nat
-CopyBatch = 16
 
 benchNtmCopy : IO ()
 benchNtmCopy = do
-  ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ntmAny
-
-  batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
-  let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.0
-
-  -- Warmup: 10 epochs
-  (warmModel, _) <- repeatEpoch 10 (\m => epochTwoPhaseVar opt batch tbceLoss m) model 0.0
-
-  -- Benchmark: 100 epochs
+  model <- runInit (ntm {n=128} {m=20} {h=100} {i=9} {o=8})
+  opt <- rmsprop 0.0001 {alpha=0.95} {momentum=0.0} ({ clip := NormClip 10.0 } defaultOpts)
+  batch <- genCopyBatch {i=9} {o=8} 16 1 20
+  (warmModel, _) <- repeatEpoch 10 (ntmEpoch opt batch) model 0.0
   t0 <- clockTime Monotonic
-  (_, benchLoss) <- repeatEpoch 100 (\m => epochTwoPhaseVar opt batch tbceLoss m) warmModel 0.0
+  (_, benchLoss) <- repeatEpoch 100 (ntmEpoch opt batch) warmModel 0.0
   t1 <- clockTime Monotonic
-
   putStrLn $ "NTM-copy (100 epochs):    " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show benchLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 3) ++ " MB"
 
 ----------------------------------------------------------------------
--- NTM Copy 1K (realistic: fresh data + GC, matching real training)
+-- NTM copy 1k (fresh data + GC every 10 epochs, matching real training)
 ----------------------------------------------------------------------
 
-copy1kEpoch : NativeOptimizer ExampleExecutor ->
-              Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad ->
-              IO (Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad, Double)
-copy1kEpoch opt m = do
-  batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
-  epochTwoPhaseVar opt batch tbceLoss m
-
-copy1kLoop : NativeOptimizer ExampleExecutor -> Nat -> Nat ->
-             Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad ->
-             Double ->
-             IO (Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad, Double)
+copy1kLoop : Optimizer Ex -> Nat -> Nat -> Ntm 128 20 100 9 8 Ex F WithGrad -> Double ->
+             IO (Ntm 128 20 100 9 8 Ex F WithGrad, Double)
 copy1kLoop opt numEpochs remaining m loss =
   if remaining == 0 then pure (m, loss)
   else do
-    (m', loss') <- copy1kEpoch opt m
-    let i = minus numEpochs remaining
-    when (modNatNZ i 10 ItIsSucc == 0) forceGC
+    batch <- genCopyBatch {i=9} {o=8} 16 1 20
+    (m', loss') <- ntmEpoch opt batch m
+    let idx = minus numEpochs remaining
+    when (modNatNZ idx 10 ItIsSucc == 0) forceGC
     copy1kLoop opt numEpochs (minus remaining 1) m' loss'
 
 benchNtmCopy1k : IO ()
 benchNtmCopy1k = do
-  ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : Network CopyInputW [] CopyOutputW ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ntmAny
-  let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
-
-  -- Warmup: 10 epochs (fresh data + GC)
+  model <- runInit (ntm {n=128} {m=20} {h=100} {i=9} {o=8})
+  opt <- rmsprop 0.0001 {alpha=0.95} {momentum=0.9} ({ clip := NormClip 10.0 } defaultOpts)
   (warmModel, _) <- copy1kLoop opt 10 10 model 0.0
   forceGC
-
-  -- Benchmark: 1000 epochs (fresh data + GC every 10)
   t0 <- clockTime Monotonic
   (_, finalLoss) <- copy1kLoop opt 1000 1000 warmModel 0.0
   t1 <- clockTime Monotonic
-
   putStrLn $ "NTM-copy-1k (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show finalLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 4) ++ " MB"
 
 ----------------------------------------------------------------------
--- NTM Recall (matching NtmAssociativeRecall.idr architecture)
+-- NTM recall (n=128 m=20 h=100, i=8 o=6, batch=16)
 ----------------------------------------------------------------------
-
-RecallW : Nat
-RecallW = 6
-
-RecallInputW : Nat
-RecallInputW = S (S RecallW)
-
-RecallOutputW : Nat
-RecallOutputW = RecallW
-
-RecallN : Nat
-RecallN = 128
-
-RecallM : Nat
-RecallM = 20
-
-RecallH : Nat
-RecallH = 100
-
-RecallBatch : Nat
-RecallBatch = 16
 
 benchNtmRecall : IO ()
 benchNtmRecall = do
-  ntmAny <- ntmLayerAny {i=RecallInputW, o=RecallOutputW, n=RecallN, m=RecallM, h=RecallH} "ntm"
-  let model : Network RecallInputW [] RecallOutputW ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ntmAny
-
-  batch <- recallTaskBinaryBatchVect {w = RecallW} RecallBatch 2 6 3
-  let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
-
-  -- Warmup: 10 epochs
-  (warmModel, _) <- repeatEpoch 10 (\m => epochTwoPhaseVar opt batch tbceLoss m) model 0.0
-
-  -- Benchmark: 100 epochs
+  model <- runInit (ntm {n=128} {m=20} {h=100} {i=8} {o=6})
+  opt <- rmsprop 0.0001 {alpha=0.95} {momentum=0.9} ({ clip := NormClip 10.0 } defaultOpts)
+  batch <- genCopyBatch {i=8} {o=6} 16 2 6
+  (warmModel, _) <- repeatEpoch 10 (ntmEpoch opt batch) model 0.0
   t0 <- clockTime Monotonic
-  (_, benchLoss) <- repeatEpoch 100 (\m => epochTwoPhaseVar opt batch tbceLoss m) warmModel 0.0
+  (_, benchLoss) <- repeatEpoch 100 (ntmEpoch opt batch) warmModel 0.0
   t1 <- clockTime Monotonic
-
   putStrLn $ "NTM-recall (100 epochs):  " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show benchLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 5) ++ " MB"
@@ -294,11 +274,13 @@ benchNtmRecall = do
 -- Main
 ----------------------------------------------------------------------
 
+%default partial
+
 main : IO ()
 main = do
   requireMachine {m = ChosenMachine}
   srand 123456
-  tsetInitSeed {ex = ExampleExecutor} 123456
+  tsetInitSeed {ex = Ex} 123456
   args <- getArgs
   case drop 1 args of
     [] => do
