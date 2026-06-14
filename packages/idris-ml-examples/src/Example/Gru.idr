@@ -18,9 +18,11 @@ import Train
 -- Example.Lstm for the recurrent migration shape (record of cell + head,
 -- per-sequence hand-folded `recurStep` + 1-D `tlinear` head).
 
+-- Mixed field multiplicity by role (see Example.Rnn): stateful `cell` linear,
+-- read-only `head` ω.
 record Model where
   constructor MkModel
-  cell : Gru 1 4 Ex F WithGrad
+  1 cell : Gru 1 4 Ex F WithGrad
   head : Linear 4 1 Ex F WithGrad
 
 -- Top-level `Init` derivation (see Example.Lstm for the recurrent migration
@@ -62,40 +64,55 @@ sumLosses (x :: xs) = go x xs
     go acc []        = pure acc
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
-seqLoss : Model -> (List Double, List Double) -> IO (Tensor [] Ex F WithGrad)
-seqLoss (MkModel cell0 head) (is, os) = do
-  (sumL, n) <- go (recurReset cell0) Nothing 0 (zip is os)
-  if n == 0 then pure sumL else (1.0 / cast n) *: sumL
+-- Per-sequence loss, fine-grained (see Example.Rnn): thread the linear cell one
+-- timestep at a time through recurStepL, applying the ω head + BCE, summing
+-- forward, returning the mean beside the final cell.
+seqLossL : Linear 4 1 Ex F WithGrad -> (1 _ : Gru 1 4 Ex F WithGrad) ->
+           (List Double, List Double) ->
+           L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Gru 1 4 Ex F WithGrad))
+seqLossL head cell0 (is, os) = go (recurResetL cell0) Nothing 0 (zip is os)
   where
-    go : Gru 1 4 Ex F WithGrad -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
-         List (Double, Double) -> IO (Tensor [] Ex F WithGrad, Nat)
-    go _ acc cnt [] = case acc of
-      Just s  => pure (s, cnt)
-      Nothing => assert_total $ idris_crash "Gru.seqLoss: empty sequence"
+    go : (1 _ : Gru 1 4 Ex F WithGrad) -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
+         List (Double, Double) ->
+         L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Gru 1 4 Ex F WithGrad))
+    go cell acc cnt [] = do
+      mean <- liftIO1 (case acc of
+                         Nothing => assert_total $ idris_crash "Gru.seqLossL: empty sequence"
+                         Just s  => if cnt == 0 then pure s else (1.0 / cast cnt) *: s)
+      pure1 (MkBang mean # cell)
     go cell acc cnt ((xi, yi) :: rest) = do
-      x          <- scalar1 xi
-      (cell', h) <- recurStep cell x
-      out        <- tlinear head.weightT h head.biasT
-      y          <- scalar1 yi
-      l          <- tbceLoss out y
-      acc'       <- case acc of
-                      Just s  => Just <$> tadd s l
-                      Nothing => pure (Just l)
+      x              <- liftIO1 (scalar1 xi)
+      (MkBang h # cell') <- recurStepL cell x
+      acc'           <- liftIO1 $ do
+                          out <- tlinear head.weightT h head.biasT
+                          y   <- scalar1 yi
+                          l   <- tbceLoss out y
+                          case acc of
+                            Just s  => Just <$> tadd s l
+                            Nothing => pure (Just l)
       go cell' acc' (S cnt) rest
 
--- Linear-resource epoch step (consume-match-rebuild-delegate; see Example.Lstm).
+-- Linear-resource epoch step, fine-grained (see Example.Rnn).
 recurEpochL : Optimizer Ex -> (1 _ : Model) -> Vect NumSeqs (List Double, List Double) ->
               L IO {use = 1} (LPair (!* Double) Model)
 recurEpochL opt (MkModel cell head) seqs = do
+  (MkBang seqLs # cellFinal) <- foldSeqs head cell (toList seqs) []
   d <- liftIO1 $ do
-         seqLs <- traverse (seqLoss (MkModel cell head)) (toList seqs)
          totalL <- sumLosses seqLs
          mean <- (1.0 / cast NumSeqs) *: totalL
          nativeTrainStep opt mean
-  pure1 (MkBang d # MkModel cell head)
+  pure1 (MkBang d # MkModel cellFinal head)
+  where
+    foldSeqs : Linear 4 1 Ex F WithGrad -> (1 _ : Gru 1 4 Ex F WithGrad) ->
+               List (List Double, List Double) -> List (Tensor [] Ex F WithGrad) ->
+               L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad))) (Gru 1 4 Ex F WithGrad))
+    foldSeqs _  cell []          acc = pure1 (MkBang (reverse acc) # cell)
+    foldSeqs hd cell (s :: rest) acc = do
+      (MkBang l # cell') <- seqLossL hd cell s
+      foldSeqs hd cell' rest (l :: acc)
 
 discardModel : (1 _ : Model) -> L IO ()
-discardModel (MkModel _ _) = pure ()
+discardModel (MkModel cell _) = discardL cell
 
 ----------------------------------------------------------------------
 -- Config & Main
