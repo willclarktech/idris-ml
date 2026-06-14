@@ -4,6 +4,7 @@ sourcedir = "src"
 
 depends = base
         , idris2
+        , idris-args
 
 modules = Format.Roundtrip
         , Format.Render

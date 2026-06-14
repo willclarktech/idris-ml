@@ -10,19 +10,27 @@ import Data.String
 import System
 import System.File
 
+import Args
+
 import Format.Render
 import Format.Roundtrip
 
-usage : String
-usage = unlines
-  [ "idris-fmt - Idris 2 source formatter"
-  , ""
-  , "usage:"
-  , "  idris-fmt FILE...             format to stdout"
-  , "  idris-fmt -w|--write FILE...  format files in place"
-  , "  idris-fmt -c|--check FILE...  exit 1 if any file is not formatted"
-  , "  idris-fmt --parse-check FILE...  parse every file (no formatting)"
+||| What to do with each input file. (Prefixed to dodge name clashes
+||| with the idris2 compiler API, which is in scope via Format.*.)
+data FmtMode = FStdout | FWrite | FCheck | FParse
+
+||| CLI flags, parsed by the repo's own idris-args package. The config is
+||| just the mode; long-form switches select it (last wins) and
+||| positionals are the files. `--help`/`-h` come from idris-args.
+flags : List (Flag FmtMode)
+flags =
+  [ switch "write" "format files in place" (const FWrite)
+  , switch "check" "exit 1 if any file is not formatted" (const FCheck)
+  , switch "parse-check" "parse every file, no formatting" (const FParse)
   ]
+
+noFilesHint : String
+noFilesHint = "idris-fmt: no input files (try --help)"
 
 ||| Read a file; on error print a message and yield Nothing.
 slurp : String -> IO (Maybe String)
@@ -65,8 +73,14 @@ parseOne fn = do
   Just s <- slurp fn | Nothing => pure False
   if parses s then pure True else do putStrLn (fn ++ ": PARSE FAIL"); pure False
 
+handler : FmtMode -> (String -> IO Bool)
+handler FStdout = stdoutOne
+handler FWrite = writeOne
+handler FCheck = checkOne
+handler FParse = parseOne
+
 runMode : (String -> IO Bool) -> List String -> IO ()
-runMode _ [] = putStrLn usage
+runMode _ [] = putStrLn noFilesHint
 runMode f fs = do
   oks <- traverse f fs
   if all id oks then exitSuccess else exitFailure
@@ -74,11 +88,7 @@ runMode f fs = do
 main : IO ()
 main = do
   args <- drop 1 <$> getArgs
-  case args of
-    [] => putStrLn usage
-    ("-w" :: fs) => runMode writeOne fs
-    ("--write" :: fs) => runMode writeOne fs
-    ("-c" :: fs) => runMode checkOne fs
-    ("--check" :: fs) => runMode checkOne fs
-    ("--parse-check" :: fs) => runMode parseOne fs
-    fs => runMode stdoutOne fs
+  case parseArgs "idris-fmt" flags FStdout args of
+    ShowHelp txt => putStr txt
+    ParseError e => do putStrLn e; exitFailure
+    Parsed mode files => runMode (handler mode) files
