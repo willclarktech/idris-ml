@@ -32,6 +32,7 @@ import Test.Nn.Residual
 import Test.Nn.RmsNorm
 import Test.Nn.Seq
 import Test.Nn.SwiGLU
+import Test.Nn.Transformer
 import Test.Schedule
 import Test.Init
 import Test.Sampler
@@ -104,6 +105,7 @@ main = runAll
   , ("Nn.RmsNorm",      Test.Nn.RmsNorm.tests)
   , ("Nn.Seq",          Test.Nn.Seq.tests)
   , ("Nn.SwiGLU",       Test.Nn.SwiGLU.tests)
+  , ("Nn.Transformer",  Test.Nn.Transformer.tests)
   , ("Schedule",        Test.Schedule.tests)
   , ("TensorExpr",      Test.TensorExpr.tests)
   , ("TrainEngine",     Test.TrainEngine.tests)
