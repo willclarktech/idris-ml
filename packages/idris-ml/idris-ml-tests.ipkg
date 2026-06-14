@@ -48,6 +48,7 @@ modules = Test.Main
         , Test.Nn.Init
         , Test.Nn.LayerNorm
         , Test.Nn.Linear
+        , Test.Nn.LinearMixed
         , Test.Nn.LoraLinear
         , Test.Nn.Lstm
         , Test.Nn.Module

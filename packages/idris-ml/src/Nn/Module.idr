@@ -10,8 +10,16 @@
 |||   * `Params` — the parameter traversal (`groupOf`/freeze build on it).
 |||
 ||| `GradMode` is OFF the model type: a layer owns its `WithGrad` params
-||| by construction; `g` lives only on the activation `Tensor`. Mixed
-||| precision is a `fit` config (no parallel `ModuleMixed` tree).
+||| by construction; `g` lives only on the activation `Tensor`. The
+||| *loss-scaling* half of mixed precision is a `fit` config
+||| (`fitSupervisedMixed` + `GradScaler`). The *master-weights* half —
+||| store weights in `paramDt`, cast to `computeDt` inside the forward —
+||| is inherently per-layer (the cast lives at the layer boundary), so it
+||| gets `ModuleMixed` below: a five-index sibling of `Module` adding the
+||| compute-dtype slot. (The legacy `Layer/MixedCore.idr` needed an extra
+||| `AsMixed`/`AnyLayerMixed`/`NetworkMixed`/`lift*` apparatus to chain
+||| mixed + plain layers through existentials; models-as-records drops all
+||| of it — a mixed model is just a record with a hand-written forward.)
 |||
 ||| Coexists with the legacy `Layer/` surface (`LayerLike`/`Network`);
 ||| examples migrate at the later sweep.
@@ -90,3 +98,31 @@ unfreeze : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
 unfreeze (MkFrozen m) = do
   traverse_ (\p => primIO (primSetRequiresGrad {ex} p.paramPtr 1)) (params m)
   pure m
+
+||| Mixed-precision model component (the master-weights half). Five-index
+||| kind: `(in, out, executor, paramDt, computeDt)` — `paramDt` is where
+||| weights are stored (the F32 "master"), `computeDt` where activations
+||| flow (BF16 / F16). `forwardMixed` casts `paramDt → computeDt` inside
+||| the layer, autograd-aware, so backward writes a `paramDt` gradient back
+||| into the master. NO `GradMode` on the type (as `Module`); `g` lives on
+||| the activation only.
+|||
+||| `IsDType paramDt` is required so the forward can call `tcastUnsafe` to
+||| materialise the (typically lossy) `paramDt → computeDt` cast; the
+||| activation side rides `Backend ex computeDt`. For `paramDt = computeDt`
+||| the cast is a dtype-level no-op (the diagonal case).
+public export
+interface ModuleMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> Type) where
+  forwardMixed : {0 ex : Executor} -> Backend ex computeDt => IsDType paramDt => IsDType computeDt =>
+                 {0 g : GradMode} -> {i, o, b : Nat} ->
+                 l i o ex paramDt computeDt -> Tensor [b, i] ex computeDt g ->
+                 IO (Tensor [b, o] ex computeDt g)
+
+||| Parameter traversal for a mixed-precision component. Identical erased
+||| `SomeParam` list as `Params` (master weights live in `paramDt`, but
+||| `SomeParam` is dtype-erased) — a separate interface only because the
+||| kind carries the extra `computeDt` slot.
+public export
+interface ParamsMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> Type) where
+  paramsMixed : {0 ex : Executor} -> {0 paramDt, computeDt : DType} -> {0 i, o : Nat} ->
+                l i o ex paramDt computeDt -> List SomeParam

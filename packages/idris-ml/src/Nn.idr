@@ -11,6 +11,7 @@ import public Nn.Group
 import public Nn.Recurrent
 
 import public Nn.Linear
+import public Nn.LinearMixed
 import public Nn.Activation
 import public Nn.LayerNorm
 import public Nn.Dropout

@@ -24,6 +24,7 @@ import Test.Nn.Gru
 import Test.Nn.Init
 import Test.Nn.LayerNorm
 import Test.Nn.Linear
+import Test.Nn.LinearMixed
 import Test.Nn.LoraLinear
 import Test.Nn.Lstm
 import Test.Nn.Module
@@ -98,6 +99,7 @@ main = runAll
   , ("Nn.Init",         Test.Nn.Init.tests)
   , ("Nn.LayerNorm",    Test.Nn.LayerNorm.tests)
   , ("Nn.Linear",       Test.Nn.Linear.tests)
+  , ("Nn.LinearMixed",  Test.Nn.LinearMixed.tests)
   , ("Nn.LoraLinear",   Test.Nn.LoraLinear.tests)
   , ("Nn.Lstm",         Test.Nn.Lstm.tests)
   , ("Nn.Module",       Test.Nn.Module.tests)
