@@ -253,6 +253,17 @@
         ]
       },
       {
+        "name": "Verify linear-model gate (reuse-after-consume rejected)",
+        "run": "make test-integration-typegate-linear-model",
+        "comment": [
+          "Negative type-check: reusing a model handle after it is consumed",
+          "by `evalL`/`freezeL` must be a compile-time linearity error (the",
+          "typed defence against 'freeze/eval a model, then reuse the stale",
+          "handle to train' silent no-ops). Pairs with the positive",
+          "single-use test that must still compile."
+        ]
+      },
+      {
         "name": "Verify prim__ ratchet in examples",
         "run": "make test-integration-lint-prim-ratchet",
         "comment": [

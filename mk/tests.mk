@@ -320,6 +320,7 @@ test-integration: \
 		test-integration-typegate-lossy-cast \
 		test-integration-typegate-int-overflow-cast \
 		test-integration-typegate-backend-linked \
+		test-integration-typegate-linear-model \
 		test-integration-lint-prim-ratchet \
 		test-integration-lint-legacy-surface \
 		test-integration-lint-fmt \

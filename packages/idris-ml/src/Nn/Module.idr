@@ -33,6 +33,8 @@
 ||| examples migrate at the later sweep.
 module Nn.Module
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -171,3 +173,102 @@ public export
 interface ParamsMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
   paramsMixed : {0 ex : Executor} -> {0 paramDt, computeDt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
                 l i o ex paramDt computeDt g -> List SomeParam
+
+----------------------------------------------------------------------
+-- Linear-resource surface (`L IO`) — the migration target
+----------------------------------------------------------------------
+
+||| `ModuleL` is `Module`+`Params` re-expressed for **linear** model
+||| handling under `Control.Linear.LIO.L IO`. A model is a single-owner
+||| resource: every operation **consumes** the handle `(1 _ : l …)` and
+||| **returns** a fresh one, so a stale alias (the classic "freeze a model,
+||| then reuse the old handle to train" no-op) is a *compile-time* linearity
+||| error rather than a silent afternoon-waster.
+|||
+||| Four methods, all consuming the model exactly once:
+|||   * `forwardL` — batched forward; the (unrestricted) output tensor rides
+||| the linear return pair wrapped in the `(!*)` bang (`MkBang`), beside the
+||| rebuilt model. Tensors stay unrestricted — reverse-mode AD shares them.
+|||   * `reflectL` — expose the param list (for the C `requires_grad` flips)
+||| without consuming the model: returns `(!* params) # model`.
+|||   * `castGradL` — the linear `castGrad` (`g → g'`); pure, phantom retype.
+|||   * `discardL` — the explicit linear consumer: a use-once model that isn't
+||| threaded onward must be discarded (it can't fall out of scope).
+|||
+||| Coexists with the IO `Module`/`Params` during the migration; the IO
+||| surface is deleted when every caller is on `L IO`. The per-layer impl
+||| pattern-matches the constructor (binding param fields at their ω
+||| constructor quantity — free to reuse in the matmul *and* rebuild the
+||| record); never `.field`-projects a linear value.
+public export
+interface ModuleL (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
+  forwardL : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o, b : Nat} ->
+             (1 _ : l i o ex dt g) -> Tensor [b, i] ex dt g ->
+             L IO {use=1} (LPair (!* (Tensor [b, o] ex dt g)) (l i o ex dt g))
+  reflectL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+             (1 _ : l i o ex dt g) -> LPair (!* (List SomeParam)) (l i o ex dt g)
+  castGradL : {0 ex : Executor} -> {0 dt : DType} -> {0 g, g' : GradMode} -> {0 i, o : Nat} ->
+              (1 _ : l i o ex dt g) -> l i o ex dt g'
+  discardL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+             (1 _ : l i o ex dt g) -> L IO ()
+
+||| A frozen *linear* model — the `L IO` counterpart of `Frozen`. Its field
+||| is **linear** (`1 _`) so it can hold a linearly-produced model (an ω
+||| field would demand an unrestricted value and reject the linear handle);
+||| `unfreezeL` consumes it to recover the threadable model.
+public export
+record FrozenL (m : Type) where
+  constructor MkFrozenL
+  1 unFrozenL : m
+
+||| Linear `eval`: consume a trainable model, flip C `requires_grad` off for
+||| every param, and return the retyped `NoGrad` model (still linear, so the
+||| inference handle threads through `forwardL`). Generic over any `ModuleL`
+||| — it reflects the param list rather than pattern-matching `l`. `l` is a
+||| *relevant* implicit (method dispatch needs it), as in the IO `eval`.
+export
+evalL : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
+        {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
+        UserExecutorTraining ex => ModuleL l =>
+        (1 _ : l i o ex dt WithGrad) -> L IO {use=1} (l i o ex dt NoGrad)
+evalL m = do
+  let (MkBang ps # m') = reflectL m
+  traverse_ (\p => liftIO1 (primIO (primSetRequiresGrad {ex} p.paramPtr 0))) ps
+  pure1 (castGradL m')
+
+||| Linear `freeze`: consume the model, flip C `requires_grad` off for every
+||| param (grads still flow THROUGH for downstream trainable layers — the
+||| fine-tune-backbone pattern), and return it wrapped in `FrozenL`. Same
+||| grad-mode in and out; `unfreezeL` inverts.
+export
+freezeL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+          {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
+          UserExecutorTraining ex => ModuleL l =>
+          (1 _ : l i o ex dt g) -> L IO {use=1} (FrozenL (l i o ex dt g))
+freezeL m = do
+  let (MkBang ps # m') = reflectL m
+  traverse_ (\p => liftIO1 (primIO (primSetRequiresGrad {ex} p.paramPtr 0))) ps
+  pure1 (MkFrozenL m')
+
+||| Linear `unfreeze`: flip `requires_grad` back on and unwrap `FrozenL`.
+export
+unfreezeL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+            {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
+            UserExecutorTraining ex => ModuleL l =>
+            (1 _ : FrozenL (l i o ex dt g)) -> L IO {use=1} (l i o ex dt g)
+unfreezeL (MkFrozenL m) = do
+  let (MkBang ps # m') = reflectL m
+  traverse_ (\p => liftIO1 (primIO (primSetRequiresGrad {ex} p.paramPtr 1))) ps
+  pure1 m'
+
+||| Linear `trainable`: inverse of `evalL` — flip `requires_grad` back on and
+||| retype `NoGrad → WithGrad`, making an inference model trainable again.
+export
+trainableL : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
+             {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
+             UserExecutorTraining ex => ModuleL l =>
+             (1 _ : l i o ex dt NoGrad) -> L IO {use=1} (l i o ex dt WithGrad)
+trainableL m = do
+  let (MkBang ps # m') = reflectL m
+  traverse_ (\p => liftIO1 (primIO (primSetRequiresGrad {ex} p.paramPtr 1))) ps
+  pure1 (castGradL m')

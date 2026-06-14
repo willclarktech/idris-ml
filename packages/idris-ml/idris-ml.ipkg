@@ -3,6 +3,7 @@ package idris-ml
 sourcedir = "src"
 
 depends = contrib
+        , linear
 
 modules = Compat.Random
         , Array
@@ -64,6 +65,7 @@ modules = Compat.Random
         , Nn.RmsNorm
         , Nn.RoPE
         , Nn.Seq
+        , Nn.SeqL
         , Nn.SwiGLU
         , Nn.Transformer
         , Optimizer

@@ -15,6 +15,8 @@
 |||     numerically identical given the same RNG stream.
 module Nn.Linear
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -42,6 +44,20 @@ public export
 Params Linear where
   params (MkLinear w b)   = [toParam w, toParam b]
   castGrad (MkLinear w b) = MkLinear (retypeGrad w) (retypeGrad b)
+
+||| Linear-resource `Module`. Pattern-matching `MkLinear` binds `w`/`b` at
+||| their ω constructor quantity, so they are free to feed the matmul *and*
+||| rebuild the record (the whole-model linearity obligation is discharged by
+||| the single match). The output tensor is unrestricted, so it rides the
+||| linear return pair under the `(!*)` bang.
+public export
+ModuleL Linear where
+  forwardL (MkLinear w b) x = do
+    y <- liftIO1 (tlinear2d w x b)
+    pure1 (MkBang y # MkLinear w b)
+  reflectL (MkLinear w b)  = MkBang [toParam w, toParam b] # MkLinear w b
+  castGradL (MkLinear w b) = MkLinear (retypeGrad w) (retypeGrad b)
+  discardL (MkLinear _ _)  = pure ()
 
 ||| Construct a `Linear i o` with caller-chosen init: weight ~ N(0,
 ||| weightStd), bias ~ N(0, biasStd) (biasStd = 0 → zero bias). Registers

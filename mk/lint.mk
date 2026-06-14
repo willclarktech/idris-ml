@@ -20,6 +20,7 @@
         test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast \
         test-integration-typegate-backend-linked \
+        test-integration-typegate-linear-model \
         test-integration-lint-prim-ratchet \
         test-integration-lint-legacy-surface
 
@@ -303,3 +304,12 @@ test-integration-typegate-int-overflow-cast: install
 test-integration-typegate-backend-linked: install
 	@chmod +x ./scripts/check-backend-bundle-gate.sh
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-backend-bundle-gate.sh
+
+# Verify the linear-model gate: reusing a model handle after it has been
+# consumed by `evalL`/`freezeL` must be a compile-time linearity error
+# (the typed defence against "freeze/eval a model, then reuse the stale
+# handle to train" silent no-ops). Checks the negative test fails with a
+# linearity error AND the positive single-use test still compiles.
+test-integration-typegate-linear-model: install
+	@chmod +x ./scripts/check-linear-model-gate.sh
+	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-linear-model-gate.sh

@@ -615,6 +615,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-typegate-backend-linked
 
+      - name: Verify linear-model gate (reuse-after-consume rejected)
+        # Negative type-check: reusing a model handle after it is consumed
+        # by `evalL`/`freezeL` must be a compile-time linearity error (the
+        # typed defence against 'freeze/eval a model, then reuse the stale
+        # handle to train' silent no-ops). Pairs with the positive
+        # single-use test that must still compile.
+        if: ${{ !cancelled() }}
+        run: make test-integration-typegate-linear-model
+
       - name: Verify prim__ ratchet in examples
         # Per-file baseline of raw prim__ FFI occurrences in
         # idris-ml-examples; fails on any increase or any new file.
