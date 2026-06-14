@@ -3,8 +3,6 @@ module Test.Main
 import Test.ActivationDump
 import Test.Array
 import Test.Backend
-import Test.BitLinear
-import Test.BitNet
 import Test.CheckpointSubset
 import Test.Construct
 import Test.Data
@@ -16,11 +14,9 @@ import Test.Hpo.LrFinder
 import Test.Init
 import Test.LoadOpts
 import Test.Log
-import Test.LoraLinear
 import Test.Lossless
 import Test.ManagedHandle
 import Test.Math
-import Test.MixedLayerLike
 import Test.MlSimple
 import Test.Nn.Activation
 import Test.Nn.BatchNorm
@@ -59,12 +55,9 @@ import Test.Properties.RoPE as Props.RoPE
 import Test.Properties.Softmax as Props.Softmax
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
-import Test.RmsNorm
-import Test.RoPE
 import Test.Sampler
 import Test.SaveModelMatching
 import Test.Schedule
-import Test.SwiGLU
 import Test.TensorExpr
 import Test.TrainEngine
 -- NOTE: Test.Transfer (UserExecutorTransfer / toExecutor smoke) lives in
@@ -128,18 +121,11 @@ main = runAll
   , ("LoadOpts",        Test.LoadOpts.tests)
   , ("Log",             Test.Log.tests)
   , ("Lossless",        Test.Lossless.tests)
-  , ("LoraLinear",      Test.LoraLinear.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
-  , ("BitLinear",       Test.BitLinear.tests)
-  , ("BitNet",          Test.BitNet.tests)
   , ("CheckpointSubset", Test.CheckpointSubset.tests)
-  , ("MixedLayerLike",  Test.MixedLayerLike.tests)
   , ("Optimizer",       Test.Optimizer.tests)
   , ("Properties",      Props.Softmax.tests ++ Props.Reshape.tests ++ Props.GoldenDemo.tests
                                             ++ Props.RmsNorm.tests ++ Props.RoPE.tests
                                             ++ Props.F32GradParity.tests)
-  , ("RmsNorm",         Test.RmsNorm.tests)
-  , ("RoPE",            Test.RoPE.tests)
   , ("SaveModelMatching", Test.SaveModelMatching.tests)
-  , ("SwiGLU",          Test.SwiGLU.tests)
   ]

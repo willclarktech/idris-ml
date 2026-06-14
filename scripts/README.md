@@ -34,8 +34,7 @@ scripts/
 ├── check-paired-defaults.py        Idris ↔ torch_ref config drift gate
 ├── check-executor-method-drift.py  Executor interface drift gate
 ├── check-result.sh                 example RESULT-line threshold validator
-├── check-gradmode-aliasing.sh      type-system negative-test gates
-├── check-gradmode-gate.sh
+├── check-gradmode-gate.sh          type-system negative-test gate
 ├── check-int-overflow-cast-gate.sh
 ├── check-lossy-cast-gate.sh
 ├── coverage-gap-probe.py           OP_* / FFI test-coverage relational join

@@ -247,12 +247,11 @@ rows were subsequently converted to Criterion suites on 2026-06-05
 and their dedicated recipes deleted; their assertions now ride
 `test-unit-c` via the glob discovery.)
 
-### Integration layer (10 entries)
+### Integration layer (9 entries)
 
 | Old | New |
 |---|---|
 | `check-gradmode-gate` | `test-integration-typegate-gradmode` |
-| `check-gradmode-aliasing` | `test-integration-typegate-gradmode-aliasing` |
 | `check-lossy-cast-gate` | `test-integration-typegate-lossy-cast` |
 | `check-int-overflow-cast-gate` | `test-integration-typegate-int-overflow-cast` |
 | `check-rename-headers` | `test-integration-lint-rename-headers` |

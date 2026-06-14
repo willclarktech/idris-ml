@@ -26,7 +26,7 @@ import Test.Harness as Harness
 import Executor
 import Tensor
 import Array
-import Layer.RoPE
+import Nn.RoPE
 
 %default partial
 

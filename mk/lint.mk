@@ -17,7 +17,6 @@
         typecheck-py-examples typecheck-py-jupyter \
         lint-c lint-c-tape lint-c-tape-linux lint-c-include-cleaner \
         lint-c-torch lint-c-mlx test-integration-typegate-gradmode \
-        test-integration-typegate-gradmode-aliasing \
         test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast \
         test-integration-typegate-backend-linked \
@@ -271,11 +270,6 @@ lint-c-mlx:
 # Depends on `install` so idris-ml is locatable in the local IDRIS2 prefix.
 test-integration-typegate-gradmode: install
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-gradmode-gate.sh
-
-# Verify the aliasing footgun on `freezeNetwork` is closed by linear
-# types: using the pre-freeze Network reference must be a compile error.
-test-integration-typegate-gradmode-aliasing: install
-	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-gradmode-aliasing.sh
 
 # Verify the cross-family lossless-cast gate (DType.Core.LosslessTo)
 # refuses a mantissa-shrinking direction (F32 → BF16). Inverts the

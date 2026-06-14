@@ -17,8 +17,6 @@ modules = Test.Main
         , Test.Config
         , Test.Array
         , Test.Backend
-        , Test.BitLinear
-        , Test.BitNet
         , Test.CheckpointSubset
         , Test.Construct
         , Test.Data
@@ -30,7 +28,6 @@ modules = Test.Main
         , Test.LoadOpts
         , Test.Log
         , Test.Lossless
-        , Test.LoraLinear
         , Test.ManagedHandle
         , Test.Math
         , Test.MlSimple
@@ -62,7 +59,6 @@ modules = Test.Main
         , Test.Nn.Seq
         , Test.Nn.SwiGLU
         , Test.Nn.Transformer
-        , Test.MixedLayerLike
         , Test.Optimizer
         , Test.Properties.F32GradParity
         , Test.Properties.GoldenDemo
@@ -70,10 +66,7 @@ modules = Test.Main
         , Test.Properties.RmsNorm
         , Test.Properties.RoPE
         , Test.Properties.Softmax
-        , Test.RmsNorm
-        , Test.RoPE
         , Test.SaveModelMatching
-        , Test.SwiGLU
         , Test.RL.Gae
         , Test.RL.ReplayBuffer
         , Test.Sampler

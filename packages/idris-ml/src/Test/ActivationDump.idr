@@ -8,7 +8,6 @@ import System.Directory
 import System.File
 
 import Executor
-import Layer
 import Tensor
 import Test.Config
 import Test.Harness

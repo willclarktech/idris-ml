@@ -33,23 +33,6 @@ fitSupervisedConverges = do
   let v = tensorItem w
   check ("fitSupervised converges (w 2.0 -> " ++ show v ++ ")") (v < 1.0)
 
--- Equivalence: fitSupervised drives the SAME engine as runTrainingIO on
--- the same step, so identical final loss (bitwise). Grad-gating keeps
--- the two registered params from cross-contaminating.
-fitEqualsLegacy : IO Bool
-fitEqualsLegacy = do
-  wL <- mkW "fit_eqL_w" 1.0
-  optL <- sgd {ex=TestExecutor} 0.1 defaultOpts
-  (_, _, lossL) <- runTrainingIO {ex=TestExecutor}
-    (\m, () => do loss <- tmul wL wL; d <- nativeTrainStep optL loss; pure (m, d))
-    (pure ()) (simpleConfig 5) ()
-  wF <- mkW "fit_eqF_w" 1.0
-  optF <- sgd {ex=TestExecutor} 0.1 defaultOpts
-  (_, _, lossF) <- fitSupervised {ex=TestExecutor} optF (\_, () => tmul wF wF)
-    units (simpleConfig 5) ()
-  check ("fit == runTrainingIO final loss (" ++ show lossF ++ " vs " ++ show lossL ++ ")")
-        (abs (lossL - lossF) < 1.0e-12)
-
 -- Recurrent/two-phase are Step folds, not driver variants: a Step that
 -- folds two "timesteps" into one loss. loss = 2w², grad = 4w, lr 0.05 →
 -- w *= 0.8 each epoch; after 5, w = 0.8^5 = 0.328 < 1.0.
@@ -151,6 +134,6 @@ fromVectIOMultiEpochSafe = do
 
 export
 tests : List (IO Bool)
-tests = [ fitSupervisedConverges, fitEqualsLegacy
+tests = [ fitSupervisedConverges
         , recurrentFoldConverges, fitMixedTrains, fitFullPassMultiStep
         , fitCustomThreadsModel, fromVectIOMultiEpochSafe ]

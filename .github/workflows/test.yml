@@ -589,14 +589,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-typegate-gradmode
 
-      - name: Verify GradMode aliasing rejection (linear freezeNetwork)
-        # Asserts that linear `freezeNetwork` consumes its input — using
-        # the pre-freeze Network reference afterwards must be a compile
-        # error. Prevents the "freeze net, train via original variable
-        # which silently no-ops" footgun.
-        if: ${{ !cancelled() }}
-        run: make test-integration-typegate-gradmode-aliasing
-
       - name: Verify cross-family lossless-cast gate (DType.Core.LosslessTo)
         # Asserts LosslessTo refuses a mantissa-shrinking direction
         # (F32 to BF16). Prevents silent precision-losing mid-graph

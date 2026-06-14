@@ -14,19 +14,24 @@ import Train
 import Train.Engine
 
 ----------------------------------------------------------------------
--- Equivalence oracle: runTrainingIO's early-stop behaviour, captured
--- BEFORE the runEpochLoop rewire and asserted after. A scripted epochFn
--- (model = Nat epoch counter, loss = scriptLoss epoch) isolates the
--- LOOP logic (which the rewire changes) from the numerics (unchanged),
--- so any drift in epoch-count / early-stop firing / final-loss surfaces
--- here. Golden values captured on the pre-rewire runTrainingIO.
+-- Early-stop oracle: drives `runEpochLoop` directly with the early-stop
+-- triple from `earlyStopMachine` (the same composition runTrainingIO
+-- used before it was deleted). A scripted epochFn (model = Nat epoch
+-- counter, loss = scriptLoss epoch) isolates the LOOP logic from the
+-- numerics, so any drift in epoch-count / early-stop firing /
+-- final-loss surfaces here. Golden values are loop-behaviour invariants.
 ----------------------------------------------------------------------
 
 scriptRun : TrainConfig Nat -> (Nat -> Double) -> IO (Nat, Double)
 scriptRun cfg scriptLoss = do
+  bestRef <- newIORef (the Double (1.0 / 0.0))
+  t0 <- clockTime Monotonic
+  let (_ ** (esStep, esInit, esTerm)) = earlyStopMachine cfg.earlyStop
+  let perEpoch : Nat -> Nat -> IO (Nat, Double)
+      perEpoch n ep = do cfg.beforeEpoch ep; pure (S n, scriptLoss n)
   (_, epochsDone, finalLoss) <-
-    runTrainingIO {ex=TestExecutor}
-      (\n, _ => pure (S n, scriptLoss n)) (pure ()) cfg 0
+    runEpochLoop {ex=TestExecutor} cfg.totalEpochs cfg.logEvery cfg.metrics cfg.checkpoint
+                 bestRef True esStep esInit esTerm perEpoch t0 0 0
   pure (epochsDone, finalLoss)
 
 oracleNoEarlyStop : IO Bool

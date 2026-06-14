@@ -225,16 +225,6 @@
         ]
       },
       {
-        "name": "Verify GradMode aliasing rejection (linear freezeNetwork)",
-        "run": "make test-integration-typegate-gradmode-aliasing",
-        "comment": [
-          "Asserts that linear `freezeNetwork` consumes its input — using",
-          "the pre-freeze Network reference afterwards must be a compile",
-          "error. Prevents the \"freeze net, train via original variable",
-          "which silently no-ops\" footgun."
-        ]
-      },
-      {
         "name": "Verify cross-family lossless-cast gate (DType.Core.LosslessTo)",
         "run": "make test-integration-typegate-lossy-cast",
         "comment": [

@@ -28,7 +28,8 @@ import Test.Harness as Harness
 import Executor
 import Tensor
 import Array
-import Layer.RmsNorm
+import Nn.Init
+import Nn.RmsNorm
 
 %default partial
 
@@ -71,8 +72,8 @@ prop_rmsnorm_output_bounded_body xs =
   if isDegenerate xs
     then pure True  -- input fails the eps << mean(x²) precondition
     else do
-      rms <- rmsNormLayer {ex=TestExecutor} {dt=TestDType} {n=NN} "rms_prop_test"
-      (_, out) <- applyRmsNormEps 1.0e-5 rms (mkInput xs)
+      rms <- runInit (rmsNorm {ex=TestExecutor} {dt=TestDType} {n=NN})
+      out <- rmsNormForward 1.0e-5 rms (mkInput xs)
       vals <- readVec NN out.tensorPtr
       let actualNorm   = l2Norm vals
           expectedNorm = sqrt (cast {to=Double} NN)
