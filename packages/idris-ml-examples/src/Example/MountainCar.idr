@@ -11,7 +11,7 @@ import System
 import Array
 import BuildConfig
 import Compat.Random
-import FitL
+import Fit
 import Gym.ClassicControl.MountainCar
 import Gym.Env
 import Gym.Vector
@@ -20,10 +20,7 @@ import ML.Simple
 import RL.ReplayBuffer
 import Train
 
--- The Q-nets are linear `SeqL`s; hide the IO `Nn.Seq` constructors.
-%hide Nn.Seq.Nil
-%hide Nn.Seq.(::)
-%hide Nn.Seq.(~~>)
+-- The Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 
 ----------------------------------------------------------------------
 -- DQN on MountainCar-v0 with reward shaping.
@@ -46,7 +43,7 @@ MaxSteps   : Nat; MaxSteps = 200
 NumEnvs : Nat; NumEnvs = 4
 
 QNet : Type
-QNet = SeqL ObsDim NumActions Ex F WithGrad
+QNet = Seq ObsDim NumActions Ex F WithGrad
 
 mkQNet : (scope : String) -> Init QNet
 mkQNet scope = scoped scope $ do
@@ -76,7 +73,7 @@ greedyActionL : (1 _ : QNet) -> Vect ObsDim Double -> L IO {use = 1} (LPair (!* 
 greedyActionL online obs = do
   stateV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)))
-  (MkBang qV # online') <- forwardSeqL {b=1} online stateV
+  (MkBang qV # online') <- forwardSeq {b=1} online stateV
   let q0 = primItem2d {ex=Ex} qV.tensorPtr 0 0
       q1 = primItem2d {ex=Ex} qV.tensorPtr 0 1
       q2 = primItem2d {ex=Ex} qV.tensorPtr 0 2
@@ -128,7 +125,7 @@ computeTargetValL : (1 _ : QNet) -> Double -> Transition ObsDim 1 ->
 computeTargetValL target gamma t = do
   stateV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor t.nextObs]) Nothing)))
-  (MkBang qV # target') <- forwardSeqL {b=1} target stateV
+  (MkBang qV # target') <- forwardSeq {b=1} target stateV
   let nextMax = rowMax2d qV.tensorPtr
       bootstrap = if t.done then 0.0 else gamma * nextMax
   pure1 (MkBang (t.reward + bootstrap) # target')
@@ -168,7 +165,7 @@ batchLossBatchedL n online target gamma batch = do
   obsBV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [n, ObsDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\t => obsTensor t.obs) batch)) Nothing)))
-  (MkBang qOutB # online') <- forwardSeqL {b=n} online obsBV
+  (MkBang qOutB # online') <- forwardSeq {b=n} online obsBV
   loss <- liftIO1 $ do
             losses <- go qOutB (toList batch) targetVals 0
             meanScalarLoss n losses
@@ -274,7 +271,7 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
         the (Tensor [NumEnvs, ObsDim] Ex F WithGrad)
             (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\s => obsTensor (mcObserve s)) envs)) Nothing)))
       (MkBang actions # qNet') <- withNoGradL {ex=Ex} $ do
-        (MkBang qB # qNet') <- forwardSeqL {b=NumEnvs} qNet stateV
+        (MkBang qB # qNet') <- forwardSeq {b=NumEnvs} qNet stateV
         acts <- liftIO1 (epsGreedyBatched qB envs eps)
         pure1 (MkBang acts # qNet')
       case stepAllAutoResetMC envs actions of
@@ -373,15 +370,15 @@ buildStateL cfg = do
 
 discardStateL : (1 _ : DqnState) -> L IO ()
 discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _) = do
-  discardL qNet
-  discardL target
+  discard qNet
+  discard target
 
 finalReportL : Config -> Nat -> (1 _ : DqnState) -> L IO ()
 finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _) = do
   let nEval = the Nat 30
   (MkBang totalReturn # qNet') <- withNoGradL {ex=Ex} (evalNL qNet nEval 0.0)
-  discardL qNet'
-  discardL target
+  discard qNet'
+  discard target
   liftIO1 $ do
     let avgReturn = totalReturn / cast (natToInteger nEval)
     putStrLn ""
@@ -396,6 +393,48 @@ finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _) = do
 ----------------------------------------------------------------------
 
 %default partial
+
+lrFindCfg : LrFindConfig
+lrFindCfg = { numIters := 30 } defaultLrFindConfig
+
+-- Terminal linear consumer of the lrFind result. A named function with an
+-- explicit `(1 _ : LPair ...)` signature so the bind continuation is linear
+-- (the inline do-notation `<-` doesn't get recognised as linear for `lrFind`).
+finishLrFind : (1 _ : LPair (!* LrFindResult) DqnState) -> L IO ()
+finishLrFind (MkBang _ # st') = do
+  discardStateL st'
+  liftIO1 $ do
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+
+runLrFind : Config -> IO ()
+runLrFind cfg = Control.Linear.LIO.run $ do
+  st0 <- buildStateL cfg
+  opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+  (LIO.(>>=))
+    (lrFind {ex = Ex} {model = DqnState} {dp = ()} lrFindCfg
+       (\st, _ => do
+          (MkBang ret # st') <- runEpisodeBatchedL opt st
+          pure1 (MkBang (negate ret) # st'))
+       (pure ()) opt st0)
+    finishLrFind
+
+runTrain : Config -> IO ()
+runTrain cfg = Control.Linear.LIO.run $ do
+  st0 <- buildStateL cfg
+  opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+  metrics <- liftIO1 (newRLMetricsState 50)
+  let trainCfg : TrainConfig DqnState
+      trainCfg = { metricsL := readRLMetrics "recent_50" metrics }
+                   (mkTrainConfig cfg.epochs 50 NoEarlyStop
+                      (const (pure (the (List (String, String)) []))) (\_ => pure ()))
+  (MkBang (epochsDone, _) # trained) <- fit {batch = ()}
+    (\st, _ => do
+       (MkBang ret # st') <- runEpisodeBatchedL opt st
+       dd <- liftIO1 (do recordReturn metrics ret; pure (negate ret))
+       pure1 (MkBang dd # st'))
+    opt (generate (pure ())) trainCfg st0
+  finalReportL cfg epochsDone trained
 
 main : IO ()
 main = do
@@ -417,33 +456,4 @@ main = do
            ++ " seed=" ++ show cfg.seed
   putStrLn ""
 
-  if cfg.lrFind
-    then Control.Linear.LIO.run $ do
-      st0 <- buildStateL cfg
-      opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
-      let lrCfg : LrFindConfig
-          lrCfg = { numIters := 30 } defaultLrFindConfig
-      (MkBang _ # st') <- lrFindL lrCfg
-        (\st, _ => do
-           (MkBang ret # st') <- runEpisodeBatchedL opt st
-           pure1 (MkBang (negate ret) # st'))
-        (pure ()) opt st0
-      discardStateL st'
-      liftIO1 $ do
-        putStrLn ""
-        putStrLn "Done — re-run without --lr-find at the recommended LR."
-    else Control.Linear.LIO.run $ do
-      st0 <- buildStateL cfg
-      opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
-      metrics <- liftIO1 (newRLMetricsState 50)
-      let trainCfg : TrainConfig DqnState
-          trainCfg = { metricsL := readRLMetrics "recent_50" metrics }
-                       (mkTrainConfig cfg.epochs 50 NoEarlyStop
-                          (const (pure (the (List (String, String)) []))) (\_ => pure ()))
-      (MkBang (epochsDone, _) # trained) <- fitL {batch = ()}
-        (\st, _ => do
-           (MkBang ret # st') <- runEpisodeBatchedL opt st
-           dd <- liftIO1 (do recordReturn metrics ret; pure (negate ret))
-           pure1 (MkBang dd # st'))
-        opt (generate (pure ())) trainCfg st0
-      finalReportL cfg epochsDone trained
+  if cfg.lrFind then runLrFind cfg else runTrain cfg

@@ -19,6 +19,8 @@
 
 module Example.LayersBench
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.String
 import Data.Vect
@@ -86,7 +88,10 @@ benchLinear = do
   let step = \m => do
         x   <- tensor {dims=[LinearBatch, LinearI]} (Const 0.1)
         tgt <- tensor {dims=[LinearBatch, LinearO]} (Const 0.1)
-        out <- forward {b=LinearBatch} m (retypeGrad x)
+        out <- Control.Linear.LIO.run (do
+                 (MkBang o # m') <- forward {b=LinearBatch} m (retypeGrad x)
+                 discard m'
+                 pure o)
         l   <- tnllLossMean {b=LinearBatch} {n=LinearO} out (retypeGrad tgt)
         d   <- nativeTrainStep opt l
         pure (m, d)
@@ -113,22 +118,37 @@ LstmIters = 100
 LstmWarmup : Nat
 LstmWarmup = 10
 
+-- The LstmCell carries state in its record, so it must be threaded linearly
+-- across timesteps. A local linear repeat loop consumes the model each step
+-- and returns the advanced model beside the loss.
+lstmStep : Optimizer Ex -> (1 _ : Lstm LstmI LstmO Ex F WithGrad) ->
+           L IO {use = 1} (LPair (!* Double) (Lstm LstmI LstmO Ex F WithGrad))
+lstmStep opt m = do
+  inp        <- liftIO1 (retypeGrad <$> tensor {dims=[LstmI]} (Const 0.1))
+  (MkBang h # m') <- recurStep m inp
+  d          <- liftIO1 $ do
+                  tgt <- retypeGrad <$> tensor {dims=[LstmO]} (Const 0.1)
+                  l   <- tmseLoss h tgt
+                  nativeTrainStep opt l
+  pure1 (MkBang d # m')
+
+repeatLstm : Optimizer Ex -> Nat -> (1 _ : Lstm LstmI LstmO Ex F WithGrad) ->
+             L IO {use = 1} (Lstm LstmI LstmO Ex F WithGrad)
+repeatLstm _   Z     m = pure1 m
+repeatLstm opt (S k) m = do
+  (MkBang _ # m') <- lstmStep opt m
+  repeatLstm opt k m'
+
 benchLstmCell : IO ()
-benchLstmCell = do
-  model <- runInit (lstm {ex=Ex} {dt=F} {i=LstmI} {o=LstmO})
-  opt <- sgd 0.01 defaultOpts
-  let step = \m => do
-        inp        <- retypeGrad <$> tensor {dims=[LstmI]} (Const 0.1)
-        (m', h)    <- recurStep m inp
-        tgt        <- retypeGrad <$> tensor {dims=[LstmO]} (Const 0.1)
-        l          <- tmseLoss h tgt
-        d          <- nativeTrainStep opt l
-        pure (m', d)
-  (warmModel, _) <- repeatEpoch LstmWarmup step model 0.0
-  t0 <- clockTime Monotonic
-  _ <- repeatEpoch LstmIters step warmModel 0.0
-  t1 <- clockTime Monotonic
-  putStrLn $ "lstm_cell hidden=" ++ show LstmO ++ ":\t" ++ fmt3 (elapsedMs t0 t1) ++ " ms\t("
+benchLstmCell = Control.Linear.LIO.run $ do
+  model <- runInitL (lstm {ex=Ex} {dt=F} {i=LstmI} {o=LstmO})
+  opt <- liftIO1 (sgd 0.01 defaultOpts)
+  warmModel <- repeatLstm opt LstmWarmup model
+  t0 <- liftIO1 (clockTime Monotonic)
+  timedModel <- repeatLstm opt LstmIters warmModel
+  t1 <- liftIO1 (clockTime Monotonic)
+  discard timedModel
+  liftIO1 $ putStrLn $ "lstm_cell hidden=" ++ show LstmO ++ ":\t" ++ fmt3 (elapsedMs t0 t1) ++ " ms\t("
           ++ show LstmIters ++ " iters)"
 
 ----------------------------------------------------------------------
@@ -182,7 +202,10 @@ benchConv2dBlock = do
   let step = \m => do
         x   <- tensor {dims=[ConvBatch, ConvInputDim]} (Const 0.1)
         tgt <- tensor {dims=[ConvBatch, ConvOutputDim]} (Const 0.1)
-        out <- forward {b=ConvBatch} m (retypeGrad x)
+        out <- Control.Linear.LIO.run (do
+                 (MkBang o # m') <- forward {b=ConvBatch} m (retypeGrad x)
+                 discard m'
+                 pure o)
         l   <- tnllLossMean {b=ConvBatch} {n=ConvOutputDim} out (retypeGrad tgt)
         d   <- nativeTrainStep opt l
         pure (m, d)
@@ -236,31 +259,38 @@ ntmTwoPhaseStep : Optimizer Ex -> List (Vect NtmInputW Double) -> List (Vect Ntm
                   Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
                   IO (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad, Double)
 ntmTwoPhaseStep opt encIns targs model = do
-  enc <- encodeAll (recurReset model) encIns
-  ls  <- decodeLosses enc targs
-  s   <- sumLosses ls
-  mean <- (1.0 / cast (length targs)) *: s
+  mean <- Control.Linear.LIO.run $ do
+            (MkBang () # enc) <- encodeAll (recurReset model) encIns
+            (MkBang ls # cellF) <- decodeLosses enc targs
+            discard cellF
+            liftIO1 $ do
+              s <- sumLosses ls
+              (1.0 / cast (length targs)) *: s
   d <- nativeTrainStep opt mean
   pure (model, d)
   where
-    encodeAll : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
+    encodeAll : (1 _ : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad) ->
                 List (Vect NtmInputW Double) ->
-                IO (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad)
-    encodeAll cell []            = pure cell
+                L IO {use = 1} (LPair (!* ())
+                                      (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad))
+    encodeAll cell []            = pure1 (MkBang () # cell)
     encodeAll cell (row :: rest) = do
-      x <- retypeGrad <$> tensor {dims=[NtmInputW]} (FromVect row)
-      (cell', _) <- recurStep cell x
+      x <- liftIO1 (retypeGrad <$> tensor {dims=[NtmInputW]} (FromVect row))
+      (MkBang _ # cell') <- recurStep cell x
       encodeAll cell' rest
-    decodeLosses : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
-                   List (Vect NtmOutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
-    decodeLosses _ []                = pure []
+    decodeLosses : (1 _ : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad) ->
+                   List (Vect NtmOutputW Double) ->
+                   L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad)))
+                                         (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad))
+    decodeLosses cell []                = pure1 (MkBang [] # cell)
     decodeLosses cell (trow :: rest) = do
-      z <- retypeGrad <$> tensor {dims=[NtmInputW]} (Const 0.0)
-      (cell', out) <- recurStep cell z
-      y <- retypeGrad <$> tensor {dims=[NtmOutputW]} (FromVect trow)
-      l <- tbceLoss out y
-      ls <- decodeLosses cell' rest
-      pure (l :: ls)
+      z <- liftIO1 (retypeGrad <$> tensor {dims=[NtmInputW]} (Const 0.0))
+      (MkBang out # cell') <- recurStep cell z
+      l <- liftIO1 $ do
+             y <- retypeGrad <$> tensor {dims=[NtmOutputW]} (FromVect trow)
+             tbceLoss out y
+      (MkBang ls # cellF) <- decodeLosses cell' rest
+      pure1 (MkBang (l :: ls) # cellF)
 
 benchNtmHead : IO ()
 benchNtmHead = do
@@ -314,7 +344,10 @@ benchTransformerBlock = do
   let step = \m => do
         x   <- tensor {dims=[TxBatch, TxDModel]} (Const 0.1)
         tgt <- tensor {dims=[TxBatch, TxDModel]} (Const 0.1)
-        out <- forward {b=TxBatch} m (retypeGrad x)
+        out <- Control.Linear.LIO.run (do
+                 (MkBang o # m') <- forward {b=TxBatch} m (retypeGrad x)
+                 discard m'
+                 pure o)
         l   <- tnllLossMean {b=TxBatch} {n=TxDModel} out (retypeGrad tgt)
         d   <- nativeTrainStep opt l
         pure (m, d)

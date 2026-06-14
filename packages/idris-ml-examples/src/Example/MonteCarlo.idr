@@ -1,6 +1,8 @@
 module Example.MonteCarlo
 
+import Control.Linear.LIO
 import Data.Fin
+import Data.Linear.Notation
 import Data.List
 import Data.Maybe
 import Data.Vect
@@ -78,6 +80,7 @@ encodeBJ s =
     [p, d, u] =>
       let psI = clampRange 4 21 (cast {to=Integer} p)
           dsI = clampRange 1 10 (cast {to=Integer} d)
+          uaI : Integer
           uaI = if cast {to=Integer} u >= 1 then 1 else 0
           psN : Nat
           psN = integerToNat (psI - 4)
@@ -244,17 +247,19 @@ main = do
 
   let trainCfg : TrainConfig MCModel
       trainCfg = mkTrainConfig cfg.epochs 5000 NoEarlyStop (const (pure [])) (\_ => pure ())
-  (trained, epochsDone, _) <- fitCustom {ex=ExampleExecutor}
-    (\m, d => pure (epochMC cfg m d))
-    (generate genInput)
-    trainCfg zeroModel
+  Control.Linear.LIO.run $ do
+    (MkBang (epochsDone, _) # (q, n)) <- fitCustom {ex=ExampleExecutor}
+      (\(qm, nm), d => do
+         let (m', loss) = epochMC cfg (qm, nm) d
+         pure1 (MkBang loss # m'))
+      (generate genInput)
+      trainCfg zeroModel
 
-  let (q, _) = trained
-
-  putStrLn ""
-  winRate <- evalN q 5000 0 0.0 0.0
-  putStrLn $ "Eval (5000 hands, greedy): win_rate=" ++ show winRate
-  putStrLn ""
-  putStrLn $ formatResult [("win_rate", show winRate),
-                            ("epochs", show epochsDone),
-                            ("seed", show cfg.seed)]
+    winRate <- liftIO1 (evalN q 5000 0 0.0 0.0)
+    liftIO1 $ do
+      putStrLn ""
+      putStrLn $ "Eval (5000 hands, greedy): win_rate=" ++ show winRate
+      putStrLn ""
+      putStrLn $ formatResult [("win_rate", show winRate),
+                               ("epochs", show epochsDone),
+                               ("seed", show cfg.seed)]

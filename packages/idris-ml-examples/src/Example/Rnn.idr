@@ -9,7 +9,7 @@ import System
 import BuildConfig
 import Checkpoint
 import Compat.Random
-import FitL
+import Fit
 import ML.Simple
 import Train
 
@@ -68,14 +68,14 @@ sumLosses (x :: xs) = go x xs
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
 -- Per-sequence loss, fine-grained: reset then thread the **linear** cell one
--- timestep at a time through `recurStepL`, applying the ω `head` and BCE per
+-- timestep at a time through `recurStep`, applying the ω `head` and BCE per
 -- step, accumulating the sum forward (order-preserving), and returning the mean
--- beside the final cell. The cell is never aliased — each `recurStepL` consumes
+-- beside the final cell. The cell is never aliased — each `recurStep` consumes
 -- it and hands back the advanced one.
 seqLossL : Linear 4 1 Ex F WithGrad -> (1 _ : Rnn 1 4 Ex F WithGrad) ->
            (List Double, List Double) ->
            L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Rnn 1 4 Ex F WithGrad))
-seqLossL head cell0 (is, os) = go (recurResetL cell0) Nothing 0 (zip is os)
+seqLossL head cell0 (is, os) = go (recurReset cell0) Nothing 0 (zip is os)
   where
     go : (1 _ : Rnn 1 4 Ex F WithGrad) -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
          List (Double, Double) ->
@@ -87,7 +87,7 @@ seqLossL head cell0 (is, os) = go (recurResetL cell0) Nothing 0 (zip is os)
       pure1 (MkBang mean # cell)
     go cell acc cnt ((xi, yi) :: rest) = do
       x              <- liftIO1 (scalar1 xi)
-      (MkBang h # cell') <- recurStepL cell x
+      (MkBang h # cell') <- recurStep cell x
       acc'           <- liftIO1 $ do
                           out <- tlinear head.weightT h head.biasT
                           y   <- scalar1 yi
@@ -120,9 +120,9 @@ recurEpochL opt (MkModel cell head) seqs = do
       foldSeqs hd cell' rest (l :: acc)
 
 -- Consume the final (linear) model: the cell field is linear so it must be
--- discharged (discardL); the ω head drops freely.
+-- discharged (discard); the ω head drops freely.
 discardModel : (1 _ : Model) -> L IO ()
-discardModel (MkModel cell _) = discardL cell
+discardModel (MkModel cell _) = discard cell
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -175,7 +175,7 @@ main = do
                             trainCfgBase
 
   -- Linear surface end to end: model born linear (runInitL), threaded through
-  -- fitL (recurEpochL consumes-and-returns it each epoch), final handle
+  -- fit (recurEpochL consumes-and-returns it each epoch), final handle
   -- discarded. main : IO re-enters via run. `run` is fully qualified —
   -- `import System` (getArgs) brings other `run`s that otherwise blow the
   -- elaborator's ambiguity-depth limit in this do-block.
@@ -183,7 +183,7 @@ main = do
     model <- runInitL mkModel
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
-      fitL (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model
+      fit (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model
     discardModel trained
     liftIO1 $ putStrLn ""
     liftIO1 $ putStrLn $ formatResult [ ("epochs", show epochsDone)

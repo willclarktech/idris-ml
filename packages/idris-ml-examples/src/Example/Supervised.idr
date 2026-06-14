@@ -8,7 +8,7 @@ import System
 
 import BuildConfig
 import Compat.Random
-import FitL
+import Fit
 import GradScaler
 import ML.Simple
 import Train
@@ -84,33 +84,30 @@ buildStream = do
   s <- stream NoShuffle (fromIndexed 5 sampleAt)
   pure (batched {b=5} {i=2} {o=3} s)
 
--- Default-precision loss: forward [5,2]→[5,3] then batched multiclass NLL.
-nllLossDefault : Linear 2 3 Ex F WithGrad ->
-                 (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
-                 IO (Tensor [] Ex F WithGrad)
-nllLossDefault model (x, tgt) = do
-  out <- forward {b=5} model (retypeGrad x)
-  tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
-
--- Linear-resource default loss: the `L IO` twin of `nllLossDefault`. Consumes
--- the model, runs `forwardL`, returns the scalar loss (banged) beside the
--- rebuilt model so `fitSupervisedL` can thread it through the epoch.
+-- Linear-resource default loss. Consumes
+-- the model, runs `forward`, returns the scalar loss (banged) beside the
+-- rebuilt model so `fitSupervised` can thread it through the epoch.
 nllLossDefaultL : (1 _ : Linear 2 3 Ex F WithGrad) ->
                   (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
                   L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Linear 2 3 Ex F WithGrad))
 nllLossDefaultL model (x, tgt) = do
-  (MkBang out # model') <- forwardL {b=5} model (retypeGrad x)
+  (MkBang out # model') <- forward {b=5} model (retypeGrad x)
   loss <- tnllLossMeanL {b=5} {n=3} out (retypeGrad tgt)
   pure1 (MkBang loss # model')
 
--- Mixed-precision loss: forward casts paramDt → computeDt (F) internally.
-nllLossMixed : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
-               LinearMixed 2 3 Ex pDt F WithGrad ->
-               (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
-               IO (Tensor [] Ex F WithGrad)
-nllLossMixed model (x, tgt) = do
-  out <- forwardMixed {b=5} model (retypeGrad x)
-  tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
+-- Mixed-precision loss (linear): `forwardMixed` casts paramDt → computeDt (F)
+-- internally and stays IO, so we pattern-match the constructor (binding the
+-- fields at ω so they feed both `forwardMixed` and the rebuild), lift the IO
+-- forward + loss via `liftIO1`, then rebuild the model for threading.
+nllLossMixedL : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
+                (1 _ : LinearMixed 2 3 Ex pDt F WithGrad) ->
+                (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
+                L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad))
+                                      (LinearMixed 2 3 Ex pDt F WithGrad))
+nllLossMixedL (MkLinearMixed w b) (x, tgt) = do
+  out  <- liftIO1 (forwardMixed {b=5} (MkLinearMixed w b) (retypeGrad x))
+  loss <- liftIO1 (tnllLossMean {b=5} {n=3} out (retypeGrad tgt))
+  pure1 (MkBang loss # MkLinearMixed w b)
 
 ----------------------------------------------------------------------
 -- Eval (shared across modes: takes the [5,3] logits)
@@ -151,10 +148,10 @@ reportResult cfg epochsDone finalLoss correct =
 ----------------------------------------------------------------------
 
 -- The default path now runs on the linear (`L IO`) surface end to end: the
--- model is born linear (`runInitL`), threaded through `fitSupervisedL` (every
+-- model is born linear (`runInitL`), threaded through `fitSupervised` (every
 -- step consumes-and-returns it), converted to a linear inference model
--- (`evalL`), forwarded once (`forwardL`), and its leftover handle discarded
--- (`discardL`) — so a stale-alias reuse would be a compile-time error.
+-- (`eval`), forwarded once (`forward`), and its leftover handle discarded
+-- (`discard`) — so a stale-alias reuse would be a compile-time error.
 -- `main : IO` re-enters via `run`. (The mixed-precision path below stays on
 -- the IO surface — `ModuleMixed` has no linear surface yet.)
 runDefault : Config -> Optimizer Ex -> IO ()
@@ -163,15 +160,15 @@ runDefault cfg opt = Control.Linear.LIO.run $ do
   bs <- liftIO1 buildStream
   liftIO1 (putStrLn "")
   (MkBang (epochsDone, finalLoss) # trained) <-
-    fitSupervisedL opt nllLossDefaultL bs (simpleConfig cfg.epochs) model
+    fitSupervised opt nllLossDefaultL bs (simpleConfig cfg.epochs) model
   liftIO1 (putStrLn "")
   liftIO1 (putStrLn "Eval:")
   -- Convert to an inference (NoGrad) model: forward is then genuinely
   -- tape-free, and the type witnesses it.
-  infer <- evalL trained
+  infer <- eval trained
   ein <- liftIO1 evalInput
-  (MkBang predB # infer') <- forwardL {b=5} infer ein
-  discardL infer'
+  (MkBang predB # infer') <- forward {b=5} infer ein
+  discard infer'
   liftIO1 $ do
     correct <- evalPredictions predB
     putStrLn ""
@@ -181,35 +178,40 @@ runDefault cfg opt = Control.Linear.LIO.run $ do
 -- paramDt by the `mkModel` action's result type (Idris can't dispatch types
 -- from a runtime string, so each --param-dtype mode is its own typed call).
 runMixedGeneric : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
-                  Config -> Optimizer Ex -> IO (LinearMixed 2 3 Ex pDt F WithGrad) ->
+                  Config -> Optimizer Ex ->
+                  Init (LinearMixed 2 3 Ex pDt F WithGrad) ->
                   String -> IO ()
-runMixedGeneric cfg opt mkModel modeLabel = do
-  model <- mkModel
-  gs <- defaultGradScaler {ex=Ex} {dt=F}
-  bs <- buildStream
-  putStrLn modeLabel
-  putStrLn ""
-  (trained, epochsDone, finalLoss) <-
-    fitSupervisedMixed opt gs nllLossMixed bs (simpleConfig cfg.epochs) model
-  putStrLn ""
-  putStrLn "Eval:"
-  -- No `eval` for the mixed (ParamsMixed) path yet; lift the input to
-  -- WithGrad so the trained model forwards (predictions read without backward).
-  predB <- forwardMixed {b=5} trained (retypeGrad !evalInput)
-  correct <- evalPredictions predB
-  putStrLn ""
-  reportResult cfg epochsDone finalLoss correct
+runMixedGeneric cfg opt mkModel modeLabel = Control.Linear.LIO.run $ do
+  model <- runInitL mkModel
+  gs <- liftIO1 (defaultGradScaler {ex=Ex} {dt=F})
+  bs <- liftIO1 buildStream
+  liftIO1 (putStrLn modeLabel)
+  liftIO1 (putStrLn "")
+  (MkBang (epochsDone, finalLoss) # trained) <-
+    fitSupervisedMixed opt gs nllLossMixedL bs (simpleConfig cfg.epochs) model
+  liftIO1 (putStrLn "")
+  liftIO1 (putStrLn "Eval:")
+  -- No `eval` for the mixed (ParamsMixed) path yet; lift the input to WithGrad
+  -- so the trained model forwards (predictions read without backward). Consume
+  -- the trained model by matching its constructor (fields read at ω).
+  ein <- liftIO1 evalInput
+  let MkLinearMixed w b = trained
+  predB <- liftIO1 (forwardMixed {b=5} (MkLinearMixed w b) (retypeGrad ein))
+  liftIO1 $ do
+    correct <- evalPredictions predB
+    putStrLn ""
+    reportResult cfg epochsDone finalLoss correct
 
 runMixedNative : Config -> Optimizer Ex -> IO ()
 runMixedNative cfg opt =
   runMixedGeneric cfg opt
-    (runInit (linearMixed {paramDt=F} {computeDt=F} {i=2} {o=3}))
+    (linearMixed {paramDt=F} {computeDt=F} {i=2} {o=3})
     "Mixed-precision mode: paramDt = computeDt = F (native)"
 
 runMixedF32Master : Config -> Optimizer Ex -> IO ()
 runMixedF32Master cfg opt =
   runMixedGeneric cfg opt
-    (runInit (linearMixed {paramDt=F32} {computeDt=F} {i=2} {o=3}))
+    (linearMixed {paramDt=F32} {computeDt=F} {i=2} {o=3})
     "Mixed-precision mode: paramDt = F32, computeDt = F (f32-master)"
 
 main : IO ()

@@ -26,7 +26,7 @@ import Checkpoint
 import Compat.Random
 import DataStream
 import Executor
-import FitL
+import Fit
 import Floating
 import Generate
 import Nn
@@ -37,9 +37,7 @@ import Tensor
 import Train
 import Util
 
--- The transformer body is a linear `SeqL`; hide the IO `Nn.Seq` constructors.
-%hide Nn.Seq.Nil
-%hide Nn.Seq.(::)
+-- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors.
 
 ----------------------------------------------------------------------
 -- Configuration
@@ -120,15 +118,15 @@ idxToChar i =
 ----------------------------------------------------------------------
 
 -- Mixed field multiplicity by role: the `body` (threaded sub-model) is a
--- **linear** `SeqL`; `embed`/`headW`/`pe` are read-only ω fields. The body is
+-- **linear** `Seq`; `embed`/`headW`/`pe` are read-only ω fields. The body is
 -- stateless, threaded linearly through every forward for uniform single-owner.
 public export
 record GptModel (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGptModel
   embed : Embedding VocabSize DModel ex dt g
   -- NumBlocks pre-norm transformer blocks followed by the final LayerNorm,
-  -- all `DModel -> DModel`, stacked in one linear `SeqL`.
-  1 body : SeqL DModel DModel ex dt g
+  -- all `DModel -> DModel`, stacked in one linear `Seq`.
+  1 body : Seq DModel DModel ex dt g
   -- Bias-free vocab projection (matches the legacy `primMm`-only head).
   headW : TMat VocabSize DModel ex dt g
   -- Cached sinusoidal positional encoding (no paramId, optimizer-invisible).
@@ -139,7 +137,7 @@ Model = GptModel ExampleExecutor ExampleDType WithGrad
 
 -- Build the block stack + final norm inside an `Init` derivation. Blocks
 -- land at `block_0.*`..`block_{n-1}.*`; the final norm trails.
-buildBody : (k : Nat) -> Init (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad)
+buildBody : (k : Nat) -> Init (Seq DModel DModel ExampleExecutor ExampleDType WithGrad)
 buildBody Z = do
   ln <- layerNorm {ex=ExampleExecutor} {dt=ExampleDType} {n=DModel}
   pure (ln :: Nil)
@@ -166,16 +164,16 @@ mkModelInit = do
   pure (MkGptModel e b hw pe)
 
 -- Forward one sequence of token ids `[SeqLen]` → per-position logits
--- `[SeqLen, VocabSize]`, threading the linear `body` through `forwardSeqL`. The
+-- `[SeqLen, VocabSize]`, threading the linear `body` through `forwardSeq`. The
 -- ω `emb`/`pe`/`headW` are read by projection. Returns logits (banged) + body.
 partial
 gptForwardL : Embedding VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
               Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad ->
               TMat VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
-              (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) ->
+              (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) ->
               Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad ->
               L IO {use = 1} (LPair (!* (Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad))
-                                    (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+                                    (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
 gptForwardL emb pe headW body tokens = do
   embFlat <- liftIO1 (embeddingForward {ex=ExampleExecutor} {seqLen=SeqLen} {embedDim=DModel}
                                        {vocab=VocabSize} emb tokens)
@@ -185,7 +183,7 @@ gptForwardL emb pe headW body tokens = do
     the (Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad)
         (MkTensor (primReshape2d {ex=ExampleExecutor} embFlat.tensorPtr sI dI) Nothing)))
   h0 <- liftIO1 (tadd emb2d pe)
-  (MkBang hN # body') <- forwardSeqL {b=SeqLen} body h0
+  (MkBang hN # body') <- forwardSeq {b=SeqLen} body h0
   out <- liftIO1 (ioRerun (\_ =>
     MkTensor (primMm {ex=ExampleExecutor} hN.tensorPtr
                      (primTranspose2d {ex=ExampleExecutor} headW.tensorPtr)) Nothing))
@@ -268,10 +266,10 @@ batchLossL (MkGptModel emb body headW pe) batch = do
     foldSamples : Embedding VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
                   TMat VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
                   Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad ->
-                  (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) ->
+                  (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) ->
                   List GptSample -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) ->
                   L IO {use = 1} (LPair (!* (List (Tensor [] ExampleExecutor ExampleDType WithGrad)))
-                                        (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+                                        (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
     foldSamples _ _  _ body []                acc    = pure1 (MkBang (reverse acc) # body)
     foldSamples e hw p body ((ids, tgt) :: rest) acc = do
       (MkBang logits # body') <- gptForwardL e p hw body ids
@@ -288,9 +286,9 @@ partial
 generateTextL : Embedding VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
                 Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad ->
                 TMat VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
-                (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) ->
+                (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) ->
                 String -> Nat -> Double ->
-                L IO {use = 1} (LPair (!* String) (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+                L IO {use = 1} (LPair (!* String) (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
 generateTextL emb pe headW body seed genLen temperature = do
   let seedIdxs = map charToIdx (unpack seed)
       padLen  = minus SeqLen (length seedIdxs)
@@ -321,9 +319,9 @@ generateTextL emb pe headW body seed genLen temperature = do
            (the (Int, Double) (0, -1.0e10))
            (zip (map cast vocabIdxs) probs))
 
-    go : (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) ->
+    go : (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) ->
          List Int -> Nat -> List Char ->
-         L IO {use = 1} (LPair (!* (List Char)) (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+         L IO {use = 1} (LPair (!* (List Char)) (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
     go body _ Z acc       = pure1 (MkBang (reverse acc) # body)
     go body ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
@@ -347,13 +345,13 @@ partial
 evalBPCL : Embedding VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
            Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad ->
            TMat VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
-           (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) ->
+           (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) ->
            (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) ->
-           L IO {use = 1} (LPair (!* Double) (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+           L IO {use = 1} (LPair (!* Double) (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
 evalBPCL emb pe headW body corpus corpusLen nSamples = go body nSamples 0.0
   where
-    singleBPC : (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) -> Nat ->
-                L IO {use = 1} (LPair (!* Double) (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+    singleBPC : (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) -> Nat ->
+                L IO {use = 1} (LPair (!* Double) (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
     singleBPC body start = do
       let window = listSlice corpus start (SeqLen + 1)
           inputToks  = Data.List.take SeqLen window
@@ -372,8 +370,8 @@ evalBPCL emb pe headW body corpus corpusLen nSamples = go body nSamples 0.0
                pure (primItem {ex=ExampleExecutor} lossT.tensorPtr / log 2.0)
       pure1 (MkBang bpc # body')
 
-    go : (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) -> Nat -> Double ->
-         L IO {use = 1} (LPair (!* Double) (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+    go : (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) -> Nat -> Double ->
+         L IO {use = 1} (LPair (!* Double) (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
     go body Z acc     = pure1 (MkBang acc # body)
     go body (S k) acc = do
       let maxStart = minus corpusLen (SeqLen + 1)
@@ -460,7 +458,7 @@ finalReportL cfg valIndices valLen trainIndices trainLen epochsDone (MkGptModel 
   (MkBang trainBpc # body2) <- evalBPCL emb pe headW body1 trainIndices trainLen 50
   (MkBang sample1 # body3)  <- withNoGradL {ex=ExampleExecutor} (generateTextL emb pe headW body2 "to be or " 200 1.0)
   (MkBang sample2 # body4)  <- withNoGradL {ex=ExampleExecutor} (generateTextL emb pe headW body3 "the " 200 1.0)
-  discardL body4
+  discard body4
   liftIO1 $ do
     putStrLn ""
     putStrLn $ "Final val_bpc: " ++ show valBpc
@@ -539,11 +537,11 @@ main = do
                                 (fileCheckpoint dir cfg.checkpointEvery True opt)
                                 trainCfgBase
       -- Linear surface end to end: model born linear (runInitL), threaded
-      -- through fitSupervisedL (batchLossL consumes-and-returns it each step),
+      -- through fitSupervised (batchLossL consumes-and-returns it each step),
       -- final eval + generation via finalReportL (consumes the trained handle).
       Control.Linear.LIO.run $ do
         model <- runInitL mkModelInit
         (MkBang (epochsDone, _) # trained) <-
-          fitSupervisedL {ex=ExampleExecutor} opt batchLossL
+          fitSupervised {ex=ExampleExecutor} opt batchLossL
                          (generate (gptBatch trainIndices trainLen BatchSize)) trainCfg model
         finalReportL cfg valIndices valLen trainIndices trainLen epochsDone trained

@@ -35,7 +35,7 @@ import Array
 import BuildConfig
 import DataStream
 import Executor
-import FitL
+import Fit
 import Generate
 import Optimizer
 import Tensor
@@ -228,7 +228,7 @@ sumScalars op acc (x :: xs) = do
 
 -- Mean cross-entropy over a batch, fine-grained: thread the model through each
 -- example's forward, accumulate the (ω) losses, mean-reduce, return the rebuilt
--- model. `fitSupervisedL` owns the fused step.
+-- model. `fitSupervised` owns the fused step.
 batchLossL : (1 _ : Model) -> Vect BatchSize FtExample
           -> L IO {use = 1} (LPair (!* (Tensor [] ExampleExecutor ExampleDType WithGrad)) Model)
 batchLossL model batch = do
@@ -318,7 +318,7 @@ main = do
            ++ " classes=" ++ show NumClasses
 
   -- Linear surface: model born linear (bornL over the IO HF constructor),
-  -- threaded through fitSupervisedL, held-out accuracy via heldOutReportL.
+  -- threaded through fitSupervised, held-out accuracy via heldOutReportL.
   Control.Linear.LIO.run $ do
     model <- bornL (hfBertForSequenceClassification {ex=ExampleExecutor} {dt=ExampleDType}
                                                     {vocab=Vocab} {hidden=Hidden}
@@ -334,5 +334,5 @@ main = do
     let trainCfg = patienceConfig cfg.epochs cfg.patience
         stream   = generate (genBatch BatchSize)
     (MkBang (epochsDone, finalLoss) # trained) <-
-      fitSupervisedL {ex=ExampleExecutor} opt batchLossL stream trainCfg model
+      fitSupervised {ex=ExampleExecutor} opt batchLossL stream trainCfg model
     heldOutReportL cfg finalLoss epochsDone trained

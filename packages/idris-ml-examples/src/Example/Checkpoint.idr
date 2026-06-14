@@ -14,7 +14,7 @@ import System
 import BuildConfig
 import Checkpoint
 import Compat.Random
-import FitL
+import Fit
 import Hpo.LrFinder
 import ML.Simple
 import Train
@@ -90,31 +90,25 @@ buildStream = do
   s <- stream NoShuffle (fromIndexed 5 sampleAt)
   pure (batched {b=5} {i=2} {o=3} s)
 
-nllLoss : Linear 2 3 Ex F WithGrad ->
-          (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
-          IO (Tensor [] Ex F WithGrad)
-nllLoss model (x, tgt) = do
-  out <- forward {b=5} model (retypeGrad x)
-  tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
-
--- Linear-resource twin of `nllLoss` (used by the `fitSupervisedL` modes; the
--- IO `nllLoss` above stays for the lrFind / trainStep path).
+-- Linear-resource loss for the `fitSupervised` modes: consumes the model,
+-- runs `forward`, returns the scalar loss (banged) beside the rebuilt model.
 nllLossL : (1 _ : Linear 2 3 Ex F WithGrad) ->
            (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
            L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Linear 2 3 Ex F WithGrad))
 nllLossL model (x, tgt) = do
-  (MkBang out # model') <- forwardL {b=5} model (retypeGrad x)
+  (MkBang out # model') <- forward {b=5} model (retypeGrad x)
   loss <- tnllLossMeanL {b=5} {n=3} out (retypeGrad tgt)
   pure1 (MkBang loss # model')
 
--- Single train step (for lrFind, which owns its own iteration).
-trainStep : Optimizer Ex -> Linear 2 3 Ex F WithGrad ->
-            (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
-            IO (Linear 2 3 Ex F WithGrad, Double)
-trainStep opt model batch = do
-  l <- nllLoss model batch
-  d <- nativeTrainStep opt l
-  pure (model, d)
+-- One fused linear training step (loss + optimizer step), for lrFind, which
+-- owns its own iteration. Threads the model single-owner through the sweep.
+trainStepL : Optimizer Ex -> (1 _ : Linear 2 3 Ex F WithGrad) ->
+             (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
+             L IO {use = 1} (LPair (!* Double) (Linear 2 3 Ex F WithGrad))
+trainStepL opt model batch = do
+  (MkBang loss # model') <- nllLossL model batch
+  d <- liftIO1 (nativeTrainStep opt loss)
+  pure1 (MkBang d # model')
 
 ----------------------------------------------------------------------
 -- Eval (mean NLL loss + per-point predictions over the [5,3] logits)
@@ -130,7 +124,7 @@ evalInput : IO (Tensor [5, 2] Ex F NoGrad)
 evalInput = tensor {dims=[5, 2]} (FromVect flatInputs)
 
 -- Mean NLL loss from already-forwarded [5,3] logits (NoGrad → no tape). The
--- forward itself happens in the linear block via `forwardL`.
+-- forward itself happens in the linear block via `forward`.
 evalLossFrom : Tensor [5, 3] Ex F NoGrad -> IO Double
 evalLossFrom predB = do
   tgt <- tensor {dims=[5,3]} (FromVect (concat targetsV))
@@ -149,15 +143,15 @@ printPredictionsFrom predB =
     putStrLn $ "  " ++ showVec2 (index i inputsV) ++ " -> class " ++ show pred
              ++ (if ok then " ok" else " WRONG")
 
--- Eval + report a (linear) model: convert to inference (evalL), forward once
+-- Eval + report a (linear) model: convert to inference (eval), forward once
 -- on the fixed eval input, discard the leftover handle, then print loss +
 -- predictions + the result line. Shared by all three modes.
 evalReportL : List (String, String) -> (1 _ : Linear 2 3 Ex F WithGrad) -> L IO ()
 evalReportL extraFields trained = do
-  infer <- evalL trained
+  infer <- eval trained
   ein <- liftIO1 evalInput
-  (MkBang predB # infer') <- forwardL {b=5} infer ein
-  discardL infer'
+  (MkBang predB # infer') <- forward {b=5} infer ein
+  discard infer'
   liftIO1 $ do
     el <- evalLossFrom predB
     putStrLn $ "Eval loss: " ++ show el
@@ -170,7 +164,7 @@ evalReportL extraFields trained = do
 ----------------------------------------------------------------------
 
 -- All three modes run on the linear surface: model born linear (runInitL),
--- threaded through fitSupervisedL, eval-reported via evalReportL. `main : IO`
+-- threaded through fitSupervised, eval-reported via evalReportL. `main : IO`
 -- re-enters via `run`.
 doTrain : Config -> Optimizer Ex -> IO ()
 doTrain cfg opt = Control.Linear.LIO.run $ do
@@ -178,7 +172,7 @@ doTrain cfg opt = Control.Linear.LIO.run $ do
   bs <- liftIO1 buildStream
   liftIO1 $ putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
   (MkBang (epochsDone, _) # trained) <-
-    fitSupervisedL opt nllLossL bs (simpleConfig cfg.epochs) model
+    fitSupervised opt nllLossL bs (simpleConfig cfg.epochs) model
   liftIO1 $ if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
@@ -200,7 +194,7 @@ doContinue cfg opt = Control.Linear.LIO.run $ do
   bs <- liftIO1 buildStream
   liftIO1 $ putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
   (MkBang (epochsDone, _) # trained) <-
-    fitSupervisedL opt nllLossL bs (simpleConfig cfg.epochs) model
+    fitSupervised opt nllLossL bs (simpleConfig cfg.epochs) model
   liftIO1 $ if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
@@ -217,6 +211,28 @@ doInfer cfg = Control.Linear.LIO.run $ do
     ok <- loadModel {ex=Ex} cfg.loadPath
     putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
   evalReportL [("mode", "infer")] model
+
+-- lrFind on the linear surface: the model is born linear (runInitL), threaded
+-- through the sweep by trainStepL, then discarded by the terminal consumer.
+-- A named terminal function with an explicit `(1 _ : LPair ...)` signature so
+-- the bind continuation is recognised as linear for `lrFind`.
+finishLrFind : (1 _ : LPair (!* LrFindResult) (Linear 2 3 Ex F WithGrad)) -> L IO ()
+finishLrFind (MkBang _ # m') = do
+  discard m'
+  liftIO1 $ do
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+
+runLrFind : Config -> Optimizer Ex -> IO ()
+runLrFind cfg opt = Control.Linear.LIO.run $ do
+  model <- runInitL (linear {i=2} {o=3})
+  bs <- liftIO1 buildStream
+  let lrCfg : LrFindConfig
+      lrCfg = { numIters := 100 } defaultLrFindConfig
+  (LIO.(>>=))
+    (Hpo.LrFinder.lrFind {model = Linear 2 3 Ex F WithGrad} lrCfg
+       (trainStepL opt) bs.next opt model)
+    finishLrFind
 
 ----------------------------------------------------------------------
 -- Main
@@ -237,17 +253,8 @@ main = do
   putStrLn $ "=== Cross-Backend Transfer [" ++ backendName {ex=Ex} ++ "] -- "
            ++ cfg.mode ++ " ==="
 
-  -- lrFind stays on the IO surface (HPO scaffolding, not the training path):
-  -- its own IO model feeds the IO `trainStep`/`nllLoss`.
   if cfg.lrFind
-    then do
-      model <- runInit (linear {i=2} {o=3})
-      let lrCfg : LrFindConfig
-          lrCfg = { numIters := 100 } defaultLrFindConfig
-      bs <- buildStream
-      _ <- lrFind lrCfg (trainStep opt) bs.next opt model
-      putStrLn ""
-      putStrLn "Done — re-run without --lr-find at the recommended LR."
+    then runLrFind cfg opt
     else case cfg.mode of
       "train"    => doTrain cfg opt
       "continue" => doContinue cfg opt

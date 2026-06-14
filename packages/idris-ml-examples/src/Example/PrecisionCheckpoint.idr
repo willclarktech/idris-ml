@@ -38,7 +38,7 @@ import System
 import BuildConfig
 import Checkpoint
 import Compat.Random
-import FitL
+import Fit
 import ML.Simple
 import Train
 
@@ -102,12 +102,12 @@ buildStream = do
   s <- stream NoShuffle (fromIndexed 5 sampleAt)
   pure (batched {b=5} {i=2} {o=3} s)
 
--- Linear-resource loss for fitSupervisedL.
+-- Linear-resource loss for fitSupervised.
 nllLossL : (1 _ : Linear 2 3 Ex F WithGrad) ->
            (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
            L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Linear 2 3 Ex F WithGrad))
 nllLossL model (x, tgt) = do
-  (MkBang out # model') <- forwardL {b=5} model (retypeGrad x)
+  (MkBang out # model') <- forward {b=5} model (retypeGrad x)
   loss <- tnllLossMeanL {b=5} {n=3} out (retypeGrad tgt)
   pure1 (MkBang loss # model')
 
@@ -134,11 +134,11 @@ doSave cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
   bs <- liftIO1 buildStream
   liftIO1 $ putStrLn $ "Training " ++ show cfg.epochs ++ " epochs"
-  (MkBang _ # trained) <- fitSupervisedL opt nllLossL bs (simpleConfig cfg.epochs) model
-  infer <- evalL trained
+  (MkBang _ # trained) <- fitSupervised opt nllLossL bs (simpleConfig cfg.epochs) model
+  infer <- eval trained
   ein <- liftIO1 evalInput
-  (MkBang predB # infer') <- forwardL {b=5} infer ein
-  discardL infer'
+  (MkBang predB # infer') <- forward {b=5} infer ein
+  discard infer'
   liftIO1 $ do
     trainedLoss <- lossFrom predB
     putStrLn $ "Trained eval loss: " ++ show trainedLoss
@@ -153,9 +153,9 @@ doSave cfg opt = Control.Linear.LIO.run $ do
 doLoad : (allowCast : Bool) -> Config -> IO Bool
 doLoad allowCast cfg = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
-  infer <- evalL model
+  infer <- eval model
   ein <- liftIO1 evalInput
-  (MkBang predPre # infer') <- forwardL {b=5} infer ein
+  (MkBang predPre # infer') <- forward {b=5} infer ein
   liftIO1 $ do
     initLoss <- lossFrom predPre
     putStrLn $ "Pre-load eval loss: " ++ show initLoss
@@ -164,8 +164,8 @@ doLoad allowCast cfg = Control.Linear.LIO.run $ do
   let label : String
       label = if allowCast then "load-cast" else "load-strict"
   liftIO1 $ putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path
-  (MkBang predPost # infer'') <- forwardL {b=5} infer' ein
-  discardL infer''
+  (MkBang predPost # infer'') <- forward {b=5} infer' ein
+  discard infer''
   liftIO1 $ do
     when ok $ do
       loadedLoss <- lossFrom predPost

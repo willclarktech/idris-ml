@@ -10,7 +10,7 @@ import System
 import Array
 import BuildConfig
 import Compat.Random
-import FitL
+import Fit
 import Floating
 import Gym.ClassicControl.MountainCarCont
 import Gym.Env
@@ -21,10 +21,7 @@ import RL.ReplayBuffer
 import Sampler
 import Train
 
--- Actor + Q-nets are linear `SeqL`s; hide the IO `Nn.Seq` constructors.
-%hide Nn.Seq.Nil
-%hide Nn.Seq.(::)
-%hide Nn.Seq.(~~>)
+-- Actor + Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 
 ----------------------------------------------------------------------
 -- SAC on MountainCarContinuous-v0 with velocity-magnitude reward shaping.
@@ -52,10 +49,10 @@ NumEnvs : Nat; NumEnvs = 4
 -- --- Architectures --------------------------------------------------
 
 ActorNet : Type
-ActorNet = SeqL ObsDim 1 Ex F WithGrad
+ActorNet = Seq ObsDim 1 Ex F WithGrad
 
 QNet : Type
-QNet = SeqL QInputDim 1 Ex F WithGrad
+QNet = Seq QInputDim 1 Ex F WithGrad
 
 mkActor : Init ActorNet
 mkActor = scoped "actor_" $ do
@@ -111,7 +108,7 @@ actorMeanL actor obs = do
   stateV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [1, ObsDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)))
-  (MkBang outV # actor') <- forwardSeqL {b=1} actor stateV
+  (MkBang outV # actor') <- forwardSeq {b=1} actor stateV
   pure1 (MkBang (primItem2d {ex=Ex} outV.tensorPtr 0 0) # actor')
 
 qValueL : (1 _ : QNet) -> Vect ObsDim Double -> Double -> L IO {use = 1} (LPair (!* Double) QNet)
@@ -119,7 +116,7 @@ qValueL q obs action = do
   inV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [1, QInputDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [qInputTensor (qInput obs action)]) Nothing)))
-  (MkBang outV # q') <- forwardSeqL {b=1} q inV
+  (MkBang outV # q') <- forwardSeq {b=1} q inV
   pure1 (MkBang (primItem2d {ex=Ex} outV.tensorPtr 0 0) # q')
 
 sampleActionIOL : (1 _ : ActorNet) -> Tensor [] Ex F WithGrad -> Vect ObsDim Double ->
@@ -143,7 +140,7 @@ sampleActionsBatchedL actor logStdV envs = do
   stateV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [n, ObsDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\s => obsTensor (observeVec s)) envs)) Nothing)))
-  (MkBang meanB # actor') <- forwardSeqL {b=n} actor stateV
+  (MkBang meanB # actor') <- forwardSeq {b=n} actor stateV
   let logStd = primItem {ex=Ex} logStdV.tensorPtr
       std = Prelude.exp logStd
   acts <- liftIO1 (go meanB std 0 envs)
@@ -266,7 +263,7 @@ qOnlineForwardLossL n qOnline batch targetVals = do
     the (Tensor [n, QInputDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F}
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)) Nothing)))
-  (MkBang qOutB # qOnline') <- forwardSeqL {b=n} qOnline qInputV
+  (MkBang qOutB # qOnline') <- forwardSeq {b=n} qOnline qInputV
   loss <- liftIO1 (do losses <- go qOutB targetVals 0; meanScalarLoss n losses)
   pure1 (MkBang loss # qOnline')
   where
@@ -342,7 +339,7 @@ actorLossBatchL n (MkNets actor q1 q2 q1Tgt q2Tgt) logStdV alpha obsBatch = do
   obsBV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [n, ObsDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map obsTensor obsBatch)) Nothing)))
-  (MkBang meanB # actor') <- forwardSeqL {b=n} actor obsBV
+  (MkBang meanB # actor') <- forwardSeq {b=n} actor obsBV
   (uBT, qInputBT) <- liftIO1 $ do
     let epsScales = map (\e => stdVal * e) epses
         epsBV = buildScalarColumn epsScales
@@ -351,8 +348,8 @@ actorLossBatchL n (MkNets actor q1 q2 q1Tgt q2Tgt) logStdV alpha obsBatch = do
     aReparamBT  <- tmulScalar aSquashedBT MaxAct
     qInputBT    <- tconcat2dAxis1 obsBV aReparamBT
     pure (uBT, qInputBT)
-  (MkBang q1B # q1') <- forwardSeqL {b=n} q1 qInputBT
-  (MkBang q2B # q2') <- forwardSeqL {b=n} q2 qInputBT
+  (MkBang q1B # q1') <- forwardSeq {b=n} q1 qInputBT
+  (MkBang q2B # q2') <- forwardSeq {b=n} q2 qInputBT
   loss <- liftIO1 (do losses <- go meanB uBT q1B q2B (toList epses) 0; meanScalarLoss n losses)
   pure1 (MkBang loss # MkNets actor' q1' q2' q1Tgt q2Tgt)
   where
@@ -544,11 +541,11 @@ finalReportL : Config -> Nat -> (1 _ : SACState) -> L IO ()
 finalReportL cfg epochsDone (MkSAC (MkNets actor q1 q2 q1Tgt q2Tgt) _ _ _ _ _ _ _) = do
   let nEval = the Nat 20
   (MkBang evalSum # actor') <- evalNL actor nEval 0.0
-  discardL actor'
-  discardL q1
-  discardL q2
-  discardL q1Tgt
-  discardL q2Tgt
+  discard actor'
+  discard q1
+  discard q2
+  discard q1Tgt
+  discard q2Tgt
   liftIO1 $ do
     let avgReturn = evalSum / cast (natToInteger nEval)
     putStrLn ""
@@ -599,7 +596,7 @@ main = do
                        (mkTrainConfig cfg.epochs 2000
                           (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
                           (const (pure (the (List (String, String)) []))) (\_ => pure ()))
-      (MkBang (epochsDone, _) # trained) <- fitL {batch = ()}
+      (MkBang (epochsDone, _) # trained) <- fit {batch = ()}
         (\s, _ => do
            (MkBang loss # s') <- sacStepBatchedL q1Opt q2Opt actorOpt cfg s
            dd <- liftIO1 (do recordReturn metrics (negate loss); pure loss)

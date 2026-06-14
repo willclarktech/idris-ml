@@ -1,6 +1,8 @@
 module Example.Sarsa
 
+import Control.Linear.LIO
 import Data.Fin
+import Data.Linear.Notation
 import Data.List
 import Data.Maybe
 import Data.Vect
@@ -191,22 +193,24 @@ main = do
   putStrLn ""
 
   metrics <- newRLMetricsState 100
-  (trained, epochsDone, _) <- fitCustom {ex=ExampleExecutor}
-    (\m, d => do
-       let (m', loss) = epochSarsa cfg m d
-       recordReturn metrics (negate loss)
-       pure (m', loss))
-    (generate (genNoise (MaxSteps * 2 + 2)))
-    ({ metrics := \_ => readRLMetrics "recent_100" metrics }
-       (simpleConfig {model = QTable} cfg.epochs))
-    zeroQ
+  Control.Linear.LIO.run $ do
+    (MkBang (epochsDone, _) # (VArray trows)) <- fitCustom {ex=ExampleExecutor}
+      (\(VArray rows), d => do
+         let (m', loss) = epochSarsa cfg (VArray rows) d
+         liftIO1 (recordReturn metrics (negate loss))
+         pure1 (MkBang loss # m'))
+      (generate (genNoise (MaxSteps * 2 + 2)))
+      ({ metricsL := readRLMetrics "recent_100" metrics }
+         (simpleConfig {model = QTable} cfg.epochs))
+      zeroQ
 
-  putStrLn ""
-  let nEval = the Nat 100
-      totalReturn = evalN trained nEval 0.0
-      avgReturn   = totalReturn / cast (natToInteger nEval)
-  putStrLn $ "Eval (100 episodes, greedy): avg_return=" ++ show avgReturn
-  putStrLn ""
-  putStrLn $ formatResult [("avg_return", show avgReturn),
-                            ("epochs", show epochsDone),
-                            ("seed", show cfg.seed)]
+    let nEval = the Nat 100
+        totalReturn = evalN (VArray trows) nEval 0.0
+        avgReturn   = totalReturn / cast (natToInteger nEval)
+    liftIO1 $ do
+      putStrLn ""
+      putStrLn $ "Eval (100 episodes, greedy): avg_return=" ++ show avgReturn
+      putStrLn ""
+      putStrLn $ formatResult [("avg_return", show avgReturn),
+                               ("epochs", show epochsDone),
+                               ("seed", show cfg.seed)]

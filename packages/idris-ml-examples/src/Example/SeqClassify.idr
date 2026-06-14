@@ -18,15 +18,12 @@ import System
 
 import BuildConfig
 import Compat.Random
-import FitL
+import Fit
 import ML.Simple
 import Train
 
--- This example's model is a linear `SeqL`; hide the IO `Nn.Seq` constructors
+-- This example's model is a linear `Seq`; hide the IO `Nn.Seq` constructors
 -- (same `Nil`/`::`/`~~>` names) so the chain builder resolves unambiguously.
-%hide Nn.Seq.Nil
-%hide Nn.Seq.(::)
-%hide Nn.Seq.(~~>)
 
 ----------------------------------------------------------------------
 -- Architecture (flat dims)
@@ -116,11 +113,11 @@ mkSample = do
 ----------------------------------------------------------------------
 
 Model : Type
-Model = SeqL InputDim NumClasses Ex F WithGrad
+Model = Seq InputDim NumClasses Ex F WithGrad
 
 -- Top-level Init value (not inline under runInitL — see the linear-types
 -- migration recipe: a nested do-block under `run $ do …` trips the
--- ambiguity-depth limit). Built as a linear `SeqL`.
+-- ambiguity-depth limit). Built as a linear `Seq`.
 mkModel : Init Model
 mkModel = do
   c1 <- conv1d {inC = InC} {outC = C1} {len = SeqLen}   {kL = K} {pad = 0}
@@ -134,12 +131,12 @@ mkModel = do
            ~~> l ~~> Nil)
 
 -- Linear-resource loss: consume the (linear) Seq model, forward it via
--- forwardSeqL, return the banged scalar loss beside the rebuilt model.
+-- forwardSeq, return the banged scalar loss beside the rebuilt model.
 nllLossL : (1 _ : Model) ->
            (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize, NumClasses] Ex F NoGrad) ->
            L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) Model)
 nllLossL model (x, tgt) = do
-  (MkBang out # model') <- forwardSeqL {b = BatchSize} model (retypeGrad x)
+  (MkBang out # model') <- forwardSeq {b = BatchSize} model (retypeGrad x)
   loss <- tnllLossMeanL {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
   pure1 (MkBang loss # model')
 
@@ -183,13 +180,13 @@ main = do
   let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} (generate mkSample)
 
   -- Linear surface: model born linear (runInitL), threaded through
-  -- fitSupervisedL, final handle discarded (discardL — Seq is a ParamsL).
+  -- fitSupervised, final handle discarded (discard — Seq is a ParamsL).
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
-      fitSupervisedL opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
-    discardL trained
+      fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
+    discard trained
     liftIO1 $ putStrLn ""
     liftIO1 $ putStrLn $ formatResult [("loss", show finalLoss),
                                        ("epochs", show epochsDone),

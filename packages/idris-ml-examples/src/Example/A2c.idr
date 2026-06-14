@@ -10,7 +10,7 @@ import System
 import Array
 import BuildConfig
 import Compat.Random
-import FitL
+import Fit
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
@@ -20,10 +20,7 @@ import RL.Gae
 import Sampler
 import Train
 
--- Actor + critic are linear `SeqL`s; hide the IO `Nn.Seq` constructors.
-%hide Nn.Seq.Nil
-%hide Nn.Seq.(::)
-%hide Nn.Seq.(~~>)
+-- Actor + critic are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 
 ----------------------------------------------------------------------
 -- Architecture: separate actor and critic MLPs (aligned with PyTorch
@@ -45,10 +42,10 @@ RolloutLen : Nat; RolloutLen = 20
 NumEnvs : Nat; NumEnvs = 4
 
 Actor : Type
-Actor = SeqL ObsDim NumActions Ex F WithGrad
+Actor = Seq ObsDim NumActions Ex F WithGrad
 
 Critic : Type
-Critic = SeqL ObsDim 1 Ex F WithGrad
+Critic = Seq ObsDim 1 Ex F WithGrad
 
 mkActor : Init Actor
 mkActor = scoped "actor" $ do
@@ -145,10 +142,10 @@ rolloutBatchedL actor critic v0 rolloutLen = do
       stateV <- liftIO1 (ioRerun (\_ =>
         the (Tensor [n, ObsDim] Ex F WithGrad)
             (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\s => obsTensor (observeVec s)) envs)) Nothing)))
-      (MkBang logitsV # actor') <- forwardSeqL {b=n} actor stateV
+      (MkBang logitsV # actor') <- forwardSeq {b=n} actor stateV
       let logProbsV = the (Tensor [n, NumActions] Ex F WithGrad)
                         (MkTensor (primLogSoftmax2d {ex=Ex} logitsV.tensorPtr) Nothing)
-      (MkBang valuesV # critic') <- forwardSeqL {b=n} critic stateV
+      (MkBang valuesV # critic') <- forwardSeq {b=n} critic stateV
       acts <- liftIO1 (fst <$> sampleActionFromBatch logProbsV envs)
       let valueRows : Vect n Double
           valueRows = mapIdx (\i, _ => primItem2d {ex=Ex} valuesV.tensorPtr (cast i) 0) envs
@@ -169,7 +166,7 @@ bootstrapVL critic obs = do
   stateV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [1, ObsDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)))
-  (MkBang valueV # critic') <- forwardSeqL {b=1} critic stateV
+  (MkBang valueV # critic') <- forwardSeq {b=1} critic stateV
   pure1 (MkBang (primItem2d {ex=Ex} valueV.tensorPtr 0 0) # critic')
 
 computeBootstrapL : (1 _ : Critic) -> List RollStep -> CPState ->
@@ -263,8 +260,8 @@ buildLossFromMergedL actor critic entropyCoef valueCoef merged = do
                      (map (\(s, _, _) => obsTensor s.obs) normVec)
   stackedV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [n, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} obsBatch) Nothing)))
-  (MkBang logitsB # actor') <- forwardSeqL {b=n} actor stackedV
-  (MkBang valuesB # critic') <- forwardSeqL {b=n} critic stackedV
+  (MkBang logitsB # actor') <- forwardSeq {b=n} actor stackedV
+  (MkBang valuesB # critic') <- forwardSeq {b=n} critic stackedV
   loss <- liftIO1 $ do
             losses <- enumeratedLosses logitsB valuesB normVec 0
             aggregateLoss losses
@@ -404,7 +401,7 @@ greedyActL actor obs = do
   stateV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [1, ObsDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)))
-  (MkBang logits # actor') <- forwardSeqL {b=1} actor stateV
+  (MkBang logits # actor') <- forwardSeq {b=1} actor stateV
   let l0 = primItem2d {ex=Ex} logits.tensorPtr 0 0
       l1 = primItem2d {ex=Ex} logits.tensorPtr 0 1
   pure1 (MkBang (if l0 >= l1 then the Nat 0 else 1) # actor')
@@ -442,15 +439,15 @@ buildStateL = do
 
 discardStateL : (1 _ : A2CState) -> L IO ()
 discardStateL (MkA2C actor critic _ _) = do
-  discardL actor
-  discardL critic
+  discard actor
+  discard critic
 
 finalReportL : Config -> Nat -> (1 _ : A2CState) -> L IO ()
 finalReportL cfg epochsDone (MkA2C actor critic _ _) = do
   let nEval = the Nat 30
   (MkBang evalSum # actor') <- withNoGradL {ex=Ex} (evalNL actor nEval 0.0)
-  discardL actor'
-  discardL critic
+  discard actor'
+  discard critic
   liftIO1 $ do
     let avgReturn = evalSum / cast (natToInteger nEval)
     putStrLn ""
@@ -465,6 +462,46 @@ finalReportL cfg epochsDone (MkA2C actor critic _ _) = do
 ----------------------------------------------------------------------
 
 %default partial
+
+lrFindCfg : LrFindConfig
+lrFindCfg = { numIters := 100 } defaultLrFindConfig
+
+-- Terminal consumer of the trained-but-unused lrFind state: discard it, then
+-- print. A single `(1 _ : A2CState) -> L IO ()` so the bind continuation that
+-- produces it is recognised as linear (mirrors `finalReportL`'s shape).
+finishLrFind : (1 _ : LPair (!* LrFindResult) A2CState) -> L IO ()
+finishLrFind (MkBang _ # st') = do
+  discardStateL st'
+  liftIO1 $ do
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+
+runLrFind : Config -> IO ()
+runLrFind cfg = Control.Linear.LIO.run $ do
+  st0 <- buildStateL
+  opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
+  (LIO.(>>=))
+    (lrFind {ex = Ex} {model = A2CState} {dp = ()} lrFindCfg
+       (\s, _ => a2cEpochL opt cfg s) (pure ()) opt st0)
+    finishLrFind
+
+runTrain : Config -> IO ()
+runTrain cfg = Control.Linear.LIO.run $ do
+  st0 <- buildStateL
+  -- Single Adam over both actor + critic (all params registered).
+  opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
+  metrics <- liftIO1 (newRLMetricsState 50)
+  let trainCfg : TrainConfig A2CState
+      trainCfg = { metricsL := readRLMetrics "recent_50" metrics }
+                   (mkTrainConfig cfg.epochs 500 NoEarlyStop
+                      (const (pure (the (List (String, String)) []))) (\_ => pure ()))
+  (MkBang (epochsDone, _) # trained) <- fit {batch = ()}
+    (\s, _ => do
+       (MkBang loss # s') <- a2cEpochL opt cfg s
+       dd <- liftIO1 (do recordReturn metrics (negate loss); pure loss)
+       pure1 (MkBang dd # s'))
+    opt (generate (pure ())) trainCfg st0
+  finalReportL cfg epochsDone trained
 
 main : IO ()
 main = do
@@ -485,30 +522,4 @@ main = do
 
   putStrLn ""
 
-  if cfg.lrFind
-    then Control.Linear.LIO.run $ do
-      st0 <- buildStateL
-      opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
-      let lrCfg : LrFindConfig
-          lrCfg = { numIters := 100 } defaultLrFindConfig
-      (MkBang _ # st') <- lrFindL lrCfg (\s, _ => a2cEpochL opt cfg s) (pure ()) opt st0
-      discardStateL st'
-      liftIO1 $ do
-        putStrLn ""
-        putStrLn "Done — re-run without --lr-find at the recommended LR."
-    else Control.Linear.LIO.run $ do
-      st0 <- buildStateL
-      -- Single Adam over both actor + critic (all params registered).
-      opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
-      metrics <- liftIO1 (newRLMetricsState 50)
-      let trainCfg : TrainConfig A2CState
-          trainCfg = { metricsL := readRLMetrics "recent_50" metrics }
-                       (mkTrainConfig cfg.epochs 500 NoEarlyStop
-                          (const (pure (the (List (String, String)) []))) (\_ => pure ()))
-      (MkBang (epochsDone, _) # trained) <- fitL {batch = ()}
-        (\s, _ => do
-           (MkBang loss # s') <- a2cEpochL opt cfg s
-           dd <- liftIO1 (do recordReturn metrics (negate loss); pure loss)
-           pure1 (MkBang dd # s'))
-        opt (generate (pure ())) trainCfg st0
-      finalReportL cfg epochsDone trained
+  if cfg.lrFind then runLrFind cfg else runTrain cfg

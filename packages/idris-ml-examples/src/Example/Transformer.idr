@@ -22,7 +22,7 @@ import Checkpoint
 import Compat.Random
 import DataStream
 import Executor
-import FitL
+import Fit
 import Generate
 import Hpo.LrFinder
 import Nn
@@ -31,10 +31,8 @@ import Tensor
 import Train
 import Util
 
--- The transformer body is a linear `SeqL`; hide the IO `Nn.Seq` constructors
--- (same `Nil`/`::` names) so the block-stack builder resolves to SeqL.
-%hide Nn.Seq.Nil
-%hide Nn.Seq.(::)
+-- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors
+-- (same `Nil`/`::` names) so the block-stack builder resolves to Seq.
 
 ----------------------------------------------------------------------
 -- Configuration
@@ -78,14 +76,14 @@ BatchSize = 16
 ----------------------------------------------------------------------
 
 -- Mixed field multiplicity by role: the `body` (the threaded sub-model) is a
--- **linear** `SeqL` field; `embed`/`headW`/`pe` are read-only ω fields applied
+-- **linear** `Seq` field; `embed`/`headW`/`pe` are read-only ω fields applied
 -- once per forward. The body is stateless, but threading it linearly keeps the
 -- single-owner discipline uniform across every forward (Option 3).
 public export
 record TfmModel (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkTfmModel
   embed  : Embedding VocabSize DModel ex dt g
-  1 body : SeqL DModel DModel ex dt g
+  1 body : Seq DModel DModel ex dt g
   headW : TMat VocabSize DModel ex dt g
   pe    : Tensor [SeqLen, DModel] ex dt g
 
@@ -93,8 +91,8 @@ Model : Type
 Model = TfmModel ExampleExecutor ExampleDType WithGrad
 
 -- NumBlocks pre-norm transformer blocks followed by the final LayerNorm,
--- assembled as a linear `SeqL`.
-buildBody : (k : Nat) -> Init (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad)
+-- assembled as a linear `Seq`.
+buildBody : (k : Nat) -> Init (Seq DModel DModel ExampleExecutor ExampleDType WithGrad)
 buildBody Z = do
   ln <- layerNorm {ex=ExampleExecutor} {dt=ExampleDType} {n=DModel}
   pure (ln :: Nil)
@@ -121,16 +119,16 @@ mkModelInit = do
   pure (MkTfmModel e b hw pe)
 
 -- Forward one sequence `[SeqLen]` → per-position logits `[SeqLen, VocabSize]`,
--- threading the linear `body` through `forwardSeqL`. The ω `emb`/`pe`/`headW`
+-- threading the linear `body` through `forwardSeq`. The ω `emb`/`pe`/`headW`
 -- are read by projection. Returns the logits (banged) beside the rebuilt body.
 partial
 tfmForwardL : Embedding VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
               Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad ->
               TMat VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
-              (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) ->
+              (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) ->
               Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad ->
               L IO {use = 1} (LPair (!* (Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad))
-                                    (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+                                    (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
 tfmForwardL emb pe headW body tokens = do
   embFlat <- liftIO1 (embeddingForward {ex=ExampleExecutor} {seqLen=SeqLen} {embedDim=DModel}
                                        {vocab=VocabSize} emb tokens)
@@ -140,7 +138,7 @@ tfmForwardL emb pe headW body tokens = do
     the (Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad)
         (MkTensor (primReshape2d {ex=ExampleExecutor} embFlat.tensorPtr sI dI) Nothing)))
   h0 <- liftIO1 (tadd emb2d pe)
-  (MkBang hN # body') <- forwardSeqL {b=SeqLen} body h0
+  (MkBang hN # body') <- forwardSeq {b=SeqLen} body h0
   out <- liftIO1 (ioRerun (\_ =>
     MkTensor (primMm {ex=ExampleExecutor} hN.tensorPtr
                      (primTranspose2d {ex=ExampleExecutor} headW.tensorPtr)) Nothing))
@@ -228,17 +226,17 @@ batchLossL (MkTfmModel emb body headW pe) batch = do
     foldSamples : Embedding VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
                   TMat VocabSize DModel ExampleExecutor ExampleDType WithGrad ->
                   Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad ->
-                  (1 _ : SeqL DModel DModel ExampleExecutor ExampleDType WithGrad) ->
+                  (1 _ : Seq DModel DModel ExampleExecutor ExampleDType WithGrad) ->
                   List TfmSample -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) ->
                   L IO {use = 1} (LPair (!* (List (Tensor [] ExampleExecutor ExampleDType WithGrad)))
-                                        (SeqL DModel DModel ExampleExecutor ExampleDType WithGrad))
+                                        (Seq DModel DModel ExampleExecutor ExampleDType WithGrad))
     foldSamples _ _  _ body []                acc    = pure1 (MkBang (reverse acc) # body)
     foldSamples e hw p body ((ids, tgt) :: rest) acc = do
       (MkBang logits # body') <- tfmForwardL e p hw body ids
       l <- liftIO1 (tfmLoss logits tgt)
       foldSamples e hw p body' rest (l :: acc)
 
--- One fused linear training step (loss + optimizer step), for lrFindL.
+-- One fused linear training step (loss + optimizer step), for lrFind.
 partial
 stepL : Optimizer ExampleExecutor -> (1 _ : Model) -> Vect BatchSize TfmSample ->
         L IO {use = 1} (LPair (!* Double) Model)
@@ -314,7 +312,7 @@ evalReportL positions cfg epochsDone (MkTfmModel emb body headW pe) = do
   inIdsTgt <- liftIO1 sortingSample
   let (inIds, tgt) = inIdsTgt
   (MkBang predV # body') <- tfmForwardL emb pe headW body inIds
-  discardL body'
+  discard body'
   liftIO1 $ do
     putStrLn ""
     putStrLn "Evaluation:"
@@ -338,14 +336,51 @@ evalReportL positions cfg epochsDone (MkTfmModel emb body headW pe) = do
                               ("sort_acc", show sortCorrect ++ "/" ++ show sortTotal),
                               ("seed", show cfg.seed)]
 
--- Discard the (linear) model: its body is a linear field → discardL; the ω
+-- Discard the (linear) model: its body is a linear field → discard; the ω
 -- embed/headW/pe drop freely.
 discardModel : (1 _ : Model) -> L IO ()
-discardModel (MkTfmModel _ body _ _) = discardL body
+discardModel (MkTfmModel _ body _ _) = discard body
 
 ----------------------------------------------------------------------
 -- Main
 ----------------------------------------------------------------------
+
+lrFindCfg : LrFindConfig
+lrFindCfg = { numIters := 100 } defaultLrFindConfig
+
+-- Terminal linear consumer of the lrFind result. A named function with an
+-- explicit `(1 _ : LPair ...)` signature so the bind continuation is linear
+-- (the inline do-notation `<-` doesn't get recognised as linear for `lrFind`).
+partial
+finishLrFind : (1 _ : LPair (!* LrFindResult) Model) -> L IO ()
+finishLrFind (MkBang _ # m') = do
+  discardModel m'
+  liftIO1 $ do
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+
+partial
+runLrFind : Config -> Optimizer ExampleExecutor -> IO ()
+runLrFind cfg opt = Control.Linear.LIO.run $ do
+  -- lrFind on the linear surface (lrFind): the model is threaded through
+  -- the sweep by stepL, then discarded.
+  model <- runInitL mkModelInit
+  (LIO.(>>=))
+    (lrFind {ex = ExampleExecutor} {model = Model} {dp = Vect BatchSize TfmSample} lrFindCfg
+       (stepL opt) (sortingBatch BatchSize) opt model)
+    finishLrFind
+
+partial
+runTrain : List Nat -> Config -> Optimizer ExampleExecutor ->
+           TrainConfig Model -> IO ()
+runTrain positions cfg opt trainCfg = Control.Linear.LIO.run $ do
+  -- Linear surface end to end: model born linear (runInitL), threaded
+  -- through fitSupervised (batchLossL consumes-and-returns it each step),
+  -- final eval via evalReportL (which consumes the trained handle).
+  model <- runInitL mkModelInit
+  (MkBang (epochsDone, _) # trained) <-
+    fitSupervised {ex=ExampleExecutor} opt batchLossL (generate (sortingBatch BatchSize)) trainCfg model
+  evalReportL positions cfg epochsDone trained
 
 partial
 main : IO ()
@@ -381,23 +416,4 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  if cfg.lrFind
-    then Control.Linear.LIO.run $ do
-      -- lrFind on the linear surface (lrFindL): the model is threaded through
-      -- the sweep by stepL, then discarded.
-      model <- runInitL mkModelInit
-      let lrCfg : LrFindConfig
-          lrCfg = { numIters := 100 } defaultLrFindConfig
-      (MkBang _ # m') <- lrFindL lrCfg (stepL opt) (sortingBatch BatchSize) opt model
-      discardModel m'
-      liftIO1 $ do
-        putStrLn ""
-        putStrLn "Done — re-run without --lr-find at the recommended LR."
-    else Control.Linear.LIO.run $ do
-      -- Linear surface end to end: model born linear (runInitL), threaded
-      -- through fitSupervisedL (batchLossL consumes-and-returns it each step),
-      -- final eval via evalReportL (which consumes the trained handle).
-      model <- runInitL mkModelInit
-      (MkBang (epochsDone, _) # trained) <-
-        fitSupervisedL {ex=ExampleExecutor} opt batchLossL (generate (sortingBatch BatchSize)) trainCfg model
-      evalReportL positions cfg epochsDone trained
+  if cfg.lrFind then runLrFind cfg opt else runTrain positions cfg opt trainCfg

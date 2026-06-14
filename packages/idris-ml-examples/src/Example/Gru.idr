@@ -9,7 +9,7 @@ import System
 import BuildConfig
 import Checkpoint
 import Compat.Random
-import FitL
+import Fit
 import ML.Simple
 import Train
 
@@ -65,12 +65,12 @@ sumLosses (x :: xs) = go x xs
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
 -- Per-sequence loss, fine-grained (see Example.Rnn): thread the linear cell one
--- timestep at a time through recurStepL, applying the ω head + BCE, summing
+-- timestep at a time through recurStep, applying the ω head + BCE, summing
 -- forward, returning the mean beside the final cell.
 seqLossL : Linear 4 1 Ex F WithGrad -> (1 _ : Gru 1 4 Ex F WithGrad) ->
            (List Double, List Double) ->
            L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Gru 1 4 Ex F WithGrad))
-seqLossL head cell0 (is, os) = go (recurResetL cell0) Nothing 0 (zip is os)
+seqLossL head cell0 (is, os) = go (recurReset cell0) Nothing 0 (zip is os)
   where
     go : (1 _ : Gru 1 4 Ex F WithGrad) -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
          List (Double, Double) ->
@@ -82,7 +82,7 @@ seqLossL head cell0 (is, os) = go (recurResetL cell0) Nothing 0 (zip is os)
       pure1 (MkBang mean # cell)
     go cell acc cnt ((xi, yi) :: rest) = do
       x              <- liftIO1 (scalar1 xi)
-      (MkBang h # cell') <- recurStepL cell x
+      (MkBang h # cell') <- recurStep cell x
       acc'           <- liftIO1 $ do
                           out <- tlinear head.weightT h head.biasT
                           y   <- scalar1 yi
@@ -112,7 +112,7 @@ recurEpochL opt (MkModel cell head) seqs = do
       foldSeqs hd cell' rest (l :: acc)
 
 discardModel : (1 _ : Model) -> L IO ()
-discardModel (MkModel cell _) = discardL cell
+discardModel (MkModel cell _) = discard cell
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -169,7 +169,7 @@ main = do
     model <- runInitL mkModel
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
-      fitL (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model
+      fit (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model
     discardModel trained
     liftIO1 $ putStrLn ""
     liftIO1 $ putStrLn $ formatResult [ ("epochs", show epochsDone)

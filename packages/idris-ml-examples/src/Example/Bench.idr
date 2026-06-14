@@ -7,6 +7,8 @@
 
 module Example.Bench
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -61,32 +63,42 @@ sumLosses (x :: xs) = go x xs
     go acc []        = pure acc
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
-encodeAll : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
-            List (Vect i Double) -> IO (Ntm n m h i o Ex F WithGrad)
-encodeAll cell []            = pure cell
+-- Thread the (linear) cell through the encode phase, returning the advanced
+-- cell beside a unit bang (encode outputs are unused).
+encodeAll : {n, m, h, i, o : Nat} -> (1 _ : Ntm n m h i o Ex F WithGrad) ->
+            List (Vect i Double) ->
+            L IO {use = 1} (LPair (!* ()) (Ntm n m h i o Ex F WithGrad))
+encodeAll cell []            = pure1 (MkBang () # cell)
 encodeAll cell (row :: rest) = do
-  x <- retypeGrad <$> tensor {dims = [i]} (FromVect row)
-  (cell', _) <- recurStep cell x
+  x <- liftIO1 (retypeGrad <$> tensor {dims = [i]} (FromVect row))
+  (MkBang _ # cell') <- recurStep cell x
   encodeAll cell' rest
 
-decodeLosses : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
-               List (Vect o Double) -> IO (List (Tensor [] Ex F WithGrad))
-decodeLosses _ []                = pure []
+-- Thread the (linear) cell through the decode phase, returning the per-step BCE
+-- losses (ω tensors) beside the final cell.
+decodeLosses : {n, m, h, i, o : Nat} -> (1 _ : Ntm n m h i o Ex F WithGrad) ->
+               List (Vect o Double) ->
+               L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad)))
+                                     (Ntm n m h i o Ex F WithGrad))
+decodeLosses cell []                = pure1 (MkBang [] # cell)
 decodeLosses cell (trow :: rest) = do
-  z <- retypeGrad <$> tensor {dims = [i]} (Const 0.0)
-  (cell', out) <- recurStep cell z
-  y <- retypeGrad <$> tensor {dims = [o]} (FromVect trow)
-  l <- tbceLoss out y
-  ls <- decodeLosses cell' rest
-  pure (l :: ls)
+  z <- liftIO1 (retypeGrad <$> tensor {dims = [i]} (Const 0.0))
+  (MkBang out # cell') <- recurStep cell z
+  l <- liftIO1 $ do
+         y <- retypeGrad <$> tensor {dims = [o]} (FromVect trow)
+         tbceLoss out y
+  (MkBang ls # cellF) <- decodeLosses cell' rest
+  pure1 (MkBang (l :: ls) # cellF)
 
 twoPhaseLoss : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
                TwoPhaseSeq i o -> IO (Tensor [] Ex F WithGrad)
-twoPhaseLoss model (encIns, targs) = do
-  enc <- encodeAll (recurReset model) encIns
-  ls  <- decodeLosses enc targs
-  s   <- sumLosses ls
-  (1.0 / cast (length targs)) *: s
+twoPhaseLoss model (encIns, targs) = Control.Linear.LIO.run $ do
+  (MkBang () # enc) <- encodeAll (recurReset model) encIns
+  (MkBang ls # cellF) <- decodeLosses enc targs
+  discard cellF
+  liftIO1 $ do
+    s <- sumLosses ls
+    (1.0 / cast (length targs)) *: s
 
 ntmEpoch : {n, m, h, i, o : Nat} -> Optimizer Ex -> List (TwoPhaseSeq i o) ->
            Ntm n m h i o Ex F WithGrad -> IO (Ntm n m h i o Ex F WithGrad, Double)
@@ -123,7 +135,10 @@ supStep : Optimizer Ex -> Linear 2 3 Ex F WithGrad -> IO (Linear 2 3 Ex F WithGr
 supStep opt model = do
   x   <- tensor {dims=[5,2]} (FromVect supIn)
   tgt <- tensor {dims=[5,3]} (FromVect supTgt)
-  out <- forward {b=5} model (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=5} model (retypeGrad x)
+           discard m'
+           pure o)
   l   <- tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
   d   <- nativeTrainStep opt l
   pure (model, d)
@@ -154,21 +169,25 @@ rnnSeqs = map (patternSeq . (+ 3) . finToNat) (Data.Vect.Fin.range {len = 8})
 
 rnnSeqLoss : Rnn 1 1 Ex F WithGrad -> (List Double, List Double) ->
              IO (Tensor [] Ex F WithGrad)
-rnnSeqLoss cell0 (is, os) = do
-  (sumL, cnt) <- go (recurReset cell0) Nothing 0 (zip is os)
-  if cnt == 0 then pure sumL else (1.0 / cast cnt) *: sumL
+rnnSeqLoss cell0 (is, os) = Control.Linear.LIO.run $ do
+  (MkBang (sumL, cnt) # cellF) <- go (recurReset cell0) Nothing 0 (zip is os)
+  discard cellF
+  liftIO1 (if cnt == 0 then pure sumL else (1.0 / cast cnt) *: sumL)
   where
-    go : Rnn 1 1 Ex F WithGrad -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
-         List (Double, Double) -> IO (Tensor [] Ex F WithGrad, Nat)
-    go _ acc c [] = case acc of
-      Just s  => pure (s, c)
-      Nothing => assert_total $ idris_crash "Bench.rnnSeqLoss: empty"
+    go : (1 _ : Rnn 1 1 Ex F WithGrad) -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
+         List (Double, Double) ->
+         L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad, Nat)) (Rnn 1 1 Ex F WithGrad))
+    go cell acc c [] = case acc of
+      Just s  => pure1 (MkBang (s, c) # cell)
+      Nothing => do discard cell
+                    assert_total $ idris_crash "Bench.rnnSeqLoss: empty"
     go cell acc c ((xi, yi) :: rest) = do
-      x          <- retypeGrad <$> tensor {dims=[1]} (FromVect [xi])
-      (cell', h) <- recurStep cell x
-      y          <- retypeGrad <$> tensor {dims=[1]} (FromVect [yi])
-      l          <- tbceLoss h y
-      acc'       <- case acc of Just s => Just <$> tadd s l; Nothing => pure (Just l)
+      x          <- liftIO1 (retypeGrad <$> tensor {dims=[1]} (FromVect [xi]))
+      (MkBang h # cell') <- recurStep cell x
+      acc'       <- liftIO1 $ do
+                      y <- retypeGrad <$> tensor {dims=[1]} (FromVect [yi])
+                      l <- tbceLoss h y
+                      case acc of Just s => Just <$> tadd s l; Nothing => pure (Just l)
       go cell' acc' (S c) rest
 
 rnnEpoch : Optimizer Ex -> Rnn 1 1 Ex F WithGrad -> IO (Rnn 1 1 Ex F WithGrad, Double)

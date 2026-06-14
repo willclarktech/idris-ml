@@ -19,15 +19,12 @@ import System
 
 import BuildConfig
 import Compat.Random
-import FitL
+import Fit
 import ML.Simple
 import Train
 
--- This example's model is a linear `SeqL`; hide the IO `Nn.Seq` constructors
+-- This example's model is a linear `Seq`; hide the IO `Nn.Seq` constructors
 -- (same `Nil`/`::`/`~~>` names) so the chain builder resolves unambiguously.
-%hide Nn.Seq.Nil
-%hide Nn.Seq.(::)
-%hide Nn.Seq.(~~>)
 
 ----------------------------------------------------------------------
 -- Architecture (flat dims)
@@ -80,11 +77,11 @@ EvalSize = 1000
 ----------------------------------------------------------------------
 
 Model : Type
-Model = SeqL InputDim NumClasses Ex F WithGrad
+Model = Seq InputDim NumClasses Ex F WithGrad
 
 -- Top-level `Init` value (not inline under `runInitL`): a nested do-block under
 -- the linear `run $ do …` trips the elaborator's ambiguity-depth limit. Built
--- as a linear `SeqL`.
+-- as a linear `Seq`.
 mkModel : Init Model
 mkModel = do
   c1 <- conv2d {inC = InC}   {outC = OutC1} {h = ImgH}     {w = ImgH}     {kH = KH} {kW = KH} {padH = 0} {padW = 0}
@@ -97,13 +94,13 @@ mkModel = do
            ~~> dropout 0.5
            ~~> l ~~> Nil)
 
--- Linear-resource loss: consume the model, forward via forwardSeqL, return the
+-- Linear-resource loss: consume the model, forward via forwardSeq, return the
 -- banged scalar loss beside the rebuilt model.
 nllLossL : (1 _ : Model) ->
            (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize, NumClasses] Ex F NoGrad) ->
            L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) Model)
 nllLossL model (x, tgt) = do
-  (MkBang out # model') <- forwardSeqL {b = BatchSize} model (retypeGrad x)
+  (MkBang out # model') <- forwardSeq {b = BatchSize} model (retypeGrad x)
   loss <- tnllLossMeanL {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
   pure1 (MkBang loss # model')
 
@@ -124,7 +121,7 @@ argmaxRow t r = go 1 0 (primItem2d {ex=Ex} t r 0)
 
 -- Argmax accuracy over the already-forwarded [EvalSize, NumClasses] logits.
 -- Pure (primItem2d reads are pure FFI); the forward itself happens in the
--- linear block via forwardSeqL.
+-- linear block via forwardSeq.
 accuracyFrom : Tensor [EvalSize, NumClasses] Ex F NoGrad ->
                Tensor [EvalSize, NumClasses] Ex F NoGrad -> Double
 accuracyFrom pred tgt =
@@ -201,18 +198,18 @@ main = do
   putStrLn ""
 
   -- Linear surface end to end: model born linear (runInitL), threaded through
-  -- fitSupervisedL, converted to an inference model (evalL), forwarded once on
-  -- the eval batch (forwardSeqL), then discarded. `run` is fully qualified —
+  -- fitSupervised, converted to an inference model (eval), forwarded once on
+  -- the eval batch (forwardSeq), then discarded. `run` is fully qualified —
   -- `import System` brings other `run`s that otherwise blow the ambiguity-depth
   -- limit in this do-block.
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
     (MkBang (epochsDone, finalLoss) # trained) <-
-      fitSupervisedL opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
+      fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
     liftIO1 (putStrLn "")
-    infer <- evalL trained
-    (MkBang predB # infer') <- forwardSeqL {b = EvalSize} infer (fst evalBatch)
-    discardL infer'
+    infer <- eval trained
+    (MkBang predB # infer') <- forwardSeq {b = EvalSize} infer (fst evalBatch)
+    discard infer'
     liftIO1 $ do
       let acc = accuracyFrom predB (snd evalBatch)
       putStrLn $ "Final accuracy (" ++ show EvalSize ++ " test samples): " ++ show (acc * 100.0) ++ "%"

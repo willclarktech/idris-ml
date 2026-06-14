@@ -7,6 +7,8 @@
 
 module Example.Profile
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -112,29 +114,34 @@ sumLosses (x :: xs) = go x xs
     go acc []        = pure acc
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
-encodeAll : Model -> List (Vect InputW Double) -> IO Model
-encodeAll cell []            = pure cell
+encodeAll : (1 _ : Model) -> List (Vect InputW Double) ->
+            L IO {use = 1} (LPair (!* ()) Model)
+encodeAll cell []            = pure1 (MkBang () # cell)
 encodeAll cell (row :: rest) = do
-  x <- retypeGrad <$> tensor {dims = [InputW]} (FromVect row)
-  (cell', _) <- recurStep cell x
+  x <- liftIO1 (retypeGrad <$> tensor {dims = [InputW]} (FromVect row))
+  (MkBang _ # cell') <- recurStep cell x
   encodeAll cell' rest
 
-decodeLosses : Model -> List (Vect OutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
-decodeLosses _ []                = pure []
+decodeLosses : (1 _ : Model) -> List (Vect OutputW Double) ->
+               L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad))) Model)
+decodeLosses cell []                = pure1 (MkBang [] # cell)
 decodeLosses cell (trow :: rest) = do
-  z <- zeroIn
-  (cell', out) <- recurStep cell z
-  y <- retypeGrad <$> tensor {dims = [OutputW]} (FromVect trow)
-  l <- tbceLoss out y
-  ls <- decodeLosses cell' rest
-  pure (l :: ls)
+  z <- liftIO1 zeroIn
+  (MkBang out # cell') <- recurStep cell z
+  l <- liftIO1 $ do
+         y <- retypeGrad <$> tensor {dims = [OutputW]} (FromVect trow)
+         tbceLoss out y
+  (MkBang ls # cellF) <- decodeLosses cell' rest
+  pure1 (MkBang (l :: ls) # cellF)
 
 twoPhaseLoss : Model -> Seq -> IO (Tensor [] Ex F WithGrad)
-twoPhaseLoss model (encIns, targs) = do
-  enc <- encodeAll (recurReset model) encIns
-  ls  <- decodeLosses enc targs
-  s   <- sumLosses ls
-  (1.0 / cast (length targs)) *: s
+twoPhaseLoss model (encIns, targs) = Control.Linear.LIO.run $ do
+  (MkBang () # enc) <- encodeAll (recurReset model) encIns
+  (MkBang ls # cellF) <- decodeLosses enc targs
+  discard cellF
+  liftIO1 $ do
+    s <- sumLosses ls
+    (1.0 / cast (length targs)) *: s
 
 recurEpoch : Optimizer Ex -> Model -> List Seq -> IO (Model, Double)
 recurEpoch opt model batch = do

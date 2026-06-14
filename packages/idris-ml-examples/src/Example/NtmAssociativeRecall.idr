@@ -16,7 +16,7 @@ import System
 
 import BuildConfig
 import Compat.Random
-import FitL
+import Fit
 import ML.Simple
 import Train
 
@@ -113,13 +113,13 @@ sumLosses (x :: xs) = go x xs
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
 -- The model is a bare `Ntm` recurrent layer threaded single-owner through
--- `recurStepL` at every timestep (see Example.NtmCopy for the shared shape).
+-- `recurStep` at every timestep (see Example.NtmCopy for the shared shape).
 
 encodeAllL : (1 _ : Model) -> List (Vect InputW Double) -> L IO {use = 1} Model
 encodeAllL cell []            = pure1 cell
 encodeAllL cell (row :: rest) = do
   x <- liftIO1 (retypeGrad <$> tensor {dims = [InputW]} (FromVect row))
-  (MkBang _ # cell') <- recurStepL cell x
+  (MkBang _ # cell') <- recurStep cell x
   encodeAllL cell' rest
 
 decodeLossesL : (1 _ : Model) -> List (Vect OutputW Double) -> List (Tensor [] Ex F WithGrad) ->
@@ -127,7 +127,7 @@ decodeLossesL : (1 _ : Model) -> List (Vect OutputW Double) -> List (Tensor [] E
 decodeLossesL cell []            acc  = pure1 (MkBang (reverse acc) # cell)
 decodeLossesL cell (trow :: rest) acc = do
   z <- liftIO1 zeroIn
-  (MkBang out # cell') <- recurStepL cell z
+  (MkBang out # cell') <- recurStep cell z
   l <- liftIO1 $ do
          y <- retypeGrad <$> tensor {dims = [OutputW]} (FromVect trow)
          tbceLoss out y
@@ -135,7 +135,7 @@ decodeLossesL cell (trow :: rest) acc = do
 
 twoPhaseLossL : (1 _ : Model) -> Seq -> L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) Model)
 twoPhaseLossL cell (encIns, targs) = do
-  enc <- encodeAllL (recurResetL cell) encIns
+  enc <- encodeAllL (recurReset cell) encIns
   (MkBang ls # enc') <- decodeLossesL enc targs []
   mean <- liftIO1 $ do s <- sumLosses ls; (1.0 / cast (length targs)) *: s
   pure1 (MkBang mean # enc')
@@ -163,7 +163,7 @@ recurEpochL opt cell0 batch = do
 
 scoreSeqL : (1 _ : Model) -> Seq -> L IO {use = 1} (LPair (!* (Nat, Nat)) Model)
 scoreSeqL cell0 (encIns, targs) = withNoGradL {ex = Ex} $ do
-  enc <- encodeAllL (recurResetL cell0) encIns
+  enc <- encodeAllL (recurReset cell0) encIns
   go enc targs 0 0
   where
     go : (1 _ : Model) -> List (Vect OutputW Double) -> Nat -> Nat ->
@@ -171,7 +171,7 @@ scoreSeqL cell0 (encIns, targs) = withNoGradL {ex = Ex} $ do
     go cell []            correct tot  = pure1 (MkBang (correct, tot) # cell)
     go cell (trow :: rest) correct tot = do
       z <- liftIO1 zeroIn
-      (MkBang out # cell') <- recurStepL cell z
+      (MkBang out # cell') <- recurStep cell z
       let logits  = [ primItem1d {ex = Ex} out.tensorPtr (cast j) | j <- [the Nat 0 .. OutputW `minus` 1] ]
           matches = length [ () | (lg, tv) <- zip logits (toList trow), (lg >= 0.0) == (tv >= 0.5) ]
       go cell' rest (correct + matches) (tot + OutputW)
@@ -254,13 +254,13 @@ main = do
     model <- runInitL (ntm {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, _) # trained) <-
-      fitL (recurEpochL opt) opt dataStream
+      fit (recurEpochL opt) opt dataStream
            (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
            model
     liftIO1 (putStrLn "" >> putStrLn "Eval:")
     testBatch <- liftIO1 (genBatch 100 2 6)
     (MkBang acc # trained') <- bitAccuracyL trained testBatch
-    discardL trained'
+    discard trained'
     liftIO1 $ do
       putStrLn $ "  Bit accuracy (2-6 items): " ++ show (acc * 100.0) ++ "%"
       putStrLn ""
