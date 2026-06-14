@@ -10,6 +10,9 @@ import Data.Linear
 
 import Executor
 import GradMode
+import Nn.Activation
+import Nn.Dropout
+import Nn.LayerNorm
 import Nn.Linear
 import Nn.Module
 import Nn.SeqL
@@ -23,3 +26,16 @@ okSingle m = evalL m
 okSeq : (1 _ : SeqL 2 3 TapeExecutor F64 WithGrad) ->
         L IO {use=1} (SeqL 2 3 TapeExecutor F64 NoGrad)
 okSeq s = evalL s
+
+-- Stateless + param-bearing leaf layers also satisfy `ModuleL`/`evalL`.
+okActivation : (1 _ : Activation 4 4 TapeExecutor F64 WithGrad) ->
+               L IO {use=1} (Activation 4 4 TapeExecutor F64 NoGrad)
+okActivation a = evalL a
+
+okDropout : (1 _ : Dropout 4 4 TapeExecutor F64 WithGrad) ->
+            L IO {use=1} (Dropout 4 4 TapeExecutor F64 NoGrad)
+okDropout d = evalL d
+
+okLayerNorm : (1 _ : LayerNorm 4 4 TapeExecutor F64 WithGrad) ->
+              L IO {use=1} (LayerNorm 4 4 TapeExecutor F64 NoGrad)
+okLayerNorm n = evalL n

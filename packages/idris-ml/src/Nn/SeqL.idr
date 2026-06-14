@@ -52,7 +52,7 @@ export
 forwardSeqL : {0 ex : Executor} -> Backend ex dt => {i, o, b : Nat} -> {0 g : GradMode} ->
               (1 _ : SeqL i o ex dt g) -> Tensor [b, i] ex dt g ->
               L IO {use=1} (LPair (!* (Tensor [b, o] ex dt g)) (SeqL i o ex dt g))
-forwardSeqL Nil x = pure1 (MkBang x # Nil)
+forwardSeqL Nil x         = pure1 (MkBang x # Nil)
 forwardSeqL (l :: rest) x = do
   (MkBang y # l')    <- forwardL l x
   (MkBang z # rest') <- forwardSeqL rest y
@@ -62,7 +62,7 @@ forwardSeqL (l :: rest) x = do
 export
 reflectSeqL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
               (1 _ : SeqL i o ex dt g) -> LPair (!* (List SomeParam)) (SeqL i o ex dt g)
-reflectSeqL Nil = MkBang [] # Nil
+reflectSeqL Nil         = MkBang [] # Nil
 reflectSeqL (l :: rest) =
   let (MkBang ps # l')       = reflectL l
       (MkBang restPs # rest') = reflectSeqL rest in
@@ -72,8 +72,8 @@ reflectSeqL (l :: rest) =
 export
 castGradSeqL : {0 ex : Executor} -> {0 dt : DType} -> {0 g, g' : GradMode} -> {0 i, o : Nat} ->
                (1 _ : SeqL i o ex dt g) -> SeqL i o ex dt g'
-castGradSeqL Nil           = Nil
-castGradSeqL (l :: rest)   = castGradL l :: castGradSeqL rest
+castGradSeqL Nil         = Nil
+castGradSeqL (l :: rest) = castGradL l :: castGradSeqL rest
 
 ||| Explicitly discard every element of the chain.
 export
