@@ -2169,6 +2169,15 @@ tlinear2dL : {0 ex : Executor} -> UserExecutorTraining ex =>
 tlinear2dL w x bias = ioRerunL (\_ =>
   MkTensor (primLinear2d {ex} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
 
+export %inline
+tnllLossMeanL : {0 ex : Executor} -> UserExecutorNN ex => IsFloating dt => {b, n : Nat} ->
+                Tensor [b, n] ex dt g -> Tensor [b, n] ex dt g -> LIO.L IO (Tensor [] ex dt g)
+tnllLossMeanL {b} {n} p t = ioRerunL (\_ =>
+  let logP = primLogSoftmax2d {ex} p.tensorPtr in
+  let prod = primMul {ex} logP t.tensorPtr in
+  let neg  = primNeg {ex} (primSum {ex} prod) in
+  MkTensor (primMulScalar {ex} neg (1.0 / cast (b * n))) Nothing)
+
 export
 tzeroState1dL : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> LIO.L IO (Tensor [n] ex dt g)
 tzeroState1dL {n} = ioRerunL (\_ =>

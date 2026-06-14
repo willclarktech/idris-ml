@@ -1,9 +1,11 @@
 ||| The linear-resource (`L IO`) epoch loop — the migration counterpart of
-||| `Train.Engine`'s IO loop. Lives in its own module so the linear imports
-||| (`Control.Linear.LIO` / `Data.Linear`) stay clear of `Train.Engine`'s
-||| delicate `Nat` arithmetic, whose bare numeric literals re-default to
-||| `Integer` once those modules are in scope (an Idris elaboration-order
-||| fragility). It reuses every model-agnostic piece from `Train.Engine`
+||| `Train.Engine`'s IO loop. Lives in its own module beside `Train.Engine`
+||| (which stays linear-import-free until Phase 9). Imports
+||| `Data.Linear.Notation` (for `MkBang`/`!*`), **not** full `Data.Linear` —
+||| the latter re-exports `Copies`, whose `Nil`/`(::)` shadow `[]`/`::` and
+||| perturb `Nat`-literal defaulting (`Train.Engine`'s arithmetic is dense
+||| with bare literals). `LPair`/`#` are `Builtin`. It reuses every
+||| model-agnostic piece from `Train.Engine`
 ||| (early-stop machines, checkpoint resume/keep-best, NaN test, `shouldLog`)
 ||| and only re-expresses the two pieces that thread the model: the
 ||| generation bracket and the recursive epoch driver.
@@ -19,7 +21,7 @@ module Train.EngineL
 
 import Control.Linear.LIO
 import Data.IORef
-import Data.Linear
+import Data.Linear.Notation
 import System.Clock
 
 import Checkpoint

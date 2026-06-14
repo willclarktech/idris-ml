@@ -3,10 +3,14 @@
 ||| consumes it and threads it back (`EpochStepL`), so reusing a stale handle
 ||| (freeze/eval then train) is a compile-time linearity error. Mirrors the
 ||| IO `fit`/`fitSupervised`/`fitSupervisedMixed`/`fitCustom` shapes; the
-||| epoch loop is `Train.EngineL.runEpochLoopL`. Lives in its own module so
-||| the linear imports stay clear of `Fit.idr`'s bare `Nat` arithmetic (which
-||| re-defaults to `Integer` once `Data.Linear` is in scope); here the few
-||| `Nat` accumulators use `Z`/`S` to sidestep that.
+||| epoch loop is `Train.EngineL.runEpochLoopL`. Lives in its own module
+||| beside `Fit.idr` (the IO surface stays linear-import-free until Phase 9).
+||| Imports `Data.Linear.Notation` (for `MkBang`/`!*`), **not** full
+||| `Data.Linear` — the latter re-exports `Copies`, whose `Nil`/`(::)` shadow
+||| `[]`/`::` (breaking scalar `Tensor []` and list literals) and perturb
+||| `Nat`-literal defaulting. `LPair`/`#` are `Builtin` (always in scope).
+||| The `Z`/`S` accumulators below keep clear of bare `Nat` literals as a
+||| belt-and-braces measure.
 |||
 ||| Data stays plain `IO` (`DataStream.next` lifted via `liftIO1`) — data is
 ||| not a linear resource; model linearity is orthogonal to it. The optimizer
@@ -18,7 +22,7 @@ module FitL
 
 import Control.Linear.LIO
 import Data.IORef
-import Data.Linear
+import Data.Linear.Notation
 import Data.Maybe
 import Data.Vect
 import System.Clock
@@ -34,10 +38,6 @@ import Train.Engine
 import Train.EngineL
 import Util
 import Util.Log
-
--- `Data.Linear.Copies` exports `Nil`, making the `[]` in scalar `Tensor []`
--- (the loss type) ambiguous. Hide it — we never construct a `Copies`.
-%hide Data.Linear.Copies.Nil
 
 ||| A linear training step: consume the model + a batch, do the task's
 ||| forward / backward / optimizer-step / state-threading, and return the
