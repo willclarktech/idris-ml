@@ -73,8 +73,13 @@ test-convergence:
 # Resumable — re-run after a kill and it continues from the TSV.
 CONVERGENCE_SEEDS ?= 42 1 2 3 4
 CONVERGENCE_OUT   ?= docs/develop/convergence-campaign.tsv
+# Note: example-transfer / example-precision-demo are deliberately NOT here —
+# they're cross-backend correctness demos with no convergence metric, and the
+# campaign runs single-backend (where they clean-skip via HAVE_ALL_MULTI_BACKENDS
+# anyway). They stay covered by the dedicated multi-backend lane (test-examples
+# with BACKEND=tape,torch,mlx + PRECISION_DEMO_READY=1).
 CONVERGENCE_CAMPAIGN_EXAMPLES := example-supervised example-rnn example-lstm \
-	example-gru example-transformer example-seq-classify example-transfer \
+	example-gru example-transformer example-seq-classify \
 	example-gpt example-q-learning example-sarsa example-monte-carlo \
 	example-frozen-lake example-taxi example-mnist example-reinforce \
 	example-dqn example-mountain-car example-mountain-car-cont example-a2c \

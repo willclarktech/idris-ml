@@ -126,6 +126,23 @@ comma := ,
 BACKEND_LIST := $(subst $(comma),$(space),$(BACKEND))
 PRIMARY := $(firstword $(BACKEND_LIST))
 
+# Multi-backend examples: those whose source references more than one
+# backend's `Executor` directly (cross-backend `toExecutor` hops), so they
+# need every named backend both linked into the dylib AND present in the
+# build's generated `HwConfig` (`Linked` instances). On a build whose
+# `BACKEND` list is missing one, they are a CLEAN SKIP — not a crash (the
+# old force-build `$(MAKE) BACKEND=tape,torch,mlx install` overwrote the
+# shared HwConfig.idr with a config that *claimed* all three were linked
+# while the dylib it linked had only the selected backend's symbols →
+# compile-passes-against-a-lying-config, runtime FFI-resolution crash;
+# campaign 2026-06-17). Dropping the force-build makes a stray
+# single-backend cross-backend hop a compile-time `Linked` error instead.
+# To actually run one, opt in: `make BACKEND=tape,torch,mlx example-transfer`.
+MULTI_BACKEND_EXAMPLES := example-transfer example-precision-demo
+MULTI_BACKEND_REQUIRED := tape torch mlx
+# Non-empty ("yes") iff every required backend is in BACKEND_LIST.
+HAVE_ALL_MULTI_BACKENDS := $(if $(filter-out $(BACKEND_LIST),$(MULTI_BACKEND_REQUIRED)),,yes)
+
 # Per-backend-set build key. Distinct values of `(BACKEND, MLX_DEVICE,
 # TORCH_DEVICE)` get their own `build/<KEY>/` tree (ttc cache, installed
 # library prefix, dylib, example executables, stamps). Each set's warm

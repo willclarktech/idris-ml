@@ -606,29 +606,43 @@ example-sac: install
 	cp $(LIB) $(BUILD)/exec/sac_app/
 	$(STDBUF) ./$(BUILD)/exec/sac $(SEED_FLAG) $(SAC_ARGS)
 
-# Live cross-backend Tensor transfer demo. Builds with all three
-# backends linked so the example can call tape / torch / mlx C
-# symbols in a single process. Exits 0 with RESULT line on success;
-# crashes at FFI resolution if any backend's symbols are missing.
-# Every leg constructs in its declared dtype directly —
-# `primCreateFromHost` threads the RuntimeDType dtag through each
-# backend's `tensor_create_streamed`, so the F32 hop needs no cast
-# workaround and the primary choice carries no dtype significance.
-example-transfer:
-	$(MAKE) BACKEND=torch,tape,mlx install
+# Live cross-backend Tensor transfer demo. References
+# TapeExecutor/TorchExecutor/MlxExecutor directly, so it needs all three
+# backends both linked into the dylib and present in the build's HwConfig.
+# Gated on $(HAVE_ALL_MULTI_BACKENDS) (mk/config.mk): builds + runs against
+# the SELECTED multi-backend tree when all of $(MULTI_BACKEND_REQUIRED) are
+# in BACKEND; clean-skips (exit 0) otherwise. Opt in with
+# `make BACKEND=tape,torch,mlx example-transfer`. No force-build: a stray
+# cross-backend hop in a single-backend build is now a compile-time
+# `Linked` error, not a runtime FFI-resolution crash. Every leg constructs
+# in its declared dtype directly — `primCreateFromHost` threads the
+# RuntimeDType dtag through each backend's `tensor_create_streamed`, so the
+# F32 hop needs no cast workaround and the primary choice carries no dtype
+# significance.
+ifeq ($(HAVE_ALL_MULTI_BACKENDS),yes)
+example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) $(BUILD)/exec/transfer_app/
 	./$(BUILD)/exec/transfer $(TRANSFER_ARGS)
+else
+example-transfer:
+	@echo "skipped: example-transfer needs $(MULTI_BACKEND_REQUIRED) linked (e.g. BACKEND=tape,torch,mlx); have BACKEND=$(BACKEND)"
+endif
 
 # F32/F64 precision artifact + cross-backend hop demo. References
-# TapeExecutor/TorchExecutor/MlxExecutor directly, so it needs all three backends
-# linked (same as `example-transfer`). Unblocked by tape's F32 storage
-# + kernel coverage — every cell is first-class for both precisions.
-example-precision-demo:
-	$(MAKE) BACKEND=tape,torch,mlx install
+# TapeExecutor/TorchExecutor/MlxExecutor directly, so it needs all three
+# backends linked (same gate as `example-transfer`). Unblocked by tape's
+# F32 storage + kernel coverage — every cell is first-class for both
+# precisions.
+ifeq ($(HAVE_ALL_MULTI_BACKENDS),yes)
+example-precision-demo: install
 	idris2 $(IDRIS_FLAGS) -o precision-demo $(EXAMPLE_SRC)/Example/PrecisionDemo.idr
 	cp $(LIB) $(BUILD)/exec/precision-demo_app/
 	./$(BUILD)/exec/precision-demo $(PRECISION_DEMO_ARGS)
+else
+example-precision-demo:
+	@echo "skipped: example-precision-demo needs $(MULTI_BACKEND_REQUIRED) linked (e.g. BACKEND=tape,torch,mlx); have BACKEND=$(BACKEND)"
+endif
 
 # SafeTensors checkpoint demo (formerly the Example/Transfer.idr
 # content). Per-phase BACKEND= invocation; `example-checkpoint-demo`

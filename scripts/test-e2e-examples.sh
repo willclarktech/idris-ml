@@ -148,7 +148,11 @@ fi
 if [ "$PRECISION_DEMO_READY" = "1" ] && [ -z "$skip" ]; then
 	echo "--- example-precision-demo (F32/F64 cast + cross-backend hop) ---"
 	t_start=$(date +%s)
-	pdemo_out=$($TIMEOUT_PREFIX $MAKE --no-print-directory example-precision-demo 2>&1); pdemo_rc=$?
+	# Explicit BACKEND=tape,torch,mlx: example-precision-demo is gated on
+	# HAVE_ALL_MULTI_BACKENDS (mk/config.mk) and clean-skips on a single-backend
+	# build. This step only runs when `-z "$skip"` (every lane built), so all
+	# three backends are available for the combined build.
+	pdemo_out=$($TIMEOUT_PREFIX $MAKE --no-print-directory BACKEND=tape,torch,mlx example-precision-demo 2>&1); pdemo_rc=$?
 	t_end=$(date +%s); elapsed=$((t_end - t_start))
 	if [ $elapsed -lt 60 ]; then elapsed_fmt="${elapsed}s"
 	elif [ $elapsed -lt 3600 ]; then elapsed_fmt="$((elapsed/60))m$((elapsed%60))s"
