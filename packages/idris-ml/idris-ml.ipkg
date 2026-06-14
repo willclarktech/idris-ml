@@ -68,6 +68,7 @@ modules = Compat.Random
         , Nn.Init
         , Nn.LayerNorm
         , Nn.Linear
+        , Nn.LoraLinear
         , Nn.Module
         , Nn.Residual
         , Nn.RmsNorm

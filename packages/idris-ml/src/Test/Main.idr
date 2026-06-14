@@ -18,6 +18,7 @@ import Test.Nn.Group as Test.Nn.Group
 import Test.Nn.Init as Test.Nn.Init
 import Test.Nn.LayerNorm as Test.Nn.LayerNorm
 import Test.Nn.Linear as Test.Nn.Linear
+import Test.Nn.LoraLinear as Test.Nn.LoraLinear
 import Test.Nn.Module as Test.Nn.Module
 import Test.Nn.Residual as Test.Nn.Residual
 import Test.Nn.RmsNorm as Test.Nn.RmsNorm
@@ -80,6 +81,7 @@ main = runAll
   , ("Nn.Init",         Test.Nn.Init.tests)
   , ("Nn.LayerNorm",    Test.Nn.LayerNorm.tests)
   , ("Nn.Linear",       Test.Nn.Linear.tests)
+  , ("Nn.LoraLinear",   Test.Nn.LoraLinear.tests)
   , ("Nn.Module",       Test.Nn.Module.tests)
   , ("Nn.Residual",     Test.Nn.Residual.tests)
   , ("Nn.RmsNorm",      Test.Nn.RmsNorm.tests)
