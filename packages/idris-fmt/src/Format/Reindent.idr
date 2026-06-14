@@ -33,18 +33,21 @@ import Format.Roundtrip
 
 %default covering
 
--- A declaration/clause/constructor/field head: (source line 0-indexed,
--- canonical column it should sit at).
+-- A declaration/clause/constructor/field head: (source line 0-indexed, the
+-- construct's start column, canonical column it should sit at). The start
+-- column lets us drop anchors that aren't the first token on their line (an
+-- inline `data D : Type where MkD : D`, or a constructor following a same-line
+-- `public export`) — those must not pull the whole line to their deeper column.
 0 Anchor : Type
-Anchor = (Int, Int)
+Anchor = (Int, Int, Int)
 
--- Concrete start line of a node's span, or Nothing for virtual / empty FCs
--- (compiler-generated — never a real source anchor).
-fcLine : FC -> Maybe Int
-fcLine fc = (fst . startPos) <$> isConcreteFC fc
+-- Concrete (start line, start col) of a node's span, or Nothing for virtual /
+-- empty FCs (compiler-generated — never a real source anchor).
+fcStart : FC -> Maybe (Int, Int)
+fcStart fc = (\ne => (startLine ne, startCol ne)) <$> isConcreteFC fc
 
 anchorAt : FC -> Int -> List Anchor
-anchorAt fc col = toList ((\l => (l, col)) <$> fcLine fc)
+anchorAt fc ccol = toList ((\(l, c) => (l, c, ccol)) <$> fcStart fc)
 
 mutual
   collectDecls : (col : Int) -> List PDecl -> List Anchor
@@ -54,18 +57,18 @@ mutual
   collectDecl col d = anchorAt d.fc col ++ collectBody col d.val
 
   collectBody : (col : Int) -> PDeclNoFC -> List Anchor
-  collectBody col (PDef cls)         = concatMap (collectClause col) cls
-  collectBody col (PData _ _ _ dd)   = collectData col dd
-  collectBody col (PRecord _ _ _ rd) = collectRecord col rd
-  collectBody col (PParameters _ ds) = collectDecls (col + 2) ds
-  collectBody col (PUsing _ ds)      = collectDecls (col + 2) ds
-  collectBody col (PInterface _ _ _ _ _ _ _ ds) = collectDecls (col + 2) ds
+  collectBody col (PDef cls)                              = concatMap (collectClause col) cls
+  collectBody col (PData _ _ _ dd)                        = collectData col dd
+  collectBody col (PRecord _ _ _ rd)                      = collectRecord col rd
+  collectBody col (PParameters _ ds)                      = collectDecls (col + 2) ds
+  collectBody col (PUsing _ ds)                           = collectDecls (col + 2) ds
+  collectBody col (PInterface _ _ _ _ _ _ _ ds)           = collectDecls (col + 2) ds
   collectBody col (PImplementation _ _ _ _ _ _ _ _ _ mds) =
     maybe [] (collectDecls (col + 2)) mds
-  collectBody col (PFail _ ds)       = collectDecls (col + 2) ds
-  collectBody col (PMutual ds)       = collectDecls (col + 2) ds
-  collectBody col (PNamespace _ ds)  = collectDecls (col + 2) ds
-  collectBody _   _                  = []
+  collectBody col (PFail _ ds)      = collectDecls (col + 2) ds
+  collectBody col (PMutual ds)      = collectDecls (col + 2) ds
+  collectBody col (PNamespace _ ds) = collectDecls (col + 2) ds
+  collectBody _   _                 = []
 
   collectClause : (col : Int) -> PClause -> List Anchor
   collectClause col (MkPatClause fc _ _ wb) =
@@ -85,21 +88,27 @@ mutual
   collectRecord _ (MkPRecordLater _ _) = []
 
 indexList : Nat -> List a -> Maybe a
-indexList _     []         = Nothing
-indexList Z     (x :: _)   = Just x
-indexList (S k) (_ :: xs)  = indexList k xs
+indexList _     []        = Nothing
+indexList Z     (x :: _)  = Just x
+indexList (S k) (_ :: xs) = indexList k xs
 
 leadingInt : String -> Int
 leadingInt s = cast (length (takeWhile (== ' ') (unpack s)))
 
 -- Turn anchors into (line, delta) where delta = canonicalCol - currentLeading.
+-- An anchor is kept only when the construct is the *first* token on its line
+-- (start column == the line's leading-space count) — inline constructors /
+-- clauses are dropped, so their line stays a continuation of its declaration.
 toDeltas : List String -> List Anchor -> List (Int, Int)
 toDeltas srcLines = mapMaybe mk
   where
     mk : Anchor -> Maybe (Int, Int)
-    mk (ln, col) =
+    mk (ln, scol, ccol) =
       if ln < 0 then Nothing
-      else (\l => (ln, col - leadingInt l)) <$> indexList (integerToNat (cast ln)) srcLines
+      else case indexList (integerToNat (cast ln)) srcLines of
+        Nothing => Nothing
+        Just l  => let lead = leadingInt l in
+                   if scol == lead then Just (ln, ccol - lead) else Nothing
 
 -- Re-emit a line with `d` added to its leading-space count (blank lines stay
 -- blank; negative results clamp to 0).
@@ -131,6 +140,6 @@ reindent src = case parseModule src of
   Nothing => src
   Just m  =>
     let srcLines = lines src
-        anchors  = collectDecls 0 m.decls
-        deltas   = toDeltas srcLines anchors
+        anchors = collectDecls 0 m.decls
+        deltas  = toDeltas srcLines anchors
     in concat (map (++ "\n") (reflow deltas srcLines))
