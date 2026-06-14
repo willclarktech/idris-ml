@@ -5,27 +5,27 @@ import Data.Vect
 import System
 import Compat.Random
 
-import Floating
+import ML.Simple
+import Array            -- Vector / VArray / SArray (bulkToTensor2d input)
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
 import Hpo.LrFinder
-import Layer.Activation
-import Layer.Core
-import Layer.Linear
-import Sampler
-import Array
-import Train
-import Util
-import Executor
-import Tensor
-import BuildConfig
+import Sampler          -- categoricalSample
+import Train            -- simpleConfig / RL metrics
+import BuildConfig      -- ChosenMachine / requireMachine
 
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 
+-- Array-typed observation row, the shape `bulkToTensor2d` consumes
+-- (distinct from the Env method's plain `Vect 4 Double`).
 export
 observe : CPState -> Vector 4 Double
 observe s = VArray (map SArray (cpObserve s))
+
+-- Policy network: MLP 4 -> 128 -> tanh -> 2 (action logits).
+Policy : Type
+Policy = Seq 4 2 Ex F WithGrad
 
 ----------------------------------------------------------------------
 -- Episode Rollout (tensor-level, autograd-tracked)
@@ -37,20 +37,20 @@ StepRec : Type
 StepRec = (AnyPtr, Double, Double)
 
 export
-rolloutEp : {hs : List Nat} ->
-            Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> CPState -> List Double -> Nat ->
+rolloutEp : Policy -> CPState -> List Double -> Nat ->
             List StepRec -> IO (List StepRec)
 rolloutEp _ _ _ Z acc = pure (reverse acc)
 rolloutEp _ _ [] _ acc = pure (reverse acc)
 rolloutEp model st (r :: rs) (S k) acc = do
-  let stateT = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (observe st)
-      stateV = the (TVec 4 ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
-  (_, predV) <- forwardVar model stateV
-  let logProbsT = primLogSoftmax {ex=ExampleExecutor} predV.tensorPtr 0
-      lp0 = primItem1d {ex=ExampleExecutor} logProbsT 0
-      lp1 = primItem1d {ex=ExampleExecutor} logProbsT 1
+  let stateT = bulkToTensor2d {ex=Ex} {dt=F} [observe st]
+      stateV = the (Tensor [1, 4] Ex F WithGrad) (MkTensor stateT Nothing)
+  predV <- forwardSeq {b=1} model stateV
+  let logProbsT = primLogSoftmax2d {ex=Ex} predV.tensorPtr
+      lp0 = primItem2d {ex=Ex} logProbsT 0 0
+      lp1 = primItem2d {ex=Ex} logProbsT 0 1
       action = categoricalSample [exp lp0, exp lp1] r
-      selLP = primSelect {ex=ExampleExecutor} logProbsT 0 (cast {to=Int} action)
+      rowPtr = primSelect {ex=Ex} logProbsT 0 0
+      selLP = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
       selLPVal = if action == 0 then lp0 else lp1
   case cpStep st action of
     (reward, st', outcome, _) =>
@@ -69,8 +69,8 @@ rolloutEp model st (r :: rs) (S k) acc = do
 ||| no further StepRec is appended for that env. Loop exits early if
 ||| all envs terminate.
 export
-rolloutEpBatched : {n : Nat} -> {hs : List Nat} ->
-                   Network 4 hs 2 ExampleExecutor ExampleDType WithGrad ->
+rolloutEpBatched : {n : Nat} ->
+                   Policy ->
                    VecEnv n CPState ->
                    Vect n (List Double) ->
                    Nat ->
@@ -82,26 +82,25 @@ rolloutEpBatched model (MkVecEnv states0) rss0 maxSteps = do
     -- Per-env action selection + env step, given the batched log-prob
     -- tensor and this env's integer index. Frozen (done) envs and
     -- RNG-exhausted envs pass through unchanged.
-    perEnv : Tensor [n, 2] ExampleExecutor ExampleDType WithGrad -> Int ->
+    perEnv : Tensor [n, 2] Ex F WithGrad -> Int ->
              CPState -> List Double -> Bool -> List StepRec ->
              (CPState, List Double, Bool, List StepRec)
     perEnv _         _ st rs  True  acc = (st, rs, True, acc)
     perEnv _         _ st []  _     acc = (st, [], True, acc)
     perEnv logProbsV i st (r :: rs) False acc =
       let logProbsT = logProbsV.tensorPtr
-          lp0       = primItem2d {ex=ExampleExecutor} logProbsT i 0
-          lp1       = primItem2d {ex=ExampleExecutor} logProbsT i 1
+          lp0       = primItem2d {ex=Ex} logProbsT i 0
+          lp1       = primItem2d {ex=Ex} logProbsT i 1
           action    = categoricalSample [exp lp0, exp lp1] r
-          rowPtr    = primSelect {ex=ExampleExecutor} logProbsT 0 i
-          selLP     = primSelect {ex=ExampleExecutor} rowPtr 0 (cast {to=Int} action)
+          rowPtr    = primSelect {ex=Ex} logProbsT 0 i
+          selLP     = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
           selLPVal  = if action == 0 then lp0 else lp1
       in case cpStep st action of
            (reward, st', outcome, _) =>
              (st', rs, done outcome, (selLP, selLPVal, reward) :: acc)
 
     -- Walk the four parallel Vects together, threading the row index.
-    -- Each pattern strips one element from each Vect simultaneously.
-    stepAllEnvs : Tensor [n, 2] ExampleExecutor ExampleDType WithGrad -> Int ->
+    stepAllEnvs : Tensor [n, 2] Ex F WithGrad -> Int ->
                   Vect k CPState -> Vect k (List Double) -> Vect k Bool ->
                   Vect k (List StepRec) ->
                   (Vect k CPState, Vect k (List Double), Vect k Bool, Vect k (List StepRec))
@@ -122,12 +121,12 @@ rolloutEpBatched model (MkVecEnv states0) rss0 maxSteps = do
       else do
         let obsRows : Vect n (Vector 4 Double)
             obsRows = map observe sts
-            batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
-            stateV : Tensor [n, 4] ExampleExecutor ExampleDType WithGrad
+            batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
+            stateV : Tensor [n, 4] Ex F WithGrad
             stateV = MkTensor batchPtr Nothing
-        (_, predV) <- forwardVarBatch model stateV
-        let logProbsV : Tensor [n, 2] ExampleExecutor ExampleDType WithGrad
-            logProbsV = MkTensor (primLogSoftmax2d {ex=ExampleExecutor} predV.tensorPtr) Nothing
+        predV <- forwardSeq {b=n} model stateV
+        let logProbsV : Tensor [n, 2] Ex F WithGrad
+            logProbsV = MkTensor (primLogSoftmax2d {ex=Ex} predV.tensorPtr) Nothing
         case stepAllEnvs logProbsV 0 sts rss dones accs of
           (sts', rss', dones', accs') => go k sts' rss' dones' accs'
 
@@ -143,34 +142,33 @@ discReturns gamma rewards = reverse (go 0.0 (reverse rewards))
     go g (r :: rs) = let g' = r + gamma * g in g' :: go g' rs
 
 -- Compute per-episode step losses with advantage. Each loss is a
--- scalar `Tensor [] CPU` carrying the autograd graph back to the policy.
-epStepLosses : Double -> Double -> List StepRec -> List (Tensor [] ExampleExecutor ExampleDType WithGrad)
+-- scalar `Tensor []` carrying the autograd graph back to the policy.
+epStepLosses : Double -> Double -> List StepRec -> List (Tensor [] Ex F WithGrad)
 epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
   in zipWith (\(lp, _, _), gt =>
-       the (Tensor [] ExampleExecutor ExampleDType WithGrad) (MkTensor (primMulScalar {ex=ExampleExecutor} lp (baseline - gt)) Nothing))
+       the (Tensor [] Ex F WithGrad) (MkTensor (primMulScalar {ex=Ex} lp (baseline - gt)) Nothing))
      steps rets
 
 export
 sumRewards : List StepRec -> Double
 sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 
--- Mean-reduce a non-empty list of scalar TVars. Empty case returns a
+-- Mean-reduce a non-empty list of scalar tensors. Empty case returns a
 -- fresh zero scalar (degenerate; runs only if the rollout produced no
 -- steps).
-averageLoss : List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> Tensor [] ExampleExecutor ExampleDType WithGrad
-averageLoss [] = MkTensor (dtCreateScalar {ex=ExampleExecutor} {t=ExampleDType} 0.0 0 (deviceStreamTag {ex=ExampleExecutor})) Nothing
+averageLoss : List (Tensor [] Ex F WithGrad) -> Tensor [] Ex F WithGrad
+averageLoss [] = MkTensor (dtCreateScalar {ex=Ex} {t=F} 0.0 0 (deviceStreamTag {ex=Ex})) Nothing
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
-      addT : Tensor [] ExampleExecutor ExampleDType WithGrad -> Tensor [] ExampleExecutor ExampleDType WithGrad -> Tensor [] ExampleExecutor ExampleDType WithGrad
-      addT a b = MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing
+      addT : Tensor [] Ex F WithGrad -> Tensor [] Ex F WithGrad -> Tensor [] Ex F WithGrad
+      addT a b = MkTensor (primAdd {ex=Ex} a.tensorPtr b.tensorPtr) Nothing
       s = foldl addT x xs
-  in MkTensor (primMulScalar {ex=ExampleExecutor} s.tensorPtr (1.0 / n)) Nothing
+  in MkTensor (primMulScalar {ex=Ex} s.tensorPtr (1.0 / n)) Nothing
 
-computeLoss : {hs : List Nat} -> Double ->
-              Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> List (List Double) ->
-              IO (Tensor [] ExampleExecutor ExampleDType WithGrad, Double)
+computeLoss : Double -> Policy -> List (List Double) ->
+              IO (Tensor [] Ex F WithGrad, Double)
 computeLoss gamma model randomBatch = do
   episodes <- traverse (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
   let epReturns = map sumRewards episodes
@@ -179,9 +177,8 @@ computeLoss gamma model randomBatch = do
       stepLosses = concatMap (epStepLosses gamma baseline) episodes
   pure (averageLoss stepLosses, baseline)
 
-computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
-                     Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> Vect n (List Double) ->
-                     IO (Tensor [] ExampleExecutor ExampleDType WithGrad, Double)
+computeLossBatched : {n : Nat} -> Double -> Policy -> Vect n (List Double) ->
+                     IO (Tensor [] Ex F WithGrad, Double)
 computeLossBatched gamma model randomBatchV = do
   resetSeedI <- randomInt32
   let initEnvs : VecEnv n CPState
@@ -199,18 +196,15 @@ computeLossBatched gamma model randomBatchV = do
 -- Training
 ----------------------------------------------------------------------
 
-epochRL : {hs : List Nat} -> NativeOptimizer ExampleExecutor -> Double ->
-          Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> List (List Double) ->
-          IO (Network 4 hs 2 ExampleExecutor ExampleDType WithGrad, Double, Double)
+epochRL : Optimizer Ex -> Double -> Policy -> List (List Double) ->
+          IO (Policy, Double, Double)
 epochRL opt gamma model batch = do
   (loss, avgRet) <- computeLoss gamma model batch
   lossVal <- nativeTrainStep opt loss
   pure (model, lossVal, avgRet)
 
-epochRLBatched : {n : Nat} -> {hs : List Nat} ->
-                 NativeOptimizer ExampleExecutor -> Double ->
-                 Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> Vect n (List Double) ->
-                 IO (Network 4 hs 2 ExampleExecutor ExampleDType WithGrad, Double, Double)
+epochRLBatched : {n : Nat} -> Optimizer Ex -> Double -> Policy -> Vect n (List Double) ->
+                 IO (Policy, Double, Double)
 epochRLBatched opt gamma model batchV = do
   (loss, avgRet) <- computeLossBatched gamma model batchV
   lossVal <- nativeTrainStep opt loss
@@ -251,21 +245,20 @@ genBatchV (S k) = do
 -- Evaluation (greedy argmax)
 ----------------------------------------------------------------------
 
-evalEp : {hs : List Nat} ->
-         Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> CPState -> Nat -> Double -> IO Double
+evalEp : Policy -> CPState -> Nat -> Double -> IO Double
 evalEp _ _ Z acc = pure acc
 evalEp model st (S k) acc = do
-  let stateT = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (observe st)
-      stateV = the (TVec 4 ExampleExecutor ExampleDType WithGrad) (MkTensor stateT Nothing)
-  (_, predV) <- forwardVar model stateV
+  let stateT = bulkToTensor2d {ex=Ex} {dt=F} [observe st]
+      stateV = the (Tensor [1, 4] Ex F WithGrad) (MkTensor stateT Nothing)
+  predV <- forwardSeq {b=1} model stateV
   let logitsT = predV.tensorPtr
-      action = if primItem1d {ex=ExampleExecutor} logitsT 0 >= primItem1d {ex=ExampleExecutor} logitsT 1 then the Nat 0 else 1
+      action = if primItem2d {ex=Ex} logitsT 0 0 >= primItem2d {ex=Ex} logitsT 0 1 then the Nat 0 else 1
   case cpStep st action of
     (reward, st', outcome, _) =>
       if done outcome then pure (acc + reward)
       else evalEp model st' k (acc + reward)
 
-evalN : {hs : List Nat} -> Network 4 hs 2 ExampleExecutor ExampleDType WithGrad -> Nat -> Double -> IO Double
+evalN : Policy -> Nat -> Double -> IO Double
 evalN _ Z acc = pure acc
 evalN model (S k) acc = do
   v <- evalEp model (MkCP 0 0 0 0) MaxSteps 0.0
@@ -283,7 +276,7 @@ record Config where
   gamma : Double
   batchSz : Nat
   lrFind : Bool
-  batched : Bool  -- Job 4 Phase B: use batched policy forward per timestep
+  batched : Bool  -- use batched policy forward per timestep
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.001 2000 42 0.99 10 False False
@@ -297,6 +290,8 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         , Arg "--batched" (\v, c => { batched := (v == "1" || v == "true") } c) ]
 
+%default partial
+
 main : IO ()
 main = do
   requireMachine {m = ChosenMachine}
@@ -304,19 +299,19 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
-  tsetInitSeed {ex = ExampleExecutor} cfg.seed
+  tsetInitSeed {ex = Ex} cfg.seed
 
-  let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
+  opt <- adam cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
 
   putStrLn "=== REINFORCE on CartPole ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " gamma=" ++ show cfg.gamma ++ " batch=" ++ show cfg.batchSz
            ++ " seed=" ++ show cfg.seed
 
-  ll1Any <- linearLayerAny {i=4} {o=128} "ll1"
-  ll2Any <- linearLayerAny {i=128} {o=2} "ll2"
-  let model : Network 4 [128, 128] 2 ExampleExecutor ExampleDType WithGrad
-      model = ll1Any ~~> tanhLayerAny ~~> OutputLayer ll2Any
+  model <- runInit $ do
+    l1 <- linear {i=4} {o=128}
+    l2 <- linear {i=128} {o=2}
+    pure (l1 ~~> tanhA ~~> l2 ~~> Nil)
   putStrLn ""
 
   when cfg.lrFind $ do
@@ -333,32 +328,31 @@ main = do
 
   metrics <- newRLMetricsState 100
   let n : Nat = cfg.batchSz
-      modelType : Type = Network 4 [128, 128] 2 ExampleExecutor ExampleDType WithGrad
   (trained, epochsDone, _) <- (
     if cfg.batched
-      then runTrainingIO {ex=ExampleExecutor} {dp = Vect n (List Double)}
+      then fit {batch = Vect n (List Double)}
              (\m, d => do
                 (m', loss, avgRet) <- epochRLBatched opt cfg.gamma m d
                 recordReturn metrics avgRet
                 pure (m', loss))
-             (genBatchV n)
+             opt (generate (genBatchV n))
              ({ metrics := \_ => readRLMetrics "recent_100" metrics }
-                (simpleConfig {model = modelType} cfg.epochs))
+                (simpleConfig {model = Policy} cfg.epochs))
              model
-      else runTrainingIO {ex=ExampleExecutor} {dp = List (List Double)}
+      else fit {batch = List (List Double)}
              (\m, d => do
                 (m', loss, avgRet) <- epochRL opt cfg.gamma m d
                 recordReturn metrics avgRet
                 pure (m', loss))
-             (genBatch cfg.batchSz)
+             opt (generate (genBatch cfg.batchSz))
              ({ metrics := \_ => readRLMetrics "recent_100" metrics }
-                (simpleConfig {model = modelType} cfg.epochs))
+                (simpleConfig {model = Policy} cfg.epochs))
              model)
 
   putStrLn ""
   putStrLn "Eval (100 episodes, greedy):"
   let nEval = the Nat 100
-  totalReturn <- withNoGrad {ex=ExampleExecutor} (evalN trained nEval 0.0)
+  totalReturn <- withNoGrad {ex=Ex} (evalN trained nEval 0.0)
   let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "  avg_return=" ++ show avgReturn
 
