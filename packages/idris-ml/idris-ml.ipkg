@@ -85,6 +85,7 @@ modules = Compat.Random
         , Nn.Derive
         , Nn.Ntm
         , Nn.Pool
+        , Nn.PosEncoding
         , Nn.Residual
         , Nn.Recurrent
         , Nn.RmsNorm

@@ -54,6 +54,7 @@ modules = Test.Main
         , Test.Nn.Module
         , Test.Nn.Ntm
         , Test.Nn.Pool
+        , Test.Nn.PosEncoding
         , Test.Nn.Residual
         , Test.Nn.Recurrent
         , Test.Nn.RmsNorm

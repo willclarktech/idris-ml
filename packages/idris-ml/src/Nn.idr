@@ -23,6 +23,7 @@ import public Nn.Lstm
 import public Nn.Module
 import public Nn.Ntm
 import public Nn.Pool
+import public Nn.PosEncoding
 import public Nn.Recurrent
 import public Nn.Residual
 import public Nn.RmsNorm
