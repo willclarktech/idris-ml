@@ -203,23 +203,32 @@ record RoPETables (maxPos : Nat) (headDim : Nat)
 |||   `base`     : rope_theta (Llama 3 = 500000).
 |||   `scaling`  : NTK scaling params (use `llama3Scaling` for default).
 export
-buildLlamaRoPETables : {0 ex : Executor} -> Backend ex dt
+buildLlamaRoPETables : KnownGrad g => {0 ex : Executor} -> Backend ex dt
                     => {maxPos, headDim : Nat}
                     -> (base : Double)
                     -> (scaling : LlamaRopeScaling)
-                    -> IO (RoPETables maxPos headDim ex dt WithGrad)
-buildLlamaRoPETables base scaling = ioRerun (\_ =>
-  let halfDimI = cast {to=Int} (div headDim 2)
-      sLenI   = cast {to=Int} maxPos
-      nElts   = halfDimI * sLenI
-      freqs   = toList (llamaInvFreq headDim base scaling)
-      cosBuf  = prim__allocDoubles nElts
-      sinBuf  = prim__allocDoubles nElts
-      cosBuf' = writeCosTable cosBuf halfDimI sLenI freqs 0 0
-      sinBuf' = writeSinTable sinBuf halfDimI sLenI freqs 0 0
-      cosPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {ex})
-      sinPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {ex})
-  in MkRoPETables (MkTensor cosPtr Nothing) (MkTensor sinPtr Nothing))
+                    -> IO (RoPETables maxPos headDim ex dt g)
+buildLlamaRoPETables base scaling = do
+  -- Build the (paramId-less) cos/sin state tables at WithGrad, then on the
+  -- NoGrad branch weaken both so a NoGrad Llama is genuinely tape-free.
+  tbl <- the (IO (RoPETables maxPos headDim ex dt WithGrad)) $ ioRerun (\_ =>
+    let halfDimI = cast {to=Int} (div headDim 2)
+        sLenI   = cast {to=Int} maxPos
+        nElts   = halfDimI * sLenI
+        freqs   = toList (llamaInvFreq headDim base scaling)
+        cosBuf  = prim__allocDoubles nElts
+        sinBuf  = prim__allocDoubles nElts
+        cosBuf' = writeCosTable cosBuf halfDimI sLenI freqs 0 0
+        sinBuf' = writeSinTable sinBuf halfDimI sLenI freqs 0 0
+        cosPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {ex})
+        sinPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {ex})
+    in MkRoPETables (MkTensor cosPtr Nothing) (MkTensor sinPtr Nothing))
+  case sgrad {g} of
+    SWithGrad => pure tbl
+    SNoGrad   => do let MkRoPETables cosT sinT = tbl
+                    cosT' <- weakenGrad cosT
+                    sinT' <- weakenGrad sinT
+                    pure (MkRoPETables cosT' sinT')
 
 ----------------------------------------------------------------------
 -- applyRope — rotate a [seq, headDim] tensor in place
