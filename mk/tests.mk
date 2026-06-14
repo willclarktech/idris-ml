@@ -434,7 +434,7 @@ TRANSFORMERS_TEST_FIXTURES := \
 	$(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json \
 	$(HF_MODELS_DIR)/distilgpt2/config.json
 
-test-unit-idris-transformers: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(IDRIS_TRANSFORMERS_TESTCONFIG_IDR) $(TRANSFORMERS_TEST_FIXTURES)
+test-unit-idris-transformers: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(MLCONFIG_IDR) $(IDRIS_TRANSFORMERS_TESTCONFIG_IDR) $(TRANSFORMERS_TEST_FIXTURES)
 	cd packages/idris-transformers && pack --no-prompt install-deps idris-transformers-tests.ipkg
 	cd packages/idris-transformers && pack --no-prompt build idris-transformers-tests.ipkg
 	cp $(LIB) packages/idris-transformers/build/exec/idris-transformers-test_app/
@@ -453,7 +453,7 @@ bench-gym:
 # Unit tests for idris-ml-examples (runs moved Test.Generate).
 # Tests ipkg shares sourcedir with the library ipkg (colocated under
 # src/Test/), built via pack so hedgehog resolves cleanly.
-test-unit-examples: backend $(BUILDCONFIG_IDR) $(HWCONFIG_IDR) $(HWDEVICES_IDR)
+test-unit-examples: backend $(BUILDCONFIG_IDR) $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(MLCONFIG_IDR)
 	cd packages/idris-ml-examples && pack --no-prompt build idris-ml-examples-tests.ipkg
 	cp $(LIB) packages/idris-ml-examples/build/exec/idris-ml-examples-test_app/
 	$(STDBUF) ./packages/idris-ml-examples/build/exec/idris-ml-examples-test
