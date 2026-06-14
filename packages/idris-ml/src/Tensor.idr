@@ -747,6 +747,28 @@ catAllTensors []               = idris_crash "catAllTensors: empty list"
 catAllTensors [x]              = x
 catAllTensors (x :: y :: rest) = catAllTensors {ex} (primCat2 {ex} x y :: rest)
 
+----------------------------------------------------------------------
+-- Handle-array staging — pack a batch of wrapped Tensor handles into a
+-- C `TensorHandle*` buffer for the single-FFI `primBatch` collation
+-- (DataStream.collate). `alloc`/`free` are raw host-memory helpers
+-- (plain C:, not manifest-bound, Idris caches the foreign itself);
+-- `set_return` carries a wrapped Tensor arg, so its scheme wrapper
+-- unwraps slot 2 before storing the raw handle. All three are pure-typed
+-- and reorder-prone — callers sequence each via `ioRerun` / `primIO`.
+----------------------------------------------------------------------
+
+%foreign "C:tensor_ptr_array_alloc,libidrisml"
+export
+prim__ptrArrayAlloc : Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-ptr-array-set-return)) (set-top-level-value! 'idris-ffi-tensor-ptr-array-set-return (foreign-procedure \"tensor_ptr_array_set_return\" (void* int void*) void*))) ((top-level-value 'idris-ffi-tensor-ptr-array-set-return) a0 a1 (vector-ref a2 2)))"
+export
+prim__ptrArraySet : AnyPtr -> Int -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_ptr_array_free,libidrisml"
+export
+prim__ptrArrayFree : AnyPtr -> PrimIO ()
+
 ||| Bulk-convert a Vector of Doubles to a persistent C tensor handle.
 ||| Persistent tensors survive tape resets — use when data is created once
 ||| and reused across training epochs.

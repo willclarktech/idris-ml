@@ -214,10 +214,13 @@ interface UserExecutorCore ex => UserExecutorLinear (0 ex : Executor) where
   primSumDim    : AnyPtr -> Int -> Int -> AnyPtr
 
   -- Shape / view / reshape -------------------------------------------
-  primSelect         : AnyPtr -> Int -> Int -> AnyPtr
-  primUnsqueeze      : AnyPtr -> Int -> AnyPtr
-  primSqueeze        : AnyPtr -> Int -> AnyPtr
-  primStack          : AnyPtr -> Int -> Int -> AnyPtr
+  primSelect    : AnyPtr -> Int -> Int -> AnyPtr
+  primUnsqueeze : AnyPtr -> Int -> AnyPtr
+  primSqueeze   : AnyPtr -> Int -> AnyPtr
+  primStack     : AnyPtr -> Int -> Int -> AnyPtr
+  -- B × [...] -> [B, ...]: stack a ptr-array of `count` identically-shaped
+  -- handles along a new leading axis (the single-FFI batch collation).
+  primBatch          : AnyPtr -> Int -> AnyPtr
   primView1d         : AnyPtr -> Int -> AnyPtr
   primView2d         : AnyPtr -> Int -> Int -> AnyPtr
   primReshape1d      : AnyPtr -> Int -> AnyPtr

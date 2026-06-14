@@ -233,6 +233,9 @@ prim__squeezeMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_stack_mlx_streamed\" (void* int int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__stackMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-batch-mlx)) (set-top-level-value! 'idris-ffi-tensor-batch-mlx (foreign-procedure \"tensor_batch_mlx\" (void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-batch-mlx) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
+prim__batchMlx : AnyPtr -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_view_1d_mlx_streamed\" (void* int int) void*) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__view1dMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
 
@@ -294,6 +297,7 @@ public export
 {s : MlxStream} -> UserExecutorLinear (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primArgsort a0 a1 a2         = prim__argsortMlxStreamed a0 a1 a2 (streamTag s)
+  primBatch                    = prim__batchMlx
   primBmm a0 a1                = prim__bmmMlxStreamed a0 a1 (streamTag s)
   primCat a0 a1 a2             = prim__catMlxStreamed a0 a1 a2 (streamTag s)
   primCat2 a0 a1               = prim__cat2MlxStreamed a0 a1 (streamTag s)

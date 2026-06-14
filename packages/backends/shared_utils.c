@@ -212,6 +212,10 @@ void* tensor_ptr_array_set_return(void* arr, int idx, void* t) {
 	return arr;
 }
 
+void tensor_ptr_array_free(void** arr) {
+	free(arr);
+}
+
 /* ----------------------------------------------------------------------
    bf16 / f16 <-> double bit conversions
 

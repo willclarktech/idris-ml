@@ -67,6 +67,7 @@ uint8_t* tensor_write_byte_return(uint8_t* buf, int off, int val);
  * reinterpret as TensorHandle* internally. */
 void** tensor_ptr_array_alloc(int n);
 void* tensor_ptr_array_set_return(void* arr, int idx, void* t);
+void tensor_ptr_array_free(void** arr);
 
 /* bf16 / f16 <-> double bit conversions.
  *

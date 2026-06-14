@@ -124,28 +124,35 @@ batchEpochs : Nat -> Nat -> Nat
 batchEpochs _ Z     = 0
 batchEpochs n (S k) = divNatNZ (n + k) (S k) ItIsSucc
 
--- Stack b single-[k] tensor handles into one [b, k] tensor, entirely
--- C-side: pairwise cat of the existing device handles + one reshape
--- (the proven epochVarTensorBatch collation; no host readback). The
--- catAllTensors call is asserted total — `b` is always >= 1 for a real
--- batch, so its empty-list crash is unreachable.
---
--- A single-FFI alternative exists C-side (`tensor_stack_from_array`,
--- C-tested) that would collapse the b-1 `primCat2` calls + reshape into
--- one stack. It is deliberately NOT used here: collation runs once per
--- batch over O(b) small device ops and is dominated by the forward /
--- backward, so it is not a hot path; and binding the array primitive
--- needs a custom array-of-wrapped-handles unwrapping FFI (the v2
--- wrapped-handle ABI), i.e. real plumbing for unmeasured benefit.
--- Revisit only if a perf sweep shows collation hot (the likeliest case
--- is large-batch mlx, where b-1 cat kernel launches could dominate).
+-- Sequentially store `count` raw handles into a C `TensorHandle*` buffer,
+-- threading the array pointer through each `prim__ptrArraySet` so the
+-- pure-typed FFI can't be reordered/elided (the `_return` shim threads
+-- the buffer for exactly this reason). One `ioRerun` per store keeps the
+-- stores ordered under IO sequencing.
+fillHandleArray : AnyPtr -> Int -> List AnyPtr -> IO AnyPtr
+fillHandleArray a _ []        = pure a
+fillHandleArray a i (p :: ps) = do
+  a' <- ioRerun (\_ => prim__ptrArraySet a i p)
+  fillHandleArray a' (i + 1) ps
+
+-- Stack b single-[n] tensor handles into one [b, n] tensor in a single
+-- collation FFI: pack the wrapped handles into a `TensorHandle*` buffer,
+-- then `primBatch` (tensor_batch: B × [...] -> [B, ...] along a new
+-- leading axis) does the stack C-side with no host readback. This
+-- replaces the former b-1 pairwise `primCat2` chain + reshape; on
+-- large-batch mlx that collapses b-1 cat kernel launches into one stack.
+-- The collation tensor is data (NoGrad in practice), and tape's
+-- tensor_batch is a no-grad memcpy — matching the data-only contract.
+-- The handle buffer is consumed eagerly by tensor_batch (read into a
+-- vector / memcpy'd before return), so it is freed immediately after.
 collate : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {b, n : Nat} ->
-          UserExecutorLinear ex => Vect b (Tensor [n] ex dt g) -> Tensor [b, n] ex dt g
-collate {b} {n} samples =
-  let ptrs    = toList (map tensorPtr samples)
-      stacked = assert_total (catAllTensors {ex} ptrs)
-      r2d     = primReshape2d {ex} stacked (cast b) (cast n)
-  in MkTensor r2d Nothing
+          UserExecutorLinear ex => Vect b (Tensor [n] ex dt g) -> IO (Tensor [b, n] ex dt g)
+collate {b} samples = do
+  arr0 <- ioRerun (\_ => prim__ptrArrayAlloc (cast b))
+  arr  <- fillHandleArray arr0 0 (toList (map tensorPtr samples))
+  raw  <- ioRerun (\_ => primBatch {ex} arr (cast b))
+  primIO (prim__ptrArrayFree arr)
+  pure (MkTensor raw Nothing)
 
 ||| Collate a stream of single [i] tensors into batches of [b, i].
 ||| Matches the north-star shape; for supervised (input, target) pairs
@@ -155,7 +162,7 @@ batched1 : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {b, i : Na
            UserExecutorLinear ex =>
            DataStream (Tensor [i] ex dt g) -> DataStream (Tensor [b, i] ex dt g)
 batched1 {b} (MkDataStream nxt el) =
-  MkDataStream (collate {b} <$> pullN b nxt) (map (\m => batchEpochs m b) el)
+  MkDataStream (do xs <- pullN b nxt; collate {b} xs) (map (\m => batchEpochs m b) el)
 
 ||| Collate a stream of (input, target) tensor pairs into batch pairs
 ||| ([b, i], [b, o]) — the supervised default the `fit` Step consumes.
@@ -167,5 +174,7 @@ batched : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {b, i, o : 
 batched {b} (MkDataStream nxt el) =
   MkDataStream
     (do pairs <- pullN b nxt
-        pure (collate {b} (map fst pairs), collate {b} (map snd pairs)))
+        xb <- collate {b} (map fst pairs)
+        yb <- collate {b} (map snd pairs)
+        pure (xb, yb))
     (map (\m => batchEpochs m b) el)

@@ -183,6 +183,9 @@ prim__squeezeTape : AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-stack-tape)) (set-top-level-value! 'idris-ffi-tensor-stack-tape (foreign-procedure \"tensor_stack_tape\" (void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-stack-tape) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__stackTape : AnyPtr -> Int -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-batch-tape)) (set-top-level-value! 'idris-ffi-tensor-batch-tape (foreign-procedure \"tensor_batch_tape\" (void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-batch-tape) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__batchTape : AnyPtr -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-view-1d-tape)) (set-top-level-value! 'idris-ffi-tensor-view-1d-tape (foreign-procedure \"tensor_view_1d_tape\" (void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-view-1d-tape) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__view1dTape : AnyPtr -> Int -> AnyPtr
 
@@ -244,6 +247,7 @@ public export
 UserExecutorLinear TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primArgsort        = prim__argsortTape
+  primBatch          = prim__batchTape
   primBmm            = prim__bmmTape
   primCat            = prim__catTape
   primCat2           = prim__cat2Tape

@@ -222,6 +222,9 @@ prim__squeezeTorch : AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-stack-torch)) (set-top-level-value! 'idris-ffi-tensor-stack-torch (foreign-procedure \"tensor_stack_torch\" (void* int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-stack-torch) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__stackTorch : AnyPtr -> Int -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-batch-torch)) (set-top-level-value! 'idris-ffi-tensor-batch-torch (foreign-procedure \"tensor_batch_torch\" (void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-batch-torch) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__batchTorch : AnyPtr -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-view-1d-torch)) (set-top-level-value! 'idris-ffi-tensor-view-1d-torch (foreign-procedure \"tensor_view_1d_torch\" (void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-view-1d-torch) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__view1dTorch : AnyPtr -> Int -> AnyPtr
 
@@ -283,6 +286,7 @@ public export
 {d : TorchHwDev} -> UserExecutorLinear (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primArgsort        = prim__argsortTorch
+  primBatch          = prim__batchTorch
   primBmm            = prim__bmmTorch
   primCat            = prim__catTorch
   primCat2           = prim__cat2Torch

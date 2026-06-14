@@ -8,6 +8,7 @@
 
 #include <criterion/criterion.h>
 #include "backend.h"
+#include "shared_utils.h" /* tensor_ptr_array_alloc / _set_return / _free */
 
 Test(core_lifecycle, create_scalar_then_item) {
 	TensorHandle s = tensor_create_scalar(6.0, 0);
@@ -95,4 +96,29 @@ Test(core_lifecycle, retain_release_handle_noop) {
 	tensor_release_handle(s);
 	/* Verify value still readable after retain/release dance. */
 	cr_assert_float_eq(tensor_item(s), 42.0, 1e-12);
+}
+
+Test(core_lifecycle, batch_stacks_via_ptr_array) {
+	/* The single-FFI collation path Idris DataStream.collate wires:
+	   stage B handles into a TensorHandle* via the ptr-array helpers,
+	   then tensor_batch stacks them along a new leading axis → [B, ...].
+	   Row-major: batching [1,2,3] and [4,5,6] yields [[1,2,3],[4,5,6]]. */
+	double d0[] = {1.0, 2.0, 3.0};
+	double d1[] = {4.0, 5.0, 6.0};
+	int shape[] = {3};
+	TensorHandle a = tensor_create(d0, shape, 1, 0);
+	TensorHandle b = tensor_create(d1, shape, 1, 0);
+	void** arr = tensor_ptr_array_alloc(2);
+	tensor_ptr_array_set_return(arr, 0, a);
+	tensor_ptr_array_set_return(arr, 1, b);
+	TensorHandle batched = tensor_batch(arr, 2);
+	tensor_ptr_array_free(arr);
+	cr_assert_eq(tensor_dim(batched), 2);
+	cr_assert_eq(tensor_size(batched, 0), 2);
+	cr_assert_eq(tensor_size(batched, 1), 3);
+	double out[6];
+	tensor_to_doubles(batched, out);
+	double expect[6] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	for (int i = 0; i < 6; i++)
+		cr_assert_float_eq(out[i], expect[i], 1e-12, "tensor_batch row-major [2,3] cell %d", i);
 }
