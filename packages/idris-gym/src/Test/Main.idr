@@ -1,19 +1,19 @@
 module Test.Main
 
-import Test.Harness
-import Test.Rng
-import Test.Space
-import Test.Wrapper
-import Test.Vector
+import Test.ClassicControl.Acrobot
 import Test.ClassicControl.CartPole
 import Test.ClassicControl.MountainCar
 import Test.ClassicControl.MountainCarCont
 import Test.ClassicControl.Pendulum
-import Test.ClassicControl.Acrobot
-import Test.ToyText.CliffWalking
-import Test.ToyText.Taxi
-import Test.ToyText.FrozenLake
+import Test.Harness
+import Test.Rng
+import Test.Space
 import Test.ToyText.Blackjack
+import Test.ToyText.CliffWalking
+import Test.ToyText.FrozenLake
+import Test.ToyText.Taxi
+import Test.Vector
+import Test.Wrapper
 
 main : IO ()
 main = runAll

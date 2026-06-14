@@ -1,7 +1,7 @@
 module Test.Rng
 
-import Test.Harness
 import Gym.Rng
+import Test.Harness
 
 -- Generate n uniform samples starting from a seed.
 samples : Seed -> Nat -> List Double

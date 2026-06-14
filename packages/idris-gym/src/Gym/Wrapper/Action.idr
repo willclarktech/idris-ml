@@ -2,6 +2,7 @@ module Gym.Wrapper.Action
 
 import Data.Vect
 import Decidable.Equality
+
 import Gym.Space
 
 ----------------------------------------------------------------------

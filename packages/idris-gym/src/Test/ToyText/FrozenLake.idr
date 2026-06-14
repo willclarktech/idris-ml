@@ -1,9 +1,9 @@
 module Test.ToyText.FrozenLake
 
-import Test.Harness
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.FrozenLake
+import Test.Harness
 
 rewardOf : (Double, FLState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r

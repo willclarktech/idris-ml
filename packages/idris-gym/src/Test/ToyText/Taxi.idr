@@ -1,8 +1,8 @@
 module Test.ToyText.Taxi
 
-import Test.Harness
 import Gym.Env
 import Gym.ToyText.Taxi
+import Test.Harness
 
 rewardOf : (Double, TState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r

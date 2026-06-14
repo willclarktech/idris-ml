@@ -1,8 +1,9 @@
 module Test.Space
 
 import Data.Vect
-import Test.Harness
+
 import Gym.Space
+import Test.Harness
 
 export
 tests : List (IO Bool)

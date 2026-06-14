@@ -1,8 +1,8 @@
 module Test.ToyText.CliffWalking
 
-import Test.Harness
 import Gym.Env
 import Gym.ToyText.CliffWalking
+import Test.Harness
 
 rewardOf : (Double, CWState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r

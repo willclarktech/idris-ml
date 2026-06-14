@@ -5,13 +5,13 @@ import Data.Vect
 import System
 import System.Clock
 
-import Gym.Rng
 import Gym.ClassicControl.Acrobot
 import Gym.ClassicControl.Pendulum
+import Gym.Env
+import Gym.Rng
 import Gym.ToyText.Blackjack
 import Gym.ToyText.CliffWalking
 import Gym.ToyText.Taxi
-import Gym.Env
 
 %default partial
 
