@@ -32,9 +32,14 @@
  * so normal test runs and the mlx/torch binaries are unaffected.
  */
 
-#if (defined(__SANITIZE_ADDRESS__) ||                                                              \
-     (defined(__has_feature) && __has_feature(address_sanitizer))) &&                              \
-    defined(BACKEND_TAPE)
+/* GCC lacks __has_feature; without this fallback the preprocessor expands
+   the bare token to 0 and chokes on `0(address_sanitizer)` ("missing binary
+   operator before token '('"). clang defines it, so this is a no-op there. */
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+
+#if (defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)) && defined(BACKEND_TAPE)
 
 #include <stdlib.h>
 
