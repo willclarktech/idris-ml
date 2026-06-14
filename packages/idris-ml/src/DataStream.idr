@@ -132,6 +132,16 @@ batchEpochs n (S k) = divNatNZ (n + k) (S k) ItIsSucc
 -- (the proven epochVarTensorBatch collation; no host readback). The
 -- catAllTensors call is asserted total — `b` is always >= 1 for a real
 -- batch, so its empty-list crash is unreachable.
+--
+-- A single-FFI alternative exists C-side (`tensor_stack_from_array`,
+-- C-tested) that would collapse the b-1 `primCat2` calls + reshape into
+-- one stack. It is deliberately NOT used here: collation runs once per
+-- batch over O(b) small device ops and is dominated by the forward /
+-- backward, so it is not a hot path; and binding the array primitive
+-- needs a custom array-of-wrapped-handles unwrapping FFI (the v2
+-- wrapped-handle ABI), i.e. real plumbing for unmeasured benefit.
+-- Revisit only if a perf sweep shows collation hot (the likeliest case
+-- is large-batch mlx, where b-1 cat kernel launches could dominate).
 collate : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {b, n : Nat} ->
           UserExecutorLinear ex => Vect b (Tensor [n] ex dt g) -> Tensor [b, n] ex dt g
 collate {b} {n} samples =
