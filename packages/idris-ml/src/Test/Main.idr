@@ -9,6 +9,7 @@ import Test.Fit
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
+import Test.Nn.Init as Test.Nn.Init
 import Test.Nn.Module as Test.Nn.Module
 import Test.Nn.Seq as Test.Nn.Seq
 import Test.Schedule
@@ -60,7 +61,8 @@ main = runAll
   , ("GradMode",        Test.GradMode.tests)
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)
-  , ("Nn.Module",       Test.Nn.Module.tests)
+  , ("Nn.Init",         Test.Nn.Init.tests)
+, ("Nn.Module",       Test.Nn.Module.tests)
 , ("Nn.Seq",          Test.Nn.Seq.tests)
   , ("Schedule",        Test.Schedule.tests)
   , ("TensorExpr",      Test.TensorExpr.tests)
