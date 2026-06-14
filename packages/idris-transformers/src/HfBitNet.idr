@@ -292,9 +292,9 @@ record BitNetAttentionState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetAttention
-  qProj       : BitLinearHf hidden qOut ex dt g
-  kProj       : BitLinearHf hidden kvOut ex dt g
-  vProj       : BitLinearHf hidden kvOut ex dt g
+  qProj : BitLinearHf hidden qOut ex dt g
+  kProj : BitLinearHf hidden kvOut ex dt g
+  vProj : BitLinearHf hidden kvOut ex dt g
   -- `attn_sub_norm` is applied to the post-SDPA `[seq, qOut]` tensor,
   -- so it's sized to `qOut` here, NOT `hidden`. For HF BitNet the
   -- config invariant is `hidden = numHeads * headDim = qOut`, so the

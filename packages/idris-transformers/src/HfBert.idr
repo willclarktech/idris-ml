@@ -261,10 +261,10 @@ record BertEmbeddingsState
         (vocab, hidden, maxPos, typeVocab : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertEmbeddings
-  wordEmb     : BertEmbedding vocab hidden ex dt g
-  posEmb      : BertEmbedding maxPos hidden ex dt g
-  typeEmb     : BertEmbedding typeVocab hidden ex dt g
-  layerNorm   : BertLN hidden ex dt g
+  wordEmb   : BertEmbedding vocab hidden ex dt g
+  posEmb    : BertEmbedding maxPos hidden ex dt g
+  typeEmb   : BertEmbedding typeVocab hidden ex dt g
+  layerNorm : BertLN hidden ex dt g
 
 public export
 record BertSelfAttentionState
@@ -301,10 +301,10 @@ record BertLayerState
         (hidden, intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertLayer
-  selfAttn   : BertSelfAttentionState hidden ex dt g
-  selfOut    : BertSelfOutputState hidden ex dt g
-  intermed   : BertIntermediateState hidden intermediate ex dt g
-  output     : BertOutputState hidden intermediate ex dt g
+  selfAttn : BertSelfAttentionState hidden ex dt g
+  selfOut  : BertSelfOutputState hidden ex dt g
+  intermed : BertIntermediateState hidden intermediate ex dt g
+  output   : BertOutputState hidden intermediate ex dt g
 
 public export
 record BertPoolerState
