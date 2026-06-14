@@ -43,7 +43,7 @@ public export
         (1 _ : l i h ex dt g) -> (1 _ : Seq h o ex dt g) -> Seq i o ex dt g
 (~~>) = (::)
 
-export infixr 5 ~~>
+public export infixr 5 ~~>
 
 ||| Run a batched activation through the whole chain, left to right, threading
 ||| each layer linearly. The output tensor rides the linear pair under `(!*)`.
