@@ -6,12 +6,12 @@
 ||| Makefile-generated `Test.Config`, so the suite runs on whichever
 ||| F64-admissible primary the build targets (tape / torch-cpu /
 ||| mlx-cpu). MaskedFill is the load-bearing primitive being exercised.
-module Test.HfBertAttentionMask
+module Test.BertAttentionMask
 
 import Data.List
 import Data.Vect
 
-import HfBert
+import Transformers.Bert
 import Test.Harness
 
 import Executor
@@ -76,7 +76,7 @@ maxAbsDiff actual expected = go actual expected 0.0
 -- entries by name on every `hfBertModel` call, so re-constructing
 -- the model would yield different random weights).
 runForwardWith :
-     HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad
+     Transformers.Bert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad
   -> Maybe (Tensor [3, 3] TestExecutor TestDType WithGrad)
   -> IO (List Double)
 runForwardWith model mask = do
@@ -100,7 +100,7 @@ runForwardWith model mask = do
 -- builds a fresh paramPrefix, so the two assertions don't collide
 -- on the param registry).
 buildModel : (pfx : String)
-          -> IO (HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad)
+          -> IO (Transformers.Bert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad)
 buildModel pfx =
   hfBertModel {ex=TestExecutor} {dt=TestDType}
               {vocab        = 4}

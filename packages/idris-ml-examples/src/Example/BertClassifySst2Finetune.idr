@@ -36,9 +36,9 @@ import Train.Freeze
 import Util
 
 import Checkpoint
-import HfBert
-import HfBertForClassification
-import HfDataset
+import Transformers.Bert
+import Transformers.BertForClassification
+import Transformers.Dataset
 
 ----------------------------------------------------------------------
 -- Config (matches google/bert_uncased_L-2_H-128_A-2)

@@ -6,13 +6,13 @@
 ||| itself lives in L1's `Test.LoraLinear`; this module's job is the
 ||| PLUMBING gate: confirm the adapter struct is correctly threaded
 ||| into the encoder forward.
-module Test.HfBertLoraInject
+module Test.BertLoraInject
 
 import Data.List
 import Data.Vect
 
-import HfBert
-import HfBertLora
+import Transformers.Bert
+import Transformers.BertLora
 import Test.Harness
 
 import Executor
@@ -56,7 +56,7 @@ maxAbsDiff actual expected = go actual expected 0.0
 -- ---------------------------------------------------------------
 
 buildModel : (pfx : String)
-          -> IO (HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad)
+          -> IO (Transformers.Bert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad)
 buildModel pfx =
   hfBertModel {ex=TestExecutor} {dt=TestDType}
               {vocab        = 4}
@@ -71,7 +71,7 @@ buildModel pfx =
 -- Run hfBertForwardWithLora with given adapters + return the
 -- [Hidden=8]-shape pooled output as a List Double.
 runForwardWith :
-     HfBert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad
+     Transformers.Bert.BertModelState 4 8 1 16 4 2 TestExecutor TestDType WithGrad
   -> Maybe (BertLoraAdapters 1 8 4 TestExecutor TestDType WithGrad)
   -> IO (List Double)
 runForwardWith model lora = do

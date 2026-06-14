@@ -8,7 +8,7 @@
 -- | Same shape (`[6, 32, 32] * [6, 1, 32]`), same iteration counts.
 -- | Calls `primMul` (the typeclass-dispatched primitive that
 -- | `applyRopeAllHeads` in `Layer/RoPE.idr` uses inside its
--- | `ioRerun \_ => let ...` block — i.e., the exact path HfLlama
+-- | `ioRerun \_ => let ...` block — i.e., the exact path Transformers.Llama
 -- | exercises for the broadcast muls in RoPE).
 -- |
 -- | The wall delta vs the C-wrapper bench is the Scheme wrap layer

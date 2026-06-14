@@ -1,15 +1,15 @@
 module Test.Main
 
 import Test.Harness
-import Test.HfBert
-import Test.HfBertAttentionMask
-import Test.HfBertForClassification
-import Test.HfBertLoraInject
-import Test.HfBitNet
-import Test.HfDataset
-import Test.HfGpt2
-import Test.HfLlama
-import Test.HfLoraIO
+import Test.Bert
+import Test.BertAttentionMask
+import Test.BertForClassification
+import Test.BertLoraInject
+import Test.LoraIO
+import Test.BitNet
+import Test.Dataset
+import Test.Gpt2
+import Test.Llama
 import Test.KVCache
 import Test.Tokenizer
 
@@ -18,10 +18,10 @@ main = runAll (
   [ ("package wiring",
      [ check "ipkg parses and harness links" True
      ])
-  ] ++ Test.HfBert.suite ++ Test.HfBertAttentionMask.suite
-    ++ Test.HfBertForClassification.suite
-    ++ Test.HfBertLoraInject.suite
-    ++ Test.HfLoraIO.suite
-    ++ Test.HfDataset.suite
-    ++ Test.HfGpt2.suite ++ Test.HfLlama.suite
-    ++ Test.HfBitNet.suite ++ Test.KVCache.suite ++ Test.Tokenizer.suite)
+  ] ++ Test.Bert.suite ++ Test.BertAttentionMask.suite
+    ++ Test.BertForClassification.suite
+    ++ Test.BertLoraInject.suite
+    ++ Test.LoraIO.suite
+    ++ Test.Dataset.suite
+    ++ Test.Gpt2.suite ++ Test.Llama.suite
+    ++ Test.BitNet.suite ++ Test.KVCache.suite ++ Test.Tokenizer.suite)

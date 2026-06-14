@@ -39,8 +39,8 @@ import Train
 import Train.Freeze
 import Util
 
-import HfBert
-import HfBertForClassification
+import Transformers.Bert
+import Transformers.BertForClassification
 
 ----------------------------------------------------------------------
 -- Config (tiny BERT for fast convergence)

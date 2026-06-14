@@ -12,7 +12,7 @@
 |||
 ||| Don't add cross-imports between `Hf*` modules. If you need
 ||| something shared, lift it here.
-module HfCommon
+module Transformers.Common
 
 import Data.Vect
 

@@ -1,57 +1,57 @@
-||| Unit tests for `HfLlama`.
+||| Unit tests for `HfGpt2`.
 |||
-||| Same three-bucket structure as `Test.HfBert` / `Test.HfGpt2`:
+||| Same three-bucket structure as `Test.HfBert`:
 |||   1. Pure-Idris param-name catalogue tests (exact HF-naming match).
 |||   2. FFI bucket — the smart constructor actually registers under
-|||      those names in C-side param registry order. Uses small dims
-|||      (vocab=8, hidden=4, etc.) but numLayers=16 so the per-layer
-|||      math matches the real Llama 3.2 1B catalogue (146 names).
+|||      those names in C-side param registry order.
+|||   3. Forward-pass shape + finite smoke on the tinyGpt2Config.
 |||
 ||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from `Test.Config`;
 ||| runs on every F64-admissible primary.
-module Test.HfLlama
+module Test.Gpt2
 
 import Data.List
 import Data.String
 import Data.Vect
 
+import Transformers.Gpt2
+import Test.Harness
+import Test.Common
+
 import Executor
 import Executor.Core
-import HfLlama
-import Tensor
 import Test.Config
-import Test.Harness
-import Test.HfCommon
+import Tensor
+import Array
 
 ----------------------------------------------------------------------
--- Reference catalogue (mirrors `unsloth/Llama-3.2-1B`'s safetensors
--- header — a public mirror of `meta-llama/Llama-3.2-1B`; verified
--- from upstream HF Llama 3 model card + modeling_llama.py state_dict)
+-- Reference catalogue (mirrors `sshleifer/tiny-gpt2`'s safetensors header)
 ----------------------------------------------------------------------
 
+-- Build the 12 per-layer names so we don't have to repeat them 5 times.
 oneLayer : Nat -> List String
 oneLayer i =
-  let p = "model.layers." ++ show i in
-  [ p ++ ".input_layernorm.weight"
-  , p ++ ".self_attn.q_proj.weight"
-  , p ++ ".self_attn.k_proj.weight"
-  , p ++ ".self_attn.v_proj.weight"
-  , p ++ ".self_attn.o_proj.weight"
-  , p ++ ".post_attention_layernorm.weight"
-  , p ++ ".mlp.gate_proj.weight"
-  , p ++ ".mlp.up_proj.weight"
-  , p ++ ".mlp.down_proj.weight"
+  let p = "transformer.h." ++ show i in
+  [ p ++ ".ln_1.weight",     p ++ ".ln_1.bias"
+  , p ++ ".attn.c_attn.weight", p ++ ".attn.c_attn.bias"
+  , p ++ ".attn.c_proj.weight", p ++ ".attn.c_proj.bias"
+  , p ++ ".ln_2.weight",     p ++ ".ln_2.bias"
+  , p ++ ".mlp.c_fc.weight", p ++ ".mlp.c_fc.bias"
+  , p ++ ".mlp.c_proj.weight", p ++ ".mlp.c_proj.bias"
   ]
 
-||| 146 names: 1 embeddings + 16 layers × 9 params/layer + 1 final-norm.
-||| Llama 3.2 1B's `tie_word_embeddings=true` means lm_head.weight is
-||| NOT stored separately — that's the off-by-one vs e.g. Llama 3 8B
-||| (which would have 147 with the same numLayers).
-expectedLlama32_1B_ParamNames : List String
-expectedLlama32_1B_ParamNames =
-  [ "model.embed_tokens.weight" ]
-  ++ concatMap oneLayer (the (List Nat) [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
-  ++ [ "model.norm.weight" ]
+||| 76 names: 2 embeddings + 6 layers * 12 params/layer + 2 final-norm.
+||| Matches the distilgpt2 on-disk safetensors header exactly.
+expectedDistilGpt2ParamNames : List String
+expectedDistilGpt2ParamNames =
+  [ "transformer.wte.weight"
+  , "transformer.wpe.weight"
+  ]
+  ++ concatMap oneLayer (the (List Nat) [0, 1, 2, 3, 4, 5])
+  ++
+  [ "transformer.ln_f.weight"
+  , "transformer.ln_f.bias"
+  ]
 
 strContains : String -> String -> Bool
 strContains needle hay = isInfixOf (unpack needle) (unpack hay)
@@ -72,15 +72,15 @@ firstMismatch xs ys = go Z xs ys
 
 testParamCount : IO Bool
 testParamCount =
-  assertHfModelParamCount "hfLlamaParamNames"
-                          (hfLlamaParamNames llama32_1B_Config "model")
-                          146
+  assertHfModelParamCount "hfGpt2ParamNames"
+                          (hfGpt2ParamNames distilGpt2Config "")
+                          76
 
 testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
-  let got = hfLlamaParamNames llama32_1B_Config "model"
-  in case firstMismatch got expectedLlama32_1B_ParamNames of
-       Nothing        => check "all 146 param names match HF reference exactly" True
+  let got = hfGpt2ParamNames distilGpt2Config ""
+  in case firstMismatch got expectedDistilGpt2ParamNames of
+       Nothing        => check "all 76 param names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -89,7 +89,7 @@ testParamNamesMatchHfReference =
 
 testNamingConvention : IO Bool
 testNamingConvention =
-  let names = hfLlamaParamNames llama32_1B_Config "model"
+  let names = hfGpt2ParamNames distilGpt2Config ""
       hasPlural   = any (\n => strContains "_weights" n || strContains "_biases" n) names
       missingDots = any (\n => not (strContains "." n)) names
   in check "no `_weights`/`_biases` plural; every name uses `.` separator"
@@ -114,30 +114,33 @@ readAllParamNames = do
 
 testConstructorRegistersHfNames : IO Bool
 testConstructorRegistersHfNames = do
-  -- Snapshot the registry count before construction; slice off only
-  -- what Llama adds (the param registry accumulates across all prior
-  -- tests in this process). Same trick as the HfGpt2 test.
+  -- The param registry accumulates across all prior tests in this
+  -- process; take the count BEFORE we construct and slice off only
+  -- what GPT-2 added.
   --
-  -- Small dims (vocab=8, hidden=4, qOut=8, kvOut=2, intermediate=8)
-  -- BUT numLayers=16 so the per-layer count matches the real Llama
-  -- 3.2 1B catalogue (146 names). Real Llama dims would burn ~10 GB
-  -- of host RAM on the param init loop (the embedding alone is
-  -- 128256*2048*8 = 2.1 GB at F64); the small dims keep this a unit
-  -- test.
+  -- Small dims, BUT n_layer=6 so the param-name math at the layer
+  -- count matches distilgpt2 (76 names). The actual distilgpt2 model
+  -- has ~82M params (300MB+ embedding tensor alone); constructing
+  -- that in a unit test would burn ~600MB of host RAM via the
+  -- normalSample-per-element init loop. The small dims here exercise
+  -- the same code path against the same catalogue without that cost.
   --
-  -- Literal Nats so the auto-implicits can resolve (each Nat is small).
+  -- Literal Nats so `hidden = numHeads * headDim` reduces to Refl
+  -- (`4 = 2 * 2`). Going through `cfg.hidden` keeps the proof
+  -- existentially-quantified and the auto-implicit can't resolve.
   preCount <- primIO (primParamCount {ex=TestExecutor})
-  _ <- hfLlamaModel {ex=TestExecutor} {dt=TestDType}
-                    {vocab        = 8}
-                    {hidden       = 4}
-                    {numLayers    = 16}
-                    {qOut         = 8}
-                    {kvOut        = 2}
-                    {intermediate = 8}
-                    "model"
+  _ <- hfGpt2Model {ex=TestExecutor} {dt=TestDType}
+                   {vocab        = 8}
+                   {hidden       = 4}
+                   {numLayers    = 6}
+                   {numHeads     = 2}
+                   {headDim      = 2}
+                   {intermediate = 8}
+                   {maxPos       = 8}
+                   ""
   allNames <- readAllParamNames
   let registered = drop (cast {to=Nat} preCount) allNames
-      expected   = hfLlamaParamNames llama32_1B_Config "model"
+      expected   = hfGpt2ParamNames distilGpt2Config ""
   case firstMismatch registered expected of
     Nothing        => check "C-side param registry matches catalogue exactly" True
     Just (i, g, e) => do
@@ -155,12 +158,12 @@ testConstructorRegistersHfNames = do
 public export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfLlama — param name catalogue",
+  [ ("HfGpt2 — param name catalogue",
      [ testParamCount
      , testParamNamesMatchHfReference
      , testNamingConvention
      ])
-  , ("HfLlama — FFI constructor registry",
+  , ("HfGpt2 — FFI constructor registry",
      [ testConstructorRegistersHfNames
      ])
   ]

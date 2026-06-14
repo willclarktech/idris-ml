@@ -6,12 +6,12 @@
 ||| BERT WordPiece-tokenized lines. The downloader emits the same
 ||| format on a real `glue sst2 train` pull; the fixture keeps the
 ||| test self-contained (no network, no Python subprocess).
-module Test.HfDataset
+module Test.Dataset
 
 import Data.List
 import Data.Vect
 
-import HfDataset
+import Transformers.Dataset
 import Test.Harness
 
 -- The fixture path resolves relative to where the test binary runs

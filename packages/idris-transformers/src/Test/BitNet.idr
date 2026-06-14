@@ -15,20 +15,21 @@
 |||      target landing in the follow-up commit.
 |||
 ||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from `Test.Config`.
-module Test.HfBitNet
+module Test.BitNet
 
 import Data.List
 import Data.String
 import Data.Vect
 
+import Transformers.BitNet
+import Test.Harness
+import Test.Common
+
 import Executor
 import Executor.Core
-import HfBitNet
+import Test.Config
 import Nn.RoPE
 import Tensor
-import Test.Config
-import Test.Harness
-import Test.HfCommon
 
 ----------------------------------------------------------------------
 -- Reference catalogue

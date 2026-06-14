@@ -15,4 +15,4 @@
 |||   import HfBert   -- BERT encoder + pooler (prajjwal1/bert-tiny)
 |||   import HfGpt2   -- (follow-up row)
 |||   import HfLlama  -- (Row 7 — LLM-class example)
-module IdrisTransformers
+module Transformers

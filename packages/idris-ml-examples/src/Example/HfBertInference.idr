@@ -18,7 +18,7 @@
 |||   - `packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2/model.safetensors`
 |||     — fetch with `bash packages/idris-transformers/scripts/hf-download.sh`
 |||   - Python `transformers` package available via packages/pytorch's uv
-|||     venv — `Tokenizer.idr` shells out to `scripts/hf_tokenize.py`
+|||     venv — `Transformers.Tokenizer.idr` shells out to `scripts/hf_tokenize.py`
 |||     for encode + decode, replacing the pre-2026-05-26 hardcoded ID
 |||     lists + vocab.txt lookup table.
 module Example.HfBertInference
@@ -34,11 +34,11 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Example.Common.HfInferenceHelper
 import Executor
-import HfBert
+import Example.Common.HfInferenceHelper
+import Transformers.Bert
 import Tensor
-import Tokenizer
+import Transformers.Tokenizer
 import Util
 
 ----------------------------------------------------------------------
@@ -122,7 +122,7 @@ topK k xs = take k (sortBy (\(_, a), (_, b) => compare b a) xs)
 -- side searches for this token in the tokenized input to find the mask
 -- position; tokenizing "paris is the capital of [MASK] ." returns
 -- [101, 3000, …, 103, 1012, 102] (verified upstream by the tokenizer
--- subprocess + pinned in Test/Tokenizer.idr's BERT encode test).
+-- subprocess + pinned in Test/Transformers.Tokenizer.idr's BERT encode test).
 bertMaskTokenId : Nat
 bertMaskTokenId = 103
 

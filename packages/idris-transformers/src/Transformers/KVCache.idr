@@ -29,7 +29,7 @@
 ||| concatenated tensor — that matches PyTorch's `past_key_values`
 ||| layout and gives the user-facing genLoop a natural place to release
 ||| both on early-stop.
-module KVCache
+module Transformers.KVCache
 
 import Data.Vect
 

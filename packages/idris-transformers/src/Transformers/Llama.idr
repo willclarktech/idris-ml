@@ -48,15 +48,15 @@
 ||| absorbed from Phase 3. For now this file lands the config + state
 ||| records + param-name catalogue + smart constructor (no forward
 ||| pass yet); forward + KV cache + example come in follow-up commits.
-module HfLlama
+module Transformers.Llama
 
 import Data.Vect
 
 import Compat.Random
 import Executor
-import HfCommon
+import Transformers.Common
 import Init
-import KVCache
+import Transformers.KVCache
 import Nn.RoPE
 import Sampler
 import Tensor
@@ -99,7 +99,7 @@ llama32_1B_Config = MkLlamaConfig
 ||| Llama 3.2 NTK-aware RoPE scaling. Exposed here (instead of only
 ||| via `Layer.RoPE.llama3Scaling`) so the example / inference site
 ||| can import the per-arch scaling from the same module as the
-||| per-arch config record — mirrors `HfBitNet.bitnetRopeScaling`.
+||| per-arch config record — mirrors `Transformers.BitNet.bitnetRopeScaling`.
 public export
 llama32_1B_RopeScaling : LlamaRopeScaling
 llama32_1B_RopeScaling = llama3Scaling
@@ -352,8 +352,8 @@ hfLlamaModel pfx = do
 %default partial
 
 ||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Thin wrapper
-||| around `HfCommon.applyRmsNorm2dRaw` that pattern-matches the
-||| `LlamaRmsNorm` wrapper. The body lives in `HfCommon.idr` so
+||| around `Transformers.Common.applyRmsNorm2dRaw` that pattern-matches the
+||| `LlamaRmsNorm` wrapper. The body lives in `Transformers.Common.idr` so
 ||| HfBitNet (and any future adapter using the same per-row fold)
 ||| shares the implementation.
 applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
@@ -377,7 +377,7 @@ applyLinear2d (MkLlamaLinear w) x = ioRerun (\_ =>
   in MkTensor out Nothing)
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`. Same
-||| pattern as HfBert.idr's applyEmbedLookup2d.
+||| pattern as Transformers.Bert.idr's applyEmbedLookup2d.
 applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seqLen, vocab, hidden : Nat} ->
                    LlamaEmbedding vocab hidden ex dt g ->
@@ -390,7 +390,7 @@ applyEmbedLookup {seqLen} {hidden} (MkLlamaEmbedding w) tokens = ioRerun (\_ =>
   in MkTensor out Nothing)
 
 -- Build the strict-upper-triangle causal mask (1.0 above diagonal,
--- 0.0 elsewhere). Same routine as Layer/Transformer.idr / HfGpt2.
+-- 0.0 elsewhere). Same routine as Layer/Transformer.idr / Transformers.Gpt2.
 writeCausalMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
 writeCausalMask buf i j n =
   if i >= n then buf

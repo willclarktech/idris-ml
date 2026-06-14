@@ -66,13 +66,13 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Example.Common.HfInferenceHelper
 import Executor
-import HfLlama
-import KVCache
+import Example.Common.HfInferenceHelper
+import Transformers.Llama
+import Transformers.KVCache
 import Layer.RoPE
 import Tensor
-import Tokenizer
+import Transformers.Tokenizer
 import Util
 
 ----------------------------------------------------------------------

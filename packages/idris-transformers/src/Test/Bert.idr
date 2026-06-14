@@ -9,15 +9,15 @@
 ||| the Makefile-generated `Test.Config`, mirroring idris-ml's test
 ||| suite — so the same suite elaborates and runs against any
 ||| F64-admissible primary (tape, torch-cpu, torch-cuda, mlx-cpu).
-module Test.HfBert
+module Test.Bert
 
 import Data.List
 import Data.String
 import Data.Vect
 
-import HfBert
+import Transformers.Bert
 import Test.Harness
-import Test.HfCommon
+import Test.Common
 
 import Executor
 import Executor.Core

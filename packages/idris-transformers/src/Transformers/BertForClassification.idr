@@ -1,6 +1,6 @@
 ||| BERT sequence-classification head (HF `BertForSequenceClassification`).
 |||
-||| Mirrors the existing MLM-head pattern (HfBert.idr `BertMlmHeadState`):
+||| Mirrors the existing MLM-head pattern (Transformers.Bert.idr `BertMlmHeadState`):
 ||| one Linear-with-bias under `classifier.*` consuming the pooled
 ||| `[CLS]` embedding and producing per-class logits.
 |||
@@ -19,13 +19,13 @@
 |||   loadModelPrefix "bert/model.safetensors" "bert."   -- backbone only
 |||   -- (optional) freezeByPrefix opt "bert."
 |||   -- train: backward through tnllLoss, nativeTrainStep
-module HfBertForClassification
+module Transformers.BertForClassification
 
 import Data.Vect
 
 import Executor
-import HfBert
 import Tensor
+import Transformers.Bert
 
 ----------------------------------------------------------------------
 -- Param-name catalogue
@@ -103,7 +103,7 @@ makeClassifierHead pfx = do
   -- Classifier weight: shape [numClasses, hidden]; HF inits with
   -- Normal(0, 0.02). Classifier bias: shape [numClasses]; zero.
   -- (Mirrors the existing `makeBertLinear` shape but inlined here
-  -- because that helper is private to `HfBert.idr`.)
+  -- because that helper is private to `Transformers.Bert.idr`.)
   w <- tparam2dNormal {o=numClasses} {i=hidden} (pfx ++ ".weight") 0.0 0.02
   b <- tparam1dConst  {n=numClasses}            (pfx ++ ".bias")   0.0
   pure (MkBertClassifierHead (MkBertLinear w b))

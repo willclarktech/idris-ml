@@ -36,7 +36,7 @@ import Train
 import Util
 
 import Checkpoint
-import HfBert
+import Transformers.Bert
 
 ----------------------------------------------------------------------
 -- Config (matches google/bert_uncased_L-2_H-128_A-2)

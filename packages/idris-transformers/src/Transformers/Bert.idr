@@ -15,13 +15,13 @@
 ||| Forward pass is implemented in a follow-up commit; this file lands
 ||| the param-name catalogue + the typed state records + the
 ||| `hfBertModel` constructor.
-module HfBert
+module Transformers.Bert
 
 import Data.Vect
 
 import Compat.Random
 import Executor
-import HfCommon
+import Transformers.Common
 import Init
 import Sampler
 import Tensor

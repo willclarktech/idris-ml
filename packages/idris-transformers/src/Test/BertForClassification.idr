@@ -9,14 +9,14 @@
 ||| The FFI bucket resolves `{ex=TestExecutor}` / `{dt=TestDType}`
 ||| from `Test.Config`; the suite runs against every F64-admissible
 ||| primary.
-module Test.HfBertForClassification
+module Test.BertForClassification
 
 import Data.List
 import Data.String
 import Data.Vect
 
-import HfBert
-import HfBertForClassification
+import Transformers.Bert
+import Transformers.BertForClassification
 import Test.Harness
 
 import Executor

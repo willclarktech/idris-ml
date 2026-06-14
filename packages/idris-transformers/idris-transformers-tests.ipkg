@@ -13,16 +13,16 @@ depends = contrib
 
 modules = Test.Main
         , Test.Config
-        , Test.HfBert
-        , Test.HfBertAttentionMask
-        , Test.HfBertForClassification
-        , Test.HfBertLoraInject
-        , Test.HfLoraIO
-        , Test.HfBitNet
-        , Test.HfCommon
-        , Test.HfDataset
-        , Test.HfGpt2
-        , Test.HfLlama
+        , Test.Bert
+        , Test.BertAttentionMask
+        , Test.BertForClassification
+        , Test.BertLoraInject
+        , Test.LoraIO
+        , Test.BitNet
+        , Test.Common
+        , Test.Dataset
+        , Test.Gpt2
+        , Test.Llama
         , Test.KVCache
         , Test.Tokenizer
 

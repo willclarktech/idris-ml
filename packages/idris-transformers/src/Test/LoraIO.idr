@@ -1,5 +1,5 @@
 ||| Unit tests for L4's peft-compatible LoRA adapter I/O
-||| (`HfLoraIO.saveLoraAdapter` + `HfLoraIO.loadLoraAdapter`).
+||| (`Transformers.LoraIO.saveLoraAdapter` + `Transformers.LoraIO.loadLoraAdapter`).
 |||
 ||| Strategy: register two LoRA-shaped params (one `.lora_A` and one
 ||| `.lora_B`), call `saveLoraAdapter` on a temp dir, then verify
@@ -18,7 +18,7 @@
 ||| Resolves `{ex=TestExecutor}` / `{dt=TestDType}` from `Test.Config`;
 ||| runs on every F64-admissible primary. Cross-backend numeric
 ||| coverage of the LoRA math primitive lives in L1's `Test.LoraLinear`.
-module Test.HfLoraIO
+module Test.LoraIO
 
 import Data.List
 import Data.String
@@ -32,7 +32,7 @@ import Checkpoint
 import Executor
 import Executor.Core
 import Test.Config
-import HfLoraIO
+import Transformers.LoraIO
 import Tensor
 
 ----------------------------------------------------------------------

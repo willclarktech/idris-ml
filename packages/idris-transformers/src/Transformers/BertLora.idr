@@ -31,13 +31,13 @@
 ||| at the safetensors-IO boundary by the L4 `HfLoraIO` layer, NOT
 ||| baked into the in-memory paramId — keeps the in-Idris param
 ||| registry HF-aligned to match the backbone load path).
-module HfBertLora
+module Transformers.BertLora
 
 import Data.Vect
 
 import Executor
-import HfBert
-import HfBertForClassification
+import Transformers.Bert
+import Transformers.BertForClassification
 import Tensor
 
 ----------------------------------------------------------------------
@@ -168,7 +168,7 @@ addLoraDelta2d base input (Just adp)  rank alpha = do
 -- LoRA-aware self-attention
 ----------------------------------------------------------------------
 
--- Mirror of `applySelfAttn` from HfBert.idr, with Maybe LoraAdapter
+-- Mirror of `applySelfAttn` from Transformers.Bert.idr, with Maybe LoraAdapter
 -- slots for Q and V (K + output dense are intentionally left at peft's
 -- canonical default). When both adapters are Nothing AND
 -- `Compatible Maybe = Just`, output bit-matches `applySelfAttn`.

@@ -32,7 +32,7 @@
 ||| `/tmp/idris-hf-tokenize-out.txt`, then reads the result. NOT
 ||| concurrency-safe — the temp paths are deterministic. Examples run
 ||| single-threaded; concurrent use is an explicit non-goal for v1.
-module Tokenizer
+module Transformers.Tokenizer
 
 import Data.Fin
 import Data.List

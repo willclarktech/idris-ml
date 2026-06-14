@@ -5,15 +5,15 @@ sourcedir = "src"
 depends = contrib
         , idris-ml
 
-modules = HfBert
-        , HfBertForClassification
-        , HfBertLora
-        , HfBitNet
-        , HfCommon
-        , HfDataset
-        , HfGpt2
-        , HfLlama
-        , HfLoraIO
-        , IdrisTransformers
-        , KVCache
-        , Tokenizer
+modules = Transformers.Bert
+        , Transformers.BertForClassification
+        , Transformers.BertLora
+        , Transformers.BitNet
+        , Transformers.Common
+        , Transformers.Dataset
+        , Transformers.Gpt2
+        , Transformers.Llama
+        , Transformers.LoraIO
+        , Transformers
+        , Transformers.KVCache
+        , Transformers.Tokenizer

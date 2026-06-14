@@ -56,14 +56,14 @@
 ||| This commit lands the config + state records + param-name catalogue
 ||| + smart constructor only. Forward pass + checkpoint loading + the
 ||| roundtrip gate land in follow-up commits.
-module HfBitNet
+module Transformers.BitNet
 
 import Data.Vect
 
 import Checkpoint
 import Compat.Random
 import Executor
-import HfCommon
+import Transformers.Common
 import Init
 import Nn.RoPE
 import Sampler
@@ -463,10 +463,10 @@ bitnetRopeScaling : LlamaRopeScaling
 bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
 
 ||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Thin wrapper
-||| around `HfCommon.applyRmsNorm2dRaw` that pattern-matches the
+||| around `Transformers.Common.applyRmsNorm2dRaw` that pattern-matches the
 ||| `BitNetRmsNorm` wrapper. The body (per-row fold over `primNarrow`
-||| / `primMul` / `primSum` / scale) lives in `HfCommon.idr` and is
-||| shared with HfLlama.
+||| / `primMul` / `primSum` / scale) lives in `Transformers.Common.idr` and is
+||| shared with Transformers.Llama.
 export
 applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                  {seqLen, hidden : Nat} ->

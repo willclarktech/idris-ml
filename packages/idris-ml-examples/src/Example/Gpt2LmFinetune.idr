@@ -35,7 +35,7 @@ import Train
 import Util
 
 import Checkpoint
-import HfGpt2
+import Transformers.Gpt2
 
 ----------------------------------------------------------------------
 -- Config (matches distilgpt2)

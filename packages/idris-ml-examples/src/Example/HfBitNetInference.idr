@@ -45,12 +45,12 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Example.Common.HfInferenceHelper
 import Executor
-import HfBitNet
+import Example.Common.HfInferenceHelper
+import Transformers.BitNet
 import Layer.RoPE
 import Tensor
-import Tokenizer
+import Transformers.Tokenizer
 import Util
 
 ----------------------------------------------------------------------
@@ -109,7 +109,7 @@ hfWeightsPath = modelDir ++ "/model.safetensors"
 -- `applyBlock` (exported from HfBitNet) once per Vect element and
 -- invokes `dumpFn` with a "block_NN" label. Idris-2's elaborator hung
 -- (>90 min, killed) when this iteration was attempted as a new
--- polymorphic helper inside HfBitNet.idr; moving it here with the
+-- polymorphic helper inside Transformers.BitNet.idr; moving it here with the
 -- ExampleExecutor/ExampleDType types pinned concretely lets the
 -- elaborator skip the per-call constraint specialisation that the
 -- BitNet quant-typeclass surface forces.

@@ -26,7 +26,7 @@
 |||
 ||| `idrisToPeftName` adds those at save time; `peftToIdrisName`
 ||| strips them at load time. The actual tensor data is unchanged.
-module HfLoraIO
+module Transformers.LoraIO
 
 import Data.Either
 import Data.List

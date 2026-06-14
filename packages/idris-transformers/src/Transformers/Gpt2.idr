@@ -27,14 +27,14 @@
 |||     BERT is bidirectional (no mask).
 |||   - **Tied LM head**: `lm_head.weight` is tied to `transformer.wte.weight`
 |||     — it isn't on disk separately. Mirrors the HfBert `MlmHead` pattern
-|||     (`applyMlmHead` at HfBert.idr:769).
-module HfGpt2
+|||     (`applyMlmHead` at Transformers.Bert.idr:769).
+module Transformers.Gpt2
 
 import Data.Vect
 
 import Compat.Random
 import Executor
-import HfCommon
+import Transformers.Common
 import Init
 import Sampler
 import Tensor
@@ -133,7 +133,7 @@ hfGpt2ParamNames cfg pfx =
 -- HF-named building blocks (mirror HfBert pattern but GPT-2-named)
 ----------------------------------------------------------------------
 
--- Small host-buffer helpers (copied from HfBert.idr's private region).
+-- Small host-buffer helpers (copied from Transformers.Bert.idr's private region).
 -- Each `Hf*` module owns these privately per CONVENTIONS rule 4
 -- ("no cross-imports between Hf* modules"). The duplication is the
 -- cost; the benefit is each module is independently readable
@@ -168,7 +168,7 @@ makeConv1D : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatib
 makeConv1D pfx = do
   -- HF GPT-2 uses normal(0, 0.02) init for Conv1D weights, zero bias.
   -- Fused C-side init via tparam2dNormal / tparam1dConst (commit
-  -- 085348d); see HfBert.idr's makeBertLinear for the bottleneck
+  -- 085348d); see Transformers.Bert.idr's makeBertLinear for the bottleneck
   -- replaced.
   w <- tparam2dNormal {o=i} {i=o} (pfx ++ ".weight") 0.0 0.02
   b <- tparam1dConst  {n=o}       (pfx ++ ".bias")   0.0
