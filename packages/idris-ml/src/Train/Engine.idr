@@ -120,6 +120,7 @@ withEpoch act = do
 -- Eval-bracket metrics logging
 ----------------------------------------------------------------------
 
+export
 fmtMetrics : List (String, String) -> String
 fmtMetrics []               = ""
 fmtMetrics ((k, v) :: rest) = "\t" ++ k ++ "=" ++ v ++ fmtMetrics rest
@@ -128,6 +129,7 @@ fmtMetrics ((k, v) :: rest) = "\t" ++ k ++ "=" ++ v ++ fmtMetrics rest
 -- lazily from tensor reads, so this drags those reads to happen *now* —
 -- inside the withNoGrad bracket below, before its exit drain frees the
 -- eval tensors. Without it the thunks dangle on mlx. Always False.
+export
 forceMetrics : List (String, String) -> Bool
 forceMetrics xs = foldl (\acc, (k, v) => acc + length k + length v) 0 xs < 0
 
