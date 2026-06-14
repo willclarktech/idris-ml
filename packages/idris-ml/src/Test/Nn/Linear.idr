@@ -45,7 +45,7 @@ paramsExposed = do
 -- The Init smart constructor registers PyTorch-style dotted names.
 smartCtorNames : IO Bool
 smartCtorNames = do
-  _ <- runInit $ scoped "mlp" (linear {ex=TestExecutor} {dt=TestDType} {i=3} {o=2})
+  _ <- runInit $ scoped "mlp" (linear {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=3} {o=2})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "linear registers mlp.linear_0.weight + .bias"
@@ -55,12 +55,35 @@ smartCtorNames = do
 -- heads and the default `linear` rely on).
 linearWithZeroBias : IO Bool
 linearWithZeroBias = do
-  lyr <- runInit $ scoped "lw" (linearWith {ex=TestExecutor} {dt=TestDType} {i=3} {o=2} 0.5 0.0)
+  lyr <- runInit $ scoped "lw" (linearWith {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=3} {o=2} 0.5 0.0)
   let b0 = primItem1d {ex=TestExecutor} lyr.biasT.tensorPtr 0
   let b1 = primItem1d {ex=TestExecutor} lyr.biasT.tensorPtr 1
   check ("linearWith biasStd=0 → zero bias (got [" ++ show b0 ++ ", " ++ show b1 ++ "])")
         (b0 == 0.0 && b1 == 0.0)
 
+-- NoGrad-from-birth: constructing `linear {g=NoGrad}` yields params that are
+-- genuinely tape-free (C `requires_grad == 0`) with no post-construction
+-- `eval` flip — the core-layer parity with the HF adapters' grad-poly
+-- constructors. The WithGrad default still registers requires_grad==1.
+noGradFromBirth : IO Bool
+noGradFromBirth = do
+  lyr <- runInit $ scoped "ng" (linear {ex=TestExecutor} {dt=TestDType} {g=NoGrad} {i=3} {o=2})
+  let rgW = primRequiresGrad {ex=TestExecutor} lyr.weightT.tensorPtr
+      rgB = primRequiresGrad {ex=TestExecutor} lyr.biasT.tensorPtr
+  check ("linear {g=NoGrad} params are tape-free (requires_grad w=" ++ show rgW
+         ++ " b=" ++ show rgB ++ ")")
+        (rgW == 0 && rgB == 0)
+
+withGradFromBirth : IO Bool
+withGradFromBirth = do
+  lyr <- runInit $ scoped "wg" (linear {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=3} {o=2})
+  let rgW = primRequiresGrad {ex=TestExecutor} lyr.weightT.tensorPtr
+      rgB = primRequiresGrad {ex=TestExecutor} lyr.biasT.tensorPtr
+  check ("linear {g=WithGrad} params are trainable (requires_grad w=" ++ show rgW
+         ++ " b=" ++ show rgB ++ ")")
+        (rgW == 1 && rgB == 1)
+
 export
 tests : List (IO Bool)
-tests = [forwardComputes, paramsExposed, smartCtorNames, linearWithZeroBias]
+tests = [ forwardComputes, paramsExposed, smartCtorNames, linearWithZeroBias
+        , noGradFromBirth, withGradFromBirth ]

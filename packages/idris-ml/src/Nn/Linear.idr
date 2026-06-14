@@ -58,19 +58,27 @@ Module Linear where
 ||| `<scope>.linear_<n>.weight` / `.bias`. The escape hatch for layers that
 ||| need a non-default init (e.g. NTM's xavier-1.4 heads).
 export
-linearWith : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
-             (weightStd : Double) -> (biasStd : Double) -> Init (Linear i o ex dt WithGrad)
+linearWith : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
+             (weightStd : Double) -> (biasStd : Double) -> Init (Linear i o ex dt g)
 linearWith weightStd biasStd = do
   name <- freshChild "linear"
   w <- liftIO $ tparam2dNormal {ex} {dt} {o} {i} (name ++ ".weight") 0.0 weightStd
   b <- liftIO $ if biasStd == 0.0
                   then tparam1dConst  {ex} {dt} {n=o} (name ++ ".bias") 0.0
                   else tparam1dNormal {ex} {dt} {n=o} (name ++ ".bias") 0.0 biasStd
-  pure (MkLinear w b)
+  -- Build the requested grad-mode directly: WithGrad keeps the freshly
+  -- registered (requires_grad=1) params; NoGrad weakens them in place
+  -- (requires_grad=0 + retype), so an inference model is genuinely tape-free
+  -- with no post-construction `eval` flip — uniform with the HF adapters.
+  case sgrad {g} of
+    SWithGrad => pure (MkLinear w b)
+    SNoGrad   => do w' <- liftIO (weakenGrad w)
+                    b' <- liftIO (weakenGrad b)
+                    pure (MkLinear w' b')
 
 ||| Construct a `Linear i o` with PyTorch's `nn.Linear` normal-approx
 ||| default (weight ~ N(0, 1/√fan_in), zero bias) — matches the legacy
 ||| `linearLayer`. The common case of `linearWith`.
 export
-linear : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Linear i o ex dt WithGrad)
+linear : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Linear i o ex dt g)
 linear = linearWith (1.0 / sqrt (cast {to=Double} i)) 0.0
