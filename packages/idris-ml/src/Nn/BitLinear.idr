@@ -39,7 +39,7 @@ record BitLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gra
 ||| carries `g`. The frozen pair is grad-gated out of the optimizer.
 public export
 Params BitLinear where
-  params (MkBitLinear w s b)    = [toParam w, toParam s, toParam b]
+  params (MkBitLinear w s b)   = [toParam w, toParam s, toParam b]
   reflect (MkBitLinear w s b)  = MkBang [toParam w, toParam s, toParam b] # MkBitLinear w s b
   castGrad (MkBitLinear w s b) = MkBitLinear w s (retypeGrad b)
   discard (MkBitLinear _ _ _)  = pure ()

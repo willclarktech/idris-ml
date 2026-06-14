@@ -124,7 +124,7 @@ encodeAll cell (row :: rest) = do
 
 decodeLosses : (1 _ : Model) -> List (Vect OutputW Double) ->
                L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad))) Model)
-decodeLosses cell []                = pure1 (MkBang [] # cell)
+decodeLosses cell []             = pure1 (MkBang [] # cell)
 decodeLosses cell (trow :: rest) = do
   z <- liftIO1 zeroIn
   (MkBang out # cell') <- recurStep cell z

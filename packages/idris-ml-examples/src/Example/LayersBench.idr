@@ -282,7 +282,7 @@ ntmTwoPhaseStep opt encIns targs model = do
                    List (Vect NtmOutputW Double) ->
                    L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad)))
                                          (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad))
-    decodeLosses cell []                = pure1 (MkBang [] # cell)
+    decodeLosses cell []             = pure1 (MkBang [] # cell)
     decodeLosses cell (trow :: rest) = do
       z <- liftIO1 (retypeGrad <$> tensor {dims=[NtmInputW]} (Const 0.0))
       (MkBang out # cell') <- recurStep cell z

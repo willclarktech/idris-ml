@@ -36,7 +36,7 @@ record LoraLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gr
 ||| params feed both the reflected list and the rebuild.
 public export
 Params LoraLinear where
-  params (MkLoraLinear base a b alpha) = params base ++ [toParam a, toParam b]
+  params (MkLoraLinear base a b alpha)  = params base ++ [toParam a, toParam b]
   reflect (MkLoraLinear base a b alpha) =
     let (MkBang pb # base') = reflect base in
     MkBang (pb ++ [toParam a, toParam b]) # MkLoraLinear base' a b alpha

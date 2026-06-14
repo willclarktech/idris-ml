@@ -241,8 +241,8 @@ public export
       ++ [toParam mi]
   reflect (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
     let (MkBang pc # ctrl')  = reflect ctrl
-        (MkBang pwk # wk')   = reflect wk
-        (MkBang pwb # wb')   = reflect wb
+        (MkBang pwk # wk')    = reflect wk
+        (MkBang pwb # wb')    = reflect wb
         (MkBang per # er')    = reflect er
         (MkBang pad # ad')    = reflect ad
         (MkBang pfg # fg')    = reflect fg

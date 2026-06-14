@@ -58,7 +58,7 @@ record Rnn (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
 ||| reflected param list and the rebuild.
 public export
 Params Rnn where
-  params (MkRnn iw rw ib hb _ _) = [toParam iw, toParam rw, toParam ib, toParam hb]
+  params (MkRnn iw rw ib hb _ _)       = [toParam iw, toParam rw, toParam ib, toParam hb]
   reflect (MkRnn iw rw ib hb act prev) =
     MkBang [toParam iw, toParam rw, toParam ib, toParam hb] # MkRnn iw rw ib hb act prev
   castGrad (MkRnn iw rw ib hb act prev) =

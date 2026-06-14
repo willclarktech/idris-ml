@@ -30,7 +30,7 @@ record SwiGLU (hidden : Nat) (intermediate : Nat) (0 ex : Executor) (0 dt : DTyp
 ||| rebuilt).
 public export
 Params SwiGLU where
-  params (MkSwiGLU g u d)    = [toParam g, toParam u, toParam d]
+  params (MkSwiGLU g u d)   = [toParam g, toParam u, toParam d]
   reflect (MkSwiGLU g u d)  = MkBang [toParam g, toParam u, toParam d] # MkSwiGLU g u d
   castGrad (MkSwiGLU g u d) = MkSwiGLU (retypeGrad g) (retypeGrad u) (retypeGrad d)
   discard (MkSwiGLU _ _ _)  = pure ()

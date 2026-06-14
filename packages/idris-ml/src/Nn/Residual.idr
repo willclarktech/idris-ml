@@ -27,7 +27,7 @@ data Residual : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMo
 ||| Params recurse into the sublayer.
 public export
 Params Residual where
-  params (MkResidual sub) = params sub
+  params (MkResidual sub)  = params sub
   reflect (MkResidual sub) =
     let (MkBang ps # sub') = reflect sub in MkBang ps # MkResidual sub'
   castGrad (MkResidual sub) = MkResidual (castGrad sub)

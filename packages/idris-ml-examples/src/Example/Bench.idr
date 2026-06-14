@@ -80,7 +80,7 @@ decodeLosses : {n, m, h, i, o : Nat} -> (1 _ : Ntm n m h i o Ex F WithGrad) ->
                List (Vect o Double) ->
                L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad)))
                                      (Ntm n m h i o Ex F WithGrad))
-decodeLosses cell []                = pure1 (MkBang [] # cell)
+decodeLosses cell []             = pure1 (MkBang [] # cell)
 decodeLosses cell (trow :: rest) = do
   z <- liftIO1 (retypeGrad <$> tensor {dims = [i]} (Const 0.0))
   (MkBang out # cell') <- recurStep cell z

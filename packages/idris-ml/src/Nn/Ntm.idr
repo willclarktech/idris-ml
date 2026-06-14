@@ -168,9 +168,9 @@ public export
     params ctrl ++ params rfc ++ params wfc ++ params ofc ++ [toParam memInit, toParam iro]
   reflect (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
     let (MkBang pc # ctrl') = reflect ctrl
-        (MkBang p1 # rfc')  = reflect rfc
-        (MkBang p2 # wfc')  = reflect wfc
-        (MkBang p3 # ofc')  = reflect ofc in
+        (MkBang p1 # rfc') = reflect rfc
+        (MkBang p2 # wfc') = reflect wfc
+        (MkBang p3 # ofc') = reflect ofc in
     MkBang (pc ++ p1 ++ p2 ++ p3 ++ [toParam memInit, toParam iro])
       # MkNtm ctrl' rfc' wfc' ofc' memInit iro memS raS waS roS
   castGrad (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =

@@ -51,8 +51,8 @@ public export
     attentionParams attn ++ params n1 ++ params n2 ++ [toParam ff1, toParam ff2]
   reflect (MkTransformerBlock attn n1 n2 ff1 ff2) =
     let (MkBang ap # attn') = attentionReflect attn
-        (MkBang p1 # n1')   = reflect n1
-        (MkBang p2 # n2')   = reflect n2 in
+        (MkBang p1 # n1') = reflect n1
+        (MkBang p2 # n2') = reflect n2 in
     MkBang (ap ++ p1 ++ p2 ++ [toParam ff1, toParam ff2])
       # MkTransformerBlock attn' n1' n2' ff1 ff2
   castGrad (MkTransformerBlock attn n1 n2 ff1 ff2) =
