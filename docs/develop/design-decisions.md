@@ -2229,5 +2229,24 @@ exact ops the legacy `Network.applyVarBatch` calls), proving `forwardSeq` ≡ th
 gradients flow through `Seq`. Compared against the op chain rather than importing `Layer/` to dodge the
 `~~>`/`Nil`/`::` operator collision.
 
+**`ModuleMixed`: the master-weights tree, after all (2026-06-14).** `Module.idr` originally noted "no
+parallel `ModuleMixed` tree" — mixed precision would be purely a `fit` config. That holds for the
+*loss-scaling* half (`fitSupervisedMixed` + `GradScaler`) but **not** the *master-weights* half (store
+weights in `paramDt`=F32, cast to `computeDt`=BF16/F16 inside the forward, autograd-aware so backward
+writes an F32 grad into the master), which is inherently per-layer: the cast lives at the layer
+boundary, so no driver-level config can express it. Caught during the Phase 2 sweep — migrating
+`Supervised` straight-to-final-API would have silently dropped the capability, and Phase 4's deletion
+of `Layer/LinearMixed`+`Layer/MixedCore` would have made it unrecoverable. So the decision reversed:
+`ModuleMixed` is a five-index sibling of `Module` (`in,out,ex,paramDt,computeDt` — `forwardMixed`
+casts `paramDt→computeDt` then runs the same fused op), `ParamsMixed` mirrors `Params` (`SomeParam` is
+dtype-erased, so the body is unchanged), and `Nn.LinearMixed` is the port of `Layer/LinearMixed`. The
+port is *much lighter* than the legacy `Layer/MixedCore`: models-as-records drops the entire
+`AsMixed`/`AnyLayerMixed`/`NetworkMixed`/`lift*` apparatus, which existed only to chain mixed + plain
+layers through existentials — a mixed model is now a plain record with a hand-written (or future
+`SeqMixed`) forward. No `Fit` change: `fitSupervisedMixed` is already generic over the model. The
+distinguishing lossy-cast numerics stay C-tested (`cast_grad_propagation`); the Idris tests pin
+`paramDt = computeDt` (cross-backend-safe — F64 isn't `Compatible` on mlx-gpu/torch-mps) and verify
+composition + that the cast keeps the tape intact through to the master.
+
 Out of scope (later rows): the `ML`/`ML.Simple` single-import preludes; migrating the ~33 examples to
 `Nn` + deleting `Layer/`.
