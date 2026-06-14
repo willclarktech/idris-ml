@@ -33,15 +33,11 @@ BASELINE = {
     "Example/Gpt.idr": 7,
     "Example/Gpt2LmFinetune.idr": 2,
     "Example/HfBitNetInference.idr": 1,
-    "Example/LayersBench.idr": 2,
     "Example/MatmulBench.idr": 3,
-    "Example/MlxStreamDemo.idr": 1,
-    "Example/Mnist.idr": 10,
     "Example/PrecisionDemo.idr": 3,
     "Example/RankBroadcastBench.idr": 7,
-    "Example/Supervised.idr": 1,
     "Example/Transfer.idr": 4,
-    "Generate.idr": 6,
+    "Example/Transformer.idr": 4,
 }
 
 
