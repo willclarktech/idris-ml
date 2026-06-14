@@ -381,7 +381,14 @@ identical across examples; the recipe (verified on `Supervised` + `Rnn`):
    discard the last handle — `discardL` for a `ParamsL` layer, or a 3-line
    `discardModel (MkRec _ _) = pure ()` for a user record (the handles are
    C-managed; dropping the matched ω fields is a no-op discharge).
-6. **Loss/eval ops not yet on the `L IO` surface** get an `*L` twin added to
+6. **`Seq` models become `SeqL`.** The linear sequence is a *distinct type*
+   `Nn.SeqL` (linear `::` fields), not `Nn.Seq` — and both export
+   `Nil`/`(::)`/`(~~>)`. So a Seq-based example sets `Model = SeqL …`, builds
+   the chain with the same `~~>`/`Nil` syntax, and `%hide`s the three
+   `Nn.Seq.{Nil,(::),(~~>)}` constructors so the builder resolves to `SeqL`.
+   `forwardSeqL` / `discardL` (`ParamsL SeqL`) then apply. (`Nn.SeqL` is
+   re-exported from the `Nn` umbrella alongside `Nn.Seq`.)
+7. **Loss/eval ops not yet on the `L IO` surface** get an `*L` twin added to
    `Tensor.idr` as needed (e.g. `tnllLossMeanL`), same `ioRerunL (\_ => …)`
    shape as the rest.
 7. **Mixed-precision paths stay on IO.** `ModuleMixed`/`ParamsMixed` have no

@@ -28,5 +28,6 @@ import public Nn.Recurrent
 import public Nn.Residual
 import public Nn.RmsNorm
 import public Nn.Seq
+import public Nn.SeqL
 import public Nn.SwiGLU
 import public Nn.Transformer

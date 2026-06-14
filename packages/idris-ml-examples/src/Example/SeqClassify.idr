@@ -10,14 +10,23 @@
 
 module Example.SeqClassify
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
 
 import BuildConfig
 import Compat.Random
+import FitL
 import ML.Simple
 import Train
+
+-- This example's model is a linear `SeqL`; hide the IO `Nn.Seq` constructors
+-- (same `Nil`/`::`/`~~>` names) so the chain builder resolves unambiguously.
+%hide Nn.Seq.Nil
+%hide Nn.Seq.(::)
+%hide Nn.Seq.(~~>)
 
 ----------------------------------------------------------------------
 -- Architecture (flat dims)
@@ -107,10 +116,13 @@ mkSample = do
 ----------------------------------------------------------------------
 
 Model : Type
-Model = Seq InputDim NumClasses Ex F WithGrad
+Model = SeqL InputDim NumClasses Ex F WithGrad
 
-buildModel : IO Model
-buildModel = runInit $ do
+-- Top-level Init value (not inline under runInitL — see the linear-types
+-- migration recipe: a nested do-block under `run $ do …` trips the
+-- ambiguity-depth limit). Built as a linear `SeqL`.
+mkModel : Init Model
+mkModel = do
   c1 <- conv1d {inC = InC} {outC = C1} {len = SeqLen}   {kL = K} {pad = 0}
   c2 <- conv1d {inC = C1}  {outC = C2} {len = Pool1Out} {kL = K} {pad = 0}
   l  <- linear {i = AfterPool2} {o = NumClasses}
@@ -121,11 +133,15 @@ buildModel = runInit $ do
            ~~> dropout 0.5
            ~~> l ~~> Nil)
 
-nllLoss : Model -> (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize, NumClasses] Ex F NoGrad) ->
-          IO (Tensor [] Ex F WithGrad)
-nllLoss model (x, tgt) = do
-  out <- forwardSeq {b = BatchSize} model (retypeGrad x)
-  tnllLossMean {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
+-- Linear-resource loss: consume the (linear) Seq model, forward it via
+-- forwardSeqL, return the banged scalar loss beside the rebuilt model.
+nllLossL : (1 _ : Model) ->
+           (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize, NumClasses] Ex F NoGrad) ->
+           L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) Model)
+nllLossL model (x, tgt) = do
+  (MkBang out # model') <- forwardSeqL {b = BatchSize} model (retypeGrad x)
+  loss <- tnllLossMeanL {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
+  pure1 (MkBang loss # model')
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -164,14 +180,17 @@ main = do
   putStrLn "Architecture: Conv1d(1->4,k=3) -> ReLU -> Pool(2) -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(48->3)"
 
   opt <- adam cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
-  model <- buildModel
   let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} (generate mkSample)
-  putStrLn ""
 
-  (_, epochsDone, finalLoss) <-
-    fitSupervised opt nllLoss bs (patienceConfig cfg.epochs cfg.patience) model
-
-  putStrLn ""
-  putStrLn $ formatResult [("loss", show finalLoss),
-                           ("epochs", show epochsDone),
-                           ("seed", show cfg.seed)]
+  -- Linear surface: model born linear (runInitL), threaded through
+  -- fitSupervisedL, final handle discarded (discardL — Seq is a ParamsL).
+  Control.Linear.LIO.run $ do
+    model <- runInitL mkModel
+    liftIO1 (putStrLn "")
+    (MkBang (epochsDone, finalLoss) # trained) <-
+      fitSupervisedL opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
+    discardL trained
+    liftIO1 $ putStrLn ""
+    liftIO1 $ putStrLn $ formatResult [("loss", show finalLoss),
+                                       ("epochs", show epochsDone),
+                                       ("seed", show cfg.seed)]
