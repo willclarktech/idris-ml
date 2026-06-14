@@ -1,21 +1,21 @@
 module Example.A2c
 
+import Data.IORef
 import Data.List
 import Data.Vect
-import Data.IORef
 import System
-import Compat.Random
 
-import ML.Simple
-import Array            -- Vector / VArray / SArray
+import Array
+import BuildConfig
+import Compat.Random
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
 import Hpo.LrFinder
+import ML.Simple
 import RL.Gae
 import Sampler
 import Train
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Architecture: separate actor and critic MLPs (aligned with PyTorch

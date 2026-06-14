@@ -1,21 +1,21 @@
 module Example.MountainCar
 
-import Data.List
-import Data.Vect
 import Data.Fin
 import Data.IORef
+import Data.List
+import Data.Vect
 import System
-import Compat.Random
 
-import ML.Simple
-import Array            -- Vector / VArray / SArray
+import Array
+import BuildConfig
+import Compat.Random
 import Gym.ClassicControl.MountainCar
 import Gym.Env
 import Gym.Vector
 import Hpo.LrFinder
+import ML.Simple
 import RL.ReplayBuffer
 import Train
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- DQN on MountainCar-v0 with reward shaping.

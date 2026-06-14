@@ -1,22 +1,22 @@
 module Example.MonteCarlo
 
-import Data.List
-import Data.Vect
 import Data.Fin
+import Data.List
 import Data.Maybe
+import Data.Vect
 import System
-import Compat.Random
 
+import Array
+import BuildConfig
+import Compat.Random
+import DataStream
+import Executor
+import Fit
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.Blackjack
 import Math
-import Array
-import DataStream
-import Fit
 import Train
-import Executor
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Env dimensions
@@ -28,9 +28,9 @@ import BuildConfig
 -- we allocate noise for 10 actions (= 20 uniforms) per hand.
 ----------------------------------------------------------------------
 
-NumStates : Nat; NumStates = 400
+NumStates  : Nat; NumStates = 400
 NumActions : Nat; NumActions = 2
-MaxSteps : Nat; MaxSteps = 10
+MaxSteps   : Nat; MaxSteps = 10
 
 ----------------------------------------------------------------------
 -- Q-table + visit counts (both as Tensors)
@@ -155,8 +155,8 @@ applyVisits ((s, a) :: rest) seen g (q, n) =
 record Config where
   constructor MkConfig
   epsilon : Double
-  epochs : Nat
-  seed : Bits64
+  epochs  : Nat
+  seed    : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.1 50000 42
@@ -170,7 +170,7 @@ specs = [ Arg "--epsilon" (\v, c => { epsilon := cast v } c)
 record EpochInput where
   constructor MkEI
   envSeed : Bits64
-  noise : List Double
+  noise   : List Double
 
 epochMC : Config -> MCModel -> EpochInput -> (MCModel, Double)
 epochMC cfg (q, n) (MkEI envSeed noise) =

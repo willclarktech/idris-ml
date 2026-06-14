@@ -32,12 +32,12 @@ module Example.PrecisionCheckpoint
 import Data.List
 import Data.Vect
 import System
-import Compat.Random
 
+import BuildConfig
+import Checkpoint
+import Compat.Random
 import ML.Simple
-import Train          -- simpleConfig
-import Checkpoint     -- saveAll / loadModel / loadModelAllowCast
-import BuildConfig    -- ChosenMachine / requireMachine
+import Train
 
 ----------------------------------------------------------------------
 -- Data (same 5-point classification task as Transfer)

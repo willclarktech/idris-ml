@@ -66,15 +66,6 @@ runPass nanHalts step s (S k) accSum accCount m = do
            else runPass {ex} nanHalts step s k accSum accCount m'
     else runPass {ex} nanHalts step s k (accSum + loss) (accCount + 1) m'
 
-||| Run training. Each epoch is one full dataset pass: `fit` pulls
-||| `epochLen` batches from `stream` (one batch when the stream is
-||| infinite — `epochLen = Nothing`, the RL/synthetic case), calls `step`
-||| on each, and reports the mean batch loss to the shared engine. Early
-||| stop / checkpoint cadence is therefore per-pass, matching PyTorch's
-||| epoch. `nanHalts` (default True) treats a NaN loss as divergence; set
-||| False for the mixed-precision overflow-skip semantics (the scaler
-||| returns NaN to mean "step skipped"). The optimizer carries the LR
-||| schedule (tick is called per epoch); `cfg.beforeEpoch` is an extra hook.
 ||| Optimizer-free `fit`: identical epoch-loop machinery (full dataset
 ||| pass, early stop, checkpoint, NaN handling, mlx hygiene) with no
 ||| optimizer and so no schedule tick. For training that isn't gradient-
@@ -108,6 +99,15 @@ fitCustom {nanHalts} step s cfg m0 = do
   profileReport {ex}
   pure (mFin, epochsDone, loss)
 
+||| Run training. Each epoch is one full dataset pass: `fit` pulls
+||| `epochLen` batches from `stream` (one batch when the stream is
+||| infinite — `epochLen = Nothing`, the RL/synthetic case), calls `step`
+||| on each, and reports the mean batch loss to the shared engine. Early
+||| stop / checkpoint cadence is therefore per-pass, matching PyTorch's
+||| epoch. `nanHalts` (default True) treats a NaN loss as divergence; set
+||| False for the mixed-precision overflow-skip semantics (the scaler
+||| returns NaN to mean "step skipped"). The optimizer carries the LR
+||| schedule (tick is called per epoch); `cfg.beforeEpoch` is an extra hook.
 export
 fit : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
       {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->

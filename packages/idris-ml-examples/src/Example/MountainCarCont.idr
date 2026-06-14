@@ -1,22 +1,22 @@
 module Example.MountainCarCont
 
+import Data.IORef
 import Data.List
 import Data.Vect
-import Data.IORef
 import System
-import Compat.Random
 
-import ML.Simple
-import Array            -- Vector / VArray / SArray
-import Floating         -- Math.tanh's Floating interface
+import Array
+import BuildConfig
+import Compat.Random
+import Floating
 import Gym.ClassicControl.MountainCarCont
 import Gym.Env
 import Gym.Vector
+import ML.Simple
 import Math
 import RL.ReplayBuffer
 import Sampler
 import Train
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- SAC on MountainCarContinuous-v0 with velocity-magnitude reward shaping.
@@ -31,12 +31,12 @@ import BuildConfig
 -- of "q1tgt_" (else the q1 optimizer would also step the q1-target net).
 ----------------------------------------------------------------------
 
-ObsDim : Nat; ObsDim = 2
-ActDim : Nat; ActDim = 1
-QInputDim : Nat; QInputDim = 3          -- ObsDim + ActDim
-Hidden : Nat; Hidden = 64
+ObsDim     : Nat; ObsDim = 2
+ActDim     : Nat; ActDim = 1
+QInputDim  : Nat; QInputDim = 3          -- ObsDim + ActDim
+Hidden     : Nat; Hidden = 64
 EpisodeLen : Nat; EpisodeLen = 999
-MaxAct : Double; MaxAct = 1.0
+MaxAct     : Double; MaxAct = 1.0
 
 ||| Parallel envs collecting transitions in lockstep.
 NumEnvs : Nat; NumEnvs = 4
@@ -146,36 +146,36 @@ sampleActionsBatched actor logStdV envs = do
 
 record SACState where
   constructor MkSAC
-  actor   : ActorNet
-  q1      : QNet
-  q2      : QNet
-  q1Tgt   : QNet
-  q2Tgt   : QNet
-  logStdV : Tensor [] Ex F WithGrad
-  buffer  : ReplayBuffer ObsDim ActDim
-  stepRef : IORef Nat
-  envRef  : IORef (VecEnv NumEnvs MCCState)
-  epLenRef : IORef (Vect NumEnvs Nat)
-  retRef  : IORef (Vect NumEnvs Double)
+  actor     : ActorNet
+  q1        : QNet
+  q2        : QNet
+  q1Tgt     : QNet
+  q2Tgt     : QNet
+  logStdV   : Tensor [] Ex F WithGrad
+  buffer    : ReplayBuffer ObsDim ActDim
+  stepRef   : IORef Nat
+  envRef    : IORef (VecEnv NumEnvs MCCState)
+  epLenRef  : IORef (Vect NumEnvs Nat)
+  retRef    : IORef (Vect NumEnvs Double)
   lastEpRef : IORef Double
 
 record Config where
   constructor MkConfig
-  lr           : Double
-  epochs       : Nat
-  gamma        : Double
-  alpha        : Double
-  bufferCap    : Nat
-  batchSize    : Nat
-  warmupSteps  : Nat
-  tau          : Double
-  shaping      : Double
-  clipNorm     : Double
-  seed         : Bits64
-  esThreshold  : Double
-  esWindow     : Nat
-  esPatience   : Nat
-  lrFind       : Bool
+  lr          : Double
+  epochs      : Nat
+  gamma       : Double
+  alpha       : Double
+  bufferCap   : Nat
+  batchSize   : Nat
+  warmupSteps : Nat
+  tau         : Double
+  shaping     : Double
+  clipNorm    : Double
+  seed        : Bits64
+  esThreshold : Double
+  esWindow    : Nat
+  esPatience  : Nat
+  lrFind      : Bool
 
 defaultConfig : Config
 defaultConfig = MkConfig 3.0e-4 30000 0.99 0.2 100000 64 1000 0.005 10.0 1.0 42

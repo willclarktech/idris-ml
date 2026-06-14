@@ -11,10 +11,10 @@ import Data.List
 import Data.Vect
 import System
 import System.Clock
-import Compat.Random
 
-import ML.Simple
 import BuildConfig
+import Compat.Random
+import ML.Simple
 
 ----------------------------------------------------------------------
 -- Timing

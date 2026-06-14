@@ -1,22 +1,22 @@
 module Example.Sac
 
+import Data.IORef
 import Data.List
 import Data.Vect
-import Data.IORef
 import System
-import Compat.Random
 
-import ML.Simple
-import Array            -- Vector / VArray / SArray
-import Floating         -- Math.tanh's Floating interface
+import Array
+import BuildConfig
+import Compat.Random
+import Floating
 import Gym.ClassicControl.Pendulum
 import Gym.Env
 import Gym.Vector
+import ML.Simple
 import Math
 import RL.ReplayBuffer
 import Sampler
 import Train
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- SAC on Pendulum-v1 (aligned with `torch_ref/models/sac.py`):
@@ -30,12 +30,12 @@ import BuildConfig
 --                  q1-target net.
 ----------------------------------------------------------------------
 
-ObsDim : Nat; ObsDim = 3
-ActDim : Nat; ActDim = 1
-QInputDim : Nat; QInputDim = 4          -- ObsDim + ActDim
-Hidden : Nat; Hidden = 64
+ObsDim     : Nat; ObsDim = 3
+ActDim     : Nat; ActDim = 1
+QInputDim  : Nat; QInputDim = 4          -- ObsDim + ActDim
+Hidden     : Nat; Hidden = 64
 EpisodeLen : Nat; EpisodeLen = 200
-MaxAction : Double; MaxAction = 2.0
+MaxAction  : Double; MaxAction = 2.0
 
 ||| Parallel envs collecting transitions in lockstep.
 NumEnvs : Nat; NumEnvs = 4
@@ -143,35 +143,35 @@ sampleActionsBatched actor logStdV envs = do
 
 record SACState where
   constructor MkSAC
-  actor   : ActorNet
-  q1      : QNet
-  q2      : QNet
-  q1Tgt   : QNet
-  q2Tgt   : QNet
-  logStdV : Tensor [] Ex F WithGrad
-  buffer  : ReplayBuffer ObsDim ActDim
-  stepRef : IORef Nat
-  envRef  : IORef (VecEnv NumEnvs PState)
-  epLenRef : IORef (Vect NumEnvs Nat)
-  retRef  : IORef (Vect NumEnvs Double)
+  actor     : ActorNet
+  q1        : QNet
+  q2        : QNet
+  q1Tgt     : QNet
+  q2Tgt     : QNet
+  logStdV   : Tensor [] Ex F WithGrad
+  buffer    : ReplayBuffer ObsDim ActDim
+  stepRef   : IORef Nat
+  envRef    : IORef (VecEnv NumEnvs PState)
+  epLenRef  : IORef (Vect NumEnvs Nat)
+  retRef    : IORef (Vect NumEnvs Double)
   lastEpRef : IORef Double
 
 record Config where
   constructor MkConfig
-  lr           : Double
-  epochs       : Nat
-  gamma        : Double
-  alpha        : Double
-  bufferCap    : Nat
-  batchSize    : Nat
-  warmupSteps  : Nat
-  tau          : Double
-  clipNorm     : Double
-  seed         : Bits64
-  esThreshold  : Double
-  esWindow     : Nat
-  esPatience   : Nat
-  lrFind       : Bool
+  lr          : Double
+  epochs      : Nat
+  gamma       : Double
+  alpha       : Double
+  bufferCap   : Nat
+  batchSize   : Nat
+  warmupSteps : Nat
+  tau         : Double
+  clipNorm    : Double
+  seed        : Bits64
+  esThreshold : Double
+  esWindow    : Nat
+  esPatience  : Nat
+  lrFind      : Bool
 
 defaultConfig : Config
 defaultConfig = MkConfig 3.0e-4 30000 0.99 0.2 100000 64 1000 0.005 1.0 42

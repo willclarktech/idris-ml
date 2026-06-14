@@ -3,17 +3,17 @@ module Example.Reinforce
 import Data.List
 import Data.Vect
 import System
-import Compat.Random
 
-import ML.Simple
-import Array            -- Vector / VArray / SArray (bulkToTensor2d input)
+import Array
+import BuildConfig
+import Compat.Random
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
 import Hpo.LrFinder
-import Sampler          -- categoricalSample
-import Train            -- simpleConfig / RL metrics
-import BuildConfig      -- ChosenMachine / requireMachine
+import ML.Simple
+import Sampler
+import Train
 
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 
@@ -270,12 +270,12 @@ evalN model (S k) acc = do
 
 record Config where
   constructor MkConfig
-  lr : Double
-  epochs : Nat
-  seed : Bits64
-  gamma : Double
+  lr      : Double
+  epochs  : Nat
+  seed    : Bits64
+  gamma   : Double
   batchSz : Nat
-  lrFind : Bool
+  lrFind  : Bool
   batched : Bool  -- use batched policy forward per timestep
 
 defaultConfig : Config

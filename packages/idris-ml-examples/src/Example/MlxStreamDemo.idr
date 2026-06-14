@@ -25,9 +25,9 @@ module Example.MlxStreamDemo
 
 import Data.Vect
 
-import ML
-import Executor.Mlx
 import BuildConfig
+import Executor.Mlx
+import ML
 
 -- Same input both sides; the value-level result must agree (modulo
 -- F32-vs-F64 precision) since the math is the same — only the stream

@@ -8,13 +8,13 @@ module Example.Checkpoint
 import Data.List
 import Data.Vect
 import System
-import Compat.Random
 
-import ML.Simple
-import Train          -- simpleConfig / TrainConfig
-import Checkpoint     -- saveAll / load / saveOptimizer / loadOptimizer
+import BuildConfig
+import Checkpoint
+import Compat.Random
 import Hpo.LrFinder
-import BuildConfig    -- ChosenMachine / requireMachine
+import ML.Simple
+import Train
 
 ----------------------------------------------------------------------
 -- Data (same 5-point classification task as Supervised)

@@ -1,29 +1,29 @@
 module Example.Taxi
 
-import Data.List
-import Data.Vect
 import Data.Fin
+import Data.List
 import Data.Maybe
+import Data.Vect
 import System
-import Compat.Random
 
+import Array
+import BuildConfig
+import Compat.Random
+import DataStream
+import Executor
+import Fit
 import Gym.Env
 import Gym.ToyText.Taxi
 import Math
-import Array
-import DataStream
-import Fit
 import Train
-import Executor
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Env dimensions (Taxi-v3, deterministic 5x5 grid)
 ----------------------------------------------------------------------
 
-NumStates : Nat; NumStates = 500
+NumStates  : Nat; NumStates = 500
 NumActions : Nat; NumActions = 6
-MaxSteps : Nat; MaxSteps = 200
+MaxSteps   : Nat; MaxSteps = 200
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -115,11 +115,11 @@ runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
 
 record Config where
   constructor MkConfig
-  alpha : Double
-  gamma : Double
+  alpha   : Double
+  gamma   : Double
   epsilon : Double
-  epochs : Nat
-  seed : Bits64
+  epochs  : Nat
+  seed    : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.1 0.99 0.1 20000 42
