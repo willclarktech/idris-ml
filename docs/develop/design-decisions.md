@@ -2128,3 +2128,36 @@ the whole module's elaboration). `Dataset` is clash-free; `Stream` → `DataStre
   per-stream seed needs a C signature change.
 - **Single-FFI-call collation**: `batched` uses pairwise `catAllTensors`; a one-shot `tensor_batch`
   needs a `tensor_ptr_array_*` Idris binding.
+
+## models-as-records: deriveParams spike outcome (2026-06-13)
+
+Gating spike for the models-as-records row (roadmap decision 6): does auto-`derive Params` via
+elaborator reflection beat hand-written `Params` instances? Measured both on a real-size record — an
+8-block, dt-polymorphic, transformer-ish nest (`Model` → `Block`×8 → `{Lin×4, 2 norm vecs}` + head,
+~50 param leaves) under the full `Backend ex dt` bundle, typecheck-only (`idris2 --check`, throwaway
+scratch outside the build graph):
+
+- **Hand-written `Params` traversal**: 0.66s wall / 229MB RSS.
+- **`%runElab` field-name derive** (getCons/getType → walk the constructor's IPi chain → `declare` a
+  `List String`): 1.40s / 320MB.
+
+**Findings.** (1) Both are cheap — the documented 30+GB elaborator blowup ("Polymorphic
+type-parameter slot vs concrete value in method body") does NOT trigger here: it needs a *concrete
+dtype hardcoded in a method body* while the record slot is polymorphic; traversal bodies that stay
+`dt`-polymorphic are fine. This de-risks the whole models-as-records approach (records bind `dt`
+polymorphically). (2) `Language.Reflection` (getCons/getType/declare/quote) works on 0.8.0 and
+field-name derivation is elaboration-cheap — derive is *feasible*. (3) But a *full* generic
+`deriveParams` is real greenfield work: distinguishing Tensor leaves from nested-`Params` records,
+generating the recursive `params`, the constructor pattern-match, and namespaced-name resolution
+(`getCons` rejects bare parameterised names — needs `` `{Module.Type} ``). The `WithFC`/`IClaim`
+codegen is fiddly.
+
+**Decision: hand-written 3-line `Params` instances + explicit leaf names.** Provably cheap (0.66s),
+zero greenfield reflection infra to maintain, no name-resolution wrinkles — for the cost of ~3 lines
+× ~20 records. This is roadmap decision 6's "expensive → hand-written" branch, where the decisive
+expense is implementation/maintenance complexity of a robust generic deriver, not elaboration time.
+`derive Params` is deferred with its feasibility proven (the spike code lives in this commit's
+message / git history, not the tree) — it can land later as pure ergonomics over the same `Params`
+interface, no API change. Leaf names are supplied at construction via the `Init`/`scoped` applicative
+(hierarchical path) + the hand-written instance (field labels); `groupOf` consumes `Params`
+regardless of how the instance was authored.

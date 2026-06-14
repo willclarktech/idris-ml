@@ -45,6 +45,16 @@ written against it, then pack publication.
    → `derive Params` with explicit-name override becomes the design; expensive → hand-written
    3-line instances + explicit leaves. Prefixes compose structurally either way (can't desync
    between networks); the C registry is unchanged.
+   **SPIKE OUTCOME (2026-06-13): hand-written.** Measured both at real (8-block, dt-polymorphic,
+   under `Backend ex dt`) transformer-ish record size, typecheck-only: hand-written `Params`
+   traversal = 0.66s / 229MB; a `%runElab` field-name derive = 1.40s / 320MB. Both cheap — the
+   documented 30GB blowup does NOT trigger (it needs a concrete dtype hardcoded in a body with an
+   open `dt` slot; polymorphic traversal bodies are fine). Derive is feasible + elaboration-cheap
+   (de-risked), but a *full* generic `deriveParams` (leaf-vs-nested-record distinction, recursive
+   `params`, namespaced-name resolution — `getCons` rejects bare parameterised names) is a
+   substantial greenfield investment for ~3 lines/record. Verdict: **hand-written 3-line `Params`
+   instances + explicit leaf names**; `derive Params` deferred (feasibility proven, can land later
+   as pure ergonomics). See design-decisions.md "models-as-records spike".
 7. **Driver** (adjusts api-critique §N6): `fit` is the primary documented path, and the engine
    pieces it composes (NaN guard, eval bracket, checkpoint tick, mlx generation hygiene) are
    **exported** so RL/custom loops compose them rather than reimplement the subtle parts.
