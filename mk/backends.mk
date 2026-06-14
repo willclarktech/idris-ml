@@ -232,7 +232,7 @@ endif
 # only when tape is in BACKEND_LIST — torch / mlx don't need tape's
 # internals, and their builds would needlessly compile + link the
 # tape TUs otherwise.
-$(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_tape.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_tape.h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	@mkdir -p $(dir $@)
 	$(tape_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
 
@@ -262,18 +262,18 @@ TORCH_PCH := $(BUILD)/torch_pch.h.gch
 TORCH_PCH_USE := -Winvalid-pch -include $(BUILD)/torch_pch.h
 endif
 
-$(BUILD)/torch_pch.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h $(TORCH_MAIN_HEADER) | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/torch_pch.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h $(TORCH_MAIN_HEADER) $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -x c++-header -c -o $@ $<
 
-$(BUILD)/torch_pch.h.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h $(TORCH_MAIN_HEADER) | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/torch_pch.h.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h $(TORCH_MAIN_HEADER) $(BUILD)/.backends-cache-stamp | $(BUILD)
 	cp $< $(BUILD)/torch_pch.h
 	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -x c++-header -c -o $@ $(BUILD)/torch_pch.h
 
-$(BUILD)/backend_torch/%.o: $(BACKENDS_DIR)/backend_torch/%.cpp $(BACKEND_TORCH_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_torch.h $(TORCH_PCH) | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/backend_torch/%.o: $(BACKENDS_DIR)/backend_torch/%.cpp $(BACKEND_TORCH_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_torch.h $(TORCH_PCH) $(BUILD)/.backends-cache-stamp | $(BUILD)
 	@mkdir -p $(dir $@)
 	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) $(TORCH_PCH_USE) -include $(BACKENDS_DIR)/rename_torch.h -c -o $@ $<
 
-$(BUILD)/backend_mlx/%.o: $(BACKENDS_DIR)/backend_mlx/%.cpp $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_mlx.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/backend_mlx/%.o: $(BACKENDS_DIR)/backend_mlx/%.cpp $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_mlx.h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	@mkdir -p $(dir $@)
 	$(mlx_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(mlx_CFLAGS) -include $(BACKENDS_DIR)/rename_mlx.h -c -o $@ $<
 
@@ -286,7 +286,7 @@ $(BUILD)/backend_mlx/%.o: $(BACKENDS_DIR)/backend_mlx/%.cpp $(BACKEND_MLX_HEADER
 # only links the specific (backend, TU) pairs each SHARED_BACKENDS_<tu>
 # list selects.
 define shared_training_compile_rule
-$(BUILD)/shared_training_$(1)/%.o: $(BACKENDS_DIR)/shared/training/%.c $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/shared_training_$(1)/%.o: $(BACKENDS_DIR)/shared/training/%.c $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	@mkdir -p $$(dir $$@)
 	$($(1)_CC) -O2 -fPIC $$(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
@@ -308,7 +308,7 @@ $(foreach b,$(SHARED_BACKENDS_ffi_shims),$(eval $(call add_shared_training_obj,f
 $(foreach b,$(SHARED_BACKENDS_dtype_streamed),$(eval $(call add_shared_training_obj,dtype_streamed,$(b))))
 
 define backend_compile_rule
-$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) $(BACKEND_TORCH_HEADERS) $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) $(BACKEND_TORCH_HEADERS) $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
@@ -384,22 +384,22 @@ SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/shared
 # per-backend tape_CC/torch_CC/mlx_CC and TEST_CC in mk/tests.mk.
 SHARED_CC := cc
 
-$(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(CJSON_H) $(BACKEND_RENAME_H) | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(CJSON_H) $(BACKEND_RENAME_H) $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
 
-$(BUILD)/cJSON.o: $(CJSON_C) $(CJSON_H) | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/cJSON.o: $(CJSON_C) $(CJSON_H) $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
-$(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
-$(BUILD)/idx.o: $(BACKENDS_DIR)/idx.c $(BACKENDS_DIR)/idx.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/idx.o: $(BACKENDS_DIR)/idx.c $(BACKENDS_DIR)/idx.h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
-$(BUILD)/log.o: $(BACKENDS_DIR)/log.c $(BACKENDS_DIR)/log.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/log.o: $(BACKENDS_DIR)/log.c $(BACKENDS_DIR)/log.h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(IDRISML_LOG_CFLAG) -c -o $@ $<
 
-$(BUILD)/probes.o: $(BACKENDS_DIR)/probes.c $(BACKENDS_DIR)/probes.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/probes.o: $(BACKENDS_DIR)/probes.c $(BACKENDS_DIR)/probes.h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(SHARED_CC) -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 # Drift detector: errors if any method is present in some Executor backend
@@ -459,9 +459,18 @@ $(BUILD)/.backends-src-sha: FORCE | $(BUILD)
 	@cat $(BACKEND_C_SRCS) | shasum -a 256 | cut -d' ' -f1 | cmp -s - $@ 2>/dev/null || \
 		cat $(BACKEND_C_SRCS) | shasum -a 256 | cut -d' ' -f1 > $@
 
+# A NORMAL prerequisite of every backend object + the final link. Its
+# mtime bumps (via touch) only when .backends-src-sha changed — i.e. when
+# backend C source CONTENT changed — so make rebuilds each stale object by
+# ordinary "prereq is newer" logic. It must NOT rm the objects: an earlier
+# version did, from this recipe, and because the rule is reached while make
+# is already building the graph, the rm deleted .o files make had already
+# stat'd as up-to-date (fresh from a cross-commit CI cache restore). make
+# then never rebuilt them and the link died on the first missing .o (run
+# 27499005405's macOS mlx leg: backend_meta.o). Touch-not-delete keeps the
+# rebuild coherent without yanking files out from under make's planning.
 $(BUILD)/.backends-cache-stamp: $(BUILD)/.backends-src-sha | $(BUILD)
-	@echo "[$(BUILD_KEY)] Backend C source changed — invalidating object caches"
-	@rm -rf $(BUILD)/backend_* $(BUILD)/shared_* $(BUILD)/*.o $(BUILD)/libidrisml.$(LIB_EXT)
+	@echo "[$(BUILD_KEY)] Backend C source changed — forcing object rebuild"
 	@touch $@
 
 $(BUILD):
@@ -470,7 +479,7 @@ $(BUILD):
 # Final link: all listed backends' .o + shared objects (primary's
 # suffix). One dylib, no symlink. Every symbol is reached by its
 # suffixed name from the per-instance UserExecutor methods — no aliases.
-$(LIB): $(BACKEND_OBJS) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(LIB): $(BACKEND_OBJS) $(SHARED_OBJ) $(BUILD)/.backend-stamp $(BUILD)/.backends-cache-stamp | $(BUILD)
 	$(LINK_CC) -O2 -shared $(EXTRA_LDFLAGS) -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS)
 
 # Multi-link: one libidrisml.{so,dylib} with all listed BACKENDs in it.
