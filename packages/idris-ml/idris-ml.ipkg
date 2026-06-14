@@ -67,10 +67,12 @@ modules = Compat.Random
         , Nn.Dropout
         , Nn.Embedding
         , Nn.Group
+        , Nn.Gru
         , Nn.Init
         , Nn.LayerNorm
         , Nn.Linear
         , Nn.LoraLinear
+        , Nn.Lstm
         , Nn.Module
         , Nn.Residual
         , Nn.Recurrent

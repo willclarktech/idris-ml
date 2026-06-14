@@ -17,10 +17,12 @@ import Test.Nn.Embedding
 import Test.Nn.Equivalence
 import Test.Nn.Freeze
 import Test.Nn.Group
+import Test.Nn.Gru
 import Test.Nn.Init
 import Test.Nn.LayerNorm
 import Test.Nn.Linear
 import Test.Nn.LoraLinear
+import Test.Nn.Lstm
 import Test.Nn.Module
 import Test.Nn.Recurrent
 import Test.Nn.Residual
@@ -84,10 +86,12 @@ main = runAll
   , ("Nn.Equivalence",  Test.Nn.Equivalence.tests)
   , ("Nn.Freeze",       Test.Nn.Freeze.tests)
   , ("Nn.Group",        Test.Nn.Group.tests)
+  , ("Nn.Gru",          Test.Nn.Gru.tests)
   , ("Nn.Init",         Test.Nn.Init.tests)
   , ("Nn.LayerNorm",    Test.Nn.LayerNorm.tests)
   , ("Nn.Linear",       Test.Nn.Linear.tests)
   , ("Nn.LoraLinear",   Test.Nn.LoraLinear.tests)
+  , ("Nn.Lstm",         Test.Nn.Lstm.tests)
   , ("Nn.Module",       Test.Nn.Module.tests)
   , ("Nn.Recurrent",    Test.Nn.Recurrent.tests)
   , ("Nn.Residual",     Test.Nn.Residual.tests)

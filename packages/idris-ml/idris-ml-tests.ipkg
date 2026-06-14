@@ -41,10 +41,12 @@ modules = Test.Main
         , Test.Nn.Equivalence
         , Test.Nn.Freeze
         , Test.Nn.Group
+        , Test.Nn.Gru
         , Test.Nn.Init
         , Test.Nn.LayerNorm
         , Test.Nn.Linear
         , Test.Nn.LoraLinear
+        , Test.Nn.Lstm
         , Test.Nn.Module
         , Test.Nn.Residual
         , Test.Nn.Recurrent
