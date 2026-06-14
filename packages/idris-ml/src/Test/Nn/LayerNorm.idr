@@ -1,5 +1,7 @@
 module Test.Nn.LayerNorm
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -19,7 +21,10 @@ normalizesRow = do
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]} "lnt.b" (Const 0.0)
   let ln = the (LayerNorm 2 2 TestExecutor TestDType WithGrad) (MkLayerNorm g b)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 2]} (FromVect [1.0, 3.0])
-  out <- forward {b=1} ln (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=1} ln (retypeGrad x)
+           discard m'
+           pure o)
   let v0 = primItem2d {ex=TestExecutor} out.tensorPtr 0 0
   let v1 = primItem2d {ex=TestExecutor} out.tensorPtr 0 1
   check ("LayerNorm normalises row to ≈[-1,1] (got [" ++ show v0 ++ ", " ++ show v1 ++ "])")

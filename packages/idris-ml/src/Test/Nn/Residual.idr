@@ -1,5 +1,7 @@
 module Test.Nn.Residual
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Executor
@@ -21,7 +23,10 @@ residualAddsSkip = do
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} (FromVect [-1.0, 2.0, -3.0, 4.0])
   let blk = the (Residual 2 2 TestExecutor TestDType NoGrad)
               (residual (the (Activation 2 2 TestExecutor TestDType NoGrad) reluA))
-  out <- forward {b=2} blk x
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=2} blk x
+           discard m'
+           pure o)
   check ("Residual computes x + relu(x) (got " ++ show (read4 out) ++ ")")
         (read4 out == [-1.0, 4.0, -3.0, 8.0])
 

@@ -1,5 +1,7 @@
 module Test.Nn.Activation
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Executor
@@ -18,7 +20,10 @@ reluForward : IO Bool
 reluForward = do
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]}
                 (FromVect [-1.0, 2.0, -3.0, 4.0])
-  out <- forward {b=2} (the (Activation 2 2 TestExecutor TestDType NoGrad) reluA) x
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=2} (the (Activation 2 2 TestExecutor TestDType NoGrad) reluA) x
+           discard m'
+           pure o)
   check ("Activation relu forward (got " ++ show (read4 out) ++ ")")
         (read4 out == [0.0, 2.0, 0.0, 4.0])
 

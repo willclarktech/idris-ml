@@ -1,5 +1,7 @@
 module Test.Nn.Group
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -17,7 +19,9 @@ data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -
 
 Params Lin where
   params (MkLin w)   = [toParam w]
+  reflect (MkLin w)  = MkBang [toParam w] # MkLin w
   castGrad (MkLin w) = MkLin (retypeGrad w)
+  discard (MkLin _)  = pure ()
 
 -- Smart constructor: registers one param under the Init-derived name.
 lin : {0 ex : Executor} -> Backend ex dt => String -> Init (Lin 2 2 ex dt WithGrad)

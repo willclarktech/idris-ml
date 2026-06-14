@@ -1,5 +1,7 @@
 module Test.Nn.Seq
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Executor
@@ -14,12 +16,14 @@ import Test.Harness
 data Id : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkId : Id n n ex dt g
 
-Module Id where
-  forward MkId x = pure x
-
 Params Id where
   params MkId   = []
+  reflect MkId  = MkBang [] # MkId
   castGrad MkId = MkId
+  discard MkId  = pure ()
+
+Module Id where
+  forward MkId x = pure1 (MkBang x # MkId)
 
 -- Concrete-typed identity value — mirrors a real layer smart constructor
 -- (`linear : ... -> IO (Linear i o ex dt)`) whose concrete return type pins
@@ -37,7 +41,10 @@ seqForwards : IO Bool
 seqForwards = do
   t <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} (Const 4.0)
   let net = the (Seq 3 3 TestExecutor TestDType NoGrad) (idLayer :: idLayer :: Nil)
-  out <- forwardSeq {b=2} net t
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forwardSeq {b=2} net t
+           discard m'
+           pure o)
   check ("forwardSeq threads through a 2-layer chain (got " ++ show (read6 out) ++ ")")
         (read6 out == [4.0, 4.0, 4.0, 4.0, 4.0, 4.0])
 
@@ -46,7 +53,10 @@ seqViaChainOp : IO Bool
 seqViaChainOp = do
   t <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} (Const 4.0)
   let net = the (Seq 3 3 TestExecutor TestDType NoGrad) (idLayer ~~> idLayer ~~> Nil)
-  out <- forwardSeq {b=2} net t
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forwardSeq {b=2} net t
+           discard m'
+           pure o)
   check "(~~>) builds the same chain as (::)"
         (read6 out == [4.0, 4.0, 4.0, 4.0, 4.0, 4.0])
 

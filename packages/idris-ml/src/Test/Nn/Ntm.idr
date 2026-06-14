@@ -1,5 +1,7 @@
 module Test.Nn.Ntm
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -23,8 +25,11 @@ stepCarriesState : IO Bool
 stepCarriesState = do
   nt0 <- mkNtm
   x   <- inp2
-  (nt1, o1) <- recurStep nt0 x
-  (_,   o2) <- recurStep nt1 x
+  (o1, o2) <- Control.Linear.LIO.run (do
+     (MkBang a # nt1) <- recurStep nt0 x
+     (MkBang b # nt2) <- recurStep nt1 x
+     discard nt2
+     pure (a, b))
   let v1 = primItem1d {ex=TestExecutor} o1.tensorPtr 0
   let v2 = primItem1d {ex=TestExecutor} o2.tensorPtr 0
   check ("NTM forward finite + memory state carried (got " ++ show v1 ++ ", " ++ show v2 ++ ")")
@@ -34,9 +39,13 @@ resetRestores : IO Bool
 resetRestores = do
   nt0 <- mkNtm
   x   <- inp2
-  (_,   oA) <- recurStep nt0 x
-  (nt1, _)  <- recurStep nt0 x
-  (_,   oR) <- recurStep (recurReset nt1) x
+  -- One cell threaded: first step (from cleared init) → out a; reset clears
+  -- the carried state (params unchanged) → stepping again reproduces a.
+  (oA, oR) <- Control.Linear.LIO.run (do
+     (MkBang a # nt1) <- recurStep nt0 x
+     (MkBang r # nt2) <- recurStep (recurReset nt1) x
+     discard nt2
+     pure (a, r))
   let vA = primItem1d {ex=TestExecutor} oA.tensorPtr 0
   let vR = primItem1d {ex=TestExecutor} oR.tensorPtr 0
   check ("NTM recurReset restores first-step output (got " ++ show vA ++ " vs " ++ show vR ++ ")")

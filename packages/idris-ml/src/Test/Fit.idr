@@ -1,5 +1,7 @@
 module Test.Fit
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import DataStream
@@ -23,34 +25,45 @@ mkW name v = do
 units : DataStream ()
 units = generate (pure ())
 
+-- A linear box around a `Double` "model": pattern-matching it consumes the
+-- linear value and rebinds the payload unrestricted (a bare `Double` model
+-- has no constructor to match, so it can't be read out of the linear slot).
+record LBox where
+  constructor MkLBox
+  unLBox : Double
+
 -- fitSupervised: loss = w*w from w=2.0 at lr=0.1 → w *= 0.8 each epoch;
 -- after 5 epochs w = 2*0.8^5 = 0.655 < 1.0.
 fitSupervisedConverges : IO Bool
 fitSupervisedConverges = do
   w <- mkW "fit_sup_w" 2.0
   opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
-  _ <- fitSupervised {ex=TestExecutor} opt (\_, () => tmul w w) units (simpleConfig 5) ()
-  let v = tensorItem w
-  check ("fitSupervised converges (w 2.0 -> " ++ show v ++ ")") (v < 1.0)
+  Control.Linear.LIO.run (do
+    (MkBang _ # ()) <- fitSupervised {ex=TestExecutor} opt
+      (\(), () => do loss <- liftIO1 (tmul w w); pure1 (MkBang loss # ()))
+      units (simpleConfig 5) ()
+    let v = tensorItem w
+    liftIO1 (check ("fitSupervised converges (w 2.0 -> " ++ show v ++ ")") (v < 1.0)))
 
 -- Recurrent/two-phase are Step folds, not driver variants: a Step that
 -- folds two "timesteps" into one loss. loss = 2w², grad = 4w, lr 0.05 →
 -- w *= 0.8 each epoch; after 5, w = 0.8^5 = 0.328 < 1.0.
 recStep : Tensor [] TestExecutor TestDType WithGrad -> Optimizer TestExecutor -> EpochStep () ()
-recStep w opt m () = do
-  l1 <- tmul w w
-  l2 <- tmul w w
-  summed <- tadd l1 l2
-  d <- nativeTrainStep opt summed
-  pure (m, d)
+recStep w opt () () = do
+  l1 <- liftIO1 (tmul w w)
+  l2 <- liftIO1 (tmul w w)
+  summed <- liftIO1 (tadd l1 l2)
+  d <- liftIO1 (nativeTrainStep opt summed)
+  pure1 (MkBang d # ())
 
 recurrentFoldConverges : IO Bool
 recurrentFoldConverges = do
   w <- mkW "fit_rec_w" 1.0
   opt <- sgd {ex=TestExecutor} 0.05 defaultOpts
-  _ <- fit {ex=TestExecutor} (recStep w opt) opt units (simpleConfig 5) ()
-  let v = tensorItem w
-  check ("recurrent Step-fold converges (w=" ++ show v ++ ")") (v < 1.0)
+  Control.Linear.LIO.run (do
+    (MkBang _ # ()) <- fit {ex=TestExecutor} (recStep w opt) opt units (simpleConfig 5) ()
+    let v = tensorItem w
+    liftIO1 (check ("recurrent Step-fold converges (w=" ++ show v ++ ")") (v < 1.0)))
 
 -- Mixed precision via fitSupervisedMixed. On tape F64 the scaler never
 -- overflows (scale 1.0), so it trains identically to single precision —
@@ -60,10 +73,12 @@ fitMixedTrains = do
   w <- mkW "fit_mix_w" 2.0
   opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
   gs <- gradScaler {ex=TestExecutor} {dt=TestDType} 1.0 2.0 0.5 1000
-  _ <- fitSupervisedMixed {ex=TestExecutor} opt gs (\_, () => tmul w w)
-    units (simpleConfig 5) ()
-  let v = tensorItem w
-  check ("fitSupervisedMixed trains (w 2.0 -> " ++ show v ++ ")") (v < 1.0)
+  Control.Linear.LIO.run (do
+    (MkBang _ # ()) <- fitSupervisedMixed {ex=TestExecutor} opt gs
+      (\(), () => do loss <- liftIO1 (tmul w w); pure1 (MkBang loss # ()))
+      units (simpleConfig 5) ()
+    let v = tensorItem w
+    liftIO1 (check ("fitSupervisedMixed trains (w 2.0 -> " ++ show v ++ ")") (v < 1.0)))
 
 -- Full-pass epochs: a stream advertising `epochLen = Just k` makes ONE
 -- fit epoch do k steps (a full dataset pass), not 1. loss=w², lr 0.1 →
@@ -74,13 +89,16 @@ fitFullPassMultiStep = do
   w <- mkW "fit_fp_w" 2.0
   opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
   let s3 = the (DataStream ()) (MkDataStream (pure ()) (Just 3))
-  _ <- fitSupervised {ex=TestExecutor} opt (\_, () => tmul w w) s3 (simpleConfig 1) ()
-  let v = tensorItem w
-  -- Tolerance 1e-6, not 1e-9: mlx's F64 accumulation lands at 1.02399993
-  -- (~7e-8 off) where tape/torch hit 1.024 exactly. The assertion only
-  -- needs to separate correct multi-step (1.024) from one-step (1.6).
-  check ("fit full-pass runs epochLen steps/epoch (w 2.0 -> " ++ show v ++ " ~ 1.024)")
-        (abs (v - 1.024) < 1.0e-6)
+  Control.Linear.LIO.run (do
+    (MkBang _ # ()) <- fitSupervised {ex=TestExecutor} opt
+      (\(), () => do loss <- liftIO1 (tmul w w); pure1 (MkBang loss # ()))
+      s3 (simpleConfig 1) ()
+    let v = tensorItem w
+    -- Tolerance 1e-6, not 1e-9: mlx's F64 accumulation lands at 1.02399993
+    -- (~7e-8 off) where tape/torch hit 1.024 exactly. The assertion only
+    -- needs to separate correct multi-step (1.024) from one-step (1.6).
+    liftIO1 (check ("fit full-pass runs epochLen steps/epoch (w 2.0 -> " ++ show v ++ " ~ 1.024)")
+          (abs (v - 1.024) < 1.0e-6)))
 
 -- fitCustom: the optimizer-free driver for non-gradient training
 -- (tabular RL). A pure Double "model" halved each epoch by the
@@ -88,12 +106,13 @@ fitFullPassMultiStep = do
 -- Proves the model threads through epochs and the loop runs the
 -- requested count: 2.0 * 0.5^5 = 0.0625 over 5 epochs.
 fitCustomThreadsModel : IO Bool
-fitCustomThreadsModel = do
-  (vFin, epochs, _) <- fitCustom {ex=TestExecutor} {m=Double} {batch=()}
-    (\v, () => pure (v * 0.5, v)) units (simpleConfig 5) 2.0
-  check ("fitCustom threads pure model (2.0 -> " ++ show vFin ++ " ~ 0.0625, "
-         ++ show epochs ++ " epochs)")
-        (abs (vFin - 0.0625) < 1.0e-12 && epochs == 5)
+fitCustomThreadsModel =
+  Control.Linear.LIO.run (do
+    (MkBang (epochs, _) # MkLBox vFin) <- fitCustom {ex=TestExecutor} {m=LBox} {batch=()}
+      (\(MkLBox v), () => pure1 (MkBang (v * 0.5) # MkLBox (v * 0.5))) units (simpleConfig 5) (MkLBox 2.0)
+    liftIO1 (check ("fitCustom threads pure model (2.0 -> " ++ show vFin ++ " ~ 0.0625, "
+           ++ show epochs ++ " epochs)")
+          (abs (vFin - 0.0625) < 1.0e-12 && epochs == 5)))
 
 -- P1 regression: in-memory training data across epochs. `fromVect` of
 -- device tensors caches one fixed handle per index; the backend frees

@@ -1,5 +1,7 @@
 module Test.Nn.Freeze
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Executor
@@ -15,7 +17,9 @@ data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -
 
 Params Lin where
   params (MkLin w)   = [toParam w]
+  reflect (MkLin w)  = MkBang [toParam w] # MkLin w
   castGrad (MkLin w) = MkLin (retypeGrad w)
+  discard (MkLin _)  = pure ()
 
 lin : {0 ex : Executor} -> Backend ex dt => String -> Init (Lin 2 2 ex dt WithGrad)
 lin kind = do
@@ -35,15 +39,17 @@ freezeRoundTrip : IO Bool
 freezeRoundTrip = do
   l <- runInit (lin {ex=TestExecutor} {dt=TestDType} "fz")
   case params l of
-    [w] => do
-      before   <- readRG w.paramPtr
-      fr       <- freeze {ex=TestExecutor} l
-      after    <- readRG w.paramPtr
-      _        <- unfreeze {ex=TestExecutor} fr
-      restored <- readRG w.paramPtr
-      check ("freeze/unfreeze flip requires_grad 1->0->1 (got "
-             ++ show before ++ "/" ++ show after ++ "/" ++ show restored ++ ")")
-            (before == 1 && after == 0 && restored == 1)
+    [w] =>
+      Control.Linear.LIO.run (do
+        before   <- liftIO1 (readRG w.paramPtr)
+        fr       <- freeze {ex=TestExecutor} l
+        after    <- liftIO1 (readRG w.paramPtr)
+        m        <- unfreeze {ex=TestExecutor} fr
+        restored <- liftIO1 (readRG w.paramPtr)
+        discard m
+        liftIO1 (check ("freeze/unfreeze flip requires_grad 1->0->1 (got "
+               ++ show before ++ "/" ++ show after ++ "/" ++ show restored ++ ")")
+              (before == 1 && after == 0 && restored == 1)))
     _ => check "toy layer should expose exactly one param" False
 
 export

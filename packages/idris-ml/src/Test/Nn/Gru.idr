@@ -1,5 +1,7 @@
 module Test.Nn.Gru
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -29,8 +31,11 @@ stepCarriesState : IO Bool
 stepCarriesState = do
   g0 <- mkGru1
   x  <- inp1
-  (g1, o1) <- recurStep g0 x
-  (_,  o2) <- recurStep g1 x
+  (o1, o2) <- Control.Linear.LIO.run (do
+     (MkBang a # g1) <- recurStep g0 x
+     (MkBang b # g2) <- recurStep g1 x
+     discard g2
+     pure (a, b))
   let v1 = primItem1d {ex=TestExecutor} o1.tensorPtr 0
   let v2 = primItem1d {ex=TestExecutor} o2.tensorPtr 0
   check ("GRU hidden bounded + state carried (got " ++ show v1 ++ ", " ++ show v2 ++ ")")
@@ -38,11 +43,16 @@ stepCarriesState = do
 
 resetRestores : IO Bool
 resetRestores = do
-  g0 <- mkGru1
+  gA <- mkGru1
+  gB <- mkGru1
   x  <- inp1
-  (_, oA) <- recurStep g0 x
-  (g1, _) <- recurStep g0 x
-  (_, oR) <- recurStep (recurReset g1) x
+  (oA, oR) <- Control.Linear.LIO.run (do
+     (MkBang a # ga1) <- recurStep gA x
+     discard ga1
+     (MkBang _ # gb1) <- recurStep gB x
+     (MkBang r # gb2) <- recurStep (recurReset gb1) x
+     discard gb2
+     pure (a, r))
   let vA = primItem1d {ex=TestExecutor} oA.tensorPtr 0
   let vR = primItem1d {ex=TestExecutor} oR.tensorPtr 0
   check ("GRU recurReset restores step-1 output (got " ++ show vA ++ " vs " ++ show vR ++ ")")

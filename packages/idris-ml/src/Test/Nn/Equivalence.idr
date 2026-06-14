@@ -1,5 +1,7 @@
 module Test.Nn.Equivalence
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -45,13 +47,25 @@ mse2d p t = ioRerun (\_ =>
 
 -- Fresh input/target each step (graph leaves are not reused across
 -- backward passes — matches a real training loop's per-batch inputs).
-stepSeq : Optimizer TestExecutor -> Seq 3 2 TestExecutor TestDType WithGrad -> IO Double
+-- Linear: consumes the net, threads it back beside the (banged) loss.
+stepSeq : Optimizer TestExecutor -> (1 _ : Seq 3 2 TestExecutor TestDType WithGrad) ->
+          L IO {use=1} (LPair (!* Double) (Seq 3 2 TestExecutor TestDType WithGrad))
 stepSeq opt net = do
-  x    <- constG {dims=[2,3]} 1.0
-  tgt  <- constG {dims=[2,2]} 0.5
-  out  <- forwardSeq {b=2} net x
-  loss <- mse2d out tgt
-  nativeTrainStep opt loss
+  x    <- liftIO1 (constG {dims=[2,3]} 1.0)
+  tgt  <- liftIO1 (constG {dims=[2,2]} 0.5)
+  (MkBang out # net') <- forwardSeq {b=2} net x
+  loss <- liftIO1 (mse2d out tgt)
+  d    <- liftIO1 (nativeTrainStep opt loss)
+  pure1 (MkBang d # net')
+
+-- Thread the linear net through `n` steps, accumulating losses (reversed).
+loopSeq : Optimizer TestExecutor -> Nat -> List Double ->
+          (1 _ : Seq 3 2 TestExecutor TestDType WithGrad) ->
+          L IO {use=1} (LPair (!* (List Double)) (Seq 3 2 TestExecutor TestDType WithGrad))
+loopSeq _   Z     acc net = pure1 (MkBang (reverse acc) # net)
+loopSeq opt (S k) acc net = do
+  (MkBang d # net') <- stepSeq opt net
+  loopSeq opt k (d :: acc) net'
 
 stepRef : Optimizer TestExecutor ->
           Tensor [4,3] TestExecutor TestDType WithGrad -> Tensor [4] TestExecutor TestDType WithGrad ->
@@ -82,7 +96,10 @@ trainsIdentically = do
               :: the (Linear 4 2 TestExecutor TestDType WithGrad) (MkLinear sw2 sb2)
               :: Nil )
   optS <- sgd {ex=TestExecutor} 0.05 defaultOpts
-  lossSeq <- loopN 8 (\_ => stepSeq optS net)
+  lossSeq <- Control.Linear.LIO.run (do
+    (MkBang ls # net') <- loopSeq optS 8 [] net
+    discardSeq net'
+    pure ls)
   -- REFERENCE op chain, params "ref.*" (identical Const init)
   rw1 <- param {ex=TestExecutor} {dt=TestDType} {dims=[4, 3]} "ref.w1" (Const 0.1)
   rb1 <- param {ex=TestExecutor} {dt=TestDType} {dims=[4]}    "ref.b1" (Const 0.0)

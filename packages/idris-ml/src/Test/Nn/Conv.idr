@@ -1,5 +1,7 @@
 module Test.Nn.Conv
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -20,7 +22,10 @@ forwardComputes = do
   bia <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}          "cv.b" (Const 0.0)
   let cv = the (Conv2D 1 1 3 3 2 2 0 0 9 4 TestExecutor TestDType WithGrad) (MkConv2D ker bia)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 9]} (Const 1.0)
-  out <- forward {b=1} cv (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=1} cv (retypeGrad x)
+           discard m'
+           pure o)
   let vs = [ primItem2d {ex=TestExecutor} out.tensorPtr 0 j | j <- the (List Int) [0,1,2,3] ]
   check ("Conv2D 2x2-ones over 3x3-ones (got " ++ show vs ++ ")")
         (vs == [4.0, 4.0, 4.0, 4.0])
@@ -51,7 +56,10 @@ forward1dComputes = do
   bia <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}       "c1.b" (Const 0.0)
   let cv = the (Conv1D 1 1 3 2 0 3 2 TestExecutor TestDType WithGrad) (MkConv1D ker bia)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 3]} (FromVect [1.0, 2.0, 3.0])
-  out <- forward {b=1} cv (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=1} cv (retypeGrad x)
+           discard m'
+           pure o)
   let vs = [ primItem2d {ex=TestExecutor} out.tensorPtr 0 j | j <- the (List Int) [0,1] ]
   check ("Conv1D [1,2] over [1,2,3] (got " ++ show vs ++ ")")
         (vs == [5.0, 8.0])

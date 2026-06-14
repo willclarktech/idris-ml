@@ -1,5 +1,7 @@
 module Test.Nn.Module
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Executor
@@ -13,12 +15,14 @@ import Test.Harness
 data Id : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkId : Id n n ex dt g
 
-Module Id where
-  forward MkId x = pure x
-
 Params Id where
   params MkId   = []
+  reflect MkId  = MkBang [] # MkId
   castGrad MkId = MkId
+  discard MkId  = pure ()
+
+Module Id where
+  forward MkId x = pure1 (MkBang x # MkId)
 
 read6 : Tensor [2, 3] TestExecutor TestDType g -> List Double
 read6 t = [ primItem2d {ex=TestExecutor} t.tensorPtr i j
@@ -27,7 +31,10 @@ read6 t = [ primItem2d {ex=TestExecutor} t.tensorPtr i j
 forwardDispatches : IO Bool
 forwardDispatches = do
   t <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} (Const 4.0)
-  out <- forward {ex=TestExecutor} {b=2} (the (Id 3 3 TestExecutor TestDType NoGrad) MkId) t
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {ex=TestExecutor} {b=2} (the (Id 3 3 TestExecutor TestDType NoGrad) MkId) t
+           discard m'
+           pure o)
   check ("Module.forward dispatches (identity, got " ++ show (read6 out) ++ ")")
         (read6 out == [4.0, 4.0, 4.0, 4.0, 4.0, 4.0])
 

@@ -1,5 +1,7 @@
 module Test.Nn.Linear
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -23,7 +25,10 @@ forwardComputes = do
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lt.b" (Const 1.0)
   let lyr = the (Linear 3 2 TestExecutor TestDType WithGrad) (MkLinear w b)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} (Const 2.0)
-  out <- forward {b=2} lyr (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=2} lyr (retypeGrad x)
+           discard m'
+           pure o)
   check ("Linear.forward computes x·Wᵀ+b (got " ++ show (read4 out) ++ ")")
         (read4 out == [4.0, 4.0, 4.0, 4.0])
 

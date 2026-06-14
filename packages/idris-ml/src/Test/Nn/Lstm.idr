@@ -1,5 +1,7 @@
 module Test.Nn.Lstm
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -33,8 +35,11 @@ stepCarriesState : IO Bool
 stepCarriesState = do
   l0 <- mkLstm1
   x  <- inp1
-  (l1, o1) <- recurStep l0 x
-  (_,  o2) <- recurStep l1 x
+  (o1, o2) <- Control.Linear.LIO.run (do
+     (MkBang a # l1) <- recurStep l0 x
+     (MkBang b # l2) <- recurStep l1 x
+     discard l2
+     pure (a, b))
   let v1 = primItem1d {ex=TestExecutor} o1.tensorPtr 0
   let v2 = primItem1d {ex=TestExecutor} o2.tensorPtr 0
   check ("LSTM hidden bounded + state carried (got " ++ show v1 ++ ", " ++ show v2 ++ ")")
@@ -42,11 +47,16 @@ stepCarriesState = do
 
 resetRestores : IO Bool
 resetRestores = do
-  l0 <- mkLstm1
+  lA <- mkLstm1
+  lB <- mkLstm1
   x  <- inp1
-  (_, oA)  <- recurStep l0 x
-  (l1, _)  <- recurStep l0 x
-  (_, oR)  <- recurStep (recurReset l1) x
+  (oA, oR) <- Control.Linear.LIO.run (do
+     (MkBang a # la1) <- recurStep lA x
+     discard la1
+     (MkBang _ # lb1) <- recurStep lB x
+     (MkBang r # lb2) <- recurStep (recurReset lb1) x
+     discard lb2
+     pure (a, r))
   let vA = primItem1d {ex=TestExecutor} oA.tensorPtr 0
   let vR = primItem1d {ex=TestExecutor} oR.tensorPtr 0
   check ("LSTM recurReset restores step-1 output (got " ++ show vA ++ " vs " ++ show vR ++ ")")

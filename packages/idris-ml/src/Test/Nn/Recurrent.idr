@@ -1,5 +1,7 @@
 module Test.Nn.Recurrent
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -31,8 +33,11 @@ stepCarriesState : IO Bool
 stepCarriesState = do
   r0 <- mkRnn1
   x  <- input1
-  (r1, o1) <- recurStep r0 x
-  (_,  o2) <- recurStep r1 x
+  (o1, o2) <- Control.Linear.LIO.run (do
+     (MkBang a # r1) <- recurStep r0 x
+     (MkBang b # r2) <- recurStep r1 x
+     discard r2
+     pure (a, b))
   let v1 = primItem1d {ex=TestExecutor} o1.tensorPtr 0
   let v2 = primItem1d {ex=TestExecutor} o2.tensorPtr 0
   check ("recurStep carries hidden state (got " ++ show v1 ++ ", " ++ show v2 ++ ")")
@@ -42,8 +47,11 @@ resetClearsState : IO Bool
 resetClearsState = do
   r0 <- mkRnn1
   x  <- input1
-  (r1, _) <- recurStep r0 x
-  (_, oR) <- recurStep (recurReset r1) x
+  oR <- Control.Linear.LIO.run (do
+     (MkBang _ # r1) <- recurStep r0 x
+     (MkBang r # r2) <- recurStep (recurReset r1) x
+     discard r2
+     pure r)
   let vR = primItem1d {ex=TestExecutor} oR.tensorPtr 0
   check ("recurReset restarts from zero state (got " ++ show vR ++ ")")
         (abs (vR - 0.761594) < 1.0e-4)

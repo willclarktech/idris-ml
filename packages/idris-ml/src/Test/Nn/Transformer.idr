@@ -1,5 +1,7 @@
 module Test.Nn.Transformer
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -25,7 +27,10 @@ blockForwardShape : IO Bool
 blockForwardShape = do
   blk <- runInit (transformerBlock {ex=TestExecutor} {dt=TestDType} {dModel=4} {numHeads=2} {headDim=2})
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[3, 4]} (Const 0.5)
-  out <- forward {b=3} blk (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=3} blk (retypeGrad x)
+           discard m'
+           pure o)
   let vs = read12 out
   check ("TransformerBlock preserves [3,4] + finite (got " ++ show (length vs) ++ " vals)")
         (length vs == 12 && allFinite vs)
@@ -39,7 +44,10 @@ blocksStackInSeq = do
     pure (a, b)
   let net = the (Seq 4 4 TestExecutor TestDType WithGrad) (b1 :: b2 :: Nil)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[3, 4]} (Const 0.5)
-  out <- forwardSeq {b=3} net (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forwardSeq {b=3} net (retypeGrad x)
+           discard m'
+           pure o)
   check ("two TransformerBlocks stack in a Seq + finite (got "
          ++ show (length (read12 out)) ++ " vals)")
         (allFinite (read12 out))

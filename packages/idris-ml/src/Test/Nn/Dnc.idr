@@ -1,5 +1,7 @@
 module Test.Nn.Dnc
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -23,8 +25,11 @@ stepCarriesState : IO Bool
 stepCarriesState = do
   d0 <- mkDnc
   x  <- inp2
-  (d1, o1) <- recurStep d0 x
-  (_,  o2) <- recurStep d1 x
+  (o1, o2) <- Control.Linear.LIO.run (do
+     (MkBang a # d1) <- recurStep d0 x
+     (MkBang b # d2) <- recurStep d1 x
+     discard d2
+     pure (a, b))
   let v1 = primItem1d {ex=TestExecutor} o1.tensorPtr 0
   let v2 = primItem1d {ex=TestExecutor} o2.tensorPtr 0
   check ("DNC forward finite + memory state carried (got " ++ show v1 ++ ", " ++ show v2 ++ ")")
@@ -34,9 +39,13 @@ resetRestores : IO Bool
 resetRestores = do
   d0 <- mkDnc
   x  <- inp2
-  (_,  oA) <- recurStep d0 x
-  (d1, _)  <- recurStep d0 x
-  (_,  oR) <- recurStep (recurReset d1) x
+  -- One cell threaded: first step (from cleared init) → out a; reset clears
+  -- the carried state (params unchanged) → stepping again reproduces a.
+  (oA, oR) <- Control.Linear.LIO.run (do
+     (MkBang a # d1) <- recurStep d0 x
+     (MkBang r # d2) <- recurStep (recurReset d1) x
+     discard d2
+     pure (a, r))
   let vA = primItem1d {ex=TestExecutor} oA.tensorPtr 0
   let vR = primItem1d {ex=TestExecutor} oR.tensorPtr 0
   check ("DNC recurReset restores first-step output (got " ++ show vA ++ " vs " ++ show vR ++ ")")

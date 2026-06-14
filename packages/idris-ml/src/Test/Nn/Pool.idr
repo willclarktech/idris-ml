@@ -1,5 +1,7 @@
 module Test.Nn.Pool
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -17,7 +19,10 @@ maxPool2dComputes : IO Bool
 maxPool2dComputes = do
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 4]} (FromVect [1.0, 2.0, 3.0, 4.0])
   let mp = the (MaxPool2D 1 2 2 2 2 2 2 4 1 TestExecutor TestDType WithGrad) MkMaxPool2D
-  out <- forward {b=1} mp (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=1} mp (retypeGrad x)
+           discard m'
+           pure o)
   let v = primItem2d {ex=TestExecutor} out.tensorPtr 0 0
   check ("MaxPool2D 2x2 over [[1,2],[3,4]] (got " ++ show v ++ ")") (v == 4.0)
 
@@ -27,7 +32,10 @@ maxPool1dComputes : IO Bool
 maxPool1dComputes = do
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 4]} (FromVect [1.0, 3.0, 2.0, 5.0])
   let mp = the (MaxPool1D 1 4 2 2 4 2 TestExecutor TestDType WithGrad) MkMaxPool1D
-  out <- forward {b=1} mp (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # m') <- forward {b=1} mp (retypeGrad x)
+           discard m'
+           pure o)
   let vs = [ primItem2d {ex=TestExecutor} out.tensorPtr 0 j | j <- the (List Int) [0,1] ]
   check ("MaxPool1D window 2 over [1,3,2,5] (got " ++ show vs ++ ")") (vs == [3.0, 5.0])
 
