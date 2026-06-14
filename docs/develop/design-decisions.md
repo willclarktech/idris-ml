@@ -2354,3 +2354,47 @@ avoids both — it preserves tokens (so `codeSig` stays a strong oracle for free
 re-lays-out lines by reconstructing the offside rule, at the cost of that
 reconstruction. Either way the value is low on a uniformly-2-space tree, so it
 stays the lone deferred row.
+
+### Follow-up: reindentation shipped — FC-driven, not a printer (2026-06-15)
+
+The deferral was lifted and reindentation built. Two findings reshaped the
+above design.
+
+**The deep oracle was cheaper than feared — one traversal, not two.** `Show
+PTerm` is *fully deep* (all term constructors recurse); only the decl/clause/do
+layer is stubbed. So `Format.Roundtrip.deepSig` hand-descends just the ~26
+decl/clause cases that `Show` collapses (where-blocks; nested decls inside
+data/record/interface/implementation/parameters/using/mutual/namespace/failing
+blocks; record fields via `Show (PiBindData ·)`) and reuses `Show PTerm` /
+`Show PTypeDecl` at every term leaf — do/case/let/with layout rides along for
+free. `safeReindent = parses ∧ deepSig-equal ∧ imports-unchanged`; note
+`codeSig` is *trivially* preserved by a whitespace-only edit, so it is the one
+oracle that **cannot** gate reindentation — `deepSig` is mandatory.
+
+**The reindenter is FC-driven, not an AST printer (Route C).** `Format.Reindent`
+parses, then recomputes each line's leading whitespace from the AST's FC spans —
+no `Doc` printer. The walk threads the canonical column a block's items sit at
+(Reader) and emits `(line, startCol, canonicalCol)` anchors (Writer) — the
+RWS-lite shape borrowed from `gvnkd/idris2-fmt`, but applied to a span walk, not
+gvnkd's full monadic printer. **Route A** (gvnkd's printer) was rejected: a
+printer must emit every construct or silently drop it (gvnkd renders
+`PRunElabDecl` bodies as placeholder comments), and it reflows *all* layout, not
+just leading indent. **Route B** (token-driven offside reconstruction) was
+rejected: the offside rule is baked into the parser combinators, not a reusable
+component. Each line shifts by the nearest preceding anchor's delta — anchors
+land on their canonical column while continuation / term-internal lines move by
+the *same* delta, so relative layout is preserved and never reflowed. An anchor
+counts only when its construct is the **first token on its line**
+(`startCol == leadingSpaces`); this is load-bearing — without it an inline
+`data D : Type where MkD : D`, or a constructor on the line after a lone
+`public export`, pulls the whole line to the constructor's `+2` column (the bug
+the first repo-wide rollout exposed across 16 files). Conventions calibrated
+against the corpus: nested decl blocks `+2`, function `where`-items `+4`,
+`with`-clauses `+2`.
+
+Wired into `format` last (after hygiene/import-sort/align), behind
+`safeReindent`, **enabled by default**. The repo-wide rollout produced **zero
+corpus changes** — the tree was already canonical — so reindentation is a
+standing safe no-op today whose value is normalising future edits, exactly as
+the deferral predicted; the work was justified by the user's explicit choice to
+build-and-enable it rather than by present diff.
