@@ -2197,6 +2197,24 @@ withNoGradL act = do
   liftIO1 (primIO (primNoGradEnd {ex}))
   pure1 result
 
+||| `withGenFree` for the linear (`L IO`) surface: run a *grad-mode* linear
+||| action inside a generation bracket (autograd stays ON), freeing the
+||| wrap-only intermediates it created on exit. The `L IO` twin of
+||| `withGenFree` — for fine-grained training inner loops (a DQN replay step, a
+||| PPO rollout step) whose per-step grad intermediates would otherwise pile up
+||| past the mlx buffer ceiling within one epoch. As with `withGenFree`, the
+||| linear result must not carry fresh wrap-only intermediates created inside the
+||| bracket (registered params — rc>1 — and scalar results are spared); the
+||| threaded model handles it returns are registered, so they survive.
+export
+withGenFreeL : {0 ex : Executor} -> UserExecutorTraining ex => {0 a : Type} ->
+               (1 act : LIO.L IO {use = 1} a) -> LIO.L IO {use = 1} a
+withGenFreeL act = do
+  liftIO1 (primIO (primEpochBegin {ex}))
+  result <- act
+  liftIO1 (primIO (primEpochEnd {ex}))
+  pure1 result
+
 export
 tzeroState1dL : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> LIO.L IO (Tensor [n] ex dt g)
 tzeroState1dL {n} = ioRerunL (\_ =>
