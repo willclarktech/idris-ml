@@ -341,6 +341,6 @@ $(BUILD)/.library-src-sha: FORCE
 
 $(BUILD)/.library-cache-stamp: $(LIBRARY_SRCS) $(BUILD)/.library-src-sha
 	@echo "[$(BUILD_KEY)] Library source changed — invalidating ttc caches"
-	@rm -rf $(BUILD)/ttc-*
+	@rm -rf $(BUILD)/ttc-* $(BUILD)/ttc
 	@mkdir -p $(BUILD)
 	@touch $@
