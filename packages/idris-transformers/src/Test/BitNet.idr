@@ -20,7 +20,9 @@ module Test.BitNet
 import Data.List
 import Data.String
 import Data.Vect
+import System.File
 
+import Checkpoint
 import Executor
 import Executor.Core
 import Nn.RoPE
@@ -179,7 +181,7 @@ testConstructorRegistersHfNames = do
   -- BitNet names overwrite in-place rather than appending new slots.
   -- Validate by SET MEMBERSHIP (every expected name present in the
   -- registry post-construction), not by counting "newly added" entries.
-  _ <- hfBitnetModel {ex=TestExecutor} {dt=TestDType}
+  _ <- hfBitnetModel {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
                      {vocab        = 8}
                      {hidden       = 4}
                      {numLayers    = 30}
@@ -221,7 +223,7 @@ testForwardLmSmoke = do
   -- Tiny config: vocab=8, hidden=4 (= numHeads*headDim = 2*2),
   -- intermediate=8, numKvHeads=1 (GQA 2:1), numLayers=2, maxPos=16.
   -- seq=2 (a two-token "prompt").
-  model <- hfBitnetModel {ex=TestExecutor} {dt=TestDType}
+  model <- hfBitnetModel {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
                          {vocab        = 8}
                          {hidden       = 4}
                          {numLayers    = 2}
@@ -273,6 +275,23 @@ testForwardLmSmoke = do
           in go r (c + 1) (v :: acc)
 
 ----------------------------------------------------------------------
+-- Bucket 4 — readBitNetConfig (config.json → BitNetConfig)
+----------------------------------------------------------------------
+
+testReadBitNetConfig : IO Bool
+testReadBitNetConfig = do
+  let path = "/tmp/idris_bitnet_config.json"
+  Right () <- writeFile path "{\"vocab_size\": 99, \"hidden_size\": 8, \"num_hidden_layers\": 3, \"num_attention_heads\": 4, \"num_key_value_heads\": 2, \"head_dim\": 2, \"intermediate_size\": 16, \"max_position_embeddings\": 32, \"rope_theta\": 500000.0, \"rms_norm_eps\": 1.0e-5}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  Right cfg <- readBitNetConfig path
+    | Left e => do putStrLn ("  FAIL: readBitNetConfig: " ++ show e); pure False
+  check "readBitNetConfig maps GQA head counts + rope_theta + rms_norm_eps"
+        (vocabSize cfg == 99 && hidden cfg == 8 && numLayers cfg == 3 &&
+         numHeads cfg == 4 && numKvHeads cfg == 2 && headDim cfg == 2 &&
+         intermediate cfg == 16 && maxPosition cfg == 32 &&
+         ropeBase cfg == 500000.0 && rmsNormEps cfg == 1.0e-5)
+
+----------------------------------------------------------------------
 -- Suite export
 ----------------------------------------------------------------------
 
@@ -289,5 +308,8 @@ suite =
      ])
   , ("HfBitNet — forward-pass smoke",
      [ testForwardLmSmoke
+     ])
+  , ("readBitNetConfig — config.json parsing",
+     [ testReadBitNetConfig
      ])
   ]

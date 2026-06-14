@@ -60,9 +60,11 @@ module Transformers.BitNet
 
 import Data.Vect
 
+import Backend
 import Checkpoint
 import Compat.Random
 import Executor
+import GradMode
 import Init
 import Nn.Embedding
 import Nn.RmsNorm
@@ -70,6 +72,7 @@ import Nn.RoPE
 import Sampler
 import Tensor
 import Transformers.Common
+import Transformers.Config
 
 ----------------------------------------------------------------------
 -- Config
@@ -208,12 +211,16 @@ record BitLinearHf (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode
 -- machinery assumes float-dtype storage. `weightName` is unused here
 -- but kept in the signature so callers thread the HF param name and
 -- the loader follow-up can pick it up without re-plumbing call sites.
+-- `BitLinearHf`'s stored tensors are hardcoded `NoGrad` (BitNet freezes
+-- both the ternary weight and the dequant scale), so its `g` index is a
+-- pure phantom — construction is grad-mode-agnostic and needs no
+-- `weakenGrad`. Only the float-typed makers below branch on `g`.
 makeBitLinearHf : UserExecutorTraining ex => UserExecutorQuant ex
                => RuntimeDType dt => Linked ex => Compatible ex dt
                => {i, o : Nat}
                -> (weightName : String)
                -> (weightScaleName : String)
-               -> IO (BitLinearHf i o ex dt WithGrad)
+               -> IO (BitLinearHf i o ex dt g)
 makeBitLinearHf weightName weightScaleName = do
   -- Ternary placeholder via zero-filled HF-packed buffer. The HF
   -- format is axis-0 packed `[(o+3)/4, i]`, so `((o+3) `div` 4) * i`
@@ -247,25 +254,33 @@ makeBitLinearHf weightName weightScaleName = do
 ||| eps from the model config (1e-5 for BitNet). Used for the four
 ||| RmsNorms per block (input_layernorm, post_attention_layernorm,
 ||| attn_sub_norm, ffn_sub_norm) plus the top-level `model.norm`.
-makeBitNetRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBitNetRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                  => {n : Nat}
                  -> (paramFullName : String)
-                 -> IO (RmsNorm n n ex dt WithGrad)
+                 -> IO (RmsNorm n n ex dt g)
 makeBitNetRmsNorm paramFullName = do
-  w <- tparam1dConst {n} paramFullName 1.0
-  pure (MkRmsNorm w)
+  w <- tparam1dConst {ex} {dt} {n} paramFullName 1.0
+  case sgrad {g} of
+    SWithGrad => pure (MkRmsNorm w)
+    SNoGrad => do
+      w' <- weakenGrad w
+      pure (MkRmsNorm w')
 
 ||| Token embedding: `[vocab, hidden]`. Stored under
 ||| `model.embed_tokens.weight`. This SAME tensor is reused as the
 ||| LM-head projection in `hfBitnetForwardLm`
 ||| (`tie_word_embeddings=True` — no separate `lm_head.weight`).
-makeBitNetEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBitNetEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                    => {vocab, hidden : Nat}
                    -> (paramFullName : String)
-                   -> IO (Embedding vocab hidden ex dt WithGrad)
+                   -> IO (Embedding vocab hidden ex dt g)
 makeBitNetEmbedding paramFullName = do
-  w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
-  pure (MkEmbedding w)
+  w <- tparam2dNormal {ex} {dt} {o=vocab} {i=hidden} paramFullName 0.0 0.02
+  case sgrad {g} of
+    SWithGrad => pure (MkEmbedding w)
+    SNoGrad => do
+      w' <- weakenGrad w
+      pure (MkEmbedding w')
 
 -- LM head is tied to the token embedding (`tie_word_embeddings=True`).
 -- `hfBitnetForwardLm` reuses `model.embedTokens.weightT` directly for
@@ -345,10 +360,10 @@ record BitNetModelState
 ----------------------------------------------------------------------
 
 makeAttention : UserExecutorTraining ex => UserExecutorQuant ex
-             => RuntimeDType dt => Linked ex => Compatible ex dt
+             => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
              => {hidden, qOut, kvOut : Nat}
              -> (layerPfx : String)
-             -> IO (BitNetAttentionState hidden qOut kvOut ex dt WithGrad)
+             -> IO (BitNetAttentionState hidden qOut kvOut ex dt g)
 makeAttention layerPfx = do
   q  <- makeBitLinearHf {i=hidden} {o=qOut}
           (layerPfx ++ ".self_attn.q_proj.weight")
@@ -367,10 +382,10 @@ makeAttention layerPfx = do
   pure (MkBitNetAttention q k v sn o)
 
 makeMlp : UserExecutorTraining ex => UserExecutorQuant ex
-       => RuntimeDType dt => Linked ex => Compatible ex dt
+       => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
        => {hidden, intermediate : Nat}
        -> (layerPfx : String)
-       -> IO (BitNetMlpState hidden intermediate ex dt WithGrad)
+       -> IO (BitNetMlpState hidden intermediate ex dt g)
 makeMlp layerPfx = do
   g  <- makeBitLinearHf {i=hidden} {o=intermediate}
           (layerPfx ++ ".mlp.gate_proj.weight")
@@ -386,10 +401,10 @@ makeMlp layerPfx = do
   pure (MkBitNetMlp g u fn dn)
 
 makeBlock : UserExecutorTraining ex => UserExecutorQuant ex
-         => RuntimeDType dt => Linked ex => Compatible ex dt
+         => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
          => {hidden, qOut, kvOut, intermediate : Nat}
          -> (layerPfx : String)
-         -> IO (BitNetBlockState hidden qOut kvOut intermediate ex dt WithGrad)
+         -> IO (BitNetBlockState hidden qOut kvOut intermediate ex dt g)
 makeBlock layerPfx = do
   ln1 <- makeBitNetRmsNorm {n=hidden} (layerPfx ++ ".input_layernorm.weight")
   at  <- makeAttention {hidden} {qOut} {kvOut} layerPfx
@@ -398,10 +413,10 @@ makeBlock layerPfx = do
   pure (MkBitNetBlock ln1 at ln2 mp)
 
 makeBlocks : UserExecutorTraining ex => UserExecutorQuant ex
-          => RuntimeDType dt => Linked ex => Compatible ex dt
+          => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {hidden, qOut, kvOut, intermediate : Nat}
           -> (modelPfx : String) -> (n : Nat) -> (offset : Nat)
-          -> IO (Vect n (BitNetBlockState hidden qOut kvOut intermediate ex dt WithGrad))
+          -> IO (Vect n (BitNetBlockState hidden qOut kvOut intermediate ex dt g))
 makeBlocks _   Z     _      = pure []
 makeBlocks pfx (S k) offset = do
   b  <- makeBlock {hidden} {qOut} {kvOut} {intermediate}
@@ -430,10 +445,10 @@ makeBlocks pfx (S k) offset = do
 ||| safetensors path.
 public export
 hfBitnetModel : UserExecutorTraining ex => UserExecutorQuant ex
-             => RuntimeDType dt => Linked ex => Compatible ex dt
+             => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
              => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
              -> (modelPrefix : String)
-             -> IO (BitNetModelState vocab hidden numLayers qOut kvOut intermediate ex dt WithGrad)
+             -> IO (BitNetModelState vocab hidden numLayers qOut kvOut intermediate ex dt g)
 hfBitnetModel pfx = do
   emb    <- makeBitNetEmbedding {vocab} {hidden} (pfx ++ ".embed_tokens.weight")
   blocks <- makeBlocks {hidden} {qOut} {kvOut} {intermediate} pfx numLayers 0
@@ -858,3 +873,68 @@ loadHfBitnetCheckpoint pfx path model = do
   floatOk <- loadModelAllowCast {ex} path
   let newModel = MkBitNetModel model.embedTokens blocks' model.finalNorm
   pure (newModel, (tnLoaded, tnExpected, floatOk))
+
+----------------------------------------------------------------------
+-- fromPretrained
+----------------------------------------------------------------------
+
+||| The BitNet model state at the dims a `BitNetConfig` carries. Like
+||| Llama, the GQA out-dims (`numHeads * headDim` / `numKvHeads *
+||| headDim`) are baked into the state type, so no extra proof is needed.
+public export
+BitNetModel : (cfg : BitNetConfig) -> (0 ex : Executor) -> (0 dt : DType) -> (0 g : GradMode) -> Type
+BitNetModel cfg ex dt g =
+  BitNetModelState (vocabSize cfg) (hidden cfg) (numLayers cfg)
+                   (numHeads cfg * headDim cfg) (numKvHeads cfg * headDim cfg)
+                   (intermediate cfg) ex dt g
+
+||| Read a HuggingFace BitNet `config.json` into a `BitNetConfig`. Same
+||| key set as Llama (BitNet's HF config mirrors `LlamaConfig`):
+||| GQA head counts, `rope_theta` / `rms_norm_eps`, and `head_dim`
+||| (defaulting to `hidden_size / num_attention_heads`).
+export
+readBitNetConfig : String -> IO (Either LoadError BitNetConfig)
+readBitNetConfig path = do
+  Right j <- readConfigFile path
+    | Left e => pure (Left e)
+  pure $ do
+    vocabSize    <- natField    j "vocab_size"
+    hidden       <- natField    j "hidden_size"
+    numLayers    <- natField    j "num_hidden_layers"
+    numHeads     <- natField    j "num_attention_heads"
+    numKvHeads   <- natField    j "num_key_value_heads"
+    intermediate <- natField    j "intermediate_size"
+    maxPosition  <- natField    j "max_position_embeddings"
+    headDim      <- natFieldOr  j "head_dim" (hidden `div` numHeads)
+    ropeBase     <- doubleField j "rope_theta"
+    rmsNormEps   <- doubleField j "rms_norm_eps"
+    pure (MkBitNetConfig vocabSize hidden numLayers numHeads numKvHeads headDim
+                         intermediate maxPosition ropeBase rmsNormEps)
+
+||| Load a pretrained BitNet from a local HF model directory. Reads
+||| `config.json` for the dims, builds the model (`{g}` = caller's grad
+||| mode), then fills it via `loadHfBitnetCheckpoint` — which handles
+||| BitNet's two-storage split (ternary BitLinear weights from raw packed
+||| bytes; float params — norms / embeddings / weight_scales — via the
+||| standard safetensors path). A partial load (missing ternary weights
+||| or a float-load failure) surfaces as `ReadFailed`.
+export
+fromPretrained : Backend ex dt => UserExecutorQuant ex => KnownGrad g
+              => (modelDir : String)
+              -> IO (Either LoadError (cfg : BitNetConfig ** BitNetModel cfg ex dt g))
+fromPretrained dir = do
+  Right cfg <- readBitNetConfig (dir ++ "/config.json")
+    | Left e => pure (Left e)
+  model <- hfBitnetModel {ex} {dt} {g}
+             {vocab        = vocabSize cfg}
+             {hidden       = hidden cfg}
+             {numLayers    = numLayers cfg}
+             {qOut         = numHeads cfg * headDim cfg}
+             {kvOut        = numKvHeads cfg * headDim cfg}
+             {intermediate = intermediate cfg}
+             "model"
+  (model', (tnLoaded, tnExpected, floatOk)) <-
+    loadHfBitnetCheckpoint {ex} {dt} "model" (dir ++ "/model.safetensors") model
+  if floatOk && tnLoaded == tnExpected
+    then pure (Right (cfg ** model'))
+    else pure (Left ReadFailed)
