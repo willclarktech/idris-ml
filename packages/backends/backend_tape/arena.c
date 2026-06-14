@@ -43,13 +43,21 @@ void* arena_alloc(size_t bytes) {
 		arena_current = arena_head;
 	}
 	if (arena_current->used + bytes > arena_current->cap) {
-		/* Need new chunk */
-		if (arena_current->next) {
+		/* Need new chunk. Reuse the pre-allocated `next` only if it is large
+		   enough: after arena_reset rewinds the bump pointer to the head, a
+		   later oversized request would otherwise recycle a too-small `next`
+		   chunk and overrun it on the caller's memcpy. (MNIST's 4.5 MB conv1
+		   output recycling a 4 MB default chunk — campaign 2026-06-17 P1
+		   "invalid memory reference".) When `next` is too small, splice a
+		   correctly-sized chunk in front of it so the chain — and every
+		   chunk's eventual arena_reset/arena_free_all — stays intact. */
+		if (arena_current->next && arena_current->next->cap >= bytes) {
 			arena_current = arena_current->next;
 			arena_current->used = 0;
 		} else {
 			size_t cap = bytes > ARENA_INIT_SIZE ? bytes : ARENA_INIT_SIZE;
 			ArenaChunk* c = arena_new_chunk(cap);
+			c->next = arena_current->next; /* preserve any undersized tail */
 			arena_current->next = c;
 			arena_current = c;
 		}
