@@ -36,6 +36,8 @@ import Compat.Random
 import Executor
 import Transformers.Common
 import Init
+import Nn.Embedding
+import Nn.LayerNorm
 import Sampler
 import Tensor
 
@@ -178,37 +180,26 @@ makeConv1D pfx = do
 ||| `<pfx>.bias` (β, init 0.0). GPT-2's `ln_*` / `ln_f` are standard
 ||| LayerNorms with affine params (unlike Llama's RMSNorm which only
 ||| has a weight).
-public export
-record Gpt2LN (n : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkGpt2LN
-  gamma : Tensor [n] ex dt g
-  beta  : Tensor [n] ex dt g
-
 makeGpt2LN : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {n : Nat}
           -> (paramPrefix : String)
-          -> IO (Gpt2LN n ex dt WithGrad)
+          -> IO (LayerNorm n n ex dt WithGrad)
 makeGpt2LN pfx = do
   -- Fused C-side const fill (γ = 1.0, β = 0.0); replaces fillConst /
   -- zeroBuf host-side loops.
   g <- tparam1dConst {n} (pfx ++ ".weight") 1.0
   b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
-  pure (MkGpt2LN g b)
+  pure (MkLayerNorm g b)
 
 ||| Token / positional embedding: `[count, hidden]`.
-public export
-record Gpt2Embedding (count, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkGpt2Embedding
-  weight : Tensor [count, hidden] ex dt g
-
 makeGpt2Embedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                  => {count, hidden : Nat}
                  -> (paramPrefix : String)
-                 -> IO (Gpt2Embedding count hidden ex dt WithGrad)
+                 -> IO (Embedding count hidden ex dt WithGrad)
 makeGpt2Embedding pfx = do
   -- Fused C-side normal(0, 0.02) init.
   w <- tparam2dNormal {o=count} {i=hidden} (pfx ++ ".weight") 0.0 0.02
-  pure (MkGpt2Embedding w)
+  pure (MkEmbedding w)
 
 ----------------------------------------------------------------------
 -- State records
@@ -235,9 +226,9 @@ record Gpt2BlockState
         (hidden, intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Block
-  ln1  : Gpt2LN hidden ex dt g
+  ln1  : LayerNorm hidden hidden ex dt g
   attn : Gpt2AttentionState hidden ex dt g
-  ln2  : Gpt2LN hidden ex dt g
+  ln2  : LayerNorm hidden hidden ex dt g
   mlp  : Gpt2MlpState hidden intermediate ex dt g
 
 public export
@@ -245,10 +236,10 @@ record Gpt2ModelState
         (vocab, hidden, numLayers, intermediate, maxPos : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGpt2Model
-  wte    : Gpt2Embedding vocab hidden ex dt g
-  wpe    : Gpt2Embedding maxPos hidden ex dt g
+  wte    : Embedding vocab hidden ex dt g
+  wpe    : Embedding maxPos hidden ex dt g
   blocks : Vect numLayers (Gpt2BlockState hidden intermediate ex dt g)
-  lnF    : Gpt2LN hidden ex dt g
+  lnF    : LayerNorm hidden hidden ex dt g
 
 ----------------------------------------------------------------------
 -- Smart constructors
@@ -324,10 +315,10 @@ gpt2LnEps = 1.0e-5
 
 applyLN2d : {0 ex : Executor} -> UserExecutorTraining ex =>
             {0 seqLen, hidden : Nat} ->
-            Gpt2LN hidden ex dt g
+            LayerNorm hidden hidden ex dt g
          -> Tensor [seqLen, hidden] ex dt g
          -> IO (Tensor [seqLen, hidden] ex dt g)
-applyLN2d (MkGpt2LN g b) input = ioRerun (\_ =>
+applyLN2d (MkLayerNorm g b) input = ioRerun (\_ =>
   MkTensor (primLayerNorm2d {ex} input.tensorPtr g.tensorPtr b.tensorPtr gpt2LnEps)
            Nothing)
 
@@ -478,10 +469,10 @@ applyBlocks (b :: bs) cm x = do
 -- as HfBert's `applyEmbedLookup2d`.
 applyEmbedLookup2d : {0 ex : Executor} -> UserExecutorTraining ex =>
                      {seqLen, vocab, hidden : Nat}
-                  -> Gpt2Embedding vocab hidden ex dt g
+                  -> Embedding vocab hidden ex dt g
                   -> Tensor [seqLen] ex dt g
                   -> IO (Tensor [seqLen, hidden] ex dt g)
-applyEmbedLookup2d {seqLen} {hidden} (MkGpt2Embedding w) tokens = ioRerun (\_ =>
+applyEmbedLookup2d {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI  = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
@@ -542,4 +533,4 @@ hfGpt2ForwardLm {hidden} {vocab} {numHeads} {headDim} model tokenIds posIds = do
   -- LM head: x @ wte.weight^T → [seqLen, vocab]. wte.weight is
   -- [vocab, hidden]; tlinear2d wants weight as [out, in] = [vocab, hidden].
   -- Bias is zero (no separate LM bias in GPT-2).
-  projectTiedLmHead model.wte.weight hFinal
+  projectTiedLmHead model.wte.weightT hFinal

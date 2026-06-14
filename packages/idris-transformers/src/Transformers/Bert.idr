@@ -23,6 +23,9 @@ import Compat.Random
 import Executor
 import Transformers.Common
 import Init
+import Nn.Embedding
+import Nn.LayerNorm
+import Nn.Linear
 import Sampler
 import Tensor
 
@@ -195,16 +198,10 @@ fillConst buf off n v =
 -- record holds the typed handles for use at forward time. The pfx
 -- is the *Linear*'s prefix (e.g. `bert.encoder.layer.0.attention.self.query`),
 -- NOT the parent block.
-public export
-record BertLinearWb (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkBertLinear
-  weight : Tensor [o, i] ex dt g
-  bias   : Tensor [o] ex dt g
-
 makeBertLinear : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
               => {i, o : Nat}
               -> (paramPrefix : String)
-              -> IO (BertLinearWb i o ex dt WithGrad)
+              -> IO (Linear i o ex dt WithGrad)
 makeBertLinear pfx = do
   -- Fused C-side create + in-place init. Weight: normal(0, 0.02)
   -- matching HF's default Linear init; bias: zero. Replaces the per-
@@ -213,44 +210,33 @@ makeBertLinear pfx = do
   -- docs/develop/perf-changes.md).
   w <- tparam2dNormal {o} {i} (pfx ++ ".weight") 0.0 0.02
   b <- tparam1dConst  {n=o}   (pfx ++ ".bias")   0.0
-  pure (MkBertLinear w b)
+  pure (MkLinear w b)
 
 -- HF-named Embedding: registers `<pfx>.weight` (`[vocab, dim]`).
-public export
-record BertEmbedding (vocab, dim : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkBertEmbedding
-  weight : Tensor [vocab, dim] ex dt g
-
 makeBertEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                  => {vocab, dim : Nat}
                  -> (paramPrefix : String)
-                 -> IO (BertEmbedding vocab dim ex dt WithGrad)
+                 -> IO (Embedding vocab dim ex dt WithGrad)
 makeBertEmbedding pfx = do
   -- Fused C-side create + normal(0, 0.02) init. See makeBertLinear
   -- for the bottleneck this replaces.
   w <- tparam2dNormal {o=vocab} {i=dim} (pfx ++ ".weight") 0.0 0.02
-  pure (MkBertEmbedding w)
+  pure (MkEmbedding w)
 
 -- HF-named LayerNorm: registers `<pfx>.weight` (γ, init 1.0) and
 -- `<pfx>.bias` (β, init 0.0). HF capitalises `LayerNorm` in the path
 -- so callers pass e.g. `bert.embeddings.LayerNorm`.
-public export
-record BertLN (n : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkBertLN
-  gamma : Tensor [n] ex dt g
-  beta  : Tensor [n] ex dt g
-
 makeBertLN : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {n : Nat}
           -> (paramPrefix : String)
-          -> IO (BertLN n ex dt WithGrad)
+          -> IO (LayerNorm n n ex dt WithGrad)
 makeBertLN pfx = do
   -- Fused C-side const fill. γ = 1.0 (HF LayerNorm weight default),
   -- β = 0.0 (bias default). Replaces the host-side fillConst/zeroBuf
   -- loops + per-element prim__setDouble FFI.
   g <- tparam1dConst {n} (pfx ++ ".weight") 1.0
   b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
-  pure (MkBertLN g b)
+  pure (MkLayerNorm g b)
 
 ----------------------------------------------------------------------
 -- BERT state records
@@ -261,56 +247,56 @@ record BertEmbeddingsState
         (vocab, hidden, maxPos, typeVocab : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertEmbeddings
-  wordEmb   : BertEmbedding vocab hidden ex dt g
-  posEmb    : BertEmbedding maxPos hidden ex dt g
-  typeEmb   : BertEmbedding typeVocab hidden ex dt g
-  layerNorm : BertLN hidden ex dt g
+  wordEmb     : Embedding vocab hidden ex dt g
+  posEmb      : Embedding maxPos hidden ex dt g
+  typeEmb     : Embedding typeVocab hidden ex dt g
+  layerNorm   : LayerNorm hidden hidden ex dt g
 
 public export
 record BertSelfAttentionState
         (hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertSelfAttn
-  query : BertLinearWb hidden hidden ex dt g
-  key   : BertLinearWb hidden hidden ex dt g
-  value : BertLinearWb hidden hidden ex dt g
+  query : Linear hidden hidden ex dt g
+  key   : Linear hidden hidden ex dt g
+  value : Linear hidden hidden ex dt g
 
 public export
 record BertSelfOutputState
         (hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertSelfOut
-  dense     : BertLinearWb hidden hidden ex dt g
-  layerNorm : BertLN hidden ex dt g
+  dense     : Linear hidden hidden ex dt g
+  layerNorm : LayerNorm hidden hidden ex dt g
 
 public export
 record BertIntermediateState
         (hidden, intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertIntermediate
-  dense : BertLinearWb hidden intermediate ex dt g
+  dense : Linear hidden intermediate ex dt g
 
 public export
 record BertOutputState
         (hidden, intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertOut
-  dense     : BertLinearWb intermediate hidden ex dt g
-  layerNorm : BertLN hidden ex dt g
+  dense     : Linear intermediate hidden ex dt g
+  layerNorm : LayerNorm hidden hidden ex dt g
 
 public export
 record BertLayerState
         (hidden, intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertLayer
-  selfAttn : BertSelfAttentionState hidden ex dt g
-  selfOut  : BertSelfOutputState hidden ex dt g
-  intermed : BertIntermediateState hidden intermediate ex dt g
-  output   : BertOutputState hidden intermediate ex dt g
+  selfAttn   : BertSelfAttentionState hidden ex dt g
+  selfOut    : BertSelfOutputState hidden ex dt g
+  intermed   : BertIntermediateState hidden intermediate ex dt g
+  output     : BertOutputState hidden intermediate ex dt g
 
 public export
 record BertPoolerState
         (hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertPooler
-  dense : BertLinearWb hidden hidden ex dt g
+  dense : Linear hidden hidden ex dt g
 
 public export
 record BertModelState
@@ -470,10 +456,10 @@ bertLnEps = 1.0e-12
 -- directly so we get the natural 2D output in one op.
 applyEmbedLookup2d : {0 ex : Executor} -> UserExecutorTraining ex
                   => {seqLen, vocab, dim : Nat}
-                  -> BertEmbedding vocab dim ex dt g
+                  -> Embedding vocab dim ex dt g
                   -> Tensor [seqLen] ex dt g
                   -> IO (Tensor [seqLen, dim] ex dt g)
-applyEmbedLookup2d {seqLen} {dim} (MkBertEmbedding w) tokens = ioRerun (\_ =>
+applyEmbedLookup2d {seqLen} {dim} (MkEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       dI  = cast {to=Int} dim
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI dI
@@ -484,20 +470,20 @@ applyEmbedLookup2d {seqLen} {dim} (MkBertEmbedding w) tokens = ioRerun (\_ =>
 export
 applyLN2d : {0 ex : Executor} -> UserExecutorTraining ex
          => {seqLen, hidden : Nat}
-         -> BertLN hidden ex dt g
+         -> LayerNorm hidden hidden ex dt g
          -> Tensor [seqLen, hidden] ex dt g
          -> IO (Tensor [seqLen, hidden] ex dt g)
-applyLN2d (MkBertLN g b) input = ioRerun (\_ =>
+applyLN2d (MkLayerNorm g b) input = ioRerun (\_ =>
   MkTensor (primLayerNorm2d {ex} input.tensorPtr g.tensorPtr b.tensorPtr bertLnEps)
            Nothing)
 
--- Apply a BertLinearWb to a batched input [seq, i] -> [seq, o]. Uses
+-- Apply a Linear to a batched input [seq, i] -> [seq, o]. Uses
 -- the typed tlinear2d which handles bias broadcast.
 applyBertLinear2d : {0 ex : Executor} -> UserExecutorTraining ex
-                 => BertLinearWb i o ex dt g
+                 => Linear i o ex dt g
                  -> Tensor [seqLen, i] ex dt g
                  -> IO (Tensor [seqLen, o] ex dt g)
-applyBertLinear2d (MkBertLinear w b) x = tlinear2d w x b
+applyBertLinear2d (MkLinear w b) x = tlinear2d w x b
 
 -- Per-head attention math. Returns AnyPtr to a [seqLen, headDim]
 -- block; the caller's job is to either concat it with siblings or
@@ -640,7 +626,7 @@ applyPooler : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining e
 applyPooler (MkBertPooler dn) input = do
   -- Extract row 0 — the [CLS] token's contextualised hidden state.
   cls    <- trowSelect input 0  -- [hidden]
-  dense  <- tlinear dn.weight cls dn.bias
+  dense  <- tlinear dn.weightT cls dn.biasT
   ttanh dense
 
 -- Embeddings forward: sum word + position + token-type, LayerNorm.
@@ -707,14 +693,14 @@ hfBertForward (MkBertModel emb layers pool) inputIds positionIds tokenTypeIds ma
 -- We model that as a triple: the transform Linear, the transform LN,
 -- and a standalone bias Tensor. At forward time the tied decoder is
 -- synthesised by reusing the embeddings' word_embeddings tensor as a
--- BertLinearWb [vocab, hidden] handle.
+-- Linear [vocab, hidden] handle.
 
 public export
 record BertMlmHeadState
         (vocab, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertMlmHead
-  transformDense : BertLinearWb hidden hidden ex dt g
-  transformLn    : BertLN hidden ex dt g
+  transformDense : Linear hidden hidden ex dt g
+  transformLn    : LayerNorm hidden hidden ex dt g
   bias           : Tensor [vocab] ex dt g
 
 ||| Register the 5 MLM-head params under `<clsPrefix>.predictions.*`.
@@ -765,7 +751,7 @@ hfBertForMaskedLm pfx = do
   pure (MkBertForMaskedLm base mlm)
 
 -- Apply the MLM head to encoder output [seq, hidden] producing logits
--- [seq, vocab]. The tied decoder is reconstituted as a BertLinearWb
+-- [seq, vocab]. The tied decoder is reconstituted as a Linear
 -- whose `weight` is the embedding tensor and whose `bias` is the head's
 -- standalone bias.
 applyMlmHead : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
@@ -779,8 +765,8 @@ applyMlmHead (MkBertMlmHead td tn b) wordEmb x = do
   h2 <- tgelu h1
   h3 <- applyLN2d tn h2
   -- Tied decoder: word_emb is shape [vocab, hidden] — exactly the
-  -- BertLinearWb hidden vocab weight shape.
-  let decoder = MkBertLinear {i=hidden} {o=vocab} wordEmb b
+  -- Linear hidden vocab weight shape.
+  let decoder = MkLinear {i=hidden} {o=vocab} wordEmb b
   applyBertLinear2d decoder h3       -- [seq, vocab]
 
 ||| Full MLM forward: input IDs → per-token vocab logits. Caller
@@ -803,4 +789,4 @@ hfBertMlmForward : {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTrain
 hfBertMlmForward (MkBertForMaskedLm (MkBertModel emb layers _) head) i p t mask = do
   hEmb <- applyEmbeddings emb i p t
   hEnc <- applyEncoder {numHeads} {headDim} layers (map (\m => m.tensorPtr) mask) hEmb
-  applyMlmHead head emb.wordEmb.weight hEnc
+  applyMlmHead head emb.wordEmb.weightT hEnc

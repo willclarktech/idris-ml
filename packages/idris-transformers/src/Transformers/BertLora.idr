@@ -36,6 +36,7 @@ module Transformers.BertLora
 import Data.Vect
 
 import Executor
+import Nn.Linear
 import Transformers.Bert
 import Transformers.BertForClassification
 import Tensor
@@ -186,9 +187,9 @@ applySelfAttnWithLora :
   -> IO (Tensor [seqLen, hidden] ex dt g)
 applySelfAttnWithLora {numHeads = Z} _ _ _ _ _ _ input                              = pure input
 applySelfAttnWithLora {numHeads = S Z} {headDim} sa qAdp vAdp rank alpha mask input = do
-  qBase <- tlinear2d sa.query.weight input sa.query.bias
-  kBase <- tlinear2d sa.key.weight   input sa.key.bias
-  vBase <- tlinear2d sa.value.weight input sa.value.bias
+  qBase <- tlinear2d sa.query.weightT input sa.query.biasT
+  kBase <- tlinear2d sa.key.weightT   input sa.key.biasT
+  vBase <- tlinear2d sa.value.weightT input sa.value.biasT
   q <- addLoraDelta2d qBase input qAdp rank alpha
   v <- addLoraDelta2d vBase input vAdp rank alpha
   ioRerun (\_ =>
@@ -202,9 +203,9 @@ applySelfAttnWithLora {numHeads = S Z} {headDim} sa qAdp vAdp rank alpha mask in
         ctx  = primMm {ex} attn v.tensorPtr
     in MkTensor ctx Nothing)
 applySelfAttnWithLora {numHeads = S (S k)} {headDim} sa qAdp vAdp rank alpha mask input = do
-  qBase <- tlinear2d sa.query.weight input sa.query.bias
-  kBase <- tlinear2d sa.key.weight   input sa.key.bias
-  vBase <- tlinear2d sa.value.weight input sa.value.bias
+  qBase <- tlinear2d sa.query.weightT input sa.query.biasT
+  kBase <- tlinear2d sa.key.weightT   input sa.key.biasT
+  vBase <- tlinear2d sa.value.weightT input sa.value.biasT
   q <- addLoraDelta2d qBase input qAdp rank alpha
   v <- addLoraDelta2d vBase input vAdp rank alpha
   let headDimI = cast {to=Int} headDim
@@ -231,12 +232,12 @@ applyLayerWithLora :
   -> IO (Tensor [seqLen, hidden] ex dt g)
 applyLayerWithLora (MkBertLayer sa so im out) qAdp vAdp rank alpha mask input = do
   attnCtx  <- applySelfAttnWithLora {numHeads} {headDim} sa qAdp vAdp rank alpha mask input
-  attnDen  <- tlinear2d so.dense.weight attnCtx so.dense.bias
+  attnDen  <- tlinear2d so.dense.weightT attnCtx so.dense.biasT
   postAttn <- tadd input attnDen
   postLN1  <- applyLN2d so.layerNorm postAttn
-  ffnHid   <- tlinear2d im.dense.weight postLN1 im.dense.bias
+  ffnHid   <- tlinear2d im.dense.weightT postLN1 im.dense.biasT
   ffnAct   <- tgelu ffnHid
-  ffnOut   <- tlinear2d out.dense.weight ffnAct out.dense.bias
+  ffnOut   <- tlinear2d out.dense.weightT ffnAct out.dense.biasT
   postFfn  <- tadd postLN1 ffnOut
   applyLN2d out.layerNorm postFfn
 
@@ -313,4 +314,4 @@ hfBertSeqClassifyForwardWithLora :
 hfBertSeqClassifyForwardWithLora (MkBertForSeqClassify base (MkBertClassifierHead head))
                                  lora i p t mask = do
   pooled <- hfBertForwardWithLora {numHeads} {headDim} base lora i p t mask
-  tlinear head.weight pooled head.bias
+  tlinear head.weightT pooled head.biasT

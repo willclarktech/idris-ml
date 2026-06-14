@@ -57,6 +57,8 @@ import Executor
 import Transformers.Common
 import Init
 import Transformers.KVCache
+import Nn.Embedding
+import Nn.RmsNorm
 import Nn.RoPE
 import Sampler
 import Tensor
@@ -189,32 +191,22 @@ makeLlamaLinear paramFullName = do
 ||| from HF on-disk (`model.norm.weight`, `…input_layernorm.weight`,
 ||| `…post_attention_layernorm.weight`). The eps comes from the model
 ||| config (1e-5 for Llama 3).
-public export
-record LlamaRmsNorm (n : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkLlamaRmsNorm
-  weight : Tensor [n] ex dt g
-
 makeLlamaRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                 => {n : Nat}
                 -> (paramFullName : String)
-                -> IO (LlamaRmsNorm n ex dt WithGrad)
+                -> IO (RmsNorm n n ex dt WithGrad)
 makeLlamaRmsNorm paramFullName = do
   -- Fused C-side const fill (weight = 1.0). Replaces fillConst loop
   -- + per-element FFI.
   w <- tparam1dConst {n} paramFullName 1.0
-  pure (MkLlamaRmsNorm w)
+  pure (MkRmsNorm w)
 
 ||| Token embedding: `[vocab, hidden]`. Used for both the input
 ||| embedding lookup AND the (tied) LM head at forward time.
-public export
-record LlamaEmbedding (vocab, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkLlamaEmbedding
-  weight : Tensor [vocab, hidden] ex dt g
-
 makeLlamaEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                   => {vocab, hidden : Nat}
                   -> (paramFullName : String)
-                  -> IO (LlamaEmbedding vocab hidden ex dt WithGrad)
+                  -> IO (Embedding vocab hidden ex dt WithGrad)
 makeLlamaEmbedding paramFullName = do
   -- Fused C-side normal(0, 0.02) init. Llama 3.2's embed_tokens is
   -- [128256, 2048] = 263M elements — the single largest tensor in
@@ -222,7 +214,7 @@ makeLlamaEmbedding paramFullName = do
   -- ~10 min; under the fused-init primitive it's a libtorch in-place
   -- kernel that completes in ~ms.
   w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
-  pure (MkLlamaEmbedding w)
+  pure (MkEmbedding w)
 
 ----------------------------------------------------------------------
 -- State records (one per HF Llama subtree)
@@ -261,9 +253,9 @@ record LlamaBlockState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaBlock
-  inputNorm    : LlamaRmsNorm hidden ex dt g
+  inputNorm    : RmsNorm hidden hidden ex dt g
   attn         : LlamaAttentionState hidden qOut kvOut ex dt g
-  postAttnNorm : LlamaRmsNorm hidden ex dt g
+  postAttnNorm : RmsNorm hidden hidden ex dt g
   mlp          : LlamaMlpState hidden intermediate ex dt g
 
 ||| Full Llama model state: token embedding + N decoder blocks +
@@ -275,9 +267,9 @@ record LlamaModelState
         (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLlamaModel
-  embedTokens : LlamaEmbedding vocab hidden ex dt g
+  embedTokens : Embedding vocab hidden ex dt g
   blocks      : Vect numLayers (LlamaBlockState hidden qOut kvOut intermediate ex dt g)
-  finalNorm   : LlamaRmsNorm hidden ex dt g
+  finalNorm   : RmsNorm hidden hidden ex dt g
 
 ----------------------------------------------------------------------
 -- Smart constructors
@@ -359,10 +351,10 @@ hfLlamaModel pfx = do
 applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
-                 LlamaRmsNorm hidden ex dt g ->
+                 RmsNorm hidden hidden ex dt g ->
                  Tensor [seqLen, hidden] ex dt g ->
                  IO (Tensor [seqLen, hidden] ex dt g)
-applyRmsNorm2d eps (MkLlamaRmsNorm weight) input =
+applyRmsNorm2d eps (MkRmsNorm weight) input =
   applyRmsNorm2dRaw eps weight input
 
 ||| Bias-free Linear forward on `[seqLen, in] -> [seqLen, out]`.
@@ -380,10 +372,10 @@ applyLinear2d (MkLlamaLinear w) x = ioRerun (\_ =>
 ||| pattern as Transformers.Bert.idr's applyEmbedLookup2d.
 applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seqLen, vocab, hidden : Nat} ->
-                   LlamaEmbedding vocab hidden ex dt g ->
+                   Embedding vocab hidden ex dt g ->
                    Tensor [seqLen] ex dt g ->
                    IO (Tensor [seqLen, hidden] ex dt g)
-applyEmbedLookup {seqLen} {hidden} (MkLlamaEmbedding w) tokens = ioRerun (\_ =>
+applyEmbedLookup {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI  = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
@@ -526,7 +518,7 @@ hfLlamaForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorC
                 -> IO (Tensor [seq, vocab] ex dt g)
 hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
   hFinal <- hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens
-  projectTiedLmHead model.embedTokens.weight hFinal
+  projectTiedLmHead model.embedTokens.weightT hFinal
 
 ----------------------------------------------------------------------
 -- Cache-aware forward (incremental decode)
@@ -697,7 +689,7 @@ hfLlamaForwardLmStep :
 hfLlamaForwardLmStep {numHeads} {numKvHeads} {headDim} eps model tables caches tokens = do
   (caches', hFinal) <- hfLlamaForwardStep {numHeads} {numKvHeads} {headDim}
                                           eps model tables caches tokens
-  logits <- projectTiedLmHead model.embedTokens.weight hFinal
+  logits <- projectTiedLmHead model.embedTokens.weightT hFinal
   pure (caches', logits)
 
 ||| Build a `Vect numLayers` of empty `KVCache`s for the given Llama

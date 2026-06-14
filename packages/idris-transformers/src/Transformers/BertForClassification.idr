@@ -24,6 +24,7 @@ module Transformers.BertForClassification
 import Data.Vect
 
 import Executor
+import Nn.Linear
 import Tensor
 import Transformers.Bert
 
@@ -61,7 +62,7 @@ bertForSequenceClassificationParamNames cfg bertPfx clsPfx =
 
 ||| Classifier head: a single Linear consuming the pooled [CLS]
 ||| embedding. The on-disk weight shape `[numClasses, hidden]` matches
-||| `BertLinearWb hidden numClasses` exactly (the existing helper
+||| `Linear hidden numClasses` exactly (the existing helper
 ||| already registers `<pfx>.weight` / `<pfx>.bias` under the right
 ||| HF-literal names).
 |||
@@ -75,7 +76,7 @@ record BertClassifierHeadState
         (hidden, numClasses : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertClassifierHead
-  dense : BertLinearWb hidden numClasses ex dt g
+  dense : Linear hidden numClasses ex dt g
 
 public export
 record BertForSequenceClassificationState
@@ -106,7 +107,7 @@ makeClassifierHead pfx = do
   -- because that helper is private to `Transformers.Bert.idr`.)
   w <- tparam2dNormal {o=numClasses} {i=hidden} (pfx ++ ".weight") 0.0 0.02
   b <- tparam1dConst  {n=numClasses}            (pfx ++ ".bias")   0.0
-  pure (MkBertClassifierHead (MkBertLinear w b))
+  pure (MkBertClassifierHead (MkLinear w b))
 
 ||| Build a fresh BertForSequenceClassification. Backbone params live
 ||| under `<bertPrefix>.*` (pass `"bert"` to match HF on-disk names);
@@ -167,4 +168,4 @@ hfBertSeqClassifyForward :
   -> IO (Tensor [numClasses] ex dt g)
 hfBertSeqClassifyForward (MkBertForSeqClassify base (MkBertClassifierHead head)) i p t mask = do
   pooled <- hfBertForward {numHeads} {headDim} base i p t mask
-  tlinear head.weight pooled head.bias
+  tlinear head.weightT pooled head.biasT

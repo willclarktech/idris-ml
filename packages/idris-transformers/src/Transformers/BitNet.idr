@@ -44,7 +44,7 @@
 |||         separate `lm_head.weight` on disk; `hfBitnetForwardLm`
 |||         reuses the embedding tensor for the final projection).
 |||   - One module-level state record per HF subtree (BitLinearHf,
-|||     BitNetRmsNorm, BitNetEmbedding, attention, MLP,
+|||     BitNetRmsNorm, Embedding, attention, MLP,
 |||     block, model) so the type system pins shapes at construction.
 |||
 ||| Forward composition (per layer):
@@ -65,6 +65,8 @@ import Compat.Random
 import Executor
 import Transformers.Common
 import Init
+import Nn.Embedding
+import Nn.RmsNorm
 import Nn.RoPE
 import Sampler
 import Tensor
@@ -245,38 +247,28 @@ makeBitLinearHf weightName weightScaleName = do
 ||| eps from the model config (1e-5 for BitNet). Used for the four
 ||| RmsNorms per block (input_layernorm, post_attention_layernorm,
 ||| attn_sub_norm, ffn_sub_norm) plus the top-level `model.norm`.
-public export
-record BitNetRmsNorm (n : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkBitNetRmsNorm
-  weight : Tensor [n] ex dt g
-
 makeBitNetRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                  => {n : Nat}
                  -> (paramFullName : String)
-                 -> IO (BitNetRmsNorm n ex dt WithGrad)
+                 -> IO (RmsNorm n n ex dt WithGrad)
 makeBitNetRmsNorm paramFullName = do
   w <- tparam1dConst {n} paramFullName 1.0
-  pure (MkBitNetRmsNorm w)
+  pure (MkRmsNorm w)
 
 ||| Token embedding: `[vocab, hidden]`. Stored under
 ||| `model.embed_tokens.weight`. This SAME tensor is reused as the
 ||| LM-head projection in `hfBitnetForwardLm`
 ||| (`tie_word_embeddings=True` — no separate `lm_head.weight`).
-public export
-record BitNetEmbedding (vocab, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkBitNetEmbedding
-  weight : Tensor [vocab, hidden] ex dt g
-
 makeBitNetEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
                    => {vocab, hidden : Nat}
                    -> (paramFullName : String)
-                   -> IO (BitNetEmbedding vocab hidden ex dt WithGrad)
+                   -> IO (Embedding vocab hidden ex dt WithGrad)
 makeBitNetEmbedding paramFullName = do
   w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
-  pure (MkBitNetEmbedding w)
+  pure (MkEmbedding w)
 
 -- LM head is tied to the token embedding (`tie_word_embeddings=True`).
--- `hfBitnetForwardLm` reuses `model.embedTokens.weight` directly for
+-- `hfBitnetForwardLm` reuses `model.embedTokens.weightT` directly for
 -- the final projection — no separate `BitNetLmHead` record.
 
 ----------------------------------------------------------------------
@@ -302,7 +294,7 @@ record BitNetAttentionState
   -- either typing — `qOut` is the one that makes the type-checked
   -- apply work without a proof. Same trick as HfLlama's `qOut` in
   -- `oProj : LlamaLinearNoBias qOut hidden`.
-  attnSubNorm : BitNetRmsNorm qOut ex dt g
+  attnSubNorm : RmsNorm qOut qOut ex dt g
   oProj       : BitLinearHf qOut hidden ex dt g
 
 ||| MLP sublayer state. Three BitLinears (gate/up/down) + the BitNet-
@@ -319,7 +311,7 @@ record BitNetMlpState
   constructor MkBitNetMlp
   gateProj   : BitLinearHf hidden intermediate ex dt g
   upProj     : BitLinearHf hidden intermediate ex dt g
-  ffnSubNorm : BitNetRmsNorm intermediate ex dt g
+  ffnSubNorm : RmsNorm intermediate intermediate ex dt g
   downProj   : BitLinearHf intermediate hidden ex dt g
 
 ||| One decoder block: pre-norm + attention (with attn_sub_norm) +
@@ -329,9 +321,9 @@ record BitNetBlockState
         (hidden : Nat) (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetBlock
-  inputNorm    : BitNetRmsNorm hidden ex dt g
+  inputNorm    : RmsNorm hidden hidden ex dt g
   attn         : BitNetAttentionState hidden qOut kvOut ex dt g
-  postAttnNorm : BitNetRmsNorm hidden ex dt g
+  postAttnNorm : RmsNorm hidden hidden ex dt g
   mlp          : BitNetMlpState hidden intermediate ex dt g
 
 ||| Full BitNet model state: token embedding + N decoder blocks +
@@ -342,9 +334,9 @@ record BitNetModelState
         (qOut : Nat) (kvOut : Nat) (intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetModel
-  embedTokens : BitNetEmbedding vocab hidden ex dt g
+  embedTokens : Embedding vocab hidden ex dt g
   blocks      : Vect numLayers (BitNetBlockState hidden qOut kvOut intermediate ex dt g)
-  finalNorm   : BitNetRmsNorm hidden ex dt g
+  finalNorm   : RmsNorm hidden hidden ex dt g
   -- No `lmHead` field — `tie_word_embeddings=True` means the embed
   -- weight is also the LM-head projection (see `hfBitnetForwardLm`).
 
@@ -471,10 +463,10 @@ export
 applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
-                 BitNetRmsNorm hidden ex dt g ->
+                 RmsNorm hidden hidden ex dt g ->
                  Tensor [seqLen, hidden] ex dt g ->
                  IO (Tensor [seqLen, hidden] ex dt g)
-applyRmsNorm2d eps (MkBitNetRmsNorm weight) input =
+applyRmsNorm2d eps (MkRmsNorm weight) input =
   applyRmsNorm2dRaw eps weight input
 
 ||| 2D wrapper around the 1D `tBitlinearFwdHfQuant`. Walks `seqLen`
@@ -567,10 +559,10 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
 export
 applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seqLen, vocab, hidden : Nat} ->
-                   BitNetEmbedding vocab hidden ex dt g ->
+                   Embedding vocab hidden ex dt g ->
                    Tensor [seqLen] ex dt g ->
                    IO (Tensor [seqLen, hidden] ex dt g)
-applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
+applyEmbedLookup {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
       hI  = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
@@ -720,7 +712,7 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
   -- Tied LM head: HF's `tie_word_embeddings=True` means the embedding
   -- weight IS the LM-head projection. No separate `lm_head.weight`
   -- exists in the safetensors file for `microsoft/bitnet-b1.58-2B-4T`.
-  projectTiedLmHead model.embedTokens.weight hFinal
+  projectTiedLmHead model.embedTokens.weightT hFinal
 
 ----------------------------------------------------------------------
 -- Checkpoint load (B4.6 — HF-format ternary + float roundtrip)
