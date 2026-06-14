@@ -16,10 +16,10 @@ import Data.Vect
 import Array
 import Executor
 import Executor.Core
-import Test.Config
-import Test.Harness
 import KVCache
 import Tensor
+import Test.Config
+import Test.Harness
 
 ----------------------------------------------------------------------
 -- Helpers

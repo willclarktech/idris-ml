@@ -5,11 +5,11 @@ import Test.HfBert
 import Test.HfBertAttentionMask
 import Test.HfBertForClassification
 import Test.HfBertLoraInject
-import Test.HfLoraIO
 import Test.HfBitNet
 import Test.HfDataset
 import Test.HfGpt2
 import Test.HfLlama
+import Test.HfLoraIO
 import Test.KVCache
 import Test.Tokenizer
 

@@ -24,8 +24,8 @@ module HfBertForClassification
 import Data.Vect
 
 import Executor
-import Tensor
 import HfBert
+import Tensor
 
 ----------------------------------------------------------------------
 -- Param-name catalogue

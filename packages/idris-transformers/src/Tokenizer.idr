@@ -34,11 +34,10 @@
 ||| single-threaded; concurrent use is an explicit non-goal for v1.
 module Tokenizer
 
+import Data.Fin
 import Data.List
 import Data.String
 import Data.Vect
-import Data.Fin
-
 import System
 import System.File
 

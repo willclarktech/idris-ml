@@ -21,15 +21,14 @@ import Data.List
 import Data.String
 import Data.Vect
 
-import HfBitNet
-import Test.Harness
-import Test.HfCommon
-
 import Executor
 import Executor.Core
-import Test.Config
+import HfBitNet
 import Layer.RoPE
 import Tensor
+import Test.Config
+import Test.Harness
+import Test.HfCommon
 
 ----------------------------------------------------------------------
 -- Reference catalogue
