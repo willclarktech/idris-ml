@@ -7,6 +7,8 @@
 
 module Example.DncAssociativeRecall
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Maybe
 import Data.Vect
@@ -14,6 +16,7 @@ import System
 
 import BuildConfig
 import Compat.Random
+import FitL
 import ML.Simple
 import Train
 
@@ -132,13 +135,23 @@ twoPhaseLoss model (encIns, targs) = do
   s   <- sumLosses ls
   (1.0 / cast (length targs)) *: s
 
-recurEpoch : Optimizer Ex -> Model -> List Seq -> IO (Model, Double)
-recurEpoch opt model batch = do
-  ls   <- traverse (twoPhaseLoss model) batch
-  s    <- sumLosses ls
-  mean <- (1.0 / cast (length batch)) *: s
-  d    <- nativeTrainStep opt mean
-  pure (model, d)
+-- Borrow a linear DNC for an IO action (consume-match-rebuild-delegate; see
+-- Example.NtmCopy / Example.DncCopy).
+withModelL : {0 a : Type} -> (1 _ : Model) -> (Model -> IO a) ->
+             L IO {use = 1} (LPair (!* a) Model)
+withModelL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) act = do
+  let m : Model := MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS
+  r <- liftIO1 (act m)
+  pure1 (MkBang r # m)
+
+recurEpochL : Optimizer Ex -> (1 _ : Model) -> List Seq ->
+              L IO {use = 1} (LPair (!* Double) Model)
+recurEpochL opt model batch =
+  withModelL model (\m => do
+    ls   <- traverse (twoPhaseLoss m) batch
+    s    <- sumLosses ls
+    mean <- (1.0 / cast (length batch)) *: s
+    nativeTrainStep opt mean)
 
 ----------------------------------------------------------------------
 -- Eval: bit accuracy over a fresh test batch (no grad)
@@ -222,20 +235,23 @@ main = do
 
   opt <- rmsprop cfg.lr {alpha = cfg.alpha} {momentum = cfg.momentum}
                  ({ clip := NormClip cfg.clipVal } defaultOpts)
-  model <- runInit (dnc {r = R} {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
   let dataStream = generate (genBatch cfg.batch cfg.minItems cfg.maxItems)
-  putStrLn ""
 
-  (trained, epochsDone, _) <-
-    fit (recurEpoch opt) opt dataStream
-        (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
-        model
-
-  putStrLn ""
-  putStrLn "Eval:"
-  testBatch <- genBatch 100 2 6
-  acc <- bitAccuracy trained testBatch
-  putStrLn $ "  Bit accuracy (2-6 items): " ++ show (acc * 100.0) ++ "%"
-  putStrLn ""
-  putStrLn $ formatResult [("epochs", show epochsDone),
-                           ("acc", show acc), ("seed", show cfg.seed)]
+  -- Linear surface end to end (see Example.NtmCopy / Example.DncCopy).
+  Control.Linear.LIO.run $ do
+    model <- runInitL (dnc {r = R} {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
+    liftIO1 (putStrLn "")
+    (MkBang (epochsDone, _) # trained) <-
+      fitL (recurEpochL opt) opt dataStream
+           (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
+           model
+    liftIO1 (putStrLn "" >> putStrLn "Eval:")
+    (MkBang acc # trained') <- withModelL trained (\m => do
+      testBatch <- genBatch 100 2 6
+      bitAccuracy m testBatch)
+    discardL trained'
+    liftIO1 $ do
+      putStrLn $ "  Bit accuracy (2-6 items): " ++ show (acc * 100.0) ++ "%"
+      putStrLn ""
+      putStrLn $ formatResult [("epochs", show epochsDone),
+                               ("acc", show acc), ("seed", show cfg.seed)]

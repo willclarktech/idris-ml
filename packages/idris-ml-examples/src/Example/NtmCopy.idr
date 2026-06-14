@@ -7,12 +7,15 @@
 
 module Example.NtmCopy
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
 
 import BuildConfig
 import Compat.Random
+import FitL
 import ML.Simple
 import Train
 
@@ -115,13 +118,28 @@ twoPhaseLoss model (encIns, targs) = do
   s   <- sumLosses ls
   (1.0 / cast (length targs)) *: s
 
-recurEpoch : Optimizer Ex -> Model -> List Seq -> IO (Model, Double)
-recurEpoch opt model batch = do
-  ls   <- traverse (twoPhaseLoss model) batch
-  s    <- sumLosses ls
-  mean <- (1.0 / cast (length batch)) *: s
-  d    <- nativeTrainStep opt mean
-  pure (model, d)
+-- Borrow a linear NTM for an IO action that needs it (consume-match-rebuild-
+-- delegate): the model is a bare `Ntm` layer rather than a wrapper record, so
+-- match its `MkNtm` constructor (binding all fields at ω), build a reusable ω
+-- model, run the IO action, and return the model beside the banged result.
+-- One match here; every linear read site goes through this helper.
+withModelL : {0 a : Type} -> (1 _ : Model) -> (Model -> IO a) ->
+             L IO {use = 1} (LPair (!* a) Model)
+withModelL (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) act = do
+  let m : Model := MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS
+  r <- liftIO1 (act m)
+  pure1 (MkBang r # m)
+
+-- Linear-resource epoch step: borrow the model, run the two-phase batch loss +
+-- optimizer step, thread the model back.
+recurEpochL : Optimizer Ex -> (1 _ : Model) -> List Seq ->
+              L IO {use = 1} (LPair (!* Double) Model)
+recurEpochL opt model batch =
+  withModelL model (\m => do
+    ls   <- traverse (twoPhaseLoss m) batch
+    s    <- sumLosses ls
+    mean <- (1.0 / cast (length batch)) *: s
+    nativeTrainStep opt mean)
 
 ----------------------------------------------------------------------
 -- Eval: bit accuracy over a fresh test batch (no grad)
@@ -206,23 +224,27 @@ main = do
 
   opt <- rmsprop cfg.lr {alpha = cfg.alpha} {momentum = cfg.momentum}
                  ({ clip := NormClip cfg.clipVal } defaultOpts)
-  model <- runInit (ntm {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
   let dataStream = generate (genBatch cfg.batch cfg.minLen cfg.maxLen)
-  putStrLn ""
 
-  -- Final loss is discarded: with windowed-percentile early stop the
-  -- engine's returned loss isn't meaningful; the per-epoch
-  -- log carries the real loss trajectory, and bit accuracy is the headline.
-  (trained, epochsDone, _) <-
-    fit (recurEpoch opt) opt dataStream
-        (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
-        model
-
-  putStrLn ""
-  putStrLn "Eval:"
-  testBatch <- genBatch 100 1 20
-  acc <- bitAccuracy trained testBatch
-  putStrLn $ "  Bit accuracy (len 1-20): " ++ show (acc * 100.0) ++ "%"
-  putStrLn ""
-  putStrLn $ formatResult [("epochs", show epochsDone),
-                           ("acc", show acc), ("seed", show cfg.seed)]
+  -- Linear surface end to end: model born linear (runInitL), threaded through
+  -- fitL (recurEpochL borrows-and-returns it each epoch), eval via withModelL,
+  -- final handle discarded. Final loss is discarded: with windowed-percentile
+  -- early stop the engine's returned loss isn't meaningful; bit accuracy is
+  -- the headline.
+  Control.Linear.LIO.run $ do
+    model <- runInitL (ntm {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
+    liftIO1 (putStrLn "")
+    (MkBang (epochsDone, _) # trained) <-
+      fitL (recurEpochL opt) opt dataStream
+           (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
+           model
+    liftIO1 (putStrLn "" >> putStrLn "Eval:")
+    (MkBang acc # trained') <- withModelL trained (\m => do
+      testBatch <- genBatch 100 1 20
+      bitAccuracy m testBatch)
+    discardL trained'
+    liftIO1 $ do
+      putStrLn $ "  Bit accuracy (len 1-20): " ++ show (acc * 100.0) ++ "%"
+      putStrLn ""
+      putStrLn $ formatResult [("epochs", show epochsDone),
+                               ("acc", show acc), ("seed", show cfg.seed)]
