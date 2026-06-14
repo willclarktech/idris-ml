@@ -62,11 +62,13 @@ modules = Compat.Random
         , Layer.Transformer
         , Math
         , Nn.Activation
+        , Nn.Dropout
         , Nn.Group
         , Nn.Init
         , Nn.LayerNorm
         , Nn.Linear
         , Nn.Module
+        , Nn.Residual
         , Nn.Seq
         , Optimizer
         , RL.Gae
