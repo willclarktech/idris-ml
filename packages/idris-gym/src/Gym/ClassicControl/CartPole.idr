@@ -7,16 +7,16 @@ import Gym.Env
 -- CartPole-v1 (Gymnasium-compatible constants)
 ----------------------------------------------------------------------
 
-Gravity : Double;       Gravity = 9.8
-MassCart : Double;      MassCart = 1.0
-MassPole : Double;      MassPole = 0.1
-TotalMass : Double;     TotalMass = MassCart + MassPole
+Gravity     : Double;       Gravity = 9.8
+MassCart    : Double;      MassCart = 1.0
+MassPole    : Double;      MassPole = 0.1
+TotalMass   : Double;     TotalMass = MassCart + MassPole
 HalfPoleLen : Double;   HalfPoleLen = 0.5
 PoleMassLen : Double;   PoleMassLen = MassPole * HalfPoleLen
-ForceMag : Double;      ForceMag = 10.0
-Tau : Double;           Tau = 0.02
+ForceMag    : Double;      ForceMag = 10.0
+Tau         : Double;           Tau = 0.02
 ThetaThresh : Double;   ThetaThresh = 12.0 * 2.0 * 3.141592653589793 / 360.0
-XThresh : Double;       XThresh = 2.4
+XThresh     : Double;       XThresh = 2.4
 
 ||| CartPole internal state: position, velocity, angle, angular velocity.
 public export

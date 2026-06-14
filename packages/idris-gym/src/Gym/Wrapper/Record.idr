@@ -12,9 +12,9 @@ import Gym.Env
 public export
 record Recorded state where
   constructor MkRecorded
-  inner : state
+  inner       : state
   totalReward : Double
-  epLength : Nat
+  epLength    : Nat
 
 export
 recorded : state -> Recorded state

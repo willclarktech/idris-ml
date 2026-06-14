@@ -7,14 +7,14 @@ import Gym.Env
 -- MountainCarContinuous-v0 (Gymnasium-compatible constants)
 ----------------------------------------------------------------------
 
-MinPosition   : Double; MinPosition   = -1.2
-MaxPosition   : Double; MaxPosition   = 0.6
-MaxSpeed      : Double; MaxSpeed      = 0.07
-GoalPosition  : Double; GoalPosition  = 0.45
-GoalVelocity  : Double; GoalVelocity  = 0.0
-Power         : Double; Power         = 0.0015
-MinAction     : Double; MinAction     = -1.0
-MaxAction     : Double; MaxAction     = 1.0
+MinPosition  : Double; MinPosition   = -1.2
+MaxPosition  : Double; MaxPosition   = 0.6
+MaxSpeed     : Double; MaxSpeed      = 0.07
+GoalPosition : Double; GoalPosition  = 0.45
+GoalVelocity : Double; GoalVelocity  = 0.0
+Power        : Double; Power         = 0.0015
+MinAction    : Double; MinAction     = -1.0
+MaxAction    : Double; MaxAction     = 1.0
 
 public export
 record MCCState where

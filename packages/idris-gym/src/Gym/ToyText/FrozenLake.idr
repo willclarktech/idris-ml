@@ -40,9 +40,9 @@ defaultMap =
 public export
 record FLState where
   constructor MkFL
-  flPos : Nat
-  flMap : Vect 16 Tile
-  flSeed : Seed
+  flPos      : Nat
+  flMap      : Vect 16 Tile
+  flSeed     : Seed
   flSlippery : Bool
 
 ||| Reset from a caller-provided seed and slipperiness flag.

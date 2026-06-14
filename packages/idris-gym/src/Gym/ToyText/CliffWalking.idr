@@ -11,12 +11,12 @@ import Gym.Rng
 -- (episode continues). Reward -1 per step. Episode ends at goal.
 ----------------------------------------------------------------------
 
-NumRows : Nat; NumRows = 4
-NumCols : Nat; NumCols = 12
+NumRows  : Nat; NumRows = 4
+NumCols  : Nat; NumCols = 12
 StartRow : Nat; StartRow = 3
 StartCol : Nat; StartCol = 0
-GoalRow : Nat; GoalRow = 3
-GoalCol : Nat; GoalCol = 11
+GoalRow  : Nat; GoalRow = 3
+GoalCol  : Nat; GoalCol = 11
 
 ||| State = single integer encoding row * 12 + col.
 public export

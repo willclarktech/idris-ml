@@ -7,12 +7,12 @@ import Gym.Env
 -- MountainCar-v0 (Gymnasium-compatible constants)
 ----------------------------------------------------------------------
 
-MinPosition : Double; MinPosition = -1.2
-MaxPosition : Double; MaxPosition = 0.6
-MaxSpeed    : Double; MaxSpeed    = 0.07
+MinPosition  : Double; MinPosition = -1.2
+MaxPosition  : Double; MaxPosition = 0.6
+MaxSpeed     : Double; MaxSpeed    = 0.07
 GoalPosition : Double; GoalPosition = 0.5
-MCForce       : Double; MCForce       = 0.001
-Gravity     : Double; Gravity     = 0.0025
+MCForce      : Double; MCForce       = 0.001
+Gravity      : Double; Gravity     = 0.0025
 
 ||| MountainCar state: position and velocity.
 public export

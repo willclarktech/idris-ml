@@ -24,10 +24,10 @@ import Gym.Rng
 public export
 record BJState where
   constructor MkBJ
-  bjPlayer   : List Nat
-  bjDealer   : List Nat   -- first card is visible; whole hand resolved at end
-  bjDone     : Bool
-  bjSeed     : Seed
+  bjPlayer : List Nat
+  bjDealer : List Nat   -- first card is visible; whole hand resolved at end
+  bjDone   : Bool
+  bjSeed   : Seed
 
 ||| Draw one card from a uniform 13-card suit (canonical Gymnasium
 ||| Blackjack-v1 distribution). Values: 1=Ace (1/13), 2..9 (1/13 each),

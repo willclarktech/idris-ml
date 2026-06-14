@@ -11,8 +11,8 @@ import Data.Vect
 public export
 record RunStats where
   constructor MkRunStats
-  runMean : Double
-  runM2   : Double   -- sum of squared deviations
+  runMean  : Double
+  runM2    : Double   -- sum of squared deviations
   runCount : Nat
 
 export

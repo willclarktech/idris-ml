@@ -11,17 +11,17 @@ import Gym.Env
 -- advances state by one dt=0.2 RK4 evaluation using four `dsdt` calls.
 ----------------------------------------------------------------------
 
-LinkLen1 : Double; LinkLen1 = 1.0
-LinkCom1 : Double; LinkCom1 = 0.5
-LinkCom2 : Double; LinkCom2 = 0.5
+LinkLen1  : Double; LinkLen1 = 1.0
+LinkCom1  : Double; LinkCom1 = 0.5
+LinkCom2  : Double; LinkCom2 = 0.5
 LinkMass1 : Double; LinkMass1 = 1.0
 LinkMass2 : Double; LinkMass2 = 1.0
-LinkMOI : Double; LinkMOI = 1.0
-MaxVel1 : Double; MaxVel1 = 4.0 * 3.141592653589793
-MaxVel2 : Double; MaxVel2 = 9.0 * 3.141592653589793
-Gravity : Double; Gravity = 9.8
-Pi : Double; Pi = 3.141592653589793
-Dt : Double; Dt = 0.2
+LinkMOI   : Double; LinkMOI = 1.0
+MaxVel1   : Double; MaxVel1 = 4.0 * 3.141592653589793
+MaxVel2   : Double; MaxVel2 = 9.0 * 3.141592653589793
+Gravity   : Double; Gravity = 9.8
+Pi        : Double; Pi = 3.141592653589793
+Dt        : Double; Dt = 0.2
 
 ||| Acrobot state: two joint angles and angular velocities.
 public export

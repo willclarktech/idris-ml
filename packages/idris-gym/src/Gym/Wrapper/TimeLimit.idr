@@ -16,9 +16,9 @@ import Gym.Env
 public export
 record TimeLimited state where
   constructor MkTimeLimited
-  inner : state
+  inner   : state
   elapsed : Nat
-  limit : Nat
+  limit   : Nat
 
 ||| Build a wrapped state from an inner state and explicit step limit.
 ||| limit = 0 disables truncation.

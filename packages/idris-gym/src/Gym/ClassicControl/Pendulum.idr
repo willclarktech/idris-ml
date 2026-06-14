@@ -7,13 +7,13 @@ import Gym.Env
 -- Pendulum-v1 (Gymnasium-compatible constants)
 ----------------------------------------------------------------------
 
-Gravity    : Double; Gravity    = 10.0
-MassPole   : Double; MassPole   = 1.0
-PoleLen    : Double; PoleLen    = 1.0
-MaxTorque  : Double; MaxTorque  = 2.0
-MaxSpeed   : Double; MaxSpeed   = 8.0
-Dt         : Double; Dt         = 0.05
-Pi         : Double; Pi         = 3.141592653589793
+Gravity   : Double; Gravity    = 10.0
+MassPole  : Double; MassPole   = 1.0
+PoleLen   : Double; PoleLen    = 1.0
+MaxTorque : Double; MaxTorque  = 2.0
+MaxSpeed  : Double; MaxSpeed   = 8.0
+Dt        : Double; Dt         = 0.05
+Pi        : Double; Pi         = 3.141592653589793
 
 ||| Internal state: angle (theta) in radians, angular velocity.
 public export
