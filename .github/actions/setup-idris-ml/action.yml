@@ -40,6 +40,13 @@ inputs:
       Restore the HF model cache (only the job running the HF
       roundtrip gates needs the multi-GB model store).
     default: "false"
+  hf-cache-suffix:
+    description: >
+      Suffix slotted into the HF model cache key, so jobs holding
+      disjoint model sets (small bert/gpt2 + fixtures vs the multi-GB
+      llama/bitnet store) don't fight over one immutable key. Empty
+      keeps the historical shared key; the llama job passes "llama-".
+    default: ""
   ttc-job:
     description: >
       Job-distinct suffix for the per-sha TTC cache key. Each job
@@ -349,5 +356,5 @@ runs:
         path: |
           models
           ~/.cache/huggingface
-        key: hf-models-${{ inputs.os-label }}-${{ hashFiles('mk/examples.mk') }}
-        restore-keys: hf-models-${{ inputs.os-label }}-
+        key: hf-models-${{ inputs.os-label }}-${{ inputs.hf-cache-suffix }}${{ hashFiles('mk/examples.mk') }}
+        restore-keys: hf-models-${{ inputs.os-label }}-${{ inputs.hf-cache-suffix }}

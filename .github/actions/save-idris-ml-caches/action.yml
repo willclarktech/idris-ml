@@ -34,6 +34,13 @@ inputs:
   save-hf-models:
     description: Save the HF model cache (the HF-roundtrip job).
     default: "false"
+  hf-cache-suffix:
+    description: >
+      Suffix slotted into the HF model cache key (must match setup).
+      Empty keeps the historical shared key; the llama job passes
+      "llama-" so its multi-GB store doesn't collide with the
+      bert/gpt2 + fixtures cache.
+    default: ""
   save-pytorch-venv:
     description: Save the uv venv (jobs that ran backend-deps torch).
     default: "false"
@@ -81,7 +88,7 @@ runs:
         path: |
           models
           ~/.cache/huggingface
-        key: hf-models-${{ inputs.os-label }}-${{ hashFiles('mk/examples.mk') }}
+        key: hf-models-${{ inputs.os-label }}-${{ inputs.hf-cache-suffix }}${{ hashFiles('mk/examples.mk') }}
 
     - name: Save pack cache
       if: inputs.save-pack == 'true'
