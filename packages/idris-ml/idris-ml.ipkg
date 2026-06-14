@@ -87,6 +87,7 @@ modules = Compat.Random
         , Nn.Residual
         , Nn.Recurrent
         , Nn.RmsNorm
+        , Nn.RoPE
         , Nn.Seq
         , Nn.SwiGLU
         , Nn.Transformer

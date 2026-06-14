@@ -45,6 +45,7 @@ import Test.Nn.Pool
 import Test.Nn.Recurrent
 import Test.Nn.Residual
 import Test.Nn.RmsNorm
+import Test.Nn.RoPE
 import Test.Nn.Seq
 import Test.Nn.SwiGLU
 import Test.Nn.Transformer
@@ -109,6 +110,7 @@ main = runAll
   , ("Nn.Recurrent",    Test.Nn.Recurrent.tests)
   , ("Nn.Residual",     Test.Nn.Residual.tests)
   , ("Nn.RmsNorm",      Test.Nn.RmsNorm.tests)
+  , ("Nn.RoPE",         Test.Nn.RoPE.tests)
   , ("Nn.Seq",          Test.Nn.Seq.tests)
   , ("Nn.SwiGLU",       Test.Nn.SwiGLU.tests)
   , ("Nn.Transformer",  Test.Nn.Transformer.tests)

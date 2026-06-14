@@ -57,6 +57,7 @@ modules = Test.Main
         , Test.Nn.Residual
         , Test.Nn.Recurrent
         , Test.Nn.RmsNorm
+        , Test.Nn.RoPE
         , Test.Nn.Seq
         , Test.Nn.SwiGLU
         , Test.Nn.Transformer
