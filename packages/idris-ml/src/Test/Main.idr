@@ -9,21 +9,21 @@ import Test.Fit
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
-import Test.Nn.Activation as Test.Nn.Activation
-import Test.Nn.Dropout as Test.Nn.Dropout
-import Test.Nn.Embedding as Test.Nn.Embedding
-import Test.Nn.Equivalence as Test.Nn.Equivalence
-import Test.Nn.Freeze as Test.Nn.Freeze
-import Test.Nn.Group as Test.Nn.Group
-import Test.Nn.Init as Test.Nn.Init
-import Test.Nn.LayerNorm as Test.Nn.LayerNorm
-import Test.Nn.Linear as Test.Nn.Linear
-import Test.Nn.LoraLinear as Test.Nn.LoraLinear
-import Test.Nn.Module as Test.Nn.Module
-import Test.Nn.Residual as Test.Nn.Residual
-import Test.Nn.RmsNorm as Test.Nn.RmsNorm
-import Test.Nn.Seq as Test.Nn.Seq
-import Test.Nn.SwiGLU as Test.Nn.SwiGLU
+import Test.Nn.Activation
+import Test.Nn.Dropout
+import Test.Nn.Embedding
+import Test.Nn.Equivalence
+import Test.Nn.Freeze
+import Test.Nn.Group
+import Test.Nn.Init
+import Test.Nn.LayerNorm
+import Test.Nn.Linear
+import Test.Nn.LoraLinear
+import Test.Nn.Module
+import Test.Nn.Residual
+import Test.Nn.RmsNorm
+import Test.Nn.Seq
+import Test.Nn.SwiGLU
 import Test.Schedule
 import Test.Init
 import Test.Sampler
