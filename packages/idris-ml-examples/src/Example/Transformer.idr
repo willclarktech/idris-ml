@@ -11,6 +11,8 @@
 
 module Example.Transformer
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -20,7 +22,7 @@ import Checkpoint
 import Compat.Random
 import DataStream
 import Executor
-import Fit
+import FitL
 import Generate
 import Hpo.LrFinder
 import Nn
@@ -93,20 +95,20 @@ buildBody (S j) = do
   rest <- buildBody j
   pure (blk :: rest)
 
+-- Single `Init Model` (PE folded in via `liftIO`) so the model can be born
+-- linear with `runInitL` (and IO with `runInit` for the lrFind path).
 partial
-mkModel : IO Model
-mkModel = do
-  (emb, bdy, hw) <- runInit $ do
-    e <- scoped "embed" (embedding {ex=ExampleExecutor} {dt=ExampleDType}
-                                   {vocab=VocabSize} {embedDim=DModel})
-    b <- buildBody NumBlocks
-    hn <- freshChild "head"
-    hw <- liftIO $ tparam2dNormal {ex=ExampleExecutor} {dt=ExampleDType}
-                                  {o=VocabSize} {i=DModel}
-                                  (hn ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} DModel))
-    pure (e, b, hw)
-  pe <- sinusoidalPE {ex=ExampleExecutor} {dt=ExampleDType} {seqLen=SeqLen} {dModel=DModel}
-  pure (MkTfmModel emb bdy hw pe)
+mkModelInit : Init Model
+mkModelInit = do
+  e <- scoped "embed" (embedding {ex=ExampleExecutor} {dt=ExampleDType}
+                                 {vocab=VocabSize} {embedDim=DModel})
+  b <- buildBody NumBlocks
+  hn <- freshChild "head"
+  hw <- liftIO $ tparam2dNormal {ex=ExampleExecutor} {dt=ExampleDType}
+                                {o=VocabSize} {i=DModel}
+                                (hn ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} DModel))
+  pe <- liftIO $ sinusoidalPE {ex=ExampleExecutor} {dt=ExampleDType} {seqLen=SeqLen} {dModel=DModel}
+  pure (MkTfmModel e b hw pe)
 
 -- Forward one sequence `[SeqLen]` → per-position logits `[SeqLen, VocabSize]`.
 partial
@@ -200,6 +202,17 @@ batchLoss model batch = do
   summed <- foldlM (\acc, l => tadd acc l) zero losses
   tmulScalar summed (1.0 / cast {to=Double} BatchSize)
 
+-- Linear-resource loss (consume-match-rebuild-delegate): `TfmModel` is read
+-- once per sample per batch, so match `MkTfmModel …` to bind the fields at ω,
+-- delegate to the IO `batchLoss`, and rebuild the record beside the banged
+-- loss. The single-owner obligation is discharged by the one match.
+partial
+batchLossL : (1 _ : Model) -> Vect BatchSize TfmSample ->
+             L IO {use = 1} (LPair (!* (Tensor [] ExampleExecutor ExampleDType WithGrad)) Model)
+batchLossL (MkTfmModel emb body headW pe) batch = do
+  loss <- liftIO1 (batchLoss (MkTfmModel emb body headW pe) batch)
+  pure1 (MkBang loss # MkTfmModel emb body headW pe)
+
 ----------------------------------------------------------------------
 -- Helpers (decoding / accuracy)
 ----------------------------------------------------------------------
@@ -255,6 +268,41 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
 
 ----------------------------------------------------------------------
+-- Final eval (consumes the trained linear model)
+----------------------------------------------------------------------
+
+-- Consume the trained (linear) model: match `MkTfmModel …` to bind the fields
+-- at ω (discharging the single-owner obligation), then run the IO eval +
+-- RESULT report on the rebuilt record.
+partial
+evalReportL : List Nat -> Config -> Nat -> (1 _ : Model) -> L IO ()
+evalReportL positions cfg epochsDone (MkTfmModel emb body headW pe) =
+  liftIO1 $ do
+    putStrLn ""
+    putStrLn "Evaluation:"
+    (inIds, tgt) <- sortingSample
+    predV <- tfmForward (MkTfmModel emb body headW pe) inIds
+    let inputDecoded  = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {ex=ExampleExecutor} inIds.tensorPtr (cast p)))) positions
+        targetDecoded = map (argmaxAtPtr VocabSize tgt.tensorPtr) positions
+        predicted     = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
+        sortCorrect   = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
+        sortTotal     = SeqLen `minus` InputLen
+    let inputTokens = Data.List.take InputLen inputDecoded
+        sortTarget    = drop InputLen targetDecoded
+        sortPredicted = drop InputLen predicted
+    putStr "  Input:      "
+    putStrLn $ concatMap tokenName inputTokens
+    putStr "  Target:     "
+    putStrLn $ concatMap tokenName sortTarget
+    putStr "  Predicted:  "
+    putStrLn $ concatMap tokenName sortPredicted
+    putStrLn $ "  Sort acc:   " ++ show sortCorrect ++ "/" ++ show sortTotal
+    putStrLn ""
+    putStrLn $ formatResult [("epochs", show epochsDone),
+                              ("sort_acc", show sortCorrect ++ "/" ++ show sortTotal),
+                              ("seed", show cfg.seed)]
+
+----------------------------------------------------------------------
 -- Main
 ----------------------------------------------------------------------
 
@@ -277,76 +325,41 @@ main = do
            ++ " heads=" ++ show NumHeads ++ " headDim=" ++ show HeadDim
            ++ " blocks=" ++ show NumBlocks ++ " vocab=" ++ show VocabSize
 
-  model <- mkModel
   -- Adam with global grad-clip norm 1.0 (was nativeAdamGlobalClip).
   opt <- adam {ex=ExampleExecutor} cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
   putStrLn ""
 
-  -- One fused training step (used by both fit and lrFind).
-  let stepFn : Model -> Vect BatchSize TfmSample -> IO (Model, Double)
-      stepFn m b = do
-        loss <- batchLoss m b
-        d    <- nativeTrainStep opt loss
-        pure (m, d)
-
-  -- Per-epoch metrics: sorted-portion accuracy on a fresh eval batch.
-  let evalMetrics : Model -> IO (List (String, String))
-      evalMetrics m = do
-        evalData <- sortingBatch BatchSize
-        results <- traverse (\(ids, tgt) => do
-              predV <- tfmForward m ids
-              let predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
-                  expected = map (argmaxAtPtr VocabSize tgt.tensorPtr) positions
-                  sortPred = drop InputLen predicted
-                  sortExp  = drop InputLen expected
-              pure (countMatches sortPred sortExp)) (toList evalData)
-        let totalCorrect = foldl (+) 0 results
-            totalPositions = BatchSize * (SeqLen `minus` InputLen)
-        pure [("sort_acc", show totalCorrect ++ "/" ++ show totalPositions)]
-
-  let trainCfgBase = mkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics (\_ => pure ())
+  -- The per-epoch sorted-portion accuracy metric needs to forward the model,
+  -- which the linear loop's model-free `metricsL` can't do (it reads the C
+  -- registry only). So the linear path runs with no per-epoch metric; the
+  -- final eval below still reports `sort_acc`.
+  let trainCfgBase = mkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) (const (pure [])) (\_ => pure ())
       trainCfg = case cfg.checkpointDir of
                    ""  => trainCfgBase
                    dir => withCheckpoint
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  when cfg.lrFind $ do
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 100 } defaultLrFindConfig
-    _ <- lrFind lrCfg stepFn (sortingBatch BatchSize) opt model
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  let stream = generate (sortingBatch BatchSize)
-
-  (trained, epochsDone, finalLoss) <-
-    fitSupervised {ex=ExampleExecutor} opt batchLoss stream trainCfg model
-
-  -- Single-sample eval
-  putStrLn ""
-  putStrLn "Evaluation:"
-  (inIds, tgt) <- sortingSample
-  predV <- tfmForward trained inIds
-  let inputDecoded  = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {ex=ExampleExecutor} inIds.tensorPtr (cast p)))) positions
-      targetDecoded = map (argmaxAtPtr VocabSize tgt.tensorPtr) positions
-      predicted     = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
-      sortCorrect   = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
-      sortTotal     = SeqLen `minus` InputLen
-
-  let inputTokens = Data.List.take InputLen inputDecoded
-      sortTarget    = drop InputLen targetDecoded
-      sortPredicted = drop InputLen predicted
-  putStr "  Input:      "
-  putStrLn $ concatMap tokenName inputTokens
-  putStr "  Target:     "
-  putStrLn $ concatMap tokenName sortTarget
-  putStr "  Predicted:  "
-  putStrLn $ concatMap tokenName sortPredicted
-  putStrLn $ "  Sort acc:   " ++ show sortCorrect ++ "/" ++ show sortTotal
-
-  putStrLn ""
-  putStrLn $ formatResult [("epochs", show epochsDone),
-                            ("sort_acc", show sortCorrect ++ "/" ++ show sortTotal),
-                            ("seed", show cfg.seed)]
+  if cfg.lrFind
+    then do
+      -- lrFind stays on the IO surface (HPO scaffolding): its own IO model
+      -- feeds the IO `batchLoss`/`nativeTrainStep` step.
+      model <- runInit mkModelInit
+      let stepFn : Model -> Vect BatchSize TfmSample -> IO (Model, Double)
+          stepFn m b = do
+            loss <- batchLoss m b
+            d    <- nativeTrainStep opt loss
+            pure (m, d)
+      let lrCfg : LrFindConfig
+          lrCfg = { numIters := 100 } defaultLrFindConfig
+      _ <- lrFind lrCfg stepFn (sortingBatch BatchSize) opt model
+      putStrLn ""
+      putStrLn "Done — re-run without --lr-find at the recommended LR."
+    else Control.Linear.LIO.run $ do
+      -- Linear surface end to end: model born linear (runInitL), threaded
+      -- through fitSupervisedL (batchLossL consumes-and-returns it each step),
+      -- final eval via evalReportL (which consumes the trained handle).
+      model <- runInitL mkModelInit
+      (MkBang (epochsDone, _) # trained) <-
+        fitSupervisedL {ex=ExampleExecutor} opt batchLossL (generate (sortingBatch BatchSize)) trainCfg model
+      evalReportL positions cfg epochsDone trained
