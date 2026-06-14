@@ -61,6 +61,7 @@ modules = Compat.Random
         , Layer.SwiGLU
         , Layer.Transformer
         , Math
+        , Nn
         , Nn.Activation
         , Nn.Attention
         , Nn.BatchNorm

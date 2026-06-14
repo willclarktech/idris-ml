@@ -2161,3 +2161,73 @@ message / git history, not the tree) — it can land later as pure ergonomics ov
 interface, no API change. Leaf names are supplied at construction via the `Init`/`scoped` applicative
 (hierarchical path) + the hand-written instance (field labels); `groupOf` consumes `Params`
 regardless of how the instance was authored.
+
+## models-as-records: the `Nn` surface (2026-06-14)
+
+The models-as-records row landed as `packages/idris-ml/src/Nn/` — 19 layers + a core surface,
+coexisting with the legacy `Layer/` (deleted at the later example sweep). Key decisions, with the
+non-obvious ones first:
+
+**Higher-kinded `Params` (not `Params (m : Type)`).** The plan specified `Params (m : Type)`, but a
+fully-applied instance head `Params (Foo i o ex dt)` auto-binds the relevant `Nat` indices at
+multiplicity 0 → "i is not accessible" erasure error. `Params` (and `Module`) are instead
+parameterised by the *type constructor* (`Nat -> Nat -> Executor -> DType -> Type`), instances written
+unapplied (`Params Linear where …`) — the proven `LayerLike` precedent. Layers whose natural Nats
+aren't `(i, o)` (Conv2D's 8 conv params, the Transformer block's numHeads/headDim) follow the GADT
+pattern: config Nats **lead**, the `(i, o)` pin **trails** (`Conv2D inC … padW i o ex dt`), so the
+partial application fits the kind. Layers with a third+ Nat that can't be made to trail (Attention's
+dModel/numHeads/headDim) get a **plain `*Params` function** the enclosing block splices in, not an
+interface instance.
+
+**`Module` is batched-first; the `idris_crash` hole dies structurally.** `Module`'s sole method is
+`forward : l i o ex dt -> Tensor [b,i] -> IO (Tensor [b,o])` — no `applyVarBatch`, no crash default.
+A layer that can't do batched forward simply isn't a `Module`, so it can't enter a `Seq` and there is
+no method to crash. Recurrent/memory layers (RNN/LSTM/GRU/NTM/DNC) are NOT `Module`s — they implement
+the **shared `Recurrent` interface** (`recurStep : l -> input -> IO (l, output)` + `recurReset`, state
+carried in the record, `WithGrad`-pinned for BPTT) instead, the user's "one interface" preference over
+ad-hoc per-layer forwards.
+
+**`GradMode` off model types.** New records drop the legacy `(0 g : GradMode)` index: params are
+`WithGrad` by construction (fixed in the field types), `g` lives only on the activation `Tensor`.
+`forward` is `g`-polymorphic; `retypeGrad` aligns the params' phantom `g` to the activation's at the
+call (the C handles are unchanged — `g` is erased). Freeze/unfreeze flip the C `requires_grad` via a
+`Frozen m` wrapper + the generic `freeze`/`unfreeze` over `Params`.
+
+**Params-only ports.** More layers landed Params-only than the plan assumed, because they don't fit
+`Module`'s `[b,i]→[b,o]`: Embedding (indices→vectors), RmsNorm (`primSum` is a global reduction; the
+fused `primRmsNorm2d` is inference-only — batched-differentiable RMS needs a per-row reduction no prim
+provides), LoraLinear (3-arity + 1-D forward), SwiGLU (bias-free `tmv` forward), BatchNorm (fused
+1-D), BitLinear (1-D + dual-dtype). Each exposes a standalone forward fn + `Params`; composed at the
+example level.
+
+**BitLinear: dual-dtype collapsed to single `dt`.** The legacy `BitLinearState i o ex paramDt
+computeDt g` (Ternary weight + float compute) collapses to `BitLinear i o ex dt` with `dt` = the
+compute dtype and the ternary weight a fixed `Tensor [o,i] ex Ternary NoGrad` internal field, not a
+type param. `SomeParam` is dtype-erased, so `params` lists the Ternary + float tensors together. Not
+blocked (the registry concern the legacy flagged is moot — BitNet freezes the ternary weight).
+
+**Transformer: decomposed, not monolithic.** The legacy `Transformer` is a full GPT model (one record
+with `Vect numHeads` of per-head Linears across N blocks + embedding + head + a `dModel =
+numHeads*headDim` proof). The v1 surface decomposes it: `Nn.Attention` (bias-free multi-head
+self-attention, seqLen-polymorphic) + `Nn.Transformer.TransformerBlock` — a pre-norm block that is a
+batched `Module [seqLen,dModel]→[seqLen,dModel]`, so **blocks stack via `Seq`** (the monolith couldn't
+express this). The full model assembles (embedding → block `Seq` → norm → head) at the example level.
+The plan's 30GB-RSS-blowup risk did not materialise — decomposition keeps each record shallow.
+
+**`Init` name derivation + the composite combinators.** Names are derived structurally over the
+*unchanged* C registry by `Init` (a state monad over IO carrying a scope path + per-(scope,kind)
+counters): `scoped`/`freshChild`/`named`/`runInit`. Composite layers (NTM/DNC/Transformer block)
+surfaced two refinements: `scopedChild` (number a *container* and nest its children — `<scope>.ntm_0.
+controller.weight_ih`) and `Linear.linearWith weightStd biasStd` (custom init for e.g. NTM's xavier-
+1.4 heads; `linear` = `linearWith (1/√fan_in) 0`). `groupOf` returns a submodel's exact registry names
+for optimizer scoping — replacing substring-prefix matching and its `"actor"` vs `"actor_critic"`
+gradient-leak bug class.
+
+**Equivalence oracle** (the keystone gate). An MLP trained 8 SGD steps as an `Nn.Seq` produces a loss
+trajectory bitwise-identical (maxDiff 0.0) to the bare C op chain (`tlinear2d∘trelu∘tlinear2d` — the
+exact ops the legacy `Network.applyVarBatch` calls), proving `forwardSeq` ≡ the legacy path and that
+gradients flow through `Seq`. Compared against the op chain rather than importing `Layer/` to dodge the
+`~~>`/`Nil`/`::` operator collision.
+
+Out of scope (later rows): the `ML`/`ML.Simple` single-import preludes; migrating the ~33 examples to
+`Nn` + deleting `Layer/`.
