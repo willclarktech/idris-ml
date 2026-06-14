@@ -126,23 +126,28 @@ record TrainConfig (model : Type) where
   metrics     : MetricsFn model
   beforeEpoch : Nat -> IO ()
   checkpoint  : Maybe CheckpointPolicy
+  ||| Model-free metrics for the linear (`L IO`) `fit` path (the IO `fit`
+  ||| uses `metrics`). Same content, no model arg — every real callback
+  ||| ignores the model anyway. Defaults to `pure []`; set it for linear
+  ||| RL fits. Collapses into `metrics` when the IO surface is deleted.
+  metricsL    : MetricsFnL
 
 ||| Simple config: run N epochs, log every 100, no early stopping.
 export
 simpleConfig : Nat -> TrainConfig model
-simpleConfig n = MkTrainConfig n 100 NoEarlyStop (const (pure [])) (\_ => pure ()) Nothing
+simpleConfig n = MkTrainConfig n 100 NoEarlyStop (const (pure [])) (\_ => pure ()) Nothing (pure [])
 
 ||| Config with patience-based early stopping.
 export
 patienceConfig : Nat -> Nat -> TrainConfig model
 patienceConfig epochs pat =
-  MkTrainConfig epochs 100 (Patience pat 0.001) (const (pure [])) (\_ => pure ()) Nothing
+  MkTrainConfig epochs 100 (Patience pat 0.001) (const (pure [])) (\_ => pure ()) Nothing (pure [])
 
 ||| Config with windowed-average early stopping.
 export
 windowedConfig : Nat -> Double -> Nat -> Nat -> TrainConfig model
 windowedConfig epochs threshold window pat =
-  MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure [])) (\_ => pure ()) Nothing
+  MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure [])) (\_ => pure ()) Nothing (pure [])
 
 ||| Config with windowed-percentile early stopping. Robust to bimodal
 ||| loss distributions (e.g. variable-length-sequence tasks where short
@@ -150,7 +155,7 @@ windowedConfig epochs threshold window pat =
 export
 windowedPercentileConfig : Nat -> Double -> Double -> Nat -> Nat -> TrainConfig model
 windowedPercentileConfig epochs pct threshold window pat =
-  MkTrainConfig epochs 100 (WindowedPercentile pct threshold window pat) (const (pure [])) (\_ => pure ()) Nothing
+  MkTrainConfig epochs 100 (WindowedPercentile pct threshold window pat) (const (pure [])) (\_ => pure ()) Nothing (pure [])
 
 ||| Attach a checkpoint policy to a config (auto-save / keep-best /
 ||| resume). Examples plug a `fileCheckpoint` policy in here.
@@ -163,7 +168,7 @@ withCheckpoint pol cfg = { checkpoint := Just pol } cfg
 export
 mkTrainConfig : Nat -> Nat -> EarlyStopConfig -> MetricsFn model -> (Nat -> IO ()) ->
                 TrainConfig model
-mkTrainConfig e l es m b = MkTrainConfig e l es m b Nothing
+mkTrainConfig e l es m b = MkTrainConfig e l es m b Nothing (pure [])
 
 ||| Bind a Schedule to a NativeOptimizer, producing a beforeEpoch hook.
 ||| Per epoch, sets the optimizer's base LR to `schedule epoch`. Plug into

@@ -29,18 +29,6 @@ import Train.Engine
 import Util
 import Util.Log
 
-||| Model-free metrics for the linear loop. The IO `MetricsFn` takes the
-||| model, but **every** caller ignores it (`\_ => readRLMetrics …`, default
-||| `const (pure [])`) — metrics read C-registry / IORef state, never the
-||| model value. Dropping the model argument lets the loop thread the
-||| (linear, single-owner) model through every step without ever handing it
-||| to metrics (which it couldn't, short of an interface reflect, since the
-||| engine is generic in `m`). Resolves risk #3 of the linear-types
-||| migration (metrics peeking at the linear `m`).
-public export
-0 MetricsFnL : Type
-MetricsFnL = IO (List (String, String))
-
 ||| Per-epoch generation bracket for the linear loop: the `L IO` analogue of
 ||| `Train.Engine.withEpoch`. Brackets `primEpochBegin`/`primEpochEnd` (+ the
 ||| mlx GC+drain) around a linear `act` that threads the model — `result` is

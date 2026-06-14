@@ -32,6 +32,19 @@ public export
 0 MetricsFn : Type -> Type
 MetricsFn model = model -> IO (List (String, String))
 
+||| Model-free metrics for the linear (`L IO`) loop. The IO `MetricsFn` takes
+||| the model, but **every** caller ignores it (`\_ => readRLMetrics …`,
+||| default `const (pure [])`) — metrics read C-registry / IORef state, never
+||| the model value. Dropping the model argument lets the linear loop thread
+||| the single-owner model through every step without ever handing it to
+||| metrics (which it couldn't, short of an interface reflect, since the
+||| engine is generic in `m`). Pure IO — no linear deps — so `TrainConfig`
+||| can carry it without pulling the linear imports. (Resolves risk #3 of
+||| the linear-types migration: metrics peeking at the linear `m`.)
+public export
+0 MetricsFnL : Type
+MetricsFnL = IO (List (String, String))
+
 ||| Early stopping configuration.
 public export
 data EarlyStopConfig

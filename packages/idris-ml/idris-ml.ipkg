@@ -13,6 +13,7 @@ modules = Compat.Random
         , Dataset
         , DataStream
         , Fit
+        , FitL
         , Executor
         , Executor.Core
         , Executor.Mlx
