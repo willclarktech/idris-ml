@@ -33,7 +33,7 @@ normalizesRow = do
 -- The Init smart constructor registers PyTorch-style weight/bias names.
 smartCtorNames : IO Bool
 smartCtorNames = do
-  _ <- runInit $ scoped "enc" (layerNorm {ex=TestExecutor} {dt=TestDType} {n=4})
+  _ <- runInit $ scoped "enc" (layerNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {n=4})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "layerNorm registers enc.layer_norm_0.weight + .bias"

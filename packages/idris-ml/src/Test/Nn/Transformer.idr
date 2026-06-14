@@ -25,7 +25,7 @@ allFinite = all (\v => v == v)  -- NaN != NaN
 -- A single block preserves [seqLen, dModel] shape and produces finite output.
 blockForwardShape : IO Bool
 blockForwardShape = do
-  blk <- runInit (transformerBlock {ex=TestExecutor} {dt=TestDType} {dModel=4} {numHeads=2} {headDim=2})
+  blk <- runInit (transformerBlock {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {dModel=4} {numHeads=2} {headDim=2})
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[3, 4]} (Const 0.5)
   out <- Control.Linear.LIO.run (do
            (MkBang o # m') <- forward {b=3} blk (retypeGrad x)
@@ -39,8 +39,8 @@ blockForwardShape = do
 blocksStackInSeq : IO Bool
 blocksStackInSeq = do
   (b1, b2) <- runInit $ do
-    a <- scopedChild "block" (transformerBlock {ex=TestExecutor} {dt=TestDType} {dModel=4} {numHeads=2} {headDim=2})
-    b <- scopedChild "block" (transformerBlock {ex=TestExecutor} {dt=TestDType} {dModel=4} {numHeads=2} {headDim=2})
+    a <- scopedChild "block" (transformerBlock {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {dModel=4} {numHeads=2} {headDim=2})
+    b <- scopedChild "block" (transformerBlock {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {dModel=4} {numHeads=2} {headDim=2})
     pure (a, b)
   let net = the (Seq 4 4 TestExecutor TestDType WithGrad) (b1 :: b2 :: Nil)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[3, 4]} (Const 0.5)
@@ -54,7 +54,7 @@ blocksStackInSeq = do
 
 paramsCompose : IO Bool
 paramsCompose = do
-  blk <- runInit (transformerBlock {ex=TestExecutor} {dt=TestDType} {dModel=4} {numHeads=2} {headDim=2})
+  blk <- runInit (transformerBlock {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {dModel=4} {numHeads=2} {headDim=2})
   -- attention 4×numHeads(2)=8 + norm1/norm2 (2 each = 4) + ff1/ff2 (2) = 14.
   check ("Params (TransformerBlock) composes attn+norms+ff (got " ++ show (length (params blk)) ++ ")")
         (length (params blk) == 14)

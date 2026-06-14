@@ -87,9 +87,9 @@ Recurrent Rnn where
 ||| empty. Registers PyTorch RNNCell names
 ||| `<scope>.rnn_<n>.{weight_ih,weight_hh,bias_ih,bias_hh}`.
 export
-rnn : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
+rnn : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
       (activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')) ->
-      Init (Rnn i o ex dt WithGrad)
+      Init (Rnn i o ex dt g)
 rnn activation = do
   name <- freshChild "rnn"
   let iwStd = sqrt (2.0 / cast {to=Double} (i + o))
@@ -98,4 +98,8 @@ rnn activation = do
   rw <- liftIO $ tparam2dNormal {ex} {dt} {o} {i=o}   (name ++ ".weight_hh") 0.0 rwStd
   ib <- liftIO $ tparam1dConst  {ex} {dt} {n=o}       (name ++ ".bias_ih")   0.0
   hb <- liftIO $ tparam1dConst  {ex} {dt} {n=o}       (name ++ ".bias_hh")   0.0
-  pure (MkRnn iw rw ib hb activation Nothing)
+  case sgrad {g} of
+    SWithGrad => pure (MkRnn iw rw ib hb activation Nothing)
+    SNoGrad   => do iw' <- liftIO (weakenGrad iw); rw' <- liftIO (weakenGrad rw)
+                    ib' <- liftIO (weakenGrad ib); hb' <- liftIO (weakenGrad hb)
+                    pure (MkRnn iw' rw' ib' hb' activation Nothing)

@@ -39,7 +39,7 @@ paramsExposed = do
 
 smartCtorNames : IO Bool
 smartCtorNames = do
-  _ <- runInit $ scoped "mlp" (swiglu {ex=TestExecutor} {dt=TestDType} {hidden=4} {intermediate=8})
+  _ <- runInit $ scoped "mlp" (swiglu {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {hidden=4} {intermediate=8})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "swiglu registers mlp.swiglu_0.{gate,up,down}_proj.weight"

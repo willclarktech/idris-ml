@@ -56,7 +56,7 @@ Recurrent Gru where
 ||| init (3 stacked gates → fan_out 3·o), zero biases, empty state.
 ||| Registers `<scope>.gru_<n>.{weight,bias}_{ih,hh}`.
 export
-gru : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Gru i o ex dt WithGrad)
+gru : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Gru i o ex dt g)
 gru = do
   name <- freshChild "gru"
   let iwStd = sqrt (2.0 / cast {to=Double} (i + 3 * o))
@@ -65,4 +65,8 @@ gru = do
   hw  <- liftIO $ tparam2dNormal {ex} {dt} {o = 3 * o} {i = o} (name ++ ".weight_hh") 0.0 hwStd
   ihB <- liftIO $ tparam1dConst  {ex} {dt} {n = 3 * o} (name ++ ".bias_ih") 0.0
   hhB <- liftIO $ tparam1dConst  {ex} {dt} {n = 3 * o} (name ++ ".bias_hh") 0.0
-  pure (MkGru iw ihB hw hhB Nothing)
+  case sgrad {g} of
+    SWithGrad => pure (MkGru iw ihB hw hhB Nothing)
+    SNoGrad   => do iw'  <- liftIO (weakenGrad iw);  hw'  <- liftIO (weakenGrad hw)
+                    ihB' <- liftIO (weakenGrad ihB); hhB' <- liftIO (weakenGrad hhB)
+                    pure (MkGru iw' ihB' hw' hhB' Nothing)

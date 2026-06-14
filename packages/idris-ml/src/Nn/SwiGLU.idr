@@ -50,13 +50,18 @@ swigluForward (MkSwiGLU gateW upW downW) input = do
 ||| Registers HF-style `<scope>.swiglu_<n>.{gate,up,down}_proj.weight`,
 ||| each ~ N(0, 1/√fan_in).
 export
-swiglu : {0 ex : Executor} -> Backend ex dt => {hidden, intermediate : Nat} ->
-         Init (SwiGLU hidden intermediate ex dt WithGrad)
+swiglu : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {hidden, intermediate : Nat} ->
+         Init (SwiGLU hidden intermediate ex dt g)
 swiglu = do
   name <- freshChild "swiglu"
   let stdH = 1.0 / sqrt (cast {to=Double} hidden)
       stdI = 1.0 / sqrt (cast {to=Double} intermediate)
-  g <- liftIO $ tparam2dNormal {ex} {dt} {o=intermediate} {i=hidden}       (name ++ ".gate_proj.weight") 0.0 stdH
-  u <- liftIO $ tparam2dNormal {ex} {dt} {o=intermediate} {i=hidden}       (name ++ ".up_proj.weight")   0.0 stdH
-  d <- liftIO $ tparam2dNormal {ex} {dt} {o=hidden}       {i=intermediate} (name ++ ".down_proj.weight") 0.0 stdI
-  pure (MkSwiGLU g u d)
+  gw <- liftIO $ tparam2dNormal {ex} {dt} {o=intermediate} {i=hidden}       (name ++ ".gate_proj.weight") 0.0 stdH
+  uw <- liftIO $ tparam2dNormal {ex} {dt} {o=intermediate} {i=hidden}       (name ++ ".up_proj.weight")   0.0 stdH
+  dw <- liftIO $ tparam2dNormal {ex} {dt} {o=hidden}       {i=intermediate} (name ++ ".down_proj.weight") 0.0 stdI
+  case sgrad {g} of
+    SWithGrad => pure (MkSwiGLU gw uw dw)
+    SNoGrad   => do gw' <- liftIO (weakenGrad gw)
+                    uw' <- liftIO (weakenGrad uw)
+                    dw' <- liftIO (weakenGrad dw)
+                    pure (MkSwiGLU gw' uw' dw')

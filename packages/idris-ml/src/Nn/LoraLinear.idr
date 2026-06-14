@@ -59,11 +59,16 @@ loraForward (MkLoraLinear {rank} base a b alpha) input = do
 ||| derivation. Registers `<scope>.lora_<n>.lora_A` (N(0, 1/√rank)) /
 ||| `.lora_B` (zero). The base is taken as-is (its params stay registered).
 export
-loraLinear : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
-             (rank : Nat) -> (alpha : Double) -> Linear i o ex dt WithGrad ->
-             Init (LoraLinear i o ex dt WithGrad)
+loraLinear : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
+             (rank : Nat) -> (alpha : Double) -> Linear i o ex dt g ->
+             Init (LoraLinear i o ex dt g)
 loraLinear rank alpha base = do
   name <- freshChild "lora"
   a <- liftIO $ tparam2dNormal {ex} {dt} {o=rank} {i=i} (name ++ ".lora_A") 0.0 (1.0 / sqrt (cast {to=Double} rank))
   b <- liftIO $ tparam2dConst  {ex} {dt} {o=o} {i=rank} (name ++ ".lora_B") 0.0
-  pure (MkLoraLinear {rank} base a b alpha)
+  -- `base` already arrives at the requested `g`; weaken the adapters to match.
+  case sgrad {g} of
+    SWithGrad => pure (MkLoraLinear {rank} base a b alpha)
+    SNoGrad   => do a' <- liftIO (weakenGrad a)
+                    b' <- liftIO (weakenGrad b)
+                    pure (MkLoraLinear {rank} base a' b' alpha)

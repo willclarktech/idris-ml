@@ -77,12 +77,17 @@ runningStatPtrs (MkBatchNorm _ _ m v _ _ _) = (m.tensorPtr, v.tensorPtr)
 ||| save/load persists the trained statistics. (PyTorch's
 ||| `num_batches_tracked` isn't tracked here; momentum is fixed.)
 export partial
-batchNorm : {0 ex : Executor} -> Backend ex dt => {channels, spatialDim : Nat} ->
-            Init (BatchNorm (channels * spatialDim) (channels * spatialDim) ex dt WithGrad)
+batchNorm : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {channels, spatialDim : Nat} ->
+            Init (BatchNorm (channels * spatialDim) (channels * spatialDim) ex dt g)
 batchNorm = do
   name  <- freshChild "batch_norm"
   gamma <- liftIO $ tparam1dConst  {ex} {dt} {n=channels} (name ++ ".weight")       1.0
   beta  <- liftIO $ tparam1dConst  {ex} {dt} {n=channels} (name ++ ".bias")         0.0
   mean  <- liftIO $ tbuffer1dConst {ex} {dt} {n=channels} (name ++ ".running_mean") 0.0
   var   <- liftIO $ tbuffer1dConst {ex} {dt} {n=channels} (name ++ ".running_var")  1.0
-  pure (MkBatchNorm {channels} {spatialDim} gamma beta mean var True 0.1 1.0e-5)
+  -- Only gamma/beta carry `g`; the running-stat buffers are always NoGrad.
+  case sgrad {g} of
+    SWithGrad => pure (MkBatchNorm {channels} {spatialDim} gamma beta mean var True 0.1 1.0e-5)
+    SNoGrad   => do gamma' <- liftIO (weakenGrad gamma)
+                    beta'  <- liftIO (weakenGrad beta)
+                    pure (MkBatchNorm {channels} {spatialDim} gamma' beta' mean var True 0.1 1.0e-5)

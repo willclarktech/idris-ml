@@ -33,7 +33,7 @@ paramExposed = do
 
 smartCtorName : IO Bool
 smartCtorName = do
-  _ <- runInit $ scoped "tok" (embedding {ex=TestExecutor} {dt=TestDType} {vocab=5} {embedDim=4})
+  _ <- runInit $ scoped "tok" (embedding {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {vocab=5} {embedDim=4})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "embedding registers tok.embedding_0.weight"

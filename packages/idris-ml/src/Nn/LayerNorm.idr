@@ -41,9 +41,13 @@ Module LayerNorm where
 ||| Construct a `LayerNorm n n` inside an `Init` derivation. Registers
 ||| `<scope>.layer_norm_<n>.weight` (gamma, init 1) / `.bias` (beta, init 0).
 export
-layerNorm : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (LayerNorm n n ex dt WithGrad)
+layerNorm : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (LayerNorm n n ex dt g)
 layerNorm = do
   name  <- freshChild "layer_norm"
   gamma <- liftIO $ tparam1dConst {ex} {dt} {n} (name ++ ".weight") 1.0
   beta  <- liftIO $ tparam1dConst {ex} {dt} {n} (name ++ ".bias")   0.0
-  pure (MkLayerNorm gamma beta)
+  case sgrad {g} of
+    SWithGrad => pure (MkLayerNorm gamma beta)
+    SNoGrad   => do gamma' <- liftIO (weakenGrad gamma)
+                    beta'  <- liftIO (weakenGrad beta)
+                    pure (MkLayerNorm gamma' beta')

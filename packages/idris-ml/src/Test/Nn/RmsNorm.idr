@@ -33,7 +33,7 @@ paramExposed = do
 
 smartCtorName : IO Bool
 smartCtorName = do
-  _ <- runInit $ scoped "dec" (rmsNorm {ex=TestExecutor} {dt=TestDType} {n=8})
+  _ <- runInit $ scoped "dec" (rmsNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {n=8})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "rmsNorm registers dec.rms_norm_0.weight"

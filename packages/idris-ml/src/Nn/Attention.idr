@@ -119,21 +119,25 @@ attentionForward {headDim} (MkAttention qs ks vs ops) input = do
   pure1 (MkBang out # MkAttention qs ks vs ops)
 
 -- Build `numHeads` registered weight tensors named `<kind>_<j>.weight`.
-mkHeads : {0 ex : Executor} -> Backend ex dt => {a, b : Nat} ->
-          String -> (count : Nat) -> Double -> Init (Vect count (TMat a b ex dt WithGrad))
+-- Grad-poly: weakens each head to NoGrad in place when `g = NoGrad`.
+mkHeads : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {a, b : Nat} ->
+          String -> (count : Nat) -> Double -> Init (Vect count (TMat a b ex dt g))
 mkHeads _ Z _          = pure []
 mkHeads kind (S c) std = do
   name <- freshChild kind
   w <- liftIO $ tparam2dNormal {ex} {dt} {o=a} {i=b} (name ++ ".weight") 0.0 std
+  w' <- case sgrad {g} of
+          SWithGrad => pure w
+          SNoGrad   => liftIO (weakenGrad w)
   rest <- mkHeads kind c std
-  pure (w :: rest)
+  pure (w' :: rest)
 
 ||| Construct multi-head attention inside an `Init` derivation. Per-head
 ||| Q/K/V/output projections ~ N(0, 1/√fan_in); registers
 ||| `<scope>.{query,key,value,out_proj}_<j>.weight`.
 export
-attention : {0 ex : Executor} -> Backend ex dt => {dModel, numHeads, headDim : Nat} ->
-            Init (Attention dModel numHeads headDim ex dt WithGrad)
+attention : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {dModel, numHeads, headDim : Nat} ->
+            Init (Attention dModel numHeads headDim ex dt g)
 attention = do
   let projStd = 1.0 / sqrt (cast {to=Double} dModel)
       outStd  = 1.0 / sqrt (cast {to=Double} headDim)

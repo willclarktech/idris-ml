@@ -70,7 +70,7 @@ paramsExposed = do
 
 smartCtorNames : IO Bool
 smartCtorNames = do
-  _ <- runInit $ scoped "enc" (lstm {ex=TestExecutor} {dt=TestDType} {i=3} {o=4})
+  _ <- runInit $ scoped "enc" (lstm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=3} {o=4})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "lstm registers enc.lstm_0.{weight_ih,c0}"

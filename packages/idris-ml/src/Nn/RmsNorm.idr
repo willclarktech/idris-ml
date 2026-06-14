@@ -60,8 +60,11 @@ rmsNormForward {n} eps (MkRmsNorm weight) input = ioRerun (\_ =>
 ||| Construct an `RmsNorm n n` inside an `Init` derivation; registers
 ||| `<scope>.rms_norm_<n>.weight` (init 1, HF default).
 export
-rmsNorm : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (RmsNorm n n ex dt WithGrad)
+rmsNorm : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (RmsNorm n n ex dt g)
 rmsNorm = do
   name   <- freshChild "rms_norm"
   weight <- liftIO $ tparam1dConst {ex} {dt} {n} (name ++ ".weight") 1.0
-  pure (MkRmsNorm weight)
+  case sgrad {g} of
+    SWithGrad => pure (MkRmsNorm weight)
+    SNoGrad   => do weight' <- liftIO (weakenGrad weight)
+                    pure (MkRmsNorm weight')

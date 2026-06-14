@@ -46,9 +46,12 @@ embeddingForward {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
 ||| registers `<scope>.embedding_<n>.weight`, weights ~ N(0, 0.02) (HF
 ||| default for token/position embeddings).
 export
-embedding : {0 ex : Executor} -> Backend ex dt => {vocab, embedDim : Nat} ->
-            Init (Embedding vocab embedDim ex dt WithGrad)
+embedding : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {vocab, embedDim : Nat} ->
+            Init (Embedding vocab embedDim ex dt g)
 embedding = do
   name <- freshChild "embedding"
   w <- liftIO $ tparam2dNormal {ex} {dt} {o=vocab} {i=embedDim} (name ++ ".weight") 0.0 0.02
-  pure (MkEmbedding w)
+  case sgrad {g} of
+    SWithGrad => pure (MkEmbedding w)
+    SNoGrad   => do w' <- liftIO (weakenGrad w)
+                    pure (MkEmbedding w')

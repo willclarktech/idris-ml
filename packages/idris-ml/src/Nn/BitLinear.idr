@@ -47,9 +47,9 @@ Params BitLinear where
 ||| Build a `BitLinear` from ready tensors (the ternary weight typically
 ||| from a checkpoint's packed bytes).
 public export
-bitLinear : {0 ex : Executor} -> {0 dt : DType} -> {i, o : Nat} ->
-            Tensor [o, i] ex Ternary NoGrad -> TVec o ex dt NoGrad -> TVec o ex dt WithGrad ->
-            BitLinear i o ex dt WithGrad
+bitLinear : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {i, o : Nat} ->
+            Tensor [o, i] ex Ternary NoGrad -> TVec o ex dt NoGrad -> TVec o ex dt g ->
+            BitLinear i o ex dt g
 bitLinear = MkBitLinear
 
 ||| Standalone quantized forward `(W ⊙ scale)·x + bias` (1-D). Needs the

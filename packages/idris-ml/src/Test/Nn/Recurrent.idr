@@ -64,7 +64,7 @@ paramsExposed = do
 
 smartCtorNames : IO Bool
 smartCtorNames = do
-  _ <- runInit $ scoped "enc" (rnn {ex=TestExecutor} {dt=TestDType} {i=3} {o=4} ttanh)
+  _ <- runInit $ scoped "enc" (rnn {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=3} {o=4} ttanh)
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "rnn registers enc.rnn_0.{weight,bias}_{ih,hh}"

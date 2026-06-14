@@ -80,7 +80,7 @@ lstmStepIO st input = run (do
 ||| empty state. Registers `<scope>.lstm_<n>.{weight,bias}_{ih,hh}` +
 ||| `.h0` / `.c0`.
 export
-lstm : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Lstm i o ex dt WithGrad)
+lstm : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Lstm i o ex dt g)
 lstm = do
   name <- freshChild "lstm"
   let iwStd = sqrt (2.0 / cast {to=Double} (i + 4 * o))
@@ -91,4 +91,9 @@ lstm = do
   hb <- liftIO $ tparam1dConst  {ex} {dt} {n = 4 * o} (name ++ ".bias_hh") 0.0
   h0 <- liftIO $ tparam1dConst  {ex} {dt} {n = o}     (name ++ ".h0") 0.0
   c0 <- liftIO $ tparam1dConst  {ex} {dt} {n = o}     (name ++ ".c0") 0.0
-  pure (MkLstm iw rw ib hb h0 c0 Nothing Nothing)
+  case sgrad {g} of
+    SWithGrad => pure (MkLstm iw rw ib hb h0 c0 Nothing Nothing)
+    SNoGrad   => do iw' <- liftIO (weakenGrad iw); rw' <- liftIO (weakenGrad rw)
+                    ib' <- liftIO (weakenGrad ib); hb' <- liftIO (weakenGrad hb)
+                    h0' <- liftIO (weakenGrad h0); c0' <- liftIO (weakenGrad c0)
+                    pure (MkLstm iw' rw' ib' hb' h0' c0' Nothing Nothing)

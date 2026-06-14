@@ -41,7 +41,7 @@ paramsAreGammaBeta = do
 
 smartCtorNames : IO Bool
 smartCtorNames = do
-  _ <- runInit $ scoped "net" (batchNorm {ex=TestExecutor} {dt=TestDType} {channels=4} {spatialDim=1})
+  _ <- runInit $ scoped "net" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=4} {spatialDim=1})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "batchNorm registers net.batch_norm_0.weight + .bias"
@@ -55,7 +55,7 @@ bufferRoundtrip : IO Bool
 bufferRoundtrip = do
   let path = "/tmp/idris-ml-bn-buffer-roundtrip.safetensors"
   -- Trained model: run training-mode forwards so running stats diverge.
-  bn <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {channels=2} {spatialDim=1})
+  bn <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=2} {spatialDim=1})
   x  <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [3.0, 4.0])
   for_ [the Nat 1 .. 20] $ \_ => batchNormForward bn (retypeGrad x)
   let (meanP, varP) = runningStatPtrs bn
@@ -63,7 +63,7 @@ bufferRoundtrip = do
       tVar  = primItem1d {ex=TestExecutor} varP 0
   _  <- saveAll {ex=TestExecutor} path
   -- Fresh model re-registers the same names with reset 0/1 buffers.
-  fresh <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {channels=2} {spatialDim=1})
+  fresh <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=2} {spatialDim=1})
   _  <- loadModel {ex=TestExecutor} path
   let (fmeanP, fvarP) = runningStatPtrs fresh
   let lMean           = primItem1d {ex=TestExecutor} fmeanP 0

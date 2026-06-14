@@ -41,7 +41,7 @@ paramsExposed = do
 smartCtorNames : IO Bool
 smartCtorNames = do
   _ <- runInit $ scoped "cnn"
-         (conv2d {ex=TestExecutor} {dt=TestDType} {inC=1} {outC=2} {h=4} {w=4} {kH=3} {kW=3} {padH=0} {padW=0})
+         (conv2d {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {inC=1} {outC=2} {h=4} {w=4} {kH=3} {kW=3} {padH=0} {padW=0})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "conv2d registers cnn.conv2d_0.weight + .bias"
@@ -67,7 +67,7 @@ forward1dComputes = do
 smartCtor1dNames : IO Bool
 smartCtor1dNames = do
   _ <- runInit $ scoped "cnn1"
-         (conv1d {ex=TestExecutor} {dt=TestDType} {inC=1} {outC=2} {len=8} {kL=3} {pad=0})
+         (conv1d {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {inC=1} {outC=2} {len=8} {kL=3} {pad=0})
   cnt <- getParamCount {ex=TestExecutor}
   names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
   check "conv1d registers cnn1.conv1d_0.weight + .bias"

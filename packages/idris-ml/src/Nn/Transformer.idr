@@ -83,14 +83,23 @@ public export
 ||| Nests `attn.*` (per-head projections), `norm1`/`norm2`, and the
 ||| bias-free `ff1`/`ff2` (~ N(0, 1/√fan_in)) under the current scope.
 export
-transformerBlock : {0 ex : Executor} -> Backend ex dt => {dModel, numHeads, headDim : Nat} ->
-                   Init (TransformerBlock numHeads headDim dModel dModel ex dt WithGrad)
+transformerBlock : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {dModel, numHeads, headDim : Nat} ->
+                   Init (TransformerBlock numHeads headDim dModel dModel ex dt g)
 transformerBlock = do
-  a   <- scopedChild "attn" attention
-  n1  <- named "norm1" (layerNorm {n = dModel})
-  n2  <- named "norm2" (layerNorm {n = dModel})
+  -- Annotate the bound results so `g` (and the rest) flow into the bare
+  -- sub-constructors up front, rather than only at the `MkTransformerBlock`
+  -- field unification (which leaves `KnownGrad ?g` unsolved at the bind).
+  a   <- the (Init (Attention dModel numHeads headDim ex dt g)) (scopedChild "attn" attention)
+  n1  <- the (Init (LayerNorm dModel dModel ex dt g)) (named "norm1" (layerNorm {n = dModel}))
+  n2  <- the (Init (LayerNorm dModel dModel ex dt g)) (named "norm2" (layerNorm {n = dModel}))
   f1n <- freshChild "ff1"
   ff1 <- liftIO $ tparam2dNormal {ex} {dt} {o = 4 * dModel} {i = dModel}     (f1n ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} dModel))
   f2n <- freshChild "ff2"
   ff2 <- liftIO $ tparam2dNormal {ex} {dt} {o = dModel}     {i = 4 * dModel} (f2n ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} (4 * dModel)))
-  pure (MkTransformerBlock a n1 n2 ff1 ff2)
+  -- Sub-modules (attn/n1/n2) infer `g` from the record's field types; only
+  -- the directly-created ff1/ff2 need weakening on the NoGrad branch.
+  case sgrad {g} of
+    SWithGrad => pure (MkTransformerBlock a n1 n2 ff1 ff2)
+    SNoGrad   => do ff1' <- liftIO (weakenGrad ff1)
+                    ff2' <- liftIO (weakenGrad ff2)
+                    pure (MkTransformerBlock a n1 n2 ff1' ff2')

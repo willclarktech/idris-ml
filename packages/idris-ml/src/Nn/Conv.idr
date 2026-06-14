@@ -76,18 +76,22 @@ public export
 ||| (std = √(2/fan_in), fan_in = inC·kH·kW), zero bias. Registers
 ||| `<scope>.conv2d_<n>.weight` (kernel) / `.bias` (PyTorch Conv2d names).
 export partial
-conv2d : {0 ex : Executor} -> Backend ex dt =>
+conv2d : KnownGrad g => {0 ex : Executor} -> Backend ex dt =>
          {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
          Init (Conv2D inC outC h w kH kW padH padW
                       (inC * (h * w))
                       (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                      ex dt WithGrad)
+                      ex dt g)
 conv2d = do
   name <- freshChild "conv2d"
   let kerStd = sqrt (2.0 / cast {to=Double} (inC * kH * kW))
   ker  <- liftIO $ tparam4dNormal {ex} {dt} {a=outC} {b=inC} {c=kH} {e=kW} (name ++ ".weight") 0.0 kerStd
   bias <- liftIO $ tparam1dConst  {ex} {dt} {n=outC} (name ++ ".bias") 0.0
-  pure (MkConv2D ker bias)
+  case sgrad {g} of
+    SWithGrad => pure (MkConv2D ker bias)
+    SNoGrad   => do ker'  <- liftIO (weakenGrad ker)
+                    bias' <- liftIO (weakenGrad bias)
+                    pure (MkConv2D ker' bias')
 
 ----------------------------------------------------------------------
 -- Conv1D
@@ -141,15 +145,19 @@ public export
 ||| (std = √(2/fan_in), fan_in = inC·kL), zero bias. Registers
 ||| `<scope>.conv1d_<n>.weight` (kernel) / `.bias`.
 export partial
-conv1d : {0 ex : Executor} -> Backend ex dt =>
+conv1d : KnownGrad g => {0 ex : Executor} -> Backend ex dt =>
          {inC, outC, len, kL, pad : Nat} ->
          Init (Conv1D inC outC len kL pad
                       (inC * len)
                       (outC * ConvOutDim len kL pad)
-                      ex dt WithGrad)
+                      ex dt g)
 conv1d = do
   name <- freshChild "conv1d"
   let kerStd = sqrt (2.0 / cast {to=Double} (inC * kL))
   ker  <- liftIO $ tparam3dNormal {ex} {dt} {a=outC} {b=inC} {c=kL} (name ++ ".weight") 0.0 kerStd
   bias <- liftIO $ tparam1dConst  {ex} {dt} {n=outC} (name ++ ".bias") 0.0
-  pure (MkConv1D ker bias)
+  case sgrad {g} of
+    SWithGrad => pure (MkConv1D ker bias)
+    SNoGrad   => do ker'  <- liftIO (weakenGrad ker)
+                    bias' <- liftIO (weakenGrad bias)
+                    pure (MkConv1D ker' bias')
