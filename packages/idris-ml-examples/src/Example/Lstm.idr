@@ -1,5 +1,7 @@
 module Example.Lstm
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -7,6 +9,7 @@ import System
 import BuildConfig
 import Checkpoint
 import Compat.Random
+import FitL
 import ML.Simple
 import Train
 
@@ -23,6 +26,15 @@ record Model where
   constructor MkModel
   cell : Lstm 1 4 Ex F WithGrad
   head : Linear 4 1 Ex F WithGrad
+
+-- Top-level `Init` derivation (not inline under `runInitL`): a nested do-block
+-- under the linear `run $ do …` blows past the elaborator's ambiguity-depth
+-- limit, so the model derivation lives here as a plain value.
+mkModel : Init Model
+mkModel = do
+  cell <- lstm {i = 1} {o = 4}
+  head <- linear {i = 4} {o = 1}
+  pure (MkModel cell head)
 
 ----------------------------------------------------------------------
 -- Pattern data
@@ -85,15 +97,24 @@ seqLoss (MkModel cell0 head) (is, os) = do
                       Nothing => pure (Just l)
       go cell' acc' (S cnt) rest
 
--- One epoch = one pass over all NumSeqs sequences: mean per-seq loss, one
--- optimizer step. An EpochStep folding the recurrent cell over each sequence.
-recurEpoch : Optimizer Ex -> Model -> Vect NumSeqs (List Double, List Double) -> IO (Model, Double)
-recurEpoch opt model seqs = do
-  seqLs <- traverse (seqLoss model) (toList seqs)
-  totalL <- sumLosses seqLs
-  mean <- (1.0 / cast NumSeqs) *: totalL
-  d <- nativeTrainStep opt mean
-  pure (model, d)
+-- Linear-resource epoch step (consume-match-rebuild-delegate): the model is
+-- read once per sequence (NumSeqs×), so match `MkModel cell head` to bind the
+-- fields at their ω constructor quantity, reuse them freely in the IO loss
+-- computation, then rebuild the model beside the banged loss.
+recurEpochL : Optimizer Ex -> (1 _ : Model) -> Vect NumSeqs (List Double, List Double) ->
+              L IO {use = 1} (LPair (!* Double) Model)
+recurEpochL opt (MkModel cell head) seqs = do
+  d <- liftIO1 $ do
+         seqLs <- traverse (seqLoss (MkModel cell head)) (toList seqs)
+         totalL <- sumLosses seqLs
+         mean <- (1.0 / cast NumSeqs) *: totalL
+         nativeTrainStep opt mean
+  pure1 (MkBang d # MkModel cell head)
+
+-- Consume the final (linear) model: dropping the matched ω fields is a no-op
+-- discharge (the params are C-managed handles).
+discardModel : (1 _ : Model) -> L IO ()
+discardModel (MkModel _ _) = pure ()
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -140,12 +161,6 @@ main = do
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
 
-  model <- runInit $ do
-    cell <- lstm {i = 1} {o = 4}
-    head <- linear {i = 4} {o = 1}
-    pure (MkModel cell head)
-  putStrLn ""
-
   let trainCfgBase = patienceConfig cfg.epochs cfg.patience
       trainCfg = case cfg.checkpointDir of
                    ""  => trainCfgBase
@@ -153,11 +168,18 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  (_, epochsDone, finalLoss) <-
-    fit (recurEpoch opt) opt (generate (pure patternSeqs)) trainCfg model
-
-  putStrLn ""
-  putStrLn $ formatResult [ ("epochs", show epochsDone)
-                          , ("loss", show finalLoss)
-                          , ("seed", show cfg.seed)
-                          ]
+  -- Linear surface end to end: model born linear (runInitL), threaded through
+  -- fitL (recurEpochL consumes-and-returns it each epoch), final handle
+  -- discarded. `run` is fully qualified — `import System` brings other `run`s
+  -- that otherwise blow the elaborator's ambiguity-depth limit in this block.
+  Control.Linear.LIO.run $ do
+    model <- runInitL mkModel
+    liftIO1 (putStrLn "")
+    (MkBang (epochsDone, finalLoss) # trained) <-
+      fitL (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model
+    discardModel trained
+    liftIO1 $ putStrLn ""
+    liftIO1 $ putStrLn $ formatResult [ ("epochs", show epochsDone)
+                                      , ("loss", show finalLoss)
+                                      , ("seed", show cfg.seed)
+                                      ]
