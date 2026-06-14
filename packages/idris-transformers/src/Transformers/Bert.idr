@@ -221,7 +221,7 @@ makeBertLinear pfx = do
   -- tape-free with no post-construction `eval` flip.
   case sgrad {g} of
     SWithGrad => pure (MkLinear w b)
-    SNoGrad => do
+    SNoGrad   => do
       w' <- weakenGrad w
       b' <- weakenGrad b
       pure (MkLinear w' b')
@@ -237,7 +237,7 @@ makeBertEmbedding pfx = do
   w <- tparam2dNormal {ex} {dt} {o=vocab} {i=dim} (pfx ++ ".weight") 0.0 0.02
   case sgrad {g} of
     SWithGrad => pure (MkEmbedding w)
-    SNoGrad => do
+    SNoGrad   => do
       w' <- weakenGrad w
       pure (MkEmbedding w')
 
@@ -256,7 +256,7 @@ makeBertLN pfx = do
   b  <- tparam1dConst {ex} {dt} {n} (pfx ++ ".bias")   0.0
   case sgrad {g} of
     SWithGrad => pure (MkLayerNorm gw b)
-    SNoGrad => do
+    SNoGrad   => do
       gw' <- weakenGrad gw
       b'  <- weakenGrad b
       pure (MkLayerNorm gw' b')
@@ -744,7 +744,7 @@ makeMlmHead clsPfx = do
   -- bias needs the explicit grad-mode build.
   case sgrad {g} of
     SWithGrad => pure (MkBertMlmHead td tn bias)
-    SNoGrad => do
+    SNoGrad   => do
       bias' <- weakenGrad bias
       pure (MkBertMlmHead td tn bias')
 

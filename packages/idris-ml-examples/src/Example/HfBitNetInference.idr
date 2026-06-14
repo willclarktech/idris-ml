@@ -263,7 +263,7 @@ main = do
       -- `weightT` is a field on both Embedding and BitLinearHf and the
       -- `BitNetModel cfg` alias doesn't reduce for projection resolution.
       let MkEmbedding embWeight = model.embedTokens
-      let vI = cast {to=Int} (vocabSize cfg)
+      let vI                    = cast {to=Int} (vocabSize cfg)
           zBuf = prim__allocDoubles vI
           zeroBias : Tensor [vocabSize cfg] ExampleExecutor ExampleDType WithGrad
           zeroBias = MkTensor (dtCreateState1d {ex=ExampleExecutor} {t=ExampleDType}

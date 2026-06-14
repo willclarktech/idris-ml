@@ -124,13 +124,13 @@ runMaskDemo cfg nHeads hDim prf tok model sentence = do
   Right (seqLen ** tokens) <- tokenize tok sentence
     | Left err => putStrLn ("  ERR: tokenize: " ++ show err)
   case findIndex (\f => finToNat f == bertMaskTokenId) tokens of
-    Nothing => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
+    Nothing      => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
     Just maskFin => do
       -- Each Fin (vocabSize cfg) → Double via finToNat → cast.
       let idDoubles = map (cast {to=Double} . finToNat) tokens
-          inputIds  = retypeGrad (mkIds idDoubles)
-          posIds    = retypeGrad (mkIds (arangeVect seqLen))
-          typeIds   = retypeGrad (mkIds (zerosVect seqLen))
+          inputIds = retypeGrad (mkIds idDoubles)
+          posIds   = retypeGrad (mkIds (arangeVect seqLen))
+          typeIds  = retypeGrad (mkIds (zerosVect seqLen))
       logits <- hfBertMlmForward {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seqLen}
                                  {vocab        = vocabSize cfg}
@@ -146,7 +146,7 @@ runMaskDemo cfg nHeads hDim prf tok model sentence = do
       maskRow <- trowSelect logits (cast {to=Int} (finToNat maskFin))
       pairs   <- readLogits (vocabSize cfg) maskRow.tensorPtr
       let top5     = topK 5 pairs
-          topIds   = map fst top5
+          topIds    = map fst top5
           topLogits = map snd top5
       -- Lift each Nat → Fin (vocabSize cfg). mapMaybe drops any that fail;
       -- our IDs come from readLogits over the (vocabSize cfg)-wide logits
@@ -167,9 +167,9 @@ runMaskDemo cfg nHeads hDim prf tok model sentence = do
     fmt : String -> Double -> String
     fmt tok x =
       let scaled : Int = cast (x * 100.0 + (if x < 0.0 then -0.5 else 0.5))
-          whole = scaled `div` 100
-          frac  = abs (scaled `mod` 100)
-          sign  = if x < 0.0 then "-" else "+"
+          whole   = scaled `div` 100
+          frac    = abs (scaled `mod` 100)
+          sign    = if x < 0.0 then "-" else "+"
           fracStr = if frac < 10 then "0" ++ show frac else show frac
       in tok ++ " (" ++ sign ++ show (abs whole) ++ "." ++ fracStr ++ ")"
 
@@ -196,8 +196,8 @@ runPooledDump cfg nHeads hDim prf model = do
   -- `retypeGrad` lifts the WithGrad ids `mkIds` builds to the model's
   -- NoGrad (inference) gradmode — the single-g forward needs them to match.
   let inputIds = retypeGrad (mkIds (the (Vect 3 Double) [101.0, 7592.0, 102.0]))
-      posIds   = retypeGrad (mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0]))
-      typeIds  = retypeGrad (mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0]))
+      posIds  = retypeGrad (mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0]))
+      typeIds = retypeGrad (mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0]))
   out <- hfBertForward {ex=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 3}
                        {vocab        = vocabSize cfg}

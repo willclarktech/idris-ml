@@ -153,8 +153,8 @@ genLoopCached cfg model tables prompt remaining =
       -> List (Fin (vocabSize cfg))   -- new tokens to feed this step (prompt on seed, [prev] on steady)
       -> Nat                          -- remaining tokens to generate
       -> IO (List (Fin (vocabSize cfg)))
-    go _      acc _    Z         = pure acc
-    go caches acc feed (S k)     = do
+    go _      acc _    Z     = pure acc
+    go caches acc feed (S k) = do
       perfReset {ex=ExampleExecutor}
       (caches', mNext) <- genStepCached cfg model tables caches feed
       ops <- perfOpCount {ex=ExampleExecutor}

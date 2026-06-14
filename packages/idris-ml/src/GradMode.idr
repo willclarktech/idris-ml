@@ -26,20 +26,20 @@ data GradMode = WithGrad | NoGrad
 public export
 Show GradMode where
   show WithGrad = "WithGrad"
-  show NoGrad = "NoGrad"
+  show NoGrad   = "NoGrad"
 
 public export
 Eq GradMode where
   WithGrad == WithGrad = True
-  NoGrad == NoGrad = True
-  _ == _ = False
+  NoGrad == NoGrad     = True
+  _ == _               = False
 
 public export
 DecEq GradMode where
   decEq WithGrad WithGrad = Yes Refl
-  decEq NoGrad NoGrad = Yes Refl
-  decEq WithGrad NoGrad = No (\case Refl impossible)
-  decEq NoGrad WithGrad = No (\case Refl impossible)
+  decEq NoGrad NoGrad     = Yes Refl
+  decEq WithGrad NoGrad   = No (\case Refl impossible)
+  decEq NoGrad WithGrad   = No (\case Refl impossible)
 
 ----------------------------------------------------------------------
 -- Runtime witness for grad-mode-polymorphic construction

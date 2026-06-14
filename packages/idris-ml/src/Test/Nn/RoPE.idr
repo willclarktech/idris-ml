@@ -26,8 +26,8 @@ ropeBase = 500000.0
 -- Vect index helper (Vect.head needs a non-empty proof that `div 64 2`
 -- doesn't reduce automatically; this stays partial-free and total).
 listIdx : Nat -> Vect n a -> Maybe a
-listIdx _ []        = Nothing
-listIdx Z (x :: _)  = Just x
+listIdx _ []            = Nothing
+listIdx Z (x :: _)      = Just x
 listIdx (S k) (_ :: xs) = listIdx k xs
 
 ----------------------------------------------------------------------

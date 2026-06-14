@@ -191,7 +191,7 @@ makeLlamaLinear paramFullName = do
   w <- tparam2dNormal {ex} {dt} {o} {i} paramFullName 0.0 0.02
   case sgrad {g} of
     SWithGrad => pure (MkLlamaLinear w)
-    SNoGrad => do
+    SNoGrad   => do
       w' <- weakenGrad w
       pure (MkLlamaLinear w')
 
@@ -209,7 +209,7 @@ makeLlamaRmsNorm paramFullName = do
   w <- tparam1dConst {ex} {dt} {n} paramFullName 1.0
   case sgrad {g} of
     SWithGrad => pure (MkRmsNorm w)
-    SNoGrad => do
+    SNoGrad   => do
       w' <- weakenGrad w
       pure (MkRmsNorm w')
 
@@ -228,7 +228,7 @@ makeLlamaEmbedding paramFullName = do
   w <- tparam2dNormal {ex} {dt} {o=vocab} {i=hidden} paramFullName 0.0 0.02
   case sgrad {g} of
     SWithGrad => pure (MkEmbedding w)
-    SNoGrad => do
+    SNoGrad   => do
       w' <- weakenGrad w
       pure (MkEmbedding w')
 

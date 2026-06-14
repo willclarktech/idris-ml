@@ -63,19 +63,19 @@ GCast (Tensor dims ex dt) where
 public export
 GCast (Linear i o ex dt) where
   gcastGrad (MkLinear w b) = MkLinear (retypeGrad w) (retypeGrad b)
-  gparams (MkLinear w b) = [toParam w, toParam b]
+  gparams (MkLinear w b)   = [toParam w, toParam b]
 
 public export
 GCast (LayerNorm n n ex dt) where
   gcastGrad (MkLayerNorm g b) = MkLayerNorm (retypeGrad g) (retypeGrad b)
-  gparams (MkLayerNorm g b) = [toParam g, toParam b]
+  gparams (MkLayerNorm g b)   = [toParam g, toParam b]
 
 public export
 GCast (Embedding vocab embedDim ex dt) where
   gcastGrad (MkEmbedding w) = MkEmbedding (retypeGrad w)
-  gparams (MkEmbedding w) = [toParam w]
+  gparams (MkEmbedding w)   = [toParam w]
 
 public export
 GCast (RmsNorm n n ex dt) where
   gcastGrad (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
-  gparams (MkRmsNorm w) = [toParam w]
+  gparams (MkRmsNorm w)   = [toParam w]
