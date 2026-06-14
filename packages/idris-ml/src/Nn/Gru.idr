@@ -18,17 +18,19 @@ import Nn.Recurrent
 ||| GRU cell. Weights/biases are `WithGrad` params; hiddenT is the carried
 ||| state (`Nothing` until the first step).
 public export
-record Gru (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record Gru (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGru
-  iwT : TMat (3 * o) i ex dt WithGrad
-  ihB : TVec (3 * o) ex dt WithGrad
-  hwT : TMat (3 * o) o ex dt WithGrad
-  hhB : TVec (3 * o) ex dt WithGrad
-  hiddenT : Maybe (TVec o ex dt WithGrad)
+  iwT : TMat (3 * o) i ex dt g
+  ihB : TVec (3 * o) ex dt g
+  hwT : TMat (3 * o) o ex dt g
+  hhB : TVec (3 * o) ex dt g
+  hiddenT : Maybe (TVec o ex dt g)
 
 public export
 Params Gru where
   params (MkGru iw ib hw hb _) = [toParam iw, toParam ib, toParam hw, toParam hb]
+  castGrad (MkGru iw ib hw hb hid) =
+    MkGru (retypeGrad iw) (retypeGrad ib) (retypeGrad hw) (retypeGrad hb) (map retypeGrad hid)
 
 public export
 Recurrent Gru where
@@ -47,7 +49,7 @@ Recurrent Gru where
 ||| init (3 stacked gates → fan_out 3·o), zero biases, empty state.
 ||| Registers `<scope>.gru_<n>.{weight,bias}_{ih,hh}`.
 export
-gru : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Gru i o ex dt)
+gru : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Gru i o ex dt WithGrad)
 gru = do
   name <- freshChild "gru"
   let iwStd = sqrt (2.0 / cast {to=Double} (i + 3 * o))

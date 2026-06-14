@@ -14,7 +14,7 @@ import Test.Config
 -- o=i=1, W_ih=1, W_hh=0.5, biases 0, tanh, x=1, h0=0:
 --   step1: tanh(1·1 + 0.5·0 + 0)          = tanh(1)       ≈ 0.761594
 --   step2: tanh(1·1 + 0.5·0.761594 + 0)   = tanh(1.380797)≈ 0.881130
-mkRnn1 : IO (Rnn 1 1 TestExecutor TestDType)
+mkRnn1 : IO (Rnn 1 1 TestExecutor TestDType WithGrad)
 mkRnn1 = do
   iw <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 1]} "rn.iw" (Const 1.0)
   rw <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 1]} "rn.rw" (Const 0.5)

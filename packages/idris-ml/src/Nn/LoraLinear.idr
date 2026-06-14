@@ -22,26 +22,27 @@ import Nn.Linear
 ||| A LoRA-adapted linear. `rank` is an implicit (runtime-available) field;
 ||| `base`'s params keep their own registry names, `loraA`/`loraB` add two.
 public export
-record LoraLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record LoraLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLoraLinear
   {rank : Nat}
-  base  : Linear i o ex dt
-  loraA : Tensor [rank, i] ex dt WithGrad
-  loraB : Tensor [o, rank] ex dt WithGrad
+  base  : Linear i o ex dt g
+  loraA : Tensor [rank, i] ex dt g
+  loraB : Tensor [o, rank] ex dt g
   alpha : Double
 
 public export
 Params LoraLinear where
   params (MkLoraLinear base a b _) = params base ++ [toParam a, toParam b]
+  castGrad (MkLoraLinear base a b alpha) = MkLoraLinear (castGrad base) (retypeGrad a) (retypeGrad b) alpha
 
 ||| 1-D LoRA forward: `W·x + b + (α/r)·B·(A·x)`.
 export
 loraForward : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i, o : Nat} ->
-              LoraLinear i o ex dt -> Tensor [i] ex dt g -> IO (Tensor [o] ex dt g)
+              LoraLinear i o ex dt g -> Tensor [i] ex dt g -> IO (Tensor [o] ex dt g)
 loraForward (MkLoraLinear {rank} base a b alpha) input = do
-  baseOut <- tlinear (retypeGrad base.weightT) input (retypeGrad base.biasT)
-  aOut    <- tmv (retypeGrad a) input
-  bOut    <- tmv (retypeGrad b) aOut
+  baseOut <- tlinear base.weightT input base.biasT
+  aOut    <- tmv a input
+  bOut    <- tmv b aOut
   scaled  <- tmulScalar bOut (alpha / cast {to=Double} rank)
   tadd baseOut scaled
 
@@ -50,8 +51,8 @@ loraForward (MkLoraLinear {rank} base a b alpha) input = do
 ||| `.lora_B` (zero). The base is taken as-is (its params stay registered).
 export
 loraLinear : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
-             (rank : Nat) -> (alpha : Double) -> Linear i o ex dt ->
-             Init (LoraLinear i o ex dt)
+             (rank : Nat) -> (alpha : Double) -> Linear i o ex dt WithGrad ->
+             Init (LoraLinear i o ex dt WithGrad)
 loraLinear rank alpha base = do
   name <- freshChild "lora"
   a <- liftIO $ tparam2dNormal {ex} {dt} {o=rank} {i=i} (name ++ ".lora_A") 0.0 (1.0 / sqrt (cast {to=Double} rank))

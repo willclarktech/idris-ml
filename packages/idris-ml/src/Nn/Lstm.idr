@@ -20,21 +20,24 @@ import Nn.Recurrent
 ||| LSTM cell. Weights/biases/h0/c0 are `WithGrad` params; hiddenT/cellT
 ||| are the carried state (`Nothing` until the first step).
 public export
-record Lstm (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record Lstm (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLstm
-  iwT : TMat (4 * o) i ex dt WithGrad
-  rwT : TMat (4 * o) o ex dt WithGrad
-  ihB : TVec (4 * o) ex dt WithGrad
-  hhB : TVec (4 * o) ex dt WithGrad
-  h0T : TVec o ex dt WithGrad
-  c0T : TVec o ex dt WithGrad
-  hiddenT : Maybe (TVec o ex dt WithGrad)
-  cellT   : Maybe (TVec o ex dt WithGrad)
+  iwT : TMat (4 * o) i ex dt g
+  rwT : TMat (4 * o) o ex dt g
+  ihB : TVec (4 * o) ex dt g
+  hhB : TVec (4 * o) ex dt g
+  h0T : TVec o ex dt g
+  c0T : TVec o ex dt g
+  hiddenT : Maybe (TVec o ex dt g)
+  cellT   : Maybe (TVec o ex dt g)
 
 public export
 Params Lstm where
   params (MkLstm iw rw ib hb h0 c0 _ _) =
     [toParam iw, toParam rw, toParam ib, toParam hb, toParam h0, toParam c0]
+  castGrad (MkLstm iw rw ib hb h0 c0 hid cell) =
+    MkLstm (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb)
+           (retypeGrad h0) (retypeGrad c0) (map retypeGrad hid) (map retypeGrad cell)
 
 public export
 Recurrent Lstm where
@@ -54,7 +57,7 @@ Recurrent Lstm where
 ||| empty state. Registers `<scope>.lstm_<n>.{weight,bias}_{ih,hh}` +
 ||| `.h0` / `.c0`.
 export
-lstm : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Lstm i o ex dt)
+lstm : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Lstm i o ex dt WithGrad)
 lstm = do
   name <- freshChild "lstm"
   let iwStd = sqrt (2.0 / cast {to=Double} (i + 4 * o))

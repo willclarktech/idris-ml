@@ -21,9 +21,9 @@ forwardComputes : IO Bool
 forwardComputes = do
   w <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "lt.w" (Const 0.5)
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lt.b" (Const 1.0)
-  let lyr = the (Linear 3 2 TestExecutor TestDType) (MkLinear w b)
+  let lyr = the (Linear 3 2 TestExecutor TestDType WithGrad) (MkLinear w b)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} (Const 2.0)
-  out <- forward {b=2} lyr x
+  out <- forward {b=2} lyr (retypeGrad x)
   check ("Linear.forward computes x·Wᵀ+b (got " ++ show (read4 out) ++ ")")
         (read4 out == [4.0, 4.0, 4.0, 4.0])
 
@@ -32,7 +32,7 @@ paramsExposed : IO Bool
 paramsExposed = do
   w <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "lp.w" (Const 0.5)
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lp.b" (Const 1.0)
-  let lyr = the (Linear 3 2 TestExecutor TestDType) (MkLinear w b)
+  let lyr = the (Linear 3 2 TestExecutor TestDType WithGrad) (MkLinear w b)
   let names = mapMaybe paramName (params lyr)
   check ("Params (Linear) exposes weight + bias (got " ++ show names ++ ")")
         (names == ["lp.w", "lp.b"])

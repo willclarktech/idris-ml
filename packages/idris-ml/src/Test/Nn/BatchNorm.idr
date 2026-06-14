@@ -23,7 +23,7 @@ evalUsesRunningStats = do
   v <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (Const 1.0)
   let bn = MkBatchNorm {channels=2} {spatialDim=1} g b m v False 0.1 1.0e-5
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [3.0, 4.0])
-  out <- batchNormForward bn x
+  out <- batchNormForward bn (retypeGrad x)
   let v0 = primItem1d {ex=TestExecutor} out.tensorPtr 0
   let v1 = primItem1d {ex=TestExecutor} out.tensorPtr 1
   check ("eval BatchNorm ≈ identity with default stats (got [" ++ show v0 ++ ", " ++ show v1 ++ "])")
@@ -57,7 +57,7 @@ bufferRoundtrip = do
   -- Trained model: run training-mode forwards so running stats diverge.
   bn <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {channels=2} {spatialDim=1})
   x  <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [3.0, 4.0])
-  for_ [the Nat 1 .. 20] $ \_ => batchNormForward bn x
+  for_ [the Nat 1 .. 20] $ \_ => batchNormForward bn (retypeGrad x)
   let (meanP, varP) = runningStatPtrs bn
   let tMean = primItem1d {ex=TestExecutor} meanP 0
       tVar  = primItem1d {ex=TestExecutor} varP 0

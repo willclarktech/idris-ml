@@ -31,15 +31,15 @@ public export
 data Conv2D :
   (inC : Nat) -> (outC : Nat) -> (h : Nat) -> (w : Nat) ->
   (kH : Nat) -> (kW : Nat) -> (padH : Nat) -> (padW : Nat) ->
-  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type
+  Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkConv2D :
-    Tensor [outC, inC, kH, kW] ex dt WithGrad ->
-    TVec outC ex dt WithGrad ->
+    Tensor [outC, inC, kH, kW] ex dt g ->
+    TVec outC ex dt g ->
     Conv2D inC outC h w kH kW padH padW
            (inC * (h * w))
            (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-           ex dt
+           ex dt g
 
 public export
 {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
@@ -61,6 +61,7 @@ public export
 {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
   Params (Conv2D inC outC h w kH kW padH padW) where
   params (MkConv2D ker bias) = [toParam ker, toParam bias]
+  castGrad (MkConv2D ker bias) = MkConv2D (retypeGrad ker) (retypeGrad bias)
 
 ||| Construct a `Conv2D` inside an `Init` derivation. He-normal kernel
 ||| (std = √(2/fan_in), fan_in = inC·kH·kW), zero bias. Registers
@@ -71,7 +72,7 @@ conv2d : {0 ex : Executor} -> Backend ex dt =>
          Init (Conv2D inC outC h w kH kW padH padW
                       (inC * (h * w))
                       (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                      ex dt)
+                      ex dt WithGrad)
 conv2d = do
   name <- freshChild "conv2d"
   let kerStd = sqrt (2.0 / cast {to=Double} (inC * kH * kW))

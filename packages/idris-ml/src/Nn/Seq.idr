@@ -23,23 +23,23 @@ import Nn.Module
 ||| intermediate width `h` is hidden by `(::)`; the constructor carries the
 ||| element's `Module` + `Params` dictionaries.
 public export
-data Seq : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
-  Nil  : Seq i i ex dt
+data Seq : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  Nil  : Seq i i ex dt g
   -- `l` is bound as a *relevant* (non-erased) implicit so the element's
   -- type constructor stays accessible for `Module`/`Params` dispatch after
   -- the existential `h` is unpacked (the `AnyLayer` precedent — there `l`
   -- is an explicit constructor argument).
   (::) : {h : Nat} ->
-         {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type} ->
+         {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
          (Module l, Params l) =>
-         l i h ex dt -> Seq h o ex dt -> Seq i o ex dt
+         l i h ex dt g -> Seq h o ex dt g -> Seq i o ex dt g
 
 ||| Right-associative chain alias for `(::)`.
 public export
 (~~>) : {h : Nat} ->
-        {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type} ->
+        {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
         (Module l, Params l) =>
-        l i h ex dt -> Seq h o ex dt -> Seq i o ex dt
+        l i h ex dt g -> Seq h o ex dt g -> Seq i o ex dt g
 (~~>) = (::)
 
 export infixr 5 ~~>
@@ -47,7 +47,7 @@ export infixr 5 ~~>
 ||| Run a batched activation through the whole chain, left to right.
 export
 forwardSeq : {0 ex : Executor} -> Backend ex dt => {i, o, b : Nat} -> {0 g : GradMode} ->
-             Seq i o ex dt -> Tensor [b, i] ex dt g -> IO (Tensor [b, o] ex dt g)
+             Seq i o ex dt g -> Tensor [b, i] ex dt g -> IO (Tensor [b, o] ex dt g)
 forwardSeq Nil x = pure x
 forwardSeq (l :: rest) x = do
   y <- forward l x
@@ -65,3 +65,5 @@ public export
 Params Seq where
   params Nil = []
   params (l :: rest) = params l ++ params rest
+  castGrad Nil = Nil
+  castGrad (l :: rest) = castGrad l :: castGrad rest

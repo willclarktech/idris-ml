@@ -29,18 +29,19 @@ defaultRmsNormEps = 1.0e-5
 
 ||| RMSNorm with a single learnable scale (`i = o = n`).
 public export
-data RmsNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
-  MkRmsNorm : TVec n ex dt WithGrad -> RmsNorm n n ex dt
+data RmsNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkRmsNorm : TVec n ex dt g -> RmsNorm n n ex dt g
 
 public export
 Params RmsNorm where
   params (MkRmsNorm w) = [toParam w]
+  castGrad (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
 
 ||| 1-D differentiable RMSNorm forward (per vector). `primSum` reduces the
 ||| whole vector, so this is single-vector only — see the module header.
 export
 rmsNormForward : {0 ex : Executor} -> Backend ex dt => {n : Nat} ->
-                 (eps : Double) -> RmsNorm n n ex dt -> TVec n ex dt g -> IO (TVec n ex dt g)
+                 (eps : Double) -> RmsNorm n n ex dt g -> TVec n ex dt g -> IO (TVec n ex dt g)
 rmsNormForward {n} eps (MkRmsNorm weight) input = ioRerun (\_ =>
   let sq      = primMul {ex} input.tensorPtr input.tensorPtr
       tot     = primSum {ex} sq
@@ -54,7 +55,7 @@ rmsNormForward {n} eps (MkRmsNorm weight) input = ioRerun (\_ =>
 ||| Construct an `RmsNorm n n` inside an `Init` derivation; registers
 ||| `<scope>.rms_norm_<n>.weight` (init 1, HF default).
 export
-rmsNorm : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (RmsNorm n n ex dt)
+rmsNorm : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (RmsNorm n n ex dt WithGrad)
 rmsNorm = do
   name   <- freshChild "rms_norm"
   weight <- liftIO $ tparam1dConst {ex} {dt} {n} (name ++ ".weight") 1.0

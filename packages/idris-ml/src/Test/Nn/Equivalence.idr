@@ -45,7 +45,7 @@ mse2d p t = ioRerun (\_ =>
 
 -- Fresh input/target each step (graph leaves are not reused across
 -- backward passes — matches a real training loop's per-batch inputs).
-stepSeq : Optimizer TestExecutor -> Seq 3 2 TestExecutor TestDType -> IO Double
+stepSeq : Optimizer TestExecutor -> Seq 3 2 TestExecutor TestDType WithGrad -> IO Double
 stepSeq opt net = do
   x    <- constG {dims=[2,3]} 1.0
   tgt  <- constG {dims=[2,2]} 0.5
@@ -76,10 +76,10 @@ trainsIdentically = do
   sb1 <- param {ex=TestExecutor} {dt=TestDType} {dims=[4]}    "seq.b1" (Const 0.0)
   sw2 <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 4]} "seq.w2" (Const 0.2)
   sb2 <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "seq.b2" (Const 0.0)
-  let net = the (Seq 3 2 TestExecutor TestDType)
-              (  the (Linear 3 4 TestExecutor TestDType) (MkLinear sw1 sb1)
-              :: the (Activation 4 4 TestExecutor TestDType) reluA
-              :: the (Linear 4 2 TestExecutor TestDType) (MkLinear sw2 sb2)
+  let net = the (Seq 3 2 TestExecutor TestDType WithGrad)
+              (  the (Linear 3 4 TestExecutor TestDType WithGrad) (MkLinear sw1 sb1)
+              :: the (Activation 4 4 TestExecutor TestDType WithGrad) reluA
+              :: the (Linear 4 2 TestExecutor TestDType WithGrad) (MkLinear sw2 sb2)
               :: Nil )
   optS <- sgd {ex=TestExecutor} 0.05 defaultOpts
   lossSeq <- loopN 8 (\_ => stepSeq optS net)

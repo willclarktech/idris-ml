@@ -16,7 +16,7 @@ import Test.Config
 -- the C kernel's gate order, so assert deterministic *properties* instead:
 -- hidden bounded in (-1,1), state carried (step2 ≠ step1), reset restores
 -- step1 exactly.
-mkLstm1 : IO (Lstm 1 1 TestExecutor TestDType)
+mkLstm1 : IO (Lstm 1 1 TestExecutor TestDType WithGrad)
 mkLstm1 = do
   iw <- param {ex=TestExecutor} {dt=TestDType} {dims=[4, 1]} "ls.iw" (Const 1.0)
   rw <- param {ex=TestExecutor} {dt=TestDType} {dims=[4, 1]} "ls.rw" (Const 1.0)

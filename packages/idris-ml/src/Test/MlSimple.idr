@@ -11,9 +11,9 @@ import ML.Simple
 -- read uses `{ex=Ex}` — that's a test-internal probe, not user API.)
 mlSimpleNoExSpelling : IO Bool
 mlSimpleNoExSpelling = do
-  lin <- runInit (the (Init (Linear 3 2 Ex F)) linear)
+  lin <- runInit (the (Init (Linear 3 2 Ex F WithGrad)) linear)
   x   <- the (IO (Tensor [2, 3] Ex F NoGrad)) (tensor (Const 1.0))
-  out <- forward {b=2} lin x
+  out <- forward {b=2} lin (retypeGrad x)
   let v = primItem2d {ex=Ex} out.tensorPtr 0 0
   check "ML.Simple: import + Ex/F build & run a Linear with no {ex=}" (v == v)
 

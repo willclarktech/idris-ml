@@ -18,19 +18,20 @@ import Nn.Module
 
 ||| A `vocab × embedDim` lookup table. Params are `WithGrad` by construction.
 public export
-record Embedding (vocab : Nat) (embedDim : Nat) (0 ex : Executor) (0 dt : DType) where
+record Embedding (vocab : Nat) (embedDim : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkEmbedding
-  weightT : TMat vocab embedDim ex dt WithGrad
+  weightT : TMat vocab embedDim ex dt g
 
 public export
 Params Embedding where
   params (MkEmbedding w) = [toParam w]
+  castGrad (MkEmbedding w) = MkEmbedding (retypeGrad w)
 
 ||| Lookup forward: `tokens : [seqLen]` (ids as doubles) → flattened
 ||| `[seqLen * embedDim]` embedding vectors. (Standalone, not a `Module`.)
 export
 embeddingForward : {0 ex : Executor} -> Backend ex dt => {seqLen, embedDim, vocab : Nat} ->
-                   Embedding vocab embedDim ex dt -> TVec seqLen ex dt g ->
+                   Embedding vocab embedDim ex dt g -> TVec seqLen ex dt g ->
                    IO (TVec (seqLen * embedDim) ex dt g)
 embeddingForward {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
   MkTensor (primEmbedding {ex} w.tensorPtr tokens.tensorPtr
@@ -41,7 +42,7 @@ embeddingForward {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
 ||| default for token/position embeddings).
 export
 embedding : {0 ex : Executor} -> Backend ex dt => {vocab, embedDim : Nat} ->
-            Init (Embedding vocab embedDim ex dt)
+            Init (Embedding vocab embedDim ex dt WithGrad)
 embedding = do
   name <- freshChild "embedding"
   w <- liftIO $ tparam2dNormal {ex} {dt} {o=vocab} {i=embedDim} (name ++ ".weight") 0.0 0.02

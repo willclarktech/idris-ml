@@ -17,7 +17,7 @@ read4 t = [ primItem2d {ex=TestExecutor} t.tensorPtr i j
 evalIsIdentity : IO Bool
 evalIsIdentity = do
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} (FromVect [1.0, 2.0, 3.0, 4.0])
-  out <- forward {b=2} (the (Dropout 2 2 TestExecutor TestDType) (setTraining False (dropout 0.5))) x
+  out <- forward {b=2} (the (Dropout 2 2 TestExecutor TestDType NoGrad) (setTraining False (dropout 0.5))) x
   check ("eval-mode dropout is identity (got " ++ show (read4 out) ++ ")")
         (read4 out == [1.0, 2.0, 3.0, 4.0])
 
@@ -25,7 +25,7 @@ evalIsIdentity = do
 zeroProbKeepsAll : IO Bool
 zeroProbKeepsAll = do
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} (FromVect [1.0, 2.0, 3.0, 4.0])
-  out <- forward {b=2} (the (Dropout 2 2 TestExecutor TestDType) (dropout 0.0)) x
+  out <- forward {b=2} (the (Dropout 2 2 TestExecutor TestDType NoGrad) (dropout 0.0)) x
   check ("p=0 training dropout keeps all (got " ++ show (read4 out) ++ ")")
         (read4 out == [1.0, 2.0, 3.0, 4.0])
 

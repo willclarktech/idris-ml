@@ -24,11 +24,11 @@ import Nn.Module
 ||| the weight is fixed `Ternary`. Weight + scale frozen `NoGrad`; bias
 ||| trainable.
 public export
-record BitLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record BitLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitLinear
   weightT : Tensor [o, i] ex Ternary NoGrad
   scaleT  : TVec o ex dt NoGrad
-  biasT   : TVec o ex dt WithGrad
+  biasT   : TVec o ex dt g
 
 ||| All three tensors (frozen ternary weight, frozen scale, trainable bias)
 ||| — dtype-erased into `SomeParam`, so the mixed Ternary/float dtypes
@@ -36,18 +36,20 @@ record BitLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
 public export
 Params BitLinear where
   params (MkBitLinear w s b) = [toParam w, toParam s, toParam b]
+  -- Only the bias carries `g`; the ternary weight + scale are frozen `NoGrad`.
+  castGrad (MkBitLinear w s b) = MkBitLinear w s (retypeGrad b)
 
 ||| Build a `BitLinear` from ready tensors (the ternary weight typically
 ||| from a checkpoint's packed bytes).
 public export
 bitLinear : {0 ex : Executor} -> {0 dt : DType} -> {i, o : Nat} ->
             Tensor [o, i] ex Ternary NoGrad -> TVec o ex dt NoGrad -> TVec o ex dt WithGrad ->
-            BitLinear i o ex dt
+            BitLinear i o ex dt WithGrad
 bitLinear = MkBitLinear
 
 ||| Standalone quantized forward `(W ⊙ scale)·x + bias` (1-D). Needs the
 ||| quant capability; not a `Module`.
 export
 bitLinearForward : {0 ex : Executor} -> UserExecutorQuant ex => {0 dt : DType} -> {0 g : GradMode} -> {i, o : Nat} ->
-                   BitLinear i o ex dt -> Tensor [i] ex dt g -> IO (Tensor [o] ex dt g)
-bitLinearForward (MkBitLinear w s b) x = tBitlinearFwd w s x (retypeGrad b)
+                   BitLinear i o ex dt g -> Tensor [i] ex dt g -> IO (Tensor [o] ex dt g)
+bitLinearForward (MkBitLinear w s b) x = tBitlinearFwd w s x b

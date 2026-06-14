@@ -10,12 +10,13 @@ module Nn.Group
 import Data.List
 
 import Executor
+import Tensor
 import Nn.Module
 
 ||| The registry names of every param owned by `m`, in traversal order.
 ||| Params without a registry name (intermediates) are dropped.
 export
-groupOf : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
-          {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type} ->
-          Params l => l i o ex dt -> List String
+groupOf : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+          {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
+          Params l => l i o ex dt g -> List String
 groupOf m = mapMaybe paramName (params m)

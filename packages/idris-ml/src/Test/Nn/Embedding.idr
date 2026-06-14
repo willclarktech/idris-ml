@@ -17,9 +17,9 @@ lookupForward : IO Bool
 lookupForward = do
   w <- param {ex=TestExecutor} {dt=TestDType} {dims=[3, 2]} "et.w"
             (FromVect [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
-  let emb = the (Embedding 3 2 TestExecutor TestDType) (MkEmbedding w)
+  let emb = the (Embedding 3 2 TestExecutor TestDType WithGrad) (MkEmbedding w)
   toks <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [0.0, 2.0])
-  out  <- embeddingForward {vocab=3} emb toks
+  out  <- embeddingForward {vocab=3} emb (retypeGrad toks)
   let vs = [ primItem1d {ex=TestExecutor} out.tensorPtr i | i <- the (List Int) [0,1,2,3] ]
   check ("Embedding lookup flattens rows (got " ++ show vs ++ ")")
         (vs == [1.0, 2.0, 5.0, 6.0])
@@ -27,7 +27,7 @@ lookupForward = do
 paramExposed : IO Bool
 paramExposed = do
   w <- param {ex=TestExecutor} {dt=TestDType} {dims=[3, 2]} "ep.w" (Const 0.0)
-  let emb = the (Embedding 3 2 TestExecutor TestDType) (MkEmbedding w)
+  let emb = the (Embedding 3 2 TestExecutor TestDType WithGrad) (MkEmbedding w)
   check "Params (Embedding) exposes weight"
         (mapMaybe paramName (params emb) == ["ep.w"])
 

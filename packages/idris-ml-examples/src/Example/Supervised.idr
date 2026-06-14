@@ -85,7 +85,7 @@ buildStream = do
   pure (batched {b=5} {i=2} {o=3} s)
 
 -- Default-precision loss: forward [5,2]→[5,3] then batched multiclass NLL.
-nllLossDefault : Linear 2 3 Ex F ->
+nllLossDefault : Linear 2 3 Ex F WithGrad ->
                  (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
                  IO (Tensor [] Ex F WithGrad)
 nllLossDefault model (x, tgt) = do
@@ -94,7 +94,7 @@ nllLossDefault model (x, tgt) = do
 
 -- Mixed-precision loss: forward casts paramDt → computeDt (F) internally.
 nllLossMixed : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
-               LinearMixed 2 3 Ex pDt F ->
+               LinearMixed 2 3 Ex pDt F WithGrad ->
                (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
                IO (Tensor [] Ex F WithGrad)
 nllLossMixed model (x, tgt) = do
@@ -150,7 +150,10 @@ runDefault cfg opt = do
     fitSupervised opt nllLossDefault bs (simpleConfig cfg.epochs) model
   putStrLn ""
   putStrLn "Eval:"
-  predB <- forward {b=5} trained !evalInput
+  -- Convert to an inference (NoGrad) model: forward is then genuinely
+  -- tape-free, and the type witnesses it.
+  infer <- eval trained
+  predB <- forward {b=5} infer !evalInput
   correct <- evalPredictions predB
   putStrLn ""
   reportResult cfg epochsDone finalLoss correct
@@ -159,7 +162,7 @@ runDefault cfg opt = do
 -- paramDt by the `mkModel` action's result type (Idris can't dispatch types
 -- from a runtime string, so each --param-dtype mode is its own typed call).
 runMixedGeneric : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
-                  Config -> Optimizer Ex -> IO (LinearMixed 2 3 Ex pDt F) ->
+                  Config -> Optimizer Ex -> IO (LinearMixed 2 3 Ex pDt F WithGrad) ->
                   String -> IO ()
 runMixedGeneric cfg opt mkModel modeLabel = do
   model <- mkModel
@@ -171,7 +174,9 @@ runMixedGeneric cfg opt mkModel modeLabel = do
     fitSupervisedMixed opt gs nllLossMixed bs (simpleConfig cfg.epochs) model
   putStrLn ""
   putStrLn "Eval:"
-  predB <- forwardMixed {b=5} trained !evalInput
+  -- No `eval` for the mixed (ParamsMixed) path yet; lift the input to
+  -- WithGrad so the trained model forwards (predictions read without backward).
+  predB <- forwardMixed {b=5} trained (retypeGrad !evalInput)
   correct <- evalPredictions predB
   putStrLn ""
   reportResult cfg epochsDone finalLoss correct

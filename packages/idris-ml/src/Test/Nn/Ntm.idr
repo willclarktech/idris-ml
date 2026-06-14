@@ -13,7 +13,7 @@ import Nn.Ntm
 import Test.Config
 
 -- Small NTM: 4 memory slots × width 3, hidden 8, in/out 2.
-mkNtm : IO (Ntm 4 3 8 2 2 TestExecutor TestDType)
+mkNtm : IO (Ntm 4 3 8 2 2 TestExecutor TestDType WithGrad)
 mkNtm = runInit (ntm {n=4} {m=3} {h=8} {i=2} {o=2})
 
 inp2 : IO (Tensor [2] TestExecutor TestDType WithGrad)

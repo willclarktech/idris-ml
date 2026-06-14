@@ -10,13 +10,14 @@ import Nn.Init
 import Test.Config
 
 -- A toy single-param layer (param-bearing, so freeze has a handle to flip).
-data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
-  MkLin : Tensor [2] ex dt WithGrad -> Lin i o ex dt
+data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkLin : Tensor [2] ex dt g -> Lin i o ex dt g
 
 Params Lin where
   params (MkLin w) = [toParam w]
+  castGrad (MkLin w) = MkLin (retypeGrad w)
 
-lin : {0 ex : Executor} -> Backend ex dt => String -> Init (Lin 2 2 ex dt)
+lin : {0 ex : Executor} -> Backend ex dt => String -> Init (Lin 2 2 ex dt WithGrad)
 lin kind = do
   name <- freshChild kind
   w    <- liftIO $ param {ex} {dt} {dims=[2]} (name ++ ".weight") (Const 1.0)

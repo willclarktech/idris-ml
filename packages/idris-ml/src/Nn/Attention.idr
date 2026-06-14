@@ -20,23 +20,31 @@ import Nn.Module
 ||| Multi-head attention: `numHeads` heads, each projecting `dModel → headDim`
 ||| (Q/K/V) and `headDim → dModel` (output). All weights `WithGrad`.
 public export
-record Attention (dModel : Nat) (numHeads : Nat) (headDim : Nat) (0 ex : Executor) (0 dt : DType) where
+record Attention (dModel : Nat) (numHeads : Nat) (headDim : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkAttention
-  queryWs   : Vect numHeads (TMat headDim dModel ex dt WithGrad)
-  keyWs     : Vect numHeads (TMat headDim dModel ex dt WithGrad)
-  valueWs   : Vect numHeads (TMat headDim dModel ex dt WithGrad)
-  outProjWs : Vect numHeads (TMat dModel headDim ex dt WithGrad)
+  queryWs   : Vect numHeads (TMat headDim dModel ex dt g)
+  keyWs     : Vect numHeads (TMat headDim dModel ex dt g)
+  valueWs   : Vect numHeads (TMat headDim dModel ex dt g)
+  outProjWs : Vect numHeads (TMat dModel headDim ex dt g)
 
 ||| The per-head weights as a flat param list. Attention's three Nat
 ||| params (dModel/numHeads/headDim) don't fit `Params`' 2-Nat (i,o) kind,
 ||| so this is a plain function the enclosing block splices into its own
 ||| `Params`.
 export
-attentionParams : {0 dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> {0 dt : DType} ->
-                  Attention dModel numHeads headDim ex dt -> List SomeParam
+attentionParams : {0 dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} ->
+                  Attention dModel numHeads headDim ex dt g -> List SomeParam
 attentionParams (MkAttention qs ks vs ops) =
   map toParam (toList qs) ++ map toParam (toList ks)
     ++ map toParam (toList vs) ++ map toParam (toList ops)
+
+||| `castGrad` for `Attention` (the plain-function analogue, spliced into
+||| the enclosing block's `Params.castGrad`). Retypes every head's weights.
+export
+attentionCastGrad : {0 dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> {0 dt : DType} -> {0 g, g' : GradMode} ->
+                    Attention dModel numHeads headDim ex dt g -> Attention dModel numHeads headDim ex dt g'
+attentionCastGrad (MkAttention qs ks vs ops) =
+  MkAttention (map retypeGrad qs) (map retypeGrad ks) (map retypeGrad vs) (map retypeGrad ops)
 
 -- Strict upper triangle = 1.0 (future positions to mask); calloc zeroes
 -- the rest. (Int-indexed recursion → partial.)
@@ -56,8 +64,8 @@ buildCausalMask seqLen =
 
 -- Per-head scaled-dot-product attention, accumulated over heads.
 runHeads : {0 ex : Executor} -> UserExecutorTraining ex => {k : Nat} ->
-           Vect k (TMat hd dM ex dt WithGrad) -> Vect k (TMat hd dM ex dt WithGrad) ->
-           Vect k (TMat hd dM ex dt WithGrad) -> Vect k (TMat dM hd ex dt WithGrad) ->
+           Vect k (TMat hd dM ex dt g) -> Vect k (TMat hd dM ex dt g) ->
+           Vect k (TMat hd dM ex dt g) -> Vect k (TMat dM hd ex dt g) ->
            (normed, mask : AnyPtr) -> (scale : Double) -> Maybe AnyPtr -> AnyPtr
 runHeads [] [] [] [] normed _ _ Nothing = normed
 runHeads [] [] [] [] _ _ _ (Just acc) = acc
@@ -75,7 +83,7 @@ runHeads (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask scale acc =
 export partial
 attentionForward : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} ->
                    {dModel, numHeads, headDim, seqLen : Nat} ->
-                   Attention dModel numHeads headDim ex dt ->
+                   Attention dModel numHeads headDim ex dt g ->
                    Tensor [seqLen, dModel] ex dt g -> IO (Tensor [seqLen, dModel] ex dt g)
 attentionForward {headDim} (MkAttention qs ks vs ops) input = ioRerun (\_ =>
   let scale = 1.0 / sqrt (cast {to=Double} headDim)
@@ -97,7 +105,7 @@ mkHeads kind (S c) std = do
 ||| `<scope>.{query,key,value,out_proj}_<j>.weight`.
 export
 attention : {0 ex : Executor} -> Backend ex dt => {dModel, numHeads, headDim : Nat} ->
-            Init (Attention dModel numHeads headDim ex dt)
+            Init (Attention dModel numHeads headDim ex dt WithGrad)
 attention = do
   let projStd = 1.0 / sqrt (cast {to=Double} dModel)
       outStd  = 1.0 / sqrt (cast {to=Double} headDim)

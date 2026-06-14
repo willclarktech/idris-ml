@@ -93,23 +93,27 @@ ntmWrite {n} memT weightsT addVecT =
 ||| NTM cell. Controller + 3 heads + learned memory-init are params;
 ||| memT / read+write addresses / last read-out are per-sequence state.
 public export
-record Ntm (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record Ntm (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkNtm
-  controller   : Lstm (m + i) h ex dt
-  readFc       : Linear h (ReadParamWidth m) ex dt
-  writeFc      : Linear h (WriteParamWidth m) ex dt
-  outputFc     : Linear (h + m) o ex dt
-  memInitT     : TVec (m * n) ex dt WithGrad
-  initReadOutT : TVec m ex dt WithGrad
-  memT       : Maybe (Tensor [n, m] ex dt WithGrad)
-  readAddrT  : Maybe (TVec n ex dt WithGrad)
-  writeAddrT : Maybe (TVec n ex dt WithGrad)
-  readOutT   : Maybe (TVec m ex dt WithGrad)
+  controller   : Lstm (m + i) h ex dt g
+  readFc       : Linear h (ReadParamWidth m) ex dt g
+  writeFc      : Linear h (WriteParamWidth m) ex dt g
+  outputFc     : Linear (h + m) o ex dt g
+  memInitT     : TVec (m * n) ex dt g
+  initReadOutT : TVec m ex dt g
+  memT       : Maybe (Tensor [n, m] ex dt g)
+  readAddrT  : Maybe (TVec n ex dt g)
+  writeAddrT : Maybe (TVec n ex dt g)
+  readOutT   : Maybe (TVec m ex dt g)
 
 public export
 {n, m, h : Nat} -> Params (Ntm n m h) where
   params (MkNtm ctrl rfc wfc ofc memInit iro _ _ _ _) =
     params ctrl ++ params rfc ++ params wfc ++ params ofc ++ [toParam memInit, toParam iro]
+  castGrad (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
+    MkNtm (castGrad ctrl) (castGrad rfc) (castGrad wfc) (castGrad ofc)
+          (retypeGrad memInit) (retypeGrad iro)
+          (map retypeGrad memS) (map retypeGrad raS) (map retypeGrad waS) (map retypeGrad roS)
 
 public export
 {n, m, h : Nat} -> Recurrent (Ntm n m h) where
@@ -163,7 +167,7 @@ public export
 ||| N(0,0.01); output head LeCun-ish; memory-init xavier-normal; fixed
 ||| Kaiming read-out). Nests sub-modules under `<scope>.ntm_<n>.…`.
 export partial
-ntm : {0 ex : Executor} -> Backend ex dt => {n, m, h, i, o : Nat} -> Init (Ntm n m h i o ex dt)
+ntm : {0 ex : Executor} -> Backend ex dt => {n, m, h, i, o : Nat} -> Init (Ntm n m h i o ex dt WithGrad)
 ntm = scopedChild "ntm" $ do
   let xavStd : (a, b : Nat) -> Double
       xavStd a b = 1.4 * sqrt (2.0 / cast {to=Double} (a + b))

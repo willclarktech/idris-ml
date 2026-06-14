@@ -27,7 +27,7 @@ vecG xs = retypeGrad <$> tensor {ex=TestExecutor} {dt=TestDType} {dims=[n]} (Fro
 vecN : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType NoGrad)
 vecN xs = tensor {ex=TestExecutor} {dt=TestDType} {dims=[n]} (FromVect xs)
 
-mkFixture : IO (BitLinear 4 3 TestExecutor TestDType)
+mkFixture : IO (BitLinear 4 3 TestExecutor TestDType WithGrad)
 mkFixture = do
   (bytes, cnt) <- fixtureBytes
   w <- tCreateTernaryPacked2d {ex=TestExecutor} {o=3} {i=4} bytes cnt

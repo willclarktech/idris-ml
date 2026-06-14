@@ -24,24 +24,23 @@ import Nn.Module
 %default total
 
 ||| A dense layer with split param/compute dtypes: `y = x · cast(Wᵀ) +
-||| cast(b)`, weights stored in `paramDt`. No `GradMode` index — params are
-||| `WithGrad` by construction.
+||| cast(b)`, weights stored in `paramDt`. The `g` index is the master
+||| params' grad-mode (`WithGrad` by construction; `NoGrad` for inference).
 public export
 record LinearMixed (i : Nat) (o : Nat) (0 ex : Executor)
-                   (0 paramDt : DType) (0 computeDt : DType) where
+                   (0 paramDt : DType) (0 computeDt : DType) (0 g : GradMode) where
   constructor MkLinearMixed
-  weightT : Tensor [o, i] ex paramDt WithGrad
-  biasT   : Tensor [o] ex paramDt WithGrad
+  weightT : Tensor [o, i] ex paramDt g
+  biasT   : Tensor [o] ex paramDt g
 
 public export
 ModuleMixed LinearMixed where
   -- Cast the master weight + bias paramDt → computeDt (autograd-aware), then
-  -- the fused matmul + bias-add in computeDt. `retypeGrad` aligns the params'
-  -- phantom `g` to the activation's (handles unchanged — `g` is erased), so
-  -- the cast's `from` tensor matches `tcastUnsafe`'s `g`-polymorphic input.
+  -- the fused matmul + bias-add in computeDt. Master params share the
+  -- activation's `g`, so no `retypeGrad` is needed before the cast.
   forwardMixed {computeDt} (MkLinearMixed w b) x = do
-    wc <- tcastUnsafe computeDt (retypeGrad w)
-    bc <- tcastUnsafe computeDt (retypeGrad b)
+    wc <- tcastUnsafe computeDt w
+    bc <- tcastUnsafe computeDt b
     tlinear2d wc x bc
 
 public export
@@ -57,7 +56,7 @@ ParamsMixed LinearMixed where
 ||| forward.
 export
 linearMixed : {0 ex : Executor} -> Backend ex paramDt => {i, o : Nat} ->
-              Init (LinearMixed i o ex paramDt computeDt)
+              Init (LinearMixed i o ex paramDt computeDt WithGrad)
 linearMixed = do
   name <- freshChild "linear"
   w <- liftIO $ tparam2dNormal {ex} {dt=paramDt} {o} {i}

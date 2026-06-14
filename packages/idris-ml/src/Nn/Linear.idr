@@ -24,25 +24,24 @@ import Nn.Module
 
 %default total
 
-||| A dense layer: `y = x · Wᵀ + b`. No `GradMode` index — params are
-||| `WithGrad` by construction.
+||| A dense layer: `y = x · Wᵀ + b`. The `g` index is the params' grad-mode;
+||| construction yields `WithGrad`, inference handles are `NoGrad`.
 public export
-record Linear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record Linear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLinear
-  weightT : Tensor [o, i] ex dt WithGrad
-  biasT   : Tensor [o] ex dt WithGrad
+  weightT : Tensor [o, i] ex dt g
+  biasT   : Tensor [o] ex dt g
 
 public export
 Module Linear where
-  -- The params are `WithGrad`; the activation `g` is whatever the caller
-  -- pinned. `retypeGrad` aligns the params' phantom `g` to the activation's
-  -- (the C handles are unchanged — `g` is erased). Inference (`NoGrad` x)
-  -- yields a `NoGrad` result; training (`WithGrad` x) keeps the tape.
-  forward (MkLinear w b) x = tlinear2d (retypeGrad w) x (retypeGrad b)
+  -- Params and activation share `g`, so no `retypeGrad`: a `WithGrad` model
+  -- keeps the tape, a `NoGrad` model is genuinely tape-free.
+  forward (MkLinear w b) x = tlinear2d w x b
 
 public export
 Params Linear where
   params (MkLinear w b) = [toParam w, toParam b]
+  castGrad (MkLinear w b) = MkLinear (retypeGrad w) (retypeGrad b)
 
 ||| Construct a `Linear i o` with caller-chosen init: weight ~ N(0,
 ||| weightStd), bias ~ N(0, biasStd) (biasStd = 0 → zero bias). Registers
@@ -50,7 +49,7 @@ Params Linear where
 ||| need a non-default init (e.g. NTM's xavier-1.4 heads).
 export
 linearWith : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
-             (weightStd : Double) -> (biasStd : Double) -> Init (Linear i o ex dt)
+             (weightStd : Double) -> (biasStd : Double) -> Init (Linear i o ex dt WithGrad)
 linearWith weightStd biasStd = do
   name <- freshChild "linear"
   w <- liftIO $ tparam2dNormal {ex} {dt} {o} {i} (name ++ ".weight") 0.0 weightStd
@@ -63,5 +62,5 @@ linearWith weightStd biasStd = do
 ||| default (weight ~ N(0, 1/√fan_in), zero bias) — matches the legacy
 ||| `linearLayer`. The common case of `linearWith`.
 export
-linear : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Linear i o ex dt)
+linear : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Linear i o ex dt WithGrad)
 linear = linearWith (1.0 / sqrt (cast {to=Double} i)) 0.0

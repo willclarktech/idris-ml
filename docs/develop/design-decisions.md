@@ -2187,11 +2187,28 @@ the **shared `Recurrent` interface** (`recurStep : l -> input -> IO (l, output)`
 carried in the record, `WithGrad`-pinned for BPTT) instead, the user's "one interface" preference over
 ad-hoc per-layer forwards.
 
-**`GradMode` off model types.** New records drop the legacy `(0 g : GradMode)` index: params are
-`WithGrad` by construction (fixed in the field types), `g` lives only on the activation `Tensor`.
-`forward` is `g`-polymorphic; `retypeGrad` aligns the params' phantom `g` to the activation's at the
-call (the C handles are unchanged — `g` is erased). Freeze/unfreeze flip the C `requires_grad` via a
-`Frozen m` wrapper + the generic `freeze`/`unfreeze` over `Params`.
+**`GradMode` ON model types (reversed 2026-06-14 — was "off").** The original `Nn` redesign dropped the
+legacy `(0 g : GradMode)` index from model records ("params are `WithGrad` by construction; `g` lives
+only on the activation"). That was the wrong trade for **inference**: a model loaded purely for
+inference is `NoGrad`, so "params are always `WithGrad`" is false, and the type couldn't distinguish a
+trainable model from an inference one — making "train an inference model" / "carry a tape through pure
+inference" runtime concerns rather than type errors. Under the library's governing principle (*invalid
+programs unrepresentable*), the grad-status belongs in the type. So model records regained the index:
+`Linear i o ex dt g`, and the `Module`/`Params`/`Recurrent`/`ModuleMixed` interface kinds gained the
+`GradMode` slot. The model's `g` and the activation's `g` are **one and the same** (single-`g`
+`forward : l i o ex dt g -> Tensor [b,i] … g -> IO (Tensor [b,o] … g)`), which also **dropped the
+`retypeGrad`** the off-model design needed inside every forward. Construction yields `WithGrad`; the
+optimizer path requires a `WithGrad` loss, which only a `WithGrad` model can produce → training a
+`NoGrad` model is a compile error. `eval : l … WithGrad -> IO (l … NoGrad)` (and `trainable`, the
+inverse) flip C `requires_grad` + retype the record via a new per-layer `Params.castGrad` (pure
+field-wise `retypeGrad`; buffers like BatchNorm running stats and BitLinear's frozen weight stay
+`NoGrad`). `freeze`/`unfreeze` + the `Frozen m` wrapper survive for the *fine-tuning-backbone* case
+(grads flow THROUGH a backbone kept inside a trainable graph) — distinct from `eval`, which takes a
+whole model out of training. Considered alternatives: a runtime `requires_grad`-only flip (rejected —
+the type stays silent, principle unserved) and a `NoGrad`-stored-in-`WithGrad`-fields construction
+(rejected — a type lie). Cost: every layer's record + instances regained `g` and a one-line `castGrad`
+(~23 files); the worked evidence that the original drop was wrong is the inference path the off-model
+design forced to carry pointless `WithGrad`.
 
 **Params-only ports.** More layers landed Params-only than the plan assumed, because they don't fit
 `Module`'s `[b,i]→[b,o]`: Embedding (indices→vectors), RmsNorm (`primSum` is a global reduction; the

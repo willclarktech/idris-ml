@@ -18,9 +18,9 @@ forwardComputes : IO Bool
 forwardComputes = do
   ker <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 1, 2, 2]} "cv.k" (Const 1.0)
   bia <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}          "cv.b" (Const 0.0)
-  let cv = the (Conv2D 1 1 3 3 2 2 0 0 9 4 TestExecutor TestDType) (MkConv2D ker bia)
+  let cv = the (Conv2D 1 1 3 3 2 2 0 0 9 4 TestExecutor TestDType WithGrad) (MkConv2D ker bia)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 9]} (Const 1.0)
-  out <- forward {b=1} cv x
+  out <- forward {b=1} cv (retypeGrad x)
   let vs = [ primItem2d {ex=TestExecutor} out.tensorPtr 0 j | j <- the (List Int) [0,1,2,3] ]
   check ("Conv2D 2x2-ones over 3x3-ones (got " ++ show vs ++ ")")
         (vs == [4.0, 4.0, 4.0, 4.0])
@@ -29,7 +29,7 @@ paramsExposed : IO Bool
 paramsExposed = do
   ker <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 1, 2, 2]} "cp.k" (Const 1.0)
   bia <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}          "cp.b" (Const 0.0)
-  let cv = the (Conv2D 1 1 3 3 2 2 0 0 9 4 TestExecutor TestDType) (MkConv2D ker bia)
+  let cv = the (Conv2D 1 1 3 3 2 2 0 0 9 4 TestExecutor TestDType WithGrad) (MkConv2D ker bia)
   check ("Params (Conv2D) = kernel,bias (got " ++ show (mapMaybe paramName (params cv)) ++ ")")
         (mapMaybe paramName (params cv) == ["cp.k", "cp.b"])
 

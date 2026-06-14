@@ -14,7 +14,7 @@ import Test.Config
 
 -- Deterministic property checks (gate order is a C-kernel detail): hidden
 -- bounded, state carried, reset restores step-1 output exactly.
-mkGru1 : IO (Gru 1 1 TestExecutor TestDType)
+mkGru1 : IO (Gru 1 1 TestExecutor TestDType WithGrad)
 mkGru1 = do
   iw <- param {ex=TestExecutor} {dt=TestDType} {dims=[3, 1]} "gr.iw" (Const 1.0)
   ib <- param {ex=TestExecutor} {dt=TestDType} {dims=[3]}    "gr.ib" (Const 0.0)

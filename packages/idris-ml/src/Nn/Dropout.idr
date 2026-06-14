@@ -19,8 +19,8 @@ dropoutSeed : Int -> Int
 
 ||| Inverted dropout (`i = o = n`); `training` toggles drop vs identity.
 public export
-data Dropout : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
-  MkDropout : (p : Double) -> (training : Bool) -> Dropout n n ex dt
+data Dropout : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkDropout : (p : Double) -> (training : Bool) -> Dropout n n ex dt g
 
 public export
 Module Dropout where
@@ -32,13 +32,14 @@ Module Dropout where
 public export
 Params Dropout where
   params _ = []
+  castGrad (MkDropout p training) = MkDropout p training
 
 ||| Dropout with drop probability `p`, starting in training mode.
 public export
-dropout : Double -> Dropout n n ex dt
+dropout : Double -> Dropout n n ex dt g
 dropout p = MkDropout p True
 
 ||| Toggle training/eval mode.
 public export
-setTraining : Bool -> Dropout n n ex dt -> Dropout n n ex dt
+setTraining : Bool -> Dropout n n ex dt g -> Dropout n n ex dt g
 setTraining mode (MkDropout p _) = MkDropout p mode

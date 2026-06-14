@@ -16,8 +16,8 @@ import Nn.Module
 
 ||| Layer normalisation with learnable scale + shift (`i = o = n`).
 public export
-data LayerNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
-  MkLayerNorm : TVec n ex dt WithGrad -> TVec n ex dt WithGrad -> LayerNorm n n ex dt
+data LayerNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkLayerNorm : TVec n ex dt g -> TVec n ex dt g -> LayerNorm n n ex dt g
 
 public export
 Module LayerNorm where
@@ -27,11 +27,12 @@ Module LayerNorm where
 public export
 Params LayerNorm where
   params (MkLayerNorm gamma beta) = [toParam gamma, toParam beta]
+  castGrad (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
 
 ||| Construct a `LayerNorm n n` inside an `Init` derivation. Registers
 ||| `<scope>.layer_norm_<n>.weight` (gamma, init 1) / `.bias` (beta, init 0).
 export
-layerNorm : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (LayerNorm n n ex dt)
+layerNorm : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (LayerNorm n n ex dt WithGrad)
 layerNorm = do
   name  <- freshChild "layer_norm"
   gamma <- liftIO $ tparam1dConst {ex} {dt} {n} (name ++ ".weight") 1.0

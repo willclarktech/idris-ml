@@ -113,8 +113,8 @@ dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT m
   in (rwT :: restRws', roT :: restRos')
 
 -- Apply a head FC to the controller cell vector (W·cell + b).
-fcApply : {0 ex : Executor} -> UserExecutorTraining ex => {0 a, b : Nat} ->
-          AnyPtr -> Linear a b ex dt -> AnyPtr
+fcApply : {0 ex : Executor} -> UserExecutorTraining ex => {0 a, b : Nat} -> {0 g : GradMode} ->
+          AnyPtr -> Linear a b ex dt g -> AnyPtr
 fcApply cellPtr fc = primLinear {ex} fc.weightT.tensorPtr cellPtr fc.biasT.tensorPtr
 
 ----------------------------------------------------------------------
@@ -126,28 +126,28 @@ fcApply cellPtr fc = primLinear {ex} fc.weightT.tensorPtr cellPtr fc.biasT.tenso
 ||| weights + outputs are per-sequence state. `initReadOutsT` (fixed
 ||| Kaiming) + `nonDiagMaskT` (precomputed 1−I) are non-param buffers.
 public export
-record Dnc (r : Nat) (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record Dnc (r : Nat) (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkDnc
-  controller  : Lstm (DncControllerInput r m i) h ex dt
-  writeKeyFc  : Linear h m ex dt
-  writeBetaFc : Linear h 1 ex dt
-  eraseFc     : Linear h m ex dt
-  addFc       : Linear h m ex dt
-  freeGatesFc : Linear h r ex dt
-  allocGateFc : Linear h 1 ex dt
-  writeGateFc : Linear h 1 ex dt
-  readKeysFc  : Linear h (r * m) ex dt
-  readBetasFc : Linear h r ex dt
-  readModesFc : Linear h (r * 3) ex dt
-  outputFc    : Linear (DncOutputInput h r m) o ex dt
-  memInitT      : TVec (m * n) ex dt WithGrad
+  controller  : Lstm (DncControllerInput r m i) h ex dt g
+  writeKeyFc  : Linear h m ex dt g
+  writeBetaFc : Linear h 1 ex dt g
+  eraseFc     : Linear h m ex dt g
+  addFc       : Linear h m ex dt g
+  freeGatesFc : Linear h r ex dt g
+  allocGateFc : Linear h 1 ex dt g
+  writeGateFc : Linear h 1 ex dt g
+  readKeysFc  : Linear h (r * m) ex dt g
+  readBetasFc : Linear h r ex dt g
+  readModesFc : Linear h (r * 3) ex dt g
+  outputFc    : Linear (DncOutputInput h r m) o ex dt g
+  memInitT      : TVec (m * n) ex dt g
   initReadOutsT : Vect r AnyPtr
   nonDiagMaskT  : AnyPtr
-  memT        : Maybe (Tensor [n, m] ex dt WithGrad)
-  usageT      : Maybe (TVec n ex dt WithGrad)
-  writeWtT    : Maybe (TVec n ex dt WithGrad)
-  precedenceT : Maybe (TVec n ex dt WithGrad)
-  linkT       : Maybe (Tensor [n, n] ex dt WithGrad)
+  memT        : Maybe (Tensor [n, m] ex dt g)
+  usageT      : Maybe (TVec n ex dt g)
+  writeWtT    : Maybe (TVec n ex dt g)
+  precedenceT : Maybe (TVec n ex dt g)
+  linkT       : Maybe (Tensor [n, n] ex dt g)
   readWtsT    : Maybe (Vect r AnyPtr)
   readOutsT   : Maybe (Vect r AnyPtr)
 
@@ -158,6 +158,12 @@ public export
       ++ params d.addFc ++ params d.freeGatesFc ++ params d.allocGateFc ++ params d.writeGateFc
       ++ params d.readKeysFc ++ params d.readBetasFc ++ params d.readModesFc ++ params d.outputFc
       ++ [toParam d.memInitT]
+  castGrad (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
+    MkDnc (castGrad ctrl) (castGrad wk) (castGrad wb) (castGrad er) (castGrad ad)
+          (castGrad fg) (castGrad ag) (castGrad wg) (castGrad rk) (castGrad rb)
+          (castGrad rm) (castGrad outFc) (retypeGrad mi) iros ndm
+          (map retypeGrad memS) (map retypeGrad usS) (map retypeGrad wwS)
+          (map retypeGrad prS) (map retypeGrad lkS) rwS roS
 
 public export
 {r, n, m, h : Nat} -> Recurrent (Dnc r n m h) where
@@ -248,7 +254,7 @@ mkKaimingReadOuts (S k) m bound = do
 ||| output head LeCun-ish; memory-init xavier-normal; fixed Kaiming
 ||| read-outs; precomputed 1−I mask). Nests under `<scope>.dnc_<n>.…`.
 export partial
-dnc : {0 ex : Executor} -> Backend ex dt => {r, n, m, h, i, o : Nat} -> Init (Dnc r n m h i o ex dt)
+dnc : {0 ex : Executor} -> Backend ex dt => {r, n, m, h, i, o : Nat} -> Init (Dnc r n m h i o ex dt WithGrad)
 dnc = scopedChild "dnc" $ do
   let xavStd : (a, b : Nat) -> Double
       xavStd a b = 1.4 * sqrt (2.0 / cast {to=Double} (a + b))

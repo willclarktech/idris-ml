@@ -15,11 +15,11 @@ import Nn.Module
 
 ||| A residual block around a same-width sublayer `l n n`.
 public export
-data Residual : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
+data Residual : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkResidual : {n : Nat} ->
-               {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type} ->
+               {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
                (Module l, Params l) =>
-               l n n ex dt -> Residual n n ex dt
+               l n n ex dt g -> Residual n n ex dt g
 
 public export
 Module Residual where
@@ -30,10 +30,11 @@ Module Residual where
 public export
 Params Residual where
   params (MkResidual sub) = params sub
+  castGrad (MkResidual sub) = MkResidual (castGrad sub)
 
 ||| Wrap a sublayer in a residual connection.
 public export
 residual : {n : Nat} ->
-           {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type} ->
-           (Module l, Params l) => l n n ex dt -> Residual n n ex dt
+           {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
+           (Module l, Params l) => l n n ex dt g -> Residual n n ex dt g
 residual = MkResidual

@@ -21,10 +21,10 @@ zeroBIsBase = do
   bb <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lr.b" (Const 1.0)
   la <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "lr.A" (Const 0.3)  -- rank=2
   lb <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} "lr.B" (Const 0.0)  -- zero → delta 0
-  let lora = the (LoraLinear 3 2 TestExecutor TestDType)
+  let lora = the (LoraLinear 3 2 TestExecutor TestDType WithGrad)
                (MkLoraLinear {rank=2} (MkLinear bw bb) la lb 16.0)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[3]} (Const 2.0)
-  out <- loraForward lora x
+  out <- loraForward lora (retypeGrad x)
   let vs = [ primItem1d {ex=TestExecutor} out.tensorPtr i | i <- the (List Int) [0, 1] ]
   check ("LoRA forward with B=0 equals base linear (got " ++ show vs ++ ")")
         (vs == [4.0, 4.0])
@@ -35,7 +35,7 @@ paramsCompose = do
   bb <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lp.b" (Const 1.0)
   la <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "lp.A" (Const 0.3)
   lb <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} "lp.B" (Const 0.0)
-  let lora = the (LoraLinear 3 2 TestExecutor TestDType)
+  let lora = the (LoraLinear 3 2 TestExecutor TestDType WithGrad)
                (MkLoraLinear {rank=2} (MkLinear bw bb) la lb 16.0)
   check ("Params (LoraLinear) = base + adapters (got "
          ++ show (mapMaybe paramName (params lora)) ++ ")")

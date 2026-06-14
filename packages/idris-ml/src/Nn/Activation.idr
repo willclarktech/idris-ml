@@ -24,8 +24,8 @@ data ActivationKind
 
 ||| Stateless activation layer (`i = o = n`).
 public export
-data Activation : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
-  MkActivation : ActivationKind -> Activation n n ex dt
+data Activation : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkActivation : ActivationKind -> Activation n n ex dt g
 
 public export
 Module Activation where
@@ -39,28 +39,29 @@ Module Activation where
 public export
 Params Activation where
   params _ = []
+  castGrad (MkActivation k) = MkActivation k
 
 -- Constructors (no Init needed — stateless, registers nothing).
 public export
-tanhA : Activation n n ex dt
+tanhA : Activation n n ex dt g
 tanhA = MkActivation ATanh
 
 public export
-sigmoidA : Activation n n ex dt
+sigmoidA : Activation n n ex dt g
 sigmoidA = MkActivation ASigmoid
 
 public export
-reluA : Activation n n ex dt
+reluA : Activation n n ex dt g
 reluA = MkActivation ARelu
 
 public export
-geluA : Activation n n ex dt
+geluA : Activation n n ex dt g
 geluA = MkActivation AGelu
 
 public export
-siluA : Activation n n ex dt
+siluA : Activation n n ex dt g
 siluA = MkActivation ASilu
 
 public export
-leakyReluA : Double -> Activation n n ex dt
+leakyReluA : Double -> Activation n n ex dt g
 leakyReluA slope = MkActivation (ALeakyRelu slope)

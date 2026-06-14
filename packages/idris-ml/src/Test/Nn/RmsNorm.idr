@@ -16,9 +16,9 @@ import Test.Config
 normalizesVector : IO Bool
 normalizesVector = do
   wt <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]} "rmt.w" (Const 1.0)
-  let rn = the (RmsNorm 2 2 TestExecutor TestDType) (MkRmsNorm wt)
+  let rn = the (RmsNorm 2 2 TestExecutor TestDType WithGrad) (MkRmsNorm wt)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [3.0, 4.0])
-  out <- rmsNormForward defaultRmsNormEps rn x
+  out <- rmsNormForward defaultRmsNormEps rn (retypeGrad x)
   let v0 = primItem1d {ex=TestExecutor} out.tensorPtr 0
   let v1 = primItem1d {ex=TestExecutor} out.tensorPtr 1
   check ("RmsNorm scales by 1/rms (got [" ++ show v0 ++ ", " ++ show v1 ++ "])")
@@ -27,7 +27,7 @@ normalizesVector = do
 paramExposed : IO Bool
 paramExposed = do
   wt <- param {ex=TestExecutor} {dt=TestDType} {dims=[4]} "rmp.w" (Const 1.0)
-  let rn = the (RmsNorm 4 4 TestExecutor TestDType) (MkRmsNorm wt)
+  let rn = the (RmsNorm 4 4 TestExecutor TestDType WithGrad) (MkRmsNorm wt)
   check "Params (RmsNorm) exposes weight"
         (mapMaybe paramName (params rn) == ["rmp.w"])
 

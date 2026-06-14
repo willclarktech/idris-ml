@@ -19,18 +19,21 @@ import Nn.Module
 ||| Batch norm over `channels` features, `spatialDim` positions each.
 ||| `i = o = channels * spatialDim`. gamma/beta learnable; mean/var buffers.
 public export
-data BatchNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
+data BatchNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkBatchNorm : {channels, spatialDim : Nat} ->
-                TVec channels ex dt WithGrad ->   -- gamma
-                TVec channels ex dt WithGrad ->   -- beta
-                TVec channels ex dt NoGrad ->     -- running mean (buffer)
-                TVec channels ex dt NoGrad ->     -- running var (buffer)
+                TVec channels ex dt g ->          -- gamma
+                TVec channels ex dt g ->          -- beta
+                TVec channels ex dt NoGrad ->     -- running mean (buffer, always NoGrad)
+                TVec channels ex dt NoGrad ->     -- running var (buffer, always NoGrad)
                 (training : Bool) -> (momentum : Double) -> (eps : Double) ->
-                BatchNorm (channels * spatialDim) (channels * spatialDim) ex dt
+                BatchNorm (channels * spatialDim) (channels * spatialDim) ex dt g
 
 public export
 Params BatchNorm where
   params (MkBatchNorm gamma beta _ _ _ _ _) = [toParam gamma, toParam beta]
+  -- gamma/beta carry `g`; the running-stat buffers stay `NoGrad`.
+  castGrad (MkBatchNorm gamma beta mean var tr mom eps) =
+    MkBatchNorm (retypeGrad gamma) (retypeGrad beta) mean var tr mom eps
 
 ||| 1-D batch-norm forward. Training mode uses batch stats + updates the
 ||| running buffers in place; eval mode uses the running buffers. Indexed by
@@ -38,7 +41,7 @@ Params BatchNorm where
 ||| constructor (the product index can't be factored from a signature).
 export
 batchNormForward : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} -> {i : Nat} ->
-                   BatchNorm i i ex dt -> TVec i ex dt g -> IO (TVec i ex dt g)
+                   BatchNorm i i ex dt g -> TVec i ex dt g -> IO (TVec i ex dt g)
 batchNormForward (MkBatchNorm {channels} {spatialDim} gamma beta mean var training momentum eps) input = ioRerun (\_ =>
   let cI    = cast {to=Int} channels
       sI    = cast {to=Int} spatialDim
@@ -48,7 +51,7 @@ batchNormForward (MkBatchNorm {channels} {spatialDim} gamma beta mean var traini
 
 ||| Toggle training/eval mode.
 export
-setTraining : Bool -> BatchNorm i o ex dt -> BatchNorm i o ex dt
+setTraining : Bool -> BatchNorm i o ex dt g -> BatchNorm i o ex dt g
 setTraining mode (MkBatchNorm g b m v _ mom eps) = MkBatchNorm g b m v mode mom eps
 
 ||| Raw handles of the running mean / variance buffers. Lets callers read
@@ -56,7 +59,7 @@ setTraining mode (MkBatchNorm g b m v _ mom eps) = MkBatchNorm g b m v mode mom 
 ||| product-indexed constructor, whose `channels` can't be recovered from
 ||| the `channels*spatialDim` index. Used by the save/load roundtrip test.
 export
-runningStatPtrs : BatchNorm i o ex dt -> (AnyPtr, AnyPtr)
+runningStatPtrs : BatchNorm i o ex dt g -> (AnyPtr, AnyPtr)
 runningStatPtrs (MkBatchNorm _ _ m v _ _ _) = (m.tensorPtr, v.tensorPtr)
 
 ||| Construct a `BatchNorm` inside an `Init` derivation. gamma=1, beta=0,
@@ -68,7 +71,7 @@ runningStatPtrs (MkBatchNorm _ _ m v _ _ _) = (m.tensorPtr, v.tensorPtr)
 ||| `num_batches_tracked` isn't tracked here; momentum is fixed.)
 export partial
 batchNorm : {0 ex : Executor} -> Backend ex dt => {channels, spatialDim : Nat} ->
-            Init (BatchNorm (channels * spatialDim) (channels * spatialDim) ex dt)
+            Init (BatchNorm (channels * spatialDim) (channels * spatialDim) ex dt WithGrad)
 batchNorm = do
   name  <- freshChild "batch_norm"
   gamma <- liftIO $ tparam1dConst  {ex} {dt} {n=channels} (name ++ ".weight")       1.0

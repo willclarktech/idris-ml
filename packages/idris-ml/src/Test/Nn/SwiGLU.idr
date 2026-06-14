@@ -20,9 +20,9 @@ forwardComputes = do
   gW <- param {ex=TestExecutor} {dt=TestDType} {dims=[3, 2]} "sg.g" (Const 0.5)
   uW <- param {ex=TestExecutor} {dt=TestDType} {dims=[3, 2]} "sg.u" (Const 0.5)
   dW <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "sg.d" (Const 0.5)
-  let blk = the (SwiGLU 2 3 TestExecutor TestDType) (MkSwiGLU gW uW dW)
+  let blk = the (SwiGLU 2 3 TestExecutor TestDType WithGrad) (MkSwiGLU gW uW dW)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (Const 1.0)
-  out <- swigluForward blk x
+  out <- swigluForward blk (retypeGrad x)
   let v0 = primItem1d {ex=TestExecutor} out.tensorPtr 0
   let v1 = primItem1d {ex=TestExecutor} out.tensorPtr 1
   check ("SwiGLU forward (got [" ++ show v0 ++ ", " ++ show v1 ++ "])")
@@ -33,7 +33,7 @@ paramsExposed = do
   gW <- param {ex=TestExecutor} {dt=TestDType} {dims=[3, 2]} "sp.g" (Const 0.5)
   uW <- param {ex=TestExecutor} {dt=TestDType} {dims=[3, 2]} "sp.u" (Const 0.5)
   dW <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "sp.d" (Const 0.5)
-  let blk = the (SwiGLU 2 3 TestExecutor TestDType) (MkSwiGLU gW uW dW)
+  let blk = the (SwiGLU 2 3 TestExecutor TestDType WithGrad) (MkSwiGLU gW uW dW)
   check ("Params (SwiGLU) = gate,up,down (got " ++ show (mapMaybe paramName (params blk)) ++ ")")
         (mapMaybe paramName (params blk) == ["sp.g", "sp.u", "sp.d"])
 

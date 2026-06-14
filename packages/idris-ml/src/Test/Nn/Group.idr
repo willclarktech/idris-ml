@@ -12,14 +12,15 @@ import Nn.Group
 import Test.Config
 
 -- A toy single-param layer so groupOf has something to enumerate.
-data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
-  MkLin : Tensor [2] ex dt WithGrad -> Lin i o ex dt
+data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkLin : Tensor [2] ex dt g -> Lin i o ex dt g
 
 Params Lin where
   params (MkLin w) = [toParam w]
+  castGrad (MkLin w) = MkLin (retypeGrad w)
 
 -- Smart constructor: registers one param under the Init-derived name.
-lin : {0 ex : Executor} -> Backend ex dt => String -> Init (Lin 2 2 ex dt)
+lin : {0 ex : Executor} -> Backend ex dt => String -> Init (Lin 2 2 ex dt WithGrad)
 lin kind = do
   name <- freshChild kind
   w    <- liftIO $ param {ex} {dt} {dims=[2]} (name ++ ".weight") (Const 1.0)
@@ -28,7 +29,7 @@ lin kind = do
 -- Two submodels whose scope names overlap as substrings ("actor" is a
 -- prefix of "actorX"): the exact-set groupOf must keep them disjoint where
 -- a substring match would leak "actorX"'s param into "actor"'s group.
-buildPair : IO (Lin 2 2 TestExecutor TestDType, Lin 2 2 TestExecutor TestDType)
+buildPair : IO (Lin 2 2 TestExecutor TestDType WithGrad, Lin 2 2 TestExecutor TestDType WithGrad)
 buildPair = runInit $ do
   a <- scoped "actor"  (lin "linear")
   b <- scoped "actorX" (lin "linear")

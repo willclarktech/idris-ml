@@ -25,11 +25,12 @@ import Nn.Module
 ||| (threading hidden state through the returned layer); `recurReset`
 ||| clears the hidden state (next step lazily re-initialises to zeros).
 public export
-interface Recurrent (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type) where
+interface Recurrent (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
   recurStep : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
-              l i o ex dt -> Tensor [i] ex dt WithGrad -> IO (l i o ex dt, Tensor [o] ex dt WithGrad)
-  recurReset : {0 ex : Executor} -> {0 dt : DType} -> {i, o : Nat} ->
-               l i o ex dt -> l i o ex dt
+              l i o ex dt WithGrad -> Tensor [i] ex dt WithGrad ->
+              IO (l i o ex dt WithGrad, Tensor [o] ex dt WithGrad)
+  recurReset : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {i, o : Nat} ->
+               l i o ex dt g -> l i o ex dt g
 
 ----------------------------------------------------------------------
 -- RNN (vanilla nn.RNNCell): h_t = act(W_ih·x + b_ih + W_hh·h_{t-1} + b_hh)
@@ -39,18 +40,20 @@ interface Recurrent (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type
 ||| carried hidden state (a `WithGrad` activation, `Nothing` until the
 ||| first step); `activation` is any unary tensor fn (typically `ttanh`).
 public export
-record Rnn (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+record Rnn (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkRnn
-  iwT : TMat o i ex dt WithGrad
-  rwT : TMat o o ex dt WithGrad
-  ihB : TVec o ex dt WithGrad
-  hhB : TVec o ex dt WithGrad
+  iwT : TMat o i ex dt g
+  rwT : TMat o o ex dt g
+  ihB : TVec o ex dt g
+  hhB : TVec o ex dt g
   activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')
-  prevOutT : Maybe (TVec o ex dt WithGrad)
+  prevOutT : Maybe (TVec o ex dt g)
 
 public export
 Params Rnn where
   params (MkRnn iw rw ib hb _ _) = [toParam iw, toParam rw, toParam ib, toParam hb]
+  castGrad (MkRnn iw rw ib hb act prev) =
+    MkRnn (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb) act (map retypeGrad prev)
 
 public export
 Recurrent Rnn where
@@ -73,7 +76,7 @@ Recurrent Rnn where
 export
 rnn : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
       (activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')) ->
-      Init (Rnn i o ex dt)
+      Init (Rnn i o ex dt WithGrad)
 rnn activation = do
   name <- freshChild "rnn"
   let iwStd = sqrt (2.0 / cast {to=Double} (i + o))

@@ -13,7 +13,7 @@ import Nn.Dnc
 import Test.Config
 
 -- Small DNC: 2 read heads, 4 memory slots × width 3, hidden 8, in/out 2.
-mkDnc : IO (Dnc 2 4 3 8 2 2 TestExecutor TestDType)
+mkDnc : IO (Dnc 2 4 3 8 2 2 TestExecutor TestDType WithGrad)
 mkDnc = runInit (dnc {r=2} {n=4} {m=3} {h=8} {i=2} {o=2})
 
 inp2 : IO (Tensor [2] TestExecutor TestDType WithGrad)

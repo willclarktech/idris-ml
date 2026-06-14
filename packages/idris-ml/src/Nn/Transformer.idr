@@ -28,15 +28,15 @@ import Nn.Attention
 ||| `dModel dModel` are the Module i/o.
 public export
 data TransformerBlock : (numHeads : Nat) -> (headDim : Nat) ->
-                        Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
+                        Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkTransformerBlock :
     {dModel : Nat} ->
-    Attention dModel numHeads headDim ex dt ->
-    LayerNorm dModel dModel ex dt ->
-    LayerNorm dModel dModel ex dt ->
-    TMat (4 * dModel) dModel ex dt WithGrad ->   -- ff1 (bias-free)
-    TMat dModel (4 * dModel) ex dt WithGrad ->   -- ff2 (bias-free)
-    TransformerBlock numHeads headDim dModel dModel ex dt
+    Attention dModel numHeads headDim ex dt g ->
+    LayerNorm dModel dModel ex dt g ->
+    LayerNorm dModel dModel ex dt g ->
+    TMat (4 * dModel) dModel ex dt g ->   -- ff1 (bias-free)
+    TMat dModel (4 * dModel) ex dt g ->   -- ff2 (bias-free)
+    TransformerBlock numHeads headDim dModel dModel ex dt g
 
 public export
 {numHeads, headDim : Nat} -> Module (TransformerBlock numHeads headDim) where
@@ -54,13 +54,16 @@ public export
 {numHeads, headDim : Nat} -> Params (TransformerBlock numHeads headDim) where
   params (MkTransformerBlock attn n1 n2 ff1 ff2) =
     attentionParams attn ++ params n1 ++ params n2 ++ [toParam ff1, toParam ff2]
+  castGrad (MkTransformerBlock attn n1 n2 ff1 ff2) =
+    MkTransformerBlock (attentionCastGrad attn) (castGrad n1) (castGrad n2)
+                       (retypeGrad ff1) (retypeGrad ff2)
 
 ||| Construct a pre-norm `TransformerBlock` inside an `Init` derivation.
 ||| Nests `attn.*` (per-head projections), `norm1`/`norm2`, and the
 ||| bias-free `ff1`/`ff2` (~ N(0, 1/√fan_in)) under the current scope.
 export
 transformerBlock : {0 ex : Executor} -> Backend ex dt => {dModel, numHeads, headDim : Nat} ->
-                   Init (TransformerBlock numHeads headDim dModel dModel ex dt)
+                   Init (TransformerBlock numHeads headDim dModel dModel ex dt WithGrad)
 transformerBlock = do
   a   <- scopedChild "attn" attention
   n1  <- named "norm1" (layerNorm {n = dModel})
