@@ -29,6 +29,8 @@
 ||| with eval-loss reproduction).
 module Example.PrecisionCheckpoint
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -36,6 +38,7 @@ import System
 import BuildConfig
 import Checkpoint
 import Compat.Random
+import FitL
 import ML.Simple
 import Train
 
@@ -99,12 +102,14 @@ buildStream = do
   s <- stream NoShuffle (fromIndexed 5 sampleAt)
   pure (batched {b=5} {i=2} {o=3} s)
 
-nllLoss : Linear 2 3 Ex F WithGrad ->
-          (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
-          IO (Tensor [] Ex F WithGrad)
-nllLoss model (x, tgt) = do
-  out <- forward {b=5} model (retypeGrad x)
-  tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
+-- Linear-resource loss for fitSupervisedL.
+nllLossL : (1 _ : Linear 2 3 Ex F WithGrad) ->
+           (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
+           L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Linear 2 3 Ex F WithGrad))
+nllLossL model (x, tgt) = do
+  (MkBang out # model') <- forwardL {b=5} model (retypeGrad x)
+  loss <- tnllLossMeanL {b=5} {n=3} out (retypeGrad tgt)
+  pure1 (MkBang loss # model')
 
 ----------------------------------------------------------------------
 -- Eval — mean NLL loss over the 5 data points.
@@ -113,41 +118,59 @@ nllLoss model (x, tgt) = do
 evalInput : IO (Tensor [5, 2] Ex F NoGrad)
 evalInput = tensor {dims=[5, 2]} (FromVect flatInputs)
 
-evalLoss : {0 g : GradMode} -> Linear 2 3 Ex F g -> IO Double
-evalLoss model = withNoGrad {ex=Ex} $ do
-  out <- forward {b=5} model (retypeGrad !evalInput)
-  l   <- tnllLossMean {b=5} {n=3} out (retypeGrad !(tensor {dims=[5,3]}
-           (FromVect (concat targetsV))))
+-- Mean NLL loss from already-forwarded [5,3] logits (NoGrad → no tape).
+lossFrom : Tensor [5, 3] Ex F NoGrad -> IO Double
+lossFrom predB = do
+  tgt <- tensor {dims=[5,3]} (FromVect (concat targetsV))
+  l   <- tnllLossMean {b=5} {n=3} predB tgt
   pure (primItem {ex=Ex} l.tensorPtr)
 
 ----------------------------------------------------------------------
--- Modes
+-- Modes (linear surface; IO re-entry via run)
 ----------------------------------------------------------------------
 
-doSave : Config -> Optimizer Ex -> Linear 2 3 Ex F WithGrad -> IO Bool
-doSave cfg opt model = do
-  bs <- buildStream
-  putStrLn $ "Training " ++ show cfg.epochs ++ " epochs"
-  (trained, _, _) <- fitSupervised opt nllLoss bs (simpleConfig cfg.epochs) model
-  trainedLoss <- evalLoss trained
-  putStrLn $ "Trained eval loss: " ++ show trainedLoss
-  ok <- saveAll {ex=Ex} cfg.path
-  putStrLn $ (if ok then "Saved to " else "FAILED to save to ") ++ cfg.path
-  pure ok
+doSave : Config -> Optimizer Ex -> IO Bool
+doSave cfg opt = Control.Linear.LIO.run $ do
+  model <- runInitL (linear {i=2} {o=3})
+  bs <- liftIO1 buildStream
+  liftIO1 $ putStrLn $ "Training " ++ show cfg.epochs ++ " epochs"
+  (MkBang _ # trained) <- fitSupervisedL opt nllLossL bs (simpleConfig cfg.epochs) model
+  infer <- evalL trained
+  ein <- liftIO1 evalInput
+  (MkBang predB # infer') <- forwardL {b=5} infer ein
+  discardL infer'
+  liftIO1 $ do
+    trainedLoss <- lossFrom predB
+    putStrLn $ "Trained eval loss: " ++ show trainedLoss
+    ok <- saveAll {ex=Ex} cfg.path
+    putStrLn $ (if ok then "Saved to " else "FAILED to save to ") ++ cfg.path
+    pure ok
 
-doLoad : (allowCast : Bool) -> Config -> Linear 2 3 Ex F WithGrad -> IO Bool
-doLoad allowCast cfg model = do
-  initLoss <- evalLoss model
-  putStrLn $ "Pre-load eval loss: " ++ show initLoss
-  ok <- if allowCast then loadModelAllowCast {ex=Ex} cfg.path
-                     else loadModel {ex=Ex} cfg.path
+-- Load mode: forward once pre-load and once post-load, threading the (linear)
+-- inference model between the two so both reads are single-owner. loadModel
+-- mutates the C param registry by name (the model value is unchanged), so the
+-- post-load forward reflects the loaded weights.
+doLoad : (allowCast : Bool) -> Config -> IO Bool
+doLoad allowCast cfg = Control.Linear.LIO.run $ do
+  model <- runInitL (linear {i=2} {o=3})
+  infer <- evalL model
+  ein <- liftIO1 evalInput
+  (MkBang predPre # infer') <- forwardL {b=5} infer ein
+  liftIO1 $ do
+    initLoss <- lossFrom predPre
+    putStrLn $ "Pre-load eval loss: " ++ show initLoss
+  ok <- liftIO1 $ if allowCast then loadModelAllowCast {ex=Ex} cfg.path
+                               else loadModel {ex=Ex} cfg.path
   let label : String
       label = if allowCast then "load-cast" else "load-strict"
-  putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path
-  when ok $ do
-    loadedLoss <- evalLoss model
-    putStrLn $ "Post-load eval loss: " ++ show loadedLoss
-  pure ok
+  liftIO1 $ putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path
+  (MkBang predPost # infer'') <- forwardL {b=5} infer' ein
+  discardL infer''
+  liftIO1 $ do
+    when ok $ do
+      loadedLoss <- lossFrom predPost
+      putStrLn $ "Post-load eval loss: " ++ show loadedLoss
+    pure ok
 
 ----------------------------------------------------------------------
 -- Main
@@ -168,15 +191,14 @@ main = do
     exitFailure
 
   opt <- sgd cfg.lr defaultOpts
-  model <- runInit (linear {i=2} {o=3})
 
   putStrLn $ "=== PrecisionCheckpoint [" ++ backendName {ex=Ex}
            ++ "] mode=" ++ cfg.mode ++ " ==="
 
   result <- case cfg.mode of
-    "save"        => doSave cfg opt model
-    "load-strict" => doLoad False cfg model
-    "load-cast"   => doLoad True cfg model
+    "save"        => doSave cfg opt
+    "load-strict" => doLoad False cfg
+    "load-cast"   => doLoad True cfg
     _             => do
       putStrLn "Unknown mode. Use --mode save|load-strict|load-cast"
       exitFailure
