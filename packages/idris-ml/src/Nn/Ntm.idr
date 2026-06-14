@@ -9,6 +9,8 @@
 ||| with `named` sub-modules (controller / read_fc / write_fc / output_fc).
 module Nn.Ntm
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Compat.Random
@@ -161,6 +163,38 @@ public export
   recurReset st =
     { controller $= recurReset
     , memT := Nothing, readAddrT := Nothing, writeAddrT := Nothing, readOutT := Nothing } st
+
+||| Linear-resource params. The controller + 3 heads + memory-init/read-out
+||| all bind at ω, so the sub-models reuse the IO `Params` methods (no
+||| `ParamsL` on the nested types needed) for both the reflected list and the
+||| rebuild; the per-sequence state fields ride at ω.
+public export
+{n, m, h : Nat} -> ParamsL (Ntm n m h) where
+  reflectL (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
+    MkBang (params ctrl ++ params rfc ++ params wfc ++ params ofc ++ [toParam memInit, toParam iro])
+      # MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS
+  castGradL (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
+    MkNtm (castGrad ctrl) (castGrad rfc) (castGrad wfc) (castGrad ofc)
+          (retypeGrad memInit) (retypeGrad iro)
+          (map retypeGrad memS) (map retypeGrad raS) (map retypeGrad waS) (map retypeGrad roS)
+  discardL (MkNtm _ _ _ _ _ _ _ _ _ _) = pure ()
+
+||| Linear-resource recurrent step. The body is large and raw-prim-heavy and
+||| threads the LSTM controller through an ω record field, so for now it
+||| consumes the linear cell and delegates to the IO `recurStep` at the linear
+||| boundary (the handle-level guarantee — no reuse of a stale NTM — holds; the
+||| internal controller threading stays ω in IO). The inline `L IO` body lands
+||| with the IO-surface collapse, when the controller field can become linear.
+public export
+{n, m, h : Nat} -> RecurrentL (Ntm n m h) where
+  -- Pattern-match to discharge linearity (fields bind at ω), rebuild an ω
+  -- cell, and delegate to the IO step; the returned cell rides the linear pair.
+  recurStepL (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) input = do
+    (updSt, out) <- liftIO1
+      (recurStep (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) input)
+    pure1 (MkBang out # updSt)
+  recurResetL (MkNtm ctrl rfc wfc ofc memInit iro _ _ _ _) =
+    MkNtm (recurReset ctrl) rfc wfc ofc memInit iro Nothing Nothing Nothing Nothing
 
 ||| Construct an `Ntm` inside an `Init` derivation, mirroring the PyTorch
 ||| reference inits (LSTM default; read/write heads xavier-1.4 + bias

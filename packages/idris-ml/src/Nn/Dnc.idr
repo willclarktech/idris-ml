@@ -8,6 +8,8 @@
 ||| dynamics are transcribed unchanged from the legacy.
 module Nn.Dnc
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Compat.Random
@@ -238,6 +240,42 @@ public export
     { controller $= recurReset
     , memT := Nothing, usageT := Nothing, writeWtT := Nothing, precedenceT := Nothing
     , linkT := Nothing, readWtsT := Nothing, readOutsT := Nothing } st
+
+||| Linear-resource params. The controller + 11 heads + memory-init all bind
+||| at ω, so the sub-models reuse the IO `Params` methods for both the
+||| reflected list and the rebuild; the buffers + per-sequence state ride at ω.
+public export
+{r, n, m, h : Nat} -> ParamsL (Dnc r n m h) where
+  reflectL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
+    MkBang (params ctrl ++ params wk ++ params wb ++ params er ++ params ad ++ params fg
+              ++ params ag ++ params wg ++ params rk ++ params rb ++ params rm ++ params outFc
+              ++ [toParam mi])
+      # MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS
+  castGradL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
+    MkDnc (castGrad ctrl) (castGrad wk) (castGrad wb) (castGrad er) (castGrad ad)
+          (castGrad fg) (castGrad ag) (castGrad wg) (castGrad rk) (castGrad rb)
+          (castGrad rm) (castGrad outFc) (retypeGrad mi) iros ndm
+          (map retypeGrad memS) (map retypeGrad usS) (map retypeGrad wwS)
+          (map retypeGrad prS) (map retypeGrad lkS) rwS roS
+  discardL (MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = pure ()
+
+||| Linear-resource recurrent step. As with NTM, the body is large and
+||| raw-prim-heavy and threads the LSTM controller through an ω record field,
+||| so it consumes the linear cell and delegates to the IO `recurStep` at the
+||| linear boundary (the handle-level guarantee holds; controller threading
+||| stays ω in IO). The inline `L IO` body lands with the IO-surface collapse.
+public export
+{r, n, m, h : Nat} -> RecurrentL (Dnc r n m h) where
+  -- Pattern-match to discharge linearity (fields bind at ω), rebuild an ω
+  -- cell, and delegate to the IO step; the returned cell rides the linear pair.
+  recurStepL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) input = do
+    (updSt, out) <- liftIO1
+      (recurStep (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm
+                        memS usS wwS prS lkS rwS roS) input)
+    pure1 (MkBang out # updSt)
+  recurResetL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm _ _ _ _ _ _ _) =
+    MkDnc (recurReset ctrl) wk wb er ad fg ag wg rk rb rm outFc mi iros ndm
+          Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- Build r fixed Kaiming-uniform read-output buffers (non-learnable).
 mkKaimingReadOuts : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
