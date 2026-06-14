@@ -16,6 +16,8 @@
 ||| (SeqLen+1) tokens per training example.
 module Example.Gpt2LmFinetune
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.List1
 import Data.Vect
@@ -212,23 +214,31 @@ gpt2LmLoss logits targets = ioRerun (\_ =>
 -- Training loop
 ----------------------------------------------------------------------
 
-trainStep : NativeOptimizer ExampleExecutor
-         -> Model
-         -> (Vect SeqLen Double, Vect SeqLen Double)
-         -> IO Double
-trainStep opt model (inputTok, targetTok) = do
-  inputT  <- mkIdsTensor inputTok
-  posT    <- mkIdsTensor arangeSeqLen
-  targetT <- mkTargetOneHot targetTok
-  logits  <- hfGpt2ForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
-                             {seqLen=SeqLen}
-                             {vocab=Vocab} {hidden=Hidden}
-                             {numLayers=NumLayers} {numHeads=NumHeads}
-                             {headDim=HeadDim} {intermediate=Intermediate}
-                             {maxPos=MaxPos}
-                             model inputT posT
-  loss    <- gpt2LmLoss logits targetT
-  nativeTrainStep opt loss
+-- Per-step LM train, threading the (linear) model through hfGpt2ForwardLmL.
+trainStepL : NativeOptimizer ExampleExecutor
+          -> (1 _ : Model)
+          -> (Vect SeqLen Double, Vect SeqLen Double)
+          -> L IO {use = 1} (LPair (!* Double) Model)
+trainStepL opt model (inputTok, targetTok) = do
+  (inputT, posT, targetT) <-
+    liftIO1 (do inputT  <- mkIdsTensor inputTok
+                posT    <- mkIdsTensor arangeSeqLen
+                targetT <- mkTargetOneHot targetTok
+                pure (inputT, posT, targetT))
+  (MkBang logits # model') <-
+    hfGpt2ForwardLmL {ex=ExampleExecutor} {dt=ExampleDType}
+                     {seqLen=SeqLen}
+                     {vocab=Vocab} {hidden=Hidden}
+                     {numLayers=NumLayers} {numHeads=NumHeads}
+                     {headDim=HeadDim} {intermediate=Intermediate}
+                     {maxPos=MaxPos}
+                     model inputT posT
+  d <- liftIO1 (do loss <- gpt2LmLoss logits targetT; nativeTrainStep opt loss)
+  pure1 (MkBang d # model')
+
+-- Discard the (linear) model: its fields are ω registered-param records.
+discardModel : (1 _ : Model) -> L IO ()
+discardModel (MkGpt2Model _ _ _ _) = pure ()
 
 ----------------------------------------------------------------------
 -- main
@@ -261,38 +271,39 @@ main = do
     else do
       putStrLn $ "Loaded " ++ show nTokens ++ " tokens."
 
-      model <- hfGpt2Model {ex=ExampleExecutor} {dt=ExampleDType}
-                           {vocab=Vocab} {hidden=Hidden}
-                           {numLayers=NumLayers} {numHeads=NumHeads}
-                           {headDim=HeadDim}
-                           {intermediate=Intermediate}
-                           {maxPos=MaxPos}
-                           ""
-
-      True <- loadModelAllowCast {ex=ExampleExecutor} ckptPath
-        | False => do
-            putStrLn $ "ERROR: failed to load distilgpt2 from " ++ ckptPath
-            exitFailure
-      putStrLn "distilgpt2 backbone warm-started."
-
-      let opt = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
-
-      let trainLoop : Nat -> Nat -> Double -> Double -> IO Double
-          trainLoop _    Z    accLoss lastLoss = pure lastLoss
-          trainLoop step (S k) accLoss _       = do
-            sample <- sampleWindow tokens nTokens cfg.maxStart
-            loss <- trainStep opt model sample
-            let acc'  = accLoss + loss
-            let step' = step + 1
-            when (modNatNZ step' 10 SIsNonZero == 0) $
-              putStrLn $ "  step " ++ show step' ++ "/" ++ show cfg.steps
-                      ++ " loss=" ++ showFix 4 loss
-                      ++ "  ema=" ++ showFix 4 (acc' / cast {to=Double} step')
-            trainLoop step' k acc' loss
-      finalLoss <- trainLoop 0 cfg.steps 0.0 0.0
-
-      putStrLn ""
-      putStrLn $ formatResult [ ("loss",  showFix 4 finalLoss)
-                              , ("steps", show cfg.steps)
-                              , ("seed",  show cfg.seed)
-                              ]
+      -- Linear surface: model born linear (bornL), warm-started by name, then
+      -- threaded single-owner through the custom LM train loop, discarded.
+      Control.Linear.LIO.run $ do
+        model <- bornL (hfGpt2Model {ex=ExampleExecutor} {dt=ExampleDType}
+                                    {vocab=Vocab} {hidden=Hidden}
+                                    {numLayers=NumLayers} {numHeads=NumHeads}
+                                    {headDim=HeadDim}
+                                    {intermediate=Intermediate}
+                                    {maxPos=MaxPos}
+                                    "")
+        liftIO1 (do ok <- loadModelAllowCast {ex=ExampleExecutor} ckptPath
+                    if ok then putStrLn "distilgpt2 backbone warm-started."
+                          else do putStrLn $ "ERROR: failed to load distilgpt2 from " ++ ckptPath
+                                  exitFailure)
+        let opt = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
+        let trainLoopL : Nat -> Nat -> Double -> Double -> (1 _ : Model) ->
+                         L IO {use = 1} (LPair (!* Double) Model)
+            trainLoopL _    Z     _       lastLoss model = pure1 (MkBang lastLoss # model)
+            trainLoopL step (S k) accLoss _        model = do
+              sample <- liftIO1 (sampleWindow tokens nTokens cfg.maxStart)
+              (MkBang loss # model') <- trainStepL opt model sample
+              let acc'  = accLoss + loss
+                  step' = step + 1
+              liftIO1 (when (modNatNZ step' 10 SIsNonZero == 0) $
+                         putStrLn $ "  step " ++ show step' ++ "/" ++ show cfg.steps
+                                 ++ " loss=" ++ showFix 4 loss
+                                 ++ "  ema=" ++ showFix 4 (acc' / cast {to=Double} step'))
+              trainLoopL step' k acc' loss model'
+        (MkBang finalLoss # trained) <- trainLoopL 0 cfg.steps 0.0 0.0 model
+        discardModel trained
+        liftIO1 $ do
+          putStrLn ""
+          putStrLn $ formatResult [ ("loss",  showFix 4 finalLoss)
+                                  , ("steps", show cfg.steps)
+                                  , ("seed",  show cfg.seed)
+                                  ]
