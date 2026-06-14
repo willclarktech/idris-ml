@@ -52,6 +52,34 @@ parses src =
     Left _ => False
     Right _ => True
 
+||| Parse to the compiler's surface `Module`, or `Nothing` on a parse error.
+parseModule : String -> Maybe Module
+parseModule src =
+  let origin = Virtual Interactive in
+  case runParser origin Nothing src (prog origin) of
+    Left _ => Nothing
+    Right (_, _, mod) => Just mod
+
+||| FC-insensitive structural signature of the top-level declarations: each
+||| decl rendered via `Show PDeclNoFC`, which omits FC. Equal `astSig` means
+||| the same declaration tree modulo source positions + comments — used to
+||| prove a layout/import transform left the *code* untouched.
+|||
+||| Caveat: `Show` does not descend into every `where`/`let`-local block, so
+||| `astSig` is NOT a sufficient oracle for a transform that *reindents*
+||| declaration bodies — only for ones that leave decls structurally intact
+||| (import-sort, alignment). Reindentation is a deferred follow-up and would
+||| need a stronger structural equality.
+export
+astSig : String -> Maybe (List String)
+astSig src = (\m => map (\d => show d.val) m.decls) <$> parseModule src
+
+||| The module's imports, each rendered via `Show Import` (order-sensitive).
+||| Compared as a multiset for import-sort (which reorders + dedups).
+export
+importSig : String -> Maybe (List String)
+importSig src = (\m => map show m.imports) <$> parseModule src
+
 ||| `safeReformat original formatted` holds when `formatted` is a faithful
 ||| reformat of `original`: it still parses, and its token stream is
 ||| byte-identical (modulo whitespace + line/block comments). This is the
@@ -62,4 +90,17 @@ safeReformat original formatted =
   parses formatted &&
   (case (codeSig original, codeSig formatted) of
      (Just a, Just b) => a == b
+     _ => False)
+
+||| Safety gate for the import-sort pass, which deliberately *reorders* (so
+||| `codeSig` differs). Holds when the declarations are untouched and the
+||| imports are the same set (a reordering with exact duplicates removed) —
+||| i.e. no import was added or lost.
+export
+safeImportSort : (original : String) -> (formatted : String) -> Bool
+safeImportSort original formatted =
+  parses formatted &&
+  astSig original == astSig formatted &&
+  (case (importSig original, importSig formatted) of
+     (Just a, Just b) => sort (nub a) == sort (nub b)
      _ => False)
