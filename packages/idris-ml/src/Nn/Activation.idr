@@ -1,0 +1,66 @@
+||| `Activation` — the stateless-layer exemplar on the v1 `Nn` surface.
+||| Holds an `ActivationKind` tag; `forward` dispatches to the matching
+||| elementwise C op. Activation prims are shape-polymorphic, so the
+||| batched `[b,n]` forward is the same call as the `[n]` one. No params,
+||| so `Params` is empty and there is nothing to freeze.
+module Nn.Activation
+
+import Data.Vect
+
+import Executor
+import Tensor
+import Nn.Module
+
+%default total
+
+public export
+data ActivationKind
+  = ATanh
+  | ASigmoid
+  | ARelu
+  | AGelu
+  | ASilu
+  | ALeakyRelu Double  -- slope
+
+||| Stateless activation layer (`i = o = n`).
+public export
+data Activation : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> Type where
+  MkActivation : ActivationKind -> Activation n n ex dt
+
+public export
+Module Activation where
+  forward (MkActivation ATanh)          x = ttanh x
+  forward (MkActivation ASigmoid)       x = tsigmoid x
+  forward (MkActivation ARelu)          x = trelu x
+  forward (MkActivation AGelu)          x = tgelu x
+  forward (MkActivation ASilu)          x = tsilu x
+  forward (MkActivation (ALeakyRelu s)) x = tleakyRelu s x
+
+public export
+Params Activation where
+  params _ = []
+
+-- Constructors (no Init needed — stateless, registers nothing).
+public export
+tanhA : Activation n n ex dt
+tanhA = MkActivation ATanh
+
+public export
+sigmoidA : Activation n n ex dt
+sigmoidA = MkActivation ASigmoid
+
+public export
+reluA : Activation n n ex dt
+reluA = MkActivation ARelu
+
+public export
+geluA : Activation n n ex dt
+geluA = MkActivation AGelu
+
+public export
+siluA : Activation n n ex dt
+siluA = MkActivation ASilu
+
+public export
+leakyReluA : Double -> Activation n n ex dt
+leakyReluA slope = MkActivation (ALeakyRelu slope)
