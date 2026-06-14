@@ -55,12 +55,12 @@ qSet i j v (VArray rows) =
 
 toStateFin : Nat -> Fin NumStates
 toStateFin n = case natToFin n NumStates of
-  Just f => f
+  Just f  => f
   Nothing => FZ
 
 toActionFin : Nat -> Fin NumActions
 toActionFin n = case natToFin n NumActions of
-  Just f => f
+  Just f  => f
   Nothing => FZ
 
 ----------------------------------------------------------------------
@@ -78,7 +78,7 @@ epsGreedy eps qr u1 u2 =
     then let idx : Nat
              idx = integerToNat (cast (u2 * cast NumActions))
          in case natToFin idx NumActions of
-              Just f => f
+              Just f  => f
               Nothing => FZ
     else argmax qr
 
@@ -89,21 +89,21 @@ epsGreedy eps qr u1 u2 =
 -- Consumes 2 uniforms per step; returns (updated Q, episodic return).
 runEpisode : Double -> Double -> Double ->
              CWState -> QTable -> Nat -> List Double -> (QTable, Double)
-runEpisode _ _ _ _ q Z _ = (q, 0.0)
-runEpisode _ _ _ _ q _ [] = (q, 0.0)
-runEpisode _ _ _ _ q _ [_] = (q, 0.0)
+runEpisode _ _ _ _ q Z _                                     = (q, 0.0)
+runEpisode _ _ _ _ q _ []                                    = (q, 0.0)
+runEpisode _ _ _ _ q _ [_]                                   = (q, 0.0)
 runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
   let sIdx  = toStateFin (cwObserve st)
-      qr    = qRowAt sIdx q
-      aFin  = epsGreedy eps qr u1 u2
-      aNat  = finToNat aFin
+      qr   = qRowAt sIdx q
+      aFin = epsGreedy eps qr u1 u2
+      aNat = finToNat aFin
   in case cwStep st aNat of
        (reward, st', outcome, _) =>
          let sNextIdx = toStateFin (cwObserve st')
              bootstrap = if done outcome then 0.0 else gamma * rowMax (qRowAt sNextIdx q)
-             oldQ  = qGet sIdx aFin q
-             newQ  = oldQ + alpha * (reward + bootstrap - oldQ)
-             q'    = qSet sIdx aFin newQ q
+             oldQ      = qGet sIdx aFin q
+             newQ      = oldQ + alpha * (reward + bootstrap - oldQ)
+             q'        = qSet sIdx aFin newQ q
          in if done outcome
               then (q', reward)
               else let (qF, fut) = runEpisode alpha gamma eps st' q' steps rest
@@ -138,7 +138,7 @@ epochQLearning cfg q noise =
   in (q', negate ret)
 
 genNoise : Nat -> IO (List Double)
-genNoise Z = pure []
+genNoise Z     = pure []
 genNoise (S k) = do
   u <- randomRIO (the Double 0.0, 1.0)
   rest <- genNoise k
@@ -149,7 +149,7 @@ genNoise (S k) = do
 ----------------------------------------------------------------------
 
 evalEpisode : QTable -> CWState -> Nat -> Double -> Double
-evalEpisode _ _ Z acc = acc
+evalEpisode _ _ Z acc      = acc
 evalEpisode q st (S k) acc =
   let sIdx = toStateFin (cwObserve st)
       aNat = finToNat (argmax (qRowAt sIdx q))
@@ -159,7 +159,7 @@ evalEpisode q st (S k) acc =
          else evalEpisode q st' k (acc + reward)
 
 evalN : QTable -> Nat -> Double -> Double
-evalN _ Z acc = acc
+evalN _ Z acc     = acc
 evalN q (S k) acc =
   evalN q k (acc + evalEpisode q (MkCW 3 0) MaxSteps 0.0)
 
@@ -196,7 +196,7 @@ main = do
   putStrLn ""
   let nEval = the Nat 100
       totalReturn = evalN trained nEval 0.0
-      avgReturn = totalReturn / cast (natToInteger nEval)
+      avgReturn   = totalReturn / cast (natToInteger nEval)
   putStrLn $ "Eval (100 episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""
   putStrLn $ formatResult [("avg_return", show avgReturn),

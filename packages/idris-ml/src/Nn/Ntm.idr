@@ -52,7 +52,7 @@ zeroState1d n =
 
 -- Pack a Vect of Doubles into a buffer at offset (for the fixed read-out).
 packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
+packDoubles buf _ []            = buf
 packDoubles buf off (x :: rest) = packDoubles (prim__setDouble buf off x) (off + 1) rest
 
 -- NTM read head (Graves §3.3): content addressing → interpolation →
@@ -62,17 +62,17 @@ ntmReadHead : {0 ex : Executor} -> UserExecutorTraining ex =>
               (memT, prevWT, keyT, betaT, gT, gammaT, shiftT : AnyPtr) -> (AnyPtr, AnyPtr)
 ntmReadHead memT prevWT keyT betaT gT gammaT shiftT =
   let keyT2d        = primUnsqueeze {ex} keyT 0
-      cosScoresT    = primCosineSimilarity {ex} memT keyT2d 1
-      scaledScoresT = primMul {ex} betaT cosScoresT
-      contentWT     = primSoftmax {ex} scaledScoresT 0
-      oneMinusG     = primAddScalar {ex} (primNeg {ex} gT) 1.0
-      interpT       = primAdd {ex} (primMul {ex} gT contentWT) (primMul {ex} oneMinusG prevWT)
-      shiftedT      = primConv1dCircular {ex} interpT shiftT
+      cosScoresT     = primCosineSimilarity {ex} memT keyT2d 1
+      scaledScoresT  = primMul {ex} betaT cosScoresT
+      contentWT      = primSoftmax {ex} scaledScoresT 0
+      oneMinusG      = primAddScalar {ex} (primNeg {ex} gT) 1.0
+      interpT        = primAdd {ex} (primMul {ex} gT contentWT) (primMul {ex} oneMinusG prevWT)
+      shiftedT       = primConv1dCircular {ex} interpT shiftT
       shiftedClamped = primClampMin {ex} shiftedT 1.0e-10
-      poweredT      = primPow {ex} shiftedClamped gammaT
-      normSumT      = primAddScalar {ex} (primSum {ex} poweredT) 1.0e-10
-      focusedT      = primDiv {ex} poweredT normSumT
-      readOutT      = primMatmul {ex} focusedT memT
+      poweredT       = primPow {ex} shiftedClamped gammaT
+      normSumT       = primAddScalar {ex} (primSum {ex} poweredT) 1.0e-10
+      focusedT       = primDiv {ex} poweredT normSumT
+      readOutT       = primMatmul {ex} focusedT memT
   in (focusedT, readOutT)
 
 -- NTM interpolation write: memory' = w·addVec + (1-w)·memory (row-wise).
@@ -81,9 +81,9 @@ ntmWrite : {0 ex : Executor} -> UserExecutorTraining ex => {n : Nat} ->
            (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
 ntmWrite {n} memT weightsT addVecT =
   let writeAdd = primOuter {ex} weightsT addVecT
-      wCol     = primReshape2d {ex} weightsT (cast n) 1
-      keep     = primAddScalar {ex} (primNeg {ex} wCol) 1.0
-      kept     = primMul {ex} keep memT
+      wCol = primReshape2d {ex} weightsT (cast n) 1
+      keep = primAddScalar {ex} (primNeg {ex} wCol) 1.0
+      kept = primMul {ex} keep memT
   in primAdd {ex} kept writeAdd
 
 ----------------------------------------------------------------------
@@ -119,37 +119,37 @@ public export
 {n, m, h : Nat} -> Recurrent (Ntm n m h) where
   recurStep {i} {o} st input = do
     let nI = cast {to=Int} n
-        mI = cast {to=Int} m
+        mI         = cast {to=Int} m
         initMemPtr = primReshape2d {ex} (primSigmoid {ex} st.memInitT.tensorPtr) nI mI
-        memTPtr = maybe initMemPtr (.tensorPtr) st.memT
-        raTPtr  = maybe (zeroState1d {ex} {dt} n) (.tensorPtr) st.readAddrT
-        waTPtr  = maybe (zeroState1d {ex} {dt} n) (.tensorPtr) st.writeAddrT
-        roTPtr  = maybe st.initReadOutT.tensorPtr (.tensorPtr) st.readOutT
+        memTPtr    = maybe initMemPtr (.tensorPtr) st.memT
+        raTPtr     = maybe (zeroState1d {ex} {dt} n) (.tensorPtr) st.readAddrT
+        waTPtr     = maybe (zeroState1d {ex} {dt} n) (.tensorPtr) st.writeAddrT
+        roTPtr     = maybe st.initReadOutT.tensorPtr (.tensorPtr) st.readOutT
         lstmInputV = the (TVec (m + i) ex dt WithGrad)
                          (MkTensor (primCat2 {ex} roTPtr input.tensorPtr) Nothing)
     (updCtrl, hiddenV) <- recurStep st.controller lstmInputV
     -- The LSTM step always sets cellT; the zero fallback is unreachable
     -- (kept total instead of crashing).
     let cellPtr = maybe (zeroState1d {ex} {dt} h) (.tensorPtr) updCtrl.cellT
-        skI = cast {to=Int} ShiftKernelSize
-        readResultT = primLinear {ex} st.readFc.weightT.tensorPtr cellPtr st.readFc.biasT.tensorPtr
-        keyT   = primNarrow {ex} readResultT 0 0 mI
-        shiftT = primSoftmax {ex} (primNarrow {ex} readResultT 0 mI skI) 0
-        betaT  = primSoftplus {ex} (primSelect {ex} readResultT 0 (mI + skI))
-        gT     = primSigmoid {ex} (primSelect {ex} readResultT 0 (mI + skI + 1))
-        gammaT = primAddScalar {ex} (primSoftplus {ex} (primSelect {ex} readResultT 0 (mI + skI + 2))) 1.0
+        skI                         = cast {to=Int} ShiftKernelSize
+        readResultT                 = primLinear {ex} st.readFc.weightT.tensorPtr cellPtr st.readFc.biasT.tensorPtr
+        keyT                        = primNarrow {ex} readResultT 0 0 mI
+        shiftT                      = primSoftmax {ex} (primNarrow {ex} readResultT 0 mI skI) 0
+        betaT                       = primSoftplus {ex} (primSelect {ex} readResultT 0 (mI + skI))
+        gT                          = primSigmoid {ex} (primSelect {ex} readResultT 0 (mI + skI + 1))
+        gammaT                      = primAddScalar {ex} (primSoftplus {ex} (primSelect {ex} readResultT 0 (mI + skI + 2))) 1.0
         (newReadAddrT, newReadOutT) = ntmReadHead {ex} memTPtr raTPtr keyT betaT gT gammaT shiftT
-        writeResultT = primLinear {ex} st.writeFc.weightT.tensorPtr cellPtr st.writeFc.biasT.tensorPtr
-        rpw = cast {to=Int} (ReadParamWidth m)
-        wKeyT   = primNarrow {ex} writeResultT 0 0 mI
-        wShiftT = primSoftmax {ex} (primNarrow {ex} writeResultT 0 mI skI) 0
-        wBetaT  = primSoftplus {ex} (primSelect {ex} writeResultT 0 (mI + skI))
-        wGT     = primSigmoid {ex} (primSelect {ex} writeResultT 0 (mI + skI + 1))
-        wGammaT = primAddScalar {ex} (primSoftplus {ex} (primSelect {ex} writeResultT 0 (mI + skI + 2))) 1.0
-        (newWriteAddrT, _) = ntmReadHead {ex} memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
-        addT    = primNarrow {ex} writeResultT 0 rpw mI
-        newMemT = ntmWrite {ex} {n} memTPtr newWriteAddrT addT
-        outputPtr = primLinear {ex} st.outputFc.weightT.tensorPtr
+        writeResultT                = primLinear {ex} st.writeFc.weightT.tensorPtr cellPtr st.writeFc.biasT.tensorPtr
+        rpw                         = cast {to=Int} (ReadParamWidth m)
+        wKeyT                       = primNarrow {ex} writeResultT 0 0 mI
+        wShiftT                     = primSoftmax {ex} (primNarrow {ex} writeResultT 0 mI skI) 0
+        wBetaT                      = primSoftplus {ex} (primSelect {ex} writeResultT 0 (mI + skI))
+        wGT                         = primSigmoid {ex} (primSelect {ex} writeResultT 0 (mI + skI + 1))
+        wGammaT                     = primAddScalar {ex} (primSoftplus {ex} (primSelect {ex} writeResultT 0 (mI + skI + 2))) 1.0
+        (newWriteAddrT, _)          = ntmReadHead {ex} memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
+        addT                        = primNarrow {ex} writeResultT 0 rpw mI
+        newMemT                     = ntmWrite {ex} {n} memTPtr newWriteAddrT addT
+        outputPtr                   = primLinear {ex} st.outputFc.weightT.tensorPtr
                       (primCat2 {ex} hiddenV.tensorPtr newReadOutT) st.outputFc.biasT.tensorPtr
     pure ( { controller := updCtrl
            , memT       := Just (MkTensor newMemT Nothing)
@@ -171,7 +171,7 @@ ntm : {0 ex : Executor} -> Backend ex dt => {n, m, h, i, o : Nat} -> Init (Ntm n
 ntm = scopedChild "ntm" $ do
   let xavStd : (a, b : Nat) -> Double
       xavStd a b = 1.4 * sqrt (2.0 / cast {to=Double} (a + b))
-      memStd = sqrt (2.0 / cast {to=Double} (m + n))
+      memStd     = sqrt (2.0 / cast {to=Double} (m + n))
   ctrl <- named "controller" (lstm {i = m + i} {o = h})
   rfc  <- named "read_fc"  (linearWith {i = h}     {o = ReadParamWidth m}  (xavStd h (ReadParamWidth m))  0.01)
   wfc  <- named "write_fc" (linearWith {i = h}     {o = WriteParamWidth m} (xavStd h (WriteParamWidth m)) 0.01)

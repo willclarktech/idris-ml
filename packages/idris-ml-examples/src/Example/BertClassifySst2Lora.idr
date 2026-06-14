@@ -177,15 +177,15 @@ mkIdsTensor xs = ioRerun (\_ =>
 mkMaskTensor : Vect SeqLen Double
             -> IO (Tensor [SeqLen, SeqLen] ExampleExecutor ExampleDType WithGrad)
 mkMaskTensor posMask = do
-  let flat = toAttentionMask2d {seqLen=SeqLen} posMask
+  let flat  = toAttentionMask2d {seqLen=SeqLen} posMask
   let nElts = cast {to=Int} (SeqLen * SeqLen)
-      buf   = prim__allocDoubles nElts
-      buf'  = fillBuf buf 0 (toList flat)
+      buf  = prim__allocDoubles nElts
+      buf' = fillBuf buf 0 (toList flat)
   tparam2d {ex=ExampleExecutor} {dt=ExampleDType} {o=SeqLen} {i=SeqLen}
            "sst2lora.attn_mask" buf'
   where
     fillBuf : AnyPtr -> Int -> List Double -> AnyPtr
-    fillBuf b _ [] = b
+    fillBuf b _ []            = b
     fillBuf b off (v :: rest) =
       let b' = prim__setDouble b off v
       in fillBuf b' (off + 1) rest
@@ -272,7 +272,7 @@ heldOutAccuracy : Model -> Adapters -> List PaddedExample -> IO Double
 heldOutAccuracy model adapters items =
   withNoGrad {ex=ExampleExecutor} $ do
     let go : List PaddedExample -> Nat -> Nat -> IO (Nat, Nat)
-        go [] n hits = pure (n, hits)
+        go [] n hits                         = pure (n, hits)
         go (ex@(_, _, label) :: rest) n hits = do
           p <- predictClass model adapters ex
           go rest (S n) (if p == label then S hits else hits)
@@ -317,8 +317,8 @@ main = do
   rawDev   <- loadHfDataset devTsvPath
   let trainItems = capAt cfg.maxTrain rawTrain
   let devItems   = capAt cfg.maxDev rawDev
-  let nTrain = length trainItems
-  let nDev   = length devItems
+  let nTrain     = length trainItems
+  let nDev       = length devItems
   putStrLn $ "Loaded: train=" ++ show nTrain ++ " dev=" ++ show nDev
 
   if nTrain == 0 || nDev == 0

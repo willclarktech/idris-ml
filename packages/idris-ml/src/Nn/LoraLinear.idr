@@ -32,7 +32,7 @@ record LoraLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gr
 
 public export
 Params LoraLinear where
-  params (MkLoraLinear base a b _) = params base ++ [toParam a, toParam b]
+  params (MkLoraLinear base a b _)       = params base ++ [toParam a, toParam b]
   castGrad (MkLoraLinear base a b alpha) = MkLoraLinear (castGrad base) (retypeGrad a) (retypeGrad b) alpha
 
 ||| 1-D LoRA forward: `W·x + b + (α/r)·B·(A·x)`.

@@ -66,7 +66,7 @@ defaultOpts = MkOptimOpts 0.9 0.999 1.0e-8 NoClip []
 -- Train.Freeze sits above this module in the import order).
 applyPrefix : {0 ex : Executor} -> UserExecutorTraining ex =>
               NativeOptimizer ex -> String -> Double -> Nat -> IO ()
-applyPrefix opt pfx lr Z = pure ()
+applyPrefix opt pfx lr Z     = pure ()
 applyPrefix opt pfx lr (S k) = do
   name <- getParamName {ex} (cast {to=Int} k)
   when (isPrefixOf pfx name) (setParamLR {ex} opt name lr)
@@ -74,7 +74,7 @@ applyPrefix opt pfx lr (S k) = do
 
 applyGroups : {0 ex : Executor} -> UserExecutorTraining ex =>
               NativeOptimizer ex -> List (String, Double) -> IO ()
-applyGroups opt [] = pure ()
+applyGroups opt []                  = pure ()
 applyGroups opt ((pfx, lr) :: rest) = do
   n <- getParamCount {ex}
   applyPrefix opt pfx lr (cast {to=Nat} n)

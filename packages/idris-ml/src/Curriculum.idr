@@ -55,7 +55,7 @@ runChunk : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : Nat
            (bestLoss : Double) ->
            (staleCount : Nat) ->
            IO (Network i hs o ex dt WithGrad, Double, Nat)
-runChunk _ _ m _ _ Z _ bl sc = pure (m, bl, sc)
+runChunk _ _ m _ _ Z _ bl sc                  = pure (m, bl, sc)
 runChunk opt sched m ds lossFn (S k) ep bl sc = do
   setLearningRate opt (sched ep)
   (m', loss) <- epochRecurrentVar opt ds lossFn m
@@ -83,7 +83,7 @@ trainStage : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i, o, n : N
              (staleCount : Nat) ->
              Clock Monotonic ->
              IO (Network i hs o ex dt WithGrad, Nat, Bool)
-trainStage _ _ model _ _ _ _ Z done _ _ _ = pure (model, done, False)
+trainStage _ _ model _ _ _ _ Z done _ _ _                                                   = pure (model, done, False)
 trainStage opt sched model stage lossFn chunkSz patience budget done bestLoss staleCount t0 = do
   dps <- stage.generate
   let chunk = min chunkSz budget
@@ -137,7 +137,7 @@ runCurriculum :
   (patience : Nat) ->
   (chunkSize : Nat) ->
   IO (Network i hs o ex dt WithGrad, Nat)
-runCurriculum _ _ model _ [] _ _ _ = pure (model, 0)
+runCurriculum _ _ model _ [] _ _ _                                         = pure (model, 0)
 runCurriculum opt sched model lossFn stages totalEpochs patience chunkSize = do
   t0 <- clockTime Monotonic
   go model stages totalEpochs 0 t0
@@ -148,7 +148,7 @@ runCurriculum opt sched model lossFn stages totalEpochs patience chunkSize = do
          (epochsDone : Nat) ->
          Clock Monotonic ->
          IO (Network i hs o ex dt WithGrad, Nat)
-    go m [] _ done _ = pure (m, done)
+    go m [] _ done _                    = pure (m, done)
     go m (stage :: rest) budget done t0 = do
       putStrLn $ "\n" ++ stage.label
       (m', done', advanced) <- trainStage opt sched m

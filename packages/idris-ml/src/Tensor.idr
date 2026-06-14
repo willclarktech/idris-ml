@@ -699,12 +699,12 @@ export
 bulkToTensor : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VArray elems) =
   let nI = cast {to=Int} n
-      buf = prim__allocDoubles nI
+      buf  = prim__allocDoubles nI
       buf' = packDoubleBuf buf 0 elems
   in dtCreate1d {ex} {t=dt} nI buf' 0 (deviceStreamTag {ex})
   where
     packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
-    packDoubleBuf buf _ [] = buf
+    packDoubleBuf buf _ []                   = buf
     packDoubleBuf buf off (SArray v :: rest) =
       let buf' = prim__setDouble buf off v
       in packDoubleBuf buf' (off + 1) rest
@@ -716,18 +716,18 @@ export
 bulkToTensor2d : {0 ex : Executor} -> Backend ex dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
 bulkToTensor2d {b} {i} rows =
   let bI = cast {to=Int} b
-      iI = cast {to=Int} i
-      buf = prim__allocDoubles (bI * iI)
+      iI   = cast {to=Int} i
+      buf  = prim__allocDoubles (bI * iI)
       buf' = packRows buf 0 rows
   in dtCreate2d {ex} {t=dt} bI iI buf' 0 (deviceStreamTag {ex})
   where
     packRow : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
-    packRow buf _ [] = buf
+    packRow buf _ []                   = buf
     packRow buf off (SArray v :: rest) =
       let buf' = prim__setDouble buf off v
       in packRow buf' (off + 1) rest
     packRows : AnyPtr -> Int -> Vect k (Vector i Double) -> AnyPtr
-    packRows buf _ [] = buf
+    packRows buf _ []                     = buf
     packRows buf off (VArray row :: rest) =
       let buf' = packRow buf off row
       in packRows buf' (off + cast {to=Int} i) rest
@@ -743,8 +743,8 @@ bulkToTensor2d {b} {i} rows =
 export
 partial
 catAllTensors : {0 ex : Executor} -> UserExecutorLinear ex => List AnyPtr -> AnyPtr
-catAllTensors [] = idris_crash "catAllTensors: empty list"
-catAllTensors [x] = x
+catAllTensors []               = idris_crash "catAllTensors: empty list"
+catAllTensors [x]              = x
 catAllTensors (x :: y :: rest) = catAllTensors {ex} (primCat2 {ex} x y :: rest)
 
 ||| Bulk-convert a Vector of Doubles to a persistent C tensor handle.
@@ -754,12 +754,12 @@ export
 vectorToTensorPersistent : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Vector n Double -> AnyPtr
 vectorToTensorPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
-      buf = prim__allocDoubles nI
+      buf  = prim__allocDoubles nI
       buf' = packBuf buf 0 elems
   in dtCreateState1d {ex} {t=dt} nI buf' (deviceStreamTag {ex})
   where
     packBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
-    packBuf buf _ [] = buf
+    packBuf buf _ []                   = buf
     packBuf buf off (SArray v :: rest) = packBuf (prim__setDouble buf off v) (off + 1) rest
 
 ||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
@@ -936,7 +936,7 @@ KeepAlive (Tensor dims ex dt g) where
 export
 toExecutor : {0 d1 : Type} -> (0 d2 : Type) ->
            UserExecutorTransfer d1 => UserExecutorTransfer d2 =>
-           RuntimeDType dt => Compatible d2 dt =>
+           RuntimeDType dt         => Compatible d2 dt =>
            {rank : Nat} -> {dims : Vect rank Nat} ->
            Tensor dims d1 dt WithGrad -> IO (Tensor dims d2 dt WithGrad)
 toExecutor d2 src =
@@ -974,7 +974,7 @@ toExecutor d2 src =
       pure (MkTensor destPtr src.paramId)
   where
     writeShape : AnyPtr -> Int -> Vect r Nat -> AnyPtr
-    writeShape buf _ [] = buf
+    writeShape buf _ []          = buf
     writeShape buf off (x :: xs) =
       let buf' = primSetIntHost {ex=d2} buf off (cast {to=Int} x)
       in writeShape buf' (off + 1) xs
@@ -1029,7 +1029,7 @@ attemptOn act = do
 export
 toExecutorChecked : {0 d1 : Type} -> (0 d2 : Type) ->
                   UserExecutorTransfer d1 => UserExecutorTransfer d2 =>
-                  RuntimeDType dt => Compatible d2 dt =>
+                  RuntimeDType dt         => Compatible d2 dt =>
                   {rank : Nat} -> {dims : Vect rank Nat} ->
                   Tensor dims d1 dt WithGrad ->
                   IO (Either ExecutorError (Tensor dims d2 dt WithGrad))
@@ -1057,7 +1057,7 @@ record SomeExecutor where
 ||| allocation, never a standalone `is_available` probe.
 export
 availableExecutors : List SomeExecutor -> IO (List SomeExecutor)
-availableExecutors [] = pure []
+availableExecutors []           = pure []
 availableExecutors (sd :: rest) = do
   ok    <- sd.probe
   rest' <- availableExecutors rest
@@ -1171,7 +1171,7 @@ export
 tparam2d : {0 ex : Executor} -> Backend ex dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] ex dt WithGrad)
 tparam2d {o} {i} pid buf = ioRerun (\_ =>
   let oI = cast {to=Int} o
-      iI = cast {to=Int} i
+      iI  = cast {to=Int} i
       reg = primParamRegister {ex} pid (dtCreateParam2d {ex} {t=dt} oI iI buf (deviceStreamTag {ex}))
   in MkTensor reg (Just pid))
 
@@ -1206,7 +1206,7 @@ tparam2dNormal : {0 ex : Executor} -> Backend ex dt
               -> IO (Tensor [o, i] ex dt WithGrad)
 tparam2dNormal {o} {i} pid mean std = ioRerun (\_ =>
   let oI = cast {to=Int} o
-      iI = cast {to=Int} i
+      iI  = cast {to=Int} i
       reg = primParamRegister {ex} pid (dtCreateParam2dNormal {ex} {t=dt} oI iI mean std (deviceStreamTag {ex}))
   in MkTensor reg (Just pid))
 
@@ -1227,8 +1227,8 @@ tparam3dNormal : {0 ex : Executor} -> Backend ex dt
               -> IO (Tensor [a, b, c] ex dt WithGrad)
 tparam3dNormal {a} {b} {c} pid mean std = ioRerun (\_ =>
   let aI = cast {to=Int} a
-      bI = cast {to=Int} b
-      cI = cast {to=Int} c
+      bI  = cast {to=Int} b
+      cI  = cast {to=Int} c
       reg = primParamRegister {ex} pid (dtCreateParam3dNormal {ex} {t=dt} aI bI cI mean std (deviceStreamTag {ex}))
   in MkTensor reg (Just pid))
 
@@ -1239,9 +1239,9 @@ tparam4dNormal : {0 ex : Executor} -> Backend ex dt
               -> IO (Tensor [a, b, c, e] ex dt WithGrad)
 tparam4dNormal {a} {b} {c} {e} pid mean std = ioRerun (\_ =>
   let aI = cast {to=Int} a
-      bI = cast {to=Int} b
-      cI = cast {to=Int} c
-      eI = cast {to=Int} e
+      bI  = cast {to=Int} b
+      cI  = cast {to=Int} c
+      eI  = cast {to=Int} e
       reg = primParamRegister {ex} pid (dtCreateParam4dNormal {ex} {t=dt} aI bI cI eI mean std (deviceStreamTag {ex}))
   in MkTensor reg (Just pid))
 
@@ -1253,7 +1253,7 @@ tparam2dConst : {0 ex : Executor} -> Backend ex dt
              -> IO (Tensor [o, i] ex dt WithGrad)
 tparam2dConst {o} {i} pid value = ioRerun (\_ =>
   let oI = cast {to=Int} o
-      iI = cast {to=Int} i
+      iI  = cast {to=Int} i
       reg = primParamRegister {ex} pid (dtCreateParam2dConst {ex} {t=dt} oI iI value (deviceStreamTag {ex}))
   in MkTensor reg (Just pid))
 
@@ -1274,8 +1274,8 @@ tparam3dConst : {0 ex : Executor} -> Backend ex dt
              -> IO (Tensor [a, b, c] ex dt WithGrad)
 tparam3dConst {a} {b} {c} pid value = ioRerun (\_ =>
   let aI = cast {to=Int} a
-      bI = cast {to=Int} b
-      cI = cast {to=Int} c
+      bI  = cast {to=Int} b
+      cI  = cast {to=Int} c
       reg = primParamRegister {ex} pid (dtCreateParam3dConst {ex} {t=dt} aI bI cI value (deviceStreamTag {ex}))
   in MkTensor reg (Just pid))
 
@@ -1286,9 +1286,9 @@ tparam4dConst : {0 ex : Executor} -> Backend ex dt
              -> IO (Tensor [a, b, c, e] ex dt WithGrad)
 tparam4dConst {a} {b} {c} {e} pid value = ioRerun (\_ =>
   let aI = cast {to=Int} a
-      bI = cast {to=Int} b
-      cI = cast {to=Int} c
-      eI = cast {to=Int} e
+      bI  = cast {to=Int} b
+      cI  = cast {to=Int} c
+      eI  = cast {to=Int} e
       reg = primParamRegister {ex} pid (dtCreateParam4dConst {ex} {t=dt} aI bI cI eI value (deviceStreamTag {ex}))
   in MkTensor reg (Just pid))
 
@@ -1678,7 +1678,7 @@ fillSpecBuf n spec = do
         b' <- ioRerun (\_ => prim__setDouble b i v)
         fillIO b' (i + 1) sample
     packVect : AnyPtr -> Int -> Vect m Double -> AnyPtr
-    packVect b _ [] = b
+    packVect b _ []        = b
     packVect b i (x :: xs) = packVect (prim__setDouble b i x) (i + 1) xs
 
 -- One value for the rank-0 cell of the facade.
@@ -1723,7 +1723,7 @@ tensor {dims} spec = do
   pure (MkTensor ptr Nothing)
   where
     packShape : AnyPtr -> Int -> Vect m Nat -> AnyPtr
-    packShape b _ [] = b
+    packShape b _ []        = b
     packShape b i (d :: ds) = packShape (prim__setInt b i (cast d)) (i + 1) ds
 
 ||| Construct + register a learnable parameter (rank <= 4 — the C
@@ -2027,7 +2027,7 @@ export
 tmseLoss : {0 ex : Executor} -> UserExecutorLinear ex => IsFloating dt => {n : Nat} ->
            Tensor [n] ex dt g -> Tensor [n] ex dt g -> IO (Tensor [] ex dt g)
 tmseLoss p t = ioRerun (\_ =>
-  let diff = primSub {ex} p.tensorPtr t.tensorPtr in
+  let diff   = primSub {ex} p.tensorPtr t.tensorPtr in
   let sqDiff = primMul {ex} diff diff in
   MkTensor (primSum {ex} sqDiff) Nothing)
 
@@ -2040,7 +2040,7 @@ tnllLoss : {0 ex : Executor} -> UserExecutorNN ex => IsFloating dt => {n : Nat} 
 tnllLoss {n} p t = ioRerun (\_ =>
   let logP = primLogSoftmax {ex} p.tensorPtr 0 in
   let prod = primMul {ex} logP t.tensorPtr in
-  let neg = primNeg {ex} (primSum {ex} prod) in
+  let neg  = primNeg {ex} (primSum {ex} prod) in
   MkTensor (primMulScalar {ex} neg (1.0 / cast n)) Nothing)
 
 ||| Batched multiclass NLL against one-hot targets, mean-reduced over
@@ -2055,7 +2055,7 @@ tnllLossMean : {0 ex : Executor} -> UserExecutorNN ex => IsFloating dt => {b, n 
 tnllLossMean {b} {n} p t = ioRerun (\_ =>
   let logP = primLogSoftmax2d {ex} p.tensorPtr in
   let prod = primMul {ex} logP t.tensorPtr in
-  let neg = primNeg {ex} (primSum {ex} prod) in
+  let neg  = primNeg {ex} (primSum {ex} prod) in
   MkTensor (primMulScalar {ex} neg (1.0 / cast (b * n))) Nothing)
 
 ||| Binary cross-entropy with logits, mean-reduced. Numerically stable
@@ -2084,8 +2084,8 @@ nativeTrainStep opt loss = ioRerun (\_ =>
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
       clipVal  : Double
-      clipVal  = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
-      lossVal  = primItem {ex} loss.tensorPtr
+      clipVal = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
+      lossVal = primItem {ex} loss.tensorPtr
   in primNativeTrainStep {ex} opt.handle clipMode clipVal loss.tensorPtr lossVal)
 
 ||| GradScaler-aware fused step (A3 of #410). The caller has already
@@ -2104,6 +2104,6 @@ nativeTrainStepScaled opt loss scale = ioRerun (\_ =>
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
       clipVal  : Double
-      clipVal  = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
+      clipVal       = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
       scaledLossVal = primItem {ex} loss.tensorPtr
   in primNativeTrainStepScaled {ex} opt.handle clipMode clipVal loss.tensorPtr scaledLossVal scale)

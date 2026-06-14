@@ -136,14 +136,14 @@ parseArgs prog flags def args = go def [] args
     bad msg = ParseError (prog ++ ": " ++ msg ++ " (try --help)")
 
     go : cfg -> List String -> List String -> ParseResult cfg
-    go c pos [] = Parsed c (reverse pos)
+    go c pos []             = Parsed c (reverse pos)
     go c pos ("--" :: rest) = Parsed c (reverse pos ++ rest)
-    go c pos (t :: rest) =
+    go c pos (t :: rest)    =
       if t == "--help" || t == "-h" then ShowHelp (usage prog flags)
       else if isPrefixOf "--" t then
         let (name, eq) = splitFlag t in
         case findFlag name flags of
-          Nothing => bad ("unknown flag --" ++ name)
+          Nothing               => bad ("unknown flag --" ++ name)
           Just (Switch _ _ set) => case eq of
             Just _  => bad ("flag --" ++ name ++ " does not take a value")
             Nothing => go (set c) pos rest
@@ -152,7 +152,7 @@ parseArgs prog flags def args = go def [] args
               Left err => bad ("invalid value for --" ++ name ++ ": " ++ err)
               Right f  => go (f c) pos rest
             Nothing => case rest of
-              [] => bad ("flag --" ++ name ++ " requires a value " ++ metavar)
+              []           => bad ("flag --" ++ name ++ " requires a value " ++ metavar)
               (v :: rest') => case parse v of
                 Left err => bad ("invalid value for --" ++ name ++ ": " ++ err)
                 Right f  => go (f c) pos rest'

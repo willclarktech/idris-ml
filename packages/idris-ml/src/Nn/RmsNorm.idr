@@ -34,7 +34,7 @@ data RmsNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMod
 
 public export
 Params RmsNorm where
-  params (MkRmsNorm w) = [toParam w]
+  params (MkRmsNorm w)   = [toParam w]
   castGrad (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
 
 ||| 1-D differentiable RMSNorm forward (per vector). `primSum` reduces the

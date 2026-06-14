@@ -31,9 +31,9 @@ leadingSpaces : String -> Nat
 leadingSpaces s = length (takeWhile (== ' ') (unpack s))
 
 isNameTok : Token -> Bool
-isNameTok (Ident _) = True
+isNameTok (Ident _)    = True
 isNameTok (Symbol ",") = True
-isNameTok _ = False
+isNameTok _            = False
 
 opens : String -> Bool
 opens s = s == "(" || s == "[" || s == "{"
@@ -45,19 +45,19 @@ closes s = s == ")" || s == "]" || s == "}"
 -- among the keys we align (`:` / `=` = 1, `=>` = 2).
 tokWidth : Token -> Nat
 tokWidth (Symbol s) = length s
-tokWidth _ = 1
+tokWidth _          = 1
 
 isColon : Token -> Bool
 isColon (Symbol ":") = True
-isColon _ = False
+isColon _            = False
 
 isEquals : Token -> Bool
 isEquals (Symbol "=") = True
-isEquals _ = False
+isEquals _            = False
 
 isArrow : Token -> Bool
 isArrow (Symbol "=>") = True
-isArrow _ = False
+isArrow _             = False
 
 -- The leading identifier of a line (its LHS head), if any — used to keep the
 -- top-level `=` pass to genuine multi-clause definitions.
@@ -65,7 +65,7 @@ headIdent : String -> Maybe String
 headIdent line = case lex line of
   Right (_, (t :: _)) => case t.val of
     Ident n => Just n
-    _ => Nothing
+    _       => Nothing
   _ => Nothing
 
 ||| `(charOffset, width)` of the first depth-0 token satisfying `match` whose
@@ -74,11 +74,11 @@ headIdent line = case lex line of
 locTok : (match : Token -> Bool) -> (okPre : List Token -> Bool) ->
          String -> Maybe (Nat, Nat)
 locTok match okPre line = case lex line of
-  Left _ => Nothing
+  Left _          => Nothing
   Right (_, toks) => go 0 [] toks
   where
     go : Integer -> List Token -> List (WithBounds Token) -> Maybe (Nat, Nat)
-    go _ _ [] = Nothing
+    go _ _ []          = Nothing
     go d pre (t :: ts) =
       if d == 0 && match t.val
         then (if okPre pre then Just (cast (snd (start t)), tokWidth t.val)
@@ -123,16 +123,16 @@ alignWith match okPre extends src = concat (map (++ "\n") (go (lines src)))
     key = locTok match okPre
 
     go : List String -> List String
-    go [] = []
+    go []        = []
     go (l :: ls) = case key l of
       Nothing => l :: go ls
-      Just _ =>
+      Just _  =>
         let ind = leadingSpaces l
             isMember : String -> Bool
             isMember x = leadingSpaces x == ind && isJust (key x) && extends l x
-            run = l :: takeWhile isMember ls
-            rest = drop (length run `minus` 1) ls
-            withCols = mapMaybe (\x => map (\(c, w) => (x, c, w)) (key x)) run
+            run        = l :: takeWhile isMember ls
+            rest       = drop (length run `minus` 1) ls
+            withCols   = mapMaybe (\x => map (\(c, w) => (x, c, w)) (key x)) run
         in if length run >= 2
              then alignGroup withCols ++ go rest
              else l :: go ls
@@ -156,7 +156,7 @@ alignEquals = alignWith isEquals (\pre => not (isNil pre)) extends
       if leadingSpaces first == 0
         then case (headIdent first, headIdent cand) of
                (Just a, Just b) => a == b
-               _ => False
+               _                => False
         else True
 
 ||| Align `=>` across consecutive same-indent case / with arms.

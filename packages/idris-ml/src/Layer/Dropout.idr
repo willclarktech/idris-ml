@@ -84,7 +84,7 @@ LayerLike DropoutState where
   layerPrefix _ = "drop"
 
   -- Dropout is stateless (no params); freeze/unfreeze just retypes.
-  freezeLayer (MkDropout p t) = pure (MkDropout p t)
+  freezeLayer (MkDropout p t)   = pure (MkDropout p t)
   unfreezeLayer (MkDropout p t) = pure (MkDropout p t)
 
 ||| Wrap a Dropout in `AnyLayer`.

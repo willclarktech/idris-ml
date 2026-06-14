@@ -45,8 +45,8 @@ categoricalSample : List Double -> Double -> Nat
 categoricalSample probs r = go 0 0.0 probs
   where
     go : Nat -> Double -> List Double -> Nat
-    go idx _ [] = idx
-    go idx _ [_] = idx
+    go idx _ []              = idx
+    go idx _ [_]             = idx
     go idx cumul (p :: rest) =
       let cumul' = cumul + p
       in if r < cumul' then idx else go (S idx) cumul' rest

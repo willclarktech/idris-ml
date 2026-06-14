@@ -56,8 +56,8 @@ testLoadValues = do
 -- 3 padding slots get the padId; the mask is [1,1,1,1,1,0,0,0].
 testPadPadsShortExample : IO Bool
 testPadPadsShortExample = do
-  let ex = MkTokenizedExample [101, 1037, 2204, 3185, 102] 1
-  let (ids, mask, lbl) = padToSeqLen 8 0 ex
+  let ex                           = MkTokenizedExample [101, 1037, 2204, 3185, 102] 1
+  let (ids, mask, lbl)             = padToSeqLen 8 0 ex
   let idsExpected  : Vect 8 Nat    = [101, 1037, 2204, 3185, 102, 0, 0, 0]
   let maskExpected : Vect 8 Double = [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0]
   if ids == idsExpected && mask == maskExpected && lbl == 1
@@ -72,8 +72,8 @@ testPadPadsShortExample = do
 -- truncated to 4 drops the tail; mask is all-1.
 testPadTruncatesLongExample : IO Bool
 testPadTruncatesLongExample = do
-  let ex = MkTokenizedExample [101, 1037, 2919, 3185, 102, 4083] 0
-  let (ids, mask, lbl) = padToSeqLen 4 0 ex
+  let ex                           = MkTokenizedExample [101, 1037, 2919, 3185, 102, 4083] 0
+  let (ids, mask, lbl)             = padToSeqLen 4 0 ex
   let idsExpected  : Vect 4 Nat    = [101, 1037, 2919, 3185]
   let maskExpected : Vect 4 Double = [1.0, 1.0, 1.0, 1.0]
   if ids == idsExpected && mask == maskExpected && lbl == 0
@@ -91,9 +91,9 @@ testPadTruncatesLongExample = do
 testToAttentionMask2d : IO Bool
 testToAttentionMask2d = do
   let pos : Vect 5 Double = [1.0, 1.0, 1.0, 0.0, 0.0]
-  let flat = toAttentionMask2d {seqLen=5} pos
+  let flat                = toAttentionMask2d {seqLen=5} pos
   -- Every row is [0, 0, 0, 1, 1] (real, real, real, pad, pad inverted).
-  let row : Vect 5 Double = [0.0, 0.0, 0.0, 1.0, 1.0]
+  let row : Vect 5 Double           = [0.0, 0.0, 0.0, 1.0, 1.0]
   let expectedFlat : Vect 25 Double = row ++ row ++ row ++ row ++ row
   if flat == expectedFlat
     then check "toAttentionMask2d builds 5x5 mask with padding columns = 1.0" True

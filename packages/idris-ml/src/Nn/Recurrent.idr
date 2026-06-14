@@ -51,7 +51,7 @@ record Rnn (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
 
 public export
 Params Rnn where
-  params (MkRnn iw rw ib hb _ _) = [toParam iw, toParam rw, toParam ib, toParam hb]
+  params (MkRnn iw rw ib hb _ _)        = [toParam iw, toParam rw, toParam ib, toParam hb]
   castGrad (MkRnn iw rw ib hb act prev) =
     MkRnn (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb) act (map retypeGrad prev)
 

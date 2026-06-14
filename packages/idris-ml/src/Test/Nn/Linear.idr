@@ -32,7 +32,7 @@ paramsExposed : IO Bool
 paramsExposed = do
   w <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "lp.w" (Const 0.5)
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lp.b" (Const 1.0)
-  let lyr = the (Linear 3 2 TestExecutor TestDType WithGrad) (MkLinear w b)
+  let lyr   = the (Linear 3 2 TestExecutor TestDType WithGrad) (MkLinear w b)
   let names = mapMaybe paramName (params lyr)
   check ("Params (Linear) exposes weight + bias (got " ++ show names ++ ")")
         (names == ["lp.w", "lp.b"])

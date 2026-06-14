@@ -79,11 +79,11 @@ data HardwareClass = HostCpu | AppleGpu | Nvidia Nat | Other String
 
 public export
 Eq HardwareClass where
-  HostCpu   == HostCpu   = True
-  AppleGpu  == AppleGpu  = True
-  Nvidia m  == Nvidia n  = m == n
-  Other a   == Other b   = a == b
-  _         == _         = False
+  HostCpu   == HostCpu  = True
+  AppleGpu  == AppleGpu = True
+  Nvidia m  == Nvidia n = m == n
+  Other a   == Other b  = a == b
+  _         == _        = False
 
 public export
 Show HardwareClass where

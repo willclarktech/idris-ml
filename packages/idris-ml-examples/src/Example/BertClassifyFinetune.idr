@@ -214,7 +214,7 @@ sumScalars : (Tensor [] ExampleExecutor ExampleDType WithGrad
           -> Tensor [] ExampleExecutor ExampleDType WithGrad
           -> List (Tensor [] ExampleExecutor ExampleDType WithGrad)
           -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-sumScalars _ acc [] = pure acc
+sumScalars _ acc []         = pure acc
 sumScalars op acc (x :: xs) = do
   acc' <- op acc x
   sumScalars op acc' xs
@@ -260,7 +260,7 @@ heldOutAccuracy : Model -> IO Double
 heldOutAccuracy model = do
   evalBatch <- genBatch 32
   let go : List FtExample -> Nat -> IO Nat
-      go [] acc = pure acc
+      go [] acc          = pure acc
       go (e :: rest) acc = do
         p <- predictClass model e.inputIds
         go rest (if p == e.label then S acc else acc)

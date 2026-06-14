@@ -12,7 +12,7 @@ import Test.Harness
 getElem : {n : Nat} -> Nat -> Vector n Double -> Double
 getElem j (VArray elems) = case getAt j (toList elems) of
   Just (SArray v) => v
-  _ => 0.0
+  _               => 0.0
 
 export
 tests : List (IO Bool)

@@ -41,7 +41,7 @@ Functor Init where
 
 public export
 Applicative Init where
-  pure x = MkInit $ \s => pure (x, s)
+  pure x                    = MkInit $ \s => pure (x, s)
   (MkInit f) <*> (MkInit x) = MkInit $ \s => do
     (g, s1) <- f s
     (a, s2) <- x s1
@@ -61,7 +61,7 @@ HasIO Init where
 
 -- Join the scope path + a leaf into a dotted name (PyTorch state-dict style).
 qualify : List String -> String -> String
-qualify [] leaf = leaf
+qualify [] leaf   = leaf
 qualify path leaf = concat (intersperse "." path) ++ "." ++ leaf
 
 setCounter : String -> Nat -> List (String, Nat) -> List (String, Nat)

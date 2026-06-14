@@ -177,14 +177,14 @@ main = do
     "save"        => doSave cfg opt model
     "load-strict" => doLoad False cfg model
     "load-cast"   => doLoad True cfg model
-    _ => do
+    _             => do
       putStrLn "Unknown mode. Use --mode save|load-strict|load-cast"
       exitFailure
 
   let actual = if result then "pass" else "fail"
   putStrLn $ "Outcome: " ++ actual
   case cfg.expect of
-    "" => pure ()
+    ""       => pure ()
     expected => if expected == actual
                   then putStrLn ("PASS: expected " ++ expected ++ ", got " ++ actual)
                   else do

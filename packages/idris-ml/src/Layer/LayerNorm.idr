@@ -39,8 +39,8 @@ applyLayerNorm : {0 ex : Executor} -> Backend ex dt => {n : Nat} ->
 applyLayerNorm {n} st@(MkLayerNorm gamma beta) input = ioRerun (\_ =>
   let nI = cast {to=Int} n
       input2d = primReshape2d {ex} input.tensorPtr 1 nI
-      norm2d = primLayerNorm2d {ex} input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
-      norm1d = primReshape1d {ex} norm2d nI
+      norm2d  = primLayerNorm2d {ex} input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
+      norm1d  = primReshape1d {ex} norm2d nI
   in (st, MkTensor norm1d Nothing))
 
 ----------------------------------------------------------------------
@@ -67,7 +67,7 @@ layerNormLayer paramPrefix = do
 public export
 LayerLike LayerNormState where
   applyVar st@(MkLayerNorm _ _) input = applyLayerNorm st input
-  layerPrefix _ = "ln"
+  layerPrefix _                       = "ln"
 
   freezeLayer (MkLayerNorm g b) = do
     g' <- weakenGrad g

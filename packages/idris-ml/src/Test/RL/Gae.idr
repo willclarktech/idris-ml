@@ -70,7 +70,7 @@ tests =
 
   , -- Zero rewards + zero values + terminated = zero advantages
     let trajectory = [(0.0, 0.0, False), (0.0, 0.0, True)]
-        result = gae 0.99 0.95 0.0 trajectory
+        result  = gae 0.99 0.95 0.0 trajectory
         allZero = all (\(a, g) => abs a < tol && abs g < tol) result
     in check "zero inputs produce zero advantages" allZero
 

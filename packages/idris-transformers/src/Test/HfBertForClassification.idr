@@ -109,7 +109,7 @@ testClassifierHeadParamNames : IO Bool
 testClassifierHeadParamNames =
   let got = classifierHeadParamNames "classifier"
   in case firstMismatch got expectedClassifierHeadParamNames of
-       Nothing => check "classifier head names match HF reference" True
+       Nothing        => check "classifier head names match HF reference" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: classifier[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -124,7 +124,7 @@ testSeqClassifyCombinedCatalogue : IO Bool
 testSeqClassifyCombinedCatalogue =
   let got = bertForSequenceClassificationParamNames bertTinyConfig "bert" "classifier"
   in case firstMismatch got expectedBertSeqClassifyParamNames of
-       Nothing => check "bertForSequenceClassificationParamNames concatenates correctly (41 = 39 + 2)" True
+       Nothing        => check "bertForSequenceClassificationParamNames concatenates correctly (41 = 39 + 2)" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: combined[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -221,8 +221,8 @@ testForwardShapeAndFinite = do
                                            {numClasses   = 3}
                                            "ftfwdb" "ftfwdc"
   let inputIds = mkIdsTensor (the (Vect 3 Double) [1.0, 2.0, 3.0])
-      posIds   = mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
-      typeIds  = mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
+      posIds  = mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
+      typeIds = mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
   out <- hfBertSeqClassifyForward {ex=TestExecutor} {dt=TestDType}
                                   {seqLen       = 3}
                                   {vocab        = 4}

@@ -26,7 +26,7 @@ record SwiGLU (hidden : Nat) (intermediate : Nat) (0 ex : Executor) (0 dt : DTyp
 
 public export
 Params SwiGLU where
-  params (MkSwiGLU g u d) = [toParam g, toParam u, toParam d]
+  params (MkSwiGLU g u d)   = [toParam g, toParam u, toParam d]
   castGrad (MkSwiGLU g u d) = MkSwiGLU (retypeGrad g) (retypeGrad u) (retypeGrad d)
 
 ||| 1-D SwiGLU forward: `down(silu(gate·x) * (up·x))`.

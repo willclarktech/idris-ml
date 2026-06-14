@@ -29,11 +29,11 @@ recordedStep : {state, action, obs : Type} ->
                (Double, Recorded state, Outcome, Info)
 recordedStep (MkRecorded s tot len) act =
   let (r, s', out, info) = step {state} {action} {obs} s act
-      tot' = tot + r
-      len' = S len
+      tot'  = tot + r
+      len'  = S len
       info' = case out of
                 Continue => info
-                _ => ("episode_return", show tot') ::
+                _        => ("episode_return", show tot') ::
                      ("episode_length", show len') ::
                      info
   in (r, MkRecorded s' tot' len', out, info')

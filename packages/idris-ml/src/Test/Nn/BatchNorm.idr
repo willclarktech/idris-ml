@@ -59,14 +59,14 @@ bufferRoundtrip = do
   x  <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [3.0, 4.0])
   for_ [the Nat 1 .. 20] $ \_ => batchNormForward bn (retypeGrad x)
   let (meanP, varP) = runningStatPtrs bn
-  let tMean = primItem1d {ex=TestExecutor} meanP 0
+  let tMean         = primItem1d {ex=TestExecutor} meanP 0
       tVar  = primItem1d {ex=TestExecutor} varP 0
   _  <- saveAll {ex=TestExecutor} path
   -- Fresh model re-registers the same names with reset 0/1 buffers.
   fresh <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {channels=2} {spatialDim=1})
   _  <- loadModel {ex=TestExecutor} path
   let (fmeanP, fvarP) = runningStatPtrs fresh
-  let lMean = primItem1d {ex=TestExecutor} fmeanP 0
+  let lMean           = primItem1d {ex=TestExecutor} fmeanP 0
       lVar  = primItem1d {ex=TestExecutor} fvarP 0
   r0 <- check ("training moved running mean off 0 (got " ++ show tMean ++ ")") (abs tMean > 0.5)
   r1 <- check ("training moved running var off 1 (got " ++ show tVar ++ ")") (abs (tVar - 1.0) > 0.1)

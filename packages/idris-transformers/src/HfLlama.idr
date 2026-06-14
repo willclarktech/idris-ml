@@ -158,7 +158,7 @@ packDs buf _   []        = buf
 packDs buf off (x :: xs) = packDs (prim__setDouble buf off x) (off + 1) xs
 
 fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
-fillConst buf _ 0 _ = buf
+fillConst buf _ 0 _   = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
@@ -385,7 +385,7 @@ applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    IO (Tensor [seqLen, hidden] ex dt g)
 applyEmbedLookup {seqLen} {hidden} (MkLlamaEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
-      hI = cast {to=Int} hidden
+      hI  = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
@@ -444,9 +444,9 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
   k <- applyLinear2d attn.kProj input  -- [seq, numKvHeads * headDim]
   v <- applyLinear2d attn.vProj input  -- [seq, numKvHeads * headDim]
   let sI     = cast {to=Int} seq
-      hdI    = cast {to=Int} headDim
-      nHI    = cast {to=Int} numHeads
-      nKvHI  = cast {to=Int} numKvHeads
+      hdI   = cast {to=Int} headDim
+      nHI   = cast {to=Int} numHeads
+      nKvHI = cast {to=Int} numKvHeads
   -- All-heads RoPE on Q and K (V skips RoPE). One call per Q/K replaces
   -- the per-head loop (#399 Commit B-followup 2026-05-30): kills the
   -- ~62 per-layer `primConcat2dAxis1` calls that were ~80% of the

@@ -103,8 +103,8 @@ bjStep s action =
     bjHit st =
       let (c, seed') = drawCard st.bjSeed
           player' = c :: st.bjPlayer
-          newSum = handSum player'
-          st' = { bjPlayer := player', bjSeed := seed' } st
+          newSum  = handSum player'
+          st'     = { bjPlayer := player', bjSeed := seed' } st
       in if isBust newSum
            then (-1.0, { bjDone := True } st', Terminated, [])
          else (0.0, st', Continue, [])
@@ -112,9 +112,9 @@ bjStep s action =
     bjStick : BJState -> (Double, BJState, Outcome, Info)
     bjStick st =
       let (dealer', seed') = dealerPlay st.bjDealer st.bjSeed
-          st' = { bjDealer := dealer', bjSeed := seed', bjDone := True } st
-          pSum = handSum st.bjPlayer
-          dSum = handSum dealer'
+          st'    = { bjDealer := dealer', bjSeed := seed', bjDone := True } st
+          pSum   = handSum st.bjPlayer
+          dSum   = handSum dealer'
           reward = if isBust dSum then 1.0
                    else if pSum > dSum then 1.0
                    else if pSum == dSum then 0.0
@@ -134,9 +134,9 @@ bjObserve s =
 
 public export
 Env BJState Nat (Vect 3 Double) where
-  reset = initBJ
-  step = bjStep
-  observe = bjObserve
-  actionSpace = Discrete 2
-  obsSpace = Box [4.0, 1.0, 0.0] [32.0, 11.0, 1.0]
+  reset            = initBJ
+  step             = bjStep
+  observe          = bjObserve
+  actionSpace      = Discrete 2
+  obsSpace         = Box [4.0, 1.0, 0.0] [32.0, 11.0, 1.0]
   defaultTimeLimit = Nothing

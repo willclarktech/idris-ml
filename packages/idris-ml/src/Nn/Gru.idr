@@ -28,7 +28,7 @@ record Gru (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
 
 public export
 Params Gru where
-  params (MkGru iw ib hw hb _) = [toParam iw, toParam ib, toParam hw, toParam hb]
+  params (MkGru iw ib hw hb _)     = [toParam iw, toParam ib, toParam hw, toParam hb]
   castGrad (MkGru iw ib hw hb hid) =
     MkGru (retypeGrad iw) (retypeGrad ib) (retypeGrad hw) (retypeGrad hb) (map retypeGrad hid)
 
@@ -36,7 +36,7 @@ public export
 Recurrent Gru where
   recurStep {o} st input = do
     h <- case st.hiddenT of
-           Just h => pure h
+           Just h  => pure h
            Nothing => tzeroState1d {n = o}
     ihPart <- tlinear st.iwT input st.ihB
     hhPart <- tlinear st.hwT h st.hhB

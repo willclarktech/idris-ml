@@ -20,7 +20,7 @@ import Tensor
 -- Per-name worker: walks indices from k-1 down to 0; if a name starts
 -- with `pfx`, applies `lr` via `setParamLR`.
 applyIfPrefix : UserExecutorTraining ex => NativeOptimizer ex -> String -> Double -> Nat -> IO ()
-applyIfPrefix opt pfx lr Z = pure ()
+applyIfPrefix opt pfx lr Z     = pure ()
 applyIfPrefix opt pfx lr (S k) = do
   let i = cast {to=Int} k
   isBuf <- getParamIsBuffer {ex} i
@@ -31,7 +31,7 @@ applyIfPrefix opt pfx lr (S k) = do
 -- Per-name worker: walks indices from k-1 down to 0; if a name ends
 -- with `sfx`, applies `lr` via `setParamLR`.
 applyIfSuffix : UserExecutorTraining ex => NativeOptimizer ex -> String -> Double -> Nat -> IO ()
-applyIfSuffix opt sfx lr Z = pure ()
+applyIfSuffix opt sfx lr Z     = pure ()
 applyIfSuffix opt sfx lr (S k) = do
   let i = cast {to=Int} k
   isBuf <- getParamIsBuffer {ex} i

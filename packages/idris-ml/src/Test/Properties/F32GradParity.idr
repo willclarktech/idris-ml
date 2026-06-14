@@ -41,8 +41,8 @@ import Test.Property
 -- Build the loss and read out the gradient for one dtype rung.
 -- Returns the gradient value read from the param registry.
 runRung : (dt : DType) ->
-          IsFloating dt =>
-          RuntimeDType dt =>
+          IsFloating dt              =>
+          RuntimeDType dt            =>
           Compatible TestExecutor dt =>
           String -> Double -> IO Double
 runRung dt pidPrefix x = do

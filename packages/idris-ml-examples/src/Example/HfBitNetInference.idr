@@ -349,7 +349,7 @@ main = do
         pure ()
       else do
         case tokR of
-          Left _ => exitFailure
+          Left _       => exitFailure
           Right tokVal => do
             putStrLn ("[stage] runGenerate — greedy decode loop (" ++
                       show numTokens ++ " tokens)...")

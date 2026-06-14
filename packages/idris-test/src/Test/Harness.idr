@@ -35,7 +35,7 @@ runSuite : String -> List (IO Bool) -> IO Nat
 runSuite name ts = do
   putStrLn ("[" ++ name ++ "]")
   results <- traverse id ts
-  let ct = length results
+  let ct       = length results
   let failures = foldl (\acc, b => if b then acc else S acc) 0 results
   putStrLn ("  " ++ show (ct `minus` failures) ++ "/" ++ show ct ++ " passed")
   pure failures

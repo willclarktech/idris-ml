@@ -82,7 +82,7 @@ rnnLayer paramPrefix activation = do
   --   hidden weight W_hh: fan_in=o, fan_out=o → std = 1/sqrt(o)
   -- Zero bias init.
   let iwStd = sqrt (2.0 / cast {to=Double} (i + o))
-      rwStd = 1.0 / sqrt (cast {to=Double} o)
+      rwStd  = 1.0 / sqrt (cast {to=Double} o)
       iwName = paramPrefix ++ "_iw"
       rwName = paramPrefix ++ "_rw"
       ibName = paramPrefix ++ "_ib"
@@ -104,7 +104,7 @@ resetRnnState st = { prevOutT := Nothing } st
 
 public export
 LayerLike RnnState where
-  applyVar = applyRnn
+  applyVar      = applyRnn
   layerPrefix _ = "rnn"
 
   resetState = resetRnnState

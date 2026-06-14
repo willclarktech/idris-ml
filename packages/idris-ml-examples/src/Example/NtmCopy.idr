@@ -67,7 +67,7 @@ genCopySeq seqLen = do
   pure (inputRows, dataRows)
 
 genBatch : (n, minLen, maxLen : Nat) -> IO (List Seq)
-genBatch Z _ _ = pure []
+genBatch Z _ _               = pure []
 genBatch (S k) minLen maxLen = do
   len <- randomInt minLen maxLen
   dp <- genCopySeq len
@@ -82,7 +82,7 @@ zeroIn : IO (Tensor [InputW] Ex F WithGrad)
 zeroIn = retypeGrad <$> tensor {dims = [InputW]} (Const 0.0)
 
 sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
-sumLosses [] = assert_total $ idris_crash "NtmCopy.sumLosses: empty"
+sumLosses []        = assert_total $ idris_crash "NtmCopy.sumLosses: empty"
 sumLosses (x :: xs) = go x xs
   where
     go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
@@ -91,7 +91,7 @@ sumLosses (x :: xs) = go x xs
 
 -- Encode: feed input rows, write to memory, discard outputs. Thread cell.
 encodeAll : Model -> List (Vect InputW Double) -> IO Model
-encodeAll cell [] = pure cell
+encodeAll cell []            = pure cell
 encodeAll cell (row :: rest) = do
   x <- retypeGrad <$> tensor {dims = [InputW]} (FromVect row)
   (cell', _) <- recurStep cell x
@@ -99,7 +99,7 @@ encodeAll cell (row :: rest) = do
 
 -- Decode: feed zeros, read rows back, BCE per step vs target.
 decodeLosses : Model -> List (Vect OutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
-decodeLosses _ [] = pure []
+decodeLosses _ []                = pure []
 decodeLosses cell (trow :: rest) = do
   z <- zeroIn
   (cell', out) <- recurStep cell z
@@ -134,7 +134,7 @@ scoreSeq model (encIns, targs) = withNoGrad {ex = Ex} $ do
   go enc targs 0 0
   where
     go : Model -> List (Vect OutputW Double) -> Nat -> Nat -> IO (Nat, Nat)
-    go _ [] correct tot = pure (correct, tot)
+    go _ [] correct tot                = pure (correct, tot)
     go cell (trow :: rest) correct tot = do
       z <- zeroIn
       (cell', out) <- recurStep cell z

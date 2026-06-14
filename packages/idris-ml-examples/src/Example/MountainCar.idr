@@ -93,7 +93,7 @@ epsGreedyBatched : {n : Nat} -> Tensor [n, NumActions] Ex F g ->
 epsGreedyBatched qB envs eps = go 0 envs
   where
     go : Int -> Vect k MCState -> IO (Vect k Nat)
-    go _ [] = pure []
+    go _ []          = pure []
     go i (_ :: rest) = do
       u <- randomRIO (the Double 0.0, 1.0)
       a <- if u < eps
@@ -167,8 +167,8 @@ batchLossBatched n online target gamma batch = do
     go : {n : Nat} -> Tensor [n, NumActions] Ex F WithGrad ->
          List (Transition ObsDim 1) ->
          List Double -> Int -> IO (List (Tensor [] Ex F WithGrad))
-    go _ [] _ _ = pure []
-    go _ _ [] _ = pure []
+    go _ [] _ _                            = pure []
+    go _ _ [] _                            = pure []
     go qOutB (t :: tRest) (tv :: tvRest) k = do
       l <- perSampleLoss qOutB t tv k
       ls <- go qOutB tRest tvRest (k + 1)
@@ -228,7 +228,7 @@ trainIfReady opt st = do
 
 stepAllAutoResetMC : Vect n MCState -> Vect n Nat ->
                      (Vect n MCState, Vect n Double, Vect n Bool)
-stepAllAutoResetMC [] [] = ([], [], [])
+stepAllAutoResetMC [] []               = ([], [], [])
 stepAllAutoResetMC (s :: ss) (a :: as) =
   case mcStep s a of
     (r, s', outcome, _) =>
@@ -240,7 +240,7 @@ stepAllAutoResetMC (s :: ss) (a :: as) =
 pushAllTransitionsMC : ReplayBuffer ObsDim 1 -> Double ->
                        Vect n MCState -> Vect n Nat -> Vect n Double ->
                        Vect n MCState -> Vect n Bool -> IO ()
-pushAllTransitionsMC _ _ [] [] [] [] [] = pure ()
+pushAllTransitionsMC _ _ [] [] [] [] []                                              = pure ()
 pushAllTransitionsMC buf shaping (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d :: ds) = do
   let shapedR = r + shaping * abs s'.mcVel
   push buf (MkTransition (mcObserve s) (actionToVec a) shapedR (mcObserve s') d)
@@ -259,7 +259,7 @@ runEpisodeBatched opt st0 = do
       stepCount <- readIORef st.stepRef
       let eps = epsilonAt stepCount st.cfgEpsStart st.cfgEpsEnd st.cfgEpsDecay
           obsRows : Vect NumEnvs (Vector ObsDim Double)
-          obsRows = map (\s => obsTensor (mcObserve s)) envs
+          obsRows  = map (\s => obsTensor (mcObserve s)) envs
           batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
           stateV : Tensor [NumEnvs, ObsDim] Ex F WithGrad
           stateV = MkTensor batchPtr Nothing
@@ -274,7 +274,7 @@ runEpisodeBatched opt st0 = do
               ret0 = head rewards
               done0 : Bool
               done0 = head dones
-              ret' = ret + ret0
+              ret'  = ret + ret0
 
           st' <- trainIfReady opt st
 
@@ -331,7 +331,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 ----------------------------------------------------------------------
 
 evalEp : QNet -> MCState -> Nat -> Double -> IO Double
-evalEp _ _ Z acc = pure acc
+evalEp _ _ Z acc      = pure acc
 evalEp q st (S k) acc = do
   action <- greedyAction q (mcObserve st)
   case mcStep st action of
@@ -340,7 +340,7 @@ evalEp q st (S k) acc = do
       else evalEp q st' k (acc + reward)
 
 evalN : QNet -> Nat -> Double -> IO Double
-evalN _ Z acc = pure acc
+evalN _ Z acc     = pure acc
 evalN q (S k) acc = do
   ep <- evalEp q (MkMC (-0.5) 0.0) MaxSteps 0.0
   evalN q k (acc + ep)

@@ -239,8 +239,8 @@ activationEveryN = do
   mv <- getEnv "IDRISML_ACTIVATION_EVERY_N"
   case mv of
     Nothing => pure 1
-    Just s => case parseInteger {a=Int} s of
-                Just n => if n <= 0 then pure 1 else pure n
+    Just s  => case parseInteger {a=Int} s of
+                Just n  => if n <= 0 then pure 1 else pure n
                 Nothing => pure 1
 
 -- Replace label chars that aren't safe for a path segment. Keep
@@ -301,7 +301,7 @@ forwardVarTraced label net input = do
           me = primItem {ex} (primMean {ex} ptr)
           isNaN : Double -> Bool
           isNaN x = x /= x
-          tag = if isNaN mn || isNaN mx || isNaN me then "  [NaN]" else ""
+          tag     = if isNaN mn || isNaN mx || isNaN me then "  [NaN]" else ""
       logDebug $
         label ++ ":" ++ idxLabel
           ++ " min=" ++ show mn

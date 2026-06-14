@@ -41,7 +41,7 @@ applyGru : {0 ex : Executor} -> Backend ex dt => {o : Nat} ->
              IO (GruState i o ex dt g, TVec o ex dt g)
 applyGru {o} st input = do
   h <- case st.hiddenT of
-         Just h => pure h
+         Just h  => pure h
          Nothing => tzeroState1d {n = o}
   ihPart <- tlinear st.iwT input st.ihB    -- W_ih @ x + b_ih
   hhPart <- tlinear st.hwT h st.hhB        -- W_hh @ h + b_hh
@@ -64,7 +64,7 @@ gruLayer paramPrefix = do
   -- via-uniform: std = sqrt(2/(fan_in + fan_out)) where fan_out = 3*o.
   -- Biases zero-init.
   let iwStd = sqrt (2.0 / cast {to=Double} (i + 3 * o))
-      hwStd = sqrt (2.0 / cast {to=Double} (o + 3 * o))
+      hwStd   = sqrt (2.0 / cast {to=Double} (o + 3 * o))
       iwName  = paramPrefix ++ "_iw"
       hwName  = paramPrefix ++ "_hw"
       ihBName = paramPrefix ++ "_ih_b"
@@ -86,7 +86,7 @@ resetGruState st = { hiddenT := Nothing } st
 
 public export
 LayerLike GruState where
-  applyVar = applyGru
+  applyVar      = applyGru
   layerPrefix _ = "gru"
 
   resetState = resetGruState

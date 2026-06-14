@@ -63,8 +63,8 @@ randomBitVec w = traverse (\_ => do b <- randomRIO (the Int32 0, 1)
                           (Vect.replicate w ())
 
 nth : Nat -> List a -> Maybe a
-nth _ []        = Nothing
-nth Z (x :: _)  = Just x
+nth _ []            = Nothing
+nth Z (x :: _)      = Just x
 nth (S k) (_ :: xs) = nth k xs
 
 -- Structure (InputW = W+2): each item is SeqLen data rows padded with two
@@ -79,7 +79,7 @@ genRecallSeq numItems = do
   let itemDelim  = Vect.replicate W 0.0 ++ [1.0, 0.0]
       queryDelim = Vect.replicate W 0.0 ++ [0.0, 1.0]
       padRow : Vect W Double -> Vect InputW Double
-      padRow r = r ++ [0.0, 0.0]
+      padRow r   = r ++ [0.0, 0.0]
       encItems   = concatMap (\item => itemDelim :: map padRow item) items
       queryItem  = fromMaybe [] (nth queryIdx items)
       targetItem = fromMaybe [] (nth (S queryIdx) items)
@@ -87,7 +87,7 @@ genRecallSeq numItems = do
   pure (encItems ++ encQuery, targetItem)
 
 genBatch : (n, minItems, maxItems : Nat) -> IO (List Seq)
-genBatch Z _ _ = pure []
+genBatch Z _ _                   = pure []
 genBatch (S k) minItems maxItems = do
   ni <- randomInt (max 2 minItems) (max 2 maxItems)
   dp <- genRecallSeq ni
@@ -102,7 +102,7 @@ zeroIn : IO (Tensor [InputW] Ex F WithGrad)
 zeroIn = retypeGrad <$> tensor {dims = [InputW]} (Const 0.0)
 
 sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
-sumLosses [] = assert_total $ idris_crash "NtmAssociativeRecall.sumLosses: empty"
+sumLosses []        = assert_total $ idris_crash "NtmAssociativeRecall.sumLosses: empty"
 sumLosses (x :: xs) = go x xs
   where
     go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
@@ -110,14 +110,14 @@ sumLosses (x :: xs) = go x xs
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
 encodeAll : Model -> List (Vect InputW Double) -> IO Model
-encodeAll cell [] = pure cell
+encodeAll cell []            = pure cell
 encodeAll cell (row :: rest) = do
   x <- retypeGrad <$> tensor {dims = [InputW]} (FromVect row)
   (cell', _) <- recurStep cell x
   encodeAll cell' rest
 
 decodeLosses : Model -> List (Vect OutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
-decodeLosses _ [] = pure []
+decodeLosses _ []                = pure []
 decodeLosses cell (trow :: rest) = do
   z <- zeroIn
   (cell', out) <- recurStep cell z
@@ -151,7 +151,7 @@ scoreSeq model (encIns, targs) = withNoGrad {ex = Ex} $ do
   go enc targs 0 0
   where
     go : Model -> List (Vect OutputW Double) -> Nat -> Nat -> IO (Nat, Nat)
-    go _ [] correct tot = pure (correct, tot)
+    go _ [] correct tot                = pure (correct, tot)
     go cell (trow :: rest) correct tot = do
       z <- zeroIn
       (cell', out) <- recurStep cell z

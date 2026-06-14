@@ -172,7 +172,7 @@ hfBitnetParamNames cfg pfx =
 -- Host-buffer helper (one private copy per Hf* module per CONVENTIONS
 -- rule 4 — no cross-imports between Hf* modules).
 fillBytesZero : AnyPtr -> Int -> Int -> AnyPtr
-fillBytesZero buf _ 0 = buf
+fillBytesZero buf _ 0   = buf
 fillBytesZero buf off n =
   fillBytesZero (prim__setByte buf off 0) (off + 1) (n - 1)
 
@@ -541,16 +541,16 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
       iI       = cast {to=Int} i
       -- Zero bias placeholder ([out], NoGrad). Calloc-backed buffer
       -- + dt-streamed creation, identical to HfLlama's LM head trick.
-      zBuf     = prim__allocDoubles oI
-      biasPtr  = dtCreateState1d {ex} {t=dt} oI zBuf (deviceStreamTag {ex})
+      zBuf    = prim__allocDoubles oI
+      biasPtr = dtCreateState1d {ex} {t=dt} oI zBuf (deviceStreamTag {ex})
       -- Placeholder rmsNormWeight ([in], NoGrad). C side won't read it
       -- since useRmsNorm=False, but the kernel signature still requires
       -- a non-null handle. Allocate a tiny zero buffer.
-      rBuf     = prim__allocDoubles iI
-      rmsPtr   = dtCreateState1d {ex} {t=dt} iI rBuf (deviceStreamTag {ex})
-      wTPtr    = bl.weightT.tensorPtr
-      xPtr     = x.tensorPtr
-      seqLenI  = cast {to=Int} seqLen
+      rBuf    = prim__allocDoubles iI
+      rmsPtr  = dtCreateState1d {ex} {t=dt} iI rBuf (deviceStreamTag {ex})
+      wTPtr   = bl.weightT.tensorPtr
+      xPtr    = x.tensorPtr
+      seqLenI = cast {to=Int} seqLen
   -- Row loop: narrow → reshape to 1D → fused BitLinear → reshape to
   -- [1, out] → concat. Each layer's seven BitLinears × seqLen rows
   -- pays seqLen kernel launches per BitLinear. A fused 2D BitLinear
@@ -572,7 +572,7 @@ applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    IO (Tensor [seqLen, hidden] ex dt g)
 applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
-      hI = cast {to=Int} hidden
+      hI  = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 

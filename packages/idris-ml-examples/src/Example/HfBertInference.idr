@@ -142,13 +142,13 @@ runMaskDemo tok model sentence = do
   Right (seqLen ** tokens) <- tokenize tok sentence
     | Left err => putStrLn ("  ERR: tokenize: " ++ show err)
   case findIndex (\f => finToNat f == bertMaskTokenId) tokens of
-    Nothing => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
+    Nothing      => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
     Just maskFin => do
       -- Each Fin VocabSize → Double via finToNat → cast.
       let idDoubles = map (cast {to=Double} . finToNat) tokens
-          inputIds  = mkIds idDoubles
-          posIds    = mkIds (arangeVect seqLen)
-          typeIds   = mkIds (zerosVect seqLen)
+          inputIds = mkIds idDoubles
+          posIds   = mkIds (arangeVect seqLen)
+          typeIds  = mkIds (zerosVect seqLen)
       logits <- hfBertMlmForward {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seqLen}
                                  {vocab        = VocabSize}
@@ -163,7 +163,7 @@ runMaskDemo tok model sentence = do
       maskRow <- trowSelect logits (cast {to=Int} (finToNat maskFin))
       pairs   <- readLogits VocabSize maskRow.tensorPtr
       let top5     = topK 5 pairs
-          topIds   = map fst top5
+          topIds    = map fst top5
           topLogits = map snd top5
       -- Lift each Nat → Fin VocabSize. mapMaybe drops any that fail;
       -- our IDs come from readLogits over the 30522-wide logits row
@@ -184,9 +184,9 @@ runMaskDemo tok model sentence = do
     fmt : String -> Double -> String
     fmt tok x =
       let scaled : Int = cast (x * 100.0 + (if x < 0.0 then -0.5 else 0.5))
-          whole = scaled `div` 100
-          frac  = abs (scaled `mod` 100)
-          sign  = if x < 0.0 then "-" else "+"
+          whole   = scaled `div` 100
+          frac    = abs (scaled `mod` 100)
+          sign    = if x < 0.0 then "-" else "+"
           fracStr = if frac < 10 then "0" ++ show frac else show frac
       in tok ++ " (" ++ sign ++ show (abs whole) ++ "." ++ fracStr ++ ")"
 
@@ -210,8 +210,8 @@ runPooledDump : (model : BertForMaskedLmState VocabSize Hidden NumLayers
 runPooledDump model = do
   -- Same fixed input save_oracle.py uses: [CLS] hello [SEP].
   let inputIds = mkIds (the (Vect 3 Double) [101.0, 7592.0, 102.0])
-      posIds   = mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0])
-      typeIds  = mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0])
+      posIds  = mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0])
+      typeIds = mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0])
   out <- hfBertForward {ex=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 3}
                        {vocab        = VocabSize}

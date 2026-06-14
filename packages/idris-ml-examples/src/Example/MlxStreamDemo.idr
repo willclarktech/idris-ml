@@ -88,8 +88,8 @@ main = do
 
   let expectCpu : Vect 4 Double = [-1.0, -2.0, -3.0, -4.0]
       expectGpu : Vect 4 Double = [-5.0, -6.0, -7.0, -8.0]
-      cpuOk = readVec4 negCpu == expectCpu
-      gpuOk = readVec4 negGpu == expectGpu
+      cpuOk                     = readVec4 negCpu == expectCpu
+      gpuOk                     = readVec4 negGpu == expectGpu
   -- Linear output depends on the random init — we don't check values,
   -- just that the forward ran without aborting on the GPU stream.
   if cpuOk && gpuOk

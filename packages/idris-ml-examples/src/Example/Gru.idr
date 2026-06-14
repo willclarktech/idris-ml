@@ -43,7 +43,7 @@ scalar1 : Double -> IO (Tensor [1] Ex F WithGrad)
 scalar1 x = retypeGrad <$> tensor {dims = [1]} (FromVect [x])
 
 sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
-sumLosses [] = assert_total $ idris_crash "Gru.sumLosses: empty"
+sumLosses []        = assert_total $ idris_crash "Gru.sumLosses: empty"
 sumLosses (x :: xs) = go x xs
   where
     go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) ->
@@ -131,7 +131,7 @@ main = do
 
   let trainCfgBase = patienceConfig cfg.epochs cfg.patience
       trainCfg = case cfg.checkpointDir of
-                   "" => trainCfgBase
+                   ""  => trainCfgBase
                    dir => withCheckpoint
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase

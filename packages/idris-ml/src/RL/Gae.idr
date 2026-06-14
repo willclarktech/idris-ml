@@ -30,11 +30,11 @@ gae gamma lam bootstrapValue steps =
   reverse (go (reverse steps) bootstrapValue 0.0)
   where
     go : List (Double, Double, Bool) -> Double -> Double -> List (Double, Double)
-    go [] _ _ = []
+    go [] _ _                          = []
     go ((r, v, d) :: rest) nextV nextA =
       let mask : Double
-          mask = if d then 0.0 else 1.0
-          delta  = r + gamma * nextV * mask - v
-          a      = delta + gamma * lam * mask * nextA
-          retT   = a + v
+          mask  = if d then 0.0 else 1.0
+          delta = r + gamma * nextV * mask - v
+          a     = delta + gamma * lam * mask * nextA
+          retT  = a + v
       in (a, retT) :: go rest v a

@@ -16,7 +16,7 @@ runTl (S k) tl =
                                           {obs=Vect 4 Double} tl 1
   in case out of
        Continue => let (n, o) = runTl k tl' in (S n, o)
-       _ => (S Z, out)
+       _        => (S Z, out)
 
 -- Explicit CPState zero state — avoids Env instance disambiguation.
 cpZero : CPState

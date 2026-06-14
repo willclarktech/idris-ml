@@ -80,7 +80,7 @@ testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
   let got = hfLlamaParamNames llama32_1B_Config "model"
   in case firstMismatch got expectedLlama32_1B_ParamNames of
-       Nothing => check "all 146 param names match HF reference exactly" True
+       Nothing        => check "all 146 param names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -139,7 +139,7 @@ testConstructorRegistersHfNames = do
   let registered = drop (cast {to=Nat} preCount) allNames
       expected   = hfLlamaParamNames llama32_1B_Config "model"
   case firstMismatch registered expected of
-    Nothing => check "C-side param registry matches catalogue exactly" True
+    Nothing        => check "C-side param registry matches catalogue exactly" True
     Just (i, g, e) => do
       putStrLn ("  FAIL: registry[" ++ show i ++ "] mismatch:")
       putStrLn ("    got:      " ++ g)

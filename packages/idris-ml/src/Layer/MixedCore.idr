@@ -46,7 +46,7 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) ->
   ||| methods with `idris_crash` if they don't ship BitNet kernels).
   applyVarMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                   UserExecutorQuant ex =>
-                  IsDType pDt => IsDType cDt =>
+                  IsDType pDt          => IsDType cDt =>
                   {auto rdtP : RuntimeDType pDt} ->
                   {auto rdtC : RuntimeDType cDt} ->
                   Linked ex =>
@@ -70,7 +70,7 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) ->
   ||| batched training override).
   applyVarBatchMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                        UserExecutorQuant ex =>
-                       IsDType pDt => IsDType cDt =>
+                       IsDType pDt          => IsDType cDt =>
                        {auto rdtP : RuntimeDType pDt} ->
                        {auto rdtC : RuntimeDType cDt} ->
                        Linked ex =>
@@ -152,9 +152,9 @@ data AnyLayerMixed : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : D
 export
 applyVarAnyMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                    UserExecutorQuant ex =>
-                   IsDType pDt => IsDType cDt =>
-                   RuntimeDType pDt => RuntimeDType cDt =>
-                   Linked ex => Compatible ex pDt => Compatible ex cDt =>
+                   IsDType pDt          => IsDType cDt =>
+                   RuntimeDType pDt     => RuntimeDType cDt =>
+                   Linked ex            => Compatible ex pDt => Compatible ex cDt =>
                    {0 g : GradMode} -> {i, o : Nat} ->
                    AnyLayerMixed i o ex pDt cDt g -> Tensor [i] ex cDt g ->
                    IO (AnyLayerMixed i o ex pDt cDt g, Tensor [o] ex cDt g)
@@ -165,9 +165,9 @@ applyVarAnyMixed (MkAnyLayerMixed l @{dict} layer) input = do
 export
 applyVarBatchAnyMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                         UserExecutorQuant ex =>
-                        IsDType pDt => IsDType cDt =>
-                        RuntimeDType pDt => RuntimeDType cDt =>
-                        Linked ex => Compatible ex pDt => Compatible ex cDt =>
+                        IsDType pDt          => IsDType cDt =>
+                        RuntimeDType pDt     => RuntimeDType cDt =>
+                        Linked ex            => Compatible ex pDt => Compatible ex cDt =>
                         {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                         AnyLayerMixed i o ex pDt cDt g -> Tensor [b, i] ex cDt g ->
                         IO (AnyLayerMixed i o ex pDt cDt g, Tensor [b, o] ex cDt g)
@@ -208,9 +208,9 @@ export infixr 5 ~~~>
 export
 forwardVarMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                   UserExecutorQuant ex =>
-                  IsDType pDt => IsDType cDt =>
-                  RuntimeDType pDt => RuntimeDType cDt =>
-                  Linked ex => Compatible ex pDt => Compatible ex cDt =>
+                  IsDType pDt          => IsDType cDt =>
+                  RuntimeDType pDt     => RuntimeDType cDt =>
+                  Linked ex            => Compatible ex pDt => Compatible ex cDt =>
                   {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                   NetworkMixed i hs o ex pDt cDt g -> Tensor [i] ex cDt g ->
                   IO (NetworkMixed i hs o ex pDt cDt g, Tensor [o] ex cDt g)
@@ -263,9 +263,9 @@ resetNetworkMixed ((MkAnyLayerMixed l @{dict} layer) ~~~> rest) =
 export
 forwardVarBatchMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                        UserExecutorQuant ex =>
-                       IsDType pDt => IsDType cDt =>
-                       RuntimeDType pDt => RuntimeDType cDt =>
-                       Linked ex => Compatible ex pDt => Compatible ex cDt =>
+                       IsDType pDt          => IsDType cDt =>
+                       RuntimeDType pDt     => RuntimeDType cDt =>
+                       Linked ex            => Compatible ex pDt => Compatible ex cDt =>
                        {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                        {hs : List Nat} ->
                        NetworkMixed i hs o ex pDt cDt g -> Tensor [b, i] ex cDt g ->
@@ -296,4 +296,4 @@ liftAnyLayer al = MkAnyLayerMixed AsMixed (MkAsMixed al)
 public export
 liftNetwork : Network i hs o ex dt g -> NetworkMixed i hs o ex dt dt g
 liftNetwork (OutputLayer l) = OutputLayerMixed (liftAnyLayer l)
-liftNetwork (l ~~> rest) = liftAnyLayer l ~~~> liftNetwork rest
+liftNetwork (l ~~> rest)    = liftAnyLayer l ~~~> liftNetwork rest

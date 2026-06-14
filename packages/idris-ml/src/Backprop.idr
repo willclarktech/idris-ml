@@ -33,7 +33,7 @@ LossFn ex dt n = TVec n ex dt WithGrad -> TVec n ex dt WithGrad -> IO (Tensor []
 
 -- Pack a Vect of Doubles into a buffer at offset.
 packDoublesIntoBuf : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoublesIntoBuf buf _ [] = buf
+packDoublesIntoBuf buf _ []            = buf
 packDoublesIntoBuf buf off (x :: rest) =
   packDoublesIntoBuf (prim__setDouble buf off x) (off + 1) rest
 
@@ -41,12 +41,12 @@ packDoublesIntoBuf buf off (x :: rest) =
 bulkToPersistent : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
-      buf = prim__allocDoubles nI
+      buf  = prim__allocDoubles nI
       buf' = packScalars buf 0 elems
   in dtCreate1d {ex} {t=dt} nI buf' 0 (deviceStreamTag {ex})
   where
     packScalars : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
-    packScalars b _ [] = b
+    packScalars b _ []                 = b
     packScalars b o (SArray v :: rest) =
       packScalars (prim__setDouble b o v) (o + 1) rest
 
@@ -78,7 +78,7 @@ sumLosses losses = do
     foldlM : (Tensor [] ex dt WithGrad -> Tensor [] ex dt WithGrad -> IO (Tensor [] ex dt WithGrad)) ->
              Tensor [] ex dt WithGrad -> List (Tensor [] ex dt WithGrad) ->
              IO (Tensor [] ex dt WithGrad)
-    foldlM _ acc [] = pure acc
+    foldlM _ acc []          = pure acc
     foldlM f acc (x :: rest) = do
       acc' <- f acc x
       foldlM f acc' rest
@@ -99,7 +99,7 @@ perPointLoss : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> {hs : List 
 perPointLoss lossFn model dp = do
   let inT = bulkToPersistent {ex} {dt} (x dp)
       tgtT = bulkToPersistent {ex} {dt} (y dp)
-      inV = the (TVec i ex dt WithGrad) (MkTensor inT Nothing)
+      inV  = the (TVec i ex dt WithGrad) (MkTensor inT Nothing)
       tgtV = the (TVec o ex dt WithGrad) (MkTensor tgtT Nothing)
   (_, predV) <- forwardVar model inV
   lossFn predV tgtV
@@ -133,9 +133,9 @@ epochVar opt dataPoints lossFn model = do
 -- the layer's `applyVarMixed`.
 perPointLossMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                     UserExecutorQuant ex =>
-                    IsDType pDt => IsDType cDt =>
-                    RuntimeDType pDt => RuntimeDType cDt =>
-                    Linked ex => Compatible ex pDt => Compatible ex cDt =>
+                    IsDType pDt          => IsDType cDt =>
+                    RuntimeDType pDt     => RuntimeDType cDt =>
+                    Linked ex            => Compatible ex pDt => Compatible ex cDt =>
                     {i, o : Nat} -> {hs : List Nat} ->
                     LossFn ex cDt o ->
                     NetworkMixed i hs o ex pDt cDt WithGrad ->
@@ -163,10 +163,10 @@ perPointLossMixed lossFn model dp = do
 export
 epochVarMixed : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                 UserExecutorQuant ex =>
-                IsDType pDt => IsDType cDt =>
-                RuntimeDType pDt => RuntimeDType cDt =>
-                Linked ex => Compatible ex pDt => Compatible ex cDt =>
-                IsFloating cDt =>
+                IsDType pDt          => IsDType cDt =>
+                RuntimeDType pDt     => RuntimeDType cDt =>
+                Linked ex            => Compatible ex pDt => Compatible ex cDt =>
+                IsFloating cDt       =>
                 {i, o, n : Nat} -> {hs : List Nat} ->
                 NativeOptimizer ex ->
                 GradScaler ex cDt ->
@@ -207,16 +207,16 @@ epochVarTensorBatch : {0 ex : Executor} -> Backend ex dt => IsFloating dt => {i,
                        IO (Network i hs o ex dt WithGrad, Double)
 epochVarTensorBatch opt dataPoints lossFn model = do
   let inputs = toList (map inputTensor dataPoints)
-      targets = toList (map targetTensor dataPoints)
-      stackedIn = catAllTensors {ex} inputs
-      stackedTgt = catAllTensors {ex} targets
-      iI = cast {to=Int} i
-      oI = cast {to=Int} o
-      nI = cast {to=Int} n
-      stackedInReshaped = primReshape2d {ex} stackedIn nI iI
+      targets            = toList (map targetTensor dataPoints)
+      stackedIn          = catAllTensors {ex} inputs
+      stackedTgt         = catAllTensors {ex} targets
+      iI                 = cast {to=Int} i
+      oI                 = cast {to=Int} o
+      nI                 = cast {to=Int} n
+      stackedInReshaped  = primReshape2d {ex} stackedIn nI iI
       stackedTgtReshaped = primReshape2d {ex} stackedTgt nI oI
-      inV = the (Tensor [n, i] ex dt WithGrad) (MkTensor stackedInReshaped Nothing)
-      tgtV = the (Tensor [n, o] ex dt WithGrad) (MkTensor stackedTgtReshaped Nothing)
+      inV                = the (Tensor [n, i] ex dt WithGrad) (MkTensor stackedInReshaped Nothing)
+      tgtV               = the (Tensor [n, o] ex dt WithGrad) (MkTensor stackedTgtReshaped Nothing)
   (_, predB) <- forwardVarBatch model inV
   losses <- go predB tgtV 0 n
   totalLoss <- sumLosses losses
@@ -226,7 +226,7 @@ epochVarTensorBatch opt dataPoints lossFn model = do
   where
     go : Tensor [n, o] ex dt WithGrad -> Tensor [n, o] ex dt WithGrad -> Int -> Nat ->
          IO (List (Tensor [] ex dt WithGrad))
-    go _ _ _ Z = pure []
+    go _ _ _ Z               = pure []
     go predB tgtV k (S rest) = do
       l <- perRowLoss lossFn predB tgtV k
       ls <- go predB tgtV (k + 1) rest
@@ -273,7 +273,7 @@ perSeqLoss lossFn model dp = do
             -> (Network i hs o ex dt WithGrad, Tensor [] ex dt WithGrad)
             -> List (Vector i Double, Vector o Double)
             -> IO (Network i hs o ex dt WithGrad, Tensor [] ex dt WithGrad)
-    foldlIO _ acc [] = pure acc
+    foldlIO _ acc []          = pure acc
     foldlIO f acc (x :: rest) = do
       acc' <- f acc x
       foldlIO f acc' rest
@@ -341,7 +341,7 @@ perSeqLossTwoPhase lossFn model dp = do
             -> Network i hs o ex dt WithGrad
             -> List (Vector i Double)
             -> IO (Network i hs o ex dt WithGrad)
-    foldlIO _ acc [] = pure acc
+    foldlIO _ acc []          = pure acc
     foldlIO f acc (x :: rest) = do
       acc' <- f acc x
       foldlIO f acc' rest
@@ -352,7 +352,7 @@ perSeqLossTwoPhase lossFn model dp = do
              -> (Network i hs o ex dt WithGrad, Tensor [] ex dt WithGrad)
              -> List (Vector o Double)
              -> IO (Network i hs o ex dt WithGrad, Tensor [] ex dt WithGrad)
-    foldlIO2 _ acc [] = pure acc
+    foldlIO2 _ acc []          = pure acc
     foldlIO2 f acc (x :: rest) = do
       acc' <- f acc x
       foldlIO2 f acc' rest
@@ -381,7 +381,7 @@ tvecToVector : {0 ex : Executor} -> UserExecutorCore ex => {n : Nat} -> AnyPtr -
 tvecToVector {n} ptr = VArray (build 0 n)
   where
     build : Int -> (k : Nat) -> Vect k (Scalar Double)
-    build _ Z = []
+    build _ Z       = []
     build off (S k) = SArray (primItem1d {ex} ptr off) :: build (off + 1) k
 
 export
@@ -410,7 +410,7 @@ forwardTwoPhase model dp = do
             -> Network i hs o ex dt WithGrad
             -> List (Vector i Double)
             -> IO (Network i hs o ex dt WithGrad)
-    foldlIO _ acc [] = pure acc
+    foldlIO _ acc []          = pure acc
     foldlIO f acc (x :: rest) = do
       acc' <- f acc x
       foldlIO f acc' rest
@@ -421,7 +421,7 @@ forwardTwoPhase model dp = do
              -> (Network i hs o ex dt WithGrad, List (Vector o Double))
              -> List (Vector o Double)
              -> IO (Network i hs o ex dt WithGrad, List (Vector o Double))
-    foldlIO2 _ acc [] = pure acc
+    foldlIO2 _ acc []          = pure acc
     foldlIO2 f acc (x :: rest) = do
       acc' <- f acc x
       foldlIO2 f acc' rest

@@ -152,8 +152,8 @@ arangeSeqLen = build SeqLen
 
 -- Truncate / pad a List to exactly `n`.
 takePad : (n : Nat) -> a -> List a -> Vect n a
-takePad Z     _   _        = []
-takePad (S k) pad []       = pad :: takePad k pad []
+takePad Z     _   _         = []
+takePad (S k) pad []        = pad :: takePad k pad []
 takePad (S k) pad (x :: xs) = x :: takePad k pad xs
 
 -- Pick a uniformly random integer in [0, n).
@@ -168,7 +168,7 @@ randNat n = do
 -- [MASK] (id=103), 10% become a random token, 10% keep the original.
 -- The CLS / SEP tokens (id 101 / 102) are NEVER masked.
 applyHfMasking : List Nat -> IO (List Nat, List Nat, List Double)
-applyHfMasking [] = pure ([], [], [])
+applyHfMasking []           = pure ([], [], [])
 applyHfMasking (id :: rest) = do
   (restInput, restTarget, restMask) <- applyHfMasking rest
   let isSpecial = id == ClsId || id == SepId
@@ -240,7 +240,7 @@ mkMaskedTargetOneHot : Vect SeqLen Double -> Vect SeqLen Double
                     -> IO (Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad)
 mkMaskedTargetOneHot targetIds maskFlags = do
   let sI = cast {to=Int} SeqLen
-      vI = cast {to=Int} Vocab
+      vI     = cast {to=Int} Vocab
       idxBuf = packIdx (prim__allocInts sI) 0 (toList targetIds)
   -- Build the one-hot matrix flat, reshape to 2D.
   onePtr <- ioRerun (\_ =>
@@ -270,11 +270,11 @@ bertMlmLoss : Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad
            -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 bertMlmLoss logits maskedTarget numMasked = ioRerun (\_ =>
   let logProbs = primLogSoftmax2d {ex=ExampleExecutor} logits.tensorPtr
-      prod     = primMul {ex=ExampleExecutor} logProbs maskedTarget.tensorPtr
-      summed   = primSum {ex=ExampleExecutor} prod
-      neg      = primNeg {ex=ExampleExecutor} summed
-      denom    = if numMasked < 1.0 then 1.0 else numMasked
-      loss     = primMulScalar {ex=ExampleExecutor} neg (1.0 / denom)
+      prod   = primMul {ex=ExampleExecutor} logProbs maskedTarget.tensorPtr
+      summed = primSum {ex=ExampleExecutor} prod
+      neg    = primNeg {ex=ExampleExecutor} summed
+      denom  = if numMasked < 1.0 then 1.0 else numMasked
+      loss   = primMulScalar {ex=ExampleExecutor} neg (1.0 / denom)
   in MkTensor loss Nothing)
 
 ----------------------------------------------------------------------
@@ -352,10 +352,10 @@ main = do
 
       let trainLoop : Nat -> Nat -> Double -> Double -> IO Double
           trainLoop _    Z    accLoss lastLoss = pure lastLoss
-          trainLoop step (S k) accLoss _ = do
+          trainLoop step (S k) accLoss _       = do
             sample <- sampleMlmExample tokens nTokens cfg.maxStart
             loss <- trainStep opt model sample
-            let acc' = accLoss + loss
+            let acc'  = accLoss + loss
             let step' = step + 1
             when (modNatNZ step' 10 SIsNonZero == 0) $
               putStrLn $ "  step " ++ show step' ++ "/" ++ show cfg.steps

@@ -54,13 +54,13 @@ public export
         outT  = primMaxPool2dBatched {ex} inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                             (cast {to=Int} strH) (cast {to=Int} strW)
         outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-        out2d = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
+        out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
     in MkTensor out2d Nothing)
 
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
   Params (MaxPool2D c inH inW poolH poolW strH strW) where
-  params _ = []
+  params _             = []
   castGrad MkMaxPool2D = MkMaxPool2D
 
 ||| MaxPool2D with the given window + stride (no params, nothing to init).
@@ -91,17 +91,17 @@ public export
 {c, len, poolK, str : Nat} -> Module (MaxPool1D c len poolK str) where
   forward MkMaxPool1D input = ioRerun (\_ =>
     let bI    = cast {to=Int} b
-        cI    = cast {to=Int} c
-        lenI  = cast {to=Int} len
-        inp4d = primReshape4d {ex} input.tensorPtr bI cI 1 lenI
-        outT  = primMaxPool2dBatched {ex} inp4d 1 (cast {to=Int} poolK) 1 (cast {to=Int} str)
+        cI      = cast {to=Int} c
+        lenI    = cast {to=Int} len
+        inp4d   = primReshape4d {ex} input.tensorPtr bI cI 1 lenI
+        outT    = primMaxPool2dBatched {ex} inp4d 1 (cast {to=Int} poolK) 1 (cast {to=Int} str)
         outFlat = c * PoolOutDim len poolK str
-        out2d = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
+        out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
     in MkTensor out2d Nothing)
 
 public export
 {c, len, poolK, str : Nat} -> Params (MaxPool1D c len poolK str) where
-  params _ = []
+  params _             = []
   castGrad MkMaxPool1D = MkMaxPool1D
 
 ||| MaxPool1D with the given window + stride (no params, nothing to init).

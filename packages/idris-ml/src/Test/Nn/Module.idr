@@ -17,7 +17,7 @@ Module Id where
   forward MkId x = pure x
 
 Params Id where
-  params MkId = []
+  params MkId   = []
   castGrad MkId = MkId
 
 read6 : Tensor [2, 3] TestExecutor TestDType g -> List Double

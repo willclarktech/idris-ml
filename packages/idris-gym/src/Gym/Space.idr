@@ -29,9 +29,9 @@ data Space : Type where
 ||| overflows quickly so we leave it as Nothing.
 export
 spaceSize : Space -> Maybe Nat
-spaceSize (Discrete n)   = Just n
-spaceSize (Box _ _)      = Nothing
-spaceSize (MultiBin n)   = Just (power 2 n)
+spaceSize (Discrete n) = Just n
+spaceSize (Box _ _)    = Nothing
+spaceSize (MultiBin n) = Just (power 2 n)
   where
     power : Nat -> Nat -> Nat
     power _ Z     = 1
@@ -41,9 +41,9 @@ spaceSize (MultiDisc _)  = Nothing
 ||| Shape of a space as a list of dimensions (empty for scalars).
 export
 spaceShape : Space -> List Nat
-spaceShape (Discrete _)    = []
-spaceShape (Box {n} _ _)   = [n]
-spaceShape (MultiBin n)    = [n]
+spaceShape (Discrete _)      = []
+spaceShape (Box {n} _ _)     = [n]
+spaceShape (MultiBin n)      = [n]
 spaceShape (MultiDisc {k} _) = [k]
 
 ||| Does a Nat belong to a Discrete space?

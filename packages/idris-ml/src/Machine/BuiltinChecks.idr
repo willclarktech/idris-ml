@@ -24,7 +24,7 @@ MachineRuntimeCheck MacMSeries where
     metal <- probeMetalAvailable
     pure $ case (os, arch, metal) of
       (Darwin, Arm64, True) => HostMatches
-      _ => HostMismatch
+      _                     => HostMismatch
         "expected darwin-arm64 with Metal framework; host is \{show os}-\{show arch} (metal=\{show metal})"
 
 public export
@@ -34,7 +34,7 @@ MachineRuntimeCheck MacIntel where
     arch <- probeArch
     pure $ case (os, arch) of
       (Darwin, X86_64) => HostMatches
-      _ => HostMismatch
+      _                => HostMismatch
         "expected darwin-x86_64; host is \{show os}-\{show arch}"
 
 public export
@@ -45,7 +45,7 @@ public export
     cuda <- probeCudaAvailable
     pure $ case (os, arch, cuda) of
       (Linux, X86_64, True) => HostMatches
-      _ => HostMismatch
+      _                     => HostMismatch
         "expected linux-x86_64 with libcuda.so.1; host is \{show os}-\{show arch} (cuda=\{show cuda})"
 
 public export
@@ -54,7 +54,7 @@ MachineRuntimeCheck LinuxCpu where
     os <- probeOS
     pure $ case os of
       Linux => HostMatches
-      _ => HostMismatch "expected linux host; got \{show os}"
+      _     => HostMismatch "expected linux host; got \{show os}"
 
 public export
 {n : Nat} -> MachineRuntimeCheck (LinuxCuda n) where
@@ -63,5 +63,5 @@ public export
     cuda <- probeCudaAvailable
     pure $ case (os, cuda) of
       (Linux, True) => HostMatches
-      _ => HostMismatch
+      _             => HostMismatch
         "expected linux host with libcuda.so.1; host is \{show os} (cuda=\{show cuda})"

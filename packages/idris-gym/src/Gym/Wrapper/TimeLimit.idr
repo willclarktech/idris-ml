@@ -45,7 +45,7 @@ timeLimitedStep : {state, action, obs : Type} ->
                   (Double, TimeLimited state, Outcome, Info)
 timeLimitedStep (MkTimeLimited s e lim) act =
   let (r, s', out, info) = step {state} {action} {obs} s act
-      e' = S e
+      e'   = S e
       out' = case out of
                Continue => if lim > 0 && e' >= lim then Truncated else Continue
                o        => o

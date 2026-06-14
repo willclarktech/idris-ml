@@ -138,8 +138,8 @@ arangeSeqLen = build SeqLen
 
 -- Truncate a list to exactly `n`, padding with `pad` if short.
 takePad : (n : Nat) -> a -> List a -> Vect n a
-takePad Z     _   _        = []
-takePad (S k) pad []       = pad :: takePad k pad []
+takePad Z     _   _         = []
+takePad (S k) pad []        = pad :: takePad k pad []
 takePad (S k) pad (x :: xs) = x :: takePad k pad xs
 
 -- Sample one (input, target) pair. `corpus` is the full token list,
@@ -154,7 +154,7 @@ sampleWindow corpus corpusLen capMaxStart = do
                else minimum absMax capMaxStart
   startInt <- randomInt 0 (cast cap)
   let start  = the Nat (cast startInt)
-      window = take (S SeqLen) (drop start corpus)
+      window    = take (S SeqLen) (drop start corpus)
       inputTok  = take SeqLen window
       targetTok = take SeqLen (drop 1 window)
   let inputVect : Vect SeqLen Double
@@ -183,7 +183,7 @@ mkIdsTensor xs = ioRerun (\_ =>
 mkTargetOneHot : Vect SeqLen Double -> IO (Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad)
 mkTargetOneHot xs = do
   let sI = cast {to=Int} SeqLen
-      vI = cast {to=Int} Vocab
+      vI     = cast {to=Int} Vocab
       idxBuf = packIdx (prim__allocInts sI) 0 (toList xs)
   ioRerun (\_ =>
     let flat   = primOneHot {ex=ExampleExecutor} idxBuf sI vI (dtypeTag {t=ExampleDType})
@@ -203,10 +203,10 @@ gpt2LmLoss : Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad
           -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 gpt2LmLoss logits targets = ioRerun (\_ =>
   let logProbs = primLogSoftmax2d {ex=ExampleExecutor} logits.tensorPtr
-      prod     = primMul {ex=ExampleExecutor} logProbs targets.tensorPtr
-      summed   = primSum {ex=ExampleExecutor} prod
-      neg      = primNeg {ex=ExampleExecutor} summed
-      loss     = primMulScalar {ex=ExampleExecutor} neg (1.0 / cast {to=Double} SeqLen)
+      prod   = primMul {ex=ExampleExecutor} logProbs targets.tensorPtr
+      summed = primSum {ex=ExampleExecutor} prod
+      neg    = primNeg {ex=ExampleExecutor} summed
+      loss   = primMulScalar {ex=ExampleExecutor} neg (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
 
 ----------------------------------------------------------------------
@@ -280,10 +280,10 @@ main = do
 
       let trainLoop : Nat -> Nat -> Double -> Double -> IO Double
           trainLoop _    Z    accLoss lastLoss = pure lastLoss
-          trainLoop step (S k) accLoss _ = do
+          trainLoop step (S k) accLoss _       = do
             sample <- sampleWindow tokens nTokens cfg.maxStart
             loss <- trainStep opt model sample
-            let acc' = accLoss + loss
+            let acc'  = accLoss + loss
             let step' = step + 1
             when (modNatNZ step' 10 SIsNonZero == 0) $
               putStrLn $ "  step " ++ show step' ++ "/" ++ show cfg.steps

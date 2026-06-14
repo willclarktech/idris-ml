@@ -40,7 +40,7 @@ tokShow t = show t.val
 export
 codeSig : String -> Maybe (List String)
 codeSig src = case lex src of
-  Left _ => Nothing
+  Left _    => Nothing
   Right res => Just (map tokShow (snd res))
 
 ||| Does the string parse as a module with the compiler's own parser?
@@ -49,7 +49,7 @@ parses : String -> Bool
 parses src =
   let origin = Virtual Interactive in
   case runParser origin Nothing src (prog origin) of
-    Left _ => False
+    Left _  => False
     Right _ => True
 
 ||| Parse to the compiler's surface `Module`, or `Nothing` on a parse error.
@@ -58,7 +58,7 @@ parseModule : String -> Maybe Module
 parseModule src =
   let origin = Virtual Interactive in
   case runParser origin Nothing src (prog origin) of
-    Left _ => Nothing
+    Left _            => Nothing
     Right (_, _, mod) => Just mod
 
 ||| FC-insensitive structural signature of the top-level declarations: each
@@ -91,7 +91,7 @@ safeReformat original formatted =
   parses formatted &&
   (case (codeSig original, codeSig formatted) of
      (Just a, Just b) => a == b
-     _ => False)
+     _                => False)
 
 ||| Safety gate for the import-sort pass, which deliberately *reorders* (so
 ||| `codeSig` differs). Holds when the declarations are untouched and the
@@ -104,4 +104,4 @@ safeImportSort original formatted =
   astSig original == astSig formatted &&
   (case (importSig original, importSig formatted) of
      (Just a, Just b) => sort (nub a) == sort (nub b)
-     _ => False)
+     _                => False)

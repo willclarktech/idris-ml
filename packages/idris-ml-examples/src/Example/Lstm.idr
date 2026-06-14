@@ -54,7 +54,7 @@ scalar1 x = retypeGrad <$> tensor {dims = [1]} (FromVect [x])
 -- Sum a non-empty list of scalar losses (the empty arm is unreachable —
 -- every sequence and every epoch has at least one element).
 sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
-sumLosses [] = assert_total $ idris_crash "Lstm.sumLosses: empty"
+sumLosses []        = assert_total $ idris_crash "Lstm.sumLosses: empty"
 sumLosses (x :: xs) = go x xs
   where
     go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) ->
@@ -148,7 +148,7 @@ main = do
 
   let trainCfgBase = patienceConfig cfg.epochs cfg.patience
       trainCfg = case cfg.checkpointDir of
-                   "" => trainCfgBase
+                   ""  => trainCfgBase
                    dir => withCheckpoint
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase

@@ -43,10 +43,10 @@ isExternal imp = firstSeg imp `elem` externalRoots
 renderBlock : List Import -> List String
 renderBlock imps =
   let deduped = nubBy (\a, b => show a == show b) imps
-      byPath  = sortBy (\a, b => compare (pathString a) (pathString b))
-      ext     = byPath (filter isExternal deduped)
-      int     = byPath (filter (not . isExternal) deduped)
-      sep     = if not (null ext) && not (null int) then [""] else []
+      byPath = sortBy (\a, b => compare (pathString a) (pathString b))
+      ext    = byPath (filter isExternal deduped)
+      int    = byPath (filter (not . isExternal) deduped)
+      sep    = if not (null ext) && not (null int) then [""] else []
   in map show ext ++ sep ++ map show int
 
 isImportLine : String -> Bool
@@ -65,14 +65,14 @@ export
 sortImports : String -> Maybe String
 sortImports src =
   case parseModule src of
-    Nothing => Nothing
+    Nothing  => Nothing
     Just mod => case mod.imports of
-      [] => Nothing
+      []   => Nothing
       imps =>
         let ls   = lines src
             idxs = findIndices isImportLine ls
         in case idxs of
-             [] => Nothing
+             []        => Nothing
              (i0 :: _) =>
                let lastIdx = foldl (\_, x => x) i0 idxs
                    block   = take (S (lastIdx `minus` i0)) (drop i0 ls)

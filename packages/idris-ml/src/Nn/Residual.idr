@@ -29,7 +29,7 @@ Module Residual where
 
 public export
 Params Residual where
-  params (MkResidual sub) = params sub
+  params (MkResidual sub)   = params sub
   castGrad (MkResidual sub) = MkResidual (castGrad sub)
 
 ||| Wrap a sublayer in a residual connection.

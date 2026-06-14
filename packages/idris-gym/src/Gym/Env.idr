@@ -28,7 +28,7 @@ Eq Outcome where
   Continue   == Continue   = True
   Terminated == Terminated = True
   Truncated  == Truncated  = True
-  _ == _ = False
+  _ == _                   = False
 
 public export
 Show Outcome where

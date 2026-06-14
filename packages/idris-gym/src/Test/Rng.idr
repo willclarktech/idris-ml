@@ -14,7 +14,7 @@ mean : List Double -> Double
 mean xs = sum xs / cast (cast {to=Integer} (length xs))
 
 natBounds : Seed -> Nat -> (Nat, Nat) -> (Nat, Nat)
-natBounds _ Z acc = acc
+natBounds _ Z acc          = acc
 natBounds s (S k) (lo, hi) =
   let (n, s') = nextNat s 10
       lo' = if n < lo then n else lo
@@ -22,7 +22,7 @@ natBounds s (S k) (lo, hi) =
   in natBounds s' k (lo', hi')
 
 range : List Double -> (Double, Double)
-range [] = (0.0, 0.0)
+range []        = (0.0, 0.0)
 range (x :: xs) = go x x xs
   where
     go : Double -> Double -> List Double -> (Double, Double)

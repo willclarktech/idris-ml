@@ -90,7 +90,7 @@ genCopySeq seqLen = do
   pure (inputRows, dataRows)
 
 genBatch : (n, minLen, maxLen : Nat) -> IO (List Seq)
-genBatch Z _ _ = pure []
+genBatch Z _ _               = pure []
 genBatch (S k) minLen maxLen = do
   len <- randomInt minLen maxLen
   dp <- genCopySeq len
@@ -105,7 +105,7 @@ zeroIn : IO (Tensor [InputW] Ex F WithGrad)
 zeroIn = retypeGrad <$> tensor {dims = [InputW]} (Const 0.0)
 
 sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
-sumLosses [] = assert_total $ idris_crash "Profile.sumLosses: empty"
+sumLosses []        = assert_total $ idris_crash "Profile.sumLosses: empty"
 sumLosses (x :: xs) = go x xs
   where
     go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
@@ -113,14 +113,14 @@ sumLosses (x :: xs) = go x xs
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
 encodeAll : Model -> List (Vect InputW Double) -> IO Model
-encodeAll cell [] = pure cell
+encodeAll cell []            = pure cell
 encodeAll cell (row :: rest) = do
   x <- retypeGrad <$> tensor {dims = [InputW]} (FromVect row)
   (cell', _) <- recurStep cell x
   encodeAll cell' rest
 
 decodeLosses : Model -> List (Vect OutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
-decodeLosses _ [] = pure []
+decodeLosses _ []                = pure []
 decodeLosses cell (trow :: rest) = do
   z <- zeroIn
   (cell', out) <- recurStep cell z
@@ -160,7 +160,7 @@ profileLoop opt batch model cur count =
       profileLoop opt batch model' (cur + 1) count
 
 warmup : Optimizer Ex -> Model -> Nat -> IO Model
-warmup _ m 0 = pure m
+warmup _ m 0       = pure m
 warmup opt m (S k) = do
   batch <- genBatch BatchSize 1 20
   (m', loss) <- recurEpoch opt m batch

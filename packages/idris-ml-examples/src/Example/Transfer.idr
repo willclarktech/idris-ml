@@ -99,8 +99,8 @@ expected = (1.0, 2.0, 3.0, 4.0)
 reportStep : String -> (Double, Double, Double, Double) -> IO Bool
 reportStep label (a, b, c, d) = do
   let (ea, eb, ec, ed) = Transfer.expected
-  let delta = abs (a - ea) + abs (b - eb) + abs (c - ec) + abs (d - ed)
-  let ok = delta < 1.0e-6
+  let delta            = abs (a - ea) + abs (b - eb) + abs (c - ec) + abs (d - ed)
+  let ok               = delta < 1.0e-6
   putStrLn $ "  " ++ pad 22 label ++ "[" ++ show a ++ ", " ++ show b ++
              ", " ++ show c ++ ", " ++ show d ++ "]" ++
              (if ok then " ✓" else " ✗ MISMATCH (delta=" ++ show delta ++ ")")

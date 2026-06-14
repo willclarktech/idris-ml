@@ -17,7 +17,7 @@ import Test.Harness
 -- primItem {ex=TestExecutor} read; after that the binding is dead and the wrap
 -- is GC-eligible. Forced major GC will queue dead wraps with the guardian.
 allocAndDropSum : Nat -> Double -> IO Double
-allocAndDropSum Z acc = pure acc
+allocAndDropSum Z acc     = pure acc
 allocAndDropSum (S k) acc = do
   let h = primCreateScalar {ex=TestExecutor} (cast k) 0
   let v = primItem {ex=TestExecutor} h

@@ -90,10 +90,10 @@ trainsIdentically = do
   rb2 <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "ref.b2" (Const 0.0)
   optR <- sgd {ex=TestExecutor} 0.05 defaultOpts
   lossRef <- loopN 8 (\_ => stepRef optR rw1 rb1 rw2 rb2)
-  let maxDiff = foldl max 0.0 (zipWith (\a, b => abs (a - b)) lossSeq lossRef)
+  let maxDiff   = foldl max 0.0 (zipWith (\a, b => abs (a - b)) lossSeq lossRef)
   let decreased = case (lossSeq, reverse lossSeq) of
                     (f :: _, l :: _) => l < f
-                    _ => False
+                    _                => False
   check ("Seq MLP loss == op-chain reference bitwise + decreases (maxDiff="
          ++ show maxDiff ++ ", losses=" ++ show lossSeq ++ ")")
         (maxDiff < 1.0e-9 && decreased)

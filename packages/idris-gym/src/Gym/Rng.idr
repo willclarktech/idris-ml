@@ -52,11 +52,11 @@ nextDouble s =
 ||| Integer in [0, n). n == 0 returns 0 (caller's responsibility).
 export
 nextNat : Seed -> Nat -> (Nat, Seed)
-nextNat s Z     = (Z, s)
+nextNat s Z       = (Z, s)
 nextNat s n@(S _) =
   let (r, s') = splitMix64 s
-      rInt    = cast {to=Integer} r
-      result  = rInt `mod` cast n
+      rInt   = cast {to=Integer} r
+      result = rInt `mod` cast n
   in (cast {to=Nat} result, s')
 
 ||| Standard normal sample N(0,1) via Box-Muller.
@@ -64,9 +64,9 @@ export
 nextNormal : Seed -> (Double, Seed)
 nextNormal s =
   let (u1raw, s1) = nextDouble s
-      (u2, s2)    = nextDouble s1
-      u1          = if u1raw < 1.0e-10 then 1.0e-10 else u1raw
-      z           = prim__doubleSqrt (-2.0 * prim__doubleLog u1)
+      (u2, s2) = nextDouble s1
+      u1       = if u1raw < 1.0e-10 then 1.0e-10 else u1raw
+      z        = prim__doubleSqrt (-2.0 * prim__doubleLog u1)
                   * prim__doubleCos (2.0 * 3.141592653589793 * u2)
   in (z, s2)
 

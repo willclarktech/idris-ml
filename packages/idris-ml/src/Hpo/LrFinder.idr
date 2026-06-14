@@ -91,19 +91,19 @@ sweepLr lrMin lrMax n i =
 -- Adjacent slopes: (lr_i, smoothed_i, smoothed_{i+1} - smoothed_i)
 -- Drop the last point (no successor).
 slopes : List (Double, Double) -> List (Double, Double)
-slopes [] = []
-slopes [_] = []
+slopes []                               = []
+slopes [_]                              = []
 slopes ((lr0, l0) :: (lr1, l1) :: rest) =
   (lr0, l1 - l0) :: slopes ((lr1, l1) :: rest)
 
 -- Pick the LR with the most-negative slope. Falls back to the smallest
 -- LR if all slopes are non-negative (loss never decreased — unusual).
 steepestDescent : List (Double, Double) -> Double
-steepestDescent [] = 0.0
+steepestDescent []                = 0.0
 steepestDescent ((lr, s) :: rest) = go lr s rest
   where
     go : Double -> Double -> List (Double, Double) -> Double
-    go bestLr _ [] = bestLr
+    go bestLr _ []                          = bestLr
     go bestLr bestSlope ((lr', s') :: more) =
       if s' < bestSlope then go lr' s' more else go bestLr bestSlope more
 
@@ -145,8 +145,8 @@ export
 isFallbackCurve : List (Double, Double) -> Bool
 isFallbackCurve curve =
   case slopes curve of
-    []  => True
-    ss  => all (\(_, s) => s >= 0.0) ss
+    [] => True
+    ss => all (\(_, s) => s >= 0.0) ss
 
 ----------------------------------------------------------------------
 -- Main loop
@@ -202,12 +202,12 @@ lrFind {model} cfg epochFn dataSrc opt model0 = do
         (m', loss) <- epochFn m d
         let beta = cfg.smoothBeta
             -- bias-corrected EMA: avoids the initial-bias toward zero
-            avg = beta * prevSmoothed + (1.0 - beta) * loss
-            iD = cast {to=Double} (cast {to=Integer} i)
+            avg       = beta * prevSmoothed + (1.0 - beta) * loss
+            iD        = cast {to=Double} (cast {to=Integer} i)
             corrected = avg / (1.0 - Prelude.pow beta (iD + 1.0))
-            minS' = if corrected < minSmoothed then corrected else minSmoothed
-            point = (lr, corrected)
-            accRev' = point :: accRev
+            minS'     = if corrected < minSmoothed then corrected else minSmoothed
+            point     = (lr, corrected)
+            accRev'   = point :: accRev
         putStrLn $ "  iter\t" ++ show i ++ "\tlr\t" ++ show lr
                  ++ "\tloss\t" ++ show loss
                  ++ "\tsmoothed\t" ++ show corrected

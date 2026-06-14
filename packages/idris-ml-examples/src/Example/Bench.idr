@@ -27,7 +27,7 @@ elapsedMs t0 t1 =
   in s * 1000.0 + ns / 1000000.0
 
 repeatEpoch : Nat -> (m -> IO (m, Double)) -> m -> Double -> IO (m, Double)
-repeatEpoch Z _ m loss = pure (m, loss)
+repeatEpoch Z _ m loss     = pure (m, loss)
 repeatEpoch (S k) step m _ = do
   (m', loss') <- step m
   repeatEpoch k step m' loss'
@@ -54,7 +54,7 @@ TwoPhaseSeq : (i, o : Nat) -> Type
 TwoPhaseSeq i o = (List (Vect i Double), List (Vect o Double))
 
 sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
-sumLosses [] = assert_total $ idris_crash "Bench.sumLosses: empty"
+sumLosses []        = assert_total $ idris_crash "Bench.sumLosses: empty"
 sumLosses (x :: xs) = go x xs
   where
     go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
@@ -63,7 +63,7 @@ sumLosses (x :: xs) = go x xs
 
 encodeAll : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
             List (Vect i Double) -> IO (Ntm n m h i o Ex F WithGrad)
-encodeAll cell [] = pure cell
+encodeAll cell []            = pure cell
 encodeAll cell (row :: rest) = do
   x <- retypeGrad <$> tensor {dims = [i]} (FromVect row)
   (cell', _) <- recurStep cell x
@@ -71,7 +71,7 @@ encodeAll cell (row :: rest) = do
 
 decodeLosses : {n, m, h, i, o : Nat} -> Ntm n m h i o Ex F WithGrad ->
                List (Vect o Double) -> IO (List (Tensor [] Ex F WithGrad))
-decodeLosses _ [] = pure []
+decodeLosses _ []                = pure []
 decodeLosses cell (trow :: rest) = do
   z <- retypeGrad <$> tensor {dims = [i]} (Const 0.0)
   (cell', out) <- recurStep cell z
@@ -101,7 +101,7 @@ ntmEpoch opt batch model = do
 -- row, target rows = the data rows. Generic over i = o + 1 isn't enforced;
 -- we just emit `i`-wide input rows and `o`-wide target rows.
 genCopyBatch : {i, o : Nat} -> (count, minLen, maxLen : Nat) -> IO (List (TwoPhaseSeq i o))
-genCopyBatch Z _ _ = pure []
+genCopyBatch Z _ _               = pure []
 genCopyBatch (S k) minLen maxLen = do
   len <- randomInt minLen maxLen
   ins  <- sequence (List.replicate (S len) (randomBitVec i))
@@ -296,7 +296,7 @@ main = do
     ["ntm-copy"]    => benchNtmCopy
     ["ntm-copy-1k"] => benchNtmCopy1k
     ["ntm-recall"]  => benchNtmRecall
-    other => do
+    other           => do
       putStrLn $ "unknown bench selector: " ++ show other
       putStrLn "valid: supervised | rnn | ntm | ntm-copy | ntm-copy-1k | ntm-recall"
       exitWith (ExitFailure 2)

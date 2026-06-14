@@ -58,7 +58,7 @@ defaultConfig : Config
 defaultConfig = MkConfig defaultIters defaultWarmup
 
 parseArgs : Config -> List String -> Config
-parseArgs cfg [] = cfg
+parseArgs cfg []                       = cfg
 parseArgs cfg ("--iters" :: x :: rest) =
   parseArgs ({iters := the Nat (cast (the Int (cast x)))} cfg) rest
 parseArgs cfg ("--warmup" :: x :: rest) =
@@ -71,15 +71,15 @@ parseArgs cfg (_ :: rest) = parseArgs cfg rest
 buildTensor3d : (d0, d1, d2 : Nat) -> AnyPtr
 buildTensor3d d0 d1 d2 =
   let d0I = the Int (cast d0)
-      d1I = the Int (cast d1)
-      d2I = the Int (cast d2)
+      d1I    = the Int (cast d1)
+      d2I    = the Int (cast d2)
       numEls = d0I * d1I * d2I
-      buf = prim__allocDoubles numEls
-      buf' = prim__setDouble buf 0 0.5
-      sh = prim__allocInts 3
-      sh' = prim__setInt sh 0 d0I
-      sh'' = prim__setInt sh' 1 d1I
-      sh''' = prim__setInt sh'' 2 d2I
+      buf    = prim__allocDoubles numEls
+      buf'   = prim__setDouble buf 0 0.5
+      sh     = prim__allocInts 3
+      sh'    = prim__setInt sh 0 d0I
+      sh''   = prim__setInt sh' 1 d1I
+      sh'''  = prim__setInt sh'' 2 d2I
   in dtCreate {ex=ExampleExecutor} {t=ExampleDType} buf' sh''' 3 0
        (deviceStreamTag {ex=ExampleExecutor})
 
@@ -98,7 +98,7 @@ forceEval h = do
 -- binding would get discarded). Shape stays `[seq, numHeads, halfDim]`
 -- across iterations because broadcast preserves outer dims.
 loopMul : Nat -> AnyPtr -> AnyPtr -> IO AnyPtr
-loopMul Z accum _ = pure accum
+loopMul Z accum _       = pure accum
 loopMul (S k) accum cos = loopMul k (primMul {ex=ExampleExecutor} accum cos) cos
 
 -- Microseconds between two monotonic clock readings.
@@ -111,9 +111,9 @@ diffUs t1 t0 =
 fmt2 : Double -> String
 fmt2 x =
   let scaled = the Integer (cast (x * 100.0))
-      whole  = scaled `div` 100
-      frac   = abs (scaled `mod` 100)
-      fracS  = if frac < 10 then "0" ++ show frac else show frac
+      whole = scaled `div` 100
+      frac  = abs (scaled `mod` 100)
+      fracS = if frac < 10 then "0" ++ show frac else show frac
   in show whole ++ "." ++ fracS
 
 main : IO ()
@@ -127,7 +127,7 @@ main = do
            ++ "] cos=[" ++ show seqLen ++ ",1," ++ show halfDim ++ "]"
   putStrLn $ "warmup=" ++ show cfg.warmup ++ " measure=" ++ show cfg.iters
 
-  let x = buildTensor3d seqLen numHeads halfDim
+  let x    = buildTensor3d seqLen numHeads halfDim
   let cosT = buildTensor3d seqLen 1 halfDim
 
   -- Warmup. Sync at the end to flush any one-time backend init

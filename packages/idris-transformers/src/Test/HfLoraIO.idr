@@ -126,14 +126,14 @@ testPeftKeyShape = do
 testNameRemap : IO Bool
 testNameRemap = do
   let idrisName = "bert.encoder.layer.0.attention.self.query.lora_A"
-      peftName  = "base_model.model.bert.encoder.layer.0.attention.self.query.lora_A.default.weight"
-      wrapped = idrisToPeftName idrisName
-      unwrapped = peftToIdrisName peftName
+      peftName   = "base_model.model.bert.encoder.layer.0.attention.self.query.lora_A.default.weight"
+      wrapped    = idrisToPeftName idrisName
+      unwrapped  = peftToIdrisName peftName
       rtFromPeft = peftToIdrisName wrapped
-      okWrap   = wrapped == peftName
-      okUnwrap = unwrapped == Just idrisName
-      okRt     = rtFromPeft == Just idrisName
-      okMiss   = peftToIdrisName "some.unrelated.name" == Nothing
+      okWrap     = wrapped == peftName
+      okUnwrap   = unwrapped == Just idrisName
+      okRt       = rtFromPeft == Just idrisName
+      okMiss     = peftToIdrisName "some.unrelated.name" == Nothing
   if okWrap && okUnwrap && okRt && okMiss
     then check "idrisToPeftName / peftToIdrisName round-trip + reject non-peft" True
     else do

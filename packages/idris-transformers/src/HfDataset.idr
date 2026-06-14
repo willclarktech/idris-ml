@@ -41,7 +41,7 @@ record TokenizedExample where
 parseIdList : String -> Maybe (List Nat)
 parseIdList s =
   case trim s of
-    "" => Just []
+    ""   => Just []
     body =>
       let parts = forget (split (== ',') body)
           parsed : List (Maybe Nat) = map parseNat parts
@@ -92,8 +92,8 @@ loadHfDataset path = do
 -- same alignment (1.0 for real positions, 0.0 for padding).
 takePadEnd : (seqLen : Nat) -> (padId : Nat) -> List Nat
           -> (Vect seqLen Nat, Vect seqLen Double)
-takePadEnd Z      _    _        = ([], [])
-takePadEnd (S k)  pid  []       =
+takePadEnd Z      _    _  = ([], [])
+takePadEnd (S k)  pid  [] =
   let (rest, restMask) = takePadEnd k pid []
   in (pid :: rest, 0.0 :: restMask)
 takePadEnd (S k)  pid  (x :: xs) =

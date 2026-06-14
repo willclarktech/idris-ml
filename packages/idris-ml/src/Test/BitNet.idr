@@ -184,7 +184,7 @@ bitnetMlpBlockOracle = do
   y1 <- readElemN y 1
   y2 <- readElemN y 2
   y3 <- readElemN y 3
-  let tol = 1.0e-6
+  let tol              = 1.0e-6
   let [e0, e1, e2, e3] = FIXTURE_EXPECTED_Y
   ok0 <- checkClose "block y[0] matches PyTorch oracle" e0 y0 tol
   ok1 <- checkClose "block y[1] matches PyTorch oracle" e1 y1 tol

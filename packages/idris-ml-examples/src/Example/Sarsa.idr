@@ -55,7 +55,7 @@ qSet i j v (VArray rows) =
 
 toStateFin : Nat -> Fin NumStates
 toStateFin n = case natToFin n NumStates of
-  Just f => f
+  Just f  => f
   Nothing => FZ
 
 ----------------------------------------------------------------------
@@ -68,7 +68,7 @@ epsGreedy eps qr u1 u2 =
     then let idx : Nat
              idx = integerToNat (cast (u2 * cast NumActions))
          in case natToFin idx NumActions of
-              Just f => f
+              Just f  => f
               Nothing => FZ
     else argmax qr
 
@@ -85,9 +85,9 @@ epsGreedy eps qr u1 u2 =
 sarsaLoop : Double -> Double -> Double ->
             CWState -> Fin NumActions -> QTable ->
             Nat -> List Double -> (QTable, Double)
-sarsaLoop _ _ _ _ _ q Z _ = (q, 0.0)
-sarsaLoop _ _ _ _ _ q _ [] = (q, 0.0)
-sarsaLoop _ _ _ _ _ q _ [_] = (q, 0.0)
+sarsaLoop _ _ _ _ _ q Z _                                        = (q, 0.0)
+sarsaLoop _ _ _ _ _ q _ []                                       = (q, 0.0)
+sarsaLoop _ _ _ _ _ q _ [_]                                      = (q, 0.0)
 sarsaLoop alpha gamma eps st aFin q (S steps) (u1 :: u2 :: rest) =
   let sIdx = toStateFin (cwObserve st)
       aNat = finToNat aFin
@@ -99,10 +99,10 @@ sarsaLoop alpha gamma eps st aFin q (S steps) (u1 :: u2 :: rest) =
                        q'   = qSet sIdx aFin newQ q
                    in (q', reward)
               else let sNextIdx = toStateFin (cwObserve st')
-                       aNextFin = epsGreedy eps (qRowAt sNextIdx q) u1 u2
-                       target   = reward + gamma * qGet sNextIdx aNextFin q
-                       newQ     = oldQ + alpha * (target - oldQ)
-                       q'       = qSet sIdx aFin newQ q
+                       aNextFin  = epsGreedy eps (qRowAt sNextIdx q) u1 u2
+                       target    = reward + gamma * qGet sNextIdx aNextFin q
+                       newQ      = oldQ + alpha * (target - oldQ)
+                       q'        = qSet sIdx aFin newQ q
                        (qF, fut) = sarsaLoop alpha gamma eps st' aNextFin q' steps rest
                    in (qF, reward + fut)
 
@@ -110,8 +110,8 @@ sarsaLoop alpha gamma eps st aFin q (S steps) (u1 :: u2 :: rest) =
 -- hands off to sarsaLoop.
 runEpisode : Double -> Double -> Double ->
              CWState -> QTable -> Nat -> List Double -> (QTable, Double)
-runEpisode _ _ _ _ q _ [] = (q, 0.0)
-runEpisode _ _ _ _ q _ [_] = (q, 0.0)
+runEpisode _ _ _ _ q _ []                                = (q, 0.0)
+runEpisode _ _ _ _ q _ [_]                               = (q, 0.0)
 runEpisode alpha gamma eps st q steps (u1 :: u2 :: rest) =
   let sIdx = toStateFin (cwObserve st)
       a0   = epsGreedy eps (qRowAt sIdx q) u1 u2
@@ -146,7 +146,7 @@ epochSarsa cfg q noise =
   in (q', negate ret)
 
 genNoise : Nat -> IO (List Double)
-genNoise Z = pure []
+genNoise Z     = pure []
 genNoise (S k) = do
   u <- randomRIO (the Double 0.0, 1.0)
   rest <- genNoise k
@@ -157,7 +157,7 @@ genNoise (S k) = do
 ----------------------------------------------------------------------
 
 evalEpisode : QTable -> CWState -> Nat -> Double -> Double
-evalEpisode _ _ Z acc = acc
+evalEpisode _ _ Z acc      = acc
 evalEpisode q st (S k) acc =
   let sIdx = toStateFin (cwObserve st)
       aNat = finToNat (argmax (qRowAt sIdx q))
@@ -167,7 +167,7 @@ evalEpisode q st (S k) acc =
          else evalEpisode q st' k (acc + reward)
 
 evalN : QTable -> Nat -> Double -> Double
-evalN _ Z acc = acc
+evalN _ Z acc     = acc
 evalN q (S k) acc =
   evalN q k (acc + evalEpisode q (MkCW 3 0) MaxSteps 0.0)
 
@@ -204,7 +204,7 @@ main = do
   putStrLn ""
   let nEval = the Nat 100
       totalReturn = evalN trained nEval 0.0
-      avgReturn = totalReturn / cast (natToInteger nEval)
+      avgReturn   = totalReturn / cast (natToInteger nEval)
   putStrLn $ "Eval (100 episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""
   putStrLn $ formatResult [("avg_return", show avgReturn),

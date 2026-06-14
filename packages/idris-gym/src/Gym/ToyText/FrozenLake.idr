@@ -79,7 +79,7 @@ clampCol c =
 moveDet : Nat -> Nat -> (Nat, Nat)
 moveDet pos action =
   let r = cast {to=Integer} (decodeR pos)
-      c = cast {to=Integer} (decodeC pos)
+      c        = cast {to=Integer} (decodeC pos)
       (r', c') = case action of
                    0 => (r,     c - 1)  -- left
                    1 => (r + 1, c    )  -- down
@@ -121,8 +121,8 @@ flStep s action =
                         then slipAction s.flSeed action
                         else (action, s.flSeed)
       (rn, cn) = moveDet s.flPos act
-      pos' = encodeRC rn cn
-      s' = { flPos := pos', flSeed := seed' } s
+      pos'     = encodeRC rn cn
+      s'       = { flPos := pos', flSeed := seed' } s
   in case tileAt s.flMap pos' of
        Goal => (1.0, s', Terminated, [])
        Hole => (0.0, s', Terminated, [])
@@ -135,9 +135,9 @@ flObserve s = s.flPos
 
 public export
 Env FLState Nat Nat where
-  reset = initFL True
-  step = flStep
-  observe = flObserve
-  actionSpace = Discrete 4
-  obsSpace = Discrete 16
+  reset            = initFL True
+  step             = flStep
+  observe          = flObserve
+  actionSpace      = Discrete 4
+  obsSpace         = Discrete 16
   defaultTimeLimit = Nothing

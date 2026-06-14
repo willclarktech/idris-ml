@@ -52,15 +52,15 @@ export
 cwStep : CWState -> Nat -> (Double, CWState, Outcome, Info)
 cwStep s action =
   let rI = cast {to=Integer} s.cwRow
-      cI = cast {to=Integer} s.cwCol
+      cI         = cast {to=Integer} s.cwCol
       (rI', cI') = case action of
                      0 => (rI - 1, cI)       -- up
                      1 => (rI,     cI + 1)   -- right
                      2 => (rI + 1, cI)       -- down
                      _ => (rI,     cI - 1)   -- left (default)
-      rn = clampRow rI'
-      cn = clampCol cI'
-      tentative = MkCW rn cn
+      rn                    = clampRow rI'
+      cn                    = clampCol cI'
+      tentative             = MkCW rn cn
       (s', reward, outcome) =
         if onCliff rn cn
           then (startState, -100.0, Continue)
@@ -76,9 +76,9 @@ cwObserve = encode
 
 public export
 Env CWState Nat Nat where
-  reset = \s => (startState, s)
-  step = cwStep
-  observe = cwObserve
-  actionSpace = Discrete 4
-  obsSpace = Discrete 48   -- 4 * 12
+  reset            = \s => (startState, s)
+  step             = cwStep
+  observe          = cwObserve
+  actionSpace      = Discrete 4
+  obsSpace         = Discrete 48   -- 4 * 12
   defaultTimeLimit = Nothing

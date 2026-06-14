@@ -70,8 +70,8 @@ mkVecNoGrad = mkVecNoGradDt {dt=TestDType}
 buildFixtureBytes : IO (AnyPtr, Int)
 buildFixtureBytes = do
   let buf  = prim__allocBytes 3
-      buf' = prim__setByte buf 0 0x71
-      buf'' = prim__setByte buf' 1 0x17
+      buf'   = prim__setByte buf 0 0x71
+      buf''  = prim__setByte buf' 1 0x17
       buf''' = prim__setByte buf'' 2 0x4C
   pure (buf''', 3)
 

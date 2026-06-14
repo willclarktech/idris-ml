@@ -24,7 +24,7 @@ record Embedding (vocab : Nat) (embedDim : Nat) (0 ex : Executor) (0 dt : DType)
 
 public export
 Params Embedding where
-  params (MkEmbedding w) = [toParam w]
+  params (MkEmbedding w)   = [toParam w]
   castGrad (MkEmbedding w) = MkEmbedding (retypeGrad w)
 
 ||| Lookup forward: `tokens : [seqLen]` (ids as doubles) → flattened

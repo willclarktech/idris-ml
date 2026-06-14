@@ -40,7 +40,7 @@ applyResidual (MkResidual inner) input = do
 public export
 LayerLike ResidualState where
   applyVar st@(MkResidual _) input = applyResidual st input
-  layerPrefix _ = "res"
+  layerPrefix _                    = "res"
 
   resetState (MkResidual (MkAnyLayer l @{dict} inner)) =
     MkResidual (MkAnyLayer l @{dict} (resetState @{dict} inner))

@@ -35,7 +35,7 @@ cpStep s action =
       tAcc = (Gravity * sinT - cosT * temp) /
              (HalfPoleLen * (4.0 / 3.0 - MassPole * cosT * cosT / TotalMass))
       xAcc = temp - PoleMassLen * tAcc * cosT / TotalMass
-      s' = MkCP (s.cpX + Tau * s.cpXDot) (s.cpXDot + Tau * xAcc)
+      s'   = MkCP (s.cpX + Tau * s.cpXDot) (s.cpXDot + Tau * xAcc)
                 (s.cpTheta + Tau * s.cpThetaDot) (s.cpThetaDot + Tau * tAcc)
       outcome = if abs s'.cpX > XThresh || abs s'.cpTheta > ThetaThresh
                 then Terminated
@@ -73,9 +73,9 @@ cpReset s0 =
 
 public export
 Env CPState Nat (Vect 4 Double) where
-  reset = cpReset
-  step = cpStep
-  observe = cpObserve
-  actionSpace = Discrete 2
-  obsSpace = Box cpObsLow cpObsHigh
+  reset            = cpReset
+  step             = cpStep
+  observe          = cpObserve
+  actionSpace      = Discrete 2
+  obsSpace         = Box cpObsLow cpObsHigh
   defaultTimeLimit = Just cartPoleMaxSteps

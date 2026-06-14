@@ -47,15 +47,15 @@ elapsedMs t0 t1 =
 fmt3 : Double -> String
 fmt3 x =
   let scaled = the Integer (cast (x * 1000.0))
-      whole  = scaled `div` 1000
-      frac   = abs (scaled `mod` 1000)
-      fracS  = if frac < 10 then "00" ++ show frac
+      whole = scaled `div` 1000
+      frac  = abs (scaled `mod` 1000)
+      fracS = if frac < 10 then "00" ++ show frac
                 else if frac < 100 then "0" ++ show frac
                 else show frac
   in show whole ++ "." ++ fracS
 
 repeatEpoch : Nat -> (m -> IO (m, Double)) -> m -> Double -> IO (m, Double)
-repeatEpoch Z _ m loss = pure (m, loss)
+repeatEpoch Z _ m loss     = pure (m, loss)
 repeatEpoch (S k) step m _ = do
   (m', loss') <- step m
   repeatEpoch k step m' loss'
@@ -225,7 +225,7 @@ NtmWarmup : Nat
 NtmWarmup = 5
 
 sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
-sumLosses [] = assert_total $ idris_crash "LayersBench.sumLosses: empty"
+sumLosses []        = assert_total $ idris_crash "LayersBench.sumLosses: empty"
 sumLosses (x :: xs) = go x xs
   where
     go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
@@ -246,14 +246,14 @@ ntmTwoPhaseStep opt encIns targs model = do
     encodeAll : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
                 List (Vect NtmInputW Double) ->
                 IO (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad)
-    encodeAll cell [] = pure cell
+    encodeAll cell []            = pure cell
     encodeAll cell (row :: rest) = do
       x <- retypeGrad <$> tensor {dims=[NtmInputW]} (FromVect row)
       (cell', _) <- recurStep cell x
       encodeAll cell' rest
     decodeLosses : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
                    List (Vect NtmOutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
-    decodeLosses _ [] = pure []
+    decodeLosses _ []                = pure []
     decodeLosses cell (trow :: rest) = do
       z <- retypeGrad <$> tensor {dims=[NtmInputW]} (Const 0.0)
       (cell', out) <- recurStep cell z

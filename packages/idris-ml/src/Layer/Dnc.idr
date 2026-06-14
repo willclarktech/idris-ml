@@ -30,7 +30,7 @@ DncOutputInput h r m = h + r * m
 
 -- Concat read-output tensors followed by the input tensor.
 catReadOutsAndInput : {0 ex : Executor} -> UserExecutorTraining ex => {k : Nat} -> Vect k AnyPtr -> AnyPtr -> AnyPtr
-catReadOutsAndInput [] inp = inp
+catReadOutsAndInput [] inp           = inp
 catReadOutsAndInput (ro :: rest) inp =
   primCat2 {ex} ro (catReadOutsAndInput {ex} rest inp)
 
@@ -38,18 +38,18 @@ catReadOutsAndInput (ro :: rest) inp =
 %default partial
 
 catReadOuts : {0 ex : Executor} -> UserExecutorTraining ex => {k : Nat} -> Vect k AnyPtr -> AnyPtr
-catReadOuts [] = idris_crash "Dnc: catReadOuts r=0"
+catReadOuts []       = idris_crash "Dnc: catReadOuts r=0"
 catReadOuts (h :: t) = catRest h t
   where
     catRest : AnyPtr -> {k' : Nat} -> Vect k' AnyPtr -> AnyPtr
-    catRest acc [] = acc
+    catRest acc []           = acc
     catRest acc (h' :: rest) = catRest (primCat2 {ex} acc h') rest
 
 -- Compute prod_j (1 - free_gate_j * prev_read_w_j) over r heads.
 -- `onesScalar` is the precomputed scalar 1.0 (passed in to avoid
 -- one dtCreateScalar {t=dt} call per (deviceStreamTag {ex}) recursion).
 dncRetention : {0 ex : Executor} -> UserExecutorTraining ex => {k : Nat} -> AnyPtr -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
-dncRetention _ _ _ [] acc = acc
+dncRetention _ _ _ [] acc                              = acc
 dncRetention onesScalar idx freeGatesT (rw :: rws) acc =
   let fg = primSelect {ex} freeGatesT 0 idx
       factor = primSub {ex} onesScalar (primMul {ex} fg rw)
@@ -65,8 +65,8 @@ buildNonDiagMask : {0 ex : Executor} -> Backend ex dt => (n : Nat) -> AnyPtr
 buildNonDiagMask n =
   let nI = cast {to=Int} n
       numElems = nI * nI
-      buf = prim__allocDoubles numElems
-      buf' = fillOffDiag buf 0 nI numElems
+      buf      = prim__allocDoubles numElems
+      buf'     = fillOffDiag buf 0 nI numElems
   in dtCreateState2d {ex} {t=dt} nI nI buf' (deviceStreamTag {ex})
   where
     fillOffDiag : AnyPtr -> Int -> Int -> Int -> AnyPtr
@@ -74,7 +74,7 @@ buildNonDiagMask n =
       let row = i `div` nn
           col = i `mod` nn
           val = if row == col then 0.0 else 1.0
-          b' = prim__setDouble b i val
+          b'  = prim__setDouble b i val
       in fillOffDiag b' (i + 1) nn numE
 
 -- Zero the diagonal of a [n,n] matrix using a precomputed mask.
@@ -92,29 +92,29 @@ dncReadHeads : {0 ex : Executor} -> UserExecutorTraining ex => {k : Nat} -> Int 
                   AnyPtr -> AnyPtr -> AnyPtr ->
                   Int ->
                   (Vect k AnyPtr, Vect k AnyPtr)
-dncReadHeads _ [] _ _ _ _ _ _ _ = ([], [])
+dncReadHeads _ [] _ _ _ _ _ _ _                                                   = ([], [])
 dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT mI =
   let headKeyT      = primNarrow {ex} keysT 0 (idx * mI) mI
-      headBetaPtr   = primSelect {ex} betasT 0 idx
-      headBetaT     = primSoftplus {ex} headBetaPtr
-      headModesRawT = primNarrow {ex} modesT 0 (idx * 3) 3
-      headModesT    = primSoftmax {ex} headModesRawT 0
-      cosScoresT    = primCosineSimilarity {ex} memT (primUnsqueeze {ex} headKeyT 0) 1
-      scaledScoresT = primMul {ex} headBetaT cosScoresT
-      contentRwT    = primSoftmax {ex} scaledScoresT 0
-      forwardT      = primMatmul {ex} linkT prevRw
-      backwardT     = primMatmul {ex} linkTransT prevRw
-      pi0           = primSelect {ex} headModesT 0 0
-      pi1           = primSelect {ex} headModesT 0 1
-      pi2           = primSelect {ex} headModesT 0 2
-      scaledBack    = primMul {ex} pi0 backwardT
-      scaledContent = primMul {ex} pi1 contentRwT
-      scaledForward = primMul {ex} pi2 forwardT
-      rwSumT        = primAdd {ex} (primAdd {ex} scaledBack scaledContent) scaledForward
-      rwClampedT    = primClampMin {ex} rwSumT 1.0e-10
-      rwNormSumT    = primAddScalar {ex} (primSum {ex} rwClampedT) 1.0e-10
-      rwT           = primDiv {ex} rwClampedT rwNormSumT
-      roT           = primMatmul {ex} rwT memT
+      headBetaPtr          = primSelect {ex} betasT 0 idx
+      headBetaT            = primSoftplus {ex} headBetaPtr
+      headModesRawT        = primNarrow {ex} modesT 0 (idx * 3) 3
+      headModesT           = primSoftmax {ex} headModesRawT 0
+      cosScoresT           = primCosineSimilarity {ex} memT (primUnsqueeze {ex} headKeyT 0) 1
+      scaledScoresT        = primMul {ex} headBetaT cosScoresT
+      contentRwT           = primSoftmax {ex} scaledScoresT 0
+      forwardT             = primMatmul {ex} linkT prevRw
+      backwardT            = primMatmul {ex} linkTransT prevRw
+      pi0                  = primSelect {ex} headModesT 0 0
+      pi1                  = primSelect {ex} headModesT 0 1
+      pi2                  = primSelect {ex} headModesT 0 2
+      scaledBack           = primMul {ex} pi0 backwardT
+      scaledContent        = primMul {ex} pi1 contentRwT
+      scaledForward        = primMul {ex} pi2 forwardT
+      rwSumT               = primAdd {ex} (primAdd {ex} scaledBack scaledContent) scaledForward
+      rwClampedT           = primClampMin {ex} rwSumT 1.0e-10
+      rwNormSumT           = primAddScalar {ex} (primSum {ex} rwClampedT) 1.0e-10
+      rwT                  = primDiv {ex} rwClampedT rwNormSumT
+      roT                  = primMatmul {ex} rwT memT
       (restRws', restRos') =
         dncReadHeads {ex} (idx + 1) restRws linkT linkTransT memT keysT betasT modesT mI
   in (rwT :: restRws', roT :: restRos')
@@ -184,14 +184,14 @@ constState1d n v =
 zeroState2d : {0 ex : Executor} -> Backend ex dt => (a, b : Nat) -> AnyPtr
 zeroState2d a b =
   let aI = cast {to=Int} a
-      bI = cast {to=Int} b
+      bI  = cast {to=Int} b
       buf = prim__allocDoubles (aI * bI)
   in dtCreateState2d {ex} {t=dt} aI bI buf (deviceStreamTag {ex})
 
 constState2d : {0 ex : Executor} -> Backend ex dt => (a, b : Nat) -> Double -> AnyPtr
 constState2d a b v =
   let aI = cast {to=Int} a
-      bI = cast {to=Int} b
+      bI  = cast {to=Int} b
       buf = fillBuf (prim__allocDoubles (aI * bI)) 0 (aI * bI) v
   in dtCreateState2d {ex} {t=dt} aI bI buf (deviceStreamTag {ex})
   where
@@ -201,11 +201,11 @@ constState2d a b v =
 
 -- Vect r of zero-state [n] handles (for read weights and read outputs).
 mkZeroVectN : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
-mkZeroVectN Z _ = []
+mkZeroVectN Z _     = []
 mkZeroVectN (S k) n = zeroState1d {ex} {dt} n :: mkZeroVectN {ex} {dt} k n
 
 mkZeroVectM : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
-mkZeroVectM Z _ = []
+mkZeroVectM Z _     = []
 mkZeroVectM (S k) m = zeroState1d {ex} {dt} m :: mkZeroVectM {ex} {dt} k m
 
 ----------------------------------------------------------------------
@@ -226,20 +226,20 @@ applyDnc {r} {n} {m}
       -- Initial memory at sequence start: sigmoid(memInit).reshape(n, m).
       -- Mirrors `torch_ref/dnc/layer.py:111`. Gradient flows back to memInitT.
       initMemPtr = primReshape2d {ex} (primSigmoid {ex} memInitT.tensorPtr) nI mI
-      memTPtr = case memT of
-                  Just t => t.tensorPtr
+      memTPtr    = case memT of
+                  Just t  => t.tensorPtr
                   Nothing => initMemPtr
       usageTPtr = case usageT of
-                    Just t => t.tensorPtr
+                    Just t  => t.tensorPtr
                     Nothing => zeroState1d {ex} {dt} n
       wwTPtr = case wwT of
-                 Just t => t.tensorPtr
+                 Just t  => t.tensorPtr
                  Nothing => zeroState1d {ex} {dt} n
       precTPtr = case precT of
-                   Just t => t.tensorPtr
+                   Just t  => t.tensorPtr
                    Nothing => zeroState1d {ex} {dt} n
       linkTPtr = case linkT of
-                   Just t => t.tensorPtr
+                   Just t  => t.tensorPtr
                    Nothing => zeroState2d {ex} {dt} n n
       rwTsPtrs = the (Vect r AnyPtr) $ case rwTs of
                    Just ts => ts
@@ -251,25 +251,25 @@ applyDnc {r} {n} {m}
                    Nothing => initReadOutsT
       -- 1. cat(readOuts, input) -> [r*m + i]
       lstmInputPtr = catReadOutsAndInput {ex} roTsPtrs input.tensorPtr
-      lstmInputV = the (TVec (DncControllerInput r m i) ex dt g) (MkTensor lstmInputPtr Nothing)
+      lstmInputV   = the (TVec (DncControllerInput r m i) ex dt g) (MkTensor lstmInputPtr Nothing)
   -- 2. LSTM forward (IO)
   (updLstm, hiddenV) <- applyLstm lstm lstmInputV
   -- 3. Cell-state for FCs
   let cellPtr = case updLstm.cellT of
-                  Just c => c.tensorPtr
+                  Just c  => c.tensorPtr
                   Nothing => idris_crash "Dnc: cell tensor missing post-LSTM"
       -- Sub-layer weight handles
-      wkW = wkFc.weightT.tensorPtr; wkB = wkFc.biasT.tensorPtr
-      wbW = wbFc.weightT.tensorPtr; wbB = wbFc.biasT.tensorPtr
-      eW  = eFc.weightT.tensorPtr;  eB  = eFc.biasT.tensorPtr
-      aW  = aFc.weightT.tensorPtr;  aB  = aFc.biasT.tensorPtr
-      fgW = fgFc.weightT.tensorPtr; fgB = fgFc.biasT.tensorPtr
-      agW = agFc.weightT.tensorPtr; agB = agFc.biasT.tensorPtr
-      wgW = wgFc.weightT.tensorPtr; wgB = wgFc.biasT.tensorPtr
-      rkW = rkFc.weightT.tensorPtr; rkB = rkFc.biasT.tensorPtr
-      rbW = rbFc.weightT.tensorPtr; rbB = rbFc.biasT.tensorPtr
-      rmW = rmFc.weightT.tensorPtr; rmB = rmFc.biasT.tensorPtr
-      oW  = oFc.weightT.tensorPtr;  oB  = oFc.biasT.tensorPtr
+      wkW        = wkFc.weightT.tensorPtr; wkB = wkFc.biasT.tensorPtr
+      wbW        = wbFc.weightT.tensorPtr; wbB = wbFc.biasT.tensorPtr
+      eW         = eFc.weightT.tensorPtr;  eB  = eFc.biasT.tensorPtr
+      aW         = aFc.weightT.tensorPtr;  aB  = aFc.biasT.tensorPtr
+      fgW        = fgFc.weightT.tensorPtr; fgB = fgFc.biasT.tensorPtr
+      agW        = agFc.weightT.tensorPtr; agB = agFc.biasT.tensorPtr
+      wgW        = wgFc.weightT.tensorPtr; wgB = wgFc.biasT.tensorPtr
+      rkW        = rkFc.weightT.tensorPtr; rkB = rkFc.biasT.tensorPtr
+      rbW        = rbFc.weightT.tensorPtr; rbB = rbFc.biasT.tensorPtr
+      rmW        = rmFc.weightT.tensorPtr; rmB = rmFc.biasT.tensorPtr
+      oW         = oFc.weightT.tensorPtr;  oB  = oFc.biasT.tensorPtr
       onesScalar = dtCreateScalar {ex} {t=dt} 1.0 0 (deviceStreamTag {ex})
       -- 4. 11 FCs (mv+add fused into primLinear {ex} — collapses two
       --    FFI hops into one per FC, ~10x FFI overhead reduction here)
@@ -284,61 +284,61 @@ applyDnc {r} {n} {m}
       readBetasRawT  = primLinear {ex} rbW cellPtr rbB
       readModesFlatT = primLinear {ex} rmW cellPtr rmB
       -- 5. Activations
-      writeBetaT  = primSoftplus {ex} writeBetaRawT
-      eraseVecT   = primSigmoid {ex} eraseRawT
-      freeGatesT  = primSigmoid {ex} freeGatesRawT
-      allocGateT  = primSigmoid {ex} allocGateRawT
-      writeGateT  = primSigmoid {ex} writeGateRawT
+      writeBetaT = primSoftplus {ex} writeBetaRawT
+      eraseVecT  = primSigmoid {ex} eraseRawT
+      freeGatesT = primSigmoid {ex} freeGatesRawT
+      allocGateT = primSigmoid {ex} allocGateRawT
+      writeGateT = primSigmoid {ex} writeGateRawT
       -- 6. Usage update
       writeUsageT = primSub {ex} (primAdd {ex} usageTPtr wwTPtr) (primMul {ex} usageTPtr wwTPtr)
       retentionT  = dncRetention {ex} onesScalar 0 freeGatesT rwTsPtrs onesScalar
       retClampedT = primClampMin {ex} retentionT 1.0e-10
       newUsageT   = primMul {ex} writeUsageT retClampedT
       -- 7. Allocation
-      indicesT      = primArgsort {ex} newUsageT 0 0
-      sortedUsageT  = primClampMin {ex} (primGather {ex} newUsageT indicesT nI) 1.0e-6
-      cumprodT      = primCumprod {ex} sortedUsageT 0
-      slicedT       = primNarrow {ex} cumprodT 0 0 (nI - 1)
-      shiftedT      = primCat2 {ex} (primUnsqueeze {ex} onesScalar 0) slicedT
+      indicesT       = primArgsort {ex} newUsageT 0 0
+      sortedUsageT   = primClampMin {ex} (primGather {ex} newUsageT indicesT nI) 1.0e-6
+      cumprodT       = primCumprod {ex} sortedUsageT 0
+      slicedT        = primNarrow {ex} cumprodT 0 0 (nI - 1)
+      shiftedT       = primCat2 {ex} (primUnsqueeze {ex} onesScalar 0) slicedT
       oneMinusUsageT = primSub {ex} onesScalar sortedUsageT
-      sortedAllocT  = primMul {ex} oneMinusUsageT shiftedT
-      allocT        = primScatterAdd {ex} indicesT sortedAllocT nI
+      sortedAllocT   = primMul {ex} oneMinusUsageT shiftedT
+      allocT         = primScatterAdd {ex} indicesT sortedAllocT nI
       -- 8. Write content addressing
-      cosScoresT    = primCosineSimilarity {ex} memTPtr (primUnsqueeze {ex} writeKeyT 0) 1
-      scaledScoresT = primMul {ex} writeBetaT cosScoresT
+      cosScoresT     = primCosineSimilarity {ex} memTPtr (primUnsqueeze {ex} writeKeyT 0) 1
+      scaledScoresT  = primMul {ex} writeBetaT cosScoresT
       contentWriteWT = primSoftmax {ex} scaledScoresT 0
       -- 9. Write weighting
-      oneMinusAGT   = primSub {ex} onesScalar allocGateT
-      blendT        = primAdd {ex} (primMul {ex} allocGateT allocT)
+      oneMinusAGT = primSub {ex} onesScalar allocGateT
+      blendT      = primAdd {ex} (primMul {ex} allocGateT allocT)
                                  (primMul {ex} oneMinusAGT contentWriteWT)
       newWriteWT    = primMul {ex} writeGateT blendT
       -- 10. Memory write
-      eraseGateT    = primOuter {ex} newWriteWT eraseVecT
-      keepGateT     = primSub {ex} onesScalar eraseGateT
-      erasedT       = primMul {ex} memTPtr keepGateT
-      addGateT      = primOuter {ex} newWriteWT addVecT
-      newMemT       = primAdd {ex} erasedT addGateT
+      eraseGateT = primOuter {ex} newWriteWT eraseVecT
+      keepGateT  = primSub {ex} onesScalar eraseGateT
+      erasedT    = primMul {ex} memTPtr keepGateT
+      addGateT   = primOuter {ex} newWriteWT addVecT
+      newMemT    = primAdd {ex} erasedT addGateT
       -- 11. Link matrix update
-      wiT           = primUnsqueeze {ex} newWriteWT 1
-      wjT           = primUnsqueeze {ex} newWriteWT 0
-      pjT           = primUnsqueeze {ex} precTPtr 0
-      decayT        = primSub {ex} (primSub {ex} onesScalar wiT) wjT
-      decayClampT   = primClampMin {ex} decayT 0.0
-      newLinkRawT   = primAdd {ex} (primMul {ex} decayClampT linkTPtr) (primMul {ex} wiT pjT)
-      newLinkT      = primClampMin {ex} (dncZeroDiag {ex} nonDiagMaskT newLinkRawT) 0.0
+      wiT         = primUnsqueeze {ex} newWriteWT 1
+      wjT         = primUnsqueeze {ex} newWriteWT 0
+      pjT         = primUnsqueeze {ex} precTPtr 0
+      decayT      = primSub {ex} (primSub {ex} onesScalar wiT) wjT
+      decayClampT = primClampMin {ex} decayT 0.0
+      newLinkRawT = primAdd {ex} (primMul {ex} decayClampT linkTPtr) (primMul {ex} wiT pjT)
+      newLinkT    = primClampMin {ex} (dncZeroDiag {ex} nonDiagMaskT newLinkRawT) 0.0
       -- 12. Precedence update
       wSumT         = primSum {ex} newWriteWT
       oneMinusWSumT = primSub {ex} onesScalar wSumT
       newPrecT      = primAdd {ex} (primMul {ex} oneMinusWSumT precTPtr) newWriteWT
       -- 13. Read heads. Compute the link transpose ONCE outside the
       -- per-head recursion (was being computed R times — head-invariant).
-      newLinkTransT = primTranspose2d {ex} newLinkT
+      newLinkTransT      = primTranspose2d {ex} newLinkT
       (newRwTs, newRoTs) = dncReadHeads {ex} 0 rwTsPtrs newLinkT newLinkTransT newMemT
                               readKeysFlatT readBetasRawT readModesFlatT mI
       -- 14. Output FC
-      allNewReadsT  = catReadOuts {ex} newRoTs
-      outputInputT  = primCat2 {ex} hiddenV.tensorPtr allNewReadsT
-      outputT       = primLinear {ex} oW outputInputT oB
+      allNewReadsT = catReadOuts {ex} newRoTs
+      outputInputT = primCat2 {ex} hiddenV.tensorPtr allNewReadsT
+      outputT      = primLinear {ex} oW outputInputT oB
   pure ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
           memInitT initReadOutsT nonDiagMaskT
           (Just (MkTensor newMemT Nothing))
@@ -358,13 +358,13 @@ applyDnc {r} {n} {m}
 -- PyTorch default kaiming_uniform on (1, m) per head: bound = 1/sqrt(m).
 -- Sampled once at construction; non-learnable.
 mkKaimingReadOuts : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
-mkKaimingReadOuts Z _ _ = pure []
+mkKaimingReadOuts Z _ _         = pure []
 mkKaimingReadOuts (S k) m bound = do
   vals <- traverse (\_ => randomRIO (-bound, bound)) (Vect.replicate m ())
   let mI = cast {to=Int} m
-      buf = prim__allocDoubles mI
+      buf  = prim__allocDoubles mI
       buf' = packDoubles buf 0 vals
-      ptr = dtCreateState1d {ex} {t=dt} mI buf' (deviceStreamTag {ex})
+      ptr  = dtCreateState1d {ex} {t=dt} mI buf' (deviceStreamTag {ex})
   rest <- mkKaimingReadOuts {ex} {dt} k m bound
   pure (ptr :: rest)
 
@@ -469,11 +469,11 @@ public export
     rmFc'  <- freezeLayer rmFc
     oFc'   <- freezeLayer oFc
     memInit' <- weakenGrad memInit
-    mem'  <- case mem  of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
+    mem'  <- case mem  of Nothing   => pure Nothing; Just t => Just <$> weakenGrad t
     usage' <- case usage of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
-    ww'   <- case ww   of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
-    prec' <- case prec of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
-    link' <- case link of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
+    ww'   <- case ww   of Nothing   => pure Nothing; Just t => Just <$> weakenGrad t
+    prec' <- case prec of Nothing   => pure Nothing; Just t => Just <$> weakenGrad t
+    link' <- case link of Nothing   => pure Nothing; Just t => Just <$> weakenGrad t
     pure (MkDnc lstm' wkFc' wbFc' eFc' aFc' fgFc' agFc' wgFc'
                 rkFc' rbFc' rmFc' oFc'
                 memInit' iro nonDiag mem' usage' ww' prec' link' rwTs roTs)

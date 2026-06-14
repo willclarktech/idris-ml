@@ -100,28 +100,28 @@ public export
 UserExecutorCore TapeExecutor where
   deviceName       = "tape"
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primAbs = prim__absTape
-  primAdd = prim__addTape
-  primAddScalar = prim__addScalarTape
-  primClamp = prim__clampTape
-  primClampMin = prim__clampMinTape
-  primClone = prim__cloneTape
+  primAbs          = prim__absTape
+  primAdd          = prim__addTape
+  primAddScalar    = prim__addScalarTape
+  primClamp        = prim__clampTape
+  primClampMin     = prim__clampMinTape
+  primClone        = prim__cloneTape
   primCreateScalar = prim__createScalarTape
-  primDiv = prim__divTape
-  primExp = prim__expTape
-  primFree = prim__freeTape
-  primItem = prim__itemTape
-  primItem1d = prim__item1dTape
-  primLog = prim__logTape
-  primMul = prim__mulTape
-  primMulScalar = prim__mulScalarTape
-  primNeg = prim__negTape
-  primPow = prim__powTape
-  primRound = prim__roundTape
-  primSigmoid = prim__sigmoidTape
-  primSqrt = prim__sqrtTape
-  primSub = prim__subTape
-  primTanh = prim__tanhTape
+  primDiv          = prim__divTape
+  primExp          = prim__expTape
+  primFree         = prim__freeTape
+  primItem         = prim__itemTape
+  primItem1d       = prim__item1dTape
+  primLog          = prim__logTape
+  primMul          = prim__mulTape
+  primMulScalar    = prim__mulScalarTape
+  primNeg          = prim__negTape
+  primPow          = prim__powTape
+  primRound        = prim__roundTape
+  primSigmoid      = prim__sigmoidTape
+  primSqrt         = prim__sqrtTape
+  primSub          = prim__subTape
+  primTanh         = prim__tanhTape
   -- <<< END GENERATED <<<
 
 public export
@@ -243,41 +243,41 @@ prim__cumprodTape : AnyPtr -> Int -> AnyPtr
 public export
 UserExecutorLinear TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primArgsort = prim__argsortTape
-  primBmm = prim__bmmTape
-  primCat = prim__catTape
-  primCat2 = prim__cat2Tape
-  primConcat2dAxis1 = prim__concat2dAxis1Tape
-  primCumprod = prim__cumprodTape
-  primDot = prim__dotTape
-  primGather = prim__gatherTape
-  primGatherRows = prim__gatherRowsTape
-  primLinear = prim__linearTape
-  primLinear2d = prim__linear2dTape
-  primMatmul = prim__matmulTape
-  primMaxRows = prim__maxRowsTape
-  primMean = prim__meanTape
-  primMm = prim__mmTape
-  primMv = prim__mvTape
-  primNarrow = prim__narrowTape
-  primOuter = prim__outerTape
-  primReshape1d = prim__reshape1dTape
-  primReshape2d = prim__reshape2dTape
-  primReshape3d = prim__reshape3dTape
-  primReshape4d = prim__reshape4dTape
-  primScatterAdd = prim__scatterAddTape
-  primSelect = prim__selectTape
-  primSqueeze = prim__squeezeTape
-  primStack = prim__stackTape
-  primSum = prim__sumTape
-  primSumDim = prim__sumDimTape
-  primTensorMax = prim__tensorMaxTape
-  primTensorMin = prim__tensorMinTape
-  primTranspose2d = prim__transpose2dTape
+  primArgsort        = prim__argsortTape
+  primBmm            = prim__bmmTape
+  primCat            = prim__catTape
+  primCat2           = prim__cat2Tape
+  primConcat2dAxis1  = prim__concat2dAxis1Tape
+  primCumprod        = prim__cumprodTape
+  primDot            = prim__dotTape
+  primGather         = prim__gatherTape
+  primGatherRows     = prim__gatherRowsTape
+  primLinear         = prim__linearTape
+  primLinear2d       = prim__linear2dTape
+  primMatmul         = prim__matmulTape
+  primMaxRows        = prim__maxRowsTape
+  primMean           = prim__meanTape
+  primMm             = prim__mmTape
+  primMv             = prim__mvTape
+  primNarrow         = prim__narrowTape
+  primOuter          = prim__outerTape
+  primReshape1d      = prim__reshape1dTape
+  primReshape2d      = prim__reshape2dTape
+  primReshape3d      = prim__reshape3dTape
+  primReshape4d      = prim__reshape4dTape
+  primScatterAdd     = prim__scatterAddTape
+  primSelect         = prim__selectTape
+  primSqueeze        = prim__squeezeTape
+  primStack          = prim__stackTape
+  primSum            = prim__sumTape
+  primSumDim         = prim__sumDimTape
+  primTensorMax      = prim__tensorMaxTape
+  primTensorMin      = prim__tensorMinTape
+  primTranspose2d    = prim__transpose2dTape
   primTransposeLast2 = prim__transposeLast2Tape
-  primUnsqueeze = prim__unsqueezeTape
-  primView1d = prim__view1dTape
-  primView2d = prim__view2dTape
+  primUnsqueeze      = prim__unsqueezeTape
+  primView1d         = prim__view1dTape
+  primView2d         = prim__view2dTape
   -- <<< END GENERATED <<<
 
 ----------------------------------------------------------------------
@@ -344,28 +344,28 @@ prim__swiGlu2dTape : AnyPtr -> AnyPtr -> AnyPtr
 public export
 UserExecutorNN TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primBatchNorm = prim__batchNormTape
-  primBceWithLogits = prim__bceWithLogitsTape
+  primBatchNorm        = prim__batchNormTape
+  primBceWithLogits    = prim__bceWithLogitsTape
   primCosineSimilarity = prim__cosineSimilarityTape
-  primDropout = prim__dropoutTape
-  primEmbedding = prim__embeddingTape
-  primEmbedding2d = prim__embedding2dTape
-  primExpandMask = prim__expandMaskTape
-  primGelu = prim__geluTape
-  primGruCell = prim__gruCellTape
-  primLayerNorm2d = prim__layerNorm2dTape
-  primLeakyRelu = prim__leakyReluTape
-  primLogSoftmax = prim__logSoftmaxTape
-  primLogSoftmax2d = prim__logSoftmax2dTape
-  primLstmGatesPair = prim__lstmGatesPairTape
-  primMaskedFill = prim__maskedFillTape
-  primPairFirst = prim__pairFirstTape
-  primPairSecond = prim__pairSecondTape
-  primSilu = prim__siluTape
-  primSoftmax = prim__softmaxTape
-  primSoftmax2d = prim__softmax2dTape
-  primSoftmax3d = prim__softmax3dTape
-  primSoftplus = prim__softplusTape
+  primDropout          = prim__dropoutTape
+  primEmbedding        = prim__embeddingTape
+  primEmbedding2d      = prim__embedding2dTape
+  primExpandMask       = prim__expandMaskTape
+  primGelu             = prim__geluTape
+  primGruCell          = prim__gruCellTape
+  primLayerNorm2d      = prim__layerNorm2dTape
+  primLeakyRelu        = prim__leakyReluTape
+  primLogSoftmax       = prim__logSoftmaxTape
+  primLogSoftmax2d     = prim__logSoftmax2dTape
+  primLstmGatesPair    = prim__lstmGatesPairTape
+  primMaskedFill       = prim__maskedFillTape
+  primPairFirst        = prim__pairFirstTape
+  primPairSecond       = prim__pairSecondTape
+  primSilu             = prim__siluTape
+  primSoftmax          = prim__softmaxTape
+  primSoftmax2d        = prim__softmax2dTape
+  primSoftmax3d        = prim__softmax3dTape
+  primSoftplus         = prim__softplusTape
   -- <<< END GENERATED <<<
 
 ----------------------------------------------------------------------
@@ -394,14 +394,14 @@ prim__maxPool2dBatchedTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 public export
 UserExecutorConv TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primAvgPool1d = prim__avgPool1dTape
-  primAvgPool2d = prim__avgPool2dTape
-  primConv1d = prim__conv1dTape
-  primConv1dCircular = prim__conv1dCircularTape
-  primConv2d = prim__conv2dTape
-  primConv2dBatched = prim__conv2dBatchedTape
-  primMaxPool1d = prim__maxPool1dTape
-  primMaxPool2d = prim__maxPool2dTape
+  primAvgPool1d        = prim__avgPool1dTape
+  primAvgPool2d        = prim__avgPool2dTape
+  primConv1d           = prim__conv1dTape
+  primConv1dCircular   = prim__conv1dCircularTape
+  primConv2d           = prim__conv2dTape
+  primConv2dBatched    = prim__conv2dBatchedTape
+  primMaxPool1d        = prim__maxPool1dTape
+  primMaxPool2d        = prim__maxPool2dTape
   primMaxPool2dBatched = prim__maxPool2dBatchedTape
   -- <<< END GENERATED <<<
 
@@ -552,118 +552,118 @@ prim__setInitSeedStreamedTape : Bits64 -> Int -> PrimIO ()
 public export
 UserExecutorOptimizations TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedTape
+  primCreateParam1dConstStreamed  = prim__createParam1dConstStreamedTape
   primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedTape
-  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedTape
+  primCreateParam2dConstStreamed  = prim__createParam2dConstStreamedTape
   primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedTape
-  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedTape
+  primCreateParam3dConstStreamed  = prim__createParam3dConstStreamedTape
   primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedTape
-  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedTape
+  primCreateParam4dConstStreamed  = prim__createParam4dConstStreamedTape
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTape
-  primCrossAttention = prim__crossAttentionTape
-  primPolyakBlend = prim__polyakBlendTape
-  primRmsNorm2d = prim__rmsNorm2dTape
-  primSdpa2d = prim__sdpa2dTape
-  primSwiGlu2d = prim__swiGlu2dTape
-  primTile2d = prim__tile2dTape
+  primCrossAttention              = prim__crossAttentionTape
+  primPolyakBlend                 = prim__polyakBlendTape
+  primRmsNorm2d                   = prim__rmsNorm2dTape
+  primSdpa2d                      = prim__sdpa2dTape
+  primSwiGlu2d                    = prim__swiGlu2dTape
+  primTile2d                      = prim__tile2dTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorAutograd TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primBackward = prim__backwardTape
-  primDetach = prim__detachTape
-  primNoGradBegin = prim__noGradBeginTape
-  primNoGradEnd = prim__noGradEndTape
-  primRequiresGrad = prim__requiresGradTape
+  primBackward        = prim__backwardTape
+  primDetach          = prim__detachTape
+  primNoGradBegin     = prim__noGradBeginTape
+  primNoGradEnd       = prim__noGradEndTape
+  primRequiresGrad    = prim__requiresGradTape
   primSetRequiresGrad = prim__setRequiresGradTape
-  primWithGrad = prim__withGradTape
+  primWithGrad        = prim__withGradTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorParamRegistry TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primParamCount = prim__paramCountTape
-  primParamEraseByPrefix = prim__paramEraseByPrefixTape
-  primParamGradItemAt = prim__paramGradItemAtTape
-  primParamIsBuffer = prim__paramIsBufferTape
-  primParamName = prim__paramNameTape
-  primParamRegister = prim__paramRegisterTape
+  primParamCount          = prim__paramCountTape
+  primParamEraseByPrefix  = prim__paramEraseByPrefixTape
+  primParamGradItemAt     = prim__paramGradItemAtTape
+  primParamIsBuffer       = prim__paramIsBufferTape
+  primParamName           = prim__paramNameTape
+  primParamRegister       = prim__paramRegisterTape
   primParamRegisterBuffer = prim__paramRegisterBufferTape
-  primParamZeroAll = prim__paramZeroAllTape
+  primParamZeroAll        = prim__paramZeroAllTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorOptimizer TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primNativeTrainStep = prim__nativeTrainStepTape
-  primNativeTrainStepScaled = prim__nativeTrainStepScaledTape
-  primOptimizerCreateAdam = prim__optimizerCreateAdamTape
+  primNativeTrainStep          = prim__nativeTrainStepTape
+  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTape
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamTape
   primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTape
-  primOptimizerCreateAdamW = prim__optimizerCreateAdamWTape
-  primOptimizerCreateRmsprop = prim__optimizerCreateRmspropTape
-  primOptimizerCreateSgd = prim__optimizerCreateSgdTape
-  primOptimizerSetLr = prim__optimizerSetLrTape
-  primOptimizerSetParamLr = prim__optimizerSetParamLrTape
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTape
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTape
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdTape
+  primOptimizerSetLr           = prim__optimizerSetLrTape
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorSerialize TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primOptimizerLoad = prim__optimizerLoadTape
-  primOptimizerSave = prim__optimizerSaveTape
-  primParamLoad = prim__paramLoadTape
-  primParamLoadWithPolicy = prim__paramLoadWithPolicyTape
-  primParamLoadWithPrefix = prim__paramLoadWithPrefixTape
-  primParamSave = prim__paramSaveTape
-  primParamSaveByName = prim__paramSaveByNameTape
+  primOptimizerLoad          = prim__optimizerLoadTape
+  primOptimizerSave          = prim__optimizerSaveTape
+  primParamLoad              = prim__paramLoadTape
+  primParamLoadWithPolicy    = prim__paramLoadWithPolicyTape
+  primParamLoadWithPrefix    = prim__paramLoadWithPrefixTape
+  primParamSave              = prim__paramSaveTape
+  primParamSaveByName        = prim__paramSaveByNameTape
   primParamSaveByNameRenamed = prim__paramSaveByNameRenamedTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorMemoryHygiene TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primEpochBegin = prim__epochBeginTape
-  primEpochEnd = prim__epochEndTape
+  primEpochBegin           = prim__epochBeginTape
+  primEpochEnd             = prim__epochEndTape
   primReleaseAllPersistent = prim__releaseAllPersistentTape
-  primResetForEval = prim__resetForEvalTape
+  primResetForEval         = prim__resetForEvalTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorDiagnostics TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primLiveCount = prim__liveCountTape
+  primLiveCount     = prim__liveCountTape
   primPeakLiveCount = prim__peakLiveCountTape
-  primPerfOpCount = prim__perfOpCountTape
+  primPerfOpCount   = prim__perfOpCountTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorProfiling TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primPerfReset = prim__perfResetTape
+  primPerfReset     = prim__perfResetTape
   primProfileReport = prim__profileReportTape
-  primProfileReset = prim__profileResetTape
+  primProfileReset  = prim__profileResetTape
   -- <<< END GENERATED <<<
 
 public export
 UserExecutorTensorCreate TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primCastStreamed = prim__castStreamedTape
-  primCreate1dStreamed = prim__create1dStreamedTape
-  primCreate2dStreamed = prim__create2dStreamedTape
+  primCastStreamed          = prim__castStreamedTape
+  primCreate1dStreamed      = prim__create1dStreamedTape
+  primCreate2dStreamed      = prim__create2dStreamedTape
   primCreateParam1dStreamed = prim__createParam1dStreamedTape
   primCreateParam2dStreamed = prim__createParam2dStreamedTape
   primCreateParam3dStreamed = prim__createParam3dStreamedTape
   primCreateParam4dStreamed = prim__createParam4dStreamedTape
-  primCreateScalarStreamed = prim__createScalarStreamedTape
+  primCreateScalarStreamed  = prim__createScalarStreamedTape
   primCreateState1dStreamed = prim__createState1dStreamedTape
   primCreateState2dStreamed = prim__createState2dStreamedTape
-  primCreateStreamed = prim__createStreamedTape
-  primItem2d = prim__item2dTape
-  primOneHot = prim__oneHotTape
-  primSetInitSeedStreamed = prim__setInitSeedStreamedTape
-  primTensorDim = prim__tensorDimTape
-  primTensorSizeAt = prim__tensorSizeAtTape
+  primCreateStreamed        = prim__createStreamedTape
+  primItem2d                = prim__item2dTape
+  primOneHot                = prim__oneHotTape
+  primSetInitSeedStreamed   = prim__setInitSeedStreamedTape
+  primTensorDim             = prim__tensorDimTape
+  primTensorSizeAt          = prim__tensorSizeAtTape
   -- <<< END GENERATED <<<
 
 public export
@@ -716,13 +716,13 @@ public export
 UserExecutorTransfer TapeExecutor where
   backendTag         = "tape"
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primAllocHost = prim__allocHostTape
+  primAllocHost    = prim__allocHostTape
   primAllocIntHost = prim__allocIntHostTape
-  primFreeHost = prim__freeHostTape
-  primFreeIntHost = prim__freeIntHostTape
+  primFreeHost     = prim__freeHostTape
+  primFreeIntHost  = prim__freeIntHostTape
   primIntraMigrate = prim__intraMigrateTape
-  primSetIntHost = prim__setIntHostTape
-  primToHost = prim__toHostTape
+  primSetIntHost   = prim__setIntHostTape
+  primToHost       = prim__toHostTape
   -- <<< END GENERATED <<<
   -- Hand-written overrides:
   primCreateFromHost = prim__createFromHostTape
@@ -757,12 +757,12 @@ prim__bitlinearFwdHfQuantTape : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> A
 public export
 UserExecutorQuant TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primAbsmeanPerRow2d = prim__absmeanPerRow2dTape
-  primBitlinearFwd = prim__bitlinearFwdTape
-  primBitlinearFwdHfQuant = prim__bitlinearFwdHfQuantTape
+  primAbsmeanPerRow2d             = prim__absmeanPerRow2dTape
+  primBitlinearFwd                = prim__bitlinearFwdTape
+  primBitlinearFwdHfQuant         = prim__bitlinearFwdHfQuantTape
   primCreateTernaryFromHfPacked2d = prim__createTernaryFromHfPacked2dTape
-  primCreateTernaryPacked2d = prim__createTernaryPacked2dTape
-  primTernaryQuantWithScale2d = prim__ternaryQuantWithScale2dTape
+  primCreateTernaryPacked2d       = prim__createTernaryPacked2dTape
+  primTernaryQuantWithScale2d     = prim__ternaryQuantWithScale2dTape
   -- <<< END GENERATED <<<
 
 ----------------------------------------------------------------------

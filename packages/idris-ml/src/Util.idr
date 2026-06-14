@@ -6,7 +6,7 @@ import System.Clock
 
 export
 implementation Cast Bool Integer where
-  cast True = 1
+  cast True  = 1
   cast False = 0
 
 export
@@ -71,10 +71,10 @@ formatPerfMsPerEp t0 t1 epochs =
     then "PERF_MS_PER_EP=0.000000"
     else
       let dsec  : Double; dsec  = cast (seconds t1 - seconds t0)
-          dnano   : Double; dnano = cast (nanoseconds t1 - nanoseconds t0)
+          dnano   : Double; dnano   = cast (nanoseconds t1 - nanoseconds t0)
           totalMs : Double; totalMs = dsec * 1000.0 + dnano / 1.0e6
-          eps     : Double; eps = cast (natToInteger epochs)
-          msPerEp = totalMs / eps
+          eps     : Double; eps     = cast (natToInteger epochs)
+          msPerEp                   = totalMs / eps
       in "PERF_MS_PER_EP=" ++ show msPerEp
 
 ||| Sigmoid for Double values.
@@ -97,5 +97,5 @@ foldlD : (0 accTy : Nat -> Type) ->
   (acc : accTy Z) ->
   (xs : Vect n a) ->
   accTy n
-foldlD _ _ acc [] = acc
+foldlD _ _ acc []            = acc
 foldlD accTy f acc (x :: xs) = foldlD (accTy . S) f (acc `f` x) xs

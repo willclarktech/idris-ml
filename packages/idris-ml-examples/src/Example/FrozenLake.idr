@@ -56,12 +56,12 @@ qSet i j v (VArray rows) =
 
 toStateFin : Nat -> Fin NumStates
 toStateFin n = case natToFin n NumStates of
-  Just f => f
+  Just f  => f
   Nothing => FZ
 
 toActionFin : Nat -> Fin NumActions
 toActionFin n = case natToFin n NumActions of
-  Just f => f
+  Just f  => f
   Nothing => FZ
 
 ----------------------------------------------------------------------
@@ -79,7 +79,7 @@ epsGreedy eps qr u1 u2 =
     then let idx : Nat
              idx = integerToNat (cast (u2 * cast NumActions))
          in case natToFin idx NumActions of
-              Just f => f
+              Just f  => f
               Nothing => FZ
     else argmax qr
 
@@ -91,21 +91,21 @@ epsGreedy eps qr u1 u2 =
 -- Returns (updated Q, episodic return).
 runEpisode : Double -> Double -> Double ->
              FLState -> QTable -> Nat -> List Double -> (QTable, Double)
-runEpisode _ _ _ _ q Z _ = (q, 0.0)
-runEpisode _ _ _ _ q _ [] = (q, 0.0)
-runEpisode _ _ _ _ q _ [_] = (q, 0.0)
+runEpisode _ _ _ _ q Z _                                     = (q, 0.0)
+runEpisode _ _ _ _ q _ []                                    = (q, 0.0)
+runEpisode _ _ _ _ q _ [_]                                   = (q, 0.0)
 runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
   let sIdx  = toStateFin (flObserve st)
-      qr    = qRowAt sIdx q
-      aFin  = epsGreedy eps qr u1 u2
-      aNat  = finToNat aFin
+      qr   = qRowAt sIdx q
+      aFin = epsGreedy eps qr u1 u2
+      aNat = finToNat aFin
   in case flStep st aNat of
        (reward, st', outcome, _) =>
          let sNextIdx = toStateFin (flObserve st')
              bootstrap = if done outcome then 0.0 else gamma * rowMax (qRowAt sNextIdx q)
-             oldQ  = qGet sIdx aFin q
-             newQ  = oldQ + alpha * (reward + bootstrap - oldQ)
-             q'    = qSet sIdx aFin newQ q
+             oldQ      = qGet sIdx aFin q
+             newQ      = oldQ + alpha * (reward + bootstrap - oldQ)
+             q'        = qSet sIdx aFin newQ q
          in if done outcome
               then (q', reward)
               else let (qF, fut) = runEpisode alpha gamma eps st' q' steps rest
@@ -146,7 +146,7 @@ epochQLearning cfg q (MkEI envSeed noise) =
   in (q', negate ret)
 
 genNoise : Nat -> IO (List Double)
-genNoise Z = pure []
+genNoise Z     = pure []
 genNoise (S k) = do
   u <- randomRIO (the Double 0.0, 1.0)
   rest <- genNoise k
@@ -170,7 +170,7 @@ genInput = do
 ----------------------------------------------------------------------
 
 evalEpisode : QTable -> FLState -> Nat -> Double -> Double
-evalEpisode _ _ Z acc = acc
+evalEpisode _ _ Z acc      = acc
 evalEpisode q st (S k) acc =
   let sIdx = toStateFin (flObserve st)
       aNat = finToNat (argmax (qRowAt sIdx q))
@@ -180,7 +180,7 @@ evalEpisode q st (S k) acc =
          else evalEpisode q st' k (acc + reward)
 
 evalN : QTable -> Nat -> Double -> IO Double
-evalN _ Z acc = pure acc
+evalN _ Z acc     = pure acc
 evalN q (S k) acc = do
   s <- genSeed
   let r = evalEpisode q (fst (initFL True s)) MaxSteps 0.0

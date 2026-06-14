@@ -70,7 +70,7 @@ tests =
   , check "actionSpace is Discrete 2" $
       case actionSpace {state=CPState} {action=Nat} {obs=Vect 4 Double} of
         Discrete 2 => True
-        _ => False
+        _          => False
 
   , check "defaultTimeLimit is 200" $
       defaultTimeLimit {state=CPState} {action=Nat} {obs=Vect 4 Double} == Just 200

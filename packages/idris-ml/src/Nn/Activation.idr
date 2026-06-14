@@ -38,7 +38,7 @@ Module Activation where
 
 public export
 Params Activation where
-  params _ = []
+  params _                  = []
   castGrad (MkActivation k) = MkActivation k
 
 -- Constructors (no Init needed — stateless, registers nothing).

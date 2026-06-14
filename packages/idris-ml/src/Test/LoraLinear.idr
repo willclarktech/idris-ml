@@ -141,7 +141,7 @@ testNonZeroDelta = do
       expectedDelta = [0.0, 2.0, 0.0]
       actualDelta : List Double
       actualDelta = diffList loraVals baseVals
-      mdiff = maxAbsDiff actualDelta expectedDelta
+      mdiff       = maxAbsDiff actualDelta expectedDelta
   if mdiff < 1.0e-12
     then check ("LoRA non-zero-B delta matches (alpha/r)·B·A·x exactly "
                 ++ "(max-abs-diff " ++ show mdiff ++ ")") True

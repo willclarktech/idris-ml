@@ -112,9 +112,9 @@ evalPredictions : {0 g : GradMode} -> Tensor [5, 3] Ex F g -> IO Nat
 evalPredictions predB = do
   counts <- for (toList Fin.range) $ \i => do
     let r  = cast {to=Int} (finToNat i)
-        v0 = primItem2d {ex=Ex} predB.tensorPtr r 0
-        v1 = primItem2d {ex=Ex} predB.tensorPtr r 1
-        v2 = primItem2d {ex=Ex} predB.tensorPtr r 2
+        v0   = primItem2d {ex=Ex} predB.tensorPtr r 0
+        v1   = primItem2d {ex=Ex} predB.tensorPtr r 1
+        v2   = primItem2d {ex=Ex} predB.tensorPtr r 2
         pred = argmax3 v0 v1 v2
         ok   = pred == index i targetClasses
     putStrLn $ "  " ++ showVec2 (index i inputsV) ++ " -> class " ++ show pred

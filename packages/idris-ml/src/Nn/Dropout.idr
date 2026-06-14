@@ -31,7 +31,7 @@ Module Dropout where
 
 public export
 Params Dropout where
-  params _ = []
+  params _                        = []
   castGrad (MkDropout p training) = MkDropout p training
 
 ||| Dropout with drop probability `p`, starting in training mode.

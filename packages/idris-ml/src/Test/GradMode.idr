@@ -17,8 +17,8 @@ import Test.Harness
 
 weakenGradFlipsRequiresGrad : IO Bool
 weakenGradFlipsRequiresGrad = do
-  let ptr = primCreateScalar {ex=TestExecutor} 1.0 1  -- rg=1 at construction
-  let t = the (Tensor (the (Vect 0 Nat) []) TestExecutor TestDType WithGrad) (MkTensor ptr Nothing)
+  let ptr    = primCreateScalar {ex=TestExecutor} 1.0 1  -- rg=1 at construction
+  let t      = the (Tensor (the (Vect 0 Nat) []) TestExecutor TestDType WithGrad) (MkTensor ptr Nothing)
   let before = primRequiresGrad {ex=TestExecutor} t.tensorPtr
   t' <- weakenGrad t
   let after = primRequiresGrad {ex=TestExecutor} t'.tensorPtr

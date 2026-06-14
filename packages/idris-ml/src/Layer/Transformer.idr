@@ -88,9 +88,9 @@ data TransformerState :
 posEncVal : Nat -> Nat -> Nat -> Double
 posEncVal dModel pos dim =
   let dimI = the Int (cast dim)
-      p = cast {to=Double} pos
-      i = cast {to=Double} (dimI `div` 2)
-      dm = cast {to=Double} dModel
+      p     = cast {to=Double} pos
+      i     = cast {to=Double} (dimI `div` 2)
+      dm    = cast {to=Double} dModel
       angle = p / pow 10000.0 (2.0 * i / dm)
   in if (dimI `mod` 2) == 0 then sin angle else cos angle
 
@@ -124,24 +124,24 @@ runHeadAttn : {0 ex : Executor} -> UserExecutorTraining ex => {dModel, headDim :
               Vect k (LinearState dModel headDim ex dt g) ->
               Vect k (LinearState headDim dModel ex dt g) ->
               AnyPtr -> AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
-runHeadAttn [] [] [] [] _ _ _ _ (Just acc) = acc
-runHeadAttn [] [] [] [] normed _ _ _ Nothing = normed
+runHeadAttn [] [] [] [] _ _ _ _ (Just acc)                                   = acc
+runHeadAttn [] [] [] [] normed _ _ _ Nothing                                 = normed
 runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sI hdI acc =
   let qW = q.weightT.tensorPtr
-      kW = k.weightT.tensorPtr
-      vW = v.weightT.tensorPtr
-      opW = op.weightT.tensorPtr
-      qi = primMm {ex} normed (primTranspose2d {ex} qW)
-      ki = primMm {ex} normed (primTranspose2d {ex} kW)
-      vi = primMm {ex} normed (primTranspose2d {ex} vW)
-      scale = 1.0 / sqrt (cast {to=Double} hdI)
-      scores = primMulScalar {ex} (primMm {ex} qi (primTranspose2d {ex} ki)) scale
-      masked = primMaskedFill {ex} scores mask (-1.0e20)
-      attn = primSoftmax2d {ex} masked
+      kW      = k.weightT.tensorPtr
+      vW      = v.weightT.tensorPtr
+      opW     = op.weightT.tensorPtr
+      qi      = primMm {ex} normed (primTranspose2d {ex} qW)
+      ki      = primMm {ex} normed (primTranspose2d {ex} kW)
+      vi      = primMm {ex} normed (primTranspose2d {ex} vW)
+      scale   = 1.0 / sqrt (cast {to=Double} hdI)
+      scores  = primMulScalar {ex} (primMm {ex} qi (primTranspose2d {ex} ki)) scale
+      masked  = primMaskedFill {ex} scores mask (-1.0e20)
+      attn    = primSoftmax2d {ex} masked
       headOut = primMm {ex} attn vi
-      proj = primMm {ex} headOut (primTranspose2d {ex} opW)
-      acc' = case acc of
-        Nothing => proj
+      proj    = primMm {ex} headOut (primTranspose2d {ex} opW)
+      acc'    = case acc of
+        Nothing   => proj
         Just prev => primAdd {ex} prev proj
   in runHeadAttn qs ks vs ops normed mask sI hdI (Just acc')
 
@@ -156,20 +156,20 @@ blockForward (MkBlock qs ks vs ops
                           (MkLayerNorm n2g n2b)
                           ff1 ff2) h mask sI hdI =
   let f1W = ff1.weightT.tensorPtr
-      f2W = ff2.weightT.tensorPtr
-      normed1 = primLayerNorm2d {ex} h n1g.tensorPtr n1b.tensorPtr 1.0e-5
-      attnOut = runHeadAttn qs ks vs ops normed1 mask sI hdI Nothing
-      h1 = primAdd {ex} attnOut h
-      normed2 = primLayerNorm2d {ex} h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
+      f2W      = ff2.weightT.tensorPtr
+      normed1  = primLayerNorm2d {ex} h n1g.tensorPtr n1b.tensorPtr 1.0e-5
+      attnOut  = runHeadAttn qs ks vs ops normed1 mask sI hdI Nothing
+      h1       = primAdd {ex} attnOut h
+      normed2  = primLayerNorm2d {ex} h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
       ffHidden = primClampMin {ex} (primMm {ex} normed2 (primTranspose2d {ex} f1W)) 0.0
-      ffOut = primMm {ex} ffHidden (primTranspose2d {ex} f2W)
+      ffOut    = primMm {ex} ffHidden (primTranspose2d {ex} f2W)
   in primAdd {ex} ffOut h1
 
 -- Fold over blocks.
 foldBlocks : {0 ex : Executor} -> UserExecutorTraining ex => {dModel, numHeads, headDim : Nat} ->
                Vect k (BlockState dModel numHeads headDim ex dt g) ->
                AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-foldBlocks [] h _ _ _ = h
+foldBlocks [] h _ _ _              = h
 foldBlocks (b :: bs) h mask sI hdI =
   foldBlocks bs (blockForward b h mask sI hdI) mask sI hdI
 
@@ -187,15 +187,15 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
                    (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached
                                   maskCached) tokens =
   let sI = cast {to=Int} seqLen
-      dI = cast {to=Int} dModel
-      vI = cast {to=Int} vocabSize
-      hdI = cast {to=Int} headDim
-      embedded = primEmbedding2d {ex} embedW.tensorPtr tokens.tensorPtr sI dI
-      h0 = primAdd {ex} embedded peCached.tensorPtr
-      hN = foldBlocks blocks h0 maskCached.tensorPtr sI hdI
+      dI           = cast {to=Int} dModel
+      vI           = cast {to=Int} vocabSize
+      hdI          = cast {to=Int} headDim
+      embedded     = primEmbedding2d {ex} embedW.tensorPtr tokens.tensorPtr sI dI
+      h0           = primAdd {ex} embedded peCached.tensorPtr
+      hN           = foldBlocks blocks h0 maskCached.tensorPtr sI hdI
       normedFinal' = primLayerNorm2d {ex} hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
-      vpW = vocabProj.weightT.tensorPtr
-      outT = primMm {ex} normedFinal' (primTranspose2d {ex} vpW)
+      vpW          = vocabProj.weightT.tensorPtr
+      outT         = primMm {ex} normedFinal' (primTranspose2d {ex} vpW)
       -- Flatten [seqLen, vocab] → [seqLen * vocab]. Was
       -- `primNarrow outT 0 0 (sI * vI)` which relied on the
       -- pre-bd61bef8 (2026-05-26) "flatten-then-slice" narrow bug
@@ -224,20 +224,20 @@ batchedHeadLoop : {0 ex : Executor} -> UserExecutorTraining ex => {dModel, headD
                     Vect k (LinearState dModel headDim ex dt g) ->
                     Vect k (LinearState headDim dModel ex dt g) ->
                     AnyPtr -> AnyPtr -> Double -> Maybe AnyPtr -> AnyPtr
-batchedHeadLoop [] [] [] [] _ _ _ (Just acc) = acc
-batchedHeadLoop [] [] [] [] normed _ _ Nothing = normed
+batchedHeadLoop [] [] [] [] _ _ _ (Just acc)                                 = acc
+batchedHeadLoop [] [] [] [] normed _ _ Nothing                               = normed
 batchedHeadLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
   let qW = q.weightT.tensorPtr
-      kW = k.weightT.tensorPtr
-      vW = v.weightT.tensorPtr
-      opW = op.weightT.tensorPtr
-      qi = primBmm {ex} normed (primTranspose2d {ex} qW)
-      ki = primBmm {ex} normed (primTranspose2d {ex} kW)
-      vi = primBmm {ex} normed (primTranspose2d {ex} vW)
+      kW      = k.weightT.tensorPtr
+      vW      = v.weightT.tensorPtr
+      opW     = op.weightT.tensorPtr
+      qi      = primBmm {ex} normed (primTranspose2d {ex} qW)
+      ki      = primBmm {ex} normed (primTranspose2d {ex} kW)
+      vi      = primBmm {ex} normed (primTranspose2d {ex} vW)
       headOut = primCrossAttention {ex} qi ki vi mask sc
-      proj = primBmm {ex} headOut (primTranspose2d {ex} opW)
-      acc' = case acc of
-        Nothing => proj
+      proj    = primBmm {ex} headOut (primTranspose2d {ex} opW)
+      acc'    = case acc of
+        Nothing   => proj
         Just prev => primAdd {ex} prev proj
   in batchedHeadLoop qs ks vs ops normed mask sc (Just acc')
 
@@ -252,24 +252,24 @@ batchBlockForward (MkBlock qs ks vs ops
                                 (MkLayerNorm n2g n2b)
                                 ff1 ff2) h mask3d bsI sI dI =
   let f1W = ff1.weightT.tensorPtr
-      f2W = ff2.weightT.tensorPtr
+      f2W       = ff2.weightT.tensorPtr
       batchSize = bsI `div` sI
-      normed1 = primLayerNorm2d {ex} h n1g.tensorPtr n1b.tensorPtr 1.0e-5
-      normed3d = primReshape3d {ex} normed1 batchSize sI dI
-      scale = 1.0 / sqrt (cast {to=Double} (dI `div` cast {to=Int} numHeads))
+      normed1   = primLayerNorm2d {ex} h n1g.tensorPtr n1b.tensorPtr 1.0e-5
+      normed3d  = primReshape3d {ex} normed1 batchSize sI dI
+      scale     = 1.0 / sqrt (cast {to=Double} (dI `div` cast {to=Int} numHeads))
       attnOut3d = batchedHeadLoop qs ks vs ops normed3d mask3d scale Nothing
-      attnOut = primReshape2d {ex} attnOut3d bsI dI
-      h1 = primAdd {ex} attnOut h
-      normed2 = primLayerNorm2d {ex} h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
-      f1Wt = primTranspose2d {ex} f1W
-      f2Wt = primTranspose2d {ex} f2W
-      ffOut = primMm {ex} (primClampMin {ex} (primMm {ex} normed2 f1Wt) 0.0) f2Wt
+      attnOut   = primReshape2d {ex} attnOut3d bsI dI
+      h1        = primAdd {ex} attnOut h
+      normed2   = primLayerNorm2d {ex} h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
+      f1Wt      = primTranspose2d {ex} f1W
+      f2Wt      = primTranspose2d {ex} f2W
+      ffOut     = primMm {ex} (primClampMin {ex} (primMm {ex} normed2 f1Wt) 0.0) f2Wt
   in primAdd {ex} ffOut h1
 
 foldBlocksBatched : {0 ex : Executor} -> UserExecutorTraining ex => {dModel, numHeads, headDim : Nat} ->
                       Vect k (BlockState dModel numHeads headDim ex dt g) ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
-foldBlocksBatched [] h _ _ _ _ = h
+foldBlocksBatched [] h _ _ _ _                 = h
 foldBlocksBatched (b :: bs) h mask3d bsI sI dI =
   foldBlocksBatched bs (batchBlockForward b h mask3d bsI sI dI) mask3d bsI sI dI
 
@@ -279,7 +279,7 @@ writePEBatch dModel buf pos dim bsLen dMod sLen =
   if pos >= bsLen then buf
   else if dim >= dMod then writePEBatch dModel buf (pos + 1) 0 bsLen dMod sLen
   else let origPos = pos `mod` sLen
-           val = posEncVal dModel (cast origPos) (cast dim)
+           val  = posEncVal dModel (cast origPos) (cast dim)
            buf' = prim__setDouble buf (pos * dMod + dim) val
        in writePEBatch dModel buf' pos (dim + 1) bsLen dMod sLen
 
@@ -301,12 +301,12 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
                                        maskCached)
                         tokens =
   let bI = cast {to=Int} b
-      bsI = cast {to=Int} (b * seqLen)
-      sI = cast {to=Int} seqLen
-      dI = cast {to=Int} dModel
-      vI = cast {to=Int} vocabSize
+      bsI        = cast {to=Int} (b * seqLen)
+      sI         = cast {to=Int} seqLen
+      dI         = cast {to=Int} dModel
+      vI         = cast {to=Int} vocabSize
       flatTokens = primReshape1d {ex} tokens.tensorPtr bsI
-      embedded = primEmbedding2d {ex} embedW.tensorPtr flatTokens bsI dI
+      embedded   = primEmbedding2d {ex} embedW.tensorPtr flatTokens bsI dI
       -- Tile cached PE [seqLen, dModel] vertically `b` times to get
       -- [b*seqLen, dModel], then add directly to the flat embedded. One
       -- fused op per backend (`mx::tile` / `at::tile` / manual memcpy)
@@ -314,15 +314,15 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
       -- regressed mlx perf on small-model shapes — see `perf-changes.md`
       -- 2026-05-15 "tile_2d" entry.
       peTiled = primTile2d {ex} peCached.tensorPtr bI 1
-      h0 = primAdd {ex} embedded peTiled
+      h0      = primAdd {ex} embedded peTiled
       -- Expand the cached 2D mask once per batch (depends on `b`, which can
       -- vary between train/eval) and thread the 3D handle through every
       -- block.
-      mask3d = primExpandMask {ex} maskCached.tensorPtr bI
-      hN = foldBlocksBatched blocks h0 mask3d bsI sI dI
+      mask3d       = primExpandMask {ex} maskCached.tensorPtr bI
+      hN           = foldBlocksBatched blocks h0 mask3d bsI sI dI
       normedFinal' = primLayerNorm2d {ex} hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
-      vpW = vocabProj.weightT.tensorPtr
-      outBatch = primMm {ex} normedFinal' (primTranspose2d {ex} vpW)
+      vpW          = vocabProj.weightT.tensorPtr
+      outBatch     = primMm {ex} normedFinal' (primTranspose2d {ex} vpW)
       -- outBatch : [b * seqLen, vocabSize]. Reshape to [b, seqLen * vocabSize].
       outReshaped = primReshape2d {ex} outBatch (cast {to=Int} b) (sI * vI)
   in MkTensor outReshaped Nothing
@@ -333,7 +333,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
 
 -- Build a Vect of n Linear layers with sequential paramId suffixes.
 mkLinearVec : Backend ex dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o ex dt WithGrad))
-mkLinearVec Z _ = pure []
+mkLinearVec Z _       = pure []
 mkLinearVec (S k) pfx = do
   l <- linearLayer {i} {o} (pfx ++ show k)
   rest <- mkLinearVec k pfx
@@ -357,7 +357,7 @@ mkBlock pfx = do
 mkBlocks : Backend ex dt => {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
              IO (Vect k (BlockState dModel numHeads headDim ex dt WithGrad))
-mkBlocks Z _ = pure []
+mkBlocks Z _               = pure []
 mkBlocks (S k) paramPrefix = do
   blk <- mkBlock paramPrefix
   rest <- mkBlocks k (paramPrefix ++ "_n")
@@ -378,7 +378,7 @@ transformerLayer {prf} paramPrefix = do
   -- Embedding init: xavier-normal-via-uniform, std = sqrt(2/(vocab+dModel)).
   let embStd = sqrt (2.0 / cast {to=Double} (vocabSize + dModel))
       embName = paramPrefix ++ "_embed"
-      dI = cast {to=Int} dModel
+      dI      = cast {to=Int} dModel
   embTV <- tparam2dNormal {o=vocabSize} {i=dModel} embName 0.0 embStd
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
   nf <- layerNormLayer {n = dModel} (paramPrefix ++ "_nf")
@@ -387,7 +387,7 @@ transformerLayer {prf} paramPrefix = do
   -- cached tensor instead of running writePE every step (which was the
   -- 1M-posEncVal-calls/epoch bottleneck per the 2026-05-14 profile).
   let sI = cast {to=Int} seqLen
-      peBuf = prim__allocDoubles (sI * dI)
+      peBuf  = prim__allocDoubles (sI * dI)
       peBuf' = writePE dModel peBuf 0 0 sI dI
       peTV : TMat seqLen dModel ex dt WithGrad
       peTV = MkTensor (dtCreateState2d {ex} {t=dt} sI dI peBuf' (deviceStreamTag {ex})) Nothing
@@ -398,7 +398,7 @@ transformerLayer {prf} paramPrefix = do
       -- training steps, so it must go through the persistent-state path or
       -- it would dangle after the first optimizer step.
       maskBufRaw = prim__allocDoubles (sI * sI)
-      maskBuf = writeCausalMask maskBufRaw 0 1 sI
+      maskBuf    = writeCausalMask maskBufRaw 0 1 sI
       maskTV : TMat seqLen seqLen ex dt WithGrad
       maskTV = MkTensor (dtCreateState2d {ex} {t=dt} sI sI maskBuf (deviceStreamTag {ex})) Nothing
   pure $ MkTransformer {prf} embTV blks nf vp peTV maskTV
@@ -413,7 +413,7 @@ transformerLayer {prf} paramPrefix = do
 freezeLinearVec : {i, o : Nat} -> {0 ex : Executor} -> UserExecutorTraining ex => {0 g : GradMode} ->
                     Vect k (LinearState i o ex dt g) ->
                     IO (Vect k (LinearState i o ex dt NoGrad))
-freezeLinearVec [] = pure []
+freezeLinearVec []        = pure []
 freezeLinearVec (l :: ls) = do
   l' <- freezeLayer l
   ls' <- freezeLinearVec ls
@@ -422,7 +422,7 @@ freezeLinearVec (l :: ls) = do
 unfreezeLinearVec : {i, o : Nat} -> {0 ex : Executor} -> UserExecutorTraining ex =>
                       Vect k (LinearState i o ex dt NoGrad) ->
                       IO (Vect k (LinearState i o ex dt WithGrad))
-unfreezeLinearVec [] = pure []
+unfreezeLinearVec []        = pure []
 unfreezeLinearVec (l :: ls) = do
   l' <- unfreezeLayer l
   ls' <- unfreezeLinearVec ls
@@ -459,7 +459,7 @@ unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
 freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> UserExecutorTraining ex => {0 g : GradMode} ->
                    Vect k (BlockState dModel numHeads headDim ex dt g) ->
                    IO (Vect k (BlockState dModel numHeads headDim ex dt NoGrad))
-freezeBlockVec [] = pure []
+freezeBlockVec []        = pure []
 freezeBlockVec (b :: bs) = do
   b' <- freezeBlock b
   bs' <- freezeBlockVec bs
@@ -468,7 +468,7 @@ freezeBlockVec (b :: bs) = do
 unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> UserExecutorTraining ex =>
                      Vect k (BlockState dModel numHeads headDim ex dt NoGrad) ->
                      IO (Vect k (BlockState dModel numHeads headDim ex dt WithGrad))
-unfreezeBlockVec [] = pure []
+unfreezeBlockVec []        = pure []
 unfreezeBlockVec (b :: bs) = do
   b' <- unfreezeBlock b
   bs' <- unfreezeBlockVec bs

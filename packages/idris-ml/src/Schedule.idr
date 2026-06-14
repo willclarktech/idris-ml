@@ -48,8 +48,8 @@ oneCycle : (lrMax : Double) -> (div : Double) -> (divFinal : Double)
 oneCycle lrMax div divFinal pctStart totalEpochs epoch =
   let totalD = cast {to=Double} totalEpochs
       warmupEnd = cast {to=Nat} (pctStart * totalD)
-      lrMin = lrMax / div
-      lrFinal = lrMax / divFinal
+      lrMin     = lrMax / div
+      lrFinal   = lrMax / divFinal
   in if epoch >= totalEpochs then lrFinal
      else if epoch < warmupEnd
        then -- Phase 1: linear warmup

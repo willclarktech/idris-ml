@@ -9,9 +9,9 @@ interface Floating ty where
 
 public export
 implementation Floating Double where
-  exp = prim__doubleExp
-  log = prim__doubleLog
-  pow = prim__doublePow
+  exp  = prim__doubleExp
+  log  = prim__doubleLog
+  pow  = prim__doublePow
   sqrt = prim__doubleSqrt
 
 export infixr 9 ^

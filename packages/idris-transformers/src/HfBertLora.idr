@@ -185,7 +185,7 @@ applySelfAttnWithLora :
   -> (mask : Maybe AnyPtr)
   -> Tensor [seqLen, hidden] ex dt g
   -> IO (Tensor [seqLen, hidden] ex dt g)
-applySelfAttnWithLora {numHeads = Z} _ _ _ _ _ _ input = pure input
+applySelfAttnWithLora {numHeads = Z} _ _ _ _ _ _ input                              = pure input
 applySelfAttnWithLora {numHeads = S Z} {headDim} sa qAdp vAdp rank alpha mask input = do
   qBase <- tlinear2d sa.query.weight input sa.query.bias
   kBase <- tlinear2d sa.key.weight   input sa.key.bias
@@ -194,13 +194,13 @@ applySelfAttnWithLora {numHeads = S Z} {headDim} sa qAdp vAdp rank alpha mask in
   v <- addLoraDelta2d vBase input vAdp rank alpha
   ioRerun (\_ =>
     let scale  = 1.0 / sqrt (cast {to=Double} headDim)
-        kT     = primTranspose2d {ex} kBase.tensorPtr
-        scores = primMulScalar {ex} (primMm {ex} q.tensorPtr kT) scale
+        kT      = primTranspose2d {ex} kBase.tensorPtr
+        scores  = primMulScalar {ex} (primMm {ex} q.tensorPtr kT) scale
         sMasked = case mask of
           Nothing => scores
           Just m  => primMaskedFill {ex} scores m (-1.0e20)
-        attn   = primSoftmax2d {ex} sMasked
-        ctx    = primMm {ex} attn v.tensorPtr
+        attn = primSoftmax2d {ex} sMasked
+        ctx  = primMm {ex} attn v.tensorPtr
     in MkTensor ctx Nothing)
 applySelfAttnWithLora {numHeads = S (S k)} {headDim} sa qAdp vAdp rank alpha mask input = do
   qBase <- tlinear2d sa.query.weight input sa.query.bias
@@ -209,12 +209,12 @@ applySelfAttnWithLora {numHeads = S (S k)} {headDim} sa qAdp vAdp rank alpha mas
   q <- addLoraDelta2d qBase input qAdp rank alpha
   v <- addLoraDelta2d vBase input vAdp rank alpha
   let headDimI = cast {to=Int} headDim
-      scale    = 1.0 / sqrt (cast {to=Double} headDim)
-      qP       = q.tensorPtr
-      kP       = kBase.tensorPtr
-      vP       = v.tensorPtr
-      head0    = oneHeadCtx {ex} qP kP vP mask 0 headDimI scale
-      ctxPtr   = buildHeads {ex} qP kP vP mask headDimI scale (S k) headDimI head0
+      scale  = 1.0 / sqrt (cast {to=Double} headDim)
+      qP     = q.tensorPtr
+      kP     = kBase.tensorPtr
+      vP     = v.tensorPtr
+      head0  = oneHeadCtx {ex} qP kP vP mask 0 headDimI scale
+      ctxPtr = buildHeads {ex} qP kP vP mask headDimI scale (S k) headDimI head0
   pure (MkTensor ctxPtr Nothing)
 
 -- LoRA-aware single layer.
@@ -254,7 +254,7 @@ applyEncoderWithLora :
   -> (mask : Maybe AnyPtr)
   -> Tensor [seqLen, hidden] ex dt g
   -> IO (Tensor [seqLen, hidden] ex dt g)
-applyEncoderWithLora []        []         []         _    _     _    h = pure h
+applyEncoderWithLora []        []         []         _    _     _    h   = pure h
 applyEncoderWithLora (l :: ls) (qA :: qAs) (vA :: vAs) rank alpha mask h = do
   h' <- applyLayerWithLora {numHeads} {headDim} l (Just qA) (Just vA) rank alpha mask h
   applyEncoderWithLora {numHeads} {headDim} ls qAs vAs rank alpha mask h'

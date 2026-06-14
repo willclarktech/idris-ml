@@ -57,8 +57,8 @@ mkOnesWeight : {o, i : Nat} -> (name : String) ->
                IO (Tensor [o, i] TestExecutor TestDType WithGrad)
 mkOnesWeight {o} {i} name =
   let nElts = cast {to=Int} (o * i)
-      buf   = prim__allocDoubles nElts
-      buf'  = fillOnes 0 nElts buf
+      buf  = prim__allocDoubles nElts
+      buf' = fillOnes 0 nElts buf
   in tparam2d {o} {i} name buf'
 
 -- Construct a SwiGLUState whose three weights are all-ones. Bypasses

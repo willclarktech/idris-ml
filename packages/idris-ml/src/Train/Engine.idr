@@ -121,7 +121,7 @@ withEpoch act = do
 ----------------------------------------------------------------------
 
 fmtMetrics : List (String, String) -> String
-fmtMetrics [] = ""
+fmtMetrics []               = ""
 fmtMetrics ((k, v) :: rest) = "\t" ++ k ++ "=" ++ v ++ fmtMetrics rest
 
 -- Force every character of the metric strings. The strings are built
@@ -185,7 +185,7 @@ resumeFromCheckpoint Nothing    _       = pure 0
 resumeFromCheckpoint (Just pol) bestRef = do
   mst <- pol.loadState (pol.dir ++ "/last")
   case mst of
-    Nothing => pure 0
+    Nothing           => pure 0
     Just (ep0, best0) => do
       writeIORef bestRef best0
       logInfo $ "  Resuming from epoch " ++ show ep0
@@ -249,8 +249,8 @@ esNone _ _ _ _ = pure (EsKeep ())
 esPatience : (pat : Nat) -> (minD : Double) -> EarlyStopStep (Double, Nat)
 esPatience pat minD t0 ep loss (bestLoss, stale) =
   let improved = loss < bestLoss - minD
-      best'     = if improved then loss else bestLoss
-      stale'    = if improved then 0 else stale + 1
+      best'  = if improved then loss else bestLoss
+      stale' = if improved then 0 else stale + 1
   in if pat > 0 && stale' >= pat
        then do now <- clockTime Monotonic
                logInfo $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch "

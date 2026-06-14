@@ -88,7 +88,7 @@ sampleActionFromBatch : {n : Nat} -> Tensor [n, NumActions] Ex F g ->
 sampleActionFromBatch logProbsB envs = go 0 envs
   where
     go : Int -> Vect k CPState -> IO (Vect k Nat, Vect k Double)
-    go _ [] = pure ([], [])
+    go _ []          = pure ([], [])
     go i (_ :: rest) = do
       let lp0 = primItem2d {ex=Ex} logProbsB.tensorPtr i 0
           lp1 = primItem2d {ex=Ex} logProbsB.tensorPtr i 1
@@ -100,18 +100,18 @@ sampleActionFromBatch logProbsB envs = go 0 envs
 -- Step every env with its action; auto-reset envs that terminate.
 stepAllAutoReset : Vect n CPState -> Vect n Nat ->
                    (Vect n CPState, Vect n Double, Vect n Bool)
-stepAllAutoReset [] [] = ([], [], [])
+stepAllAutoReset [] []               = ([], [], [])
 stepAllAutoReset (s :: ss) (a :: as) =
   case cpStep s a of
     (r, s', outcome, _) =>
       let isDone = done outcome
-          nextS  = if isDone then MkCP 0 0 0 0 else s'
+          nextS          = if isDone then MkCP 0 0 0 0 else s'
           (rest, rs, ds) = stepAllAutoReset ss as
       in (nextS :: rest, r :: rs, isDone :: ds)
 
 mkRollSteps : Vect n (Vect ObsDim Double) -> Vect n Nat -> Vect n Double ->
               Vect n Double -> Vect n Bool -> Vect n RollStep
-mkRollSteps [] [] [] [] [] = []
+mkRollSteps [] [] [] [] []                                    = []
 mkRollSteps (o :: os) (a :: as) (r :: rs) (v :: vs) (d :: ds) =
   MkRS o a r v d :: mkRollSteps os as rs vs ds
 
@@ -126,15 +126,15 @@ rolloutBatched actor critic v0 rolloutLen = do
   pure (map reverse stepLists, MkVecEnv envs')
   where
     mapIdx : (Nat -> a -> b) -> Vect k a -> Vect k b
-    mapIdx _ [] = []
+    mapIdx _ []        = []
     mapIdx f (x :: xs) = f 0 x :: mapIdx (\i, v => f (S i) v) xs
 
     go : Nat -> Vect n CPState -> Vect n (List RollStep) ->
          IO (Vect n CPState, Vect n (List RollStep))
-    go Z envs accs = pure (envs, accs)
+    go Z envs accs     = pure (envs, accs)
     go (S k) envs accs = do
       let obsRows : Vect n (Vector ObsDim Double)
-          obsRows = map (\s => obsTensor (observeVec s)) envs
+          obsRows  = map (\s => obsTensor (observeVec s)) envs
           batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
           stateV : Tensor [n, ObsDim] Ex F WithGrad
           stateV = MkTensor batchPtr Nothing
@@ -165,7 +165,7 @@ bootstrapV critic obs = do
   pure (primItem2d {ex=Ex} valueV.tensorPtr 0 0)
 
 computeBootstrap : Critic -> List RollStep -> CPState -> IO Double
-computeBootstrap _ [] _ = pure 0.0
+computeBootstrap _ [] _               = pure 0.0
 computeBootstrap critic steps finalSt =
   case last' steps of
     Nothing => pure 0.0
@@ -247,8 +247,8 @@ buildLossFromMerged : Actor -> Critic -> Double -> Double ->
                       IO (Tensor [] Ex F WithGrad)
 buildLossFromMerged actor critic entropyCoef valueCoef merged = do
   let normalized = normAdvs merged
-      normVec = Data.Vect.fromList normalized
-      n = length normalized
+      normVec  = Data.Vect.fromList normalized
+      n        = length normalized
       obsBatch = the (Vect (length normalized) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) normVec)
       stackedT = bulkToTensor2d {ex=Ex} {dt=F} obsBatch
@@ -262,7 +262,7 @@ buildLossFromMerged actor critic entropyCoef valueCoef merged = do
                        Tensor [n, 1] Ex F WithGrad ->
                        Vect k (RollStep, Double, Double) -> Int ->
                        IO (List (Tensor [] Ex F WithGrad))
-    enumeratedLosses _ _ [] _ = pure []
+    enumeratedLosses _ _ [] _            = pure []
     enumeratedLosses lB vB (t :: rest) k = do
       l <- perStepLoss lB vB k entropyCoef valueCoef t
       ls <- enumeratedLosses lB vB rest (k + 1)
@@ -330,7 +330,7 @@ computeBootstrapsBatched : Critic -> Vect n (List RollStep) -> VecEnv n CPState 
 computeBootstrapsBatched critic stepLists v = batchOver stepLists v.envs
   where
     batchOver : Vect k (List RollStep) -> Vect k CPState -> IO (Vect k Double)
-    batchOver [] [] = pure []
+    batchOver [] []                     = pure []
     batchOver (steps :: rest) (s :: ss) = do
       b <- computeBootstrap critic steps s
       bs <- batchOver rest ss
@@ -360,14 +360,14 @@ a2cEpoch opt cfg st = do
       writeIORef st.retRef newRuns
       let nEp = length epReturns
           sumRew : Double
-          sumRew = sum (map (\steps => sum (map (\s => s.reward) steps)) stepLists)
+          sumRew   = sum (map (\steps => sum (map (\s => s.reward) steps)) stepLists)
           reported = if nEp > 0
                      then sum epReturns / cast (natToInteger nEp)
                      else sumRew / cast (natToInteger NumEnvs)
       pure (st, negate reported)
   where
     walkOne : Double -> List RollStep -> (Double, List Double)
-    walkOne run [] = (run, [])
+    walkOne run []        = (run, [])
     walkOne run (s :: ss) =
       let r' = run + s.reward
       in case walkOne (if s.isDone then 0.0 else r') ss of
@@ -376,7 +376,7 @@ a2cEpoch opt cfg st = do
 
     updateRetVect : Vect k Double -> Vect k (List RollStep) ->
                     (Vect k Double, List Double)
-    updateRetVect [] [] = ([], [])
+    updateRetVect [] []                     = ([], [])
     updateRetVect (r :: rs) (steps :: rest) =
       case walkOne r steps of
         (r', eps) => case updateRetVect rs rest of
@@ -396,7 +396,7 @@ greedyAct actor obs = do
   pure (if l0 >= l1 then 0 else 1)
 
 evalEp : Actor -> CPState -> Nat -> Double -> IO Double
-evalEp _ _ Z acc = pure acc
+evalEp _ _ Z acc          = pure acc
 evalEp actor st (S k) acc = do
   a <- greedyAct actor (observeVec st)
   case cpStep st a of
@@ -405,7 +405,7 @@ evalEp actor st (S k) acc = do
       else evalEp actor st' k (acc + r)
 
 evalN : Actor -> Nat -> Double -> IO Double
-evalN _ Z acc = pure acc
+evalN _ Z acc         = pure acc
 evalN actor (S k) acc = do
   ep <- evalEp actor (MkCP 0 0 0 0) MaxSteps 0.0
   evalN actor k (acc + ep)

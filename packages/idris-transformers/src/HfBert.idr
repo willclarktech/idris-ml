@@ -182,12 +182,12 @@ packDs buf _ []          = buf
 packDs buf off (x :: xs) = packDs (prim__setDouble buf off x) (off + 1) xs
 
 zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
-zeroBuf buf _ 0 = buf
+zeroBuf buf _ 0   = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
 fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
-fillConst buf _ 0 _ = buf
+fillConst buf _ 0 _   = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
@@ -475,7 +475,7 @@ applyEmbedLookup2d : {0 ex : Executor} -> UserExecutorTraining ex
                   -> IO (Tensor [seqLen, dim] ex dt g)
 applyEmbedLookup2d {seqLen} {dim} (MkBertEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
-      dI = cast {to=Int} dim
+      dI  = cast {to=Int} dim
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI dI
   in MkTensor out Nothing)
 
@@ -515,13 +515,13 @@ oneHeadCtx : {0 ex : Executor} -> UserExecutorTraining ex
           -> AnyPtr
 oneHeadCtx qFull kFull vFull mask startI headDimI scale =
   let qh     = primNarrow {ex} qFull 1 startI headDimI
-      kh     = primNarrow {ex} kFull 1 startI headDimI
-      vh     = primNarrow {ex} vFull 1 startI headDimI
-      kT     = primTranspose2d {ex} kh
-      scores = primMulScalar {ex} (primMm {ex} qh kT) scale
+      kh      = primNarrow {ex} kFull 1 startI headDimI
+      vh      = primNarrow {ex} vFull 1 startI headDimI
+      kT      = primTranspose2d {ex} kh
+      scores  = primMulScalar {ex} (primMm {ex} qh kT) scale
       sMasked = case mask of
-        Nothing  => scores
-        Just m   => primMaskedFill {ex} scores m (-1.0e20)
+        Nothing => scores
+        Just m  => primMaskedFill {ex} scores m (-1.0e20)
       attn   = primSoftmax2d {ex} sMasked
   in primMm {ex} attn vh
 
@@ -536,7 +536,7 @@ buildHeads : {0 ex : Executor} -> UserExecutorTraining ex
           -> (headDimI : Int) -> (scale : Double)
           -> (remaining : Nat) -> (startI : Int) -> (acc : AnyPtr)
           -> AnyPtr
-buildHeads _ _ _ _ _ _ Z _ acc = acc
+buildHeads _ _ _ _ _ _ Z _ acc                                    = acc
 buildHeads qFull kFull vFull mask headDimI scale (S k) startI acc =
   let nextCtx = oneHeadCtx {ex} qFull kFull vFull mask startI headDimI scale
       newAcc  = primConcat2dAxis1 {ex} acc nextCtx
@@ -563,7 +563,7 @@ applySelfAttn : {0 ex : Executor} -> UserExecutorTraining ex
              -> (mask : Maybe AnyPtr)
              -> Tensor [seqLen, hidden] ex dt g
              -> IO (Tensor [seqLen, hidden] ex dt g)
-applySelfAttn {numHeads = Z} _ _ input = pure input
+applySelfAttn {numHeads = Z} _ _ input                 = pure input
 applySelfAttn {numHeads = S Z} {headDim} sa mask input = do
   -- Single-head: q/k/v are already the full attention tensors;
   -- no narrow needed. Drop to primitives only for the matmul +
@@ -573,13 +573,13 @@ applySelfAttn {numHeads = S Z} {headDim} sa mask input = do
   v  <- applyBertLinear2d sa.value input
   ioRerun (\_ =>
     let scale  = 1.0 / sqrt (cast {to=Double} headDim)
-        kT     = primTranspose2d {ex} k'.tensorPtr
-        scores = primMulScalar {ex} (primMm {ex} q.tensorPtr kT) scale
+        kT      = primTranspose2d {ex} k'.tensorPtr
+        scores  = primMulScalar {ex} (primMm {ex} q.tensorPtr kT) scale
         sMasked = case mask of
           Nothing => scores
           Just m  => primMaskedFill {ex} scores m (-1.0e20)
-        attn   = primSoftmax2d {ex} sMasked
-        ctx    = primMm {ex} attn v.tensorPtr
+        attn = primSoftmax2d {ex} sMasked
+        ctx  = primMm {ex} attn v.tensorPtr
     in MkTensor ctx Nothing)
 applySelfAttn {numHeads = S (S k)} {headDim} sa mask input = do
   -- Multi-head: per-head narrow → matmul → (mask) → softmax → matmul,
@@ -589,12 +589,12 @@ applySelfAttn {numHeads = S (S k)} {headDim} sa mask input = do
   k' <- applyBertLinear2d sa.key   input
   v  <- applyBertLinear2d sa.value input
   let headDimI = cast {to=Int} headDim
-      scale    = 1.0 / sqrt (cast {to=Double} headDim)
-      qP       = q.tensorPtr
-      kP       = k'.tensorPtr
-      vP       = v.tensorPtr
-      head0    = oneHeadCtx {ex} qP kP vP mask 0 headDimI scale
-      ctxPtr   = buildHeads {ex} qP kP vP mask headDimI scale (S k) headDimI head0
+      scale  = 1.0 / sqrt (cast {to=Double} headDim)
+      qP     = q.tensorPtr
+      kP     = k'.tensorPtr
+      vP     = v.tensorPtr
+      head0  = oneHeadCtx {ex} qP kP vP mask 0 headDimI scale
+      ctxPtr = buildHeads {ex} qP kP vP mask headDimI scale (S k) headDimI head0
   pure (MkTensor ctxPtr Nothing)
 
 -- One BERT layer: self-attention + residual + LayerNorm + FFN

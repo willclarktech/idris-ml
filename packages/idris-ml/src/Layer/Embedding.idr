@@ -39,7 +39,7 @@ applyEmbedding : {0 ex : Executor} -> Backend ex dt => {seqLen, embedDim, vocab 
                    IO (TVec (seqLen * embedDim) ex dt g)
 applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
   let nI = cast {to=Int} seqLen
-      dI = cast {to=Int} embedDim
+      dI     = cast {to=Int} embedDim
       outPtr = primEmbedding {ex} w.tensorPtr tokens.tensorPtr nI dI
   in MkTensor outPtr Nothing)
 

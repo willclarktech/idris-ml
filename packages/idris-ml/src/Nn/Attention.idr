@@ -67,16 +67,16 @@ runHeads : {0 ex : Executor} -> UserExecutorTraining ex => {k : Nat} ->
            Vect k (TMat hd dM ex dt g) -> Vect k (TMat hd dM ex dt g) ->
            Vect k (TMat hd dM ex dt g) -> Vect k (TMat dM hd ex dt g) ->
            (normed, mask : AnyPtr) -> (scale : Double) -> Maybe AnyPtr -> AnyPtr
-runHeads [] [] [] [] normed _ _ Nothing = normed
-runHeads [] [] [] [] _ _ _ (Just acc) = acc
+runHeads [] [] [] [] normed _ _ Nothing                                  = normed
+runHeads [] [] [] [] _ _ _ (Just acc)                                    = acc
 runHeads (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask scale acc =
   let qi = primMm {ex} normed (primTranspose2d {ex} q.tensorPtr)
-      ki = primMm {ex} normed (primTranspose2d {ex} k.tensorPtr)
-      vi = primMm {ex} normed (primTranspose2d {ex} v.tensorPtr)
+      ki     = primMm {ex} normed (primTranspose2d {ex} k.tensorPtr)
+      vi     = primMm {ex} normed (primTranspose2d {ex} v.tensorPtr)
       scores = primMulScalar {ex} (primMm {ex} qi (primTranspose2d {ex} ki)) scale
-      attn = primSoftmax2d {ex} (primMaskedFill {ex} scores mask (-1.0e20))
-      proj = primMm {ex} (primMm {ex} attn vi) (primTranspose2d {ex} op.tensorPtr)
-      acc' = maybe proj (\prev => primAdd {ex} prev proj) acc
+      attn   = primSoftmax2d {ex} (primMaskedFill {ex} scores mask (-1.0e20))
+      proj   = primMm {ex} (primMm {ex} attn vi) (primTranspose2d {ex} op.tensorPtr)
+      acc'   = maybe proj (\prev => primAdd {ex} prev proj) acc
   in runHeads qs ks vs ops normed mask scale (Just acc')
 
 ||| Causal self-attention forward on a `[seqLen, dModel]` sequence.
@@ -93,7 +93,7 @@ attentionForward {headDim} (MkAttention qs ks vs ops) input = ioRerun (\_ =>
 -- Build `numHeads` registered weight tensors named `<kind>_<j>.weight`.
 mkHeads : {0 ex : Executor} -> Backend ex dt => {a, b : Nat} ->
           String -> (count : Nat) -> Double -> Init (Vect count (TMat a b ex dt WithGrad))
-mkHeads _ Z _ = pure []
+mkHeads _ Z _          = pure []
 mkHeads kind (S c) std = do
   name <- freshChild kind
   w <- liftIO $ tparam2dNormal {ex} {dt} {o=a} {i=b} (name ++ ".weight") 0.0 std

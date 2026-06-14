@@ -102,7 +102,7 @@ testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
   let got = bertParamNames bertTinyConfig "bert"
   in case firstMismatch got expectedBertTinyParamNames of
-       Nothing => check "all 39 param names match HF reference exactly" True
+       Nothing        => check "all 39 param names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -155,7 +155,7 @@ testConstructorRegistersHfNames = do
   registered <- readAllParamNames
   let expected = bertParamNames cfg "bert"
   case firstMismatch registered expected of
-    Nothing => check "C-side param registry matches catalogue exactly" True
+    Nothing        => check "C-side param registry matches catalogue exactly" True
     Just (i, g, e) => do
       putStrLn ("  FAIL: registry[" ++ show i ++ "] mismatch:")
       putStrLn ("    got:      " ++ g)
@@ -214,8 +214,8 @@ testForwardShapeAndFinite = do
   -- explicit Vect 3 type annotation so the literal isn't ambiguous
   -- between List and Vect at the bare-bracket level.
   let inputIds = mkIdsTensor (the (Vect 3 Double) [1.0, 2.0, 3.0])
-      posIds   = mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
-      typeIds  = mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
+      posIds  = mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
+      typeIds = mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
   out <- hfBertForward {ex=TestExecutor} {dt=TestDType}
                        {seqLen       = 3}
                        {vocab        = 4}
@@ -268,7 +268,7 @@ testMlmParamNamesMatchHfReference : IO Bool
 testMlmParamNamesMatchHfReference =
   let got = mlmHeadParamNames "cls"
   in case firstMismatch got expectedMlmHeadParamNames of
-       Nothing => check "all 5 MLM-head names match HF reference exactly" True
+       Nothing        => check "all 5 MLM-head names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: mlm[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -280,7 +280,7 @@ testMaskedLmCombinedCatalogue =
   let got = bertForMaskedLmParamNames bertTinyConfig "bert" "cls"
       expected = expectedBertTinyParamNames ++ expectedMlmHeadParamNames
   in case firstMismatch got expected of
-       Nothing => check "bertForMaskedLmParamNames concatenates correctly (44 = 39 + 5)" True
+       Nothing        => check "bertForMaskedLmParamNames concatenates correctly (44 = 39 + 5)" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: combined[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)

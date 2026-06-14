@@ -30,7 +30,7 @@ bench name iters body = do
   t0 <- clockTime Monotonic
   _  <- body iters
   t1 <- clockTime Monotonic
-  let ms = elapsedMs t0 t1
+  let ms        = elapsedMs t0 t1
   let nsPerCall = ms * 1000000.0 / cast {to=Double} (cast {to=Integer} iters)
   putStrLn (name ++ ":  " ++ show iters ++ " iters in "
                  ++ show ms ++ " ms  ("
@@ -95,9 +95,9 @@ loopAcrobot : Nat -> AState -> Double -> Double
 loopAcrobot Z     _ acc = acc
 loopAcrobot (S k) s acc =
   let (_, s', _, _) = aStep s 0
-      obs           = aObserve s'
+      obs                      = aObserve s'
       [c1, s1, c2, s2, d1, d2] = obs
-      x             = c1 + s1 + c2 + s2 + d1 + d2
+      x                        = c1 + s1 + c2 + s2 + d1 + d2
   in loopAcrobot k s' (acc + x)
 
 benchAcrobot : Nat -> IO Double
@@ -114,9 +114,9 @@ loopPendulum : Nat -> PState -> Double -> Double
 loopPendulum Z     _ acc = acc
 loopPendulum (S k) s acc =
   let (_, s', _, _) = pStep s 0.5
-      obs           = pObserve s'
-      [c, sn, dd]   = obs
-      x             = c + sn + dd
+      obs         = pObserve s'
+      [c, sn, dd] = obs
+      x           = c + sn + dd
   in loopPendulum k s' (acc + x)
 
 benchPendulum : Nat -> IO Double
@@ -131,7 +131,7 @@ taxiInit = MkT 2 2 0 3
 
 -- Cycle through actions to exercise the moveTo paths.
 loopTaxi : Nat -> TState -> Bits64 -> Double -> Double
-loopTaxi Z     _ _ acc = acc
+loopTaxi Z     _ _ acc    = acc
 loopTaxi (S k) s aIdx acc =
   let (r, s', _, _) = tStep s (cast {to=Nat} (prim__and_Bits64 aIdx 3))
   in loopTaxi k s' (aIdx + 1) (acc + r)
@@ -147,7 +147,7 @@ cwInit : CWState
 cwInit = MkCW 0 0
 
 loopCW : Nat -> CWState -> Bits64 -> Double -> Double
-loopCW Z     _ _ acc = acc
+loopCW Z     _ _ acc    = acc
 loopCW (S k) s aIdx acc =
   let (r, s', _, _) = cwStep s (cast {to=Nat} (prim__and_Bits64 aIdx 3))
   in loopCW k s' (aIdx + 1) (acc + r)

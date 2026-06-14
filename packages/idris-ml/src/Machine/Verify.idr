@@ -52,7 +52,7 @@ handleMismatch diag = do
     Just "OFF"  => pure ()
     Just "warn" => logWarn "machine check (warn): \{diag}"
     Just "WARN" => logWarn "machine check (warn): \{diag}"
-    _ => do
+    _           => do
       logError "idris-ml: machine check failed: \{diag}"
       logError "Set IDRISML_MACHINE_CHECK=warn to continue, =off to skip."
       exitFailure
@@ -73,5 +73,5 @@ requireMachine : MachineRuntimeCheck m => IO ()
 requireMachine @{check} = do
   result <- verifyHost @{check}
   case result of
-    HostMatches => pure ()
+    HostMatches       => pure ()
     HostMismatch diag => handleMismatch diag

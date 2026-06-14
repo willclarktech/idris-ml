@@ -24,11 +24,11 @@ export
 updateStats : RunStats -> Double -> RunStats
 updateStats (MkRunStats mean m2 n) x =
   let n' = S n
-      nD = cast {to=Double} (natToInteger n')
-      delta = x - mean
-      mean' = mean + delta / nD
+      nD     = cast {to=Double} (natToInteger n')
+      delta  = x - mean
+      mean'  = mean + delta / nD
       delta2 = x - mean'
-      m2' = m2 + delta * delta2
+      m2'    = m2 + delta * delta2
   in MkRunStats mean' m2' n'
 
 ||| Running variance from accumulated stats. Returns 1.0 if count < 2.
@@ -36,8 +36,8 @@ export
 variance : RunStats -> Double
 variance (MkRunStats _ m2 n) =
   case n of
-    Z => 1.0
-    S Z => 1.0
+    Z       => 1.0
+    S Z     => 1.0
     S (S _) => m2 / cast {to=Double} (natToInteger n)
 
 ----------------------------------------------------------------------

@@ -67,5 +67,5 @@ tests =
   , check "actionSpace is Discrete 6" $
       case actionSpace {state=TState} {action=Nat} {obs=Nat} of
         Discrete 6 => True
-        _ => False
+        _          => False
   ]

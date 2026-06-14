@@ -81,7 +81,7 @@ randomIdx n = do
 export
 sampleN : (n : Nat) -> ReplayBuffer obsDim actDim ->
           IO (Maybe (Vect n (Transition obsDim actDim)))
-sampleN Z _ = pure (Just [])
+sampleN Z _       = pure (Just [])
 sampleN (S k) buf = do
   sz <- readIORef buf.size
   if sz <= 0

@@ -87,8 +87,8 @@ ReversalLen = SeqLen `minus` InputLen
 catCELossVar : TVec OutputDim ExampleExecutor ExampleDType WithGrad -> TVec OutputDim ExampleExecutor ExampleDType WithGrad -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 catCELossVar predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
-      sI = cast {to=Int} SeqLen
-      skip = cast {to=Int} InputLen
+      sI     = cast {to=Int} SeqLen
+      skip   = cast {to=Int} InputLen
       revLen = sI - skip
       -- Narrow at axis 0 with ROW indices: rows `skip..skip+revLen-1`
       -- of the [seqLen, vocab] reshape. The pre-bd61bef8 (2026-05-26)
@@ -104,12 +104,12 @@ catCELossVar predV targetV = ioRerun (\_ =>
       -- (6, 8)". Fix: row indices instead of flat indices.
       logitsFull = primReshape2d {ex=ExampleExecutor} predV.tensorPtr sI vsI
       targetFull = primReshape2d {ex=ExampleExecutor} targetV.tensorPtr sI vsI
-      logitsR = primNarrow {ex=ExampleExecutor} logitsFull 0 skip revLen
-      logProbs = primLogSoftmax2d {ex=ExampleExecutor} logitsR
-      tgtsR = primNarrow {ex=ExampleExecutor} targetFull 0 skip revLen
-      product = primMul {ex=ExampleExecutor} logProbs tgtsR
-      totalSum = primSum {ex=ExampleExecutor} product
-      loss = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
+      logitsR    = primNarrow {ex=ExampleExecutor} logitsFull 0 skip revLen
+      logProbs   = primLogSoftmax2d {ex=ExampleExecutor} logitsR
+      tgtsR      = primNarrow {ex=ExampleExecutor} targetFull 0 skip revLen
+      product    = primMul {ex=ExampleExecutor} logProbs tgtsR
+      totalSum   = primSum {ex=ExampleExecutor} product
+      loss       = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
   in MkTensor loss Nothing)
 
 ----------------------------------------------------------------------
@@ -211,7 +211,7 @@ main = do
               let predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
                   expected = map (argmaxAtPtr VocabSize (targetTensor dp)) positions
                   sortPred = drop InputLen predicted
-                  sortExp = drop InputLen expected
+                  sortExp  = drop InputLen expected
               pure (countMatches sortPred sortExp)) evalData
         let totalCorrect = foldl (+) 0 (toList results)
             totalPositions = BatchSize * (SeqLen `minus` InputLen)
@@ -219,7 +219,7 @@ main = do
 
   let trainCfgBase = mkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics (\_ => pure ())
       trainCfg = case cfg.checkpointDir of
-                   "" => trainCfgBase
+                   ""  => trainCfgBase
                    dir => withCheckpoint
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
@@ -245,14 +245,14 @@ main = do
       inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor (inputTensor tdp) Nothing)
   (_, predV) <- forwardVar trained inV
   let inpT = inputTensor tdp
-      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {ex=ExampleExecutor} inpT (cast p)))) positions
+      inputDecoded  = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {ex=ExampleExecutor} inpT (cast p)))) positions
       targetDecoded = map (argmaxAtPtr VocabSize (targetTensor tdp)) positions
-      predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
-      sortCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
-      sortTotal = SeqLen `minus` InputLen
+      predicted     = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
+      sortCorrect   = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
+      sortTotal     = SeqLen `minus` InputLen
 
   let inputTokens = Data.List.take InputLen inputDecoded
-      sortTarget = drop InputLen targetDecoded
+      sortTarget    = drop InputLen targetDecoded
       sortPredicted = drop InputLen predicted
   putStr "  Input:      "
   putStrLn $ concatMap tokenName inputTokens

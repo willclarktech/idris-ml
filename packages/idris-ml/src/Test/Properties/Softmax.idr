@@ -8,7 +8,7 @@ import Test.Property
 softmax : List Double -> List Double
 softmax xs =
   case xs of
-    [] => []
+    []          => []
     (x :: rest) =>
       let m  = foldl max x rest
           ys = map (\v => exp (v - m)) xs

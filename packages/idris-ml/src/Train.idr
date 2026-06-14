@@ -34,13 +34,13 @@ parseArgs : a -> List (ArgSpec a) -> List String -> a
 parseArgs defaults specs args = go args defaults
   where
     findSpec : String -> List (ArgSpec a) -> Maybe (ArgSpec a)
-    findSpec _ [] = Nothing
+    findSpec _ []          = Nothing
     findSpec f (s :: rest) = if s.flag == f then Just s else findSpec f rest
 
     go : List String -> a -> a
-    go [] c = c
+    go [] c               = c
     go (f :: v :: rest) c = case findSpec f specs of
-      Just s => go rest (s.apply v c)
+      Just s  => go rest (s.apply v c)
       Nothing => go (v :: rest) c
     go (_ :: rest) c = go rest c
 

@@ -42,7 +42,7 @@ randomInt lo hi = do
 export
 randomBatch : SequenceTask i o -> (n : Nat) -> (minLen, maxLen : Nat)
            -> IO (List (RecurrentDataPoint i o Double))
-randomBatch task Z _ _ = pure []
+randomBatch task Z _ _               = pure []
 randomBatch task (S k) minLen maxLen = do
   len <- randomInt minLen maxLen
   dp <- task.generatePoint len
@@ -53,7 +53,7 @@ randomBatch task (S k) minLen maxLen = do
 export
 randomBatchVect : SequenceTask i o -> (n : Nat) -> (minLen, maxLen : Nat)
                -> IO (Vect n (RecurrentDataPoint i o Double))
-randomBatchVect task Z _ _ = pure []
+randomBatchVect task Z _ _               = pure []
 randomBatchVect task (S k) minLen maxLen = do
   len <- randomInt minLen maxLen
   dp <- task.generatePoint len
@@ -67,9 +67,9 @@ randomBatchVect task (S k) minLen maxLen = do
 ||| Generate a list of n random non-blank symbols (values 1..w-1)
 export
 randomSymbols : {w : Nat} -> (len : Nat) -> IO (List (Fin w))
-randomSymbols {w = Z} _ = pure []
-randomSymbols {w = S Z} _ = pure []
-randomSymbols {w = S (S k)} Z = pure []
+randomSymbols {w = Z} _           = pure []
+randomSymbols {w = S Z} _         = pure []
+randomSymbols {w = S (S k)} Z     = pure []
 randomSymbols {w = S (S k)} (S n) = do
   val <- randomInt 1 (S k)
   let sym = restrict (S k) (cast val)
@@ -86,14 +86,14 @@ randomSymbols {w = S (S k)} (S n) = do
 ||| Symbol 0 is the blank token.
 export
 copyTaskPoint : {w : Nat} -> List (Fin w) -> RecurrentDataPoint w w Double
-copyTaskPoint {w = Z} _ = MkRecurrentDataPoint [] []
+copyTaskPoint {w = Z} _          = MkRecurrentDataPoint [] []
 copyTaskPoint {w = S k} sequence =
   let len = length sequence
-      pad = Data.List.replicate len FZ
-      inp = sequence ++ pad
+      pad  = Data.List.replicate len FZ
+      inp  = sequence ++ pad
       outp = pad ++ sequence
-      xs = map (oneHotEncode {n = S k}) inp
-      ys = map (oneHotEncode {n = S k}) outp
+      xs   = map (oneHotEncode {n = S k}) inp
+      ys   = map (oneHotEncode {n = S k}) outp
       toDouble : Vector (S k) Nat -> Vector (S k) Double
       toDouble = map (fromInteger . natToInteger)
   in MkRecurrentDataPoint (map toDouble xs) (map toDouble ys)
@@ -111,8 +111,8 @@ copyTask = MkSequenceTask "copy" $ \len => do
 
 ||| Remove element at index from a list, returning the element and remaining list.
 removeAt : Nat -> List a -> Maybe (a, List a)
-removeAt _ [] = Nothing
-removeAt Z (x :: xs) = Just (x, xs)
+removeAt _ []            = Nothing
+removeAt Z (x :: xs)     = Just (x, xs)
 removeAt (S k) (x :: xs) = map (\(y, ys) => (y, x :: ys)) (removeAt k xs)
 
 ||| Fisher-Yates shuffle using selection sort (O(n^2) but n is small).
@@ -122,18 +122,18 @@ shuffleList xs = do
   let n = length xs
   idx <- randomInt 0 (minus n 1)
   case removeAt idx xs of
-    Nothing => pure xs
+    Nothing             => pure xs
     Just (picked, rest) => do
       shuffled <- shuffleList rest
       pure (picked :: shuffled)
 
 ||| Non-blank symbols: [1, 2, ..., w-1] as Fin w values.
 nonBlankSymbols : {w : Nat} -> List (Fin w)
-nonBlankSymbols {w = Z} = []
+nonBlankSymbols {w = Z}   = []
 nonBlankSymbols {w = S k} = go k
   where
     go : (m : Nat) -> List (Fin (S k))
-    go Z = []
+    go Z     = []
     go (S j) = restrict k (cast (S j)) :: go j
 
 ||| Encode an associative recall data point from key-value pairs and query order.
@@ -149,7 +149,7 @@ nonBlankSymbols {w = S k} = go k
 export
 associativeRecallPoint : {w : Nat} -> List (Fin w, Fin w) -> List (Fin w)
                        -> RecurrentDataPoint w w Double
-associativeRecallPoint {w = Z} _ _ = MkRecurrentDataPoint [] []
+associativeRecallPoint {w = Z} _ _                = MkRecurrentDataPoint [] []
 associativeRecallPoint {w = S k} pairs queryOrder =
   let blank = the (Fin (S k)) FZ
       -- Store phase: k1 v1 k2 v2 ...
@@ -162,15 +162,15 @@ associativeRecallPoint {w = S k} pairs queryOrder =
       lookup : Fin (S k) -> Fin (S k)
       lookup q = case find (\(key, _) => key == q) pairs of
                    Just (_, val) => val
-                   Nothing => blank
+                   Nothing       => blank
       -- Query phase: q1 blank q2 blank ... qK blank
       queryIn  = concatMap (\q => the (List (Fin (S k))) [q, blank]) queryOrder
       queryOut = concatMap (\q => the (List (Fin (S k))) [blank, lookup q]) queryOrder
       -- Full sequences
       inp  = storeIn ++ delimIn ++ queryIn
       outp = storeOut ++ delimOut ++ queryOut
-      xs = map (oneHotEncode {n = S k}) inp
-      ys = map (oneHotEncode {n = S k}) outp
+      xs   = map (oneHotEncode {n = S k}) inp
+      ys   = map (oneHotEncode {n = S k}) outp
       toDouble : Vector (S k) Nat -> Vector (S k) Double
       toDouble = map (fromInteger . natToInteger)
   in MkRecurrentDataPoint (map toDouble xs) (map toDouble ys)
@@ -182,8 +182,8 @@ export
 associativeRecallTask : {w : Nat} -> SequenceTask w w
 associativeRecallTask = MkSequenceTask "associative-recall" $ \len => do
   let symbols = nonBlankSymbols {w}
-  let maxK = length symbols
-  let k = min len maxK
+  let maxK    = length symbols
+  let k       = min len maxK
   shuffledSyms <- shuffleList symbols
   let keys = take k shuffledSyms
   values <- randomSymbols {w} k
@@ -197,7 +197,7 @@ associativeRecallTask = MkSequenceTask "associative-recall" $ \len => do
 
 ||| Generate a random binary vector (each element 0.0 or 1.0).
 randomBinaryVector : {w : Nat} -> IO (Vector w Double)
-randomBinaryVector {w = Z} = pure (VArray [])
+randomBinaryVector {w = Z}   = pure (VArray [])
 randomBinaryVector {w = S k} = do
   bits <- traverse (\_ => do
     b <- randomRIO (the Int32 0, 1)
@@ -209,7 +209,7 @@ randomBinaryVector {w = S k} = do
 makeDelimiter : {w : Nat} -> (channelFromEnd : Nat) -> Vector w Double
 makeDelimiter {w} pos =
   let go : (n : Nat) -> Vect n (Array [] Double)
-      go Z = []
+      go Z     = []
       go (S k) = (if k == pos then SArray 1.0 else SArray 0.0) :: go k
   in VArray (go w)
 
@@ -220,14 +220,14 @@ makeDelimiter {w} pos =
 ||| Append one element to a vector: Vector w -> Vector (S w).
 ||| Channel ordering: original elements first, new element last.
 appendElem : {w : Nat} -> Array [] Double -> Vector w Double -> Vector (S w) Double
-appendElem {w = Z} e (VArray []) = VArray [e]
+appendElem {w = Z} e (VArray [])          = VArray [e]
 appendElem {w = S k} e (VArray (x :: xs)) =
   let (VArray rest) = appendElem e (VArray xs)
   in VArray (x :: rest)
 
 ||| Generate n random binary vectors of width w.
 genBinaryRows : {w : Nat} -> (n : Nat) -> IO (List (Vector w Double))
-genBinaryRows Z = pure []
+genBinaryRows Z     = pure []
 genBinaryRows (S k) = do
   row <- randomBinaryVector {w}
   rest <- genBinaryRows k
@@ -249,7 +249,7 @@ copyTaskBinary {w} seqLen = do
 export
 copyTaskBinaryBatch : {w : Nat} -> (batchSize : Nat) -> (minLen, maxLen : Nat)
                    -> IO (List (TwoPhaseDataPoint (S w) w Double))
-copyTaskBinaryBatch Z _ _ = pure []
+copyTaskBinaryBatch Z _ _               = pure []
 copyTaskBinaryBatch (S k) minLen maxLen = do
   len <- randomInt minLen maxLen
   dp <- copyTaskBinary {w} len
@@ -260,7 +260,7 @@ copyTaskBinaryBatch (S k) minLen maxLen = do
 export
 copyTaskBinaryBatchVect : {w : Nat} -> (n : Nat) -> (minLen, maxLen : Nat)
                        -> IO (Vect n (TwoPhaseDataPoint (S w) w Double))
-copyTaskBinaryBatchVect Z _ _ = pure []
+copyTaskBinaryBatchVect Z _ _               = pure []
 copyTaskBinaryBatchVect (S k) minLen maxLen = do
   len <- randomInt minLen maxLen
   dp <- copyTaskBinary {w} len
@@ -277,7 +277,7 @@ padData2 = appendElem (SArray 0.0) . appendElem (SArray 0.0)
 
 ||| Generate a list of items, each item is seqLen binary vectors.
 genItems : {w : Nat} -> (numItems, seqLen : Nat) -> IO (List (List (Vector w Double)))
-genItems Z _ = pure []
+genItems Z _          = pure []
 genItems (S k) seqLen = do
   item <- genBinaryRows {w} seqLen
   rest <- genItems k seqLen
@@ -304,7 +304,7 @@ recallTaskBinary {w} numItems seqLen = do
       -- Build encoding: [item_delim item₁_rows] ... [item_delim itemₙ_rows]
       encItems = concatMap (\item => itemDelim :: map (padData2 {w}) item) items
       -- Query item and target (list indexing)
-      queryItem = fromMaybe [] (getAt queryIdx items)
+      queryItem  = fromMaybe [] (getAt queryIdx items)
       targetItem = fromMaybe [] (getAt (S queryIdx) items)
       -- Query phase: [query_delim] [query_item_rows] [query_delim]
       encQuery = queryDelim :: map (padData2 {w}) queryItem ++ [queryDelim]
@@ -315,7 +315,7 @@ export
 recallTaskBinaryBatchVect : {w : Nat} -> (n : Nat) -> (minItems, maxItems : Nat) ->
                            (seqLen : Nat) ->
                            IO (Vect n (TwoPhaseDataPoint (S (S w)) w Double))
-recallTaskBinaryBatchVect Z _ _ _ = pure []
+recallTaskBinaryBatchVect Z _ _ _                        = pure []
 recallTaskBinaryBatchVect (S k) minItems maxItems seqLen = do
   numItems <- randomInt (max 2 minItems) (max 2 maxItems)
   dp <- recallTaskBinary {w} numItems seqLen
@@ -338,17 +338,17 @@ reversalPoint : {inputDim, outputDim : Nat} ->
 reversalPoint vocabSize inputLen seqLen sepToken eosToken = do
   tokens <- sequence (replicate inputLen (randomInt 0 (minus vocabSize 3)))
   let revToks = reverse tokens
-      fullSeq = tokens ++ [sepToken] ++ revToks ++ [eosToken]
-      inputToks = Data.List.take seqLen fullSeq
+      fullSeq    = tokens ++ [sepToken] ++ revToks ++ [eosToken]
+      inputToks  = Data.List.take seqLen fullSeq
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
       oneHot : Nat -> List Double
       oneHot tok = map (\i => if finToNat i == tok then 1.0 else 0.0)
                        (toList (Data.Vect.Fin.range {len=vocabSize}))
-      inputFlat = concatMap oneHot inputToks
+      inputFlat  = concatMap oneHot inputToks
       targetFlat = concatMap oneHot targetToks
       toVect : (n : Nat) -> List Double -> Vect n (Scalar Double)
-      toVect Z _ = []
-      toVect (S k) [] = SArray 0.0 :: toVect k []
+      toVect Z _             = []
+      toVect (S k) []        = SArray 0.0 :: toVect k []
       toVect (S k) (x :: xs) = SArray x :: toVect k xs
   pure $ MkDataPoint (VArray (toVect inputDim inputFlat))
                      (VArray (toVect outputDim targetFlat))
@@ -359,7 +359,7 @@ reversalBatchVect : {inputDim, outputDim : Nat} ->
                     (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
                     (sepToken : Nat) -> (eosToken : Nat) ->
                     (n : Nat) -> IO (Vect n (DataPoint inputDim outputDim Double))
-reversalBatchVect _ _ _ _ _ Z = pure []
+reversalBatchVect _ _ _ _ _ Z                                       = pure []
 reversalBatchVect vocabSize inputLen seqLen sepToken eosToken (S k) = do
   dp <- reversalPoint vocabSize inputLen seqLen sepToken eosToken
   rest <- reversalBatchVect vocabSize inputLen seqLen sepToken eosToken k
@@ -367,14 +367,14 @@ reversalBatchVect vocabSize inputLen seqLen sepToken eosToken (S k) = do
 
 -- Pack a list of Nats into a C int buffer (for passing token indices to C)
 packTokens : AnyPtr -> Int -> List Nat -> AnyPtr
-packTokens buf _ [] = buf
+packTokens buf _ []              = buf
 packTokens buf off (tok :: rest) =
   let buf' = prim__setInt buf off (cast tok)
   in packTokens buf' (off + 1) rest
 
 ||| Pack token indices as doubles (for embedding-based transformer input)
 packTokensDouble : AnyPtr -> Int -> List Nat -> AnyPtr
-packTokensDouble buf _ [] = buf
+packTokensDouble buf _ []              = buf
 packTokensDouble buf off (tok :: rest) =
   packTokensDouble (prim__setDouble buf off (cast {to=Double} (natToInteger tok))) (off + 1) rest
 
@@ -388,11 +388,11 @@ reversalTensorPoint : (i : Nat) -> (o : Nat) ->
 reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
   tokens <- sequence (replicate inputLen (randomInt 0 (minus vocabSize 3)))
   let revToks = reverse tokens
-      fullSeq = tokens ++ [sepToken] ++ revToks ++ [eosToken]
-      inputToks = Data.List.take seqLen fullSeq
+      fullSeq    = tokens ++ [sepToken] ++ revToks ++ [eosToken]
+      inputToks  = Data.List.take seqLen fullSeq
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
-      sI = cast {to=Int} seqLen
-      vI = cast {to=Int} vocabSize
+      sI         = cast {to=Int} seqLen
+      vI         = cast {to=Int} vocabSize
       -- Input: token indices as doubles [seqLen]. Routed through the
       -- dtype-aware creator so mlx-gpu (F32-only) doesn't get an F64
       -- buffer pushed onto a Metal stream (which mlx aborts with
@@ -409,7 +409,7 @@ reversalTensorBatchVect : (i : Nat) -> (o : Nat) ->
                           (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
                           (sepToken : Nat) -> (eosToken : Nat) ->
                           (n : Nat) -> IO (Vect n (TensorDataPoint i o))
-reversalTensorBatchVect _ _ _ _ _ _ _ Z = pure []
+reversalTensorBatchVect _ _ _ _ _ _ _ Z                                       = pure []
 reversalTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken (S k) = do
   dp <- reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken
   rest <- reversalTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken k
@@ -425,13 +425,13 @@ sortingTensorPoint : (i : Nat) -> (o : Nat) ->
 sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
   tokens <- sequence (replicate inputLen (randomInt 0 (minus vocabSize 3)))
   let sorted = Data.List.sort tokens
-      fullSeq = tokens ++ [sepToken] ++ sorted ++ [eosToken]
-      inputToks = Data.List.take seqLen fullSeq
+      fullSeq    = tokens ++ [sepToken] ++ sorted ++ [eosToken]
+      inputToks  = Data.List.take seqLen fullSeq
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
-      sI = cast {to=Int} seqLen
-      vI = cast {to=Int} vocabSize
+      sI         = cast {to=Int} seqLen
+      vI         = cast {to=Int} vocabSize
       -- See reversalTensorPoint for the dtype rationale.
-      inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
+      inT       = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
   pure $ MkTensorDataPoint inT (primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
@@ -441,7 +441,7 @@ sortingTensorBatchVect : (i : Nat) -> (o : Nat) ->
                          (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
                          (sepToken : Nat) -> (eosToken : Nat) ->
                          (n : Nat) -> IO (Vect n (TensorDataPoint i o))
-sortingTensorBatchVect _ _ _ _ _ _ _ Z = pure []
+sortingTensorBatchVect _ _ _ _ _ _ _ Z                                       = pure []
 sortingTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken (S k) = do
   dp <- sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken
   rest <- sortingTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken k

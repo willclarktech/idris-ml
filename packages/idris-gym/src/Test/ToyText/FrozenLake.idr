@@ -18,11 +18,11 @@ outcomeOf (_, _, o, _) = o
 -- Start at position 0. Action = right (2). With slip, 1/3 chance each of
 -- intended/left-perpendicular/right-perpendicular.
 countRights : Seed -> Nat -> Nat -> Nat
-countRights _ Z acc = acc
+countRights _ Z acc        = acc
 countRights seed (S k) acc =
   let (st, _) = initFL True seed
-      r = flStep st 2
-      s' = stateOf r
+      r    = flStep st 2
+      s'   = stateOf r
       acc' = if s'.flPos == 1 then S acc else acc
       -- Advance seed to get independent trials
       (_, seed') = nextDouble seed
@@ -62,5 +62,5 @@ tests =
   , check "obsSpace Discrete 16" $
       case obsSpace {state=FLState} {action=Nat} {obs=Nat} of
         Discrete 16 => True
-        _ => False
+        _           => False
   ]

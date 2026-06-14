@@ -111,15 +111,15 @@ sampleActionIO actor logStdV obs = do
   eps <- normalSample
   let u = mean + std * eps
       action = Math.tanh u * MaxAction
-      lp_u = -0.5 * ((u - mean) / std) * ((u - mean) / std) - logStd - logTwoPiHalf
-      lp = lp_u - squashCorrection u
+      lp_u   = -0.5 * ((u - mean) / std) * ((u - mean) / std) - logStd - logTwoPiHalf
+      lp     = lp_u - squashCorrection u
   pure (action, lp)
 
 sampleActionsBatched : {n : Nat} -> ActorNet -> Tensor [] Ex F WithGrad ->
                        Vect n PState -> IO (Vect n Double)
 sampleActionsBatched actor logStdV envs = do
   let obsRows : Vect n (Vector ObsDim Double)
-      obsRows = map (\s => obsTensor (observeVec s)) envs
+      obsRows  = map (\s => obsTensor (observeVec s)) envs
       batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
       stateV : Tensor [n, ObsDim] Ex F WithGrad
       stateV = MkTensor batchPtr Nothing
@@ -130,7 +130,7 @@ sampleActionsBatched actor logStdV envs = do
   where
     go : {n : Nat} -> Tensor [n, 1] Ex F WithGrad ->
          Double -> Int -> Vect k PState -> IO (Vect k Double)
-    go _ _ _ [] = pure []
+    go _ _ _ []                = pure []
     go meanB std i (_ :: rest) = do
       let mean = primItem2d {ex=Ex} meanB.tensorPtr i 0
       eps <- normalSample
@@ -231,7 +231,7 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
   let qInputs = the (Vect n (Vector QInputDim Double))
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)
       qInputBT = bulkToTensor2d {ex=Ex} {dt=F} qInputs
-      qInputV = the (Tensor [n, QInputDim] Ex F WithGrad) (MkTensor qInputBT Nothing)
+      qInputV  = the (Tensor [n, QInputDim] Ex F WithGrad) (MkTensor qInputBT Nothing)
   qOutB <- forwardSeq {b=n} qOnline qInputV
   losses <- go qOutB (toList targetVals) 0
   meanScalarLoss n losses
@@ -239,7 +239,7 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
     oneAct : Vect ActDim Double -> Double
     oneAct [a] = a
     go : {n : Nat} -> Tensor [n, 1] Ex F WithGrad -> List Double -> Int -> IO (List (Tensor [] Ex F WithGrad))
-    go _ [] _ = pure []
+    go _ [] _               = pure []
     go qOutB (tv :: rest) k = do
       l <- perSampleQLoss qOutB tv k
       ls <- go qOutB rest (k + 1)
@@ -311,7 +311,7 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
          Tensor [n, 1] Ex F WithGrad -> Tensor [n, 1] Ex F WithGrad ->
          Tensor [n, 1] Ex F WithGrad -> Tensor [n, 1] Ex F WithGrad ->
          List Double -> Int -> IO (List (Tensor [] Ex F WithGrad))
-    go _ _ _ _ [] _ = pure []
+    go _ _ _ _ [] _                    = pure []
     go meanB uBT q1B q2B (_ :: rest) k = do
       l <- actorPerStepLoss meanB uBT q1B q2B logStdV alpha k
       ls <- go meanB uBT q1B q2B rest (k + 1)
@@ -343,13 +343,13 @@ runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
 -- per-env step counter hitting EpisodeLen.
 stepAllAutoResetP : Vect n PState -> Vect n Double -> Vect n Nat ->
                     (Vect n PState, Vect n Double, Vect n Bool, Vect n Nat)
-stepAllAutoResetP [] [] [] = ([], [], [], [])
+stepAllAutoResetP [] [] []                      = ([], [], [], [])
 stepAllAutoResetP (s :: ss) (a :: as) (l :: ls) =
   case pStep s a of
     (r, s', _, _) =>
       let isDone = (l + 1) >= EpisodeLen
-          nextS  = if isDone then MkP 3.141592653589793 0.0 else s'
-          nextL  = the Nat (if isDone then 0 else l + 1)
+          nextS = if isDone then MkP 3.141592653589793 0.0 else s'
+          nextL = the Nat (if isDone then 0 else l + 1)
       in case stepAllAutoResetP ss as ls of
            (rest, rs, ds, restL) =>
              (nextS :: rest, r :: rs, isDone :: ds, nextL :: restL)
@@ -387,7 +387,7 @@ sacStepBatched q1Opt q2Opt actorOpt cfg st = do
              then do
                mBatch <- sampleN cfg.batchSize st.buffer
                case mBatch of
-                 Nothing => pure ()
+                 Nothing    => pure ()
                  Just batch => do
                    runBatchUpdate q1Opt q2Opt actorOpt st cfg batch
                    _ <- polyakUpdate {ex=Ex} cfg.tau "q1_" "q1tgt_"
@@ -399,20 +399,20 @@ sacStepBatched q1Opt q2Opt actorOpt cfg st = do
       pure (st, negate lastEp)
   where
     zipWith3 : (a -> b -> c -> d) -> Vect n a -> Vect n b -> Vect n c -> Vect n d
-    zipWith3 _ [] [] [] = []
+    zipWith3 _ [] [] []                      = []
     zipWith3 f (x :: xs) (y :: ys) (z :: zs) = f x y z :: zipWith3 f xs ys zs
 
     getCompleted : List Double -> List Double -> List Bool -> List Double
-    getCompleted [] _ _ = []
-    getCompleted _ [] _ = []
-    getCompleted _ _ [] = []
+    getCompleted [] _ _                            = []
+    getCompleted _ [] _                            = []
+    getCompleted _ _ []                            = []
     getCompleted (run :: rs) (rw :: rws) (d :: ds) =
       let recur = getCompleted rs rws ds
       in if d then (run + rw) :: recur else recur
 
     pushAll : Vect n PState -> Vect n Double -> Vect n Double ->
               Vect n PState -> Vect n Bool -> IO ()
-    pushAll [] [] [] [] [] = pure ()
+    pushAll [] [] [] [] []                                      = pure ()
     pushAll (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d :: ds) = do
       push st.buffer (MkTransition (observeVec s) [a] r (observeVec s') d)
       pushAll ss as rs ss' ds
@@ -425,14 +425,14 @@ greedyAct actor obs = do
   pure (Math.tanh mean * MaxAction)
 
 evalEp : ActorNet -> PState -> Nat -> Double -> IO Double
-evalEp _ _ Z acc = pure acc
+evalEp _ _ Z acc          = pure acc
 evalEp actor st (S k) acc = do
   a <- greedyAct actor (observeVec st)
   case pStep st a of
     (r, st', _, _) => evalEp actor st' k (acc + r)
 
 evalN : ActorNet -> Nat -> Double -> IO Double
-evalN _ Z acc = pure acc
+evalN _ Z acc         = pure acc
 evalN actor (S k) acc = do
   v <- withNoGrad {ex=Ex} (evalEp actor (MkP 3.141592653589793 0.0) EpisodeLen 0.0)
   evalN actor k (acc + v)

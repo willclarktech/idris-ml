@@ -39,18 +39,18 @@ StepRec = (AnyPtr, Double, Double)
 export
 rolloutEp : Policy -> CPState -> List Double -> Nat ->
             List StepRec -> IO (List StepRec)
-rolloutEp _ _ _ Z acc = pure (reverse acc)
-rolloutEp _ _ [] _ acc = pure (reverse acc)
+rolloutEp _ _ _ Z acc                  = pure (reverse acc)
+rolloutEp _ _ [] _ acc                 = pure (reverse acc)
 rolloutEp model st (r :: rs) (S k) acc = do
   let stateT = bulkToTensor2d {ex=Ex} {dt=F} [observe st]
       stateV = the (Tensor [1, 4] Ex F WithGrad) (MkTensor stateT Nothing)
   predV <- forwardSeq {b=1} model stateV
   let logProbsT = primLogSoftmax2d {ex=Ex} predV.tensorPtr
-      lp0 = primItem2d {ex=Ex} logProbsT 0 0
-      lp1 = primItem2d {ex=Ex} logProbsT 0 1
-      action = categoricalSample [exp lp0, exp lp1] r
-      rowPtr = primSelect {ex=Ex} logProbsT 0 0
-      selLP = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
+      lp0      = primItem2d {ex=Ex} logProbsT 0 0
+      lp1      = primItem2d {ex=Ex} logProbsT 0 1
+      action   = categoricalSample [exp lp0, exp lp1] r
+      rowPtr   = primSelect {ex=Ex} logProbsT 0 0
+      selLP    = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
       selLPVal = if action == 0 then lp0 else lp1
   case cpStep st action of
     (reward, st', outcome, _) =>
@@ -85,16 +85,16 @@ rolloutEpBatched model (MkVecEnv states0) rss0 maxSteps = do
     perEnv : Tensor [n, 2] Ex F WithGrad -> Int ->
              CPState -> List Double -> Bool -> List StepRec ->
              (CPState, List Double, Bool, List StepRec)
-    perEnv _         _ st rs  True  acc = (st, rs, True, acc)
-    perEnv _         _ st []  _     acc = (st, [], True, acc)
+    perEnv _         _ st rs  True  acc       = (st, rs, True, acc)
+    perEnv _         _ st []  _     acc       = (st, [], True, acc)
     perEnv logProbsV i st (r :: rs) False acc =
       let logProbsT = logProbsV.tensorPtr
-          lp0       = primItem2d {ex=Ex} logProbsT i 0
-          lp1       = primItem2d {ex=Ex} logProbsT i 1
-          action    = categoricalSample [exp lp0, exp lp1] r
-          rowPtr    = primSelect {ex=Ex} logProbsT 0 i
-          selLP     = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
-          selLPVal  = if action == 0 then lp0 else lp1
+          lp0      = primItem2d {ex=Ex} logProbsT i 0
+          lp1      = primItem2d {ex=Ex} logProbsT i 1
+          action   = categoricalSample [exp lp0, exp lp1] r
+          rowPtr   = primSelect {ex=Ex} logProbsT 0 i
+          selLP    = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
+          selLPVal = if action == 0 then lp0 else lp1
       in case cpStep st action of
            (reward, st', outcome, _) =>
              (st', rs, done outcome, (selLP, selLPVal, reward) :: acc)
@@ -104,7 +104,7 @@ rolloutEpBatched model (MkVecEnv states0) rss0 maxSteps = do
                   Vect k CPState -> Vect k (List Double) -> Vect k Bool ->
                   Vect k (List StepRec) ->
                   (Vect k CPState, Vect k (List Double), Vect k Bool, Vect k (List StepRec))
-    stepAllEnvs _         _ []         []         []         []         = ([], [], [], [])
+    stepAllEnvs _         _ []         []         []         []             = ([], [], [], [])
     stepAllEnvs logProbsV i (st :: sts) (rs :: rss) (d :: ds) (acc :: accs) =
       let (st', rs', d', acc') = perEnv logProbsV i st rs d acc
           (sts', rss', ds', accs') = stepAllEnvs logProbsV (i + 1) sts rss ds accs
@@ -115,12 +115,12 @@ rolloutEpBatched model (MkVecEnv states0) rss0 maxSteps = do
          Vect n CPState -> Vect n (List Double) -> Vect n Bool ->
          Vect n (List StepRec) ->
          IO (Vect n (List StepRec))
-    go Z _ _ _ accs = pure accs
+    go Z _ _ _ accs             = pure accs
     go (S k) sts rss dones accs =
       if all id (toList dones) then pure accs
       else do
         let obsRows : Vect n (Vector 4 Double)
-            obsRows = map observe sts
+            obsRows  = map observe sts
             batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
             stateV : Tensor [n, 4] Ex F WithGrad
             stateV = MkTensor batchPtr Nothing
@@ -138,7 +138,7 @@ discReturns : Double -> List Double -> List Double
 discReturns gamma rewards = reverse (go 0.0 (reverse rewards))
   where
     go : Double -> List Double -> List Double
-    go _ [] = []
+    go _ []        = []
     go g (r :: rs) = let g' = r + gamma * g in g' :: go g' rs
 
 -- Compute per-episode step losses with advantage. Each loss is a
@@ -159,12 +159,12 @@ sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 -- fresh zero scalar (degenerate; runs only if the rollout produced no
 -- steps).
 averageLoss : List (Tensor [] Ex F WithGrad) -> Tensor [] Ex F WithGrad
-averageLoss [] = MkTensor (dtCreateScalar {ex=Ex} {t=F} 0.0 0 (deviceStreamTag {ex=Ex})) Nothing
+averageLoss []        = MkTensor (dtCreateScalar {ex=Ex} {t=F} 0.0 0 (deviceStreamTag {ex=Ex})) Nothing
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
       addT : Tensor [] Ex F WithGrad -> Tensor [] Ex F WithGrad -> Tensor [] Ex F WithGrad
       addT a b = MkTensor (primAdd {ex=Ex} a.tensorPtr b.tensorPtr) Nothing
-      s = foldl addT x xs
+      s        = foldl addT x xs
   in MkTensor (primMulScalar {ex=Ex} s.tensorPtr (1.0 / n)) Nothing
 
 computeLoss : Double -> Policy -> List (List Double) ->
@@ -172,8 +172,8 @@ computeLoss : Double -> Policy -> List (List Double) ->
 computeLoss gamma model randomBatch = do
   episodes <- traverse (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
   let epReturns = map sumRewards episodes
-      nEp = cast {to=Double} (natToInteger (List.length epReturns))
-      baseline = foldl (+) 0.0 epReturns / nEp
+      nEp        = cast {to=Double} (natToInteger (List.length epReturns))
+      baseline   = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) episodes
   pure (averageLoss stepLosses, baseline)
 
@@ -186,9 +186,9 @@ computeLossBatched gamma model randomBatchV = do
                               (cast resetSeedI))
   epsV  <- rolloutEpBatched model initEnvs randomBatchV MaxSteps
   let eps   = toList epsV
-      epReturns = map sumRewards eps
-      nEp = cast {to=Double} (natToInteger (List.length epReturns))
-      baseline = foldl (+) 0.0 epReturns / nEp
+      epReturns  = map sumRewards eps
+      nEp        = cast {to=Double} (natToInteger (List.length epReturns))
+      baseline   = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) eps
   pure (averageLoss stepLosses, baseline)
 
@@ -214,28 +214,28 @@ genBatch : Nat -> IO (List (List Double))
 genBatch batchSz = go batchSz
   where
     genN : Nat -> IO (List Double)
-    genN Z = pure []
+    genN Z     = pure []
     genN (S k) = do
       r <- randomRIO (the Double 0.0, 1.0)
       rs <- genN k
       pure (r :: rs)
 
     go : Nat -> IO (List (List Double))
-    go Z = pure []
+    go Z     = pure []
     go (S k) = do
       ep <- genN MaxSteps
       rest <- go k
       pure (ep :: rest)
 
 genBatchV : (n : Nat) -> IO (Vect n (List Double))
-genBatchV Z = pure []
+genBatchV Z     = pure []
 genBatchV (S k) = do
   ep <- go MaxSteps
   rest <- genBatchV k
   pure (ep :: rest)
   where
     go : Nat -> IO (List Double)
-    go Z = pure []
+    go Z      = pure []
     go (S k') = do
       r <- randomRIO (the Double 0.0, 1.0)
       rs <- go k'
@@ -246,7 +246,7 @@ genBatchV (S k) = do
 ----------------------------------------------------------------------
 
 evalEp : Policy -> CPState -> Nat -> Double -> IO Double
-evalEp _ _ Z acc = pure acc
+evalEp _ _ Z acc          = pure acc
 evalEp model st (S k) acc = do
   let stateT = bulkToTensor2d {ex=Ex} {dt=F} [observe st]
       stateV = the (Tensor [1, 4] Ex F WithGrad) (MkTensor stateT Nothing)
@@ -259,7 +259,7 @@ evalEp model st (S k) acc = do
       else evalEp model st' k (acc + reward)
 
 evalN : Policy -> Nat -> Double -> IO Double
-evalN _ Z acc = pure acc
+evalN _ Z acc         = pure acc
 evalN model (S k) acc = do
   v <- evalEp model (MkCP 0 0 0 0) MaxSteps 0.0
   evalN model k (acc + v)

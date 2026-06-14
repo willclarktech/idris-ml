@@ -36,14 +36,14 @@ mkMask2d : {m, n : Nat} -> Vect (m * n) Double
         -> IO (Tensor [m, n] TestExecutor TestDType WithGrad)
 mkMask2d {m} {n} xs = do
   let mn = cast {to=Int} (m * n)
-      buf = prim__allocDoubles mn
+      buf  = prim__allocDoubles mn
       buf' = fill buf 0 xs
   tparam2d {ex=TestExecutor} {dt=TestDType} {o=m} {i=n}
            ("attnmask_test_" ++ show m ++ "x" ++ show n)
            buf'
   where
     fill : AnyPtr -> Int -> Vect k Double -> AnyPtr
-    fill b _ [] = b
+    fill b _ []            = b
     fill b off (v :: rest) =
       let b' = prim__setDouble b off v
       in fill b' (off + 1) rest

@@ -84,7 +84,7 @@ qNextH : List (Double, Double)
 qNextH = [(0.3, 0.7), (0.6, 0.2), (0.1, 0.4), (0.8, 0.5)]
 
 packBuf : List Double -> AnyPtr -> Int -> AnyPtr
-packBuf [] b _ = b
+packBuf [] b _        = b
 packBuf (x :: xs) b o = packBuf xs (prim__setDouble b o x) (o + 1)
 
 mkParam42 : String -> IO (Tensor [4, 2] TestExecutor TestDType WithGrad)
@@ -160,9 +160,9 @@ tdLossAcceptance = do
   wNew <- mkParam42 "tdl_w_new"
   lOr <- oracleLoss wOr
   lNew <- exprLoss wNew
-  let vOr = tensorItem lOr
+  let vOr  = tensorItem lOr
   let vNew = tensorItem lNew
-  Just iOr <- findParam "tdl_w_or" | Nothing => check "tdl_w_or registered" False
+  Just iOr <- findParam "tdl_w_or" | Nothing   => check "tdl_w_or registered" False
   Just iNew <- findParam "tdl_w_new" | Nothing => check "tdl_w_new registered" False
   primIO (primParamZeroAll {ex=TestExecutor})
   runBackward lOr
@@ -193,7 +193,7 @@ nllLossMeanOracle = do
   let pred = the (Tensor [2, 3] TestExecutor TestDType WithGrad) (retypeGrad pred0)
   let tgt  = the (Tensor [2, 3] TestExecutor TestDType WithGrad) (retypeGrad tgt0)
   l <- tnllLossMean {b=2} {n=3} pred tgt
-  let v = tensorItem l
+  let v        = tensorItem l
   let expected = log 3.0 / 3.0
   check ("tnllLossMean uniform-logits oracle = log(3)/3 (got " ++ show v ++ ")")
         (abs (v - expected) < 1.0e-9)

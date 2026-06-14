@@ -99,7 +99,7 @@ charToIdx : Char -> Int
 charToIdx c = go (unpack vocabChars) 0
   where
     go : List Char -> Int -> Int
-    go [] _ = 1  -- unknown -> space
+    go [] _          = 1  -- unknown -> space
     go (h :: rest) i =
       if h == c then i else go rest (i + 1)
 
@@ -108,8 +108,8 @@ idxToChar i =
   let n = the Nat (cast i)
       chars = unpack vocabChars
       go : List Char -> Nat -> Char
-      go [] _ = ' '
-      go (c :: _) Z = c
+      go [] _              = ' '
+      go (c :: _) Z        = c
       go (_ :: rest) (S k) = go rest k
   in go chars n
 
@@ -121,12 +121,12 @@ listSlice : List a -> Nat -> Nat -> List a
 listSlice xs start n = Data.List.take n (drop start xs)
 
 packDoubleBuf : AnyPtr -> Int -> List Int -> AnyPtr
-packDoubleBuf buf _ [] = buf
+packDoubleBuf buf _ []          = buf
 packDoubleBuf buf off (x :: xs) =
   packDoubleBuf (prim__setDouble buf off (cast x)) (off + 1) xs
 
 packIntBuf : AnyPtr -> Int -> List Int -> AnyPtr
-packIntBuf buf _ [] = buf
+packIntBuf buf _ []          = buf
 packIntBuf buf off (x :: xs) =
   packIntBuf (prim__setInt buf off x) (off + 1) xs
 
@@ -136,18 +136,18 @@ gptTensorPoint corpus corpusLen = do
   let maxStart = minus corpusLen (SeqLen + 1)
   startN <- randomInt 0 (cast maxStart)
   let start = the Nat (cast startN)
-      window = listSlice corpus start (SeqLen + 1)
-      inputToks = Data.List.take SeqLen window
+      window     = listSlice corpus start (SeqLen + 1)
+      inputToks  = Data.List.take SeqLen window
       targetToks = Data.List.take SeqLen (drop 1 window)
-      sI = cast {to=Int} SeqLen
-      vI = cast {to=Int} VocabSize
-      inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
-      tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
+      sI         = cast {to=Int} SeqLen
+      vI         = cast {to=Int} VocabSize
+      inT        = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
+      tgtIdxBuf  = packIntBuf (prim__allocInts sI) 0 targetToks
   pure $ MkTensorDataPoint inT (primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 gptBatchVect : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) ->
                IO (Vect n (TensorDataPoint InputDim OutputDim))
-gptBatchVect _ _ Z = pure []
+gptBatchVect _ _ Z                  = pure []
 gptBatchVect corpus corpusLen (S k) = do
   dp <- gptTensorPoint corpus corpusLen
   rest <- gptBatchVect corpus corpusLen k
@@ -163,13 +163,13 @@ gptBatchVect corpus corpusLen (S k) = do
 allPositionsCELoss : TVec OutputDim ExampleExecutor ExampleDType WithGrad -> TVec OutputDim ExampleExecutor ExampleDType WithGrad -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 allPositionsCELoss predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
-      sI = cast {to=Int} SeqLen
-      logitsR = primReshape2d {ex=ExampleExecutor} predV.tensorPtr sI vsI
+      sI       = cast {to=Int} SeqLen
+      logitsR  = primReshape2d {ex=ExampleExecutor} predV.tensorPtr sI vsI
       logProbs = primLogSoftmax2d {ex=ExampleExecutor} logitsR
-      tgtsR = primReshape2d {ex=ExampleExecutor} targetV.tensorPtr sI vsI
-      product = primMul {ex=ExampleExecutor} logProbs tgtsR
+      tgtsR    = primReshape2d {ex=ExampleExecutor} targetV.tensorPtr sI vsI
+      product  = primMul {ex=ExampleExecutor} logProbs tgtsR
       totalSum = primSum {ex=ExampleExecutor} product
-      loss = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} SeqLen)
+      loss     = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
 
 ----------------------------------------------------------------------
@@ -180,7 +180,7 @@ generateText : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGr
                String -> Nat -> Double -> IO String
 generateText model seed genLen temperature = do
   let seedIdxs = map charToIdx (unpack seed)
-      padLen = minus SeqLen (length seedIdxs)
+      padLen  = minus SeqLen (length seedIdxs)
       context = replicate padLen (the Int 1) ++ Data.List.take SeqLen seedIdxs
   chars <- go model context genLen []
   pure (seed ++ pack chars)
@@ -198,9 +198,9 @@ generateText model seed genLen temperature = do
     sampleAt : AnyPtr -> Nat -> List Double
     sampleAt outT pos =
       let vsI = cast {to=Int} VocabSize
-          sI = cast {to=Int} SeqLen
+          sI      = cast {to=Int} SeqLen
           logitsR = primReshape2d {ex=ExampleExecutor} outT sI vsI
-          posI = cast {to=Int} (natToInteger pos)
+          posI    = cast {to=Int} (natToInteger pos)
       in map (\j => exp (primItem2d {ex=ExampleExecutor} logitsR posI (cast j) / temperature))
              vocabIdxs
 
@@ -212,18 +212,18 @@ generateText model seed genLen temperature = do
 
     go : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
          List Int -> Nat -> List Char -> IO (List Char)
-    go _ _ Z acc = pure (reverse acc)
+    go _ _ Z acc       = pure (reverse acc)
     go m ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
           inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0 (deviceStreamTag {ex=ExampleExecutor})
           inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
       (_, predV) <- forwardVar m inV
       let unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
-          totSum = foldl (+) 0.0 unnorm
-          probs = map (/ totSum) unnorm
+          totSum  = foldl (+) 0.0 unnorm
+          probs   = map (/ totSum) unnorm
           bestIdx = argmax probs
-          ch = idxToChar bestIdx
-          ctx' = drop 1 ctx ++ [bestIdx]
+          ch      = idxToChar bestIdx
+          ctx'    = drop 1 ctx ++ [bestIdx]
       go m ctx' k (ch :: acc)
 
 ----------------------------------------------------------------------
@@ -237,21 +237,21 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
     singleBPC : Nat -> IO Double
     singleBPC start = do
       let window = listSlice corpus start (SeqLen + 1)
-          inputToks = Data.List.take SeqLen window
+          inputToks  = Data.List.take SeqLen window
           targetToks = Data.List.take SeqLen (drop 1 window)
-          sI = cast {to=Int} SeqLen
-          vI = cast {to=Int} VocabSize
-          inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
-          tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-          tgtT = primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
-          inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
-          tgtV = the (TVec OutputDim ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
+          sI         = cast {to=Int} SeqLen
+          vI         = cast {to=Int} VocabSize
+          inT        = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
+          tgtIdxBuf  = packIntBuf (prim__allocInts sI) 0 targetToks
+          tgtT       = primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
+          inV        = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
+          tgtV       = the (TVec OutputDim ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
       (_, predV) <- forwardVar model inV
       lossT <- allPositionsCELoss predV tgtV
       pure (primItem {ex=ExampleExecutor} lossT.tensorPtr / log 2.0)
 
     go : Nat -> Double -> IO Double
-    go Z acc = pure acc
+    go Z acc     = pure acc
     go (S k) acc = do
       let maxStart = minus corpusLen (SeqLen + 1)
           pos = div (k * maxStart) nSamples
@@ -266,12 +266,12 @@ tinyshakespearePath : String
 tinyshakespearePath = "data/tinyshakespeare/input.txt"
 
 loadCorpusText : String -> IO String
-loadCorpusText "embedded" = pure embeddedCorpus
+loadCorpusText "embedded"        = pure embeddedCorpus
 loadCorpusText "tinyshakespeare" = do
   result <- readFile tinyshakespearePath
   case result of
     Right contents => pure contents
-    Left err => do
+    Left err       => do
       putStrLn $ "WARNING: could not read " ++ tinyshakespearePath
               ++ " (" ++ show err ++ "); falling back to embedded corpus."
       putStrLn $ "         Run `make dataset-tinyshakespeare` from the repo root."
@@ -283,7 +283,7 @@ loadCorpusText other = do
 trainValSplit : (valFrac : Double) -> List Int -> (List Int, List Int)
 trainValSplit valFrac idx =
   let n = length idx
-      nVal = the Nat (cast (cast {to=Double} (natToInteger n) * valFrac))
+      nVal   = the Nat (cast (cast {to=Double} (natToInteger n) * valFrac))
       nTrain = minus n nVal
   in (Data.List.take nTrain idx, drop nTrain idx)
 
@@ -355,7 +355,7 @@ main = do
           then (allIndices, allIndices)
           else trainValSplit 0.1 allIndices
       trainLen = length trainIndices
-      valLen = length valIndices
+      valLen   = length valIndices
 
   putStrLn "=== GPT: Character-Level Language Model ==="
   putStrLn $ "Config: corpus=" ++ cfg.corpus
@@ -376,7 +376,7 @@ main = do
   putStrLn ""
 
   let warmupEpochs : Nat = min 100 (div cfg.epochs 10)
-      minLR    : Double = cfg.lr * 0.1
+      minLR    : Double   = cfg.lr * 0.1
       schedule : Schedule = cosineWithWarmup cfg.lr minLR warmupEpochs cfg.epochs
   epochRef <- newIORef Z
 
@@ -405,7 +405,7 @@ main = do
                        evalMetrics
                        noOpHook
       trainCfg = case cfg.checkpointDir of
-                   "" => trainCfgBase
+                   ""  => trainCfgBase
                    dir => withCheckpoint
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase

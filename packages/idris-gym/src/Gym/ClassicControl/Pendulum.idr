@@ -36,7 +36,7 @@ export
 pStep : PState -> Double -> (Double, PState, Outcome, Info)
 pStep s action =
   let torque = clamp (negate MaxTorque) MaxTorque action
-      th = s.pTheta
+      th  = s.pTheta
       dth = s.pThetaDot
       -- Use the angle-normalized theta for the reward only.
       thNorm = angleNormalize th
@@ -47,7 +47,7 @@ pStep s action =
       dth1 = dth + (3.0 * Gravity / (2.0 * PoleLen) * prim__doubleSin th
                   + 3.0 / (MassPole * PoleLen * PoleLen) * torque) * Dt
       dth2 = clamp (negate MaxSpeed) MaxSpeed dth1
-      th1 = th + dth2 * Dt
+      th1  = th + dth2 * Dt
   in (reward, MkP th1 dth2, Continue, [])
 
 ||| Observation: [cos(theta), sin(theta), theta_dot].
@@ -70,9 +70,9 @@ pReset s0 =
 
 public export
 Env PState Double (Vect 3 Double) where
-  reset = pReset
-  step = pStep
-  observe = pObserve
-  actionSpace = Box [negate MaxTorque] [MaxTorque]
-  obsSpace = Box [-1.0, -1.0, negate MaxSpeed] [1.0, 1.0, MaxSpeed]
+  reset            = pReset
+  step             = pStep
+  observe          = pObserve
+  actionSpace      = Box [negate MaxTorque] [MaxTorque]
+  obsSpace         = Box [-1.0, -1.0, negate MaxSpeed] [1.0, 1.0, MaxSpeed]
   defaultTimeLimit = Just 200

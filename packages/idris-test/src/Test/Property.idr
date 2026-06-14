@@ -105,8 +105,8 @@ checkPropertyIO name gen body = do
     loop Z     _  = pure True
     loop (S k) se =
       let (s0, s1) = split se
-          ct       = runGen sampleSize s0 gen
-          x        = ct.value
+          ct = runGen sampleSize s0 gen
+          x  = ct.value
        in do
          pass <- body x
          if pass
@@ -132,8 +132,8 @@ checkPropertyIOn name numRuns gen body = do
     loop Z     _  = pure True
     loop (S k) se =
       let (s0, s1) = split se
-          ct       = runGen sampleSize s0 gen
-          x        = ct.value
+          ct = runGen sampleSize s0 gen
+          x  = ct.value
        in do
          pass <- body x
          if pass

@@ -45,7 +45,7 @@ tests =
 
   , check "reward is in {-1, 0, 1}" $
       let (s, _) = initBJ 42
-          r = bjStep s 0
+          r  = bjStep s 0
           rw = rewardOf r
       in rw == -1.0 || rw == 0.0 || rw == 1.0
 
@@ -57,5 +57,5 @@ tests =
   , check "actionSpace Discrete 2" $
       case actionSpace {state=BJState} {action=Nat} {obs=Vect 3 Double} of
         Discrete 2 => True
-        _ => False
+        _          => False
   ]

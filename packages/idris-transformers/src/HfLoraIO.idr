@@ -69,7 +69,7 @@ peftToIdrisName name =
   if isPrefixOf peftPrefix name && isSuffixOf peftSuffix name
     then
       let preLen = length peftPrefix
-          sufLen = length peftSuffix
+          sufLen  = length peftSuffix
           dropped = substr (cast preLen) (length name `minus` (preLen + sufLen)) name
       in Just dropped
     else Nothing
@@ -140,8 +140,8 @@ extractScalar : String -> String -> Maybe String
 extractScalar key src = do
   rest <- afterNeedle (unpack ("\"" ++ key ++ "\"")) (unpack src)
   let afterColon = drop 1 (dropWhile (/= ':') rest)
-      tok        = takeWhile (\c => c /= ',' && c /= '}' && c /= '\n') afterColon
-      cleaned    = filter (\c => not (isSpace c) && c /= '"') tok
+      tok     = takeWhile (\c => c /= ',' && c /= '}' && c /= '\n') afterColon
+      cleaned = filter (\c => not (isSpace c) && c /= '"') tok
   pure (pack cleaned)
 
 -- Split a List Char by separator into List (List Char).
@@ -159,10 +159,10 @@ extractArray : String -> String -> Maybe (List String)
 extractArray key src = do
   rest <- afterNeedle (unpack ("\"" ++ key ++ "\"")) (unpack src)
   let afterColon = drop 1 (dropWhile (/= '[') rest)
-      tok        = takeWhile (/= ']') afterColon
-      pieces     = splitChars ',' tok
-      stripped   = map (pack . filter (\c => c /= '"' && not (isSpace c))) pieces
-      nonempty   = filter (\s => s /= "") stripped
+      tok      = takeWhile (/= ']') afterColon
+      pieces   = splitChars ',' tok
+      stripped = map (pack . filter (\c => c /= '"' && not (isSpace c))) pieces
+      nonempty = filter (\s => s /= "") stripped
   pure nonempty
 
 ----------------------------------------------------------------------
@@ -188,7 +188,7 @@ saveLoraAdapter outputDir cfg = do
   cfgOk <- writeFile (outputDir ++ "/adapter_config.json")
                      (renderAdapterConfig cfg)
   case cfgOk of
-    Left _ => pure False
+    Left _   => pure False
     Right () => do
       let safePath = outputDir ++ "/adapter_model.safetensors"
       saveModelMatchingRenamed {ex} safePath
@@ -218,7 +218,7 @@ loadLoraAdapter : (outputDir : String)
 loadLoraAdapter outputDir = do
   res <- readFile (outputDir ++ "/adapter_config.json")
   case res of
-    Left _ => pure (Left ("could not read adapter_config.json at " ++ outputDir))
+    Left _         => pure (Left ("could not read adapter_config.json at " ++ outputDir))
     Right contents =>
       case ( extractScalar "r" contents
            , extractScalar "lora_alpha" contents

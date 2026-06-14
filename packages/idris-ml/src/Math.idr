@@ -114,7 +114,7 @@ export
 huberLoss : (FromDouble ty, Neg ty, Fractional ty, Ord ty) => (delta : Double) -> LossFunction ty
 huberLoss delta = reduceLoss (\p, y =>
   let d = p - y
-      absD = max d (negate d)
+      absD   = max d (negate d)
       deltaT = fromDouble delta
   in if absD <= deltaT then fromDouble 0.5 * absD * absD
      else deltaT * (absD - fromDouble 0.5 * deltaT))
@@ -157,7 +157,7 @@ argmax (VArray v@(x::xs)) =
     maxIndex current next =
       let
         (SArray currentValue) = Data.Vect.index current v
-        (SArray nextValue) = Data.Vect.index next xs
+        (SArray nextValue)    = Data.Vect.index next xs
       -- Prioritise earlier value
       in if nextValue > currentValue
         -- Need to convert from index of xs to index of v
@@ -236,14 +236,14 @@ softmaxMatrix (VArray rows) = VArray $ map (\row => softmax row) rows
 ||| Element-wise clamp minimum.
 export
 clampMinArray : (Num ty, Ord ty) => ty -> Array dims ty -> Array dims ty
-clampMinArray minVal (SArray x) = SArray (max minVal x)
+clampMinArray minVal (SArray x)  = SArray (max minVal x)
 clampMinArray minVal (VArray xs) = VArray (map (clampMinArray minVal) xs)
 
 ||| Reshape flat vector to matrix: Vector (m * n) -> Matrix m n.
 ||| Type-safe: uses Array.splitAt which unifies (S k)*n = n + (k*n) via Refl.
 export
 reshapeToMatrix : {m, n : Nat} -> Vector (m * n) ty -> Matrix m n ty
-reshapeToMatrix {m = Z} _ = VArray []
+reshapeToMatrix {m = Z} _         = VArray []
 reshapeToMatrix {m = S k} {n} vec =
   let (row, rest) = Array.splitAt n vec  -- (S k)*n = n + (k*n) by definition
   in VArray (row :: case reshapeToMatrix {m=k} {n} rest of VArray rows => rows)
@@ -252,7 +252,7 @@ reshapeToMatrix {m = S k} {n} vec =
 ||| Type-safe: (S k)*n = n + (k*n) lets us concatenate Vects directly.
 export
 flattenMatrix : {m, n : Nat} -> Matrix m n ty -> Vector (m * n) ty
-flattenMatrix {m = Z} _ = VArray []  -- 0 * n = 0 by definition
+flattenMatrix {m = Z} _                                   = VArray []  -- 0 * n = 0 by definition
 flattenMatrix {m = S k} {n} (VArray (VArray row :: rest)) =
   let VArray restFlat = flattenMatrix {m=k} {n} (VArray rest)
   in VArray (row ++ restFlat)  -- n + (k*n) = (S k)*n by definition
@@ -288,8 +288,8 @@ layerNormMatrix {m} {n} (VArray rows) gamma beta eps =
     normRow row =
       let mu = sum row / nf
           centered = map (\x => x - mu) row
-          var = sum (map (\x => x * x) centered) / nf
-          invStd = fromDouble 1.0 / sqrt (var + eps)
+          var      = sum (map (\x => x * x) centered) / nf
+          invStd   = fromDouble 1.0 / sqrt (var + eps)
           -- gamma * (x - mean) * invStd + beta
       in zipWith (*) gamma (map (* invStd) centered) + beta
 
@@ -306,7 +306,7 @@ countBits (VArray preds) (VArray targets) = go preds targets 0 0
     sigD : Double -> Double
     sigD x = 1.0 / (1.0 + exp (negate x))
     go : Vect k (Scalar Double) -> Vect k (Scalar Double) -> Nat -> Nat -> (Nat, Nat)
-    go [] [] c t = (c, t)
+    go [] [] c t                                 = (c, t)
     go (SArray p :: ps') (SArray tgt :: ts') c t =
       let predBit = if sigD p >= 0.5 then 1.0 else 0.0
           match : Nat
@@ -319,8 +319,8 @@ bitAccuracy : {w : Nat} -> List (Vector w Double) -> List (Vector w Double) -> D
 bitAccuracy preds targets = go preds targets 0 0
   where
     go : List (Vector w Double) -> List (Vector w Double) -> Nat -> Nat -> Double
-    go [] _ c t = if t == 0 then 0.0 else cast c / cast t
-    go _ [] c t = if t == 0 then 0.0 else cast c / cast t
+    go [] _ c t                    = if t == 0 then 0.0 else cast c / cast t
+    go _ [] c t                    = if t == 0 then 0.0 else cast c / cast t
     go (p :: ps) (tgt :: tgts) c t =
       let res = countBits p tgt
       in go ps tgts (c + fst res) (t + snd res)

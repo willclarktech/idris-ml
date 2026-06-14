@@ -70,7 +70,7 @@ paramNormalVaries = do
   where
     head' : List Double -> Double
     head' (x :: _) = x
-    head' [] = 0.0
+    head' []       = 0.0
 
 uniformWithinBounds : IO Bool
 uniformWithinBounds = do

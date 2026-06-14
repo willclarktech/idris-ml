@@ -38,7 +38,7 @@ defaultConfig : Config
 defaultConfig = MkConfig 2048 5
 
 parseArgs : Config -> List String -> Config
-parseArgs cfg [] = cfg
+parseArgs cfg []                      = cfg
 parseArgs cfg ("--size" :: x :: rest) =
   parseArgs ({size := the Nat (cast (the Int (cast x)))} cfg) rest
 parseArgs cfg ("--iters" :: x :: rest) =
@@ -51,7 +51,7 @@ parseArgs cfg (_ :: rest) = parseArgs cfg rest
 buildMatrix : (n : Nat) -> AnyPtr
 buildMatrix n =
   let nI = the Int (cast n)
-      buf = prim__allocDoubles (nI * nI)
+      buf  = prim__allocDoubles (nI * nI)
       buf' = prim__setDouble buf 0 0.5
   in dtCreateState2d {ex=ExampleExecutor} {t=ExampleDType} nI nI buf' (deviceStreamTag {ex=ExampleExecutor})
 
@@ -65,9 +65,9 @@ diffMs t1 t0 =
 fmt2 : Double -> String
 fmt2 x =
   let scaled = the Integer (cast (x * 100.0))
-      whole  = scaled `div` 100
-      frac   = abs (scaled `mod` 100)
-      fracS  = if frac < 10 then "0" ++ show frac else show frac
+      whole = scaled `div` 100
+      frac  = abs (scaled `mod` 100)
+      fracS = if frac < 10 then "0" ++ show frac else show frac
   in show whole ++ "." ++ fracS
 
 -- Force an mlx-side eval of a tensor handle. `prim__item` on the
@@ -81,7 +81,7 @@ forceEval h = do
 -- (mlx is lazy by default — without per-iter eval it fuses across the
 -- whole loop and we'd time graph build, not the work).
 loopMatmul : Nat -> AnyPtr -> AnyPtr -> IO ()
-loopMatmul Z _ _ = pure ()
+loopMatmul Z _ _     = pure ()
 loopMatmul (S k) a b = do
   let c = primMm {ex=ExampleExecutor} a b
   forceEval c

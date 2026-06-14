@@ -21,7 +21,7 @@ collapseBlanks : List String -> List String
 collapseBlanks = go False
   where
     go : (prevBlank : Bool) -> List String -> List String
-    go _ [] = []
+    go _ []                = []
     go prevBlank (l :: ls) =
       let blank = l == "" in
       if blank && prevBlank
@@ -46,7 +46,7 @@ hygiene src =
 sortImportsSafe : String -> String
 sortImportsSafe src =
   case sortImports src of
-    Nothing => src
+    Nothing   => src
     Just cand => if safeImportSort src cand then cand else src
 
 ||| Apply one alignment pass, gated by `safeReformat` (pure spacing, so the

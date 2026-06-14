@@ -127,7 +127,7 @@ testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
   let got = hfBitnetParamNames bitnet2B4T_Config "model"
   in case firstMismatch got expectedBitnet2B4T_ParamNames of
-       Nothing => check "all 542 param names match HF reference exactly" True
+       Nothing        => check "all 542 param names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)

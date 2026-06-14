@@ -60,12 +60,12 @@ stepAutoReset seed0 (MkVecEnv ss) acts =
   where
     walk : {k : Nat} -> Seed -> Vect k (Double, state, Outcome, Info) ->
            (Vect k state, Vect k obs, Vect k Double, Vect k Outcome, Seed)
-    walk seed [] = ([], [], [], [], seed)
+    walk seed []                        = ([], [], [], [], seed)
     walk seed ((r, s', out, _) :: rest) =
       let (s'', seedNext) =
             case out of
               Continue => (s', seed)
               _        => reset {state} {action} {obs} seed
-          o = observe {state} {action} {obs} s''
+          o                            = observe {state} {action} {obs} s''
           (ss', os, rs, outs, seedEnd) = walk seedNext rest
       in (s'' :: ss', o :: os, r :: rs, out :: outs, seedEnd)

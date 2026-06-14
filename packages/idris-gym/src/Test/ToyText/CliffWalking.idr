@@ -57,5 +57,5 @@ tests =
   , check "actionSpace is Discrete 4" $
       case actionSpace {state=CWState} {action=Nat} {obs=Nat} of
         Discrete 4 => True
-        _ => False
+        _          => False
   ]

@@ -34,9 +34,9 @@ tests =
 
   -- logSoftmax = log(softmax)
   , let xs = the (Vector 3 Double) (VArray [SArray 1.0, SArray 2.0, SArray 3.0])
-        lsm = logSoftmax xs
-        sm = softmax xs
-        expected = map Floating.log sm
+        lsm                                        = logSoftmax xs
+        sm                                         = softmax xs
+        expected                                   = map Floating.log sm
         (VArray [SArray e0, SArray e1, SArray e2]) = expected
         (VArray [SArray a0, SArray a1, SArray a2]) = lsm
     in checkClose "logSoftmax matches log(softmax)" (abs (e0 - a0) + abs (e1 - a1) + abs (e2 - a2)) 0.0 1.0e-10
@@ -46,8 +46,8 @@ tests =
 
   -- matrixVectorMultiply
   , let mat = the (Matrix 2 2 Double) (VArray [VArray [SArray 1.0, SArray 2.0], VArray [SArray 3.0, SArray 4.0]])
-        v = the (Vector 2 Double) (VArray [SArray 5.0, SArray 6.0])
-        result = matrixVectorMultiply mat v
+        v                               = the (Vector 2 Double) (VArray [SArray 5.0, SArray 6.0])
+        result                          = matrixVectorMultiply mat v
         (VArray [SArray r0, SArray r1]) = result
     in check "matrixVectorMultiply" (abs (r0 - 17.0) < tol && abs (r1 - 39.0) < tol)
 
@@ -85,7 +85,7 @@ tests =
 
   -- logSoftmax stability with large inputs
   , let xs = the (Vector 3 Double) (VArray [SArray 1000.0, SArray 1001.0, SArray 1002.0])
-        lsm = logSoftmax xs
+        lsm                        = logSoftmax xs
         (VArray [SArray a0, _, _]) = lsm
     in check "logSoftmax stable with large inputs" (a0 == a0)  -- not NaN
 

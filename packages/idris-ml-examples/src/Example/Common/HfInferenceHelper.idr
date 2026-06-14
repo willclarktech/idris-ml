@@ -115,7 +115,7 @@ dumpRowToFile path nElems ptr = do
   xs <- collectShown nElems 0 ptr
   res <- writeFile path (unlines xs)
   case res of
-    Right () => pure ()
+    Right ()  => pure ()
     Left  err =>
       putStrLn ("ERR: writeFile " ++ path ++ ": " ++ show err)
 
@@ -143,8 +143,8 @@ extractNumTokens dflt args = go args
     go : List String -> Nat
     go ("--num-tokens" :: n :: _) =
       fromMaybe dflt (parsePositive {a=Nat} n)
-    go (_ :: rest)                = go rest
-    go []                         = dflt
+    go (_ :: rest) = go rest
+    go []          = dflt
 
 ----------------------------------------------------------------------
 -- Stage timer

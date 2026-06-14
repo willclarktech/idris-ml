@@ -24,11 +24,11 @@ runOneStep : NativeOptimizer TestExecutor -> GradScaler TestExecutor TestDType -
              IO Double
 runOneStep opt gs = do
   let wptr = primCreateScalar {ex=TestExecutor} 0.5 1
-  let wT = the (Tensor [] TestExecutor TestDType WithGrad)
+  let wT   = the (Tensor [] TestExecutor TestDType WithGrad)
               (MkTensor wptr (Just "w_state_machine_test"))
   _ <- pure $ primParamRegister {ex=TestExecutor} "w_state_machine_test" wptr
   let xptr = primCreateScalar {ex=TestExecutor} 3.0 0
-  let xT = the (Tensor [] TestExecutor TestDType WithGrad)
+  let xT   = the (Tensor [] TestExecutor TestDType WithGrad)
               (MkTensor xptr Nothing)
   loss <- pure $ MkTensor (primMul {ex=TestExecutor} wT.tensorPtr xT.tensorPtr) Nothing
   scaled <- applyScale gs (the (Tensor [] TestExecutor TestDType WithGrad) loss)

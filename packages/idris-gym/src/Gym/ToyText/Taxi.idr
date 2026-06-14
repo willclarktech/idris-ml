@@ -102,9 +102,9 @@ tStep s action =
     moveTo : Integer -> Integer -> (Double, TState, Outcome, Info)
     moveTo rI cI =
       let rn = clampRow rI
-          cn = clampCol cI
+          cn          = clampCol cI
           blockedMove = blocked s.tRow s.tCol rn cn
-          s' = if blockedMove then s else { tRow := rn, tCol := cn } s
+          s'          = if blockedMove then s else { tRow := rn, tCol := cn } s
       in (-1.0, s', Continue, [])
 
     pickup : (Double, TState, Outcome, Info)
@@ -128,9 +128,9 @@ tObserve = encode
 
 public export
 Env TState Nat Nat where
-  reset = tReset
-  step = tStep
-  observe = tObserve
-  actionSpace = Discrete 6
-  obsSpace = Discrete 500
+  reset            = tReset
+  step             = tStep
+  observe          = tObserve
+  actionSpace      = Discrete 6
+  obsSpace         = Discrete 500
   defaultTimeLimit = Just 200

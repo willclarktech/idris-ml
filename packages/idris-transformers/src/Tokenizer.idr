@@ -148,7 +148,7 @@ probeVocab repo = do
   let cmd = buildCmd repo "vocab" ""
   r <- runCapture cmd
   case r of
-    Left err => pure (Left err)
+    Left err  => pure (Left err)
     Right raw => case parsePositive (trim raw) of
       Nothing => pure (Left (TokParseFail raw))
       Just n  => pure (Right n)

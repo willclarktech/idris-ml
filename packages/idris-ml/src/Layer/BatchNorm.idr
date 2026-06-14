@@ -59,7 +59,7 @@ applyBatchNorm {channels} {spatialDim}
   let cI = cast {to=Int} channels
       sI = cast {to=Int} spatialDim
       tFlag : Int
-      tFlag = if training then 1 else 0
+      tFlag  = if training then 1 else 0
       outPtr = primBatchNorm {ex} input.tensorPtr gamma.tensorPtr beta.tensorPtr
                               mean.tensorPtr var.tensorPtr
                               cI sI tFlag momentum eps
@@ -71,7 +71,7 @@ applyBatchNorm {channels} {spatialDim}
 
 -- Fill a buffer with a constant value.
 fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
-fillConst buf _ 0 _ = buf
+fillConst buf _ 0 _   = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
@@ -122,7 +122,7 @@ public export
 {channels, spatialDim : Nat} ->
   LayerLike (BatchNormState channels spatialDim) where
   applyVar st@(MkBatchNorm _ _ _ _ _ _ _) input = applyBatchNorm st input
-  layerPrefix _ = "bn"
+  layerPrefix _                                 = "bn"
 
   freezeLayer (MkBatchNorm g b m v t mo e) = do
     g' <- weakenGrad g

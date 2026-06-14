@@ -33,7 +33,7 @@ mcStep s action =
       pos1 = s.mcPos + vel2
       pos2 = clamp MinPosition MaxPosition pos1
       -- If we hit the left wall, velocity resets to 0
-      vel3 = if pos2 == MinPosition && vel2 < 0.0 then 0.0 else vel2
+      vel3       = if pos2 == MinPosition && vel2 < 0.0 then 0.0 else vel2
       terminated = pos2 >= GoalPosition
   in (-1.0, MkMC pos2 vel3,
       if terminated then Terminated else Continue,
@@ -54,9 +54,9 @@ mcReset s0 =
 
 public export
 Env MCState Nat (Vect 2 Double) where
-  reset = mcReset
-  step = mcStep
-  observe = mcObserve
-  actionSpace = Discrete 3
-  obsSpace = Box [MinPosition, negate MaxSpeed] [MaxPosition, MaxSpeed]
+  reset            = mcReset
+  step             = mcStep
+  observe          = mcObserve
+  actionSpace      = Discrete 3
+  obsSpace         = Box [MinPosition, negate MaxSpeed] [MaxPosition, MaxSpeed]
   defaultTimeLimit = Just 200

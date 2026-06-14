@@ -16,7 +16,7 @@ data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -
   MkLin : Tensor [2] ex dt g -> Lin i o ex dt g
 
 Params Lin where
-  params (MkLin w) = [toParam w]
+  params (MkLin w)   = [toParam w]
   castGrad (MkLin w) = MkLin (retypeGrad w)
 
 -- Smart constructor: registers one param under the Init-derived name.

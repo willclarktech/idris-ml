@@ -87,7 +87,7 @@ encodeBJ s =
           uaN = integerToNat uaI
           idx = psN * 20 + dsN * 2 + uaN
       in case natToFin idx NumStates of
-           Just f => f
+           Just f  => f
            Nothing => FZ
 
 ----------------------------------------------------------------------
@@ -100,7 +100,7 @@ epsGreedy eps qr u1 u2 =
     then let idx : Nat
              idx = integerToNat (cast (u2 * cast NumActions))
          in case natToFin idx NumActions of
-              Just f => f
+              Just f  => f
               Nothing => FZ
     else argmax qr
 
@@ -112,9 +112,9 @@ epsGreedy eps qr u1 u2 =
 playHand : Double -> QTable -> BJState -> Nat -> List Double ->
            List (Fin NumStates, Fin NumActions) ->
            (List (Fin NumStates, Fin NumActions), Double)
-playHand _ _ _ Z _ acc = (reverse acc, 0.0)
-playHand _ _ _ _ [] acc = (reverse acc, 0.0)
-playHand _ _ _ _ [_] acc = (reverse acc, 0.0)
+playHand _ _ _ Z _ acc                             = (reverse acc, 0.0)
+playHand _ _ _ _ [] acc                            = (reverse acc, 0.0)
+playHand _ _ _ _ [_] acc                           = (reverse acc, 0.0)
 playHand eps q st (S steps) (u1 :: u2 :: rest) acc =
   let sIdx = encodeBJ st
       aFin = epsGreedy eps (tRow sIdx q) u1 u2
@@ -135,7 +135,7 @@ playHand eps q st (S steps) (u1 :: u2 :: rest) acc =
 applyVisits : List (Fin NumStates, Fin NumActions) ->
               List (Fin NumStates, Fin NumActions) ->
               Double -> MCModel -> MCModel
-applyVisits [] _ _ m = m
+applyVisits [] _ _ m                       = m
 applyVisits ((s, a) :: rest) seen g (q, n) =
   if any (\(s', a') => finToNat s == finToNat s' && finToNat a == finToNat a') seen
     then applyVisits rest seen g (q, n)
@@ -176,7 +176,7 @@ epochMC : Config -> MCModel -> EpochInput -> (MCModel, Double)
 epochMC cfg (q, n) (MkEI envSeed noise) =
   let (st0, _) = initBJ envSeed
       (traj, reward) = playHand cfg.epsilon q st0 MaxSteps noise []
-      (q', n') = applyVisits traj [] reward (q, n)
+      (q', n')       = applyVisits traj [] reward (q, n)
   in ((q', n'), negate reward)
 
 ----------------------------------------------------------------------
@@ -184,7 +184,7 @@ epochMC cfg (q, n) (MkEI envSeed noise) =
 ----------------------------------------------------------------------
 
 genNoise : Nat -> IO (List Double)
-genNoise Z = pure []
+genNoise Z     = pure []
 genNoise (S k) = do
   u <- randomRIO (the Double 0.0, 1.0)
   rest <- genNoise k
@@ -207,7 +207,7 @@ genInput = do
 ----------------------------------------------------------------------
 
 evalHand : QTable -> BJState -> Nat -> Double
-evalHand _ _ Z = 0.0
+evalHand _ _ Z      = 0.0
 evalHand q st (S k) =
   let sIdx = encodeBJ st
       aNat = finToNat (argmax (tRow sIdx q))
@@ -218,7 +218,7 @@ evalHand q st (S k) =
            _        => reward
 
 evalN : QTable -> Nat -> Bits64 -> Double -> Double -> IO Double
-evalN _ Z _ wins played = pure (wins / played)
+evalN _ Z _ wins played           = pure (wins / played)
 evalN q (S k) envSeed wins played = do
   s <- genSeed
   let r = evalHand q (fst (initBJ s)) MaxSteps

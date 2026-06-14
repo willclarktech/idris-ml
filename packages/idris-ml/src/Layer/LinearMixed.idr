@@ -86,8 +86,8 @@ LayerLikeMixed LinearMixedState where
 ||| via `tcastUnsafe`.
 export
 mixedLinearLayer : UserExecutorTraining ex =>
-                   RuntimeDType paramDt => RuntimeDType computeDt =>
-                   Linked ex =>
+                   RuntimeDType paramDt  => RuntimeDType computeDt =>
+                   Linked ex             =>
                    Compatible ex paramDt => Compatible ex computeDt =>
                    {i, o : Nat} -> (paramPrefix : String) ->
                    IO (LinearMixedState i o ex paramDt computeDt WithGrad)
@@ -103,8 +103,8 @@ mixedLinearLayer pfx = do
 ||| `NetworkMixed`.
 export
 mixedLinearLayerAny : UserExecutorTraining ex =>
-                      RuntimeDType paramDt => RuntimeDType computeDt =>
-                      Linked ex =>
+                      RuntimeDType paramDt  => RuntimeDType computeDt =>
+                      Linked ex             =>
                       Compatible ex paramDt => Compatible ex computeDt =>
                       {i, o : Nat} -> (paramPrefix : String) ->
                       IO (AnyLayerMixed i o ex paramDt computeDt WithGrad)

@@ -32,7 +32,7 @@ prim__indexArrayGet : AnyPtr -> Int -> Int
 ||| Replaces the ad-hoc recursive IO pattern used by most examples.
 export
 mkGeneratorLoader : {n : Nat} -> IO dp -> IO (Vect n dp)
-mkGeneratorLoader {n = Z} _ = pure []
+mkGeneratorLoader {n = Z} _     = pure []
 mkGeneratorLoader {n = S k} gen = do
   x <- gen
   rest <- mkGeneratorLoader gen
@@ -44,7 +44,7 @@ mkGeneratorLoader {n = S k} gen = do
 
 ||| Fetch n items from a C index array, calling getItem for each.
 fetchN : AnyPtr -> Int -> (n : Nat) -> (Nat -> IO dp) -> IO (Vect n dp)
-fetchN _ _ Z _ = pure []
+fetchN _ _ Z _           = pure []
 fetchN arr pos (S k) get = do
   let idx = prim__indexArrayGet arr pos
   item <- get (cast {to=Nat} (cast {to=Integer} idx))

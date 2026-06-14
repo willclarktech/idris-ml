@@ -18,7 +18,7 @@ Module Id where
   forward MkId x = pure x
 
 Params Id where
-  params MkId = []
+  params MkId   = []
   castGrad MkId = MkId
 
 -- Concrete-typed identity value — mirrors a real layer smart constructor

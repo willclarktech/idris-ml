@@ -45,7 +45,7 @@ paramsMixedExposed : IO Bool
 paramsMixedExposed = do
   w <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} "lmp.w" (Const 0.5)
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lmp.b" (Const 1.0)
-  let lyr = the (LinearMixed 3 2 TestExecutor TestDType TestDType WithGrad) (MkLinearMixed w b)
+  let lyr   = the (LinearMixed 3 2 TestExecutor TestDType TestDType WithGrad) (MkLinearMixed w b)
   let names = mapMaybe paramName (paramsMixed lyr)
   check ("ParamsMixed (LinearMixed) exposes weight + bias (got " ++ show names ++ ")")
         (names == ["lmp.w", "lmp.b"])
@@ -69,7 +69,7 @@ masterGradFlows : IO Bool
 masterGradFlows = do
   w <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 2]} "lmg.w" (Const 0.5)
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}    "lmg.b" (Const 0.0)
-  let lyr = the (LinearMixed 2 1 TestExecutor TestDType TestDType WithGrad) (MkLinearMixed w b)
+  let lyr    = the (LinearMixed 2 1 TestExecutor TestDType TestDType WithGrad) (MkLinearMixed w b)
   let before = primItem2d {ex=TestExecutor} w.tensorPtr 0 0
   x0   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} (Const 1.0)
   tgt0 <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 1]} (Const 0.0)

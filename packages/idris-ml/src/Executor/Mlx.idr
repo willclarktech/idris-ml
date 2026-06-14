@@ -150,28 +150,28 @@ public export
                        MGpu => "mlx:gpu"
                        MCpu => "mlx:cpu"
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primAbs a0 = prim__absMlxStreamed a0 (streamTag s)
-  primAdd a0 a1 = prim__addMlxStreamed a0 a1 (streamTag s)
-  primAddScalar a0 a1 = prim__addScalarMlxStreamed a0 a1 (streamTag s)
-  primClamp a0 a1 a2 = prim__clampMlxStreamed a0 a1 a2 (streamTag s)
-  primClampMin a0 a1 = prim__clampMinMlxStreamed a0 a1 (streamTag s)
-  primClone a0 = prim__cloneMlxStreamed a0 (streamTag s)
+  primAbs a0             = prim__absMlxStreamed a0 (streamTag s)
+  primAdd a0 a1          = prim__addMlxStreamed a0 a1 (streamTag s)
+  primAddScalar a0 a1    = prim__addScalarMlxStreamed a0 a1 (streamTag s)
+  primClamp a0 a1 a2     = prim__clampMlxStreamed a0 a1 a2 (streamTag s)
+  primClampMin a0 a1     = prim__clampMinMlxStreamed a0 a1 (streamTag s)
+  primClone a0           = prim__cloneMlxStreamed a0 (streamTag s)
   primCreateScalar a0 a1 = prim__createScalarMlxStreamed a0 a1 (streamTag s)
-  primDiv a0 a1 = prim__divMlxStreamed a0 a1 (streamTag s)
-  primExp a0 = prim__expMlxStreamed a0 (streamTag s)
-  primFree a0 = prim__freeMlxStreamed a0 (streamTag s)
-  primItem a0 = prim__itemMlxStreamed a0 (streamTag s)
-  primItem1d a0 a1 = prim__item1dMlxStreamed a0 a1 (streamTag s)
-  primLog a0 = prim__logMlxStreamed a0 (streamTag s)
-  primMul a0 a1 = prim__mulMlxStreamed a0 a1 (streamTag s)
-  primMulScalar a0 a1 = prim__mulScalarMlxStreamed a0 a1 (streamTag s)
-  primNeg a0 = prim__negMlxStreamed a0 (streamTag s)
-  primPow a0 a1 = prim__powMlxStreamed a0 a1 (streamTag s)
-  primRound a0 = prim__roundMlxStreamed a0 (streamTag s)
-  primSigmoid a0 = prim__sigmoidMlxStreamed a0 (streamTag s)
-  primSqrt a0 = prim__sqrtMlxStreamed a0 (streamTag s)
-  primSub a0 a1 = prim__subMlxStreamed a0 a1 (streamTag s)
-  primTanh a0 = prim__tanhMlxStreamed a0 (streamTag s)
+  primDiv a0 a1          = prim__divMlxStreamed a0 a1 (streamTag s)
+  primExp a0             = prim__expMlxStreamed a0 (streamTag s)
+  primFree a0            = prim__freeMlxStreamed a0 (streamTag s)
+  primItem a0            = prim__itemMlxStreamed a0 (streamTag s)
+  primItem1d a0 a1       = prim__item1dMlxStreamed a0 a1 (streamTag s)
+  primLog a0             = prim__logMlxStreamed a0 (streamTag s)
+  primMul a0 a1          = prim__mulMlxStreamed a0 a1 (streamTag s)
+  primMulScalar a0 a1    = prim__mulScalarMlxStreamed a0 a1 (streamTag s)
+  primNeg a0             = prim__negMlxStreamed a0 (streamTag s)
+  primPow a0 a1          = prim__powMlxStreamed a0 a1 (streamTag s)
+  primRound a0           = prim__roundMlxStreamed a0 (streamTag s)
+  primSigmoid a0         = prim__sigmoidMlxStreamed a0 (streamTag s)
+  primSqrt a0            = prim__sqrtMlxStreamed a0 (streamTag s)
+  primSub a0 a1          = prim__subMlxStreamed a0 a1 (streamTag s)
+  primTanh a0            = prim__tanhMlxStreamed a0 (streamTag s)
   -- <<< END GENERATED <<<
 
 public export
@@ -293,41 +293,41 @@ prim__cumprodMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
 public export
 {s : MlxStream} -> UserExecutorLinear (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primArgsort a0 a1 a2 = prim__argsortMlxStreamed a0 a1 a2 (streamTag s)
-  primBmm a0 a1 = prim__bmmMlxStreamed a0 a1 (streamTag s)
-  primCat a0 a1 a2 = prim__catMlxStreamed a0 a1 a2 (streamTag s)
-  primCat2 a0 a1 = prim__cat2MlxStreamed a0 a1 (streamTag s)
-  primConcat2dAxis1 a0 a1 = prim__concat2dAxis1MlxStreamed a0 a1 (streamTag s)
-  primCumprod a0 a1 = prim__cumprodMlxStreamed a0 a1 (streamTag s)
-  primDot a0 a1 = prim__dotMlxStreamed a0 a1 (streamTag s)
-  primGather a0 a1 a2 = prim__gatherMlxStreamed a0 a1 a2 (streamTag s)
-  primGatherRows a0 a1 a2 a3 = prim__gatherRowsMlxStreamed a0 a1 a2 a3 (streamTag s)
-  primLinear a0 a1 a2 = prim__linearMlxStreamed a0 a1 a2 (streamTag s)
-  primLinear2d a0 a1 a2 = prim__linear2dMlxStreamed a0 a1 a2 (streamTag s)
-  primMatmul a0 a1 = prim__matmulMlxStreamed a0 a1 (streamTag s)
-  primMaxRows a0 a1 a2 = prim__maxRowsMlxStreamed a0 a1 a2 (streamTag s)
-  primMean a0 = prim__meanMlxStreamed a0 (streamTag s)
-  primMm a0 a1 = prim__mmMlxStreamed a0 a1 (streamTag s)
-  primMv a0 a1 = prim__mvMlxStreamed a0 a1 (streamTag s)
-  primNarrow a0 a1 a2 a3 = prim__narrowMlxStreamed a0 a1 a2 a3 (streamTag s)
-  primOuter a0 a1 = prim__outerMlxStreamed a0 a1 (streamTag s)
-  primReshape1d a0 a1 = prim__reshape1dMlxStreamed a0 a1 (streamTag s)
-  primReshape2d a0 a1 a2 = prim__reshape2dMlxStreamed a0 a1 a2 (streamTag s)
-  primReshape3d a0 a1 a2 a3 = prim__reshape3dMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primArgsort a0 a1 a2         = prim__argsortMlxStreamed a0 a1 a2 (streamTag s)
+  primBmm a0 a1                = prim__bmmMlxStreamed a0 a1 (streamTag s)
+  primCat a0 a1 a2             = prim__catMlxStreamed a0 a1 a2 (streamTag s)
+  primCat2 a0 a1               = prim__cat2MlxStreamed a0 a1 (streamTag s)
+  primConcat2dAxis1 a0 a1      = prim__concat2dAxis1MlxStreamed a0 a1 (streamTag s)
+  primCumprod a0 a1            = prim__cumprodMlxStreamed a0 a1 (streamTag s)
+  primDot a0 a1                = prim__dotMlxStreamed a0 a1 (streamTag s)
+  primGather a0 a1 a2          = prim__gatherMlxStreamed a0 a1 a2 (streamTag s)
+  primGatherRows a0 a1 a2 a3   = prim__gatherRowsMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primLinear a0 a1 a2          = prim__linearMlxStreamed a0 a1 a2 (streamTag s)
+  primLinear2d a0 a1 a2        = prim__linear2dMlxStreamed a0 a1 a2 (streamTag s)
+  primMatmul a0 a1             = prim__matmulMlxStreamed a0 a1 (streamTag s)
+  primMaxRows a0 a1 a2         = prim__maxRowsMlxStreamed a0 a1 a2 (streamTag s)
+  primMean a0                  = prim__meanMlxStreamed a0 (streamTag s)
+  primMm a0 a1                 = prim__mmMlxStreamed a0 a1 (streamTag s)
+  primMv a0 a1                 = prim__mvMlxStreamed a0 a1 (streamTag s)
+  primNarrow a0 a1 a2 a3       = prim__narrowMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primOuter a0 a1              = prim__outerMlxStreamed a0 a1 (streamTag s)
+  primReshape1d a0 a1          = prim__reshape1dMlxStreamed a0 a1 (streamTag s)
+  primReshape2d a0 a1 a2       = prim__reshape2dMlxStreamed a0 a1 a2 (streamTag s)
+  primReshape3d a0 a1 a2 a3    = prim__reshape3dMlxStreamed a0 a1 a2 a3 (streamTag s)
   primReshape4d a0 a1 a2 a3 a4 = prim__reshape4dMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
-  primScatterAdd a0 a1 a2 = prim__scatterAddMlxStreamed a0 a1 a2 (streamTag s)
-  primSelect a0 a1 a2 = prim__selectMlxStreamed a0 a1 a2 (streamTag s)
-  primSqueeze a0 a1 = prim__squeezeMlxStreamed a0 a1 (streamTag s)
-  primStack a0 a1 a2 = prim__stackMlxStreamed a0 a1 a2 (streamTag s)
-  primSum a0 = prim__sumMlxStreamed a0 (streamTag s)
-  primSumDim a0 a1 a2 = prim__sumDimMlxStreamed a0 a1 a2 (streamTag s)
-  primTensorMax a0 = prim__tensorMaxMlxStreamed a0 (streamTag s)
-  primTensorMin a0 = prim__tensorMinMlxStreamed a0 (streamTag s)
-  primTranspose2d a0 = prim__transpose2dMlxStreamed a0 (streamTag s)
-  primTransposeLast2 a0 = prim__transposeLast2MlxStreamed a0 (streamTag s)
-  primUnsqueeze a0 a1 = prim__unsqueezeMlxStreamed a0 a1 (streamTag s)
-  primView1d a0 a1 = prim__view1dMlxStreamed a0 a1 (streamTag s)
-  primView2d a0 a1 a2 = prim__view2dMlxStreamed a0 a1 a2 (streamTag s)
+  primScatterAdd a0 a1 a2      = prim__scatterAddMlxStreamed a0 a1 a2 (streamTag s)
+  primSelect a0 a1 a2          = prim__selectMlxStreamed a0 a1 a2 (streamTag s)
+  primSqueeze a0 a1            = prim__squeezeMlxStreamed a0 a1 (streamTag s)
+  primStack a0 a1 a2           = prim__stackMlxStreamed a0 a1 a2 (streamTag s)
+  primSum a0                   = prim__sumMlxStreamed a0 (streamTag s)
+  primSumDim a0 a1 a2          = prim__sumDimMlxStreamed a0 a1 a2 (streamTag s)
+  primTensorMax a0             = prim__tensorMaxMlxStreamed a0 (streamTag s)
+  primTensorMin a0             = prim__tensorMinMlxStreamed a0 (streamTag s)
+  primTranspose2d a0           = prim__transpose2dMlxStreamed a0 (streamTag s)
+  primTransposeLast2 a0        = prim__transposeLast2MlxStreamed a0 (streamTag s)
+  primUnsqueeze a0 a1          = prim__unsqueezeMlxStreamed a0 a1 (streamTag s)
+  primView1d a0 a1             = prim__view1dMlxStreamed a0 a1 (streamTag s)
+  primView2d a0 a1 a2          = prim__view2dMlxStreamed a0 a1 a2 (streamTag s)
   -- <<< END GENERATED <<<
 
 ----------------------------------------------------------------------
@@ -395,27 +395,27 @@ public export
 {s : MlxStream} -> UserExecutorNN (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
   primBatchNorm a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 = prim__batchNormMlxStreamed a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 (streamTag s)
-  primBceWithLogits a0 a1 = prim__bceWithLogitsMlxStreamed a0 a1 (streamTag s)
-  primCosineSimilarity a0 a1 a2 = prim__cosineSimilarityMlxStreamed a0 a1 a2 (streamTag s)
-  primDropout a0 a1 a2 a3 = prim__dropoutMlxStreamed a0 a1 a2 a3 (streamTag s)
-  primEmbedding a0 a1 a2 a3 = prim__embeddingMlxStreamed a0 a1 a2 a3 (streamTag s)
-  primEmbedding2d a0 a1 a2 a3 = prim__embedding2dMlxStreamed a0 a1 a2 a3 (streamTag s)
-  primExpandMask a0 a1 = prim__expandMaskMlxStreamed a0 a1 (streamTag s)
-  primGelu a0 = prim__geluMlxStreamed a0 (streamTag s)
-  primGruCell a0 a1 a2 a3 = prim__gruCellMlxStreamed a0 a1 a2 a3 (streamTag s)
-  primLayerNorm2d a0 a1 a2 a3 = prim__layerNorm2dMlxStreamed a0 a1 a2 a3 (streamTag s)
-  primLeakyRelu a0 a1 = prim__leakyReluMlxStreamed a0 a1 (streamTag s)
-  primLogSoftmax a0 a1 = prim__logSoftmaxMlxStreamed a0 a1 (streamTag s)
-  primLogSoftmax2d a0 = prim__logSoftmax2dMlxStreamed a0 (streamTag s)
-  primLstmGatesPair a0 a1 a2 = prim__lstmGatesPairMlxStreamed a0 a1 a2 (streamTag s)
-  primMaskedFill a0 a1 a2 = prim__maskedFillMlxStreamed a0 a1 a2 (streamTag s)
-  primPairFirst a0 = prim__pairFirstMlxStreamed a0 (streamTag s)
-  primPairSecond a0 = prim__pairSecondMlxStreamed a0 (streamTag s)
-  primSilu a0 = prim__siluMlxStreamed a0 (streamTag s)
-  primSoftmax a0 a1 = prim__softmaxMlxStreamed a0 a1 (streamTag s)
-  primSoftmax2d a0 = prim__softmax2dMlxStreamed a0 (streamTag s)
-  primSoftmax3d a0 = prim__softmax3dMlxStreamed a0 (streamTag s)
-  primSoftplus a0 = prim__softplusMlxStreamed a0 (streamTag s)
+  primBceWithLogits a0 a1                     = prim__bceWithLogitsMlxStreamed a0 a1 (streamTag s)
+  primCosineSimilarity a0 a1 a2               = prim__cosineSimilarityMlxStreamed a0 a1 a2 (streamTag s)
+  primDropout a0 a1 a2 a3                     = prim__dropoutMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primEmbedding a0 a1 a2 a3                   = prim__embeddingMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primEmbedding2d a0 a1 a2 a3                 = prim__embedding2dMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primExpandMask a0 a1                        = prim__expandMaskMlxStreamed a0 a1 (streamTag s)
+  primGelu a0                                 = prim__geluMlxStreamed a0 (streamTag s)
+  primGruCell a0 a1 a2 a3                     = prim__gruCellMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primLayerNorm2d a0 a1 a2 a3                 = prim__layerNorm2dMlxStreamed a0 a1 a2 a3 (streamTag s)
+  primLeakyRelu a0 a1                         = prim__leakyReluMlxStreamed a0 a1 (streamTag s)
+  primLogSoftmax a0 a1                        = prim__logSoftmaxMlxStreamed a0 a1 (streamTag s)
+  primLogSoftmax2d a0                         = prim__logSoftmax2dMlxStreamed a0 (streamTag s)
+  primLstmGatesPair a0 a1 a2                  = prim__lstmGatesPairMlxStreamed a0 a1 a2 (streamTag s)
+  primMaskedFill a0 a1 a2                     = prim__maskedFillMlxStreamed a0 a1 a2 (streamTag s)
+  primPairFirst a0                            = prim__pairFirstMlxStreamed a0 (streamTag s)
+  primPairSecond a0                           = prim__pairSecondMlxStreamed a0 (streamTag s)
+  primSilu a0                                 = prim__siluMlxStreamed a0 (streamTag s)
+  primSoftmax a0 a1                           = prim__softmaxMlxStreamed a0 a1 (streamTag s)
+  primSoftmax2d a0                            = prim__softmax2dMlxStreamed a0 (streamTag s)
+  primSoftmax3d a0                            = prim__softmax3dMlxStreamed a0 (streamTag s)
+  primSoftplus a0                             = prim__softplusMlxStreamed a0 (streamTag s)
   -- <<< END GENERATED <<<
 
 ----------------------------------------------------------------------
@@ -444,15 +444,15 @@ prim__maxPool2dBatchedMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> Int ->
 public export
 {s : MlxStream} -> UserExecutorConv (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primAvgPool1d a0 a1 a2 = prim__avgPool1dMlxStreamed a0 a1 a2 (streamTag s)
-  primAvgPool2d a0 a1 a2 a3 a4 = prim__avgPool2dMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
-  primConv1d a0 a1 a2 a3 a4 = prim__conv1dMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
-  primConv1dCircular a0 a1 = prim__conv1dCircularMlxStreamed a0 a1 (streamTag s)
-  primConv2d a0 a1 a2 a3 a4 a5 a6 = prim__conv2dMlxStreamed a0 a1 a2 a3 a4 a5 a6 (streamTag s)
+  primAvgPool1d a0 a1 a2                 = prim__avgPool1dMlxStreamed a0 a1 a2 (streamTag s)
+  primAvgPool2d a0 a1 a2 a3 a4           = prim__avgPool2dMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
+  primConv1d a0 a1 a2 a3 a4              = prim__conv1dMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
+  primConv1dCircular a0 a1               = prim__conv1dCircularMlxStreamed a0 a1 (streamTag s)
+  primConv2d a0 a1 a2 a3 a4 a5 a6        = prim__conv2dMlxStreamed a0 a1 a2 a3 a4 a5 a6 (streamTag s)
   primConv2dBatched a0 a1 a2 a3 a4 a5 a6 = prim__conv2dBatchedMlxStreamed a0 a1 a2 a3 a4 a5 a6 (streamTag s)
-  primMaxPool1d a0 a1 a2 = prim__maxPool1dMlxStreamed a0 a1 a2 (streamTag s)
-  primMaxPool2d a0 a1 a2 a3 a4 = prim__maxPool2dMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
-  primMaxPool2dBatched a0 a1 a2 a3 a4 = prim__maxPool2dBatchedMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
+  primMaxPool1d a0 a1 a2                 = prim__maxPool1dMlxStreamed a0 a1 a2 (streamTag s)
+  primMaxPool2d a0 a1 a2 a3 a4           = prim__maxPool2dMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
+  primMaxPool2dBatched a0 a1 a2 a3 a4    = prim__maxPool2dBatchedMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
   -- <<< END GENERATED <<<
 ----------------------------------------------------------------------
 -- Tape-slice FFI bindings (mlx-suffixed)
@@ -598,118 +598,118 @@ prim__setInitSeedStreamedMlx : Bits64 -> Int -> PrimIO ()
 public export
 {s : MlxStream} -> UserExecutorOptimizations (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primCreateParam1dConstStreamed = prim__createParam1dConstStreamedMlx
-  primCreateParam1dNormalStreamed = prim__createParam1dNormalStreamedMlx
-  primCreateParam2dConstStreamed = prim__createParam2dConstStreamedMlx
-  primCreateParam2dNormalStreamed = prim__createParam2dNormalStreamedMlx
-  primCreateParam3dConstStreamed = prim__createParam3dConstStreamedMlx
-  primCreateParam3dNormalStreamed = prim__createParam3dNormalStreamedMlx
-  primCreateParam4dConstStreamed = prim__createParam4dConstStreamedMlx
-  primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedMlx
+  primCreateParam1dConstStreamed    = prim__createParam1dConstStreamedMlx
+  primCreateParam1dNormalStreamed   = prim__createParam1dNormalStreamedMlx
+  primCreateParam2dConstStreamed    = prim__createParam2dConstStreamedMlx
+  primCreateParam2dNormalStreamed   = prim__createParam2dNormalStreamedMlx
+  primCreateParam3dConstStreamed    = prim__createParam3dConstStreamedMlx
+  primCreateParam3dNormalStreamed   = prim__createParam3dNormalStreamedMlx
+  primCreateParam4dConstStreamed    = prim__createParam4dConstStreamedMlx
+  primCreateParam4dNormalStreamed   = prim__createParam4dNormalStreamedMlx
   primCrossAttention a0 a1 a2 a3 a4 = prim__crossAttentionMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
-  primPolyakBlend = prim__polyakBlendMlx
-  primRmsNorm2d = prim__rmsNorm2dMlx
-  primSdpa2d = prim__sdpa2dMlx
-  primSwiGlu2d = prim__swiGlu2dMlx
-  primTile2d a0 a1 a2 = prim__tile2dMlxStreamed a0 a1 a2 (streamTag s)
+  primPolyakBlend                   = prim__polyakBlendMlx
+  primRmsNorm2d                     = prim__rmsNorm2dMlx
+  primSdpa2d                        = prim__sdpa2dMlx
+  primSwiGlu2d                      = prim__swiGlu2dMlx
+  primTile2d a0 a1 a2               = prim__tile2dMlxStreamed a0 a1 a2 (streamTag s)
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorAutograd (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primBackward = prim__backwardMlx
-  primDetach a0 = prim__detachMlxStreamed a0 (streamTag s)
-  primNoGradBegin = prim__noGradBeginMlx
-  primNoGradEnd = prim__noGradEndMlx
-  primRequiresGrad = prim__requiresGradMlx
+  primBackward        = prim__backwardMlx
+  primDetach a0       = prim__detachMlxStreamed a0 (streamTag s)
+  primNoGradBegin     = prim__noGradBeginMlx
+  primNoGradEnd       = prim__noGradEndMlx
+  primRequiresGrad    = prim__requiresGradMlx
   primSetRequiresGrad = prim__setRequiresGradMlx
-  primWithGrad a0 = prim__withGradMlxStreamed a0 (streamTag s)
+  primWithGrad a0     = prim__withGradMlxStreamed a0 (streamTag s)
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorParamRegistry (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primParamCount = prim__paramCountMlx
-  primParamEraseByPrefix = prim__paramEraseByPrefixMlx
-  primParamGradItemAt = prim__paramGradItemAtMlx
-  primParamIsBuffer = prim__paramIsBufferMlx
-  primParamName = prim__paramNameMlx
-  primParamRegister = prim__paramRegisterMlx
+  primParamCount          = prim__paramCountMlx
+  primParamEraseByPrefix  = prim__paramEraseByPrefixMlx
+  primParamGradItemAt     = prim__paramGradItemAtMlx
+  primParamIsBuffer       = prim__paramIsBufferMlx
+  primParamName           = prim__paramNameMlx
+  primParamRegister       = prim__paramRegisterMlx
   primParamRegisterBuffer = prim__paramRegisterBufferMlx
-  primParamZeroAll = prim__paramZeroAllMlx
+  primParamZeroAll        = prim__paramZeroAllMlx
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorOptimizer (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primNativeTrainStep = prim__nativeTrainStepMlx
-  primNativeTrainStepScaled = prim__nativeTrainStepScaledMlx
-  primOptimizerCreateAdam = prim__optimizerCreateAdamMlx
+  primNativeTrainStep          = prim__nativeTrainStepMlx
+  primNativeTrainStepScaled    = prim__nativeTrainStepScaledMlx
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamMlx
   primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupMlx
-  primOptimizerCreateAdamW = prim__optimizerCreateAdamWMlx
-  primOptimizerCreateRmsprop = prim__optimizerCreateRmspropMlx
-  primOptimizerCreateSgd = prim__optimizerCreateSgdMlx
-  primOptimizerSetLr = prim__optimizerSetLrMlx
-  primOptimizerSetParamLr = prim__optimizerSetParamLrMlx
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWMlx
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropMlx
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdMlx
+  primOptimizerSetLr           = prim__optimizerSetLrMlx
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorSerialize (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primOptimizerLoad = prim__optimizerLoadMlx
-  primOptimizerSave = prim__optimizerSaveMlx
-  primParamLoad = prim__paramLoadMlx
-  primParamLoadWithPolicy = prim__paramLoadWithPolicyMlx
-  primParamLoadWithPrefix = prim__paramLoadWithPrefixMlx
-  primParamSave = prim__paramSaveMlx
-  primParamSaveByName = prim__paramSaveByNameMlx
+  primOptimizerLoad          = prim__optimizerLoadMlx
+  primOptimizerSave          = prim__optimizerSaveMlx
+  primParamLoad              = prim__paramLoadMlx
+  primParamLoadWithPolicy    = prim__paramLoadWithPolicyMlx
+  primParamLoadWithPrefix    = prim__paramLoadWithPrefixMlx
+  primParamSave              = prim__paramSaveMlx
+  primParamSaveByName        = prim__paramSaveByNameMlx
   primParamSaveByNameRenamed = prim__paramSaveByNameRenamedMlx
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorMemoryHygiene (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primEpochBegin = prim__epochBeginMlx
-  primEpochEnd = prim__epochEndMlx
+  primEpochBegin           = prim__epochBeginMlx
+  primEpochEnd             = prim__epochEndMlx
   primReleaseAllPersistent = prim__releaseAllPersistentMlx
-  primResetForEval = prim__resetForEvalMlx
+  primResetForEval         = prim__resetForEvalMlx
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorDiagnostics (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primLiveCount = prim__liveCountMlx
+  primLiveCount     = prim__liveCountMlx
   primPeakLiveCount = prim__peakLiveCountMlx
-  primPerfOpCount = prim__perfOpCountMlx
+  primPerfOpCount   = prim__perfOpCountMlx
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorProfiling (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primPerfReset = prim__perfResetMlx
+  primPerfReset     = prim__perfResetMlx
   primProfileReport = prim__profileReportMlx
-  primProfileReset = prim__profileResetMlx
+  primProfileReset  = prim__profileResetMlx
   -- <<< END GENERATED <<<
 
 public export
 {s : MlxStream} -> UserExecutorTensorCreate (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primCastStreamed = prim__castStreamedMlx
-  primCreate1dStreamed = prim__create1dStreamedMlx
-  primCreate2dStreamed = prim__create2dStreamedMlx
+  primCastStreamed          = prim__castStreamedMlx
+  primCreate1dStreamed      = prim__create1dStreamedMlx
+  primCreate2dStreamed      = prim__create2dStreamedMlx
   primCreateParam1dStreamed = prim__createParam1dStreamedMlx
   primCreateParam2dStreamed = prim__createParam2dStreamedMlx
   primCreateParam3dStreamed = prim__createParam3dStreamedMlx
   primCreateParam4dStreamed = prim__createParam4dStreamedMlx
-  primCreateScalarStreamed = prim__createScalarStreamedMlx
+  primCreateScalarStreamed  = prim__createScalarStreamedMlx
   primCreateState1dStreamed = prim__createState1dStreamedMlx
   primCreateState2dStreamed = prim__createState2dStreamedMlx
-  primCreateStreamed = prim__createStreamedMlx
-  primItem2d = prim__item2dMlx
-  primOneHot = prim__oneHotMlx
-  primSetInitSeedStreamed = prim__setInitSeedStreamedMlx
-  primTensorDim = prim__tensorDimMlx
-  primTensorSizeAt = prim__tensorSizeAtMlx
+  primCreateStreamed        = prim__createStreamedMlx
+  primItem2d                = prim__item2dMlx
+  primOneHot                = prim__oneHotMlx
+  primSetInitSeedStreamed   = prim__setInitSeedStreamedMlx
+  primTensorDim             = prim__tensorDimMlx
+  primTensorSizeAt          = prim__tensorSizeAtMlx
   -- <<< END GENERATED <<<
 
 public export
@@ -851,13 +851,13 @@ public export
 {s : MlxStream} -> UserExecutorTransfer (MlxExecutor s) where
   backendTag         = "mlx"
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primAllocHost = prim__allocHostMlx
+  primAllocHost    = prim__allocHostMlx
   primAllocIntHost = prim__allocIntHostMlx
-  primFreeHost = prim__freeHostMlx
-  primFreeIntHost = prim__freeIntHostMlx
+  primFreeHost     = prim__freeHostMlx
+  primFreeIntHost  = prim__freeIntHostMlx
   primIntraMigrate = prim__intraMigrateMlx
-  primSetIntHost = prim__setIntHostMlx
-  primToHost = prim__toHostMlx
+  primSetIntHost   = prim__setIntHostMlx
+  primToHost       = prim__toHostMlx
   -- <<< END GENERATED <<<
   -- Hand-written overrides:
   primCreateFromHost = prim__createFromHostMlx (streamTag s)

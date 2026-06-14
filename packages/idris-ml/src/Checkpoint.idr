@@ -235,8 +235,8 @@ collectRenamedNames transform = do
         else do
           nm <- getParamName {ex} i
           case transform nm of
-            Nothing       => go end (i + 1) lookups ondisks
-            Just renamed  => go end (i + 1) (nm :: lookups) (renamed :: ondisks)
+            Nothing      => go end (i + 1) lookups ondisks
+            Just renamed => go end (i + 1) (nm :: lookups) (renamed :: ondisks)
 
 ||| Like `saveModelMatching`, but the per-param transform produces
 ||| the on-disk name (or `Nothing` to skip). The C-side writer
@@ -306,8 +306,8 @@ extractField : String -> String -> Maybe String
 extractField key src = do
   rest <- afterNeedle (unpack ("\"" ++ key ++ "\"")) (unpack src)
   let afterColon = drop 1 (dropWhile (/= ':') rest)
-      tok        = takeWhile (\c => c /= ',' && c /= '}' && c /= '\n') afterColon
-      cleaned    = filter (\c => not (isSpace c) && c /= '"') tok
+      tok     = takeWhile (\c => c /= ',' && c /= '}' && c /= '\n') afterColon
+      cleaned = filter (\c => not (isSpace c) && c /= '"') tok
   pure (pack cleaned)
 
 ||| Write the resume sidecar. Returns True on success.
@@ -327,7 +327,7 @@ readTrainerState : String -> IO (Maybe (Nat, Double))
 readTrainerState path = do
   res <- readFile path
   case res of
-    Left _ => pure Nothing
+    Left _         => pure Nothing
     Right contents =>
       case (extractField "epoch" contents, extractField "best" contents) of
         (Just eStr, Just bStr) =>

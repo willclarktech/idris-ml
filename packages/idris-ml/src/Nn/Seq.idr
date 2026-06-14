@@ -48,7 +48,7 @@ export infixr 5 ~~>
 export
 forwardSeq : {0 ex : Executor} -> Backend ex dt => {i, o, b : Nat} -> {0 g : GradMode} ->
              Seq i o ex dt g -> Tensor [b, i] ex dt g -> IO (Tensor [b, o] ex dt g)
-forwardSeq Nil x = pure x
+forwardSeq Nil x         = pure x
 forwardSeq (l :: rest) x = do
   y <- forward l x
   forwardSeq rest y
@@ -63,7 +63,7 @@ Module Seq where
 ||| chain order.
 public export
 Params Seq where
-  params Nil = []
-  params (l :: rest) = params l ++ params rest
-  castGrad Nil = Nil
+  params Nil           = []
+  params (l :: rest)   = params l ++ params rest
+  castGrad Nil         = Nil
   castGrad (l :: rest) = castGrad l :: castGrad rest

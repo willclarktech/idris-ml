@@ -30,8 +30,8 @@ ropeBase = 500000.0
 -- can use it. (Idris's `Vect.head` requires a proof the Vect is
 -- non-empty, and `divNat 64 2 = S _` doesn't reduce automatically.)
 listIdx : Nat -> Vect n a -> Maybe a
-listIdx _ []        = Nothing
-listIdx Z (x :: _)  = Just x
+listIdx _ []            = Nothing
+listIdx Z (x :: _)      = Just x
 listIdx (S k) (_ :: xs) = listIdx k xs
 
 testBaseInvFreqZero : IO Bool
@@ -94,7 +94,7 @@ testCosAtPos1Dim0 : IO Bool
 testCosAtPos1Dim0 =
   let -- mirrors what the cos-table builder writes at (pos=1, i=0):
       --   cos(1.0 * inv_freq[0]) = cos(1.0)
-      val = cos 1.0
+      val      = cos 1.0
       expected = 5.40302305868139765e-01
   in if abs (val - expected) < tol
        then check "cos(1.0) matches oracle (F64 host math)" True

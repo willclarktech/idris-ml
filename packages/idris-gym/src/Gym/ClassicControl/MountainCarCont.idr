@@ -29,14 +29,14 @@ export
 mccStep : MCCState -> Double -> (Double, MCCState, Outcome, Info)
 mccStep s action =
   let clippedAction = clamp MinAction MaxAction action
-      force = clippedAction * Power
-      vel1 = s.mccVel + force - 0.0025 * prim__doubleCos (3.0 * s.mccPos)
-      vel2 = clamp (negate MaxSpeed) MaxSpeed vel1
-      pos1 = s.mccPos + vel2
-      pos2 = clamp MinPosition MaxPosition pos1
-      vel3 = if pos2 == MinPosition && vel2 < 0.0 then 0.0 else vel2
+      force      = clippedAction * Power
+      vel1       = s.mccVel + force - 0.0025 * prim__doubleCos (3.0 * s.mccPos)
+      vel2       = clamp (negate MaxSpeed) MaxSpeed vel1
+      pos1       = s.mccPos + vel2
+      pos2       = clamp MinPosition MaxPosition pos1
+      vel3       = if pos2 == MinPosition && vel2 < 0.0 then 0.0 else vel2
       terminated = pos2 >= GoalPosition && vel3 >= GoalVelocity
-      reward = (if terminated then 100.0 else 0.0)
+      reward     = (if terminated then 100.0 else 0.0)
              - 0.1 * clippedAction * clippedAction
   in (reward, MkMCC pos2 vel3,
       if terminated then Terminated else Continue,
@@ -57,9 +57,9 @@ mccReset s0 =
 
 public export
 Env MCCState Double (Vect 2 Double) where
-  reset = mccReset
-  step = mccStep
-  observe = mccObserve
-  actionSpace = Box [MinAction] [MaxAction]
-  obsSpace = Box [MinPosition, negate MaxSpeed] [MaxPosition, MaxSpeed]
+  reset            = mccReset
+  step             = mccStep
+  observe          = mccObserve
+  actionSpace      = Box [MinAction] [MaxAction]
+  obsSpace         = Box [MinPosition, negate MaxSpeed] [MaxPosition, MaxSpeed]
   defaultTimeLimit = Just 999

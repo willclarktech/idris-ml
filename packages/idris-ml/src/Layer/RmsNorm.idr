@@ -61,13 +61,13 @@ applyRmsNormEps : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCo
                   TVec n ex dt g -> IO (RmsNormState n n ex dt g, TVec n ex dt g)
 applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
   let nD = cast {to=Double} n
-      sq = primMul {ex} input.tensorPtr input.tensorPtr
-      tot = primSum {ex} sq
-      mean = primMulScalar {ex} tot (1.0 / nD)
+      sq      = primMul {ex} input.tensorPtr input.tensorPtr
+      tot     = primSum {ex} sq
+      mean    = primMulScalar {ex} tot (1.0 / nD)
       meanEps = primAddScalar {ex} mean eps
-      rms = primSqrt {ex} meanEps
-      normed = primDiv {ex} input.tensorPtr rms
-      scaled = primMul {ex} normed weight.tensorPtr
+      rms     = primSqrt {ex} meanEps
+      normed  = primDiv {ex} input.tensorPtr rms
+      scaled  = primMul {ex} normed weight.tensorPtr
   in (st, MkTensor scaled Nothing))
 
 ----------------------------------------------------------------------
@@ -94,7 +94,7 @@ rmsNormLayer paramPrefix = do
 public export
 LayerLike RmsNormState where
   applyVar st@(MkRmsNorm _) input = applyRmsNormEps defaultRmsNormEps st input
-  layerPrefix _ = "rms"
+  layerPrefix _                   = "rms"
 
   freezeLayer (MkRmsNorm w) = do
     w' <- weakenGrad w

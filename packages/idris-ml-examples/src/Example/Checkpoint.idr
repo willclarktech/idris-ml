@@ -63,7 +63,7 @@ optPath : String -> String
 optPath path =
   let chars = unpack path
       suffix = unpack ".safetensors"
-      base = pack (take (length chars `minus` length suffix) chars)
+      base   = pack (take (length chars `minus` length suffix) chars)
   in base ++ ".optimizer.safetensors"
 
 ----------------------------------------------------------------------
@@ -128,9 +128,9 @@ printPredictions model = do
   predB <- forward {b=5} model (retypeGrad !evalInput)
   for_ (toList Fin.range) $ \i => do
     let r  = cast {to=Int} (finToNat i)
-        v0 = primItem2d {ex=Ex} predB.tensorPtr r 0
-        v1 = primItem2d {ex=Ex} predB.tensorPtr r 1
-        v2 = primItem2d {ex=Ex} predB.tensorPtr r 2
+        v0   = primItem2d {ex=Ex} predB.tensorPtr r 0
+        v1   = primItem2d {ex=Ex} predB.tensorPtr r 1
+        v2   = primItem2d {ex=Ex} predB.tensorPtr r 2
         pred = argmax3 v0 v1 v2
         ok   = pred == index i targetClasses
     putStrLn $ "  " ++ showVec2 (index i inputsV) ++ " -> class " ++ show pred
@@ -226,4 +226,4 @@ main = do
     "train"    => doTrain cfg opt model
     "continue" => doContinue cfg opt model
     "infer"    => doInfer cfg model
-    _ => putStrLn "Unknown mode. Use --mode train|continue|infer"
+    _          => putStrLn "Unknown mode. Use --mode train|continue|infer"

@@ -16,7 +16,7 @@ tests =
       codeSig "foo = 1" /= codeSig "foo = 2"
   , check "codeSig is Just for lexable input" $
       case codeSig clean of
-        Just _ => True
+        Just _  => True
         Nothing => False
   , check "safeReformat accepts a pure-whitespace reflow" $
       safeReformat clean "module M\nfoo : Nat\nfoo = 1\n"

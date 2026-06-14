@@ -488,7 +488,7 @@ interface LosslessTo (0 from : Type) (0 to : Type) where
 -- (F→F, BF→BF, F→BF, BF→F) since both families have FloatPrecision.
 public export
 {from, to : Type} ->
-FloatPrecision from => FloatPrecision to =>
+FloatPrecision from                               => FloatPrecision to =>
 LTE (mantissaBits {t=from}) (mantissaBits {t=to}) =>
 LTE (exponentBits {t=from}) (exponentBits {t=to}) =>
 LosslessTo from to where
@@ -497,14 +497,14 @@ LosslessTo from to where
 -- by float's 2^(mb+1) exact-integer range → `n ≤ mb + 2`.
 public export
 {n : Nat} -> {to : Type} ->
-FloatPrecision to =>
+FloatPrecision to                   =>
 LTE n (S (S (mantissaBits {t=to}))) =>
 LosslessTo (IntN n) to where
 
 -- UInt n → Float / BFloat: max value 2^n - 1 ≤ 2^(mb+1) → `n ≤ mb + 1`.
 public export
 {n : Nat} -> {to : Type} ->
-FloatPrecision to =>
+FloatPrecision to               =>
 LTE n (S (mantissaBits {t=to})) =>
 LosslessTo (UInt n) to where
 

@@ -59,13 +59,13 @@ LayerLike LinearState where
 ||| Exported so other layer modules can reuse the same packing logic.
 export
 packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
+packDoubles buf _ []            = buf
 packDoubles buf off (x :: rest) =
   packDoubles (prim__setDouble buf off x) (off + 1) rest
 
 -- Zero a buffer for `n` elements starting at offset.
 zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
-zeroBuf buf _ 0 = buf
+zeroBuf buf _ 0   = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 

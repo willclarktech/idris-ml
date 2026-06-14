@@ -79,7 +79,7 @@ testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
   let got = hfGpt2ParamNames distilGpt2Config ""
   in case firstMismatch got expectedDistilGpt2ParamNames of
-       Nothing => check "all 76 param names match HF reference exactly" True
+       Nothing        => check "all 76 param names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -141,7 +141,7 @@ testConstructorRegistersHfNames = do
   let registered = drop (cast {to=Nat} preCount) allNames
       expected   = hfGpt2ParamNames distilGpt2Config ""
   case firstMismatch registered expected of
-    Nothing => check "C-side param registry matches catalogue exactly" True
+    Nothing        => check "C-side param registry matches catalogue exactly" True
     Just (i, g, e) => do
       putStrLn ("  FAIL: registry[" ++ show i ++ "] mismatch:")
       putStrLn ("    got:      " ++ g)

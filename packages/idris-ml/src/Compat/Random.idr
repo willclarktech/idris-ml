@@ -43,7 +43,7 @@ Random Double where
 
 export
 Random Int32 where
-  randomIO = cast <$> randomInt32
+  randomIO           = cast <$> randomInt32
   randomRIO (lo, hi) = do
     r <- randomInt32
     let range = cast {to=Int} (cast {to=Integer} hi - cast {to=Integer} lo + 1)

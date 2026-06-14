@@ -74,9 +74,9 @@ parseOne fn = do
 
 handler : FmtMode -> (String -> IO Bool)
 handler FStdout = stdoutOne
-handler FWrite = writeOne
-handler FCheck = checkOne
-handler FParse = parseOne
+handler FWrite  = writeOne
+handler FCheck  = checkOne
+handler FParse  = parseOne
 
 runMode : (String -> IO Bool) -> List String -> IO ()
 runMode _ [] = putStrLn noFilesHint
@@ -88,6 +88,6 @@ main : IO ()
 main = do
   args <- drop 1 <$> getArgs
   case parseArgs "idris-fmt" flags FStdout args of
-    ShowHelp txt => putStr txt
-    ParseError e => do putStrLn e; exitFailure
+    ShowHelp txt      => putStr txt
+    ParseError e      => do putStrLn e; exitFailure
     Parsed mode files => runMode (handler mode) files

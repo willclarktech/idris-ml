@@ -30,7 +30,7 @@ import Test.Config
 import Test.Harness
 
 packBuf : List Double -> AnyPtr -> Int -> AnyPtr
-packBuf [] b _ = b
+packBuf [] b _        = b
 packBuf (x :: xs) b o = packBuf xs (prim__setDouble b o x) (o + 1)
 
 mkVecParam : (n : Nat) -> String -> List Double ->

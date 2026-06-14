@@ -26,7 +26,7 @@ Module LayerNorm where
 
 public export
 Params LayerNorm where
-  params (MkLayerNorm gamma beta) = [toParam gamma, toParam beta]
+  params (MkLayerNorm gamma beta)   = [toParam gamma, toParam beta]
   castGrad (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
 
 ||| Construct a `LayerNorm n n` inside an `Init` derivation. Registers

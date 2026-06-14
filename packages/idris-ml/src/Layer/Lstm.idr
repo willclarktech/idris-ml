@@ -44,10 +44,10 @@ applyLstm : {0 ex : Executor} -> Backend ex dt => {o : Nat} ->
               IO (LstmState i o ex dt g, TVec o ex dt g)
 applyLstm {o} st input = do
   let h = case st.hiddenT of
-            Just h => h
+            Just h  => h
             Nothing => st.h0T
   let c = case st.cellT of
-            Just c => c
+            Just c  => c
             Nothing => st.c0T
   inner    <- tlinear st.iwT input st.ihB
   combined <- tlinear st.rwT h inner
@@ -74,7 +74,7 @@ lstmLayer paramPrefix = do
   -- sqrt(2/(fan_in + fan_out)) with fan_out = 4*o. Biases + learned
   -- (h0, c0) initial states zero-init.
   let iwStd = sqrt (2.0 / cast {to=Double} (i + 4 * o))
-      rwStd = sqrt (2.0 / cast {to=Double} (o + 4 * o))
+      rwStd  = sqrt (2.0 / cast {to=Double} (o + 4 * o))
       iwName = paramPrefix ++ "_iw"
       rwName = paramPrefix ++ "_rw"
       ibName = paramPrefix ++ "_ib"
@@ -102,9 +102,9 @@ resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
 
 public export
 LayerLike LstmState where
-  applyVar = applyLstm
+  applyVar      = applyLstm
   layerPrefix _ = "lstm"
-  resetState = resetLstmState
+  resetState    = resetLstmState
 
   freezeLayer (MkLstm iw rw ihB hhB h0 c0 hid cell) = do
     iw'  <- weakenGrad iw

@@ -40,7 +40,7 @@ Module Linear where
 
 public export
 Params Linear where
-  params (MkLinear w b) = [toParam w, toParam b]
+  params (MkLinear w b)   = [toParam w, toParam b]
   castGrad (MkLinear w b) = MkLinear (retypeGrad w) (retypeGrad b)
 
 ||| Construct a `Linear i o` with caller-chosen init: weight ~ N(0,

@@ -91,7 +91,7 @@ appendKV : {0 ex : Executor} -> UserExecutorTraining ex =>
            (newK : Tensor [s, kvOut] ex dt NoGrad) ->
            (newV : Tensor [s, kvOut] ex dt NoGrad) ->
            IO (KVCache kvOut ex dt)
-appendKV Empty newK newV = pure (Filled s newK newV)
+appendKV Empty newK newV            = pure (Filled s newK newV)
 appendKV (Filled len k v) newK newV = do
   k' <- tconcat2dAxis0 k newK
   v' <- tconcat2dAxis0 v newV

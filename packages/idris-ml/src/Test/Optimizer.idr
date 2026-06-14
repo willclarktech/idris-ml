@@ -37,7 +37,7 @@ stepQuadratic opt w = do
 
 trajectory : NativeOptimizer TestExecutor ->
              Tensor [] TestExecutor TestDType WithGrad -> Nat -> IO (List Double)
-trajectory opt w Z = pure []
+trajectory opt w Z     = pure []
 trajectory opt w (S k) = do
   v <- stepQuadratic opt w
   rest <- trajectory opt w k

@@ -37,27 +37,27 @@ data ActivationState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ :
 
 public export
 LayerLike ActivationState where
-  applyVar st@(MkActivation ATanh)         input = do out <- ttanh input;          pure (st, out)
-  applyVar st@(MkActivation ASigmoid)      input = do out <- tsigmoid input;       pure (st, out)
-  applyVar st@(MkActivation ARelu)         input = do out <- trelu input;          pure (st, out)
-  applyVar st@(MkActivation AGelu)         input = do out <- tgelu input;          pure (st, out)
-  applyVar st@(MkActivation ASilu)         input = do out <- tsilu input;          pure (st, out)
+  applyVar st@(MkActivation ATanh)         input  = do out <- ttanh input;          pure (st, out)
+  applyVar st@(MkActivation ASigmoid)      input  = do out <- tsigmoid input;       pure (st, out)
+  applyVar st@(MkActivation ARelu)         input  = do out <- trelu input;          pure (st, out)
+  applyVar st@(MkActivation AGelu)         input  = do out <- tgelu input;          pure (st, out)
+  applyVar st@(MkActivation ASilu)         input  = do out <- tsilu input;          pure (st, out)
   applyVar st@(MkActivation (ALeakyRelu s)) input = do out <- tleakyRelu s input;  pure (st, out)
 
   -- Activation primitives are shape-polymorphic (operate elementwise),
   -- so the batched forward is identical to the single-sample form —
   -- just typed at `Tensor [b, n] ex` instead of `Tensor [n] ex`.
-  applyVarBatch st@(MkActivation ATanh)         input = do out <- ttanh input;         pure (st, out)
-  applyVarBatch st@(MkActivation ASigmoid)      input = do out <- tsigmoid input;      pure (st, out)
-  applyVarBatch st@(MkActivation ARelu)         input = do out <- trelu input;         pure (st, out)
-  applyVarBatch st@(MkActivation AGelu)         input = do out <- tgelu input;         pure (st, out)
-  applyVarBatch st@(MkActivation ASilu)         input = do out <- tsilu input;         pure (st, out)
+  applyVarBatch st@(MkActivation ATanh)         input  = do out <- ttanh input;         pure (st, out)
+  applyVarBatch st@(MkActivation ASigmoid)      input  = do out <- tsigmoid input;      pure (st, out)
+  applyVarBatch st@(MkActivation ARelu)         input  = do out <- trelu input;         pure (st, out)
+  applyVarBatch st@(MkActivation AGelu)         input  = do out <- tgelu input;         pure (st, out)
+  applyVarBatch st@(MkActivation ASilu)         input  = do out <- tsilu input;         pure (st, out)
   applyVarBatch st@(MkActivation (ALeakyRelu s)) input = do out <- tleakyRelu s input; pure (st, out)
 
   layerPrefix _ = "act"
 
   -- Activation is stateless (no params); freeze/unfreeze just retypes.
-  freezeLayer (MkActivation k) = pure (MkActivation k)
+  freezeLayer (MkActivation k)   = pure (MkActivation k)
   unfreezeLayer (MkActivation k) = pure (MkActivation k)
 
 ----------------------------------------------------------------------
