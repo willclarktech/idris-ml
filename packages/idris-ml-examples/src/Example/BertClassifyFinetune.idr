@@ -30,10 +30,12 @@ import System
 import Compat.Random
 
 import Array
-import Backprop
 import BuildConfig
+import DataStream
 import Executor
+import Fit
 import Generate
+import Optimizer
 import Tensor
 import Train
 import Train.Freeze
@@ -219,20 +221,17 @@ sumScalars op acc (x :: xs) = do
   acc' <- op acc x
   sumScalars op acc' xs
 
--- One epoch over the given batch: forward each example, mean the losses,
--- one fused native step.
-epochBert : NativeOptimizer ExampleExecutor
-         -> Model -> Vect BatchSize FtExample
-         -> IO (Model, Double)
-epochBert opt model batch = do
+-- Mean cross-entropy over a batch: forward each example, sum the scalar
+-- losses, divide by batch size. `fitSupervised` owns the fused step.
+batchLoss : Model -> Vect BatchSize FtExample
+         -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+batchLoss model batch = do
   losses <- traverse (exampleLoss model) (toList batch)
   -- Mean = sum / batchSize. tnllLoss returns a Tensor []; sumScalars
   -- accumulates via tadd.
   zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "ftcls.epoch_zero" 0.0
   summed <- sumScalars tadd zero losses
-  meanLoss <- tmulScalar summed (1.0 / cast {to=Double} BatchSize)
-  v <- nativeTrainStep opt meanLoss
-  pure (model, v)
+  tmulScalar summed (1.0 / cast {to=Double} BatchSize)
 
 -- Greedy-argmax classification: pick the index with max logit.
 predictClass : Model -> Vect SeqLen Double -> IO Nat
@@ -298,17 +297,16 @@ main = do
                                            {numClasses=NumClasses}
                                            "bert" "classifier"
 
-  let opt = nativeAdamW cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
+  opt <- adamW {ex=ExampleExecutor} cfg.lr 0.01 ({ clip := NormClip 1.0 } defaultOpts)
   when cfg.freezeBackbone $ do
     putStrLn "Freezing backbone (`bert.*`); only classifier head trains."
     freezeByPrefix {ex=ExampleExecutor} opt "bert."
 
   let trainCfg = patienceConfig cfg.epochs cfg.patience
+  let stream   = generate (genBatch BatchSize)
 
   (trained, epochsDone, finalLoss) <-
-    runTrainingIO {ex=ExampleExecutor} {model=Model} {dp=Vect BatchSize FtExample}
-      (\m, b => epochBert opt m b)
-      (genBatch BatchSize) trainCfg model
+    fitSupervised {ex=ExampleExecutor} opt batchLoss stream trainCfg model
 
   acc <- heldOutAccuracy trained
   putStrLn ""
