@@ -82,6 +82,7 @@ modules = Compat.Random
         , Nn.LoraLinear
         , Nn.Lstm
         , Nn.Module
+        , Nn.Derive
         , Nn.Ntm
         , Nn.Pool
         , Nn.Residual
