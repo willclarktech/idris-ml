@@ -72,9 +72,11 @@ def main() -> None:
     print()
     print("Eval:")
     with torch.no_grad():
-        from torch_ref.training.losses import cross_entropy
+        import torch.nn.functional as F
 
-        losses = torch.stack([cross_entropy(model(x), y) for x, y in data])
+        from torch_ref.training.losses import nll_loss
+
+        losses = torch.stack([nll_loss(F.log_softmax(model(x), dim=-1), y) for x, y in data])
         eval_loss = losses.mean().item()
     print(f"  Loss: {eval_loss}")
 

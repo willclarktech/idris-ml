@@ -1,15 +1,19 @@
-"""Supervised model: Linear(2->3) outputting raw logits, BCE-with-logits loss.
+"""Supervised model: Linear(2->3) outputting raw logits, multiclass NLL loss.
 
 Xavier uniform init, zero bias. Matches Idris Example/Bench.idr (and
-Example/Supervised.idr) — raw logits in the model, loss applies the
-log_softmax-or-sigmoid transform with numerical stability.
+Example/Supervised.idr) — raw logits in the model, loss applies log_softmax
+then negative-log-likelihood. The task is argmax over 3 mutually-exclusive
+classes, so multiclass NLL (softmax-coupled) is the correct loss, matching
+Idris's `tnllLoss`; the earlier `bce_with_logits` modelled the classes as
+independent binaries (the wrong tool — corrected on both sides 2026-06-14).
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
-from torch_ref.training.losses import bce_with_logits
+from torch_ref.training.losses import nll_loss
 from torch_ref.training.runner import get_device, get_dtype
 
 
@@ -59,7 +63,7 @@ def train_supervised_epoch(
     total_loss = torch.tensor(0.0, device=get_device())
     for x, y in data:
         logits = model(x)
-        total_loss = total_loss + bce_with_logits(logits, y)
+        total_loss = total_loss + nll_loss(F.log_softmax(logits, dim=-1), y)
     loss = total_loss / len(data)
     # torch's Tensor.backward stub leaves its params unannotated.
     loss.backward()  # pyright: ignore[reportUnknownMemberType]
