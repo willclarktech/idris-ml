@@ -390,7 +390,6 @@ writeCausalMask buf i j n =
   else let buf' = prim__setDouble buf (i * n + j) 1.0
        in writeCausalMask buf' i (j + 1) n
 
-
 -- `ropeAllHeadsFlat` (the flat [seq, numH*headDim] ↔ rank-3 reshape
 -- wrapper around `applyRopeAllHeads`) is now imported from `Nn.RoPE`,
 -- where it was consolidated from the identical definitions this module

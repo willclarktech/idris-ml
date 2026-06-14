@@ -792,7 +792,6 @@ hfBertMlmForward (MkBertForMaskedLm (MkBertModel emb layers _) head) i p t mask 
   hEnc <- applyEncoder {numHeads} {headDim} layers (map (\m => m.tensorPtr) mask) hEmb
   applyMlmHead head emb.wordEmb.weightT hEnc
 
-
 ----------------------------------------------------------------------
 -- Grad-mode retype + `eval` (inference)
 ----------------------------------------------------------------------

@@ -5,7 +5,6 @@ import Data.Vect
 import Test.Harness
 import Nn.RoPE
 
-
 -- Value-pin tests for the relocated `Nn.RoPE` free functions against the
 -- same Python oracle as `Test.RoPE` (which stays on `Layer.RoPE` until the
 -- migration sweep). Oracle generator:
@@ -17,7 +16,6 @@ import Nn.RoPE
 tol : Double
 tol = 1.0e-12
 
-
 -- Llama 3.2 1B's RoPE config: headDim=64, base=500000, NTK factor=32.
 headDim : Nat
 headDim = 64
@@ -25,14 +23,12 @@ headDim = 64
 ropeBase : Double
 ropeBase = 500000.0
 
-
 -- Vect index helper (Vect.head needs a non-empty proof that `div 64 2`
 -- doesn't reduce automatically; this stays partial-free and total).
 listIdx : Nat -> Vect n a -> Maybe a
 listIdx _ []        = Nothing
 listIdx Z (x :: _)  = Just x
 listIdx (S k) (_ :: xs) = listIdx k xs
-
 
 ----------------------------------------------------------------------
 -- Bucket 1: base inverse frequencies (pre-NTK-scaling)
@@ -51,7 +47,6 @@ testBaseInvFreqZero =
        Nothing => do
          putStrLn "  FAIL: baseInvFreq returned empty Vect"
          pure False
-
 
 ----------------------------------------------------------------------
 -- Bucket 2: Llama-3 NTK-scaled inverse frequencies
@@ -88,7 +83,6 @@ testInvFreqLowFreqBand : IO Bool
 testInvFreqLowFreqBand =
   checkInvFreqAt 31 9.41830672543490868e-08
 
-
 ----------------------------------------------------------------------
 -- Bucket 3: noScaling is the factor=1 identity short-circuit
 ----------------------------------------------------------------------
@@ -109,7 +103,6 @@ testNoScalingIsIdentity =
        else do
          putStrLn ("  FAIL: noScaling drifted from baseInvFreq by " ++ show maxDiff)
          pure False
-
 
 ----------------------------------------------------------------------
 -- Suite

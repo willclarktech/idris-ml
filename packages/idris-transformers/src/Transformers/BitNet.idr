@@ -568,7 +568,6 @@ applyEmbedLookup {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
-
 -- `ropeAllHeadsFlat` is now imported from `Nn.RoPE` (consolidated from
 -- the identical definitions HfLlama and this module each carried).
 -- BitNet uses RoPE only at prefill, so the call sites pass a fixed
