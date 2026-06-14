@@ -32,8 +32,9 @@
 -- little to bite into.
 module Test.Property
 
+import Data.Cotree
 import public Hedgehog
-import Data.Cotree  -- `.value` field projector for Hedgehog's runGen output
+
 import Test.Harness
 
 %default total

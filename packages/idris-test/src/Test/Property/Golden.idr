@@ -25,6 +25,7 @@ module Test.Property.Golden
 import Data.String
 import System
 import System.File
+
 import Test.Harness
 
 -- Not marked total: readFile transitively uses Data.Fuel.forever
