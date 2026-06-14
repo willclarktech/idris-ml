@@ -21,13 +21,11 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 
 export
 observe : CPState -> Vector 4 Double
 observe s = VArray (map SArray (cpObserve s))
-
 
 ----------------------------------------------------------------------
 -- Episode Rollout (tensor-level, autograd-tracked)
@@ -59,7 +57,6 @@ rolloutEp model st (r :: rs) (S k) acc = do
       let acc' = (selLP, selLPVal, reward) :: acc
       in if done outcome then pure (reverse acc')
          else rolloutEp model st' rs k acc'
-
 
 ||| Run N parallel episodes with one batched policy forward per
 ||| timestep. Each env has its own RNG sequence and starting state.
@@ -134,7 +131,6 @@ rolloutEpBatched model (MkVecEnv states0) rss0 maxSteps = do
         case stepAllEnvs logProbsV 0 sts rss dones accs of
           (sts', rss', dones', accs') => go k sts' rss' dones' accs'
 
-
 ----------------------------------------------------------------------
 -- REINFORCE Loss
 ----------------------------------------------------------------------
@@ -199,7 +195,6 @@ computeLossBatched gamma model randomBatchV = do
       stepLosses = concatMap (epStepLosses gamma baseline) eps
   pure (averageLoss stepLosses, baseline)
 
-
 ----------------------------------------------------------------------
 -- Training
 ----------------------------------------------------------------------
@@ -252,7 +247,6 @@ genBatchV (S k) = do
       rs <- go k'
       pure (r :: rs)
 
-
 ----------------------------------------------------------------------
 -- Evaluation (greedy argmax)
 ----------------------------------------------------------------------
@@ -276,7 +270,6 @@ evalN _ Z acc = pure acc
 evalN model (S k) acc = do
   v <- evalEp model (MkCP 0 0 0 0) MaxSteps 0.0
   evalN model k (acc + v)
-
 
 ----------------------------------------------------------------------
 -- Config & Main

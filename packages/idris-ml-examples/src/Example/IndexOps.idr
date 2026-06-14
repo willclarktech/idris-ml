@@ -24,7 +24,6 @@ import Tensor
 import DType.Core
 import BuildConfig
 
-
 -- src to sort/index. Distinct values so the permutation is unambiguous.
 srcVals : Vector 4 Double
 srcVals = VArray [SArray 3.0, SArray 1.0, SArray 4.0, SArray 1.5]
@@ -32,7 +31,6 @@ srcVals = VArray [SArray 3.0, SArray 1.0, SArray 4.0, SArray 1.5]
 -- Positional weights for the order-sensitive readout dot.
 weightVals : Vector 4 Double
 weightVals = VArray [SArray 1.0, SArray 2.0, SArray 3.0, SArray 4.0]
-
 
 ||| Build a [4] NoGrad tensor at the example dtype from a 4-vector.
 mkVec : Vector 4 Double -> TVec 4 ExampleExecutor ExampleDType NoGrad
@@ -53,7 +51,6 @@ dotWeights v = do
 
 approxEq : Double -> Double -> Bool
 approxEq a b = abs (a - b) < 1.0e-9
-
 
 main : IO ()
 main = do

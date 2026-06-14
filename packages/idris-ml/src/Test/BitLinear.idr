@@ -10,7 +10,6 @@ import Layer
 import Layer.BitLinear
 import Test.Config
 
-
 ----------------------------------------------------------------------
 -- BitLinear forward oracle (#411 B2 / #424)
 ----------------------------------------------------------------------
@@ -35,7 +34,6 @@ import Test.Config
 --   row 0 → 0x71, row 1 → 0x17, row 2 → 0x4C
 -- (See the C-side test for the bit-by-bit derivation.)
 
-
 -- Build a Tensor [n] from a Vect of Doubles. Goes through an IO
 -- bracket so the FFI chain inside `bulkToTensor` fires in
 -- deterministic order; without it Idris/Chez can reorder the calls
@@ -50,7 +48,6 @@ mkVecDt xs = do
 
 mkVec : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType WithGrad)
 mkVec = mkVecDt {dt=TestDType}
-
 
 -- 1-vec helper: lift NoGrad scale + bias for the BitLinear field
 -- types (scale is NoGrad by construction). Goes through an IO step
@@ -67,7 +64,6 @@ mkVecNoGradDt xs = do
 mkVecNoGrad : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType NoGrad)
 mkVecNoGrad = mkVecNoGradDt {dt=TestDType}
 
-
 -- Build the 3-byte packed buffer via prim__allocBytes + prim__setByte.
 -- Returns the (buffer, byte_count) pair ready to hand to
 -- tCreateTernaryPacked2d.
@@ -78,7 +74,6 @@ buildFixtureBytes = do
       buf'' = prim__setByte buf' 1 0x17
       buf''' = prim__setByte buf'' 2 0x4C
   pure (buf''', 3)
-
 
 -- Read element `k` of a [3] result Tensor as a Double.
 readElem3 : Tensor [3] TestExecutor TestDType g -> Int -> IO Double
@@ -92,7 +87,6 @@ readElem3Dt : {0 dt : DType} -> {0 g : GradMode} ->
 readElem3Dt t k = do
   s <- telemSelect {ex=TestExecutor} {n=3} t k
   pure (tensorItem {ex=TestExecutor} s)
-
 
 -- The oracle assertion. Builds the fixture, runs forward, asserts
 -- y[0..2] within 1e-6 of the PyTorch-computed expected values.
@@ -113,7 +107,6 @@ bitlinearForwardOracle = do
   ok2 <- checkClose "y[2] matches PyTorch oracle" (-1.0125)  y2 tol
   pure (ok0 && ok1 && ok2)
 
-
 -- BitLinearState round-trips through the public constructor and
 -- exposes its forward via the standalone helper. Doesn't go through
 -- the LayerLikeMixed interface (which depends on the broader Network
@@ -131,7 +124,6 @@ bitlinearStateRoundtrip = do
   y <- tBitlinearFwd {ex=TestExecutor} st.weightT st.scaleT x st.biasT
   y0 <- readElem3 y 0
   checkClose "BitLinearState forward through stored fields" 0.975 y0 1.0e-6
-
 
 -- BitLinear slots into NetworkMixed via the LayerLikeMixed instance
 -- (B2 follow-up). Builds a single-layer NetworkMixed BitLinear,
@@ -161,7 +153,6 @@ bitlinearLayerLikeMixedOracle = do
   ok2 <- checkClose "NetworkMixed BitLinear y[2]" (-1.0125)  y2 tol
   pure (ok0 && ok1 && ok2)
 
-
 -- F32 oracle: same fixture as `bitlinearForwardOracle`, but scale/x/
 -- bias materialised in F32. Exercises the F32 path of the kernel —
 -- on tape this is the dedicated `tensor_bitlinear_fwd_f32` dispatch
@@ -184,7 +175,6 @@ bitlinearForwardOracleF32 = do
   ok1 <- checkClose "F32 y[1] matches PyTorch oracle" (-0.075)   y1 tol
   ok2 <- checkClose "F32 y[2] matches PyTorch oracle" (-1.0125)  y2 tol
   pure (ok0 && ok1 && ok2)
-
 
 ----------------------------------------------------------------------
 -- Load-time absmean quant: real-valued weights → ternary
@@ -232,7 +222,6 @@ mkMat34NoGrad xs = do
                                        (map (\row => VArray (map SArray row)) xs))
   weakenGrad {ex=TestExecutor} (tinput2d {m=3} {n=4} raw)
 
-
 absmeanQuantRoundtripOracle : IO Bool
 absmeanQuantRoundtripOracle = do
   w <- mkMat34NoGrad [
@@ -258,7 +247,6 @@ absmeanQuantRoundtripOracle = do
   ok4 <- checkClose "scale[1] = 0.75"  0.75  s1 tol
   ok5 <- checkClose "scale[2] = 0.25"  0.25  s2 tol
   pure (ok0 && ok1 && ok2 && ok3 && ok4 && ok5)
-
 
 ----------------------------------------------------------------------
 -- HF-format ternary load (microsoft/bitnet-b1.58-2B-4T-style)
@@ -299,7 +287,6 @@ buildHfFixtureBytes = do
       buf4   = prim__setByte buf''' 3 0x26
   pure (buf4, 4)
 
-
 bitlinearHfPackedRoundtrip : IO Bool
 bitlinearHfPackedRoundtrip = do
   (bytesPtr, _) <- buildHfFixtureBytes
@@ -316,7 +303,6 @@ bitlinearHfPackedRoundtrip = do
   ok1 <- checkClose "HF-pack y[1] matches the our-pack oracle" (-0.075)   y1 tol
   ok2 <- checkClose "HF-pack y[2] matches the our-pack oracle" (-1.0125)  y2 tol
   pure (ok0 && ok1 && ok2)
-
 
 ----------------------------------------------------------------------
 -- Activation quantization (per-token symmetric int8)
@@ -358,7 +344,6 @@ activationQuantInt8Oracle = do
     readElemN t k = do
       s <- telemSelect {ex=TestExecutor} {n=4} t k
       pure (tensorItem {ex=TestExecutor} s)
-
 
 ----------------------------------------------------------------------
 -- Fused HF BitLinear (tBitlinearFwdHfQuant) consistency vs composed
@@ -415,7 +400,6 @@ bitlinearFwdHfQuantConsistency = do
   ok1 <- checkClose "fused y[1] matches composed" yc1 yf1 tol
   ok2 <- checkClose "fused y[2] matches composed" yc2 yf2 tol
   pure (ok0 && ok1 && ok2)
-
 
 export
 tests : List (IO Bool)

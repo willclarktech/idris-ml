@@ -4,7 +4,6 @@ import Test.Harness
 import Gym.Env
 import Gym.ToyText.Taxi
 
-
 rewardOf : (Double, TState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r
 
@@ -14,10 +13,8 @@ stateOf (_, s, _, _) = s
 outcomeOf : (Double, TState, Outcome, Info) -> Outcome
 outcomeOf (_, _, o, _) = o
 
-
 tInit : TState
 tInit = MkT 2 2 0 3
-
 
 export
 tests : List (IO Bool)

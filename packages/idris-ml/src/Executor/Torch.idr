@@ -11,7 +11,6 @@ import BackendLib
 import Hardware
 import Preset
 
-
 ----------------------------------------------------------------------
 -- Per-symbol bindings to the torch backend's suffixed C exports
 ----------------------------------------------------------------------
@@ -81,7 +80,6 @@ prim__clampTorch : AnyPtr -> Double -> Double -> AnyPtr
 
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-round-torch)) (set-top-level-value! 'idris-ffi-tensor-round-torch (foreign-procedure \"tensor_round_torch\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-round-torch) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__roundTorch : AnyPtr -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- TorchHwDev + TorchExecutor type + UserExecutorCore instance
@@ -281,7 +279,6 @@ prim__argsortTorch : AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-cumprod-torch)) (set-top-level-value! 'idris-ffi-tensor-cumprod-torch (foreign-procedure \"tensor_cumprod_torch\" (void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-cumprod-torch) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__cumprodTorch : AnyPtr -> Int -> AnyPtr
 
-
 public export
 {d : TorchHwDev} -> UserExecutorLinear (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -321,7 +318,6 @@ public export
   primView1d = prim__view1dTorch
   primView2d = prim__view2dTorch
   -- <<< END GENERATED <<<
-
 
 ----------------------------------------------------------------------
 -- NN-slice FFI bindings (torch-suffixed)
@@ -374,7 +370,6 @@ prim__pairFirstTorch : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-pair-second-torch)) (set-top-level-value! 'idris-ffi-tensor-pair-second-torch (foreign-procedure \"tensor_pair_second_torch\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-pair-second-torch) a0))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__pairSecondTorch : AnyPtr -> AnyPtr
 
-
 -- Fused inference ops (used by `UserExecutorNN` below; FFI decls
 -- moved up from the legacy `Training` slice region so they
 -- precede their first use in the NN instance.)
@@ -412,7 +407,6 @@ public export
   primSoftplus = prim__softplusTorch
   -- <<< END GENERATED <<<
 
-
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (torch-suffixed)
 ----------------------------------------------------------------------
@@ -436,7 +430,6 @@ prim__maxPool2dTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-tensor-max-pool2d-batched-torch)) (set-top-level-value! 'idris-ffi-tensor-max-pool2d-batched-torch (foreign-procedure \"tensor_max_pool2d_batched_torch\" (void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-max-pool2d-batched-torch) (vector-ref a0 2) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__maxPool2dBatchedTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-
 public export
 {d : TorchHwDev} -> UserExecutorConv (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -450,7 +443,6 @@ public export
   primMaxPool2d = prim__maxPool2dTorch
   primMaxPool2dBatched = prim__maxPool2dBatchedTorch
   -- <<< END GENERATED <<<
-
 
 ----------------------------------------------------------------------
 -- Tape-slice FFI bindings (torch-suffixed)
@@ -547,9 +539,6 @@ prim__perfResetTorch : PrimIO ()
 %foreign "C:tensor_perf_op_count_torch,libidrisml"
 prim__perfOpCountTorch : PrimIO Int
 
-
-
-
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-streamed-torch)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-streamed-torch (foreign-procedure \"tensor_create_scalar_streamed_torch\" (double int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-streamed-torch) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__createScalarStreamedTorch : Double -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-streamed-torch)) (set-top-level-value! 'idris-ffi-tensor-create-streamed-torch (foreign-procedure \"tensor_create_streamed_torch\" (void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-streamed-torch) a0 a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
@@ -598,7 +587,6 @@ prim__createParam4dConstStreamedTorch : Int -> Int -> Int -> Int -> Double -> In
 %foreign "C:tensor_set_init_seed_streamed_torch,libidrisml"
 prim__setInitSeedStreamedTorch : Bits64 -> Int -> PrimIO ()
 
-
 public export
 {d : TorchHwDev} -> UserExecutorOptimizations (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -617,7 +605,6 @@ public export
   primSwiGlu2d = prim__swiGlu2dTorch
   primTile2d = prim__tile2dTorch
   -- <<< END GENERATED <<<
-
 
 public export
 {d : TorchHwDev} -> UserExecutorAutograd (TorchExecutor d) where
@@ -806,7 +793,6 @@ Compatible (TorchExecutor TMps) Binary where
 public export
 {n : Nat} -> Compatible (TorchExecutor (TCuda n)) Binary where
 
-
 ----------------------------------------------------------------------
 -- UserExecutorTransfer instance (cross-backend transfer surface)
 --
@@ -864,7 +850,6 @@ public export
   primIntraMigrate h hwName =
     prim__toDeviceTorch h hwName
 
-
 ----------------------------------------------------------------------
 -- UserExecutorQuant instance (#411 BitNet b1.58)
 ----------------------------------------------------------------------
@@ -904,7 +889,6 @@ public export
   primTernaryQuantWithScale2d = prim__ternaryQuantWithScale2dTorch
   -- <<< END GENERATED <<<
 
-
 ----------------------------------------------------------------------
 -- HardwareClass: map each torch hw variant to its physical silicon.
 ----------------------------------------------------------------------
@@ -916,7 +900,6 @@ public export
     TMps    => AppleGpu
     TCuda n => Nvidia n
 
-
 ----------------------------------------------------------------------
 -- Hardware (type-level): map each torch hw variant to its kind tag.
 ----------------------------------------------------------------------
@@ -925,7 +908,6 @@ public export RunsOn (TorchExecutor TCpu)        Cpu       where
 public export RunsOn (TorchExecutor TMps)        AppleGpu  where
 public export {n : Nat} -> RunsOn (TorchExecutor (TCuda n)) (Cuda n) where
 
-
 ----------------------------------------------------------------------
 -- Backend (type-level): every torch hardware variant is provided by
 -- TorchBackend.
@@ -933,7 +915,6 @@ public export {n : Nat} -> RunsOn (TorchExecutor (TCuda n)) (Cuda n) where
 
 public export
 {hw : TorchHwDev} -> RunsVia (TorchExecutor hw) TorchBackend where
-
 
 ----------------------------------------------------------------------
 -- Preset: per-Hardware defaults for libtorch.

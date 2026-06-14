@@ -16,7 +16,6 @@ import Train
 import Executor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Env dimensions (slippery 4x4 FrozenLake)
 ----------------------------------------------------------------------
@@ -24,7 +23,6 @@ import BuildConfig
 NumStates : Nat; NumStates = 16
 NumActions : Nat; NumActions = 4
 MaxSteps : Nat; MaxSteps = 100
-
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -50,7 +48,6 @@ qSet i j v (VArray rows) =
       newRow = VArray (Data.Vect.replaceAt j (SArray v) cells)
   in VArray (Data.Vect.replaceAt i newRow rows)
 
-
 ----------------------------------------------------------------------
 -- Nat -> Fin conversions (env guarantees in-range)
 ----------------------------------------------------------------------
@@ -64,7 +61,6 @@ toActionFin : Nat -> Fin NumActions
 toActionFin n = case natToFin n NumActions of
   Just f => f
   Nothing => FZ
-
 
 ----------------------------------------------------------------------
 -- Epsilon-greedy
@@ -84,7 +80,6 @@ epsGreedy eps qr u1 u2 =
               Just f => f
               Nothing => FZ
     else argmax qr
-
 
 ----------------------------------------------------------------------
 -- Episode rollout with Q-learning updates
@@ -113,7 +108,6 @@ runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
               then (q', reward)
               else let (qF, fut) = runEpisode alpha gamma eps st' q' steps rest
                    in (qF, reward + fut)
-
 
 ----------------------------------------------------------------------
 -- Config & training loop
@@ -168,7 +162,6 @@ genInput = do
   noise <- genNoise (MaxSteps * 2)
   pure (MkEI s noise)
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation (still slippery: even an optimal policy fails some
 -- episodes due to slip dynamics; avg_return == success rate).
@@ -190,7 +183,6 @@ evalN q (S k) acc = do
   s <- genSeed
   let r = evalEpisode q (fst (initFL True s)) MaxSteps 0.0
   evalN q k (acc + r)
-
 
 ----------------------------------------------------------------------
 -- Main

@@ -1,6 +1,5 @@
 module Floating
 
-
 public export
 interface Floating ty where
   exp : ty -> ty

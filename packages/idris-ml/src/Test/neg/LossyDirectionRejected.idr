@@ -15,7 +15,6 @@ module LossyDirectionRejected
 
 import DType.Core
 
-
 -- This proof should fail to typecheck:
 --   `LosslessTo (Float 32) (BFloat 16)` requires `LTE 23 7`, which
 --   is `LTESucc (LTESucc (LTESucc ... LTEZero))` — but `23 ≤ 7` has

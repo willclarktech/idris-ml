@@ -7,7 +7,6 @@ import Layer.Core
 import Layer.MixedCore
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- BitLinear: BitNet b1.58 quantized linear (#411 B2)
 ----------------------------------------------------------------------
@@ -38,7 +37,6 @@ record BitLinearState (i : Nat) (o : Nat) (0 ex : Executor)
   scaleT  : Tensor [o] ex computeDt NoGrad
   biasT   : Tensor [o] ex computeDt g
 
-
 ----------------------------------------------------------------------
 -- LayerLikeMixed instance
 ----------------------------------------------------------------------
@@ -67,7 +65,6 @@ LayerLikeMixed BitLinearState where
   unfreezeLayerMixed (MkBitLinear w s b) = do
     primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkBitLinear w s (retypeGrad b))
-
 
 ----------------------------------------------------------------------
 -- Constructors

@@ -17,12 +17,10 @@ import Layer.Core
 import Layer.Linear
 import Tensor
 
-
 -- Short step budget so test runs are tape-friendly. 200 steps × N=2
 -- × 2 paths blew up under whatever backend the test linked against.
 testMaxSteps : Nat
 testMaxSteps = 20
-
 
 ||| Build a fresh deterministic REINFORCE policy for use in both rollout
 ||| paths. Initialization reads from C-side RNG state, so we build it

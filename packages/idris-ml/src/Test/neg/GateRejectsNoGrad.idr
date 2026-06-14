@@ -14,7 +14,6 @@ import Data.Vect
 import Executor
 import Tensor
 
-
 -- A loss tensor materialised as NoGrad (e.g. via `weakenGrad` on
 -- the output of a `withNoGrad`-wrapped forward). The C-side handle
 -- is irrelevant for this compile test — the type itself triggers

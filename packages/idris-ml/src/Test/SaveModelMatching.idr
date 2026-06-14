@@ -19,11 +19,9 @@ import Tensor
 import Checkpoint
 import Train.Freeze
 
-
 -- Read the single element out of a registered 1-D param.
 readScalar1d : Tensor (the (Vect 1 Nat) [1]) TestExecutor TestDType WithGrad -> Double
 readScalar1d t = primItem1d {ex=TestExecutor} t.tensorPtr 0
-
 
 -- ---------------------------------------------------------------
 -- Test #1 — saveModelMatching writes only the predicate-matching
@@ -51,7 +49,6 @@ saveMatchingExactNameTest = do
   r1 <- check ("alpha restored to 1.5 (got " ++ show aV ++ ")") (aV == 1.5)
   r2 <- check ("beta untouched at 99.0 (got " ++ show bV ++ ")") (bV == 99.0)
   pure (r0 && r1 && r2)
-
 
 -- ---------------------------------------------------------------
 -- Test #2 — saveModelSuffixes writes every param whose name ends
@@ -87,7 +84,6 @@ saveBySuffixesPicksAdaptersTest = do
   r3 <- check ("lora_B restored to 3.0 (got " ++ show bV ++ ")") (bV == 3.0)
   pure (r0 && r1 && r2 && r3)
 
-
 -- ---------------------------------------------------------------
 -- Test #3 — empty predicate match returns False (no degenerate
 -- empty safetensors written). Mirrors saveModel's "no params"
@@ -99,7 +95,6 @@ emptyMatchFailsTest = do
   let path = "/tmp/idris-ml-l2-savematch-empty.safetensors"
   ok <- saveModelMatching {ex=TestExecutor} path (\_ => False)
   check "empty predicate returns False" (not ok)
-
 
 -- ---------------------------------------------------------------
 -- Test #4 — freezeBySuffix smoke. Registers two params with the
@@ -120,7 +115,6 @@ freezeBySuffixSmokeTest = do
   unfreezeBySuffix {ex=TestExecutor} opt "lora_A"
   unfreezeBySuffix {ex=TestExecutor} opt "lora_B"
   check "freezeBySuffix / unfreezeBySuffix run without error" True
-
 
 export
 tests : List (IO Bool)

@@ -6,13 +6,11 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 -- Random seed for dropout mask. Dummy arg prevents CSE — the FFI
 -- binding is shared with the V1 dropout layer (declared there but we
 -- don't import that module to keep V1/ paths independent).
 %foreign "C:dropout_random_seed,libidrisml"
 dropoutSeed : Int -> Int
-
 
 ----------------------------------------------------------------------
 -- Dropout — typed-surface dropout (Path C)
@@ -29,7 +27,6 @@ dropoutSeed : Int -> Int
 public export
 data DropoutState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n ex dt g
-
 
 ----------------------------------------------------------------------
 -- Forward
@@ -50,7 +47,6 @@ applyDropout st@(MkDropout p training) input = ioRerun (\_ =>
       in (st, MkTensor outPtr Nothing)
     else (st, input))
 
-
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
@@ -65,7 +61,6 @@ dropoutLayer p = MkDropout p True
 export
 setTraining : Bool -> DropoutState n n ex dt g -> DropoutState n n ex dt g
 setTraining mode (MkDropout p _) = MkDropout p mode
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

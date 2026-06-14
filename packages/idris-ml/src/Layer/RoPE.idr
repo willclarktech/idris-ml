@@ -5,7 +5,6 @@ import Data.Vect
 import Executor
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- RoPE — Rotary Position Embeddings (Su et al 2021, Llama variant)
 ----------------------------------------------------------------------
@@ -49,7 +48,6 @@ import Tensor
 -- primitives (`primNarrow`, `primMul`, `primAdd`, `primSub`,
 -- `primConcat2dAxis1`) so no new core C surface is needed.
 
-
 ----------------------------------------------------------------------
 -- Config
 ----------------------------------------------------------------------
@@ -75,7 +73,6 @@ llama3Scaling = MkRopeScaling 32.0 1.0 4.0 8192
 public export
 noScaling : LlamaRopeScaling
 noScaling = MkRopeScaling 1.0 1.0 4.0 8192
-
 
 ----------------------------------------------------------------------
 -- Frequency computation (host-side Double math)
@@ -137,7 +134,6 @@ llamaInvFreq : (headDim : Nat) -> (base : Double) -> LlamaRopeScaling
 llamaInvFreq headDim base scaling =
   map (applyLlamaFreqScaling scaling) (baseInvFreq headDim base)
 
-
 ----------------------------------------------------------------------
 -- cos / sin table builders (host-side, ready to upload as tensors)
 ----------------------------------------------------------------------
@@ -181,7 +177,6 @@ writeSinTable buf halfDim sLen freqs pos i =
     getAt []        _ = Nothing
     getAt (x :: xs) k = if k <= 0 then Just x else getAt xs (k - 1)
 
-
 ||| Build `[maxPos, headDim/2]` cos and sin tables for RoPE rotation.
 ||| Both materialised as persistent-state tensors (`dtCreateState2d`)
 ||| so they survive `tape_reset` between training/inference calls.
@@ -220,7 +215,6 @@ buildLlamaRoPETables base scaling = ioRerun (\_ =>
       cosPtr   = dtCreateState2d {ex} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {ex})
       sinPtr   = dtCreateState2d {ex} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {ex})
   in MkRoPETables (MkTensor cosPtr Nothing) (MkTensor sinPtr Nothing))
-
 
 ----------------------------------------------------------------------
 -- applyRope — rotate a [seq, headDim] tensor in place
@@ -278,7 +272,6 @@ applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioReru
       -- Concat halves back to [seq, headDim].
       result    = primConcat2dAxis1 {ex} firstOut secondOut
   in MkTensor result Nothing)
-
 
 ----------------------------------------------------------------------
 -- applyRopeAllHeads — vectorized rotation across the head axis
@@ -347,7 +340,6 @@ applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOf
       concat2    = primConcat2dAxis1 {ex} firstOut2 secondOut2  -- [seq*nH, headDim]
       result     = primReshape3d {ex} concat2 seqI numHI headDI
   in MkTensor result Nothing)
-
 
 ----------------------------------------------------------------------
 -- applyRopeInverse — inverse rotation

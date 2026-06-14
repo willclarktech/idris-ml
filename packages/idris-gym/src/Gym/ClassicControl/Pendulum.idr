@@ -3,7 +3,6 @@ module Gym.ClassicControl.Pendulum
 import Data.Vect
 import Gym.Env
 
-
 ----------------------------------------------------------------------
 -- Pendulum-v1 (Gymnasium-compatible constants)
 ----------------------------------------------------------------------
@@ -21,7 +20,6 @@ public export
 record PState where
   constructor MkP
   pTheta, pThetaDot : Double
-
 
 clamp : Double -> Double -> Double -> Double
 clamp lo hi x = if x < lo then lo else if x > hi then hi else x

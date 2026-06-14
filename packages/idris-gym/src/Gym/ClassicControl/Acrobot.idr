@@ -3,7 +3,6 @@ module Gym.ClassicControl.Acrobot
 import Data.Vect
 import Gym.Env
 
-
 ----------------------------------------------------------------------
 -- Acrobot-v1 (Gymnasium-compatible)
 --
@@ -29,7 +28,6 @@ public export
 record AState where
   constructor MkA
   aTh1, aTh2, aDth1, aDth2 : Double
-
 
 clamp : Double -> Double -> Double -> Double
 clamp lo hi x = if x < lo then lo else if x > hi then hi else x

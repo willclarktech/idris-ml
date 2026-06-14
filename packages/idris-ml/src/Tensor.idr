@@ -17,7 +17,6 @@ import Schedule
 import public Tensor.Internal
 import Util
 
-
 ----------------------------------------------------------------------
 -- Backend FFI (libtorch via libidrisml)
 ----------------------------------------------------------------------
@@ -158,7 +157,6 @@ releaseHandle wr = ignore $ primIO (prim__releaseHandleC wr)
 --
 -- See docs/develop/tensor-lifecycle-plan.md.
 
-
 -- (Phase 7: `prim__toDevice` and `prim__tensorDevice` were unified-
 -- name FFI bindings used by the old `toExecutor`. They're now unused
 -- — `toExecutor` lives on top of `UserExecutorTransfer`'s per-backend
@@ -168,29 +166,22 @@ releaseHandle wr = ignore $ primIO (prim__releaseHandleC wr)
 
 -- Arithmetic (all return new tensors — libtorch builds autograd graph)
 
-
 -- Linear algebra
 
 -- Fused 1D linear: y = W @ x + bias. Eliminates the per-call FFI
 -- overhead of separate prim__mv + prim__add.
 
-
 -- Activation
-
 
 -- Loss
 
 -- Reduction
 
-
 -- Array creation/accessors
-
 
 -- NTM
 
-
 -- Cross-attention: Q @ K^T * scale [+ mask] -> softmax -> @ V
-
 
 -- Embedding
 
@@ -200,21 +191,15 @@ releaseHandle wr = ignore $ primIO (prim__releaseHandleC wr)
 
 -- Shape / info queries
 
-
 -- Gather / Scatter
-
 
 -- Sort / Scan
 
-
 -- Average Pooling
-
 
 -- Conv1D / MaxPool1D
 
-
 -- Conv2D / MaxPool2D
-
 
 -- IDX-format dataset loading (file format Yann LeCun shipped MNIST in;
 -- the helpers live in packages/backends/idx.c and are compiled ONCE
@@ -255,7 +240,6 @@ prim__idxImageDoubles : AnyPtr -> Int -> AnyPtr
 
 -- Array-level parameter creation
 
-
 -- State tensors (non-learnable, non-grad). Both init-time permanent state
 -- (NTM mask, BatchNorm running stats, transformer PE, DNC mask) AND
 -- per-sequence transient state (Ntm/Dnc zeroState) flow through this
@@ -263,9 +247,7 @@ prim__idxImageDoubles : AnyPtr -> Int -> AnyPtr
 -- the only stable holder, so the Tensor lives as long as the holder does.
 -- tape/torch: the backend's own arena/shared_ptr handles freeing.
 
-
 -- Fused LSTM gates: takes combined [4*o] tensor + prev_cell [o], returns pair handle
-
 
 ||| Tensors reachable from a value that must survive a generation-scoped
 ||| free — specifically the *result* of a `withNoGrad` block. At the
@@ -402,29 +384,24 @@ withGenFree act = do
 -- Must use concrete AnyPtr types (not polymorphic) to avoid
 -- argument count issues at the FFI boundary.
 
-
 ----------------------------------------------------------------------
 -- C-side allocation + bulk-load helpers: moved to Tensor.Internal
 ----------------------------------------------------------------------
 
 -- 3D batched attention ops
 
-
 ||| Tile a 2D tensor: `[m, n] -> [m*rep0, n*rep1]`. Element `(i, j)` in the
 ||| output equals element `(i mod m, j mod n)` in the input.
-
 
 -- Array pointer array: stack scalar Tensor tensorPtrs to create
 -- a 1D/2D tensor that preserves the autograd graph.
 
 -- Returns the array for threading
 
-
 -- N-ary cat: caller retains ownership of the handle array.
 -- See tensor_cat in backend.h.
 
 -- Batch [...] tensors into [count, ...]. Equivalent to stack at dim=0.
-
 
 -- Backend-agnostic raw-bytes reader from a safetensors file. Pure file
 -- I/O — no tensor handles, no per-backend dispatch (symbol lives in
@@ -447,7 +424,6 @@ safetensorsReadRawBytes : (path : String) -> (key : String) ->
 safetensorsReadRawBytes path key buf cap =
   primIO (prim__safetensorsReadRawBytes path key buf cap)
 
-
 ----------------------------------------------------------------------
 -- Per-dtype creation primitives + RuntimeDType F32 / F64 instances
 --
@@ -464,18 +440,14 @@ safetensorsReadRawBytes path key buf cap =
 
 -- tensor_create_scalar
 
-
 -- tensor_create
 
-
 -- tensor_create_2d
-
 
 -- Per-dtype cast primitives. Backend support mirrors the create
 -- primitives: mlx/torch implement both; tape implements _f64 (no-op
 -- alias today, since the only valid source dtype is F64) and aborts
 -- on _f32. Source dtype is read from the handle on the C side.
-
 
 -- RuntimeDType instances — the runtime dtype tag passed across the
 -- Idris↔C FFI boundary. Kind-major, precision-minor layout: each kind
@@ -570,7 +542,6 @@ idxImage ds idx flatLen =
 -- Backpropagation: prims for native optimizer
 ----------------------------------------------------------------------
 
-
 ----------------------------------------------------------------------
 -- Native Optimizer
 ----------------------------------------------------------------------
@@ -590,7 +561,6 @@ polyakUpdate : UserExecutorTraining ex =>
                (tau : Double) -> (onlineScope : String) -> (targetScope : String) -> IO Int
 polyakUpdate tau onlineScope targetScope =
   primIO (primPolyakBlend {ex} tau onlineScope targetScope)
-
 
 public export
 data ClipMode = NoClip | ValueClip Double | NormClip Double
@@ -722,7 +692,6 @@ export
 getCurrentRssMB : Nat -> Int
 getCurrentRssMB _ = prim__getCurrentRssMB
 
-
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
 ||| The underlying C `tensor_create_1d_f64` (via dtCreate1d) frees the
 ||| input buffer after copying.
@@ -797,7 +766,6 @@ vectorToTensorPersistent {n} (VArray elems) =
 export
 toTDP : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
 toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {ex} {dt} (x dp)) (vectorToTensorPersistent {ex} {dt} (y dp))
-
 
 -- runBackward is defined post-Tensor record below; the type-level
 -- gate (Tensor [] ex dt WithGrad-> IO ()) lives there.
@@ -1126,7 +1094,6 @@ export
 retypeGrad : Tensor dims ex dt g1 -> Tensor dims ex dt g2
 retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 
-
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
 ||| inlining inside a Vect literal — the latter triggers an Idris 2
@@ -1393,7 +1360,6 @@ tlinear2d : {0 ex : Executor} -> UserExecutorTraining ex =>
             Tensor [o, i] ex dt g -> Tensor [b, i] ex dt g -> Tensor [o] ex dt g -> IO (Tensor [b, o] ex dt g)
 tlinear2d w x bias = ioRerun (\_ =>
   MkTensor (primLinear2d {ex} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
-
 
 ----------------------------------------------------------------------
 -- BitNet b1.58 quantized linear (#411 B2)

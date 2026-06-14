@@ -23,7 +23,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- SAC on MountainCarContinuous-v0 with velocity-magnitude reward shaping.
 --
@@ -50,7 +49,6 @@ MaxAct : Double; MaxAct = 1.0
 ||| batched gradient update on a sample drawn from the shared buffer.
 NumEnvs : Nat; NumEnvs = 4
 
-
 -- --- Architectures --------------------------------------------------
 
 ActorNet : Type
@@ -58,7 +56,6 @@ ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor Exa
 
 QNet : Type
 QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor ExampleDType WithGrad
-
 
 mkActor : IO ActorNet
 mkActor = do
@@ -74,7 +71,6 @@ mkQ scope = do
   ll3 <- linearLayerAny {i=Hidden} {o=1}         (scope ++ "ll3")
   pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
-
 -- --- Observation helpers --------------------------------------------
 
 observeVec : MCCState -> Vect ObsDim Double
@@ -89,7 +85,6 @@ qInput obs a = obs ++ [a]
 qInputTensor : Vect QInputDim Double -> Vector QInputDim Double
 qInputTensor v = VArray (map SArray v)
 
-
 -- --- Gaussian / squash helpers --------------------------------------
 
 logTwoPiHalf : Double
@@ -99,7 +94,6 @@ squashCorrection : Double -> Double
 squashCorrection u =
   let tu = Math.tanh u
   in Prelude.log (1.0 - tu * tu + 1.0e-6) + Prelude.log MaxAct
-
 
 -- --- Forward helpers (single-sample) --------------------------------
 
@@ -116,7 +110,6 @@ qValue q obs action = do
   (_, outV) <- forwardVar q inV
   pure (primItem1d {ex=ExampleExecutor} outV.tensorPtr 0)
 
-
 sampleActionIO : ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad -> Vect ObsDim Double ->
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
@@ -129,7 +122,6 @@ sampleActionIO actor logStdV obs = do
       lp_u = -0.5 * ((u - mean) / std) * ((u - mean) / std) - logStd - logTwoPiHalf
       lp = lp_u - squashCorrection u
   pure (action, lp)
-
 
 -- Batched action sampling across NumEnvs envs: one batched actor forward
 -- (mean per env), then N independent eps draws. Shared logStd scalar.
@@ -159,7 +151,6 @@ sampleActionsBatched actor logStdV envs = do
       as <- go meanB std (i + 1) rest
       pure (action :: as)
 
-
 -- --- SAC state -------------------------------------------------------
 
 record SACState where
@@ -176,7 +167,6 @@ record SACState where
   epLenRef : IORef (Vect NumEnvs Nat)
   retRef  : IORef (Vect NumEnvs Double)
   lastEpRef : IORef Double
-
 
 record Config where
   constructor MkConfig
@@ -217,7 +207,6 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--es-patience" (\v, c => { esPatience := castNat v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
-
 
 -- --- Q-network loss (batched) ---------------------------------------
 
@@ -269,7 +258,6 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
       l <- perSampleQLoss qOutB tv k
       ls <- go qOutB rest (k + 1)
       pure (l :: ls)
-
 
 -- --- Actor loss with reparameterization -----------------------------
 
@@ -343,7 +331,6 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
       ls <- go meanB uBT q1B q2B rest (k + 1)
       pure (l :: ls)
 
-
 -- --- Batch update ---------------------------------------------------
 
 runBatchUpdate : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
@@ -360,7 +347,6 @@ runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
   aLossV <- actorLossBatch n st.actor st.q1 st.q2 st.logStdV cfg.alpha obsVec
   _ <- nativeTrainStep actorOpt aLossV
   pure ()
-
 
 -- --- Main loop ------------------------------------------------------
 
@@ -386,7 +372,6 @@ stepAllAutoResetMCC (s :: ss) (a :: as) (l :: ls) =
       in case stepAllAutoResetMCC ss as ls of
            (rest, rs, bds, ds, restL) =>
              (nextS :: rest, r :: rs, terminated :: bds, isDone :: ds, nextL :: restL)
-
 
 sacStepBatched : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
                  Config -> SACState -> IO (SACState, Double)
@@ -458,7 +443,6 @@ sacStepBatched q1Opt q2Opt actorOpt cfg st = do
       push st.buffer (MkTransition (observeVec s) [a] shapedR (observeVec s') bd)
       pushAll ss as rs ss' bds shaping
 
-
 -- --- Greedy evaluation ----------------------------------------------
 
 greedyAct : ActorNet -> Vect ObsDim Double -> IO Double
@@ -481,7 +465,6 @@ evalN _ Z acc = pure acc
 evalN actor (S k) acc = do
   v <- withNoGrad {ex=ExampleExecutor} (evalEp actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
   evalN actor k (acc + v)
-
 
 -- --- Main -----------------------------------------------------------
 

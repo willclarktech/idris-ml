@@ -13,7 +13,6 @@ import Executor.Core
 import Executor.Tape
 import BuildConfig
 
-
 ||| Build two scalars, add them, read back. Forces the typechecker
 ||| to resolve `UserExecutorCore TapeExecutor` and the runtime to actually
 ||| call `_tensor_add_tape` via the interface dispatch.

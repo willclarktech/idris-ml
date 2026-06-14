@@ -49,7 +49,6 @@ import Layer
 import Tensor
 import BuildConfig
 
-
 -- Same input both sides; the value-level result must agree (modulo
 -- F32-vs-F64 precision) since the math is the same — only the
 -- stream the op runs on differs.
@@ -59,7 +58,6 @@ inputCpu = VArray [SArray 1.0, SArray 2.0, SArray 3.0, SArray 4.0]
 inputGpu : Vector 4 Double
 inputGpu = VArray [SArray 5.0, SArray 6.0, SArray 7.0, SArray 8.0]
 
-
 readVec4 : {0 ex : Executor} -> UserExecutorCore ex => Tensor [4] ex dt g -> Vect 4 Double
 readVec4 v = [ primItem1d {ex} v.tensorPtr 0
              , primItem1d {ex} v.tensorPtr 1
@@ -67,11 +65,9 @@ readVec4 v = [ primItem1d {ex} v.tensorPtr 0
              , primItem1d {ex} v.tensorPtr 3
              ]
 
-
 showVec : Vect 4 Double -> String
 showVec [a, b, c, d] = "[" ++ show a ++ ", " ++ show b ++ ", "
                          ++ show c ++ ", " ++ show d ++ "]"
-
 
 main : IO ()
 main = do

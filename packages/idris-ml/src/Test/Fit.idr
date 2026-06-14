@@ -12,7 +12,6 @@ import Fit
 import DataStream
 import Test.Config
 
-
 -- Registered scalar param (mirrors Test.Optimizer / Test.TrainEngine).
 mkW : String -> Double -> IO (Tensor [] TestExecutor TestDType WithGrad)
 mkW name v = do

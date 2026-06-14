@@ -8,7 +8,6 @@ import Test.Harness
 import Math
 import Array
 
-
 tol : Double
 tol = 1.0e-6
 

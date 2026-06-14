@@ -19,7 +19,6 @@ import ML.Simple
 import Train          -- patienceConfig
 import BuildConfig    -- ChosenMachine / requireMachine
 
-
 ----------------------------------------------------------------------
 -- Architecture (flat dims, mirroring the legacy chain)
 ----------------------------------------------------------------------
@@ -63,7 +62,6 @@ InputDim = InC * SeqLen  -- 32
 AfterPool2 : Nat
 AfterPool2 = C2 * Pool2Out  -- 48
 
-
 ----------------------------------------------------------------------
 -- Synthetic data (was Generate.seqPoint / DataPoint)
 ----------------------------------------------------------------------
@@ -104,7 +102,6 @@ mkSample = do
   y <- tensor {dims = [NumClasses]} (FromVect (oneHot label))
   pure (x, y)
 
-
 ----------------------------------------------------------------------
 -- Model + loss
 ----------------------------------------------------------------------
@@ -129,7 +126,6 @@ nllLoss : Model -> (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize,
 nllLoss model (x, tgt) = do
   out <- forwardSeq {b = BatchSize} model (retypeGrad x)
   tnllLossMean {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
-
 
 ----------------------------------------------------------------------
 -- Config & Main

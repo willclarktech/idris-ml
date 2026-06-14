@@ -11,7 +11,6 @@ import Layer.Lstm
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- NTM constants (mirror V1)
 ----------------------------------------------------------------------
@@ -27,7 +26,6 @@ ReadParamWidth m = (m + ShiftKernelSize) + 3
 public export
 WriteParamWidth : Nat -> Nat
 WriteParamWidth m = ReadParamWidth m + m
-
 
 ----------------------------------------------------------------------
 -- NtmState — typed-surface NTM controller (Path C)
@@ -63,7 +61,6 @@ data NtmState :
     Maybe (TVec n ex dt g) ->                               -- write addr
     Maybe (TVec m ex dt g) ->                               -- last read output
     NtmState n m h i o ex dt g
-
 
 ----------------------------------------------------------------------
 -- Forward
@@ -200,7 +197,6 @@ applyNtm {n} {m} {h} {i} {o}
           (Just (MkTensor newReadOutT Nothing))
        , MkTensor outputPtr Nothing )
 
-
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
@@ -261,7 +257,6 @@ resetNtmState : {n, m, h : Nat} -> {0 g : GradMode} -> NtmState n m h i o ex dt 
 resetNtmState (MkNtm lstm rfc wfc ofc memInitT initReadOutT _ _ _ _) =
   MkNtm (resetLstmState lstm) rfc wfc ofc memInitT initReadOutT
         Nothing Nothing Nothing Nothing
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

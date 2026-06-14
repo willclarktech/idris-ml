@@ -19,7 +19,6 @@ import Data.Fin
 import Tokenizer
 import Test.Harness
 
-
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
@@ -40,7 +39,6 @@ showList xs = "[" ++ joinBy ", " (map show xs) ++ "]"
     joinBy _   []        = ""
     joinBy _   [x]       = x
     joinBy sep (x :: xs) = x ++ sep ++ joinBy sep xs
-
 
 ----------------------------------------------------------------------
 -- BERT WordPiece (vocab=30522)
@@ -98,7 +96,6 @@ testBertVocabMismatch = do
     Right _ => do
       putStrLn "  FAIL: expected Left TokVocabMismatch but got Right"
       pure False
-
 
 ----------------------------------------------------------------------
 -- distilgpt2 BPE (vocab=50257)
@@ -158,7 +155,6 @@ testGpt2RoundTrip = do
             else do
               putStrLn ("  FAIL: round-trip got " ++ show (trim txt))
               pure False
-
 
 ----------------------------------------------------------------------
 -- Suite

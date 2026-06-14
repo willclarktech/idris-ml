@@ -22,7 +22,6 @@ import Data.String
 import Data.Vect
 import System.File
 
-
 ----------------------------------------------------------------------
 -- Record + parsing
 ----------------------------------------------------------------------
@@ -36,7 +35,6 @@ record TokenizedExample where
   constructor MkTokenizedExample
   tokenIds : List Nat
   label    : Nat
-
 
 -- Parse a comma-separated token-id string. Empty input → []. Any
 -- non-Nat chunk fails the whole parse (returns Nothing).
@@ -58,7 +56,6 @@ parseIdList s =
             then Nothing
             else Just (cast n)
 
-
 -- Parse a single TSV line. Returns Nothing on malformed input
 -- (missing tab, non-Nat label, bad token list).
 parseLine : String -> Maybe TokenizedExample
@@ -70,7 +67,6 @@ parseLine line =
           if lbl < 0 then Nothing else Just (MkTokenizedExample ids (cast lbl))
         _ => Nothing
     _ => Nothing
-
 
 ||| Load a tokenized TSV file emitted by `hf-download-dataset.sh`.
 ||| Returns the parsed examples (best-effort: malformed lines are
@@ -85,7 +81,6 @@ loadHfDataset path = do
   let nonEmpty = filter (not . null . trim) (lines contents)
       parsed   = mapMaybe parseLine nonEmpty
   pure parsed
-
 
 ----------------------------------------------------------------------
 -- Padding / truncation
@@ -105,7 +100,6 @@ takePadEnd (S k)  pid  (x :: xs) =
   let (rest, restMask) = takePadEnd k pid xs
   in (x :: rest, 1.0 :: restMask)
 
-
 ||| Pad/truncate a single example to exactly `seqLen` tokens. Returns
 ||| `(ids, mask, label)`:
 |||   - `ids`: Vect seqLen Nat (padded with `padId`)
@@ -123,7 +117,6 @@ padToSeqLen : (seqLen : Nat) -> (padId : Nat)
 padToSeqLen seqLen padId ex =
   let (ids, mask) = takePadEnd seqLen padId ex.tokenIds
   in (ids, mask, ex.label)
-
 
 ----------------------------------------------------------------------
 -- Batching utilities

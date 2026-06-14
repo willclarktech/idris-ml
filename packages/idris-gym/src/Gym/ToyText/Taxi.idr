@@ -4,7 +4,6 @@ import Data.Vect
 import Gym.Env
 import Gym.Rng
 
-
 ----------------------------------------------------------------------
 -- Taxi-v3 (Gymnasium-compatible)
 --

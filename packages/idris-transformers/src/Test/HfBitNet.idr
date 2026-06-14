@@ -31,7 +31,6 @@ import Test.Config
 import Layer.RoPE
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Reference catalogue
 ----------------------------------------------------------------------
@@ -102,7 +101,6 @@ expectedBitnet2B4T_RegisteredParamNames =
   ++ concatMap oneLayerRegistered range30
   ++ [ "model.norm.weight" ]
 
-
 strContains : String -> String -> Bool
 strContains needle hay = isInfixOf (unpack needle) (unpack hay)
 
@@ -115,7 +113,6 @@ firstMismatch xs ys = go Z xs ys
     go n (x :: _)  []        = Just (n, x, "<missing>")
     go n (x :: xs) (y :: ys) =
       if x == y then go (S n) xs ys else Just (n, x, y)
-
 
 ----------------------------------------------------------------------
 -- Bucket 1 — pure Idris catalogue correctness
@@ -145,7 +142,6 @@ testNamingConvention =
       missingDots = any (\n => not (strContains "." n)) names
   in check "no `_weights`/`_biases` plural; every name uses `.` separator"
            (not hasPlural && not missingDots)
-
 
 ----------------------------------------------------------------------
 -- Bucket 2 — FFI: smart constructor registers the float subset
@@ -202,7 +198,6 @@ testConstructorRegistersHfNames = do
                 show (length expected) ++ " expected names missing:")
       for_ (take 10 missing) $ \name => putStrLn ("    - " ++ name)
       pure False
-
 
 ----------------------------------------------------------------------
 -- Suite export
@@ -277,7 +272,6 @@ testForwardLmSmoke = do
               scalar = primNarrow {ex=TestExecutor} row1d 0 c 1
               v      = primItem {ex=TestExecutor} scalar
           in go r (c + 1) (v :: acc)
-
 
 ----------------------------------------------------------------------
 -- Suite export

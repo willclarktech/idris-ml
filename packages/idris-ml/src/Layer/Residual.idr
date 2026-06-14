@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Residual — typed-surface skip-connection wrapper (Path C)
 ----------------------------------------------------------------------
@@ -17,7 +16,6 @@ import Tensor
 public export
 data ResidualState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkResidual : AnyLayer n n ex dt g -> ResidualState n n ex dt g
-
 
 ----------------------------------------------------------------------
 -- Forward
@@ -34,7 +32,6 @@ applyResidual (MkResidual inner) input = do
   (inner', innerOut) <- applyVarAny inner input
   sumT <- tadd input innerOut
   pure (MkResidual inner', sumT)
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance
@@ -55,7 +52,6 @@ LayerLike ResidualState where
   unfreezeLayer (MkResidual inner) = do
     inner' <- unfreezeAnyLayer inner
     pure (MkResidual inner')
-
 
 ----------------------------------------------------------------------
 -- Constructor

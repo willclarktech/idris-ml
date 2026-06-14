@@ -39,7 +39,6 @@ import Init
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Config
 ----------------------------------------------------------------------
@@ -60,7 +59,6 @@ record Gpt2Config where
   intermediate : Nat   -- = 4 * hidden (GPT-2 default)
   maxPosition  : Nat
 
-
 ||| `distilgpt2` — the proof-of-concept target anchored by
 ||| `scripts/save_oracle_gpt2.py`. Pretrained GPT-2 distilled by HF;
 ||| 6 layers (half of gpt2-small's 12), hidden=768, n_head=12,
@@ -78,7 +76,6 @@ distilGpt2Config = MkGpt2Config
   , intermediate = 3072
   , maxPosition  = 1024
   }
-
 
 ----------------------------------------------------------------------
 -- Param-name catalogue (pure Idris — single source of truth)
@@ -132,7 +129,6 @@ hfGpt2ParamNames cfg pfx =
   ++ forBlocks cfg.numLayers (blockParamNames pfx_t)
   ++ finalNormParamNames pfx_t
 
-
 ----------------------------------------------------------------------
 -- HF-named building blocks (mirror HfBert pattern but GPT-2-named)
 ----------------------------------------------------------------------
@@ -156,7 +152,6 @@ fillConst buf _ 0 _ = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
-
 ||| HF Conv1D: stored as `[in, out]` (transpose of `nn.Linear`).
 ||| At forward time: `y = x @ W + b` (`x` is `[batch, in]`, `W` is
 ||| `[in, out]`, `b` is `[out]`, result is `[batch, out]`).
@@ -179,7 +174,6 @@ makeConv1D pfx = do
   b <- tparam1dConst  {n=o}       (pfx ++ ".bias")   0.0
   pure (MkGpt2Conv1D w b)
 
-
 ||| HF-named LayerNorm: registers `<pfx>.weight` (γ, init 1.0) and
 ||| `<pfx>.bias` (β, init 0.0). GPT-2's `ln_*` / `ln_f` are standard
 ||| LayerNorms with affine params (unlike Llama's RMSNorm which only
@@ -201,7 +195,6 @@ makeGpt2LN pfx = do
   b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
   pure (MkGpt2LN g b)
 
-
 ||| Token / positional embedding: `[count, hidden]`.
 public export
 record Gpt2Embedding (count, hidden : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
@@ -216,7 +209,6 @@ makeGpt2Embedding pfx = do
   -- Fused C-side normal(0, 0.02) init.
   w <- tparam2dNormal {o=count} {i=hidden} (pfx ++ ".weight") 0.0 0.02
   pure (MkGpt2Embedding w)
-
 
 ----------------------------------------------------------------------
 -- State records
@@ -258,7 +250,6 @@ record Gpt2ModelState
   blocks : Vect numLayers (Gpt2BlockState hidden intermediate ex dt g)
   lnF    : Gpt2LN hidden ex dt g
 
-
 ----------------------------------------------------------------------
 -- Smart constructors
 ----------------------------------------------------------------------
@@ -292,7 +283,6 @@ makeBlock pfx = do
   mp <- makeMlp {hidden} {intermediate} (pfx ++ ".mlp")
   pure (MkGpt2Block l1 at l2 mp)
 
-
 makeBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
           => {hidden, intermediate : Nat}
           -> (paramPrefix : String)
@@ -304,7 +294,6 @@ makeBlocks pfx (S k) offset  = do
   b  <- makeBlock {hidden} {intermediate} (blockPrefix pfx offset)
   bs <- makeBlocks pfx k (S offset)
   pure (b :: bs)
-
 
 ||| Construct a full GPT-2 model. All params register under HF-native
 ||| names with the supplied `paramPrefix` (typically `""` so the
@@ -324,7 +313,6 @@ hfGpt2Model pfx = do
   lnF    <- makeGpt2LN {n=hidden} (pfx_t ++ ".ln_f")
   pure (MkGpt2Model wte wpe blocks lnF)
 
-
 ----------------------------------------------------------------------
 -- Forward primitives (per-block, untyped at the AnyPtr boundary
 -- inside the per-head loops — same pattern as HfBert's applySelfAttn)
@@ -343,7 +331,6 @@ applyLN2d (MkGpt2LN g b) input = ioRerun (\_ =>
   MkTensor (primLayerNorm2d {ex} input.tensorPtr g.tensorPtr b.tensorPtr gpt2LnEps)
            Nothing)
 
-
 ||| Conv1D forward on `[seqLen, i] -> [seqLen, o]`. Bias broadcasts
 ||| `[o]` across the seqLen axis via `primAdd`'s standard
 ||| numpy-style broadcasting (verified on all three backends).
@@ -356,7 +343,6 @@ applyConv1D2d (MkGpt2Conv1D w b) x = ioRerun (\_ =>
       withBias = primAdd {ex} mm b.tensorPtr             -- + [o] broadcast
   in MkTensor withBias Nothing)
 
-
 -- Fill the strict upper triangle of an n×n buffer with 1.0. Used for
 -- the causal mask. Mirrors `Layer/Transformer.idr:114` `writeCausalMask`.
 writeCausalMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
@@ -365,7 +351,6 @@ writeCausalMask buf i j n =
   else if j >= n then writeCausalMask buf (i + 1) (i + 2) n
   else let buf' = prim__setDouble buf (i * n + j) 1.0
        in writeCausalMask buf' i (j + 1) n
-
 
 -- Per-head attention math (causal, with multi-head split via
 -- axis=1 narrow). Caller supplies the prebuilt causal mask pointer.
@@ -397,7 +382,6 @@ buildCausalHeads qFull kFull vFull causalMask headDimI scale (S k) startI acc =
   let nextCtx = oneHeadCausalCtx {ex} qFull kFull vFull causalMask startI headDimI scale
       newAcc  = primConcat2dAxis1 {ex} acc nextCtx
   in buildCausalHeads {ex} qFull kFull vFull causalMask headDimI scale k (startI + headDimI) newAcc
-
 
 ||| GPT-2 self-attention. Pre-norm caller already applied `ln_1`.
 ||| Forward: split fused QKV via axis=1 narrow → per-head split via
@@ -447,7 +431,6 @@ applySelfAttn {numHeads = S (S k)} {hidden} {headDim} sa causalMask input = do
     in MkTensor full Nothing)
   applyConv1D2d sa.cProj ctxT
 
-
 ||| MLP: c_proj(gelu(c_fc(x))).
 applyMlp : {0 ex : Executor} -> UserExecutorTraining ex =>
            {0 seqLen, hidden, intermediate : Nat} ->
@@ -459,7 +442,6 @@ applyMlp mlp x = do
   -- HF GPT-2 uses gelu_new (tanh approximation); tgelu matches.
   hAct <- tgelu hFc
   applyConv1D2d mlp.cProj hAct
-
 
 ||| One decoder block. Pre-norm + residual on both attention and MLP
 ||| sublayers. (Contrast HfBert which is post-norm.)
@@ -480,7 +462,6 @@ applyBlock {hidden} {numHeads} {headDim} blk causalMask x = do
   mOut   <- applyMlp blk.mlp xLn2
   tadd xMid mOut
 
-
 applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex =>
               {seqLen, hidden, numHeads, headDim, intermediate, n : Nat}
            -> {auto prf : hidden = numHeads * headDim}
@@ -492,7 +473,6 @@ applyBlocks []        _ x = pure x
 applyBlocks (b :: bs) cm x = do
   x' <- applyBlock {numHeads} {headDim} b cm x
   applyBlocks {numHeads} {headDim} bs cm x'
-
 
 -- Embedding lookup returning `[seqLen, hidden]`. Same wrapping pattern
 -- as HfBert's `applyEmbedLookup2d`.
@@ -506,7 +486,6 @@ applyEmbedLookup2d {seqLen} {hidden} (MkGpt2Embedding w) tokens = ioRerun (\_ =>
       hI = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
-
 
 ----------------------------------------------------------------------
 -- Top-level forward (encoder)
@@ -546,7 +525,6 @@ hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
   hMid <- applyBlocks {numHeads} {headDim} model.blocks mask hEmb
   -- Final LayerNorm
   applyLN2d model.lnF hMid
-
 
 ||| GPT-2 LM head: tied to `wte.weight`. Output `[seqLen, vocab]`
 ||| logits for each position. Same reconstitution pattern as HfBert's

@@ -13,7 +13,6 @@ import Layer
 import Layer.MixedCore
 import Test.Config
 
-
 -- ---------------------------------------------------------------
 -- A0: LayerLikeMixed bridge + NetworkMixed
 -- ---------------------------------------------------------------
@@ -24,7 +23,6 @@ import Test.Config
 -- `liftNetwork` without code changes elsewhere, and forward through
 -- the bridged pipeline should produce the same numerics as the
 -- direct `LayerLike` forward.
-
 
 -- Build a [n] input tensor from a Vect of Doubles. Pattern lifted
 -- from Test.RmsNorm / Test.SwiGLU, with `ioRerun` around the
@@ -42,7 +40,6 @@ mkInput xs = do
                                      (VArray (map SArray xs)))
   pure (tinput1d {n} raw)
 
-
 -- A2: LinearMixed constructs end-to-end and runs through the
 -- mixed-precision pipeline. Uses paramDt = computeDt = TestDType so
 -- the cast inside applyVarMixed is a no-op at the dtype level — the
@@ -58,7 +55,6 @@ linearMixedForwardTypechecks = do
   (_, _) <- forwardVarMixed netM input
   check "mixedLinearLayer + forwardVarMixed compose end-to-end" True
 
-
 -- Parameter-free single-tanh wrapped via AsMixed lifts cleanly and
 -- runs through `forwardVarMixed`. `tanhLayerAny` is a parameter-free
 -- Activation layer so this test doesn't perturb global PRNG state
@@ -72,7 +68,6 @@ bridgeForwardTypechecks = do
   input <- mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
   (_, _) <- forwardVarMixed netM input
   check "liftNetwork + forwardVarMixed compose end-to-end" True
-
 
 -- Freeze/unfreeze round-trip on a NetworkMixed: walks the layer
 -- chain calling each lifted layer's `freezeLayerMixed` /
@@ -90,7 +85,6 @@ bridgeFreezeUnfreezeRoundTrip = do
   _ <- unfreezeNetworkMixed frozen
   -- back to WithGrad — compile-checked
   check "freezeNetworkMixed / unfreezeNetworkMixed round-trip" True
-
 
 -- A4: epochVarMixed compiles, runs one epoch on a tiny LinearMixed
 -- network + GradScaler, and the returned loss is finite. This is
@@ -115,7 +109,6 @@ epochVarMixedSmoke = do
       isFinite x = x == x && x /= 1.0/0.0 && x /= -1.0/0.0
   check ("epochVarMixed returns finite loss (got " ++ show loss ++ ")")
         (isFinite loss)
-
 
 export
 tests : List (IO Bool)

@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- BatchNorm — typed-surface batch normalization (Path C)
 ----------------------------------------------------------------------
@@ -38,7 +37,6 @@ data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
                      (channels * spatialDim)
                      (channels * spatialDim) ex dt g
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -66,7 +64,6 @@ applyBatchNorm {channels} {spatialDim}
                               mean.tensorPtr var.tensorPtr
                               cI sI tFlag momentum eps
   in (st, MkTensor outPtr Nothing))
-
 
 ----------------------------------------------------------------------
 -- Constructor
@@ -116,7 +113,6 @@ setBatchNormTraining : Bool ->
   BatchNormState channels spatialDim i o ex dt g
 setBatchNormTraining mode (MkBatchNorm g b m v _ mom eps) =
   MkBatchNorm g b m v mode mom eps
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

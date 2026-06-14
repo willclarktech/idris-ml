@@ -44,7 +44,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
@@ -116,7 +115,6 @@ padN n s =
 f32RelTol : Double
 f32RelTol = 1.0e-6
 
-
 ----------------------------------------------------------------------
 -- Part 1: F64 → F32 narrowing (lossy) on TapeExecutor
 ----------------------------------------------------------------------
@@ -141,7 +139,6 @@ partOne_F32LossyCast = do
             pure True
     else do putStrLn "  → F32 lossy cast: FAIL"
             pure False
-
 
 ----------------------------------------------------------------------
 -- Part 2: F32 → F64 widening (lossless) via `tcast`
@@ -172,7 +169,6 @@ partTwo_F32ToF64Upcast = do
             pure True
     else do putStrLn "  → upcast: FAIL (non-zero delta)"
             pure False
-
 
 ----------------------------------------------------------------------
 -- Part 3: F32 cross-backend hop
@@ -207,7 +203,6 @@ partThree_F32Hop = do
             pure True
     else do putStrLn "  → hop: FAIL (drift across hops)"
             pure False
-
 
 ----------------------------------------------------------------------
 -- Main

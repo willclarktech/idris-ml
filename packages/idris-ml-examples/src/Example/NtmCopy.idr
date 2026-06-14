@@ -16,7 +16,6 @@ import ML.Simple
 import Train          -- windowedPercentileConfig
 import BuildConfig    -- ChosenMachine / requireMachine
 
-
 ----------------------------------------------------------------------
 -- Configuration (dims)
 ----------------------------------------------------------------------
@@ -41,7 +40,6 @@ H = 100
 
 Model : Type
 Model = Ntm N M H InputW OutputW Ex F WithGrad
-
 
 ----------------------------------------------------------------------
 -- Copy-task data (was Generate.copyTaskBinary / TwoPhaseDataPoint)
@@ -75,7 +73,6 @@ genBatch (S k) minLen maxLen = do
   dp <- genCopySeq len
   rest <- genBatch k minLen maxLen
   pure (dp :: rest)
-
 
 ----------------------------------------------------------------------
 -- Two-phase loss
@@ -126,7 +123,6 @@ recurEpoch opt model batch = do
   d    <- nativeTrainStep opt mean
   pure (model, d)
 
-
 ----------------------------------------------------------------------
 -- Eval: bit accuracy over a fresh test batch (no grad)
 ----------------------------------------------------------------------
@@ -153,7 +149,6 @@ bitAccuracy model batch = do
       correct = sum corrects
       tot     = sum totals
   pure (if tot == 0 then 0.0 else cast correct / cast tot)
-
 
 ----------------------------------------------------------------------
 -- Config & Main

@@ -39,7 +39,6 @@ module DType.Core
 import public Data.Nat
 import Executor.Core
 
-
 ----------------------------------------------------------------------
 -- `DType` kind alias
 --
@@ -51,7 +50,6 @@ import Executor.Core
 public export
 0 DType : Type
 DType = Type
-
 
 ----------------------------------------------------------------------
 -- Dtype families
@@ -87,7 +85,6 @@ data IntN : Nat -> Type where MkIntN : IntN n
 ||| Unsigned integer of n bits.
 public export
 data UInt : Nat -> Type where MkUInt : UInt n
-
 
 ----------------------------------------------------------------------
 -- Common aliases
@@ -148,7 +145,6 @@ I64 = IntN 64
 public export
 U8 : Type
 U8 = UInt 8
-
 
 ----------------------------------------------------------------------
 -- IsDType — valid-element-type capability
@@ -213,7 +209,6 @@ IsDType Binary where
   dtypeName  = "binary"
   dtypeBytes = 0
 
-
 ----------------------------------------------------------------------
 -- RuntimeDType — per-dtype FFI primitive capability
 --
@@ -249,7 +244,6 @@ interface RuntimeDType (0 t : Type) where
   ||| pair drives both backend dispatch (via `d`) and dtype dispatch
   ||| (via this tag) without a 2-D typeclass.
   dtypeTag : Int
-
 
 ----------------------------------------------------------------------
 -- Precision — bit-width rank for within-family upcasts
@@ -288,7 +282,6 @@ public export
 public export
 {n : Nat} -> Precision (UInt n) where
   precisionRank = n
-
 
 ----------------------------------------------------------------------
 -- UpcastableTo — lossless conversion within a single dtype family
@@ -335,7 +328,6 @@ public export
 public export
 {m, n : Nat} -> LTE m n => UpcastableTo (UInt m) (UInt n) where
 
-
 ----------------------------------------------------------------------
 -- IsFloating / IsIntegral — op-level dtype kind gates
 --
@@ -371,7 +363,6 @@ public export
 
 public export
 {n : Nat} -> IsIntegral (UInt n) where
-
 
 ----------------------------------------------------------------------
 -- FloatPrecision — explicit mantissa + exponent bit counts
@@ -420,7 +411,6 @@ public export
 FloatPrecision (BFloat 16) where
   mantissaBits = 7
   exponentBits = 8
-
 
 ----------------------------------------------------------------------
 -- LosslessTo — structural "every value of `from` is exactly
@@ -555,7 +545,6 @@ public export
 -- `toDeviceAs` surface.
 public export
 LosslessTo from to => UpcastableTo from to where
-
 
 ----------------------------------------------------------------------
 -- Compatible — (device, dtype) admissibility

@@ -10,7 +10,6 @@ import Data.IORef
 import Data.Vect
 import Compat.Random
 
-
 ----------------------------------------------------------------------
 -- C FFI: index array with Fisher-Yates shuffle
 ----------------------------------------------------------------------
@@ -23,7 +22,6 @@ prim__shuffleIndexArray : AnyPtr -> Int -> AnyPtr
 
 %foreign "C:index_array_get,libidrisml"
 prim__indexArrayGet : AnyPtr -> Int -> Int
-
 
 ----------------------------------------------------------------------
 -- Generator loader (synthetic data)
@@ -38,7 +36,6 @@ mkGeneratorLoader {n = S k} gen = do
   x <- gen
   rest <- mkGeneratorLoader gen
   pure (x :: rest)
-
 
 ----------------------------------------------------------------------
 -- Indexed loader (file-backed datasets)

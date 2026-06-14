@@ -4,7 +4,6 @@ import Data.Vect
 import Test.Harness
 import Gym.Space
 
-
 export
 tests : List (IO Bool)
 tests =

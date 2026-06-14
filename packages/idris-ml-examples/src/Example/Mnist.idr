@@ -20,7 +20,6 @@ import ML.Simple
 import Train          -- patienceConfig
 import BuildConfig    -- ChosenMachine / requireMachine
 
-
 ----------------------------------------------------------------------
 -- Architecture (flat dims)
 ----------------------------------------------------------------------
@@ -67,7 +66,6 @@ BatchSize = 64
 EvalSize : Nat
 EvalSize = 1000
 
-
 ----------------------------------------------------------------------
 -- Model + loss
 ----------------------------------------------------------------------
@@ -93,7 +91,6 @@ nllLoss model (x, tgt) = do
   out <- forwardSeq {b = BatchSize} model (retypeGrad x)
   tnllLossMean {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
 
-
 ----------------------------------------------------------------------
 -- Evaluation: argmax accuracy over one EvalSize batch of test images
 ----------------------------------------------------------------------
@@ -118,7 +115,6 @@ evalAccuracy model (x, tgt) = do
         [ argmaxRow pred.tensorPtr r == argmaxRow tgt.tensorPtr r
         | r <- map (cast {to=Int}) [the Nat 0 .. EvalSize `minus` 1] ]
   pure (cast {to=Double} correct / cast {to=Double} EvalSize)
-
 
 ----------------------------------------------------------------------
 -- Config & Main

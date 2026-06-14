@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- RMSNorm — root-mean-square layer normalisation
 ----------------------------------------------------------------------
@@ -38,7 +37,6 @@ import Tensor
 public export
 data RmsNormState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkRmsNorm : TVec n ex dt g -> RmsNormState n n ex dt g
-
 
 ----------------------------------------------------------------------
 -- Forward
@@ -72,7 +70,6 @@ applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
       scaled = primMul {ex} normed weight.tensorPtr
   in (st, MkTensor scaled Nothing))
 
-
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
@@ -89,7 +86,6 @@ rmsNormLayer paramPrefix = do
   let wName = paramPrefix ++ "_weight"
   weight <- tparam1dConst {ex} {dt} {n} wName 1.0
   pure $ MkRmsNorm weight
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

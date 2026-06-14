@@ -10,7 +10,6 @@ import Layer.MixedCore
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- LinearMixed: explicit param/compute dtype split
 ----------------------------------------------------------------------
@@ -38,7 +37,6 @@ record LinearMixedState (i : Nat) (o : Nat) (0 ex : Executor)
   constructor MkLinearMixed
   weightT : Tensor [o, i] ex paramDt g
   biasT   : Tensor [o] ex paramDt g
-
 
 ----------------------------------------------------------------------
 -- LayerLikeMixed instance — cast-cast-matmul forward
@@ -70,7 +68,6 @@ LayerLikeMixed LinearMixedState where
     primIO (primSetRequiresGrad {ex} w.tensorPtr 1)
     primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkLinearMixed (retypeGrad w) (retypeGrad b))
-
 
 ----------------------------------------------------------------------
 -- Constructor

@@ -19,11 +19,9 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 -- A fixed test vector. Same shape across builds.
 testValues : Vector 4 Double
 testValues = VArray [SArray 1.5, SArray (-2.7), SArray 3.14159, SArray 0.0]
-
 
 -- Read all 4 elements out of a 1D tensor into a Vect.
 readBack : TVec 4 ExampleExecutor ExampleDType WithGrad -> Vect 4 Double
@@ -33,11 +31,9 @@ readBack v = [ primItem1d {ex=ExampleExecutor} v.tensorPtr 0
              , primItem1d {ex=ExampleExecutor} v.tensorPtr 3
              ]
 
-
 showVec : Vect 4 Double -> String
 showVec [a, b, c, d] = "[" ++ show a ++ ", " ++ show b ++ ", "
                          ++ show c ++ ", " ++ show d ++ "]"
-
 
 main : IO ()
 main = do

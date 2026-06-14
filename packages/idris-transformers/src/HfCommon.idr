@@ -19,7 +19,6 @@ import Data.Vect
 import Executor
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- 2D RMSNorm (fused C primitive)
 ----------------------------------------------------------------------
@@ -45,7 +44,6 @@ applyRmsNorm2dRaw : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutor
 applyRmsNorm2dRaw eps weight input = ioRerun (\_ =>
   let out = primRmsNorm2d {ex} input.tensorPtr weight.tensorPtr eps
   in MkTensor out Nothing)
-
 
 ----------------------------------------------------------------------
 -- Pre-norm decoder block skeleton
@@ -80,7 +78,6 @@ decoderBlockPreNorm preAttnNorm attn preMlpNorm mlp x = do
   mOut <- mlp xLn2
   tadd xMid mOut
 
-
 ----------------------------------------------------------------------
 -- Tied LM-head projection
 ----------------------------------------------------------------------
@@ -109,7 +106,6 @@ projectTiedLmHead embedWeight hFinal =
       zeroBias : Tensor [vocab] ex dt g
       zeroBias = MkTensor (dtCreateState1d {ex} {t=dt} vI zBuf (deviceStreamTag {ex})) Nothing
   in tlinear2d embedWeight hFinal zeroBias
-
 
 ----------------------------------------------------------------------
 -- Per-block fan-out helper

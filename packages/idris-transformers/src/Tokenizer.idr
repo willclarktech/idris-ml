@@ -42,7 +42,6 @@ import Data.Fin
 import System
 import System.File
 
-
 ----------------------------------------------------------------------
 -- Errors
 ----------------------------------------------------------------------
@@ -76,7 +75,6 @@ Show TokError where
   show (TokReadFail path) =
     "Failed to read tokenizer subprocess output: " ++ path
 
-
 ----------------------------------------------------------------------
 -- Tokenizer handle
 ----------------------------------------------------------------------
@@ -87,7 +85,6 @@ Show TokError where
 public export
 data Tokenizer : (vocab : Nat) -> Type where
   MkTokenizer : (repo : String) -> Tokenizer vocab
-
 
 ----------------------------------------------------------------------
 -- Subprocess plumbing
@@ -141,7 +138,6 @@ runCapture cmd = do
         Left _   => pure (Left (TokReadFail tmpOut))
         Right ok => pure (Right ok)
 
-
 ----------------------------------------------------------------------
 -- Vocab probe + mkTokenizer
 ----------------------------------------------------------------------
@@ -175,7 +171,6 @@ mkTokenizer repo vocab = do
       if onDisk == vocab
         then pure (Right (MkTokenizer repo))
         else pure (Left (TokVocabMismatch vocab onDisk))
-
 
 ----------------------------------------------------------------------
 -- encode / decode

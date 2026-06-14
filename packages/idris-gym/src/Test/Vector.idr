@@ -6,7 +6,6 @@ import Gym.Env
 import Gym.Vector
 import Gym.ClassicControl.CartPole
 
-
 -- Explicit type witnesses keep the Env instance resolution unambiguous
 -- (the interface has three parameters — state/action/obs — but resetAll
 -- and friends only reveal state in their signatures).
@@ -14,7 +13,6 @@ import Gym.ClassicControl.CartPole
 cpVec : (n : Nat) -> VecEnv n CPState
 cpVec n =
   fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double} {n} 42)
-
 
 export
 tests : List (IO Bool)

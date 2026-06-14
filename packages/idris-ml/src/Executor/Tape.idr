@@ -11,7 +11,6 @@ import BackendLib
 import Hardware
 import Preset
 
-
 ----------------------------------------------------------------------
 -- Per-symbol bindings to the tape backend's suffixed C exports
 ----------------------------------------------------------------------
@@ -81,7 +80,6 @@ prim__clampTape : AnyPtr -> Double -> Double -> AnyPtr
 
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-round-tape)) (set-top-level-value! 'idris-ffi-tensor-round-tape (foreign-procedure \"tensor_round_tape\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-round-tape) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__roundTape : AnyPtr -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- TapeExecutor type + UserExecutorCore instance
@@ -242,7 +240,6 @@ prim__argsortTape : AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-cumprod-tape)) (set-top-level-value! 'idris-ffi-tensor-cumprod-tape (foreign-procedure \"tensor_cumprod_tape\" (void* int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-cumprod-tape) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__cumprodTape : AnyPtr -> Int -> AnyPtr
 
-
 public export
 UserExecutorLinear TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -282,7 +279,6 @@ UserExecutorLinear TapeExecutor where
   primView1d = prim__view1dTape
   primView2d = prim__view2dTape
   -- <<< END GENERATED <<<
-
 
 ----------------------------------------------------------------------
 -- NN-slice FFI bindings (tape-suffixed)
@@ -335,7 +331,6 @@ prim__pairFirstTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-pair-second-tape)) (set-top-level-value! 'idris-ffi-tensor-pair-second-tape (foreign-procedure \"tensor_pair_second_tape\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-pair-second-tape) a0))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__pairSecondTape : AnyPtr -> AnyPtr
 
-
 -- Fused inference ops (used by `UserExecutorNN` below; FFI decls
 -- moved up from the legacy `Training` slice region so they
 -- precede their first use in the NN instance.)
@@ -373,7 +368,6 @@ UserExecutorNN TapeExecutor where
   primSoftplus = prim__softplusTape
   -- <<< END GENERATED <<<
 
-
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (tape-suffixed)
 ----------------------------------------------------------------------
@@ -397,7 +391,6 @@ prim__maxPool2dTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-tensor-max-pool2d-batched-tape)) (set-top-level-value! 'idris-ffi-tensor-max-pool2d-batched-tape (foreign-procedure \"tensor_max_pool2d_batched_tape\" (void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-max-pool2d-batched-tape) (vector-ref a0 2) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__maxPool2dBatchedTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-
 public export
 UserExecutorConv TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -411,7 +404,6 @@ UserExecutorConv TapeExecutor where
   primMaxPool2d = prim__maxPool2dTape
   primMaxPool2dBatched = prim__maxPool2dBatchedTape
   -- <<< END GENERATED <<<
-
 
 ----------------------------------------------------------------------
 -- Tape-slice FFI bindings (tape-suffixed)
@@ -508,9 +500,6 @@ prim__perfResetTape : PrimIO ()
 %foreign "C:tensor_perf_op_count_tape,libidrisml"
 prim__perfOpCountTape : PrimIO Int
 
-
-
-
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-streamed-tape)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-streamed-tape (foreign-procedure \"tensor_create_scalar_streamed_tape\" (double int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-streamed-tape) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__createScalarStreamedTape : Double -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-streamed-tape)) (set-top-level-value! 'idris-ffi-tensor-create-streamed-tape (foreign-procedure \"tensor_create_streamed_tape\" (void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-streamed-tape) a0 a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
@@ -560,7 +549,6 @@ prim__createParam4dConstStreamedTape : Int -> Int -> Int -> Int -> Double -> Int
 %foreign "C:tensor_set_init_seed_streamed_tape,libidrisml"
 prim__setInitSeedStreamedTape : Bits64 -> Int -> PrimIO ()
 
-
 public export
 UserExecutorOptimizations TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -579,7 +567,6 @@ UserExecutorOptimizations TapeExecutor where
   primSwiGlu2d = prim__swiGlu2dTape
   primTile2d = prim__tile2dTape
   -- <<< END GENERATED <<<
-
 
 public export
 UserExecutorAutograd TapeExecutor where
@@ -740,7 +727,6 @@ UserExecutorTransfer TapeExecutor where
   -- Hand-written overrides:
   primCreateFromHost = prim__createFromHostTape
 
-
 ----------------------------------------------------------------------
 -- UserExecutorQuant instance (#411 BitNet b1.58)
 ----------------------------------------------------------------------
@@ -778,7 +764,6 @@ UserExecutorQuant TapeExecutor where
   primCreateTernaryPacked2d = prim__createTernaryPacked2dTape
   primTernaryQuantWithScale2d = prim__ternaryQuantWithScale2dTape
   -- <<< END GENERATED <<<
-
 
 ----------------------------------------------------------------------
 -- Compatible (TapeExecutor, dt).
@@ -828,7 +813,6 @@ Compatible TapeExecutor Ternary where
 public export
 Compatible TapeExecutor Binary where
 
-
 ----------------------------------------------------------------------
 -- HardwareClass: the tape backend runs on the host CPU.
 ----------------------------------------------------------------------
@@ -837,7 +821,6 @@ public export
 HardwareClassed TapeExecutor where
   hardwareClass = HostCpu
 
-
 ----------------------------------------------------------------------
 -- Hardware (type-level): tape runs on Cpu.
 ----------------------------------------------------------------------
@@ -845,14 +828,12 @@ HardwareClassed TapeExecutor where
 public export
 RunsOn TapeExecutor Cpu where
 
-
 ----------------------------------------------------------------------
 -- Backend (type-level): tape is provided by TapeBackend.
 ----------------------------------------------------------------------
 
 public export
 RunsVia TapeExecutor TapeBackend where
-
 
 ----------------------------------------------------------------------
 -- Preset: tape on Cpu defaults to TapeExecutor + F64.

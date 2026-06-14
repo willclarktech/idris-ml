@@ -14,7 +14,6 @@
 ||| a terminal state. A_T = 0 by convention.
 module RL.Gae
 
-
 ||| Compute GAE advantages and return targets from a trajectory.
 |||
 ||| @gamma           discount factor (e.g. 0.99)

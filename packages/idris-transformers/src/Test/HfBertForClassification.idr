@@ -25,7 +25,6 @@ import Test.Config
 import Tensor
 import Array
 
-
 ----------------------------------------------------------------------
 -- Reference catalogue
 ----------------------------------------------------------------------
@@ -84,7 +83,6 @@ expectedBertSeqClassifyParamNames =
   , "classifier.bias"
   ]
 
-
 -- (Shared with Test.HfBert; lifted here so this test file is
 -- self-contained against module-test churn.)
 firstMismatch : List String -> List String -> Maybe (Nat, String, String)
@@ -96,7 +94,6 @@ firstMismatch xs ys = go Z xs ys
     go n (x :: _)  []        = Just (n, x, "<missing>")
     go n (x :: xs) (y :: ys) =
       if x == y then go (S n) xs ys else Just (n, x, y)
-
 
 ----------------------------------------------------------------------
 -- Bucket 1 — pure Idris (classifier-head catalogue)
@@ -119,7 +116,6 @@ testClassifierHeadParamNames =
          putStrLn ("    expected: " ++ e)
          pure False
 
-
 ----------------------------------------------------------------------
 -- Bucket 2 — pure Idris (combined catalogue is base + head)
 ----------------------------------------------------------------------
@@ -134,7 +130,6 @@ testSeqClassifyCombinedCatalogue =
          putStrLn ("    got:      " ++ g)
          putStrLn ("    expected: " ++ e)
          pure False
-
 
 ----------------------------------------------------------------------
 -- Bucket 3 — FFI (constructor registers HF-native names in order)
@@ -187,7 +182,6 @@ testConstructorRegistersClassifierHead = do
       putStrLn ("    got:      " ++ g)
       putStrLn ("    expected: " ++ e)
       pure False
-
 
 ----------------------------------------------------------------------
 -- Bucket 4 — forward pass shape + finite smoke
@@ -253,7 +247,6 @@ testForwardShapeAndFinite = do
         pure False
       else check ("forward produced 3 finite logits "
                     ++ "(sample: " ++ show vals ++ ")") True
-
 
 ----------------------------------------------------------------------
 -- Test suite

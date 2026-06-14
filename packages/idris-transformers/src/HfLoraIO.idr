@@ -38,7 +38,6 @@ import Checkpoint
 import Executor
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Adapter config (mirror of peft.LoraConfig fields used here)
 ----------------------------------------------------------------------
@@ -50,7 +49,6 @@ record LoraAdapterConfig where
   alpha         : Double      -- peft `lora_alpha`
   targetModules : List String -- peft `target_modules`, e.g. ["query","value"]
   taskType      : String      -- e.g. "SEQ_CLS"
-
 
 ----------------------------------------------------------------------
 -- Name remap helpers
@@ -82,12 +80,10 @@ export
 idrisToPeftName : String -> String
 idrisToPeftName name = peftPrefix ++ name ++ peftSuffix
 
-
 -- Predicate: does this paramId look like a LoRA adapter weight?
 -- Matches the L1/L3 naming convention: `<...>.lora_A` or `<...>.lora_B`.
 isAdapterName : String -> Bool
 isAdapterName nm = isSuffixOf ".lora_A" nm || isSuffixOf ".lora_B" nm
-
 
 ----------------------------------------------------------------------
 -- adapter_config.json — hand-rolled JSON emitter
@@ -123,7 +119,6 @@ renderAdapterConfig cfg =
   ++ "  \"modules_to_save\": null,\n"
   ++ "  \"inference_mode\": false\n"
   ++ "}\n"
-
 
 ----------------------------------------------------------------------
 -- adapter_config.json — flat lenient parser
@@ -170,7 +165,6 @@ extractArray key src = do
       nonempty   = filter (\s => s /= "") stripped
   pure nonempty
 
-
 ----------------------------------------------------------------------
 -- Save / Load
 ----------------------------------------------------------------------
@@ -201,7 +195,6 @@ saveLoraAdapter outputDir cfg = do
         (\nm => if isAdapterName nm
                   then Just (idrisToPeftName nm)
                   else Nothing)
-
 
 ||| Load a peft-saved LoRA adapter directory back into the in-memory
 ||| registry. The reverse of `saveLoraAdapter`: reads

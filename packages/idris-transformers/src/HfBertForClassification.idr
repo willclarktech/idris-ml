@@ -27,7 +27,6 @@ import Executor
 import Tensor
 import HfBert
 
-
 ----------------------------------------------------------------------
 -- Param-name catalogue
 ----------------------------------------------------------------------
@@ -55,7 +54,6 @@ bertForSequenceClassificationParamNames :
   -> List String
 bertForSequenceClassificationParamNames cfg bertPfx clsPfx =
   bertParamNames cfg bertPfx ++ classifierHeadParamNames clsPfx
-
 
 ----------------------------------------------------------------------
 -- State records
@@ -86,7 +84,6 @@ record BertForSequenceClassificationState
   constructor MkBertForSeqClassify
   base       : BertModelState vocab hidden numLayers intermediate maxPos typeVocab ex dt g
   classifier : BertClassifierHeadState hidden numClasses ex dt g
-
 
 ----------------------------------------------------------------------
 -- Constructors
@@ -138,7 +135,6 @@ hfBertForSequenceClassification bertPfx clsPfx = do
                       {intermediate} {maxPos} {typeVocab} bertPfx
   cls  <- makeClassifierHead {hidden} {numClasses} clsPfx
   pure (MkBertForSeqClassify base cls)
-
 
 ----------------------------------------------------------------------
 -- Forward pass

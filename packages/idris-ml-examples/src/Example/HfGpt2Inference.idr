@@ -53,7 +53,6 @@ import Tensor
 import Util
 import Tokenizer
 
-
 ----------------------------------------------------------------------
 -- Config (distilgpt2 dims, pinned at the type level)
 ----------------------------------------------------------------------
@@ -88,7 +87,6 @@ modelDir = "models/" ++ ModelRepo
 hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"
 
-
 ----------------------------------------------------------------------
 -- Build small input-ID + position tensors (mkIds lives in HfInferenceHelper)
 ----------------------------------------------------------------------
@@ -99,7 +97,6 @@ arangeVect n = go n 0.0
     go : (k : Nat) -> Double -> Vect k Double
     go Z     _ = []
     go (S k) v = v :: go k (v + 1.0)
-
 
 ----------------------------------------------------------------------
 -- --dump-final-hidden mode: forward [15496, 995] once, dump last hidden
@@ -124,7 +121,6 @@ runDumpHidden model = do
                        model inputIds posIds
   lastRow <- trowSelect out 1
   printRow (cast {to=Int} Hidden) 0 lastRow.tensorPtr
-
 
 ----------------------------------------------------------------------
 -- Greedy generation (argmaxRow / toExistVect live in HfInferenceHelper)
@@ -182,11 +178,9 @@ genLoop model tokens (S k) = do
     Just next =>
       genLoop model (tokens ++ [next]) k
 
-
 ----------------------------------------------------------------------
 -- --prompt argv parsing (helpers in HfInferenceHelper)
 ----------------------------------------------------------------------
-
 
 ----------------------------------------------------------------------
 -- Default mode: greedy generation demo
@@ -215,7 +209,6 @@ runGenerate tok model prompt numTokens = do
   Right text <- detokenize tok (fromList finalList)
     | Left err => putStrLn ("ERR: detokenize: " ++ show err)
   putStrLn ("Output:    " ++ text)
-
 
 ----------------------------------------------------------------------
 -- main (stageStamp lives in HfInferenceHelper)

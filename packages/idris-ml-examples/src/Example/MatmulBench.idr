@@ -29,7 +29,6 @@ import Tensor
 import Executor
 import BuildConfig
 
-
 record Config where
   constructor MkConfig
   size  : Nat
@@ -46,7 +45,6 @@ parseArgs cfg ("--iters" :: x :: rest) =
   parseArgs ({iters := the Nat (cast (the Int (cast x)))} cfg) rest
 parseArgs cfg (_ :: rest) = parseArgs cfg rest
 
-
 -- Build an n×n fp32 matrix with one nonzero element via a single
 -- allocator (no Idris per-element loop). Returns a non-grad state
 -- tensor handle.
@@ -57,13 +55,11 @@ buildMatrix n =
       buf' = prim__setDouble buf 0 0.5
   in dtCreateState2d {ex=ExampleExecutor} {t=ExampleDType} nI nI buf' (deviceStreamTag {ex=ExampleExecutor})
 
-
 -- Elapsed milliseconds between two monotonic clock readings.
 diffMs : Clock Monotonic -> Clock Monotonic -> Double
 diffMs t1 t0 =
   let totalNs = (seconds t1 - seconds t0) * 1000000000 + (nanoseconds t1 - nanoseconds t0)
   in cast totalNs / 1000000.0
-
 
 -- Two-decimal fixed-point formatting.
 fmt2 : Double -> String
@@ -74,14 +70,12 @@ fmt2 x =
       fracS  = if frac < 10 then "0" ++ show frac else show frac
   in show whole ++ "." ++ fracS
 
-
 -- Force an mlx-side eval of a tensor handle. `prim__item` on the
 -- scalar result of `sum` walks the graph.
 forceEval : AnyPtr -> IO ()
 forceEval h = do
   let v = primItem {ex=ExampleExecutor} (primSum {ex=ExampleExecutor} h)
   ignore (pure v)
-
 
 -- Run K matmuls, forcing eval after each so we measure real compute
 -- (mlx is lazy by default — without per-iter eval it fuses across the
@@ -92,7 +86,6 @@ loopMatmul (S k) a b = do
   let c = primMm {ex=ExampleExecutor} a b
   forceEval c
   loopMatmul k a b
-
 
 main : IO ()
 main = do

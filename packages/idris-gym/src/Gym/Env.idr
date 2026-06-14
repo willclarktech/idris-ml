@@ -3,7 +3,6 @@ module Gym.Env
 import public Gym.Rng
 import public Gym.Space
 
-
 ----------------------------------------------------------------------
 -- Outcome
 ----------------------------------------------------------------------
@@ -37,7 +36,6 @@ Show Outcome where
   show Terminated = "Terminated"
   show Truncated  = "Truncated"
 
-
 ----------------------------------------------------------------------
 -- Info
 ----------------------------------------------------------------------
@@ -48,7 +46,6 @@ Show Outcome where
 public export
 Info : Type
 Info = List (String, String)
-
 
 ----------------------------------------------------------------------
 -- Env interface
@@ -81,5 +78,3 @@ interface Env state action obs where
   ||| Truncation itself is enforced by the TimeLimited wrapper, not here.
   defaultTimeLimit : Maybe Nat
   defaultTimeLimit = Nothing
-
-

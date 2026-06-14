@@ -4,7 +4,6 @@ import Data.Vect
 import Gym.Env
 import Gym.Rng
 
-
 ----------------------------------------------------------------------
 -- VecEnv: n independent copies of an env running in lockstep
 ----------------------------------------------------------------------

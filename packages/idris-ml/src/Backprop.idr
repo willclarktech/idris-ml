@@ -11,7 +11,6 @@ import Array
 import GradScaler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Backprop — typed-surface training loops for Network
 ----------------------------------------------------------------------
@@ -27,7 +26,6 @@ import Tensor
 public export
 0 LossFn : (0 _ : Executor) -> (0 _ : DType) -> Nat -> Type
 LossFn ex dt n = TVec n ex dt WithGrad -> TVec n ex dt WithGrad -> IO (Tensor [] ex dt WithGrad)
-
 
 ----------------------------------------------------------------------
 -- Helpers (top-level so let-blocks below don't need where-clauses)
@@ -85,7 +83,6 @@ sumLosses losses = do
       acc' <- f acc x
       foldlM f acc' rest
 
-
 ----------------------------------------------------------------------
 -- Supervised epoch (feed-forward)
 ----------------------------------------------------------------------
@@ -123,7 +120,6 @@ epochVar opt dataPoints lossFn model = do
   mean <- scaleLoss totalLoss (1.0 / cast n)
   loss <- nativeTrainStep opt mean
   pure (model, loss)
-
 
 ----------------------------------------------------------------------
 -- Mixed-precision supervised epoch (A4 of #410)
@@ -186,7 +182,6 @@ epochVarMixed opt gs dataPoints lossFn model = do
   loss <- trainStepScaled opt gs scaledMean
   pure (model, loss)
 
-
 -- `catAllTensors` (per-sample [k] handles -> [n*k]) now lives in
 -- Tensor.idr next to `bulkToTensor2d`; imported via `import Tensor`.
 
@@ -236,7 +231,6 @@ epochVarTensorBatch opt dataPoints lossFn model = do
       l <- perRowLoss lossFn predB tgtV k
       ls <- go predB tgtV (k + 1) rest
       pure (l :: ls)
-
 
 ----------------------------------------------------------------------
 -- Recurrent epoch (sequence per data point)
@@ -298,7 +292,6 @@ epochRecurrentVar opt dataPoints lossFn model = do
   mean <- scaleLoss totalLoss (1.0 / cast n)
   loss <- nativeTrainStep opt mean
   pure (model, loss)
-
 
 ----------------------------------------------------------------------
 -- Two-phase epoch (NTM/DNC pattern: encode then decode)
@@ -378,7 +371,6 @@ epochTwoPhaseVar opt dataPoints lossFn model = do
   mean <- scaleLoss totalLoss (1.0 / cast n)
   loss <- nativeTrainStep opt mean
   pure (model, loss)
-
 
 ----------------------------------------------------------------------
 -- Two-phase eval helpers (no autograd consumption)

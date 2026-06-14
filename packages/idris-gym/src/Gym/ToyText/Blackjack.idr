@@ -4,7 +4,6 @@ import Data.Vect
 import Gym.Env
 import Gym.Rng
 
-
 ----------------------------------------------------------------------
 -- Blackjack-v1 (Gymnasium-compatible, natural=False by default)
 --
@@ -29,7 +28,6 @@ record BJState where
   bjDealer   : List Nat   -- first card is visible; whole hand resolved at end
   bjDone     : Bool
   bjSeed     : Seed
-
 
 ||| Draw one card from a uniform 13-card suit (canonical Gymnasium
 ||| Blackjack-v1 distribution). Values: 1=Ace (1/13), 2..9 (1/13 each),

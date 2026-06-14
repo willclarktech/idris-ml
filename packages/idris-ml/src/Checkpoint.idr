@@ -30,7 +30,6 @@ export
 saveAll : UserExecutorTraining ex => String -> IO Bool
 saveAll path = saveModel {ex} path
 
-
 ----------------------------------------------------------------------
 -- Typed load surface (v1)
 ----------------------------------------------------------------------
@@ -146,7 +145,6 @@ loadModelPrefixAllowCast : UserExecutorTraining ex =>
 loadModelPrefixAllowCast path pfx =
   isRight <$> load {ex} path ({ allowCast := True, only := Just pfx } defaultLoadOpts)
 
-
 ----------------------------------------------------------------------
 -- Filtered save (adapter-only checkpoints)
 ----------------------------------------------------------------------
@@ -219,7 +217,6 @@ saveModelSuffixes : UserExecutorTraining ex =>
 saveModelSuffixes path sfxs =
   saveModelMatching {ex} path (\nm => any (\s => isSuffixOf s nm) sfxs)
 
-
 -- Walk the registry collecting matching name pairs (registryName, ondiskName).
 -- The transform takes a registry name and returns `Just on_disk_name` to
 -- include (with rename) or `Nothing` to skip.
@@ -281,7 +278,6 @@ loadOptimizer : UserExecutorTraining ex => String -> NativeOptimizer ex -> IO Bo
 loadOptimizer path opt = do
   rc <- primIO (primOptimizerLoad {ex} opt.handle path)
   pure (rc == 0)
-
 
 ----------------------------------------------------------------------
 -- Checkpoint policy (training-loop integration)

@@ -41,7 +41,6 @@ import HfBertForClassification
 import Layer.LoraLinear
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Adapter records
 ----------------------------------------------------------------------
@@ -68,7 +67,6 @@ record BertLoraAdapters (numLayers : Nat) (hidden : Nat) (r : Nat)
   alpha   : Double                                                    -- = lora_alpha
   queries : Vect numLayers (LoraAdapter hidden hidden r ex dt g)
   values  : Vect numLayers (LoraAdapter hidden hidden r ex dt g)
-
 
 ----------------------------------------------------------------------
 -- Constructor
@@ -122,7 +120,6 @@ loraInjectBert pfx numLayers rank alpha = do
   vs <- buildPerLayerAdapters {hidden} pfx "value" rank 0 numLayers
   pure (MkBertLoraAdapters rank alpha qs vs)
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -167,7 +164,6 @@ addLoraDelta2d base _     Nothing     _    _     = pure base
 addLoraDelta2d base input (Just adp)  rank alpha = do
   delta <- loraDelta2d input adp rank alpha
   tadd base delta
-
 
 ----------------------------------------------------------------------
 -- LoRA-aware self-attention
@@ -262,7 +258,6 @@ applyEncoderWithLora []        []         []         _    _     _    h = pure h
 applyEncoderWithLora (l :: ls) (qA :: qAs) (vA :: vAs) rank alpha mask h = do
   h' <- applyLayerWithLora {numHeads} {headDim} l (Just qA) (Just vA) rank alpha mask h
   applyEncoderWithLora {numHeads} {headDim} ls qAs vAs rank alpha mask h'
-
 
 ----------------------------------------------------------------------
 -- Public forward functions

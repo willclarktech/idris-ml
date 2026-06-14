@@ -3,7 +3,6 @@ module Test.Schedule
 import Test.Harness
 import Schedule
 
-
 tol : Double
 tol = 1.0e-6
 

@@ -37,7 +37,6 @@ import Util
 import Checkpoint
 import HfGpt2
 
-
 ----------------------------------------------------------------------
 -- Config (matches distilgpt2)
 ----------------------------------------------------------------------
@@ -66,7 +65,6 @@ MaxPos = 1024
 SeqLen : Nat
 SeqLen = 32
 
-
 record Config where
   constructor MkConfig
   lr        : Double
@@ -84,7 +82,6 @@ specs = [ Arg "--lr"        (\v, c => { lr := cast v } c)
         , Arg "--max-start" (\v, c => { maxStart := castNat v } c)
         ]
 
-
 ----------------------------------------------------------------------
 -- Paths + corpus loader
 ----------------------------------------------------------------------
@@ -94,7 +91,6 @@ tokenPath = "data/tinyshakespeare/input.distilgpt2.tokens"
 
 ckptPath : String
 ckptPath = "models/distilgpt2/model.safetensors"
-
 
 -- Parse a comma-separated token-id string into a List Nat. Drops any
 -- chunk that doesn't parse cleanly (defensive — the tokenizer emits
@@ -110,14 +106,12 @@ parseIds s =
         Nothing => Nothing
         Just n  => if n < 0 then Nothing else Just (cast n)
 
-
 loadTokens : (path : String) -> IO (List Nat)
 loadTokens path = do
   res <- readFile path
   let body : String
       body = either (const "") id res
   pure (parseIds body)
-
 
 ----------------------------------------------------------------------
 -- Sliding-window sampling
@@ -127,12 +121,10 @@ Model : Type
 Model = Gpt2ModelState Vocab Hidden NumLayers Intermediate MaxPos
                        ExampleExecutor ExampleDType WithGrad
 
-
 -- Vect of token IDs (input) + the shifted-by-1 target IDs as a flat
 -- Vect for the loss computation. Both are SeqLen-long Doubles.
 WindowedSample : Type
 WindowedSample = (Vect SeqLen Double, Vect SeqLen Double)
-
 
 -- Build arange(SeqLen) as a Vect of Doubles.
 arangeSeqLen : Vect SeqLen Double
@@ -144,13 +136,11 @@ arangeSeqLen = build SeqLen
       let here = cast {to=Double} (cast {to=Integer} (minus SeqLen (S k)))
       in here :: build k
 
-
 -- Truncate a list to exactly `n`, padding with `pad` if short.
 takePad : (n : Nat) -> a -> List a -> Vect n a
 takePad Z     _   _        = []
 takePad (S k) pad []       = pad :: takePad k pad []
 takePad (S k) pad (x :: xs) = x :: takePad k pad xs
-
 
 -- Sample one (input, target) pair. `corpus` is the full token list,
 -- `corpusLen` is its length, `maxStart` caps the random start (0 =
@@ -176,7 +166,6 @@ sampleWindow corpus corpusLen capMaxStart = do
     minimum : Nat -> Nat -> Nat
     minimum a b = if a < b then a else b
 
-
 ----------------------------------------------------------------------
 -- Tensor helpers
 ----------------------------------------------------------------------
@@ -186,7 +175,6 @@ mkIdsTensor xs = ioRerun (\_ =>
   let raw = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType}
                          (VArray (map SArray xs))
   in tinput1d {n=SeqLen} raw)
-
 
 -- Build a [SeqLen, Vocab] one-hot target tensor from a Vect of target
 -- token IDs. primOneHot returns the flat [seqLen * vocab] layout
@@ -207,7 +195,6 @@ mkTargetOneHot xs = do
     packIdx b off (v :: rs) =
       packIdx (prim__setInt b off (cast {to=Int} (cast {to=Integer} v))) (off + 1) rs
 
-
 -- Per-position CE loss between [seqLen, vocab] logits and [seqLen, vocab]
 -- one-hot target. Mirrors Example/Gpt's `allPositionsCELoss` but starts
 -- from a 2D tensor (no reshape needed).
@@ -221,7 +208,6 @@ gpt2LmLoss logits targets = ioRerun (\_ =>
       neg      = primNeg {ex=ExampleExecutor} summed
       loss     = primMulScalar {ex=ExampleExecutor} neg (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
-
 
 ----------------------------------------------------------------------
 -- Training loop
@@ -244,7 +230,6 @@ trainStep opt model (inputTok, targetTok) = do
                              model inputT posT
   loss    <- gpt2LmLoss logits targetT
   nativeTrainStep opt loss
-
 
 ----------------------------------------------------------------------
 -- main

@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- LayerNorm — typed-surface layer normalisation (Path C)
 ----------------------------------------------------------------------
@@ -26,7 +25,6 @@ public export
 data LayerNormState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkLayerNorm : TVec n ex dt g -> TVec n ex dt g -> LayerNormState n n ex dt g
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -45,7 +43,6 @@ applyLayerNorm {n} st@(MkLayerNorm gamma beta) input = ioRerun (\_ =>
       norm1d = primReshape1d {ex} norm2d nI
   in (st, MkTensor norm1d Nothing))
 
-
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
@@ -62,7 +59,6 @@ layerNormLayer paramPrefix = do
   gamma <- tparam1dConst {ex} {dt} {n} gName 1.0
   beta  <- tparam1dConst {ex} {dt} {n} bName 0.0
   pure $ MkLayerNorm gamma beta
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

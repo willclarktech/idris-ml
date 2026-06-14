@@ -25,7 +25,6 @@ import DType.Core
 import Checkpoint
 import BuildConfig
 
-
 -- Values chosen to be exactly representable in bf16/f16 (binary fractions
 -- and powers of two) and in i32, so the cross-language check is exact.
 floatVals : Vector 4 Double
@@ -33,7 +32,6 @@ floatVals = VArray [SArray 1.5, SArray (-2.0), SArray 256.0, SArray (-0.5)]
 
 intVals : Vector 4 Double
 intVals = VArray [SArray 1.0, SArray (-2.0), SArray 1000.0, SArray (-42.0)]
-
 
 ||| Build a NoGrad tensor at dtype `dt` from a 4-vector and register it.
 saveOne : RuntimeDType dt => Compatible ExampleExecutor dt =>
@@ -43,7 +41,6 @@ saveOne name vals = do
          (the (TVec 4 ExampleExecutor dt NoGrad)
               (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt} vals) Nothing))
   pure ()
-
 
 main : IO ()
 main = do

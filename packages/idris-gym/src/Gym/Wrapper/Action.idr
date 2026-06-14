@@ -4,7 +4,6 @@ import Data.Vect
 import Decidable.Equality
 import Gym.Space
 
-
 ----------------------------------------------------------------------
 -- Per-scalar helpers
 ----------------------------------------------------------------------
@@ -20,7 +19,6 @@ rescaleScalar lo1 hi1 lo2 hi2 x =
       span2 = hi2 - lo2
       t = if span1 == 0.0 then 0.0 else (x - lo1) / span1
   in lo2 + t * span2
-
 
 ----------------------------------------------------------------------
 -- Vector-level action transforms
@@ -61,7 +59,6 @@ rescaleAction (Box {n=nF} loF hiF) (Box {n=nT} loT hiT) v =
     mapQuad f (a :: as) (b :: bs) (c :: cs) (d :: ds) (e :: es) =
       f a b c d e :: mapQuad f as bs cs ds es
 rescaleAction _ _ v = v
-
 
 ----------------------------------------------------------------------
 -- Scalar-action convenience (for Box {n=1} envs)

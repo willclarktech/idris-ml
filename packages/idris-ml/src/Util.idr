@@ -4,7 +4,6 @@ module Util
 import Data.Vect
 import System.Clock
 
-
 export
 implementation Cast Bool Integer where
   cast True = 1

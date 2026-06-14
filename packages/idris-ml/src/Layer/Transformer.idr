@@ -9,7 +9,6 @@ import Layer.LayerNorm
 import Layer.Linear
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Transformer — typed-surface multi-block transformer (Path C)
 ----------------------------------------------------------------------
@@ -25,7 +24,6 @@ import Tensor
 --
 -- Input: `TVec seqLen ex` of token indices (encoded as doubles).
 -- Output: `TVec (seqLen * vocabSize) d` of per-position logits.
-
 
 ----------------------------------------------------------------------
 -- BlockState
@@ -43,7 +41,6 @@ record BlockState (dModel : Nat) (numHeads : Nat) (headDim : Nat)
   norm2     : LayerNormState dModel dModel ex dt g
   ff1       : LinearState dModel (4 * dModel) ex dt g
   ff2       : LinearState (4 * dModel) dModel ex dt g
-
 
 ----------------------------------------------------------------------
 -- TransformerState
@@ -73,7 +70,6 @@ data TransformerState :
     TMat seqLen seqLen ex dt g ->
     TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                        seqLen (seqLen * vocabSize) ex dt g
-
 
 ----------------------------------------------------------------------
 -- Sinusoidal Positional Encoding (matches V1)
@@ -114,7 +110,6 @@ writeCausalMask buf i j n =
   else if j >= n then writeCausalMask buf (i + 1) (i + 2) n
   else let buf' = prim__setDouble buf (i * n + j) 1.0
        in writeCausalMask buf' i (j + 1) n
-
 
 ----------------------------------------------------------------------
 -- Per-block forward (single sequence: [seqLen, dModel] tensor handle)
@@ -178,7 +173,6 @@ foldBlocks [] h _ _ _ = h
 foldBlocks (b :: bs) h mask sI hdI =
   foldBlocks bs (blockForward b h mask sI hdI) mask sI hdI
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -212,7 +206,6 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
       -- catCELossVar — flatten via primReshape1d, not narrow.
       outFlatPtr = primReshape1d {ex} outT (sI * vI)
   in MkTensor outFlatPtr Nothing
-
 
 ----------------------------------------------------------------------
 -- Batched per-block forward (mirrors V1 `batchBlockForward`)
@@ -334,7 +327,6 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
       outReshaped = primReshape2d {ex} outBatch (cast {to=Int} b) (sI * vI)
   in MkTensor outReshaped Nothing
 
-
 ----------------------------------------------------------------------
 -- Constructors
 ----------------------------------------------------------------------
@@ -411,7 +403,6 @@ transformerLayer {prf} paramPrefix = do
       maskTV = MkTensor (dtCreateState2d {ex} {t=dt} sI sI maskBuf (deviceStreamTag {ex})) Nothing
   pure $ MkTransformer {prf} embTV blks nf vp peTV maskTV
 
-
 ----------------------------------------------------------------------
 -- Freeze / unfreeze helpers for nested state
 ----------------------------------------------------------------------
@@ -482,7 +473,6 @@ unfreezeBlockVec (b :: bs) = do
   b' <- unfreezeBlock b
   bs' <- unfreezeBlockVec bs
   pure (b' :: bs')
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

@@ -5,7 +5,6 @@ import Gym.Env
 import Gym.Rng
 import Gym.ToyText.FrozenLake
 
-
 rewardOf : (Double, FLState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r
 
@@ -14,7 +13,6 @@ stateOf (_, s, _, _) = s
 
 outcomeOf : (Double, FLState, Outcome, Info) -> Outcome
 outcomeOf (_, _, o, _) = o
-
 
 -- Count samples where the stepped outcome goes "right" (pos = start + 1) vs other.
 -- Start at position 0. Action = right (2). With slip, 1/3 chance each of
@@ -29,7 +27,6 @@ countRights seed (S k) acc =
       -- Advance seed to get independent trials
       (_, seed') = nextDouble seed
   in countRights seed' k acc'
-
 
 export
 tests : List (IO Bool)

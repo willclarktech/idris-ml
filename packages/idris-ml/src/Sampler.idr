@@ -2,7 +2,6 @@ module Sampler
 
 import Compat.Random
 
-
 ----------------------------------------------------------------------
 -- Samplers (distribution shapes)
 ----------------------------------------------------------------------
@@ -32,7 +31,6 @@ normalSample = do
 export
 normal : Sampler
 normal var = map (* prim__doubleSqrt var) normalSample
-
 
 ----------------------------------------------------------------------
 -- Categorical sampling

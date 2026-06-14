@@ -13,7 +13,6 @@ import Data.String
 import System
 import System.File
 
-
 ----------------------------------------------------------------------
 -- Readers
 ----------------------------------------------------------------------
@@ -62,7 +61,6 @@ enumArg table s = case lookup s table of
                 ++ concat (intersperse "|" (map fst table))
                 ++ ", got \"" ++ s ++ "\"")
 
-
 ----------------------------------------------------------------------
 -- Flag specifications
 ----------------------------------------------------------------------
@@ -91,7 +89,6 @@ longOf (Switch long _ _)   = long
 findFlag : String -> List (Flag cfg) -> Maybe (Flag cfg)
 findFlag name = find (\f => longOf f == name)
 
-
 ----------------------------------------------------------------------
 -- Help text
 ----------------------------------------------------------------------
@@ -108,7 +105,6 @@ usage prog flags =
     row : Flag cfg -> (String, String)
     row (Option long metavar help _) = ("--" ++ long ++ " " ++ metavar, help)
     row (Switch long help _)         = ("--" ++ long, help)
-
 
 ----------------------------------------------------------------------
 -- Parsing

@@ -8,7 +8,6 @@ import Generate
 import Test.Harness
 import Array
 
-
 ||| Get the value at position j in a vector.
 getElem : {n : Nat} -> Nat -> Vector n Double -> Double
 getElem j (VArray elems) = case getAt j (toList elems) of

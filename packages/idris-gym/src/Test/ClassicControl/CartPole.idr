@@ -5,10 +5,8 @@ import Test.Harness
 import Gym.Env
 import Gym.ClassicControl.CartPole
 
-
 tol : Double
 tol = 1.0e-9
-
 
 -- Extract fields from the 4-tuple for readability.
 rewardOf : (Double, CPState, Outcome, Info) -> Double
@@ -20,10 +18,8 @@ outcomeOf (_, _, o, _) = o
 stateOf : (Double, CPState, Outcome, Info) -> CPState
 stateOf (_, s, _, _) = s
 
-
 cpZero : CPState
 cpZero = MkCP 0 0 0 0
-
 
 export
 tests : List (IO Bool)

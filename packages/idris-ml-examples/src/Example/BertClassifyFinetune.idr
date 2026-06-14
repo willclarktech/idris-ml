@@ -42,7 +42,6 @@ import Util
 import HfBert
 import HfBertForClassification
 
-
 ----------------------------------------------------------------------
 -- Config (tiny BERT for fast convergence)
 ----------------------------------------------------------------------
@@ -80,11 +79,9 @@ SeqLen = 8
 BatchSize : Nat
 BatchSize = 16
 
-
 -- The 3 "label" token IDs the model has to learn to read.
 labelTokens : Vect 3 Double
 labelTokens = [11.0, 13.0, 17.0]
-
 
 record Config where
   constructor MkConfig
@@ -106,7 +103,6 @@ specs = [ Arg "--lr"               (\v, c => { lr := cast v } c)
         , Arg "--patience"         (\v, c => { patience := castNat v } c)
         , Arg "--seed"             (\v, c => { seed := castBits64 v } c)
         , Arg "--freeze-backbone"  (\v, c => { freezeBackbone := boolFlag v } c) ]
-
 
 ----------------------------------------------------------------------
 -- Synthetic dataset
@@ -146,7 +142,6 @@ posVect = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
 typeVect : Vect SeqLen Double
 typeVect = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-
 public export
 record FtExample where
   constructor MkFtExample
@@ -165,7 +160,6 @@ genBatch (S k) = do
   e <- genExample
   rest <- genBatch k
   pure (e :: rest)
-
 
 ----------------------------------------------------------------------
 -- Model alias + per-example forward + per-batch epoch fn
@@ -240,7 +234,6 @@ epochBert opt model batch = do
   v <- nativeTrainStep opt meanLoss
   pure (model, v)
 
-
 -- Greedy-argmax classification: pick the index with max logit.
 predictClass : Model -> Vect SeqLen Double -> IO Nat
 predictClass model ids = do
@@ -273,7 +266,6 @@ heldOutAccuracy model = do
         go rest (if p == e.label then S acc else acc)
   hits <- withNoGrad {ex=ExampleExecutor} (go (toList evalBatch) 0)
   pure (cast {to=Double} (cast {to=Integer} hits) / 32.0)
-
 
 ----------------------------------------------------------------------
 -- Main

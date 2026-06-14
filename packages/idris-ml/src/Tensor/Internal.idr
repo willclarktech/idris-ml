@@ -9,7 +9,6 @@ module Tensor.Internal
 
 import Executor
 
-
 ----------------------------------------------------------------------
 -- C-side allocation + bulk-load helpers
 ----------------------------------------------------------------------
@@ -17,12 +16,10 @@ import Executor
 %foreign "C:tensor_alloc_doubles,libidrisml"
 export prim__allocDoubles : Int -> AnyPtr
 
-
 -- Wrapper that returns the buffer pointer for threading through let chains
 %foreign "C:tensor_write_double_return,libidrisml"
 export
 prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
-
 
 %foreign "C:tensor_alloc_ints,libidrisml"
 export
@@ -42,7 +39,6 @@ prim__allocBytes : Int -> AnyPtr
 %foreign "C:tensor_write_byte_return,libidrisml"
 export
 prim__setByte : AnyPtr -> Int -> Int -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- dtCreate* — device × dtype create dispatch

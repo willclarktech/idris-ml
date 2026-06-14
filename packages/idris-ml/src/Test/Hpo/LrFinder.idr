@@ -6,10 +6,8 @@ import Data.Vect
 import Test.Harness
 import Hpo.LrFinder
 
-
 tol : Double
 tol = 1.0e-6
-
 
 -- Helper: the LR at the steepest negative slope of the curve, divided by 10.
 -- Uses recommendFromCurve directly, so this test pins the heuristic.
@@ -24,7 +22,6 @@ syntheticUCurve =
   , (1.0e-1, 0.10)  -- slope +1.90 (diverges)
   , (1.0,    2.00)
   ]
-
 
 export
 tests : List (IO Bool)

@@ -36,7 +36,6 @@ import Tensor
 import Util
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
@@ -113,7 +112,6 @@ reportStep label (a, b, c, d) = do
         then s
         else s ++ pack (List.replicate (n `minus` length s) ' ')
 
-
 ----------------------------------------------------------------------
 -- F64 hop: TapeExecutor ↔ TorchExecutor TCpu ↔ MlxExecutor MCpu
 --
@@ -144,7 +142,6 @@ hopF64 = do
   ok4 <- reportStep "→ TapeExecutor (back):" (read4 v_back)
 
   pure (ok1 && ok2 && ok3 && ok4)
-
 
 ----------------------------------------------------------------------
 -- F32 hop: TorchExecutor TCpu ↔ TorchExecutor TMps ↔ MlxExecutor MGpu ↔ MlxExecutor MCpu
@@ -183,7 +180,6 @@ hopF32 = do
   ok5 <- reportStep "→ TorchExecutor TCpu:"      (read4 v_back)
 
   pure (ok1 && ok2 && ok3 && ok4 && ok5)
-
 
 ----------------------------------------------------------------------
 -- Main

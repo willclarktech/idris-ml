@@ -4,7 +4,6 @@ import Data.String
 import Test.Harness
 import Args
 
-
 record Cfg where
   constructor MkCfg
   epochs : Nat
@@ -45,7 +44,6 @@ errMentions : List String -> List String -> Bool
 errMentions args needles = case errOf args of
   Just e  => all (\n => isInfixOf n e) needles
   Nothing => False
-
 
 export
 tests : List (IO Bool)

@@ -11,7 +11,6 @@ import Layer.Lstm
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- DNC constants (mirror V1)
 ----------------------------------------------------------------------
@@ -23,7 +22,6 @@ DncControllerInput r m i = r * m + i
 public export
 DncOutputInput : Nat -> Nat -> Nat -> Nat
 DncOutputInput h r m = h + r * m
-
 
 ----------------------------------------------------------------------
 -- DNC tensor-level helpers (top-level — mirrors V1 design to avoid
@@ -121,7 +119,6 @@ dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT m
         dncReadHeads {ex} (idx + 1) restRws linkT linkTransT memT keysT betasT modesT mI
   in (rwT :: restRws', roT :: restRos')
 
-
 ----------------------------------------------------------------------
 -- DncState — typed-surface DNC (Path C)
 ----------------------------------------------------------------------
@@ -159,7 +156,6 @@ data DncState :
     Maybe (Vect r AnyPtr) ->                -- read weight tensor handles
     Maybe (Vect r AnyPtr) ->                -- read output tensor handles
     DncState r n m h i o ex dt g
-
 
 ----------------------------------------------------------------------
 -- State init helpers
@@ -211,7 +207,6 @@ mkZeroVectN (S k) n = zeroState1d {ex} {dt} n :: mkZeroVectN {ex} {dt} k n
 mkZeroVectM : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectM Z _ = []
 mkZeroVectM (S k) m = zeroState1d {ex} {dt} m :: mkZeroVectM {ex} {dt} k m
-
 
 ----------------------------------------------------------------------
 -- Forward
@@ -355,7 +350,6 @@ applyDnc {r} {n} {m}
           (Just newRoTs)
        , MkTensor outputT Nothing )
 
-
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
@@ -447,7 +441,6 @@ resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
   MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
         memInitT initReadOutsT nonDiagMaskT
         Nothing Nothing Nothing Nothing Nothing Nothing Nothing
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

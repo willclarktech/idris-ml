@@ -4,7 +4,6 @@ import Compat.Random
 import Test.Harness
 import Init
 
-
 tol : Double
 tol = 1.0e-12
 

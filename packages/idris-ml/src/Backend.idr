@@ -32,7 +32,6 @@ module Backend
 import Executor.Core
 import DType.Core
 
-
 public export
 interface (UserExecutorTraining ex,
            RuntimeDType dt,

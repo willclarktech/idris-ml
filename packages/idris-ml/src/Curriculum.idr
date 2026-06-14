@@ -23,7 +23,6 @@ import Tensor
 import Util
 import Executor
 
-
 ----------------------------------------------------------------------
 -- Stage
 ----------------------------------------------------------------------
@@ -37,7 +36,6 @@ record Stage (0 ex : Executor) (i : Nat) (o : Nat) (n : Nat) where
   label : String
   threshold : Double
   generate : IO (Vect n (RecurrentDataPoint i o Double))
-
 
 ----------------------------------------------------------------------
 -- Internal
@@ -68,7 +66,6 @@ runChunk opt sched m ds lossFn (S k) ep bl sc = do
       sc' : Nat
       sc' = if improved then 0 else sc + 1
   runChunk opt sched m' ds lossFn k (ep + 1) bl' sc'
-
 
 ||| Train one curriculum stage. Returns
 ||| (model, totalEpochs, advanced?). `advanced=True` means the
@@ -116,7 +113,6 @@ trainStage opt sched model stage lossFn chunkSz patience budget done bestLoss st
     else trainStage opt sched model' stage lossFn chunkSz patience
                      (minus budget chunk) (done + chunk)
                      bestLoss' staleCount' t0
-
 
 ----------------------------------------------------------------------
 -- Public API

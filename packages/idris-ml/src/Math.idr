@@ -5,7 +5,6 @@ import Data.Vect
 import Floating
 import Array
 
-
 ----------------------------------------------------------------------
 -- Activation Functions
 ----------------------------------------------------------------------
@@ -194,7 +193,6 @@ export
 vectorMatrixMultiply : (Num ty) => {n : Nat} -> Vector n ty -> Matrix m n ty -> Vector m ty
 vectorMatrixMultiply = flip matrixVectorMultiply
 
-
 ----------------------------------------------------------------------
 -- Matrix Operations (pure Idris, type-safe)
 ----------------------------------------------------------------------
@@ -274,7 +272,6 @@ causalMaskMatrix {n} mat =
       maskRow i (VArray elems) = VArray $ zipWith (\j, e => case e of SArray x => SArray (maskVal i j x)) Data.Vect.Fin.range elems
   in VArray $ zipWith (\i, row => maskRow i row) Data.Vect.Fin.range (case mat of VArray rs => rs)
 
-
 ||| Row-wise layer normalization on a matrix.
 ||| Each row is independently normalized then scaled/shifted by gamma and beta.
 ||| y[i,j] = gamma[j] * (x[i,j] - mean_i) / sqrt(var_i + eps) + beta[j]
@@ -295,7 +292,6 @@ layerNormMatrix {m} {n} (VArray rows) gamma beta eps =
           invStd = fromDouble 1.0 / sqrt (var + eps)
           -- gamma * (x - mean) * invStd + beta
       in zipWith (*) gamma (map (* invStd) centered) + beta
-
 
 ----------------------------------------------------------------------
 -- Evaluation Metrics

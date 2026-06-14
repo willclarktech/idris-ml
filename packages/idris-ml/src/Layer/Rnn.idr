@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Rnn — typed-surface vanilla RNN cell (Path C)
 ----------------------------------------------------------------------
@@ -38,7 +37,6 @@ record RnnState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Grad
   activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')
   prevOutT : Maybe (TVec o ex dt g)
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -60,7 +58,6 @@ applyRnn {o} st input = do
   preact   <- tadd combined st.hhB
   out      <- st.activation preact
   pure ({ prevOutT := Just out } st, out)
-
 
 ----------------------------------------------------------------------
 -- Constructor
@@ -100,7 +97,6 @@ rnnLayer paramPrefix activation = do
 export
 resetRnnState : {o : Nat} -> {0 ex : Executor} -> {0 g : GradMode} -> RnnState i o ex dt g -> RnnState i o ex dt g
 resetRnnState st = { prevOutT := Nothing } st
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

@@ -25,7 +25,6 @@ import Test.Config
 import Tensor
 import Array
 
-
 ----------------------------------------------------------------------
 -- Reference catalogue (mirrors the live model's safetensors header)
 ----------------------------------------------------------------------
@@ -73,7 +72,6 @@ expectedBertTinyParamNames =
   , "bert.pooler.dense.bias"
   ]
 
-
 -- isInfixOf from Data.List works on List a, not String. Cast through
 -- unpack for the convention check below.
 strContains : String -> String -> Bool
@@ -89,7 +87,6 @@ firstMismatch xs ys = go Z xs ys
     go n (x :: _)  []        = Just (n, x, "<missing>")
     go n (x :: xs) (y :: ys) =
       if x == y then go (S n) xs ys else Just (n, x, y)
-
 
 ----------------------------------------------------------------------
 -- Bucket 1 — pure Idris (catalogue correctness)
@@ -119,7 +116,6 @@ testNamingConvention =
       missingDots = any (\n => not (strContains "." n)) names
   in check "no `_weights`/`_biases` plural; every name uses `.` separator"
            (not hasPlural && not missingDots)
-
 
 ----------------------------------------------------------------------
 -- Bucket 2 — FFI (constructor actually registers under those names)
@@ -167,7 +163,6 @@ testConstructorRegistersHfNames = do
       putStrLn ("    (total registered: " ++ show (length registered) ++
                 ", expected: " ++ show (length expected) ++ ")")
       pure False
-
 
 ----------------------------------------------------------------------
 -- Bucket 3 — forward pass shape + finite smoke
@@ -247,7 +242,6 @@ testForwardShapeAndFinite = do
       else check ("forward produced 8 finite values "
                     ++ "(sample: " ++ show (take 3 vals) ++ "...)") True
 
-
 ----------------------------------------------------------------------
 -- Bucket 4 — MLM-head catalogue (cls.predictions.* naming gate)
 ----------------------------------------------------------------------
@@ -292,7 +286,6 @@ testMaskedLmCombinedCatalogue =
          putStrLn ("    got:      " ++ g)
          putStrLn ("    expected: " ++ e)
          pure False
-
 
 ----------------------------------------------------------------------
 -- Test suite

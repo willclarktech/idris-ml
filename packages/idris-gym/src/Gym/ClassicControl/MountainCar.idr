@@ -3,7 +3,6 @@ module Gym.ClassicControl.MountainCar
 import Data.Vect
 import Gym.Env
 
-
 ----------------------------------------------------------------------
 -- MountainCar-v0 (Gymnasium-compatible constants)
 ----------------------------------------------------------------------
@@ -20,7 +19,6 @@ public export
 record MCState where
   constructor MkMC
   mcPos, mcVel : Double
-
 
 clamp : Double -> Double -> Double -> Double
 clamp lo hi x = if x < lo then lo else if x > hi then hi else x

@@ -21,7 +21,6 @@ import Test.Harness
 import KVCache
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
@@ -39,7 +38,6 @@ mkRows2 xss = do
                                        (map (\row => VArray (map SArray row)) xss))
   weakenGrad {ex=TestExecutor} (tinput2d {m} {n} raw)
 
-
 -- Read a [m, n] tensor's raw buffer into row-major List Double via
 -- the same per-element accessor the other tensor-value tests use.
 readMat : (m, n : Nat) -> AnyPtr -> IO (List Double)
@@ -52,7 +50,6 @@ readMat m n p = go (cast {to=Int} (m * n)) 0 []
         else let v = primItem1d {ex=TestExecutor} p i
              in go end (i + 1) (v :: acc)
 
-
 ----------------------------------------------------------------------
 -- Bucket 1 — Empty.cacheLen = 0
 ----------------------------------------------------------------------
@@ -62,7 +59,6 @@ testEmptyLen =
   let c : KVCache 4 TestExecutor TestDType
       c = emptyKVCache
   in check "emptyKVCache.cacheLen = 0" (cacheLen c == 0)
-
 
 ----------------------------------------------------------------------
 -- Bucket 2 — Append into Empty gives Filled s newK newV
@@ -99,7 +95,6 @@ testAppendIntoEmpty = do
               putStrLn ("  FAIL: K = " ++ show kVals ++ ", expected " ++ show kExpect)
               putStrLn ("        V = " ++ show vVals ++ ", expected " ++ show vExpect)
               pure False
-
 
 ----------------------------------------------------------------------
 -- Bucket 3 — Append into Filled concatenates along axis 0
@@ -142,7 +137,6 @@ testAppendIntoFilled = do
               putStrLn ("        V = " ++ show vVals ++ ", expected " ++ show vExpect)
               pure False
 
-
 ----------------------------------------------------------------------
 -- Bucket 4 — cacheLen accumulates correctly across multiple appends
 ----------------------------------------------------------------------
@@ -167,7 +161,6 @@ testCacheLenAccumulates = do
     else do
       putStrLn ("  FAIL: cacheLen c4 = " ++ show (cacheLen c4) ++ " (expected 4)")
       pure False
-
 
 ----------------------------------------------------------------------
 -- Suite export

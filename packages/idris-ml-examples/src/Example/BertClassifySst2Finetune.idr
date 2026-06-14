@@ -40,7 +40,6 @@ import HfBert
 import HfBertForClassification
 import HfDataset
 
-
 ----------------------------------------------------------------------
 -- Config (matches google/bert_uncased_L-2_H-128_A-2)
 ----------------------------------------------------------------------
@@ -82,7 +81,6 @@ SeqLen = 32
 PadId : Nat
 PadId = 0
 
-
 record Config where
   constructor MkConfig
   lr             : Double
@@ -110,7 +108,6 @@ specs = [ Arg "--lr"               (\v, c => { lr := cast v } c)
         , Arg "--max-dev"          (\v, c => { maxDev := castNat v } c)
         ]
 
-
 ----------------------------------------------------------------------
 -- Paths
 ----------------------------------------------------------------------
@@ -124,7 +121,6 @@ devTsvPath = "data/hf-datasets/glue-sst2/validation.tsv"
 ckptPath : String
 ckptPath = "models/google/bert_uncased_L-2_H-128_A-2/model.safetensors"
 
-
 ----------------------------------------------------------------------
 -- Model + helpers
 ----------------------------------------------------------------------
@@ -136,7 +132,6 @@ Model = BertForSequenceClassificationState
 
 PaddedExample : Type
 PaddedExample = (Vect SeqLen Nat, Vect SeqLen Double, Nat)
-
 
 -- arange(SeqLen) as a Vect of Doubles.
 arangeSeqLen : Vect SeqLen Double
@@ -154,13 +149,11 @@ posVect = arangeSeqLen
 typeVect : Vect SeqLen Double
 typeVect = replicate SeqLen 0.0
 
-
 mkIdsTensor : Vect SeqLen Double -> IO (Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad)
 mkIdsTensor xs = ioRerun (\_ =>
   let raw = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType}
                          (VArray (map SArray xs))
   in tinput1d {n=SeqLen} raw)
-
 
 -- Build the [SeqLen, SeqLen] attention-mask tensor from a 1D position
 -- mask via toAttentionMask2d. Uses tparam2d as the available 2D
@@ -181,7 +174,6 @@ mkMaskTensor posMask = do
       let b' = prim__setDouble b off v
       in fillBuf b' (off + 1) rest
 
-
 -- One-hot Tensor [NumClasses] from a class label.
 oneHotTensor : Nat -> IO (Tensor [NumClasses] ExampleExecutor ExampleDType WithGrad)
 oneHotTensor lbl = ioRerun (\_ =>
@@ -192,7 +184,6 @@ oneHotTensor lbl = ioRerun (\_ =>
       raw = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType}
                          (VArray (map SArray oneHot))
   in tinput1d {n=NumClasses} raw)
-
 
 -- Run the full forward (with mask) on one padded example.
 -- Returns the [NumClasses] logits tensor.
@@ -213,7 +204,6 @@ forwardOne model (ids, mask, _) = do
                            {numClasses=NumClasses}
                            model idsT posT typT (Just mskT)
 
-
 -- Per-example forward → cross-entropy scalar loss.
 exampleLoss : Model -> PaddedExample
            -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
@@ -221,7 +211,6 @@ exampleLoss model ex@(_, _, label) = do
   logits <- forwardOne model ex
   target <- oneHotTensor label
   tnllLoss logits target
-
 
 -- Sum scalar Tensor losses.
 sumScalars : Tensor [] ExampleExecutor ExampleDType WithGrad
@@ -231,7 +220,6 @@ sumScalars acc []        = pure acc
 sumScalars acc (x :: xs) = do
   acc' <- tadd acc x
   sumScalars acc' xs
-
 
 -- Run one epoch over `items`, iterating in `batchSize` chunks. Each
 -- chunk: forward each example, mean-reduce losses, one fused native
@@ -261,7 +249,6 @@ epochSst2 opt batchSize model items = do
           v <- nativeTrainStep opt meanLoss
           go m (accLoss + v) (S nBatches) rest
 
-
 -- Greedy-argmax classification on a single padded example.
 predictClass : Model -> PaddedExample -> IO Nat
 predictClass model ex = do
@@ -269,7 +256,6 @@ predictClass model ex = do
   let v0 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 0
       v1 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 1
   pure $ if v0 >= v1 then 0 else 1
-
 
 heldOutAccuracy : Model -> List PaddedExample -> IO Double
 heldOutAccuracy model items =
@@ -287,12 +273,10 @@ heldOutAccuracy model items =
                    / cast {to=Double} (cast {to=Integer} n)
     pure acc
 
-
 -- Apply a Nat cap to a List (0 = no cap).
 capAt : Nat -> List a -> List a
 capAt 0 xs = xs
 capAt n xs = take n xs
-
 
 ----------------------------------------------------------------------
 -- main

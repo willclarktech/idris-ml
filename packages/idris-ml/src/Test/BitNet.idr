@@ -11,7 +11,6 @@ import Layer.BitLinear
 import Layer.RmsNorm
 import Test.Config
 
-
 ----------------------------------------------------------------------
 -- BitNet MLP-block cross-language oracle (#411 B4.2)
 ----------------------------------------------------------------------
@@ -39,7 +38,6 @@ import Test.Config
 -- uses the same per-row variant; the cross-language tolerance is
 -- 1e-6 (F64 on tape; F32 on torch-mps / mlx-gpu when ExampleDType
 -- = F32).
-
 
 ----------------------------------------------------------------------
 -- Fixture constants — pasted from `bitnet.py --dump-idris`
@@ -84,7 +82,6 @@ FIXTURE_FFN_SUB_NORM = [0.97311909206546721, 0.97154058008200295, 1.084203880693
 FIXTURE_EXPECTED_Y : Vect 4 Double
 FIXTURE_EXPECTED_Y = [-3.1641801259368396, -0.29296268251998431, -2.7523220431951523, -1.1193214854352063]
 
-
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
@@ -110,7 +107,6 @@ mkVecNoGrad xs = do
                                      (VArray (map SArray xs)))
   weakenGrad {ex=TestExecutor} (tinput1d {n} raw)
 
-
 -- Write a Vect n Int into a freshly allocated byte buffer; returns
 -- the buffer pointer. Threaded through `ioRerun` to keep the
 -- prim__allocBytes + prim__setByte chain inside one IO unit and
@@ -125,13 +121,11 @@ buildPackedBytes {n} xs = do
            writeBytesPure (prim__allocBytes (cast n)) 0 xs)
   pure (raw, cast n)
 
-
 readElemN : {n : Nat} -> {0 g : GradMode} ->
             Tensor [n] TestExecutor TestDType g -> Int -> IO Double
 readElemN {n} t k = do
   s <- telemSelect {ex=TestExecutor} {n} t k
   pure (tensorItem {ex=TestExecutor} s)
-
 
 ----------------------------------------------------------------------
 -- BitNet MLP block forward
@@ -197,7 +191,6 @@ bitnetMlpBlockOracle = do
   ok2 <- checkClose "block y[2] matches PyTorch oracle" e2 y2 tol
   ok3 <- checkClose "block y[3] matches PyTorch oracle" e3 y3 tol
   pure (ok0 && ok1 && ok2 && ok3)
-
 
 export
 tests : List (IO Bool)

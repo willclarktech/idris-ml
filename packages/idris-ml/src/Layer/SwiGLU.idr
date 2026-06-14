@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- SwiGLU — Llama's gated SiLU MLP block
 ----------------------------------------------------------------------
@@ -39,7 +38,6 @@ record SwiGLUState
   upW   : Tensor [intermediate, hidden] ex dt g
   downW : Tensor [hidden, intermediate] ex dt g
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -63,7 +61,6 @@ applySwiGLU st@(MkSwiGLU gateW upW downW) input = do
   mid  <- tmul sg up                    -- [intermediate] elementwise
   out  <- tmv downW mid                 -- [hidden]
   pure (st, out)
-
 
 ----------------------------------------------------------------------
 -- Constructor
@@ -90,7 +87,6 @@ swigluLayer paramPrefix = do
   downW <- tparam2dNormal {o=hidden}       {i=intermediate} (paramPrefix ++ "_down_weight") 0.0 stdI
   pure (MkSwiGLU gateW upW downW)
 
-
 ----------------------------------------------------------------------
 -- LayerLike instance
 ----------------------------------------------------------------------
@@ -107,7 +103,6 @@ data SwiGLUStateAnyI : (hidden : Nat) -> (sameHidden : Nat) ->
   MkSwiGLUAnyI : (intermediate : Nat) ->
                  SwiGLUState hidden intermediate ex dt g ->
                  SwiGLUStateAnyI hidden hidden ex dt g
-
 
 public export
 LayerLike SwiGLUStateAnyI where

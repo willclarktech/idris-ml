@@ -24,7 +24,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Architecture: separate actor and critic MLPs with discrete-action
 -- (categorical) policy on Acrobot. Pendulum (continuous-action Gaussian)
@@ -85,7 +84,6 @@ mkCritic = do
   ll3 <- linearLayerAny {i=Hidden} {o=1}      "critic_ll3"
   pure (ll1 ~~> tanhLayerAny ~~> ll2 ~~> tanhLayerAny ~~> OutputLayer ll3)
 
-
 ----------------------------------------------------------------------
 -- Observation helpers
 ----------------------------------------------------------------------
@@ -95,7 +93,6 @@ observeVec s = aObserve s
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
 obsTensor v = VArray (map SArray v)
-
 
 ----------------------------------------------------------------------
 -- Rollout record
@@ -109,7 +106,6 @@ record RollStep where
   value      : Double
   reward     : Double
   isDone     : Bool
-
 
 ----------------------------------------------------------------------
 -- Categorical policy helpers
@@ -137,7 +133,6 @@ sampleActionIO actor critic obs = do
              1 => lp1
              _ => lp2
   pure (a, lp, v)
-
 
 ----------------------------------------------------------------------
 -- Rollout
@@ -170,7 +165,6 @@ rollout actor critic st stepsLeft (S k) = do
       let (stepsRest, finalSt, retsRest) = recur
           retsCarry = if isDone then 0.0 :: retsRest else retsRest
       pure (stepRec :: stepsRest, finalSt, retsCarry)
-
 
 ----------------------------------------------------------------------
 -- Batched rollout (NumEnvs parallel envs, one batched forward per step)
@@ -271,7 +265,6 @@ rolloutBatched actor critic v0 sl0 rolloutLen = do
               accs' = zipWith (\acc, s => s :: acc) accs newSteps
           in go k envs' sls' accs'
 
-
 ----------------------------------------------------------------------
 -- GAE + advantage normalization
 ----------------------------------------------------------------------
@@ -306,7 +299,6 @@ normAdvs triples =
       renorm : (RollStep, Double, Double) -> (RollStep, Double, Double)
       renorm (s, a, r) = (s, (a - mu) / sd, r)
   in map renorm triples
-
 
 ----------------------------------------------------------------------
 -- Per-step PPO loss (categorical policy,  typed-surface)
@@ -360,13 +352,11 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
   pure (MkTensor (primAdd {ex=ExampleExecutor} (primAdd {ex=ExampleExecutor} policyT.tensorPtr valueTerm.tensorPtr)
                        entTerm.tensorPtr) Nothing)
 
-
 meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
   let summed = foldl (\a, b => MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
-
 
 ----------------------------------------------------------------------
 -- Mini-batch shuffling
@@ -381,7 +371,6 @@ chunksOf : Nat -> List a -> List (List a)
 chunksOf _ [] = []
 chunksOf Z xs = [xs]
 chunksOf n xs = take n xs :: chunksOf n (drop n xs)
-
 
 ----------------------------------------------------------------------
 -- Config + update loop
@@ -423,7 +412,6 @@ record PPOState where
   envRef   : IORef (VecEnv NumEnvs AState)
   stepsRef : IORef (Vect NumEnvs Nat)
 
-
 prepareRollout : Critic -> Config -> List RollStep -> AState ->
                  IO (List (RollStep, Double, Double))
 prepareRollout critic cfg steps finalSt = do
@@ -432,7 +420,6 @@ prepareRollout critic cfg steps finalSt = do
       gaeOut    = gae cfg.gamma cfg.lam bootstrap triples
       merged    = map flattenTriple (zip steps gaeOut)
   pure (normAdvs merged)
-
 
 -- Per-env bootstrap: critic value at each env's final state, zeroed for
 -- envs whose last step terminated (matches sequential `computeBootstrap`).
@@ -446,7 +433,6 @@ computeBootstrapsBatched critic stepLists v = batchOver stepLists v.envs
       b <- computeBootstrap critic steps s
       bs <- batchOver rest ss
       pure (b :: bs)
-
 
 -- Batched prepareRollout: per-env GAE → concat → normalize advantages
 -- across the whole flat batch (matches PyTorch SyncVectorEnv updates,
@@ -464,7 +450,6 @@ prepareRolloutBatched critic cfg stepLists finalEnvs = do
         stepLists bootstraps
       flatMerged = concat (toList mergedPerEnv)
   pure (normAdvs flatMerged)
-
 
 -- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
 -- forward each, then build per-sample loss expressions by indexing into
@@ -500,7 +485,6 @@ runBatch opt actor critic cfg batch = withGenFree {ex=ExampleExecutor} $ do
       ls <- enumeratedLosses lB vB rest (k + 1)
       pure (l :: ls)
 
-
 -- Iterate runBatch over a list of mini-batches via do-block recursion.
 -- ⚠ Do NOT use `traverse_` here: its `foldr ((*>) . f) (pure ())`
 -- desugaring crashes  PPO on MLX with "invalid memory reference"
@@ -513,7 +497,6 @@ runBatches opt actor critic cfg (b :: rest) = do
   runBatch opt actor critic cfg b
   runBatches opt actor critic cfg rest
 
-
 kEpochUpdate : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
                List (RollStep, Double, Double) -> Nat -> IO ()
 kEpochUpdate _ _ _ _ _ Z = pure ()
@@ -522,7 +505,6 @@ kEpochUpdate opt actor critic cfg prepped (S k) = do
   let batches = chunksOf BatchSize shuffled
   runBatches opt actor critic cfg batches
   kEpochUpdate opt actor critic cfg prepped k
-
 
 ppoEpoch : NativeOptimizer ExampleExecutor -> Config -> PPOState -> IO (PPOState, Double)
 ppoEpoch opt cfg st = do
@@ -565,7 +547,6 @@ ppoEpoch opt cfg st = do
             then go 0.0 ((run + s.reward) :: acc) rest
             else go (run + s.reward) acc rest
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation
 ----------------------------------------------------------------------
@@ -596,7 +577,6 @@ evalN _ Z acc = pure acc
 evalN actor (S k) acc = do
   v <- evalEp actor (MkA 0.0 0.0 0.0 0.0) EpisodeLen 0.0
   evalN actor k (acc + v)
-
 
 ----------------------------------------------------------------------
 -- Main

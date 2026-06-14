@@ -31,7 +31,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Configuration
 ----------------------------------------------------------------------
@@ -74,7 +73,6 @@ OutputDim = SeqLen * VocabSize
 BatchSize : Nat
 BatchSize = 16
 
-
 ----------------------------------------------------------------------
 -- Per-position categorical cross-entropy loss (reversal portion only)
 ----------------------------------------------------------------------
@@ -114,7 +112,6 @@ catCELossVar predV targetV = ioRerun (\_ =>
       loss = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} revLen)
   in MkTensor loss Nothing)
 
-
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
@@ -142,7 +139,6 @@ argmaxAtPtr vocabSize t pos =
 countMatches : List Nat -> List Nat -> Nat
 countMatches xs ys = foldl (\acc, (a, b) => if a == b then acc + 1 else acc) 0 (zip xs ys)
 
-
 ----------------------------------------------------------------------
 -- CLI
 ----------------------------------------------------------------------
@@ -169,7 +165,6 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
         , Arg "--resume" (\v, c => { checkpointDir := v } c)
         , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
-
 
 ----------------------------------------------------------------------
 -- Main

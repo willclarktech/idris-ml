@@ -21,7 +21,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Timing
 ----------------------------------------------------------------------
@@ -38,7 +37,6 @@ repeatEpoch Z _ m loss = pure (m, loss)
 repeatEpoch (S k) step m _ = do
   (m', loss') <- step m
   repeatEpoch k step m' loss'
-
 
 ----------------------------------------------------------------------
 -- Supervised: Linear classifier, raw logits + BCE-with-logits loss
@@ -71,7 +69,6 @@ benchSupervised = do
   putStrLn $ "Supervised (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show finalLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 0) ++ " MB"
-
 
 ----------------------------------------------------------------------
 -- RNN (same config as Rnn.idr)
@@ -110,7 +107,6 @@ benchRnn = do
   putStrLn $ "RNN (1000 epochs):        " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show finalLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 1) ++ " MB"
-
 
 ----------------------------------------------------------------------
 -- NTM Copy Task (binary, two-phase, matching PyTorch benchmark)
@@ -159,7 +155,6 @@ benchNtm = do
   putStrLn $ "  Final loss: " ++ show benchLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 2) ++ " MB"
 
-
 ----------------------------------------------------------------------
 -- NTM Copy Production Scale (matching NtmCopy.idr architecture)
 ----------------------------------------------------------------------
@@ -206,7 +201,6 @@ benchNtmCopy = do
   putStrLn $ "  Final loss: " ++ show benchLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 3) ++ " MB"
 
-
 ----------------------------------------------------------------------
 -- NTM Copy 1K (realistic: fresh data + GC, matching real training)
 ----------------------------------------------------------------------
@@ -249,7 +243,6 @@ benchNtmCopy1k = do
   putStrLn $ "NTM-copy-1k (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show finalLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 4) ++ " MB"
-
 
 ----------------------------------------------------------------------
 -- NTM Recall (matching NtmAssociativeRecall.idr architecture)
@@ -296,7 +289,6 @@ benchNtmRecall = do
   putStrLn $ "NTM-recall (100 epochs):  " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show benchLoss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 5) ++ " MB"
-
 
 ----------------------------------------------------------------------
 -- Main

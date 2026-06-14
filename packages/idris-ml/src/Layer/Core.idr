@@ -11,7 +11,6 @@ import Executor
 import Tensor
 import Util.Log
 
-
 ----------------------------------------------------------------------
 -- Path C P3-1 spike: rank-aware layer interface
 ----------------------------------------------------------------------
@@ -68,7 +67,6 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _
   unfreezeLayer : {0 ex : Executor} -> UserExecutorTraining ex => {i, o : Nat} ->
                   (1 _ : l i o ex dt NoGrad) -> IO (l i o ex dt WithGrad)
 
-
 ----------------------------------------------------------------------
 -- AnyLayer (existential wrapper)
 ----------------------------------------------------------------------
@@ -106,7 +104,6 @@ unfreezeAnyLayer : {0 ex : Executor} -> UserExecutorTraining ex => {i, o : Nat} 
 unfreezeAnyLayer (MkAnyLayer l @{dict} layer) = do
   layer' <- unfreezeLayer @{dict} layer
   pure (MkAnyLayer l @{dict} layer')
-
 
 ----------------------------------------------------------------------
 -- Network
@@ -196,7 +193,6 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input = do
   (l', mid) <- applyVarBatchAny l input
   (rest', out) <- forwardVarBatch rest mid
   pure (l' ~~> rest', out)
-
 
 ----------------------------------------------------------------------
 -- Lightweight forward tracer + activation dump

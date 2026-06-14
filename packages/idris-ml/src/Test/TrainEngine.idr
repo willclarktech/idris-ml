@@ -13,7 +13,6 @@ import Train
 import Train.Engine
 import Test.Config
 
-
 ----------------------------------------------------------------------
 -- Equivalence oracle: runTrainingIO's early-stop behaviour, captured
 -- BEFORE the runEpochLoop rewire and asserted after. A scripted epochFn
@@ -53,7 +52,6 @@ oracleWindowedPct = do
   (ed, fl) <- scriptRun (windowedPercentileConfig 150 0.5 0.1 100 1) (\_ => 0.05)
   check ("oracle WindowedPercentile -> (" ++ show ed ++ ", " ++ showFix 6 fl ++ ")")
         (ed == 100 && abs (fl - 0.05) < 1.0e-9)
-
 
 -- Registered scalar param at the test backend/dtype (mirrors Test.Optimizer).
 mkW : String -> Double -> IO (Tensor [] TestExecutor TestDType WithGrad)

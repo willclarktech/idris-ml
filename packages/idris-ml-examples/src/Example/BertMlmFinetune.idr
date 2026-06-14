@@ -38,7 +38,6 @@ import Util
 import Checkpoint
 import HfBert
 
-
 ----------------------------------------------------------------------
 -- Config (matches google/bert_uncased_L-2_H-128_A-2)
 ----------------------------------------------------------------------
@@ -81,7 +80,6 @@ PadId  = 0
 MaskProb : Double
 MaskProb = 0.15
 
-
 record Config where
   constructor MkConfig
   lr        : Double
@@ -99,7 +97,6 @@ specs = [ Arg "--lr"        (\v, c => { lr := cast v } c)
         , Arg "--max-start" (\v, c => { maxStart := castNat v } c)
         ]
 
-
 ----------------------------------------------------------------------
 -- Corpus loading
 ----------------------------------------------------------------------
@@ -109,7 +106,6 @@ tokenPath = "data/tinyshakespeare/input.bert-tiny.tokens"
 
 ckptPath : String
 ckptPath = "models/google/bert_uncased_L-2_H-128_A-2/model.safetensors"
-
 
 parseIds : String -> List Nat
 parseIds s =
@@ -122,14 +118,12 @@ parseIds s =
         Nothing => Nothing
         Just n  => if n < 0 then Nothing else Just (cast n)
 
-
 loadTokens : (path : String) -> IO (List Nat)
 loadTokens path = do
   res <- readFile path
   let body : String
       body = either (const "") id res
   pure (parseIds body)
-
 
 ----------------------------------------------------------------------
 -- 80/10/10 masking + sliding window
@@ -139,7 +133,6 @@ Model : Type
 Model = BertForMaskedLmState Vocab Hidden NumLayers Intermediate MaxPos
                              TypeVocab ExampleExecutor ExampleDType WithGrad
 
-
 -- A single MLM training example, post-masking. `inputIds` is what the
 -- model sees (with [MASK] / random / kept tokens at the masked
 -- positions); `targetIds` is the ORIGINAL token IDs (used by the loss
@@ -147,7 +140,6 @@ Model = BertForMaskedLmState Vocab Hidden NumLayers Intermediate MaxPos
 -- was masked (loss applies there), 0.0 elsewhere.
 MlmSample : Type
 MlmSample = (Vect SeqLen Double, Vect SeqLen Double, Vect SeqLen Double)
-
 
 arangeSeqLen : Vect SeqLen Double
 arangeSeqLen = build SeqLen
@@ -158,13 +150,11 @@ arangeSeqLen = build SeqLen
       let here = cast {to=Double} (cast {to=Integer} (minus SeqLen (S k)))
       in here :: build k
 
-
 -- Truncate / pad a List to exactly `n`.
 takePad : (n : Nat) -> a -> List a -> Vect n a
 takePad Z     _   _        = []
 takePad (S k) pad []       = pad :: takePad k pad []
 takePad (S k) pad (x :: xs) = x :: takePad k pad xs
-
 
 -- Pick a uniformly random integer in [0, n).
 randNat : (n : Nat) -> IO Nat
@@ -172,7 +162,6 @@ randNat 0 = pure 0
 randNat n = do
   v <- randomInt 0 (cast (minus n 1))
   pure (cast (cast {to=Integer} v))
-
 
 -- For each position, decide if it's masked + emit (input_id, mask_flag).
 -- HF's 80/10/10 scheme: of the 15% masked positions, 80% become
@@ -208,7 +197,6 @@ applyHfMasking (id :: rest) = do
 -- 10% random branch's exact id distribution doesn't materially change
 -- the convergence story; the loss only weights MASKED positions.
 
-
 -- Sample one MLM training example from the corpus.
 sampleMlmExample : (corpus : List Nat) -> (corpusLen : Nat)
                 -> (capMaxStart : Nat)
@@ -232,7 +220,6 @@ sampleMlmExample corpus corpusLen capMaxStart = do
     minimum : Nat -> Nat -> Nat
     minimum a b = if a < b then a else b
 
-
 ----------------------------------------------------------------------
 -- Tensor helpers
 ----------------------------------------------------------------------
@@ -243,10 +230,8 @@ mkIdsTensor xs = ioRerun (\_ =>
                          (VArray (map SArray xs))
   in tinput1d {n=SeqLen} raw)
 
-
 typeVect : Vect SeqLen Double
 typeVect = replicate SeqLen 0.0
-
 
 -- Build a [SeqLen, Vocab] target one-hot at MASKED positions, zeros
 -- elsewhere. We multiply the standard one-hot by the per-position
@@ -274,7 +259,6 @@ mkMaskedTargetOneHot targetIds maskFlags = do
     packIdx b off (v :: rs) =
       packIdx (prim__setInt b off (cast {to=Int} (cast {to=Integer} v))) (off + 1) rs
 
-
 -- Per-position masked CE loss. Sum of cross-entropy contributions
 -- across positions, normalized by the number of masked positions
 -- (so the loss magnitude is comparable to a per-position mean).
@@ -292,7 +276,6 @@ bertMlmLoss logits maskedTarget numMasked = ioRerun (\_ =>
       denom    = if numMasked < 1.0 then 1.0 else numMasked
       loss     = primMulScalar {ex=ExampleExecutor} neg (1.0 / denom)
   in MkTensor loss Nothing)
-
 
 ----------------------------------------------------------------------
 -- Training loop
@@ -320,7 +303,6 @@ trainStep opt model (inputIds, targetIds, maskFlags) = do
   let numMasked = sum (toList maskFlags)
   loss    <- bertMlmLoss logits targetT numMasked
   nativeTrainStep opt loss
-
 
 ----------------------------------------------------------------------
 -- main

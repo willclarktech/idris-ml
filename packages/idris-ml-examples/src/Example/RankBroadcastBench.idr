@@ -33,7 +33,6 @@ import Tensor
 import Executor
 import BuildConfig
 
-
 -- Shapes mirror Llama-3.2-1B Q projection's RoPE input.
 seqLen : Nat
 seqLen = 6
@@ -50,7 +49,6 @@ defaultIters = 100
 defaultWarmup : Nat
 defaultWarmup = 10
 
-
 record Config where
   constructor MkConfig
   iters  : Nat
@@ -66,7 +64,6 @@ parseArgs cfg ("--iters" :: x :: rest) =
 parseArgs cfg ("--warmup" :: x :: rest) =
   parseArgs ({warmup := the Nat (cast (the Int (cast x)))} cfg) rest
 parseArgs cfg (_ :: rest) = parseArgs cfg rest
-
 
 -- Build a rank-3 fp32 tensor with one nonzero element. Uses
 -- `dtCreate` (rank-generic) since `dtCreateState*` only ships 1d/2d
@@ -86,7 +83,6 @@ buildTensor3d d0 d1 d2 =
   in dtCreate {ex=ExampleExecutor} {t=ExampleDType} buf' sh''' 3 0
        (deviceStreamTag {ex=ExampleExecutor})
 
-
 -- Force backend-side eval. mlx is lazy by default; torch-mps queues
 -- kernels but doesn't sync without a CPU-side read; tape is eager but
 -- the call costs nothing if data's already realised.
@@ -94,7 +90,6 @@ forceEval : AnyPtr -> IO ()
 forceEval h = do
   let v = primItem {ex=ExampleExecutor} (primSum {ex=ExampleExecutor} h)
   ignore (pure v)
-
 
 -- Tail-recursive chained-mul loop. Threading the previous result
 -- through as the next iteration's left operand prevents Idris-2's
@@ -106,13 +101,11 @@ loopMul : Nat -> AnyPtr -> AnyPtr -> IO AnyPtr
 loopMul Z accum _ = pure accum
 loopMul (S k) accum cos = loopMul k (primMul {ex=ExampleExecutor} accum cos) cos
 
-
 -- Microseconds between two monotonic clock readings.
 diffUs : Clock Monotonic -> Clock Monotonic -> Double
 diffUs t1 t0 =
   let totalNs = (seconds t1 - seconds t0) * 1000000000 + (nanoseconds t1 - nanoseconds t0)
   in cast totalNs / 1000.0
-
 
 -- Two-decimal fixed-point formatting (copied from MatmulBench).
 fmt2 : Double -> String
@@ -122,7 +115,6 @@ fmt2 x =
       frac   = abs (scaled `mod` 100)
       fracS  = if frac < 10 then "0" ++ show frac else show frac
   in show whole ++ "." ++ fracS
-
 
 main : IO ()
 main = do

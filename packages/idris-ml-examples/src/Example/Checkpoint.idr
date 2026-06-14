@@ -49,7 +49,6 @@ evalPredictionTarget : Vector 3 Double -> Nat
 evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
   if a >= b && a >= c then 0 else if b >= c then 1 else 2
 
-
 ----------------------------------------------------------------------
 -- Config
 ----------------------------------------------------------------------
@@ -83,7 +82,6 @@ optPath path =
       suffix = unpack ".safetensors"
       base = pack (take (length chars `minus` length suffix) chars)
   in base ++ ".optimizer.safetensors"
-
 
 ----------------------------------------------------------------------
 -- Eval helper
@@ -119,7 +117,6 @@ printPredictions model = do
     putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predClass
                 ++ (if targetClass == predClass then " ok" else " WRONG"))
     (toList dataPoints)
-
 
 ----------------------------------------------------------------------
 -- Modes
@@ -179,7 +176,6 @@ doInfer cfg model = do
   withNoGrad {ex=ExampleExecutor} (printPredictions model)
   putStrLn $ formatResult [("mode", "infer"), ("loss", show evalLoss),
                             ("backend", backendName {ex=ExampleExecutor})]
-
 
 ----------------------------------------------------------------------
 -- Main

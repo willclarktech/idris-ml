@@ -34,7 +34,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Configuration
 ----------------------------------------------------------------------
@@ -65,7 +64,6 @@ InputDim = SeqLen
 
 OutputDim : Nat
 OutputDim = SeqLen * VocabSize
-
 
 ----------------------------------------------------------------------
 -- Corpus & Tokenization
@@ -115,7 +113,6 @@ idxToChar i =
       go (_ :: rest) (S k) = go rest k
   in go chars n
 
-
 ----------------------------------------------------------------------
 -- Data generation
 ----------------------------------------------------------------------
@@ -156,7 +153,6 @@ gptBatchVect corpus corpusLen (S k) = do
   rest <- gptBatchVect corpus corpusLen k
   pure (dp :: rest)
 
-
 ----------------------------------------------------------------------
 -- Loss: Cross-entropy on all positions ( typed-surface)
 ----------------------------------------------------------------------
@@ -175,7 +171,6 @@ allPositionsCELoss predV targetV = ioRerun (\_ =>
       totalSum = primSum {ex=ExampleExecutor} product
       loss = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
-
 
 ----------------------------------------------------------------------
 -- Autoregressive Generation (single-sample forward)
@@ -231,7 +226,6 @@ generateText model seed genLen temperature = do
           ctx' = drop 1 ctx ++ [bestIdx]
       go m ctx' k (ch :: acc)
 
-
 ----------------------------------------------------------------------
 -- Evaluation: bits-per-character on a held-out corpus slice
 ----------------------------------------------------------------------
@@ -264,7 +258,6 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
       bpc <- singleBPC pos
       go k (acc + bpc / cast {to=Double} (natToInteger nSamples))
 
-
 ----------------------------------------------------------------------
 -- Corpus loading + train/val split
 ----------------------------------------------------------------------
@@ -294,7 +287,6 @@ trainValSplit valFrac idx =
       nTrain = minus n nVal
   in (Data.List.take nTrain idx, drop nTrain idx)
 
-
 ----------------------------------------------------------------------
 -- LR-schedule helper: update all registered params each epoch.
 ----------------------------------------------------------------------
@@ -312,7 +304,6 @@ setLRAll opt lr = do
           nm <- getParamName {ex=ExampleExecutor} i
           setParamLR opt nm lr
           go (i + 1) n
-
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -344,7 +335,6 @@ specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
         , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
         , Arg "--resume" (\v, c => { checkpointDir := v } c)
         , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
-
 
 partial
 main : IO ()

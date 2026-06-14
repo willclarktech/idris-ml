@@ -40,7 +40,6 @@ import BuildConfig
 
 %default partial
 
-
 ----------------------------------------------------------------------
 -- Timing + formatting helpers (copied from MatmulBench; intentional
 -- example-level duplication per feedback_example_duplication.md)
@@ -79,7 +78,6 @@ buildDummyVector n =
       buf  = prim__allocDoubles nI
       buf' = prim__setDouble buf 0 0.1
   in dtCreateState1d {ex=ExampleExecutor} {t=ExampleDType} nI buf' (deviceStreamTag {ex=ExampleExecutor})
-
 
 ----------------------------------------------------------------------
 -- Linear (batch=32, in=512, out=512)
@@ -133,7 +131,6 @@ benchLinear = do
   let ms = elapsedMs t0 t1
   putStrLn $ "linear bs=32 i=512 o=512:\t" ++ fmt3 ms ++ " ms\t("
           ++ show LinearIters ++ " iters)"
-
 
 ----------------------------------------------------------------------
 -- LstmCell (hidden=256, unbatched)
@@ -192,7 +189,6 @@ benchLstmCell = do
   let ms = elapsedMs t0 t1
   putStrLn $ "lstm_cell hidden=" ++ show LstmO ++ ":\t" ++ fmt3 ms ++ " ms\t("
           ++ show LstmIters ++ " iters)"
-
 
 ----------------------------------------------------------------------
 -- Conv2dBlock (batch=8, c_in=3, h=w=16, c_out=16, k=3)
@@ -276,7 +272,6 @@ benchConv2dBlock = do
           ++ " k=" ++ show ConvKH ++ "x" ++ show ConvKW
           ++ ":\t" ++ fmt3 ms ++ " ms\t(" ++ show ConvIters ++ " iters)"
 
-
 ----------------------------------------------------------------------
 -- Ntm (head + controller, tiny dims, two-phase copy task)
 --
@@ -338,7 +333,6 @@ benchNtmHead = do
   putStrLn $ "ntm n=" ++ show NtmN ++ " m=" ++ show NtmM
           ++ " h=" ++ show NtmH ++ " batch=" ++ show NtmBatch
           ++ ":\t" ++ fmt3 ms ++ " ms\t(" ++ show NtmIters ++ " iters)"
-
 
 ----------------------------------------------------------------------
 -- TransformerBlock (small: batch=2, seq=16, dModel=64, heads=4, vocab=32)
@@ -412,7 +406,6 @@ benchTransformerBlock = do
           ++ " d=" ++ show TxDModel
           ++ " heads=" ++ show TxHeads
           ++ ":\t" ++ fmt3 ms ++ " ms\t(" ++ show TxIters ++ " iters)"
-
 
 ----------------------------------------------------------------------
 -- Main

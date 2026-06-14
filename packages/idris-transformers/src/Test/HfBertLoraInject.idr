@@ -21,7 +21,6 @@ import Test.Config
 import Tensor
 import Array
 
-
 ----------------------------------------------------------------------
 -- Helpers (mirror Test.HfBertAttentionMask)
 ----------------------------------------------------------------------
@@ -51,7 +50,6 @@ maxAbsDiff actual expected = go actual expected 0.0
     go (a :: as) (b :: bs) m =
       let d = abs (a - b)
       in go as bs (if d > m then d else m)
-
 
 -- ---------------------------------------------------------------
 -- Shared tiny BERT (hidden=8, layers=1, heads=2)
@@ -94,7 +92,6 @@ runForwardWith model lora = do
                                model lora inputIds posIds typeIds Nothing
   readOut {n=8} out.tensorPtr
 
-
 ----------------------------------------------------------------------
 -- Assertion 1: t=0 LoRA (B=0 init) bit-matches the no-adapter path.
 ----------------------------------------------------------------------
@@ -122,7 +119,6 @@ testInjectBitMatchAtInit = do
       putStrLn ("    nothing: " ++ show (take 3 outNothing) ++ "...")
       putStrLn ("    with:    " ++ show (take 3 outWith)    ++ "...")
       pure False
-
 
 ----------------------------------------------------------------------
 -- Assertion 2: nonzero-B LoRA measurably changes the forward.
@@ -172,7 +168,6 @@ testInjectNonzeroDelta = do
       putStrLn ("    nothing: " ++ show (take 3 outNothing) ++ "...")
       putStrLn ("    with:    " ++ show (take 3 outWith)    ++ "...")
       pure False
-
 
 export
 suite : List (String, List (IO Bool))

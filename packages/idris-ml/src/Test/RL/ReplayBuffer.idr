@@ -7,11 +7,9 @@ import Test.Harness
 import Compat.Random
 import RL.ReplayBuffer
 
-
 sampleTransition : Double -> Transition 2 1
 sampleTransition k =
   MkTransition [k, k + 1.0] [k * 0.1] k [k + 10.0, k + 11.0] False
-
 
 export
 tests : List (IO Bool)

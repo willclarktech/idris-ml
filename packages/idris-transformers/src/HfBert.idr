@@ -26,7 +26,6 @@ import Init
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Config
 ----------------------------------------------------------------------
@@ -59,7 +58,6 @@ bertTinyConfig = MkBertConfig
   , maxPosition   = 512
   , typeVocabSize = 2
   }
-
 
 ----------------------------------------------------------------------
 -- Param-name catalogue (pure Idris — single source of truth)
@@ -160,7 +158,6 @@ bertForMaskedLmParamNames : (cfg : BertConfig)
 bertForMaskedLmParamNames cfg bertPfx clsPfx =
   bertParamNames cfg bertPfx ++ mlmHeadParamNames clsPfx
 
-
 ----------------------------------------------------------------------
 -- Param registration helpers (HF-native suffixes)
 ----------------------------------------------------------------------
@@ -194,7 +191,6 @@ fillConst buf _ 0 _ = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
-
 -- HF-named Linear: registers `<pfx>.weight` and `<pfx>.bias`. The
 -- record holds the typed handles for use at forward time. The pfx
 -- is the *Linear*'s prefix (e.g. `bert.encoder.layer.0.attention.self.query`),
@@ -219,7 +215,6 @@ makeBertLinear pfx = do
   b <- tparam1dConst  {n=o}   (pfx ++ ".bias")   0.0
   pure (MkBertLinear w b)
 
-
 -- HF-named Embedding: registers `<pfx>.weight` (`[vocab, dim]`).
 public export
 record BertEmbedding (vocab, dim : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
@@ -235,7 +230,6 @@ makeBertEmbedding pfx = do
   -- for the bottleneck this replaces.
   w <- tparam2dNormal {o=vocab} {i=dim} (pfx ++ ".weight") 0.0 0.02
   pure (MkBertEmbedding w)
-
 
 -- HF-named LayerNorm: registers `<pfx>.weight` (γ, init 1.0) and
 -- `<pfx>.bias` (β, init 0.0). HF capitalises `LayerNorm` in the path
@@ -257,7 +251,6 @@ makeBertLN pfx = do
   g <- tparam1dConst {n} (pfx ++ ".weight") 1.0
   b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
   pure (MkBertLN g b)
-
 
 ----------------------------------------------------------------------
 -- BERT state records
@@ -327,7 +320,6 @@ record BertModelState
   embeddings : BertEmbeddingsState vocab hidden maxPos typeVocab ex dt g
   layers     : Vect numLayers (BertLayerState hidden intermediate ex dt g)
   pooler     : BertPoolerState hidden ex dt g
-
 
 ----------------------------------------------------------------------
 -- Constructors
@@ -430,7 +422,6 @@ makePooler pfx = do
   dn <- makeBertLinear {i=hidden} {o=hidden} (poolerPrefix pfx ++ ".dense")
   pure (MkBertPooler dn)
 
-
 ||| Build a fresh BERT model with HF-native param names registered
 ||| under the C-side param registry. Params are initialised to
 ||| reasonable defaults (Normal(0, 0.02) weights, zero biases,
@@ -452,7 +443,6 @@ hfBertModel pfx = do
   pool   <- makePooler     {hidden} pfx
   pure (MkBertModel emb layers pool)
 
-
 ----------------------------------------------------------------------
 -- Forward pass
 ----------------------------------------------------------------------
@@ -471,7 +461,6 @@ hfBertModel pfx = do
 -- primSoftmax2d / primNarrow / primConcat2dAxis1) for the per-head
 -- loop — same pattern as Layer/Transformer.idr's runHeadAttn. The
 -- typed surface re-emerges at the BertLayer boundary.
-
 
 -- ε for LayerNorm. HF BERT defaults to 1e-12.
 bertLnEps : Double
@@ -509,7 +498,6 @@ applyBertLinear2d : {0 ex : Executor} -> UserExecutorTraining ex
                  -> Tensor [seqLen, i] ex dt g
                  -> IO (Tensor [seqLen, o] ex dt g)
 applyBertLinear2d (MkBertLinear w b) x = tlinear2d w x b
-
 
 -- Per-head attention math. Returns AnyPtr to a [seqLen, headDim]
 -- block; the caller's job is to either concat it with siblings or
@@ -701,7 +689,6 @@ hfBertForward (MkBertModel emb layers pool) inputIds positionIds tokenTypeIds ma
   hEnc <- applyEncoder {numHeads} {headDim} layers (map (\m => m.tensorPtr) mask) hEmb
   applyPooler pool hEnc
 
-
 ----------------------------------------------------------------------
 -- MLM head (BertForMaskedLM)
 ----------------------------------------------------------------------
@@ -746,7 +733,6 @@ makeMlmHead clsPfx = do
   bias <- tparam1dConst {n=vocab} (p ++ ".bias") 0.0
   pure (MkBertMlmHead td tn bias)
 
-
 public export
 record BertForMaskedLmState
         (vocab, hidden, numLayers, intermediate, maxPos, typeVocab : Nat)
@@ -777,7 +763,6 @@ hfBertForMaskedLm pfx = do
                       {intermediate} {maxPos} {typeVocab} pfx
   mlm  <- makeMlmHead {vocab} {hidden} "cls"
   pure (MkBertForMaskedLm base mlm)
-
 
 -- Apply the MLM head to encoder output [seq, hidden] producing logits
 -- [seq, vocab]. The tied decoder is reconstituted as a BertLinearWb

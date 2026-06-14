@@ -20,7 +20,6 @@
 ||| (`tensor_add_tape` / `tensor_add_torch` / `tensor_add_mlx`).
 module Executor.Core
 
-
 ----------------------------------------------------------------------
 -- `Executor` kind alias
 --
@@ -40,7 +39,6 @@ module Executor.Core
 public export
 0 Executor : Type
 Executor = Type
-
 
 ----------------------------------------------------------------------
 -- Linked — backend-linkage capability
@@ -63,7 +61,6 @@ Executor = Type
 
 public export
 interface Linked (0 ex : Executor) where
-
 
 ----------------------------------------------------------------------
 -- HardwareClass — physical-silicon classification (orthogonal to backend)
@@ -94,7 +91,6 @@ Show HardwareClass where
   show AppleGpu   = "apple-gpu"
   show (Nvidia n) = "nvidia:" ++ show n
   show (Other s)  = s
-
 
 ----------------------------------------------------------------------
 -- UserExecutorCore — lifecycle + arithmetic slice
@@ -148,7 +144,6 @@ interface UserExecutorCore (0 ex : Executor) where
   primClamp     : AnyPtr -> Double -> Double -> AnyPtr
   primRound     : AnyPtr -> AnyPtr
 
-
 ----------------------------------------------------------------------
 -- UserExecutorStreamed — per-device stream-selection tag
 ----------------------------------------------------------------------
@@ -172,7 +167,6 @@ interface UserExecutorCore (0 ex : Executor) where
 public export
 interface UserExecutorCore ex => UserExecutorStreamed (0 ex : Executor) where
   deviceStreamTag : Int
-
 
 ----------------------------------------------------------------------
 -- UserExecutorLinear — matmul + reductions + reshape + indexing slice
@@ -249,7 +243,6 @@ interface UserExecutorCore ex => UserExecutorLinear (0 ex : Executor) where
   primArgsort     : AnyPtr -> Int -> Int -> AnyPtr
   primCumprod    : AnyPtr -> Int -> AnyPtr
 
-
 ----------------------------------------------------------------------
 -- UserExecutorNN — activations + softmax + norms + losses + recurrent
 -- cells + embedding + attention slice
@@ -315,8 +308,6 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   primPairFirst      : AnyPtr -> AnyPtr
   primPairSecond     : AnyPtr -> AnyPtr
 
-
-
 ----------------------------------------------------------------------
 -- UserExecutorConv — convolution + pooling slice
 ----------------------------------------------------------------------
@@ -336,7 +327,6 @@ interface UserExecutorNN ex => UserExecutorConv (0 ex : Executor) where
   primAvgPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
   primMaxPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
   primMaxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- UserExecutorOptimizations — opt-in fused-op slice
@@ -424,7 +414,6 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   primCreateParam2dConstStreamed  : Int -> Int -> Double -> Int -> Int -> AnyPtr
   primCreateParam3dConstStreamed  : Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
   primCreateParam4dConstStreamed  : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- Training surface: six cohesive sub-slices + an aggregate
@@ -716,7 +705,6 @@ interface (UserExecutorConv ex,
 -- `UserExecutorInference` aggregate moved to end of file (after
 -- `UserExecutorTransfer` + `UserExecutorQuant` are declared).
 
-
 ----------------------------------------------------------------------
 -- UserExecutorTransfer — cross-backend tensor transfer surface
 --
@@ -784,7 +772,6 @@ interface UserExecutorCore ex => UserExecutorTransfer (0 ex : Executor) where
   ||| preserves param-registry membership.
   primIntraMigrate : AnyPtr -> String -> AnyPtr
 
-
 ----------------------------------------------------------------------
 -- UserExecutorQuant — quantization slice (BitNet b1.58 → #411)
 ----------------------------------------------------------------------
@@ -827,7 +814,6 @@ interface UserExecutorCore ex => UserExecutorQuant (0 ex : Executor) where
   primTernaryQuantWithScale2d     : AnyPtr -> AnyPtr -> AnyPtr
   primCreateTernaryFromHfPacked2d : AnyPtr -> Int -> Int -> AnyPtr
   primBitlinearFwdHfQuant         : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> AnyPtr -> Double -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- UserExecutorInference — inference-only aggregate

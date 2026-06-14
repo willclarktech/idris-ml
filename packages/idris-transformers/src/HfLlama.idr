@@ -61,7 +61,6 @@ import Layer.RoPE
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Config
 ----------------------------------------------------------------------
@@ -81,7 +80,6 @@ record LlamaConfig where
   ropeBase     : Double       -- = rope_theta
   rmsNormEps   : Double
 
-
 ||| `unsloth/Llama-3.2-1B` config (same shapes as `meta-llama/Llama-3.2-1B`).
 public export
 llama32_1B_Config : LlamaConfig
@@ -98,7 +96,6 @@ llama32_1B_Config = MkLlamaConfig
   , rmsNormEps   = 1.0e-5
   }
 
-
 ||| Llama 3.2 NTK-aware RoPE scaling. Exposed here (instead of only
 ||| via `Layer.RoPE.llama3Scaling`) so the example / inference site
 ||| can import the per-arch scaling from the same module as the
@@ -106,7 +103,6 @@ llama32_1B_Config = MkLlamaConfig
 public export
 llama32_1B_RopeScaling : LlamaRopeScaling
 llama32_1B_RopeScaling = llama3Scaling
-
 
 ----------------------------------------------------------------------
 -- Param-name catalogue (pure Idris — single source of truth)
@@ -151,7 +147,6 @@ hfLlamaParamNames cfg pfx =
     ++ forBlocks cfg.numLayers (layerParamNames pfx)
     ++ [finalNormParamName pfx]
 
-
 ----------------------------------------------------------------------
 -- HF-named building blocks (private — Llama-specific layouts)
 ----------------------------------------------------------------------
@@ -166,7 +161,6 @@ fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
 fillConst buf _ 0 _ = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
-
 
 ||| Bias-free Linear with weight shape `[out, in]`. Matches Llama's
 ||| `nn.Linear(..., bias=False)` storage layout. Used for q_proj /
@@ -191,7 +185,6 @@ makeLlamaLinear paramFullName = do
   w <- tparam2dNormal {o} {i} paramFullName 0.0 0.02
   pure (MkLlamaLinear w)
 
-
 ||| HF-named RmsNorm: one weight tensor, no bias. The param name comes
 ||| from HF on-disk (`model.norm.weight`, `…input_layernorm.weight`,
 ||| `…post_attention_layernorm.weight`). The eps comes from the model
@@ -210,7 +203,6 @@ makeLlamaRmsNorm paramFullName = do
   -- + per-element FFI.
   w <- tparam1dConst {n} paramFullName 1.0
   pure (MkLlamaRmsNorm w)
-
 
 ||| Token embedding: `[vocab, hidden]`. Used for both the input
 ||| embedding lookup AND the (tied) LM head at forward time.
@@ -232,7 +224,6 @@ makeLlamaEmbedding paramFullName = do
   w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
   pure (MkLlamaEmbedding w)
 
-
 ----------------------------------------------------------------------
 -- State records (one per HF Llama subtree)
 ----------------------------------------------------------------------
@@ -251,7 +242,6 @@ record LlamaAttentionState
   vProj : LlamaLinearNoBias hidden kvOut ex dt g     -- [numKvHeads * headDim, hidden]
   oProj : LlamaLinearNoBias qOut hidden ex dt g      -- [hidden, numHeads * headDim]
 
-
 ||| SwiGLU MLP sublayer. All three projections are bias-free. Mirrors
 ||| Layer.SwiGLU's record shape but with HF-aligned names re-bound at
 ||| construction.
@@ -263,7 +253,6 @@ record LlamaMlpState
   gateProj : LlamaLinearNoBias hidden intermediate ex dt g
   upProj   : LlamaLinearNoBias hidden intermediate ex dt g
   downProj : LlamaLinearNoBias intermediate hidden ex dt g
-
 
 ||| One decoder block: pre-norm + attention + residual; pre-norm +
 ||| MLP + residual.
@@ -277,7 +266,6 @@ record LlamaBlockState
   postAttnNorm : LlamaRmsNorm hidden ex dt g
   mlp          : LlamaMlpState hidden intermediate ex dt g
 
-
 ||| Full Llama model state: token embedding + N decoder blocks +
 ||| final RmsNorm. LM head is tied to embed_tokens.weight; not stored
 ||| separately.
@@ -290,7 +278,6 @@ record LlamaModelState
   embedTokens : LlamaEmbedding vocab hidden ex dt g
   blocks      : Vect numLayers (LlamaBlockState hidden qOut kvOut intermediate ex dt g)
   finalNorm   : LlamaRmsNorm hidden ex dt g
-
 
 ----------------------------------------------------------------------
 -- Smart constructors
@@ -339,7 +326,6 @@ makeBlocks pfx (S k) offset = do
   bs <- makeBlocks pfx k (S offset)
   pure (b :: bs)
 
-
 ||| Construct a full Llama model. Param-prefix is typically `"model"`
 ||| so registered names exactly match HF on-disk
 ||| (`model.embed_tokens.weight`, `model.layers.0.…`, etc.).
@@ -358,7 +344,6 @@ hfLlamaModel pfx = do
   blocks <- makeBlocks {hidden} {qOut} {kvOut} {intermediate} pfx numLayers 0
   ln     <- makeLlamaRmsNorm {n=hidden} (pfx ++ ".norm.weight")
   pure (MkLlamaModel emb blocks ln)
-
 
 ----------------------------------------------------------------------
 -- Forward (composed from existing 2D primitives + Layer.RoPE)
@@ -380,7 +365,6 @@ applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCor
 applyRmsNorm2d eps (MkLlamaRmsNorm weight) input =
   applyRmsNorm2dRaw eps weight input
 
-
 ||| Bias-free Linear forward on `[seqLen, in] -> [seqLen, out]`.
 ||| Plain matmul `x @ W^T`. Used for q/k/v/o_proj and gate/up/down_proj.
 applyLinear2d : {0 ex : Executor} -> UserExecutorTraining ex =>
@@ -391,7 +375,6 @@ applyLinear2d (MkLlamaLinear w) x = ioRerun (\_ =>
   let wT  = primTranspose2d {ex} w.tensorPtr        -- [i, o]
       out = primMm {ex} x.tensorPtr wT              -- [seqLen, o]
   in MkTensor out Nothing)
-
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`. Same
 ||| pattern as HfBert.idr's applyEmbedLookup2d.
@@ -406,7 +389,6 @@ applyEmbedLookup {seqLen} {hidden} (MkLlamaEmbedding w) tokens = ioRerun (\_ =>
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
-
 -- Build the strict-upper-triangle causal mask (1.0 above diagonal,
 -- 0.0 elsewhere). Same routine as Layer/Transformer.idr / HfGpt2.
 writeCausalMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
@@ -415,7 +397,6 @@ writeCausalMask buf i j n =
   else if j >= n then writeCausalMask buf (i + 1) (i + 2) n
   else let buf' = prim__setDouble buf (i * n + j) 1.0
        in writeCausalMask buf' i (j + 1) n
-
 
 -- All-heads RoPE helper: reshape flat [seq, numH*headDim] projection
 -- to rank-3 [seq, numH, headDim], call `applyRopeAllHeads` (which
@@ -443,7 +424,6 @@ ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI off
                 (MkTensor (primReshape3d {ex} full sI nHI hdI) Nothing))
   rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables offset full3
   ioRerun (\_ => primReshape2d {ex} rot3.tensorPtr sI (nHI * hdI))
-
 
 ||| Full multi-head causal self-attention with GQA + RoPE.
 applyAttention : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
@@ -485,7 +465,6 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
   ctxT <- ioRerun (\_ => MkTensor ctxPtr Nothing)
   applyLinear2d attn.oProj ctxT
 
-
 ||| SwiGLU MLP on `[seq, hidden]`. Three bias-free linears plus a
 ||| fused `primSwiGlu2d` (silu(gate) * up) middle stage — collapses the
 ||| previous `tsilu` + `tmul` pair into one FFI call per block.
@@ -501,7 +480,6 @@ applyMlp mlp x = do
            let out = primSwiGlu2d {ex} g.tensorPtr u.tensorPtr
            in MkTensor out Nothing)        -- [seq, intermediate]
   applyLinear2d mlp.downProj mid
-
 
 ||| One Llama decoder block: pre-norm + attn + residual; pre-norm +
 ||| MLP + residual.
@@ -522,7 +500,6 @@ applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} eps blk tables x =
     (applyMlp blk.mlp)
     x
 
-
 applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
            => RuntimeDType dt => Linked ex => Compatible ex dt
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
@@ -536,7 +513,6 @@ applyBlocks _   []        _      x = pure x
 applyBlocks eps (b :: bs) tables x = do
   x' <- applyBlock {numHeads} {numKvHeads} {headDim} eps b tables x
   applyBlocks {numHeads} {numKvHeads} {headDim} eps bs tables x'
-
 
 ||| Forward pass: token IDs → final hidden state `[seq, hidden]`
 ||| post-`model.norm`. The LM head (tied to embed_tokens) is applied
@@ -556,7 +532,6 @@ hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
   hMid  <- applyBlocks {numHeads} {numKvHeads} {headDim} eps model.blocks tables emb
   applyRmsNorm2d eps model.finalNorm hMid
 
-
 ||| LM head: tied to `embed_tokens.weight`. Output `[seq, vocab]`
 ||| logits per position. Reuses the embedding tensor as the LM
 ||| projection weight (same pattern as HfBert's applyMlmHead).
@@ -573,7 +548,6 @@ hfLlamaForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorC
 hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
   hFinal <- hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens
   projectTiedLmHead model.embedTokens.weight hFinal
-
 
 ----------------------------------------------------------------------
 -- Cache-aware forward (incremental decode)
@@ -666,7 +640,6 @@ applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
       oOut <- applyLinear2d attn.oProj ctxT
       pure (cache', oOut)
 
-
 ||| One Llama decoder block with KV cache threading.
 applyBlockCached :
        {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
@@ -689,7 +662,6 @@ applyBlockCached {seq} {hidden} {numHeads} {numKvHeads} {headDim}
   out             <- tadd xMid mOut
   pure (cache', out)
 
-
 ||| Thread a Vect of per-layer KV caches through the decoder stack.
 applyBlocksCached :
        {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
@@ -706,7 +678,6 @@ applyBlocksCached eps (b :: bs) tables (c :: cs) x = do
   (c', x')        <- applyBlockCached {numHeads} {numKvHeads} {headDim} eps b tables c x
   (cs', xFinal)   <- applyBlocksCached {numHeads} {numKvHeads} {headDim} eps bs tables cs x'
   pure (c' :: cs', xFinal)
-
 
 ||| Cache-aware forward step. Empty caches + full prompt is the seed
 ||| call (equivalent to `hfLlamaForward`); subsequent calls take the
@@ -731,7 +702,6 @@ hfLlamaForwardStep {numHeads} {numKvHeads} {headDim} eps model tables caches tok
   hFinal           <- applyRmsNorm2d eps model.finalNorm hMid
   pure (caches', hFinal)
 
-
 ||| Cache-aware LM-head forward: returns updated caches + per-position
 ||| logits `[seq, vocab]`. Companion to `hfLlamaForwardLm`.
 public export
@@ -750,7 +720,6 @@ hfLlamaForwardLmStep {numHeads} {numKvHeads} {headDim} eps model tables caches t
                                           eps model tables caches tokens
   logits <- projectTiedLmHead model.embedTokens.weight hFinal
   pure (caches', logits)
-
 
 ||| Build a `Vect numLayers` of empty `KVCache`s for the given Llama
 ||| dimensions. Use this to seed the per-layer caches at the start of

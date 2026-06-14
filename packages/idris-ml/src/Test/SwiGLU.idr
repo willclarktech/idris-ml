@@ -9,7 +9,6 @@ import Array
 import Layer.SwiGLU
 import Test.Config
 
-
 -- Tolerance for the value-pinning test against the all-ones weight
 -- reference. The forward composes ~7 ops. On tape + torch the F64
 -- arithmetic is bit-stable so `1e-9` leaves headroom against the
@@ -20,7 +19,6 @@ import Test.Config
 -- well below the F32 cross-language gate's 4.96e-05 floor.
 tol : Double
 tol = if TestPrimaryBackend == "mlx" then 1.0e-6 else 1.0e-9
-
 
 -- Read a [n] tensor's raw pointer into a List Double.
 readVec : (n : Nat) -> AnyPtr -> IO (List Double)
@@ -33,7 +31,6 @@ readVec n p = go (cast {to=Int} n) 0 []
         else let v = primItem1d {ex=TestExecutor} p i
              in go end (i + 1) (v :: acc)
 
-
 maxAbsDiff : List Double -> List Double -> Double
 maxAbsDiff actual expected = go actual expected 0.0
   where
@@ -44,13 +41,11 @@ maxAbsDiff actual expected = go actual expected 0.0
       let d = abs (a - b)
       in go as bs (if d > m then d else m)
 
-
 mkInput : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkInput xs =
   let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
-
 
 -- Fill a buffer with 1.0 at every position. Top-level so the
 -- elaborator doesn't choke on it as a nested let-binding inside a do.
@@ -76,7 +71,6 @@ mkAllOnesSwiGLU pfx = do
   upW   <- mkOnesWeight {o=intermediate} {i=hidden}       (pfx ++ "_up_weight")
   downW <- mkOnesWeight {o=hidden}       {i=intermediate} (pfx ++ "_down_weight")
   pure (MkSwiGLU gateW upW downW)
-
 
 -- For weights all-ones, hidden=2, intermediate=3, input=[1,2]:
 --   gate = upW = [s, s, s] where s = 1 + 2 = 3
@@ -107,7 +101,6 @@ testForwardAllOnesAt12 = do
       putStrLn ("    expected: " ++ show expected)
       pure False
 
-
 testShapeAndFinite : IO Bool
 testShapeAndFinite = do
   sw <- swigluLayer {ex=TestExecutor} {dt=TestDType}
@@ -118,7 +111,6 @@ testShapeAndFinite = do
   vals <- readVec 4 out.tensorPtr
   let allFinite = all (\x => x == x && abs x < 1.0e100) vals
   check "SwiGLU h=4 i=11 with mixed-sign input produces 4 finite values" allFinite
-
 
 export
 tests : List (IO Bool)

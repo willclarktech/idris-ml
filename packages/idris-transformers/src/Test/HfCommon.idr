@@ -7,7 +7,6 @@ import Data.List
 
 import Test.Harness
 
-
 ||| Standard param-count assertion. Mirrors the per-adapter
 ||| `testParamCount` shape exactly — every adapter test had this same
 ||| 5-line block with only `label` and `expected` differing.

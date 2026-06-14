@@ -6,7 +6,6 @@ import Gym.Env
 import Gym.Rng
 import Gym.ToyText.Blackjack
 
-
 rewardOf : (Double, BJState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r
 
@@ -15,7 +14,6 @@ stateOf (_, s, _, _) = s
 
 outcomeOf : (Double, BJState, Outcome, Info) -> Outcome
 outcomeOf (_, _, o, _) = o
-
 
 export
 tests : List (IO Bool)

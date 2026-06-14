@@ -11,7 +11,6 @@ import BackendLib
 import Hardware
 import Preset
 
-
 ----------------------------------------------------------------------
 -- Per-symbol bindings to the mlx backend's suffixed C exports
 ----------------------------------------------------------------------
@@ -87,7 +86,6 @@ prim__clampMlxStreamed : AnyPtr -> Double -> Double -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_round_mlx_streamed\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__roundMlxStreamed : AnyPtr -> Int -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- MlxStream + MlxExecutor parameterized family
@@ -292,7 +290,6 @@ prim__argsortMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_cumprod_mlx_streamed\" (void* int int) void*) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__cumprodMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
 
-
 public export
 {s : MlxStream} -> UserExecutorLinear (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -332,7 +329,6 @@ public export
   primView1d a0 a1 = prim__view1dMlxStreamed a0 a1 (streamTag s)
   primView2d a0 a1 a2 = prim__view2dMlxStreamed a0 a1 a2 (streamTag s)
   -- <<< END GENERATED <<<
-
 
 ----------------------------------------------------------------------
 -- NN-slice FFI bindings (mlx-suffixed)
@@ -385,7 +381,6 @@ prim__pairFirstMlxStreamed : AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_pair_second_mlx_streamed\" (void* int) void*) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__pairSecondMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-
 -- Fused inference ops (used by `UserExecutorNN` below; FFI decls
 -- moved up from the legacy `Training` slice region so they
 -- precede their first use in the NN instance.)
@@ -423,7 +418,6 @@ public export
   primSoftplus a0 = prim__softplusMlxStreamed a0 (streamTag s)
   -- <<< END GENERATED <<<
 
-
 ----------------------------------------------------------------------
 -- Conv-slice FFI bindings (mlx-suffixed)
 ----------------------------------------------------------------------
@@ -446,7 +440,6 @@ prim__avgPool2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
 prim__maxPool2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (let ((raw_r ((foreign-procedure \"tensor_max_pool2d_batched_mlx_streamed\" (void* int int int int int) void*) (vector-ref a0 2) a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__maxPool2dBatchedMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
-
 
 public export
 {s : MlxStream} -> UserExecutorConv (MlxExecutor s) where
@@ -556,9 +549,6 @@ prim__perfResetMlx : PrimIO ()
 %foreign "C:tensor_perf_op_count_mlx,libidrisml"
 prim__perfOpCountMlx : PrimIO Int
 
-
-
-
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-streamed-mlx (foreign-procedure \"tensor_create_scalar_streamed_mlx\" (double int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-streamed-mlx) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 prim__createScalarStreamedMlx : Double -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-streamed-mlx (foreign-procedure \"tensor_create_streamed_mlx\" (void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-streamed-mlx) a0 a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
@@ -605,7 +595,6 @@ prim__createParam4dConstStreamedMlx : Int -> Int -> Int -> Int -> Double -> Int 
 %foreign "C:tensor_set_init_seed_streamed_mlx,libidrisml"
 prim__setInitSeedStreamedMlx : Bits64 -> Int -> PrimIO ()
 
-
 public export
 {s : MlxStream} -> UserExecutorOptimizations (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
@@ -624,7 +613,6 @@ public export
   primSwiGlu2d = prim__swiGlu2dMlx
   primTile2d a0 a1 a2 = prim__tile2dMlxStreamed a0 a1 a2 (streamTag s)
   -- <<< END GENERATED <<<
-
 
 public export
 {s : MlxStream} -> UserExecutorAutograd (MlxExecutor s) where
@@ -813,7 +801,6 @@ Compatible (MlxExecutor MCpu) Binary where
 public export
 Compatible (MlxExecutor MGpu) Binary where
 
-
 ----------------------------------------------------------------------
 -- UserExecutorTransfer instance (cross-backend transfer surface)
 --
@@ -875,7 +862,6 @@ public export
   -- Hand-written overrides:
   primCreateFromHost = prim__createFromHostMlx (streamTag s)
 
-
 ----------------------------------------------------------------------
 -- UserExecutorQuant instance (#411 BitNet b1.58)
 ----------------------------------------------------------------------
@@ -924,7 +910,6 @@ public export
   primCreateTernaryFromHfPacked2d bytes o i =
     prim__createTernaryFromHfPacked2dMlxStreamed bytes o i (streamTag s)
 
-
 ----------------------------------------------------------------------
 -- HardwareClass: mlx CPU stream is host CPU, GPU stream is Apple GPU.
 ----------------------------------------------------------------------
@@ -935,7 +920,6 @@ public export
     MCpu => HostCpu
     MGpu => AppleGpu
 
-
 ----------------------------------------------------------------------
 -- Hardware (type-level): map each mlx stream to its kind tag.
 ----------------------------------------------------------------------
@@ -943,14 +927,12 @@ public export
 public export RunsOn (MlxExecutor MCpu) Cpu      where
 public export RunsOn (MlxExecutor MGpu) AppleGpu where
 
-
 ----------------------------------------------------------------------
 -- Backend (type-level): every mlx stream is provided by MlxBackend.
 ----------------------------------------------------------------------
 
 public export
 {s : MlxStream} -> RunsVia (MlxExecutor s) MlxBackend where
-
 
 ----------------------------------------------------------------------
 -- Preset: per-Hardware defaults for mlx.

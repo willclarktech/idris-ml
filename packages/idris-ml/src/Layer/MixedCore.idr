@@ -8,7 +8,6 @@ import Executor
 import Tensor
 import Layer.Core
 
-
 ----------------------------------------------------------------------
 -- LayerLikeMixed: layer interface with separate param/compute dtypes
 ----------------------------------------------------------------------
@@ -94,7 +93,6 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) ->
                        {i, o : Nat} ->
                        (1 _ : l i o ex pDt cDt NoGrad) -> IO (l i o ex pDt cDt WithGrad)
 
-
 ----------------------------------------------------------------------
 -- AsMixed: bridge AnyLayer → LayerLikeMixed (paramDt = computeDt)
 ----------------------------------------------------------------------
@@ -140,7 +138,6 @@ LayerLikeMixed AsMixed where
   unfreezeLayerMixed (MkAsMixed (MkAnyLayer l @{dict} layer)) = do
     layer' <- unfreezeLayer @{dict} layer
     pure (MkAsMixed (MkAnyLayer l @{dict} layer'))
-
 
 ----------------------------------------------------------------------
 -- AnyLayerMixed (existential wrapper)
@@ -195,7 +192,6 @@ unfreezeAnyLayerMixed : {0 ex : Executor} -> UserExecutorTraining ex =>
 unfreezeAnyLayerMixed (MkAnyLayerMixed l @{dict} layer) = do
   layer' <- unfreezeLayerMixed @{dict} layer
   pure (MkAnyLayerMixed l @{dict} layer')
-
 
 ----------------------------------------------------------------------
 -- NetworkMixed (chain)
@@ -281,7 +277,6 @@ forwardVarBatchMixed {hs = h :: _} (l ~~~> rest) input = do
   (l', mid) <- applyVarBatchAnyMixed l input
   (rest', out) <- forwardVarBatchMixed rest mid
   pure (l' ~~~> rest', out)
-
 
 ----------------------------------------------------------------------
 -- Lifts: AnyLayer / Network → AnyLayerMixed / NetworkMixed

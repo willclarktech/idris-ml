@@ -5,7 +5,6 @@ import Test.Harness
 import Gym.Env
 import Gym.ClassicControl.MountainCarCont
 
-
 rewardOf : (Double, MCCState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r
 
@@ -15,10 +14,8 @@ stateOf (_, s, _, _) = s
 outcomeOf : (Double, MCCState, Outcome, Info) -> Outcome
 outcomeOf (_, _, o, _) = o
 
-
 mccInit : MCCState
 mccInit = MkMCC (-0.5) 0.0
-
 
 export
 tests : List (IO Bool)

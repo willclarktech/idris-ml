@@ -3,7 +3,6 @@ module Test.RL.Gae
 import Test.Harness
 import RL.Gae
 
-
 -- Reference values computed by hand.
 -- Inputs: rewards=[1,1,1], values=[0.5,0.5,0.5], dones=[F,F,T], bootstrap=0,
 --         gamma=0.99, lambda=0.95.
@@ -17,7 +16,6 @@ import RL.Gae
 
 tol : Double
 tol = 1.0e-6
-
 
 export
 tests : List (IO Bool)

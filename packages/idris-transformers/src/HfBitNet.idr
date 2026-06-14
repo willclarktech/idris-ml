@@ -69,7 +69,6 @@ import Layer.RoPE
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Config
 ----------------------------------------------------------------------
@@ -91,7 +90,6 @@ record BitNetConfig where
   ropeBase     : Double       -- = rope_theta
   rmsNormEps   : Double
 
-
 ||| `microsoft/bitnet-b1.58-2B-4T` config.
 public export
 bitnet2B4T_Config : BitNetConfig
@@ -107,7 +105,6 @@ bitnet2B4T_Config = MkBitNetConfig
   , ropeBase     = 500000.0
   , rmsNormEps   = 1.0e-5
   }
-
 
 ----------------------------------------------------------------------
 -- Param-name catalogue (pure Idris — single source of truth)
@@ -168,7 +165,6 @@ hfBitnetParamNames cfg pfx =
     ++ forBlocks cfg.numLayers (layerParamNames pfx)
     ++ [finalNormParamName pfx]
 
-
 ----------------------------------------------------------------------
 -- HF-named building blocks (private — BitNet-specific layouts)
 ----------------------------------------------------------------------
@@ -179,7 +175,6 @@ fillBytesZero : AnyPtr -> Int -> Int -> AnyPtr
 fillBytesZero buf _ 0 = buf
 fillBytesZero buf off n =
   fillBytesZero (prim__setByte buf off 0) (off + 1) (n - 1)
-
 
 ||| BitLinear (HF-quant variant). Ternary weight `[out, in]` + scalar
 ||| `weight_scale` `[1]`. No bias — all BitNet linears are bias-free
@@ -198,7 +193,6 @@ record BitLinearHf (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode
   constructor MkBitLinearHf
   weightT      : Tensor [o, i] ex Ternary NoGrad
   weightScaleT : Tensor [1] ex dt NoGrad
-
 
 -- Build a synthetic placeholder BitLinear. Ternary weight is all-zero
 -- (zero-filled byte buffer); weight_scale is 1.0. These get overwritten
@@ -247,7 +241,6 @@ makeBitLinearHf weightName weightScaleName = do
   let _ = weightName  -- pinned in signature for the loader follow-up
   pure (MkBitLinearHf w scale)
 
-
 ||| HF-named RmsNorm. Same shape as Llama: one `[n]` weight, no bias,
 ||| eps from the model config (1e-5 for BitNet). Used for the four
 ||| RmsNorms per block (input_layernorm, post_attention_layernorm,
@@ -264,7 +257,6 @@ makeBitNetRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => C
 makeBitNetRmsNorm paramFullName = do
   w <- tparam1dConst {n} paramFullName 1.0
   pure (MkBitNetRmsNorm w)
-
 
 ||| Token embedding: `[vocab, hidden]`. Stored under
 ||| `model.embed_tokens.weight`. This SAME tensor is reused as the
@@ -283,11 +275,9 @@ makeBitNetEmbedding paramFullName = do
   w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
   pure (MkBitNetEmbedding w)
 
-
 -- LM head is tied to the token embedding (`tie_word_embeddings=True`).
 -- `hfBitnetForwardLm` reuses `model.embedTokens.weight` directly for
 -- the final projection — no separate `BitNetLmHead` record.
-
 
 ----------------------------------------------------------------------
 -- State records (one per HF BitNet subtree)
@@ -315,7 +305,6 @@ record BitNetAttentionState
   attnSubNorm : BitNetRmsNorm qOut ex dt g
   oProj       : BitLinearHf qOut hidden ex dt g
 
-
 ||| MLP sublayer state. Three BitLinears (gate/up/down) + the BitNet-
 ||| specific `ffn_sub_norm` RmsNorm (over the intermediate dim, applied
 ||| between `act(gate)*up` and `down_proj`).
@@ -333,7 +322,6 @@ record BitNetMlpState
   ffnSubNorm : BitNetRmsNorm intermediate ex dt g
   downProj   : BitLinearHf intermediate hidden ex dt g
 
-
 ||| One decoder block: pre-norm + attention (with attn_sub_norm) +
 ||| residual; pre-norm + MLP (with ffn_sub_norm) + residual.
 public export
@@ -345,7 +333,6 @@ record BitNetBlockState
   attn         : BitNetAttentionState hidden qOut kvOut ex dt g
   postAttnNorm : BitNetRmsNorm hidden ex dt g
   mlp          : BitNetMlpState hidden intermediate ex dt g
-
 
 ||| Full BitNet model state: token embedding + N decoder blocks +
 ||| final RmsNorm + separate LM head (NOT tied).
@@ -360,7 +347,6 @@ record BitNetModelState
   finalNorm   : BitNetRmsNorm hidden ex dt g
   -- No `lmHead` field — `tie_word_embeddings=True` means the embed
   -- weight is also the LM-head projection (see `hfBitnetForwardLm`).
-
 
 ----------------------------------------------------------------------
 -- Smart constructors
@@ -431,7 +417,6 @@ makeBlocks pfx (S k) offset = do
   bs <- makeBlocks pfx k (S offset)
   pure (b :: bs)
 
-
 ||| Construct a full BitNet model with named-param registration. The
 ||| param-prefix is typically `"model"` so registered names exactly
 ||| match HF on-disk (`model.embed_tokens.weight`, `model.layers.0.…`,
@@ -463,7 +448,6 @@ hfBitnetModel pfx = do
   ln     <- makeBitNetRmsNorm {n=hidden} (pfx ++ ".norm.weight")
   pure (MkBitNetModel emb blocks ln)
 
-
 ----------------------------------------------------------------------
 -- Forward (composed from existing 2D primitives + Layer.RoPE +
 -- tBitlinearFwdHfQuant for the BitLinears)
@@ -477,7 +461,6 @@ hfBitnetModel pfx = do
 public export
 bitnetRopeScaling : LlamaRopeScaling
 bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
-
 
 ||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Thin wrapper
 ||| around `HfCommon.applyRmsNorm2dRaw` that pattern-matches the
@@ -493,7 +476,6 @@ applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCor
                  IO (Tensor [seqLen, hidden] ex dt g)
 applyRmsNorm2d eps (MkBitNetRmsNorm weight) input =
   applyRmsNorm2dRaw eps weight input
-
 
 ||| 2D wrapper around the 1D `tBitlinearFwdHfQuant`. Walks `seqLen`
 ||| rows, calling the fused kernel per row, concatenating the [out]
@@ -580,7 +562,6 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
                        (bitlinearHfProcessRow {ex} wTPtr scaleVal biasPtr rmsPtr xPtr iI oI 0)
     in MkTensor out Nothing)
 
-
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`.
 ||| Same pattern as HfLlama's `applyEmbedLookup`.
 export
@@ -594,7 +575,6 @@ applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
       hI = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
-
 
 -- All-heads RoPE helper — same shape as HfLlama's `ropeAllHeadsFlat`.
 ropeAllHeadsFlat :
@@ -610,7 +590,6 @@ ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = d
                 (MkTensor (primReshape3d {ex} full sI nHI hdI) Nothing))
   rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables 0 full3
   ioRerun (\_ => primReshape2d {ex} rot3.tensorPtr sI (nHI * hdI))
-
 
 ||| Full multi-head causal self-attention with GQA + RoPE +
 ||| BitNet-specific `attn_sub_norm` between context aggregation and
@@ -648,7 +627,6 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
                               eps attn.attnSubNorm ctxT
   applyBitLinearHf2d {seqLen=seq} attn.oProj ctxNormed
 
-
 -- BitNet's hidden_act is `relu2` — squared ReLU (`relu(x) ** 2`).
 -- Composes from existing primitives. Element-wise.
 applyRelu2 : {0 ex : Executor} -> UserExecutorCore ex =>
@@ -658,7 +636,6 @@ applyRelu2 : {0 ex : Executor} -> UserExecutorCore ex =>
 applyRelu2 x = do
   r <- trelu x
   tmul r r
-
 
 ||| MLP sublayer: gate/up BitLinears → relu² gate → ffn_sub_norm →
 ||| down BitLinear. Mirrors HF `BitNetMLP.forward`:
@@ -679,7 +656,6 @@ applyMlp {seqLen} {intermediate} eps mlp x = do
   normed <- applyRmsNorm2d {seqLen} {hidden=intermediate}
                            eps mlp.ffnSubNorm gated     -- [seq, intermediate]
   applyBitLinearHf2d {seqLen} mlp.downProj normed
-
 
 ||| One BitNet decoder block: pre-norm + attn (with attn_sub_norm) +
 ||| residual; pre-norm + MLP (with ffn_sub_norm) + residual.
@@ -702,7 +678,6 @@ applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} {intermediate}
     (applyMlp {seqLen=seq} {hidden} {intermediate} eps blk.mlp)
     x
 
-
 applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
            => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
@@ -715,7 +690,6 @@ applyBlocks _   []        _      x = pure x
 applyBlocks eps (b :: bs) tables x = do
   x' <- applyBlock {numHeads} {numKvHeads} {headDim} {intermediate} eps b tables x
   applyBlocks {numHeads} {numKvHeads} {headDim} {intermediate} eps bs tables x'
-
 
 ||| Forward pass: token IDs → final hidden state `[seq, hidden]`
 ||| post-`model.norm`. The LM head is a SEPARATE [vocab, hidden]
@@ -736,7 +710,6 @@ hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model table
                        eps model.blocks tables emb
   applyRmsNorm2d eps model.finalNorm hMid
 
-
 ||| LM head: tied to `embed_tokens.weight` ([vocab, hidden]).
 ||| Output `[seq, vocab]` logits per position. Bias-free, so we feed
 ||| a zero placeholder bias the same way HfLlama does.
@@ -756,7 +729,6 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
   -- weight IS the LM-head projection. No separate `lm_head.weight`
   -- exists in the safetensors file for `microsoft/bitnet-b1.58-2B-4T`.
   projectTiedLmHead model.embedTokens.weight hFinal
-
 
 ----------------------------------------------------------------------
 -- Checkpoint load (B4.6 — HF-format ternary + float roundtrip)
@@ -805,7 +777,6 @@ loadHfTernaryWeight path key = do
       w <- tCreateTernaryFromHfPacked2d {ex} {o} {i} buf
       pure (Just w)
 
-
 loadBitLinearTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                     => {i, o : Nat}
                     -> (path : String) -> (key : String)
@@ -816,7 +787,6 @@ loadBitLinearTernary path key bl = do
   case mw of
     Nothing => pure (bl, False)
     Just w  => pure (MkBitLinearHf w bl.weightScaleT, True)
-
 
 loadAttentionTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                     => {hidden, qOut, kvOut : Nat}
@@ -832,7 +802,6 @@ loadAttentionTernary path lp (MkBitNetAttention q k v sn o) = do
          + (if okV then 1 else 0) + (if okO then 1 else 0)
   pure (MkBitNetAttention q' k' v' sn o', ok)
 
-
 loadMlpTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
               => {hidden, intermediate : Nat}
               -> (path : String) -> (layerPfx : String)
@@ -845,7 +814,6 @@ loadMlpTernary path lp (MkBitNetMlp g u fn dn) = do
   let ok = (if okG then 1 else 0) + (if okU then 1 else 0) + (if okD then 1 else 0)
   pure (MkBitNetMlp g' u' fn dn', ok)
 
-
 loadBlockTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                 => {hidden, qOut, kvOut, intermediate : Nat}
                 -> (path : String) -> (modelPfx : String) -> (idx : Nat)
@@ -856,7 +824,6 @@ loadBlockTernary path pfx idx (MkBitNetBlock ln1 at ln2 mp) = do
   (at', nA) <- loadAttentionTernary {hidden} {qOut} {kvOut} path lp at
   (mp', nM) <- loadMlpTernary {hidden} {intermediate} path lp mp
   pure (MkBitNetBlock ln1 at' ln2 mp', nA + nM)
-
 
 loadBlocksTernary : {0 ex : Executor} -> UserExecutorQuant ex => Linked ex
                  => {hidden, qOut, kvOut, intermediate : Nat}
@@ -869,7 +836,6 @@ loadBlocksTernary path pfx offset (b :: bs) = do
   (b',  nB)  <- loadBlockTernary {hidden} {qOut} {kvOut} {intermediate} path pfx offset b
   (bs', nBs) <- loadBlocksTernary {hidden} {qOut} {kvOut} {intermediate} path pfx (S offset) bs
   pure (b' :: bs', nB + nBs)
-
 
 ||| Load a microsoft/bitnet-b1.58-2B-4T checkpoint into a model state.
 |||

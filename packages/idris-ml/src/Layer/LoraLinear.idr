@@ -6,7 +6,6 @@ import Executor
 import Layer.Linear
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- LoraLinear — Low-rank adaptation wrapper (Hu et al. 2021)
 ----------------------------------------------------------------------
@@ -55,7 +54,6 @@ record LoraLinearState (i : Nat) (o : Nat)
   loraB      : Tensor [o, rank] ex dt g
   alpha      : Double
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -80,7 +78,6 @@ applyLoraLinear (MkLoraLinear {rank} base loraA loraB alpha) input = do
   bOut    <- tmv loraB aOut
   scaled  <- tmulScalar bOut (alpha / cast rank)
   tadd baseOut scaled
-
 
 ----------------------------------------------------------------------
 -- Constructor
@@ -119,7 +116,6 @@ mkLoraLinear pfx rank alpha base = do
   b <- tparam2dConst  {ex} {dt} {o=o} {i=rank}
                       (pfx ++ ".lora_B") 0.0
   pure (MkLoraLinear {rank} base a b alpha)
-
 
 ----------------------------------------------------------------------
 -- Param-name helpers

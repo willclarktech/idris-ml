@@ -7,7 +7,6 @@ import Executor
 import Tensor
 import Test.Config
 
-
 -- The positive probe for the `Backend ex dt` bundle: a helper generic
 -- in (ex, dt) and constrained ONLY by the bundle. Its body needs, via
 -- superclass projection: UserExecutorTraining + RuntimeDType + Linked +
@@ -36,7 +35,6 @@ bundleArithmetic : IO Bool
 bundleArithmetic = do
   r <- fiveTimesSum {ex=TestExecutor} {dt=TestDType} 2.0 3.0
   check "Backend bundle: (2 + 3) * 5 via bundle-only helper" (r == 25.0)
-
 
 export
 tests : List (IO Bool)

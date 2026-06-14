@@ -1,6 +1,5 @@
 module Schedule
 
-
 ----------------------------------------------------------------------
 -- Schedule Type
 ----------------------------------------------------------------------
@@ -10,7 +9,6 @@ public export
 Schedule : Type
 Schedule = Nat -> Double
 
-
 ----------------------------------------------------------------------
 -- Constant
 ----------------------------------------------------------------------
@@ -19,7 +17,6 @@ Schedule = Nat -> Double
 export
 constant : Double -> Schedule
 constant lr _ = lr
-
 
 ----------------------------------------------------------------------
 -- Cosine Annealing
@@ -34,7 +31,6 @@ cosineAnnealing lrMax lrMin totalEpochs epoch =
   else
     let t = cast epoch / cast totalEpochs
     in lrMin + 0.5 * (lrMax - lrMin) * (1.0 + cos (t * pi))
-
 
 ----------------------------------------------------------------------
 -- One-Cycle (fastai)
@@ -64,7 +60,6 @@ oneCycle lrMax div divFinal pctStart totalEpochs epoch =
              t = cast (epoch `minus` warmupEnd) / cast decayEpochs
          in lrFinal + 0.5 * (lrMax - lrFinal) * (1.0 + cos (t * pi))
 
-
 ----------------------------------------------------------------------
 -- Warmup wrapper
 ----------------------------------------------------------------------
@@ -80,7 +75,6 @@ withWarmup warmupEpochs startLR base epoch =
          in startLR + t * (targetLR - startLR)
     else base epoch
 
-
 ----------------------------------------------------------------------
 -- Cosine with warmup (standard transformer recipe)
 ----------------------------------------------------------------------
@@ -91,7 +85,6 @@ cosineWithWarmup : (lrMax : Double) -> (lrMin : Double)
                 -> (warmupEpochs : Nat) -> (totalEpochs : Nat) -> Schedule
 cosineWithWarmup lrMax lrMin warmupEpochs =
   withWarmup warmupEpochs lrMin . cosineAnnealing lrMax lrMin
-
 
 ----------------------------------------------------------------------
 -- Step LR
@@ -104,7 +97,6 @@ stepLR : (baseLR : Double) -> (stepSize : Nat) -> (gamma : Double) -> Schedule
 stepLR baseLR stepSize gamma epoch =
   let step = cast {to=Double} epoch / cast {to=Double} (max stepSize 1)
   in baseLR * pow gamma (cast {to=Double} (cast {to=Integer} step))
-
 
 ----------------------------------------------------------------------
 -- Exponential LR

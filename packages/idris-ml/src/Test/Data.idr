@@ -14,7 +14,6 @@ import Executor
 import Tensor
 import Test.Config
 
-
 -- Access a dataset at a raw Nat index via natToFin (no compile-time
 -- bound needed; the Fin is built at the dataset's runtime size).
 getAt : Dataset a -> a -> Nat -> IO a

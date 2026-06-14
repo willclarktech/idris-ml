@@ -15,7 +15,6 @@ import Train
 import Executor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Env dimensions
 ----------------------------------------------------------------------
@@ -23,7 +22,6 @@ import BuildConfig
 NumStates : Nat; NumStates = 48
 NumActions : Nat; NumActions = 4
 MaxSteps : Nat; MaxSteps = 100
-
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -49,7 +47,6 @@ qSet i j v (VArray rows) =
       newRow = VArray (Data.Vect.replaceAt j (SArray v) cells)
   in VArray (Data.Vect.replaceAt i newRow rows)
 
-
 ----------------------------------------------------------------------
 -- Nat -> Fin conversions
 ----------------------------------------------------------------------
@@ -58,7 +55,6 @@ toStateFin : Nat -> Fin NumStates
 toStateFin n = case natToFin n NumStates of
   Just f => f
   Nothing => FZ
-
 
 ----------------------------------------------------------------------
 -- Epsilon-greedy
@@ -73,7 +69,6 @@ epsGreedy eps qr u1 u2 =
               Just f => f
               Nothing => FZ
     else argmax qr
-
 
 ----------------------------------------------------------------------
 -- Episode rollout with SARSA updates
@@ -120,7 +115,6 @@ runEpisode alpha gamma eps st q steps (u1 :: u2 :: rest) =
       a0   = epsGreedy eps (qRowAt sIdx q) u1 u2
   in sarsaLoop alpha gamma eps st a0 q steps rest
 
-
 ----------------------------------------------------------------------
 -- Config & training
 ----------------------------------------------------------------------
@@ -156,7 +150,6 @@ genNoise (S k) = do
   rest <- genNoise k
   pure (u :: rest)
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation
 ----------------------------------------------------------------------
@@ -175,7 +168,6 @@ evalN : QTable -> Nat -> Double -> Double
 evalN _ Z acc = acc
 evalN q (S k) acc =
   evalN q k (acc + evalEpisode q (MkCW 3 0) MaxSteps 0.0)
-
 
 ----------------------------------------------------------------------
 -- Main

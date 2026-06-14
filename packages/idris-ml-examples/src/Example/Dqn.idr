@@ -24,7 +24,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Architecture: MLP 4 -> 64 -> 64 -> 2
 ----------------------------------------------------------------------
@@ -57,7 +56,6 @@ mkQNet scope = do
   ll3 <- linearLayerAny {i=Hidden} {o=NumActions} (scope ++ "ll3")
   pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
-
 ----------------------------------------------------------------------
 -- Observation helper
 ----------------------------------------------------------------------
@@ -67,7 +65,6 @@ observeVec s = cpObserve s
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
 obsTensor v = VArray (map SArray v)
-
 
 ----------------------------------------------------------------------
 -- Epsilon-greedy action selection (uses online net's current weights)
@@ -97,7 +94,6 @@ epsGreedyIO online obs eps = do
       pure (if u2 < 0.5 then 0 else 1)
     else greedyAction online obs
 
-
 -- Batched epsilon-greedy: given a [N, NumActions] Q-tensor and the
 -- current N envs, sample one action per env. Each env independently
 -- rolls eps-vs-greedy with its own randomRIO call (preserves the
@@ -120,7 +116,6 @@ epsGreedyBatched qB envs eps = go 0 envs
                pure (if q0 >= q1 then 0 else 1)
       as <- go (i + 1) rest
       pure (a :: as)
-
 
 ----------------------------------------------------------------------
 -- DQN loss (batched). Online Q is batched: one [B, ObsDim] forward
@@ -186,7 +181,6 @@ batchLossBatched n online target gamma batch = do
       ls <- go qOutB tRest tvRest (k + 1)
       pure (l :: ls)
 
-
 ----------------------------------------------------------------------
 -- DQN state threaded through training
 ----------------------------------------------------------------------
@@ -204,7 +198,6 @@ record DqnState where
   cfgSyncEvery : Nat
   cfgBatch    : Nat
   cfgGamma    : Double
-
 
 ----------------------------------------------------------------------
 -- Episode rollout with DQN updates
@@ -259,7 +252,6 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
           if isDone
             then pure (st', ret')
             else go st' envState' steps ret'
-
 
 ----------------------------------------------------------------------
 -- Batched episode rollout: NumEnvs parallel envs collect transitions
@@ -336,7 +328,6 @@ runEpisodeBatched opt st0 = do
               pure (st', ret')
             else go st' envs' steps ret'
 
-
 ----------------------------------------------------------------------
 -- Config & epoch
 ----------------------------------------------------------------------
@@ -372,7 +363,6 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation
 ----------------------------------------------------------------------
@@ -391,7 +381,6 @@ evalN _ Z acc = pure acc
 evalN q (S k) acc = do
   ep <- evalEp q (MkCP 0 0 0 0) MaxSteps 0.0
   evalN q k (acc + ep)
-
 
 ----------------------------------------------------------------------
 -- Main

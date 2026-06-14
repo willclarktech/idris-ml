@@ -20,7 +20,6 @@ import Test.Config
 import Tensor
 import Array
 
-
 -- Build a Tensor [n] from a Vect of doubles (mirrors Test.HfBert).
 -- `ioRerun` defers the C-side allocation per the pure-typed-FFI
 -- reorder gotcha (feedback_pure_typed_ffi_reorders.md).
@@ -29,7 +28,6 @@ mkIdsTensor xs = do
   raw <- ioRerun (\_ => bulkToTensor {ex=TestExecutor} {dt=TestDType}
                                      (VArray (map SArray xs)))
   pure (tinput1d {n} raw)
-
 
 -- Build a Tensor [m, n] from a flat Vect of doubles via tparam2d.
 -- The mask is treated as a constant (no-grad in practice — the bool
@@ -50,7 +48,6 @@ mkMask2d {m} {n} xs = do
       let b' = prim__setDouble b off v
       in fill b' (off + 1) rest
 
-
 -- Read [N] tensor values via primItem1d.
 readOut : {n : Nat} -> AnyPtr -> IO (List Double)
 readOut {n} p = loop (cast {to=Int} n) 0 []
@@ -62,7 +59,6 @@ readOut {n} p = loop (cast {to=Int} n) 0 []
         else let v = primItem1d {ex=TestExecutor} p i
              in loop end (i + 1) (v :: acc)
 
-
 maxAbsDiff : List Double -> List Double -> Double
 maxAbsDiff actual expected = go actual expected 0.0
   where
@@ -72,7 +68,6 @@ maxAbsDiff actual expected = go actual expected 0.0
     go (a :: as) (b :: bs) m =
       let d = abs (a - b)
       in go as bs (if d > m then d else m)
-
 
 -- Forward through a tiny BERT (caller-built model). Returns the
 -- [Hidden]-shape pooled output as a List Double. Both assertions
@@ -101,7 +96,6 @@ runForwardWith model mask = do
                        model inputIds posIds typeIds mask
   readOut {n=8} out.tensorPtr
 
-
 -- Build the shared tiny BERT model. One call per assertion (each
 -- builds a fresh paramPrefix, so the two assertions don't collide
 -- on the param registry).
@@ -117,7 +111,6 @@ buildModel pfx =
               {maxPos       = 4}
               {typeVocab    = 2}
               pfx
-
 
 ----------------------------------------------------------------------
 -- Assertion 1: zero-mask is bit-identical to Nothing
@@ -148,7 +141,6 @@ testZeroMaskMatchesNothing = do
       putStrLn ("    nothing: " ++ show (take 3 outNothing) ++ "...")
       putStrLn ("    zero:    " ++ show (take 3 outZero)    ++ "...")
       pure False
-
 
 ----------------------------------------------------------------------
 -- Assertion 2: ones-mask measurably changes the forward output
@@ -183,7 +175,6 @@ testOnesMaskDiffersFromNothing = do
       putStrLn ("    nothing: " ++ show (take 3 outNothing) ++ "...")
       putStrLn ("    ones:    " ++ show (take 3 outOnes)    ++ "...")
       pure False
-
 
 export
 suite : List (String, List (IO Bool))

@@ -10,7 +10,6 @@ import Schedule
 import Tensor
 import Test.Config
 
-
 -- Trajectory equivalence: the new `sgd` / `rmsprop` constructors wrap
 -- the SAME C prims as `nativeSgd` / `nativeRmsprop`, so driving the
 -- same scalar param through the same loss must produce bitwise-

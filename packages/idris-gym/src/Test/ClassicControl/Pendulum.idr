@@ -5,7 +5,6 @@ import Test.Harness
 import Gym.Env
 import Gym.ClassicControl.Pendulum
 
-
 rewardOf : (Double, PState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r
 
@@ -15,10 +14,8 @@ stateOf (_, s, _, _) = s
 outcomeOf : (Double, PState, Outcome, Info) -> Outcome
 outcomeOf (_, _, o, _) = o
 
-
 pInit : PState
 pInit = MkP 3.141592653589793 0.0
-
 
 export
 tests : List (IO Bool)

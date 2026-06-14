@@ -13,7 +13,6 @@ import DType.Core
 -- Note: `LTE` is re-exported by DType.Core via `import public Data.Nat`,
 -- so users of UpcastableTo don't need to import Data.Nat separately.
 
-
 -- 1. IsDType resolution: dtypeName / dtypeBytes are reachable for
 --    each family alias.
 
@@ -29,7 +28,6 @@ bf16Name = dtypeName {t = BF16}
 0 u8Name : String
 u8Name = dtypeName {t = U8}
 
-
 -- 2. Precision resolution: precisionRank exists for parameterized
 --    families, not just floats.
 
@@ -41,7 +39,6 @@ i16Rank = precisionRank {t = I16}
 
 0 bf16Rank : Nat
 bf16Rank = precisionRank {t = BF16}
-
 
 -- 3. UpcastableTo: derived upcasts auto-resolve.
 --    Float / BFloat pairs resolve via the LosslessTo → UpcastableTo
@@ -86,7 +83,6 @@ lte8_64 = %search
 
 0 lte16_32 : LTE 16 32
 lte16_32 = %search
-
 
 -- 4. Negative cases — these need the corresponding type signatures
 --    to fail to typecheck. They live in the design memo's "what

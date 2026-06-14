@@ -75,7 +75,6 @@ import Tensor
 import Tokenizer
 import Util
 
-
 ----------------------------------------------------------------------
 -- Llama 3.2 1B config, pinned at the type level
 ----------------------------------------------------------------------
@@ -131,7 +130,6 @@ modelDir = "models/" ++ ModelRepo
 hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"
 
-
 ----------------------------------------------------------------------
 -- Cache-aware greedy generation
 ----------------------------------------------------------------------
@@ -168,7 +166,6 @@ genStepCached model tables caches toksList = do
       lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
       nextN   <- argmaxRow VocabSize lastRow.tensorPtr
       pure (caches', natToFin nextN VocabSize)
-
 
 ||| Cache-aware greedy decode — the canonical (and only) generation
 ||| path. Seed step feeds the full prompt into empty caches; each
@@ -219,7 +216,6 @@ genLoopCached model tables prompt remaining =
           pure acc
         Just next => go caches' (acc ++ [next]) [next] k
 
-
 ----------------------------------------------------------------------
 -- --dump-final-hidden mode
 ----------------------------------------------------------------------
@@ -247,7 +243,6 @@ runDumpHidden model tables = do
   lastRow <- trowSelect out 0
   printRow (cast {to=Int} Hidden) 0 lastRow.tensorPtr
 
-
 ----------------------------------------------------------------------
 -- Default mode: greedy generation demo
 ----------------------------------------------------------------------
@@ -272,7 +267,6 @@ runGenerate tok model tables prompt numTokens = do
   Right text <- detokenize tok (fromList finalList)
     | Left err => putStrLn ("ERR: detokenize: " ++ show err)
   putStrLn ("Output:    " ++ text)
-
 
 ----------------------------------------------------------------------
 -- --dump-tokens mode (multi-step generation CI gate)
@@ -306,7 +300,6 @@ runDumpTokens tok model tables prompt numTokens = do
   let promptList = toList promptIds
   finalList <- genLoopCached model tables promptList numTokens
   traverse_ (putStrLn . show . finToNat) finalList
-
 
 ----------------------------------------------------------------------
 -- main

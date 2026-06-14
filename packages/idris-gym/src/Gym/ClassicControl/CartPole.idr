@@ -3,7 +3,6 @@ module Gym.ClassicControl.CartPole
 import Data.Vect
 import Gym.Env
 
-
 ----------------------------------------------------------------------
 -- CartPole-v1 (Gymnasium-compatible constants)
 ----------------------------------------------------------------------

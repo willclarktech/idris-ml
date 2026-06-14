@@ -16,7 +16,6 @@ import Train
 import Executor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Env dimensions
 --
@@ -30,7 +29,6 @@ import BuildConfig
 NumStates : Nat; NumStates = 400
 NumActions : Nat; NumActions = 2
 MaxSteps : Nat; MaxSteps = 10
-
 
 ----------------------------------------------------------------------
 -- Q-table + visit counts (both as Tensors)
@@ -50,7 +48,6 @@ zeroModel =
   (replicate {dims = [NumStates, NumActions]} 0.0,
    replicate {dims = [NumStates, NumActions]} 0.0)
 
-
 tGet : Fin NumStates -> Fin NumActions -> Array [NumStates, NumActions] Double -> Double
 tGet i j t =
   let SArray v = index j (index i t)
@@ -65,7 +62,6 @@ tSet i j v (VArray rows) =
   let (VArray cells) = Data.Vect.index i rows
       newRow = VArray (Data.Vect.replaceAt j (SArray v) cells)
   in VArray (Data.Vect.replaceAt i newRow rows)
-
 
 ----------------------------------------------------------------------
 -- State encoding
@@ -92,7 +88,6 @@ encodeBJ s =
            Just f => f
            Nothing => FZ
 
-
 ----------------------------------------------------------------------
 -- Epsilon-greedy
 ----------------------------------------------------------------------
@@ -106,7 +101,6 @@ epsGreedy eps qr u1 u2 =
               Just f => f
               Nothing => FZ
     else argmax qr
-
 
 ----------------------------------------------------------------------
 -- Episode rollout (trajectory only; rewards pooled at terminal)
@@ -130,7 +124,6 @@ playHand eps q st (S steps) (u1 :: u2 :: rest) acc =
               Continue => playHand eps q st' steps rest acc'
               _        => (reverse acc', reward)
 
-
 ----------------------------------------------------------------------
 -- First-visit MC update
 ----------------------------------------------------------------------
@@ -152,7 +145,6 @@ applyVisits ((s, a) :: rest) seen g (q, n) =
           newQ = oldQ + (g - oldQ) / newN
           q'   = tSet s a newQ q
       in applyVisits rest ((s, a) :: seen) g (q', n')
-
 
 ----------------------------------------------------------------------
 -- Config + epoch
@@ -185,7 +177,6 @@ epochMC cfg (q, n) (MkEI envSeed noise) =
       (q', n') = applyVisits traj [] reward (q, n)
   in ((q', n'), negate reward)
 
-
 ----------------------------------------------------------------------
 -- Input generation
 ----------------------------------------------------------------------
@@ -209,7 +200,6 @@ genInput = do
   noise <- genNoise (MaxSteps * 2)
   pure (MkEI s noise)
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation (plays against the env using argmax on Q)
 ----------------------------------------------------------------------
@@ -232,7 +222,6 @@ evalN q (S k) envSeed wins played = do
   let r = evalHand q (fst (initBJ s)) MaxSteps
       wins' = if r > 0.0 then wins + 1.0 else wins
   evalN q k envSeed wins' (played + 1.0)
-
 
 ----------------------------------------------------------------------
 -- Main

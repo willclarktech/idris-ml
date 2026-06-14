@@ -15,7 +15,6 @@ import Dataset
 import Executor
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- C FFI: seeded per-stream index array (Fisher-Yates over an embedded
 -- xoshiro256++ state). Each stream's shuffle order is reproducible from
@@ -33,7 +32,6 @@ prim__seededIndexArrayShuffle : AnyPtr -> PrimIO AnyPtr
 
 %foreign "C:seeded_index_array_get,libidrisml"
 prim__seededIndexArrayGet : AnyPtr -> Int -> PrimIO Int
-
 
 ----------------------------------------------------------------------
 -- DataStream
@@ -108,7 +106,6 @@ stream spec ds@(MkDataset sz _) = do
     NoShuffle => pure ()
   posRef <- newIORef (the Int 0)
   pure $ MkDataStream (pullSample spec ds arr sizeI posRef) (Just sz)
-
 
 ----------------------------------------------------------------------
 -- Batching / collation (C-side, no host readback)

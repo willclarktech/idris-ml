@@ -16,7 +16,6 @@ module IntOverflowToFloatRejected
 
 import DType.Core
 
-
 -- This proof should fail to typecheck:
 --   `LosslessTo (IntN 64) (Float 32)` requires `LTE 64 25`, which
 --   has no inhabitant. Auto-search refuses, compile error.

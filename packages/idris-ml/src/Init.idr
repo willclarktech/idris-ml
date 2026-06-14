@@ -5,7 +5,6 @@ import Data.Vect
 import public Sampler
 import Compat.Random
 
-
 ----------------------------------------------------------------------
 -- InitSpec (typed construction facade)
 ----------------------------------------------------------------------
@@ -34,7 +33,6 @@ Numel (n :: ns) = n * Numel ns
 public export
 fromRows : Vect b (Vect i Double) -> InitSpec (b * i)
 fromRows rows = FromVect (concat rows)
-
 
 ----------------------------------------------------------------------
 -- Init Strategies (method + distribution -> one weight sample)

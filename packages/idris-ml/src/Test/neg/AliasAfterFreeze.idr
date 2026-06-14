@@ -19,7 +19,6 @@ import Executor
 import Tensor
 import Layer
 
-
 -- A parameter-free Network (single tanh activation) so we don't need
 -- RNG to construct it.
 buildNet : Network 4 [] 4 TapeExecutor dt WithGrad

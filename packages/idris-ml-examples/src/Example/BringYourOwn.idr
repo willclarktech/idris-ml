@@ -19,7 +19,6 @@ import Executor
 import Executor.Core
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Step 1: declare your device tag type.
 --
@@ -30,7 +29,6 @@ import BuildConfig
 
 public export
 data BYO : Type where MkBYO : BYO
-
 
 ----------------------------------------------------------------------
 -- Step 2: bind the C symbols your backend exports.
@@ -105,7 +103,6 @@ prim__clampBYO : AnyPtr -> Double -> Double -> AnyPtr
 %foreign "C:byo_tensor_round,libbyo"
 prim__roundBYO : AnyPtr -> AnyPtr
 
-
 ----------------------------------------------------------------------
 -- Step 3: implement `UserExecutorCore` for your type.
 --
@@ -147,7 +144,6 @@ UserExecutorCore BYO where
 -- constructors too — not just the raw UserExecutorCore methods `fma` uses.
 public export
 Linked BYO where
-
 
 ----------------------------------------------------------------------
 -- Step 4: use it. Any function that's generic in `UserExecutorCore ex`

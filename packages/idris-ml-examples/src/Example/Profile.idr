@@ -18,7 +18,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Timing
 ----------------------------------------------------------------------
@@ -41,7 +40,6 @@ showMs d =
 
 fmtMs : Double -> String
 fmtMs d = padL 10 (showMs d)
-
 
 ----------------------------------------------------------------------
 -- NTM Copy Task Setup (matches NtmCopy.idr)
@@ -75,7 +73,6 @@ H = 100
 BatchSize : Nat
 BatchSize = 16
 
-
 ----------------------------------------------------------------------
 -- Profiled Epoch ( typed-surface, two-phase epoch runner)
 ----------------------------------------------------------------------
@@ -98,7 +95,6 @@ profileEpoch opt dataPoints model epochNum = do
 
   pure model'
 
-
 ----------------------------------------------------------------------
 -- Profile Loop
 ----------------------------------------------------------------------
@@ -115,7 +111,6 @@ profileLoop opt dataPoints model cur count =
     else do
       model' <- profileEpoch opt dataPoints model (cur + 1)
       profileLoop opt dataPoints model' (cur + 1) count
-
 
 ----------------------------------------------------------------------
 -- Main

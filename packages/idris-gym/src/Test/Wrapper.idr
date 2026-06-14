@@ -7,7 +7,6 @@ import Gym.Space
 import Gym.Wrapper
 import Gym.ClassicControl.CartPole
 
-
 -- Run the TimeLimited CartPole with action 1 until an outcome fires,
 -- returning (numSteps, finalOutcome).
 runTl : Nat -> TimeLimited CPState -> (Nat, Outcome)
@@ -19,11 +18,9 @@ runTl (S k) tl =
        Continue => let (n, o) = runTl k tl' in (S n, o)
        _ => (S Z, out)
 
-
 -- Explicit CPState zero state — avoids Env instance disambiguation.
 cpZero : CPState
 cpZero = MkCP 0 0 0 0
-
 
 export
 tests : List (IO Bool)

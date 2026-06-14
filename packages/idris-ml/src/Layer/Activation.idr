@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Activation — typed-surface activation layer (Path C)
 ----------------------------------------------------------------------
@@ -29,7 +28,6 @@ data ActivationKind
 public export
 data ActivationState : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkActivation : ActivationKind -> ActivationState n n ex dt g
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance
@@ -61,7 +59,6 @@ LayerLike ActivationState where
   -- Activation is stateless (no params); freeze/unfreeze just retypes.
   freezeLayer (MkActivation k) = pure (MkActivation k)
   unfreezeLayer (MkActivation k) = pure (MkActivation k)
-
 
 ----------------------------------------------------------------------
 -- Constructors

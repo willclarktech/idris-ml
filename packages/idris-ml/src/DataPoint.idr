@@ -4,7 +4,6 @@ import Data.Vect
 
 import Array
 
-
 public export
 record DataPoint i o ty where
   constructor MkDataPoint

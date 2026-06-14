@@ -41,7 +41,6 @@ import Tensor
 import Tokenizer
 import Util
 
-
 ----------------------------------------------------------------------
 -- Config (bert-tiny dims pinned at the type level)
 ----------------------------------------------------------------------
@@ -70,7 +69,6 @@ MaxPos = 512
 TypeVocab : Nat
 TypeVocab = 2
 
-
 modelDir : String
 modelDir =
   "models/google/bert_uncased_L-2_H-128_A-2"
@@ -91,7 +89,6 @@ arangeVect n = go n 0.0
 
 zerosVect : (n : Nat) -> Vect n Double
 zerosVect n = Vect.replicate n 0.0
-
 
 ----------------------------------------------------------------------
 -- Top-K over the vocab logits
@@ -116,7 +113,6 @@ readLogits vocab p = go (cast {to=Int} vocab) 0 []
 -- the obvious code and runs in tens of ms.
 topK : Nat -> List (Nat, Double) -> List (Nat, Double)
 topK k xs = take k (sortBy (\(_, a), (_, b) => compare b a) xs)
-
 
 ----------------------------------------------------------------------
 -- One fill-in-the-mask demo
@@ -194,7 +190,6 @@ runMaskDemo tok model sentence = do
           fracStr = if frac < 10 then "0" ++ show frac else show frac
       in tok ++ " (" ++ sign ++ show (abs whole) ++ "." ++ fracStr ++ ")"
 
-
 ----------------------------------------------------------------------
 -- --dump-pooled: legacy 128-float output for the CI comparator
 ----------------------------------------------------------------------
@@ -229,7 +224,6 @@ runPooledDump model = do
                        {typeVocab    = TypeVocab}
                        model.base inputIds posIds typeIds Nothing
   printPooled (cast {to=Int} Hidden) 0 out.tensorPtr
-
 
 ----------------------------------------------------------------------
 -- main (stageStamp lives in HfInferenceHelper)

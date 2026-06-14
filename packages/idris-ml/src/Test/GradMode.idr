@@ -8,7 +8,6 @@ import Tensor
 import Layer
 import Test.Config
 
-
 -- weakenGrad round-trip: build a tensor with requires_grad=1, flip
 -- it to 0 via weakenGrad, confirm the C-side flag agrees.
 --
@@ -40,7 +39,6 @@ freezeUnfreezeRoundTrip = do
   _ <- unfreezeNetwork frozen
   -- unfrozen : Network 4 [] 4 TestExecutor TestDType WithGrad — compile-checked
   check "freezeNetwork / unfreezeNetwork round-trip typechecks" True
-
 
 export
 tests : List (IO Bool)

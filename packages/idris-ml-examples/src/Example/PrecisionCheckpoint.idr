@@ -61,7 +61,6 @@ dataPoints =
     MkDataPoint (VArray [2.9, -1.4]) (VArray [1, 0, 0])
   ]
 
-
 ----------------------------------------------------------------------
 -- Config
 ----------------------------------------------------------------------
@@ -88,7 +87,6 @@ specs =
   , Arg "--seed"   (\v, c => { seed := castBits64 v } c)
   ]
 
-
 ----------------------------------------------------------------------
 -- Eval — mean NLL loss over the 5 data points.
 ----------------------------------------------------------------------
@@ -104,7 +102,6 @@ evalModel model = do
         lossT <- tnllLoss predV tgtV
         pure (primItem {ex=ExampleExecutor} lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
-
 
 ----------------------------------------------------------------------
 -- Modes
@@ -140,7 +137,6 @@ doLoad allowCast cfg model = do
       putStrLn $ "Post-load eval loss: " ++ show loadedLoss
     else pure ()
   pure ok
-
 
 ----------------------------------------------------------------------
 -- Main

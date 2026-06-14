@@ -24,7 +24,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- DQN on MountainCar-v0 with reward shaping.
 --
@@ -57,14 +56,12 @@ mkQNet scope = do
   ll3 <- linearLayerAny {i=Hidden} {o=NumActions} (scope ++ "ll3")
   pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
-
 ----------------------------------------------------------------------
 -- Observation helper
 ----------------------------------------------------------------------
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
 obsTensor v = VArray (map SArray v)
-
 
 ----------------------------------------------------------------------
 -- Epsilon-greedy
@@ -98,7 +95,6 @@ epsGreedyIO online obs eps = do
             else 2)
     else greedyAction online obs
 
-
 -- Batched epsilon-greedy across NumEnvs envs: one batched forward,
 -- then per-env eps-vs-greedy with independent random draws.
 epsGreedyBatched : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType g ->
@@ -124,7 +120,6 @@ epsGreedyBatched qB envs eps = go 0 envs
                      else 2)
       as <- go (i + 1) rest
       pure (a :: as)
-
 
 ----------------------------------------------------------------------
 -- Batched DQN loss (mirrors Example.Dqn).
@@ -188,7 +183,6 @@ batchLossBatched n online target gamma batch = do
       ls <- go qOutB tRest tvRest (k + 1)
       pure (l :: ls)
 
-
 ----------------------------------------------------------------------
 -- DQN state
 ----------------------------------------------------------------------
@@ -207,7 +201,6 @@ record DqnState where
   cfgBatch    : Nat
   cfgGamma    : Double
   cfgShaping  : Double  -- multiplier on |vel| reward bonus
-
 
 ----------------------------------------------------------------------
 -- Episode rollout
@@ -271,7 +264,6 @@ runEpisode opt st0 = go st0 (MkMC (-0.5) 0.0) MaxSteps 0.0
           if isDone
             then pure (st', ret')
             else go st' envState' steps ret'
-
 
 ----------------------------------------------------------------------
 -- Batched episode rollout: NumEnvs parallel envs collect transitions
@@ -350,7 +342,6 @@ runEpisodeBatched opt st0 = do
               pure (st', ret')
             else go st' envs' steps ret'
 
-
 ----------------------------------------------------------------------
 -- Config & main
 ----------------------------------------------------------------------
@@ -389,7 +380,6 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation (raw reward, no shaping).
 ----------------------------------------------------------------------
@@ -408,7 +398,6 @@ evalN _ Z acc = pure acc
 evalN q (S k) acc = do
   ep <- evalEp q (MkMC (-0.5) 0.0) MaxSteps 0.0
   evalN q k (acc + ep)
-
 
 ----------------------------------------------------------------------
 -- Main

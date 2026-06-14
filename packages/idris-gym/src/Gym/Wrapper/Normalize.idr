@@ -2,7 +2,6 @@ module Gym.Wrapper.Normalize
 
 import Data.Vect
 
-
 ----------------------------------------------------------------------
 -- Running statistics
 ----------------------------------------------------------------------
@@ -41,7 +40,6 @@ variance (MkRunStats _ m2 n) =
     S Z => 1.0
     S (S _) => m2 / cast {to=Double} (natToInteger n)
 
-
 ----------------------------------------------------------------------
 -- NormObs wrapper (vectorized per-dim running stats)
 ----------------------------------------------------------------------
@@ -65,7 +63,6 @@ normalizeObs (MkNormObs stats) obs =
       out = zipWith (\s, x => (x - s.runMean) / (prim__doubleSqrt (variance s) + 1.0e-8))
                     stats' obs
   in (MkNormObs stats', out)
-
 
 ----------------------------------------------------------------------
 -- NormReward wrapper (scalar running stats)

@@ -14,14 +14,12 @@ import Data.Vect
 import HfDataset
 import Test.Harness
 
-
 -- The fixture path resolves relative to where the test binary runs
 -- (`make test-unit-idris-transformers` invokes `./packages/idris-transformers/build/exec/idris-transformers-test`,
 -- so the cwd at run time is the repo root — same as how
 -- save_oracle.py-driven gates resolve their paths).
 fixturePath : String
 fixturePath = "packages/idris-transformers/test-fixtures/sst2-mini/mini.tsv"
-
 
 -- Expected loaded examples (matches mini.tsv line-for-line).
 expected : List (Nat, List Nat)
@@ -30,7 +28,6 @@ expected =
   , (0, [101, 1037, 2919, 3185, 102, 4083])
   , (1, [101, 1996, 3185, 2003, 5875, 102])
   ]
-
 
 testLoadCount : IO Bool
 testLoadCount = do
@@ -41,7 +38,6 @@ testLoadCount = do
     else do
       putStrLn ("  FAIL: expected 3 examples, got " ++ show n)
       pure False
-
 
 testLoadValues : IO Bool
 testLoadValues = do
@@ -55,7 +51,6 @@ testLoadValues = do
       putStrLn ("    got:      " ++ show got)
       putStrLn ("    expected: " ++ show expected)
       pure False
-
 
 -- Pads to seqLen=8 with padId=0. The first example has 5 tokens, so
 -- 3 padding slots get the padId; the mask is [1,1,1,1,1,0,0,0].
@@ -73,7 +68,6 @@ testPadPadsShortExample = do
       putStrLn ("    mask got:      " ++ show mask)
       pure False
 
-
 -- Truncates a longer example to exactly seqLen. The 6-token example
 -- truncated to 4 drops the tail; mask is all-1.
 testPadTruncatesLongExample : IO Bool
@@ -89,7 +83,6 @@ testPadTruncatesLongExample = do
       putStrLn ("    ids got:       " ++ show ids)
       putStrLn ("    mask got:      " ++ show mask)
       pure False
-
 
 -- A 1D padding mask `[1, 1, 1, 0, 0]` (positions 0..2 real, 3..4 pad)
 -- becomes a 5×5 attention-mask matrix. Each ROW is identical to the
@@ -109,7 +102,6 @@ testToAttentionMask2d = do
       putStrLn ("    got:      " ++ show flat)
       putStrLn ("    expected: " ++ show expectedFlat)
       pure False
-
 
 export
 suite : List (String, List (IO Bool))

@@ -16,7 +16,6 @@ import Schedule
 import Checkpoint
 import public Train.Engine  -- MetricsFn, EarlyStopConfig, showFix + the shared engine pieces
 
-
 ----------------------------------------------------------------------
 -- CLI Argument Parsing
 ----------------------------------------------------------------------
@@ -55,7 +54,6 @@ export
 castBits64 : String -> Bits64
 castBits64 s = cast (the Integer (cast s))
 
-
 ----------------------------------------------------------------------
 -- Result Formatting
 ----------------------------------------------------------------------
@@ -67,7 +65,6 @@ formatResult kvs = "RESULT" ++ concatMap (\(k, v) => "\t" ++ k ++ "=" ++ v) kvs
 
 -- `showFix`, `EarlyStopConfig`, and `MetricsFn` moved to Train.Engine
 -- (re-exported above via `import public Train.Engine`).
-
 
 ----------------------------------------------------------------------
 -- Training Configuration
@@ -175,7 +172,6 @@ mkTrainConfig e l es m b = MkTrainConfig e l es m b Nothing
 export
 applySchedule : UserExecutorTraining ex => Schedule -> NativeOptimizer ex -> Nat -> IO ()
 applySchedule sched opt ep = setLearningRate opt (sched ep)
-
 
 ----------------------------------------------------------------------
 -- Training Runner

@@ -27,7 +27,6 @@ import Test.Harness
 import Executor
 import Tensor
 
-
 ||| Register one param on `TorchExecutor TCpu` and assert torch's registry
 ||| count grows by exactly one while tape's count is unchanged —
 ||| proving the two registries are independent and that registration

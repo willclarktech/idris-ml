@@ -25,7 +25,6 @@ import Util
 import Executor
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Configuration
 ----------------------------------------------------------------------
@@ -53,7 +52,6 @@ export
 defaultLrFindConfig : LrFindConfig
 defaultLrFindConfig = MkLrFindConfig 1.0e-7 10.0 100 0.98 4.0 10.0
 
-
 ----------------------------------------------------------------------
 -- Result
 ----------------------------------------------------------------------
@@ -67,7 +65,6 @@ record LrFindResult where
   constructor MkLrFindResult
   points : List (Double, Double)
   recommendedLr : Double
-
 
 ----------------------------------------------------------------------
 -- LR schedule for the sweep
@@ -85,7 +82,6 @@ sweepLr lrMin lrMax n i =
               / cast {to=Double} (cast {to=Integer} (n `minus` 1))
         logRatio = Prelude.log (lrMax / lrMin)
     in lrMin * Prelude.exp (frac * logRatio)
-
 
 ----------------------------------------------------------------------
 -- Recommended-LR heuristic: steepest negative slope of smoothed loss
@@ -119,7 +115,6 @@ recommendFromCurve : Double -> List (Double, Double) -> Double
 recommendFromCurve recommendDiv curve =
   steepestDescent (slopes curve) / recommendDiv
 
-
 ||| Sign-stable divergence check. Returns `True` when the current
 ||| smoothed loss has worsened by more than `(divergeFactor - 1) × |best|`
 ||| above the best smoothed loss seen so far. For positive losses this
@@ -133,7 +128,6 @@ hasDiverged : (divergeFactor : Double) -> (best : Double) -> (corrected : Double
 hasDiverged divergeFactor best corrected =
   let absRef = if abs best < 1.0e-8 then 1.0e-8 else abs best
   in (corrected - best) > (divergeFactor - 1.0) * absRef
-
 
 ||| `True` when the swept (lr, smoothedLoss) curve has no usefully-
 ||| descending region. In that case, `recommendFromCurve` falls back
@@ -153,7 +147,6 @@ isFallbackCurve curve =
   case slopes curve of
     []  => True
     ss  => all (\(_, s) => s >= 0.0) ss
-
 
 ----------------------------------------------------------------------
 -- Main loop

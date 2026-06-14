@@ -24,7 +24,6 @@ import Test.Config
 import Tensor
 import Array
 
-
 ----------------------------------------------------------------------
 -- Reference catalogue (mirrors `sshleifer/tiny-gpt2`'s safetensors header)
 ----------------------------------------------------------------------
@@ -54,7 +53,6 @@ expectedDistilGpt2ParamNames =
   , "transformer.ln_f.bias"
   ]
 
-
 strContains : String -> String -> Bool
 strContains needle hay = isInfixOf (unpack needle) (unpack hay)
 
@@ -67,7 +65,6 @@ firstMismatch xs ys = go Z xs ys
     go n (x :: _)  []        = Just (n, x, "<missing>")
     go n (x :: xs) (y :: ys) =
       if x == y then go (S n) xs ys else Just (n, x, y)
-
 
 ----------------------------------------------------------------------
 -- Bucket 1 — pure Idris catalogue correctness
@@ -97,7 +94,6 @@ testNamingConvention =
       missingDots = any (\n => not (strContains "." n)) names
   in check "no `_weights`/`_biases` plural; every name uses `.` separator"
            (not hasPlural && not missingDots)
-
 
 ----------------------------------------------------------------------
 -- Bucket 2 — FFI: smart constructor registers exactly those names
@@ -154,7 +150,6 @@ testConstructorRegistersHfNames = do
       putStrLn ("    (total registered: " ++ show (length registered) ++
                 ", expected: " ++ show (length expected) ++ ")")
       pure False
-
 
 ----------------------------------------------------------------------
 -- Suite export

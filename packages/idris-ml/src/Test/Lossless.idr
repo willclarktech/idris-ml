@@ -5,7 +5,6 @@ import Data.Nat
 import Test.Harness
 import DType.Core
 
-
 -- ---------------------------------------------------------------
 -- A0.5: cross-family LosslessTo float-cast witnesses
 -- ---------------------------------------------------------------
@@ -18,7 +17,6 @@ import DType.Core
 --
 -- The complementary refutation — "lossy edges do NOT resolve" — lives
 -- in a `neg/` compile-fail file (see `LossyDirectionRejected.idr`).
-
 
 -- BFloat 16 → Float 32: mantissa 7→23 (grows), exponent 8→8 (same).
 proofBF16ToF32 : LosslessTo (BFloat 16) (Float 32)
@@ -39,7 +37,6 @@ proofBF16ToF64 = %search
 -- Float 16 → Float 64: mantissa 10→52, exponent 5→11.
 proofF16ToF64 : LosslessTo (Float 16) (Float 64)
 proofF16ToF64 = %search
-
 
 -- ---------------------------------------------------------------
 -- F1 (#412): int/uint/bool → float lossless witnesses
@@ -81,7 +78,6 @@ proofBoolToI8 = %search
 proofBoolToU8 : LosslessTo Bool (UInt 8)
 proofBoolToU8 = %search
 
-
 -- ---------------------------------------------------------------
 -- B1 (#411): Ternary / Binary lossless witnesses
 -- ---------------------------------------------------------------
@@ -110,7 +106,6 @@ proofBinaryToF32 = %search
 proofBinaryToI8 : LosslessTo Binary (IntN 8)
 proofBinaryToI8 = %search
 
-
 -- ---------------------------------------------------------------
 -- F1 (#412): UpcastableTo bridge — LosslessTo edges thread into
 -- the existing tcast-resolution surface
@@ -132,7 +127,6 @@ upcastableU8ToF32   = %search
 
 0 upcastableBoolToF32 : UpcastableTo Bool (Float 32)
 upcastableBoolToF32   = %search
-
 
 -- Smoke: if all proofs above compile, this module loads and the
 -- assertion is trivially true. The actual test is the compile-time
@@ -180,7 +174,6 @@ upcastableBridgeWiresThrough = do
   -- isn't firing, this module doesn't compile and the test runner
   -- never reaches us.
   check "LosslessTo → UpcastableTo bridge resolves cross-family" True
-
 
 export
 tests : List (IO Bool)

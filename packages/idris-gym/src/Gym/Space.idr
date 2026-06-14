@@ -3,7 +3,6 @@ module Gym.Space
 import Data.Vect
 import Decidable.Equality
 
-
 ----------------------------------------------------------------------
 -- Space ADT
 ----------------------------------------------------------------------
@@ -21,7 +20,6 @@ data Space : Type where
   MultiBin  : (n : Nat) -> Space
   ||| Product of discrete spaces with per-dim cardinalities.
   MultiDisc : {k : Nat} -> (nvec : Vect k Nat) -> Space
-
 
 ----------------------------------------------------------------------
 -- Helpers

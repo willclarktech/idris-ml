@@ -28,7 +28,6 @@ import Data.Vect
 import Executor
 import Tensor
 
-
 public export
 record GradScaler (0 ex : Executor) (0 dt : DType) where
   constructor MkGradScaler
@@ -37,7 +36,6 @@ record GradScaler (0 ex : Executor) (0 dt : DType) where
   growthFactor   : Double
   backoffFactor  : Double
   growthInterval : Nat
-
 
 ||| Construct a GradScaler with explicit policy parameters. PyTorch's
 ||| `cuda.amp.GradScaler` defaults: initScale = 2^16 = 65536.0,

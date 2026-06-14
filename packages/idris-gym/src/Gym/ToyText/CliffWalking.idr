@@ -3,7 +3,6 @@ module Gym.ToyText.CliffWalking
 import Gym.Env
 import Gym.Rng
 
-
 ----------------------------------------------------------------------
 -- CliffWalking-v0 (Gymnasium-compatible)
 --
@@ -24,7 +23,6 @@ public export
 record CWState where
   constructor MkCW
   cwRow, cwCol : Nat
-
 
 startState : CWState
 startState = MkCW StartRow StartCol

@@ -53,7 +53,6 @@ import Tensor
 import Tokenizer
 import Util
 
-
 ----------------------------------------------------------------------
 -- BitNet 2B-4T config, pinned at the type level
 ----------------------------------------------------------------------
@@ -106,7 +105,6 @@ modelDir = "models/" ++ ModelRepo
 hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"
 
-
 -- Manual per-block iteration with dumps after each block. Calls
 -- `applyBlock` (exported from HfBitNet) once per Vect element and
 -- invokes `dumpFn` with a "block_NN" label. Idris-2's elaborator hung
@@ -133,7 +131,6 @@ iterateBlocksDumping (b :: bs) tables x idx dumpFn = do
       n     = cast {to=Int} 2 * cast {to=Int} Hidden
   dumpFn label x'.tensorPtr n
   iterateBlocksDumping bs tables x' (S idx) dumpFn
-
 
 ----------------------------------------------------------------------
 -- Greedy generation (helpers live in Example.Common.HfInferenceHelper)
@@ -172,7 +169,6 @@ genOneStep model tables toksList = do
         nextN   <- argmaxRow VocabSize lastRow.tensorPtr
         pure (natToFin nextN VocabSize)
 
-
 genLoop : BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
                            ExampleExecutor ExampleDType WithGrad
        -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
@@ -189,7 +185,6 @@ genLoop model tables tokens (S k) = do
     Just next => do
       resetForEval {ex=ExampleExecutor}
       genLoop model tables (tokens ++ [next]) k
-
 
 ----------------------------------------------------------------------
 -- Default mode: greedy generation demo
@@ -215,7 +210,6 @@ runGenerate tok model tables prompt numTokens = do
   Right text <- detokenize tok (fromList finalList)
     | Left err => putStrLn ("ERR: detokenize: " ++ show err)
   putStrLn ("Output:    " ++ text)
-
 
 ----------------------------------------------------------------------
 -- main

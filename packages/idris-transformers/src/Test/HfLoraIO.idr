@@ -35,7 +35,6 @@ import Test.Config
 import HfLoraIO
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Test #1 — adapter_config.json round-trip
 ----------------------------------------------------------------------
@@ -75,7 +74,6 @@ configRoundTrip = do
                         ++ ", targets=" ++ show cfg'.targetModules
                         ++ ", task=" ++ cfg'.taskType)
               pure False
-
 
 ----------------------------------------------------------------------
 -- Test #2 — adapter_model.safetensors uses peft on-disk names
@@ -121,7 +119,6 @@ testPeftKeyShape = do
                     ++ ", B=" ++ show pBV ++ " (want 0.0)")
           pure False
 
-
 ----------------------------------------------------------------------
 -- Test #3 — name remap helpers
 ----------------------------------------------------------------------
@@ -145,7 +142,6 @@ testNameRemap = do
                 ++ ", roundtrip=" ++ show okRt
                 ++ ", reject-non-peft=" ++ show okMiss)
       pure False
-
 
 export
 suite : List (String, List (IO Bool))

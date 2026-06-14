@@ -9,14 +9,12 @@ import Array
 import Layer.RmsNorm
 import Test.Config
 
-
 -- Tolerance for the forward-value check. The composed formulation
 -- (sq → primSum → primMulScalar → primAddScalar → primSqrt →
 -- primDiv → primMul) accumulates ~5 F64 ops; 1e-9 leaves headroom
 -- for backend numerics drift while still catching real math bugs.
 tol : Double
 tol = 1.0e-9
-
 
 -- PyTorch F64 reference for input=[1,2,3,4], eps=1e-5, weight=1s:
 --   mean(x²) = (1+4+9+16)/4 = 7.5
@@ -35,7 +33,6 @@ expectedOut =
   , 1.4605925129524255
   ]
 
-
 -- Lift a [n] tensor's raw pointer to a List Double by reading element-
 -- by-element. Stops at `n` reads; reverses to put position 0 first.
 readVec : (n : Nat) -> AnyPtr -> IO (List Double)
@@ -47,7 +44,6 @@ readVec n p = go (cast {to=Int} n) 0 []
         then pure (reverse acc)
         else let v = primItem1d {ex=TestExecutor} p i
              in go end (i + 1) (v :: acc)
-
 
 -- Distance from `actual` to `expected`, element-wise. Returns the max
 -- absolute diff; used to assert convergence within `tol`.
@@ -61,7 +57,6 @@ maxAbsDiff actual expected = go actual (toList expected) 0.0
       let d = abs (a - b)
       in go as bs (if d > m then d else m)
 
-
 -- Build a [n] input tensor from a Vect of Doubles. Implicit `n` is
 -- unrestricted (default for `{name : Type}` in Idris 2) so it's in
 -- scope at runtime for the `tinput1d {n}` call below.
@@ -70,7 +65,6 @@ mkInput xs =
   let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}
                          (VArray (map SArray xs))
   in tinput1d {n} raw
-
 
 testForwardValueAt1234 : IO Bool
 testForwardValueAt1234 = do
@@ -88,7 +82,6 @@ testForwardValueAt1234 = do
       putStrLn ("    expected: " ++ show (toList expectedOut))
       pure False
 
-
 testShapeAndFinite : IO Bool
 testShapeAndFinite = do
   rms <- rmsNormLayer {ex=TestExecutor} {dt=TestDType} {n=8} "rms_shape"
@@ -98,7 +91,6 @@ testShapeAndFinite = do
   vals <- readVec 8 out.tensorPtr
   let allFinite = all (\x => x == x && abs x < 1.0e100) vals
   check "RmsNorm n=8 with negatives + zero produces 8 finite values" allFinite
-
 
 export
 tests : List (IO Bool)

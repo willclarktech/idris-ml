@@ -9,7 +9,6 @@ import Layer.Core
 import Sampler
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Linear State (Path C P3-1 spike)
 ----------------------------------------------------------------------
@@ -23,7 +22,6 @@ record LinearState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : G
   constructor MkLinear
   weightT : Tensor [o, i] ex dt g
   biasT   : Tensor [o] ex dt g
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance — two-line forward
@@ -52,7 +50,6 @@ LayerLike LinearState where
     primIO (primSetRequiresGrad {ex} w.tensorPtr 1)
     primIO (primSetRequiresGrad {ex} b.tensorPtr 1)
     pure (MkLinear (retypeGrad w) (retypeGrad b))
-
 
 ----------------------------------------------------------------------
 -- Constructor

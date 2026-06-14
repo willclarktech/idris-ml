@@ -14,7 +14,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Port: SequenceTask
 ----------------------------------------------------------------------
@@ -27,7 +26,6 @@ record SequenceTask (i : Nat) (o : Nat) where
   constructor MkSequenceTask
   name : String
   generatePoint : (len : Nat) -> IO (RecurrentDataPoint i o Double)
-
 
 ----------------------------------------------------------------------
 -- Generic infrastructure
@@ -62,7 +60,6 @@ randomBatchVect task (S k) minLen maxLen = do
   rest <- randomBatchVect task k minLen maxLen
   pure (dp :: rest)
 
-
 ----------------------------------------------------------------------
 -- Primitives for building tasks
 ----------------------------------------------------------------------
@@ -78,7 +75,6 @@ randomSymbols {w = S (S k)} (S n) = do
   let sym = restrict (S k) (cast val)
   rest <- randomSymbols {w = S (S k)} n
   pure (sym :: rest)
-
 
 ----------------------------------------------------------------------
 -- Adapter: Copy task
@@ -108,7 +104,6 @@ copyTask : {w : Nat} -> SequenceTask w w
 copyTask = MkSequenceTask "copy" $ \len => do
   symbols <- randomSymbols {w} len
   pure $ copyTaskPoint symbols
-
 
 ----------------------------------------------------------------------
 -- Adapter: Associative Recall task
@@ -196,7 +191,6 @@ associativeRecallTask = MkSequenceTask "associative-recall" $ \len => do
   queryKeys <- shuffleList keys
   pure $ associativeRecallPoint pairs queryKeys
 
-
 ----------------------------------------------------------------------
 -- Binary vector generation helpers
 ----------------------------------------------------------------------
@@ -218,7 +212,6 @@ makeDelimiter {w} pos =
       go Z = []
       go (S k) = (if k == pos then SArray 1.0 else SArray 0.0) :: go k
   in VArray (go w)
-
 
 ----------------------------------------------------------------------
 -- Binary copy task (PyTorch-aligned)
@@ -273,7 +266,6 @@ copyTaskBinaryBatchVect (S k) minLen maxLen = do
   dp <- copyTaskBinary {w} len
   rest <- copyTaskBinaryBatchVect k minLen maxLen
   pure (dp :: rest)
-
 
 ----------------------------------------------------------------------
 -- Binary associative recall task (PyTorch-aligned)
@@ -330,7 +322,6 @@ recallTaskBinaryBatchVect (S k) minItems maxItems seqLen = do
   rest <- recallTaskBinaryBatchVect k minItems maxItems seqLen
   pure (dp :: rest)
 
-
 ----------------------------------------------------------------------
 -- Reversal task (for Transformer example)
 ----------------------------------------------------------------------
@@ -373,7 +364,6 @@ reversalBatchVect vocabSize inputLen seqLen sepToken eosToken (S k) = do
   dp <- reversalPoint vocabSize inputLen seqLen sepToken eosToken
   rest <- reversalBatchVect vocabSize inputLen seqLen sepToken eosToken k
   pure (dp :: rest)
-
 
 -- Pack a list of Nats into a C int buffer (for passing token indices to C)
 packTokens : AnyPtr -> Int -> List Nat -> AnyPtr
@@ -425,7 +415,6 @@ reversalTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken (S k) = 
   rest <- reversalTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken k
   pure (dp :: rest)
 
-
 ||| Generate one sorting data point as pre-allocated C tensors.
 ||| Input: [t0..t_{n-1}, SEP, sorted_0..sorted_{n-1}, EOS]
 export
@@ -457,7 +446,6 @@ sortingTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken (S k) = d
   dp <- sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken
   rest <- sortingTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken k
   pure (dp :: rest)
-
 
 ----------------------------------------------------------------------
 -- Pattern Sequence Data (for RNN/LSTM examples)

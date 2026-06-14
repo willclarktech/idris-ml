@@ -10,7 +10,6 @@ import Train          -- patienceConfig / withCheckpoint (no ~~> collision)
 import Checkpoint     -- fileCheckpoint
 import BuildConfig    -- ChosenMachine / requireMachine
 
-
 -- RNN pattern-prediction example. Single RNN(1 -> 4, tanh) -> Linear(4 -> 1)
 -- network with BCE-with-logits loss, on the v1 Nn/fit surface. See
 -- Example.Lstm for the recurrent migration shape (record of cell + head,
@@ -20,7 +19,6 @@ record Model where
   constructor MkModel
   cell : Rnn 1 4 Ex F WithGrad
   head : Linear 4 1 Ex F WithGrad
-
 
 ----------------------------------------------------------------------
 -- Pattern data (was Generate.patternData / RecurrentDataPoint)
@@ -36,7 +34,6 @@ NumSeqs = 8
 
 patternSeqs : Vect NumSeqs (List Double, List Double)
 patternSeqs = map (patternSeq . (+ 3) . finToNat) (Data.Vect.Fin.range {len = NumSeqs})
-
 
 ----------------------------------------------------------------------
 -- Loss
@@ -82,7 +79,6 @@ recurEpoch opt model seqs = do
   mean <- (1.0 / cast NumSeqs) *: totalL
   d <- nativeTrainStep opt mean
   pure (model, d)
-
 
 ----------------------------------------------------------------------
 -- Config & Main

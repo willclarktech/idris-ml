@@ -41,7 +41,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 -- Axis 1: Compatible (dtype admissibility). Build-independent — these
 -- need only the Compatible instance, which exists for every backend.
 
@@ -67,7 +66,6 @@ okMlxGpuF32  = compatOK {ex=MlxExecutor MGpu}     {dt = F32}
 -- badMlxGpuF64   : () ; badMlxGpuF64   = compatOK {ex=MlxExecutor MGpu}    {dt = F64}
 -- badTorchMpsF64 : () ; badTorchMpsF64 = compatOK {ex=TorchExecutor TMps}  {dt = F64}
 
-
 -- Axis 2: Linked (backend linkage). Build-DEPENDENT — only the
 -- compiled-in backends have a Linked instance. ExampleExecutor is always
 -- linked (it's this build's device).
@@ -83,7 +81,6 @@ linkedExample = linkedOK {ex=ExampleExecutor}
 -- linkedMlxGpu  : () ; linkedMlxGpu  = linkedOK {ex=MlxExecutor MGpu}
 -- linkedTorchCpu : () ; linkedTorchCpu = linkedOK {ex=TorchExecutor TCpu}
 
-
 -- Lossless-upcast partial order: `F32 → F64` is lossless, `F64 → F32`
 -- is not.
 demoUpcast : UpcastableTo from to => ()
@@ -92,7 +89,6 @@ demoUpcast = ()
 okF32ToF64 : ()
 okF32ToF64 = demoUpcast {from = F32} {to = F64}
 -- failF64ToF32 : () ; failF64ToF32 = demoUpcast {from = F64} {to = F32}  -- LTE 64 32
-
 
 -- Axis 3: op-level dtype-kind gates. Beyond *which dtypes a backend
 -- admits* (Compatible), some *operations* only make sense for a dtype
@@ -121,7 +117,6 @@ okIntU8  : () ; okIntU8  = integralOK {dt = U8}
 -- badFloatI32  : () ; badFloatI32  = floatingOK {dt = I32}   -- no IsFloating (IntN 32)
 -- badFloatBool : () ; badFloatBool = floatingOK {dt = Bool}  -- no IsFloating Bool
 -- badIntF32    : () ; badIntF32    = integralOK {dt = F32}   -- no IsIntegral (Float 32)
-
 
 main : IO ()
 main = do

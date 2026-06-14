@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Embedding — typed-surface lookup table (Path C)
 ----------------------------------------------------------------------
@@ -23,7 +22,6 @@ public export
 record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkEmbedding
   weightT : TMat vocab embedDim ex dt g
-
 
 ----------------------------------------------------------------------
 -- Forward
@@ -45,7 +43,6 @@ applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
       outPtr = primEmbedding {ex} w.tensorPtr tokens.tensorPtr nI dI
   in MkTensor outPtr Nothing)
 
-
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
@@ -60,7 +57,6 @@ embeddingLayer paramPrefix = do
   let wName = paramPrefix ++ "_weight"
   weight <- tparam2dNormal {ex} {dt} {o=vocab} {i=embedDim} wName 0.0 0.02
   pure $ MkEmbedding weight
-
 
 ----------------------------------------------------------------------
 -- LayerLike adapter (specific seqLen × embedDim)

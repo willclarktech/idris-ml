@@ -10,7 +10,6 @@ import Train          -- simpleConfig / TrainConfig (no ~~> collision: Train pul
 import GradScaler     -- mixed-precision loss scaling
 import BuildConfig    -- ChosenMachine / requireMachine
 
-
 -- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11): a 3-class
 -- (mutually-exclusive) problem, so the loss is multiclass NLL (tnllLossMean),
 -- matching torch_ref/models/supervised.py's nll_loss(log_softmax(...)).
@@ -27,7 +26,6 @@ targetClasses = [1, 1, 2, 1, 0]
 -- Flattened inputs for the [5,2] eval batch tensor (FromVect over Numel).
 flatInputs : Vect 10 Double
 flatInputs = [1.5, -2.7, -3.2, 4.1, 5.7, 0.0, -1.3, 8.8, 2.9, -1.4]
-
 
 record Config where
   constructor MkConfig
@@ -54,7 +52,6 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--mixed-precision" (\v, c => { mixedPrecision := boolFlag v } c)
         , Arg "--param-dtype" (\v, c => { paramDtype := v } c) ]
-
 
 ----------------------------------------------------------------------
 -- Data + loss
@@ -101,7 +98,6 @@ nllLossMixed model (x, tgt) = do
   out <- forwardMixed {b=5} model (retypeGrad x)
   tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
 
-
 ----------------------------------------------------------------------
 -- Eval (shared across modes: takes the [5,3] logits)
 ----------------------------------------------------------------------
@@ -135,7 +131,6 @@ reportResult cfg epochsDone finalLoss correct =
                           , ("loss", show finalLoss)
                           , ("seed", show cfg.seed)
                           , ("correct", show correct ++ "/5") ]
-
 
 ----------------------------------------------------------------------
 -- Run modes
@@ -192,7 +187,6 @@ runMixedF32Master cfg opt =
   runMixedGeneric cfg opt
     (runInit (linearMixed {paramDt=F32} {computeDt=F} {i=2} {o=3}))
     "Mixed-precision mode: paramDt = F32, computeDt = F (f32-master)"
-
 
 main : IO ()
 main = do

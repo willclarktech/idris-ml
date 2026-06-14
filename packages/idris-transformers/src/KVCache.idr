@@ -36,7 +36,6 @@ import Data.Vect
 import Executor
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- KVCache — Empty / Filled tag union
 ----------------------------------------------------------------------
@@ -60,7 +59,6 @@ data KVCache : (kvOut : Nat) -> (0 ex : Executor) -> (0 dt : DType) -> Type wher
            (v : Tensor [len, kvOut] ex dt NoGrad) ->
            KVCache kvOut ex dt
 
-
 ||| Empty cache constructor — used when seeding a per-layer cache at
 ||| the start of generation. The `kvOut` parameter is left to be
 ||| inferred from context (e.g. a `Vect numLayers (KVCache kvOut ex dt)`
@@ -69,14 +67,12 @@ public export
 emptyKVCache : KVCache kvOut ex dt
 emptyKVCache = Empty
 
-
 ||| Current cached prefix length. Returns 0 for `Empty`, the stored
 ||| `len` for `Filled`.
 public export
 cacheLen : KVCache kvOut ex dt -> Nat
 cacheLen Empty            = 0
 cacheLen (Filled len _ _) = len
-
 
 ||| Append new K and V chunks to the cache along axis 0 (the sequence
 ||| axis). For `Empty` this simply wraps the new K/V; for `Filled` it

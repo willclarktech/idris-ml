@@ -10,7 +10,6 @@ import Train          -- patienceConfig / withCheckpoint (no ~~> collision)
 import Checkpoint     -- fileCheckpoint
 import BuildConfig    -- ChosenMachine / requireMachine
 
-
 -- LSTM pattern-prediction example. Single LSTM(1 -> 4) -> Linear(4 -> 1)
 -- network with BCE-with-logits loss, on the v1 Nn/fit surface.
 --
@@ -24,7 +23,6 @@ record Model where
   constructor MkModel
   cell : Lstm 1 4 Ex F WithGrad
   head : Linear 4 1 Ex F WithGrad
-
 
 ----------------------------------------------------------------------
 -- Pattern data (was Generate.patternData / RecurrentDataPoint)
@@ -45,7 +43,6 @@ NumSeqs = 8
 
 patternSeqs : Vect NumSeqs (List Double, List Double)
 patternSeqs = map (patternSeq . (+ 3) . finToNat) (Data.Vect.Fin.range {len = NumSeqs})
-
 
 ----------------------------------------------------------------------
 -- Loss
@@ -97,7 +94,6 @@ recurEpoch opt model seqs = do
   mean <- (1.0 / cast NumSeqs) *: totalL
   d <- nativeTrainStep opt mean
   pure (model, d)
-
 
 ----------------------------------------------------------------------
 -- Config & Main

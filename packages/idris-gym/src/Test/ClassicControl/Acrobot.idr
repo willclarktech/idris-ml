@@ -5,7 +5,6 @@ import Test.Harness
 import Gym.Env
 import Gym.ClassicControl.Acrobot
 
-
 rewardOf : (Double, AState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r
 
@@ -15,10 +14,8 @@ stateOf (_, s, _, _) = s
 outcomeOf : (Double, AState, Outcome, Info) -> Outcome
 outcomeOf (_, _, o, _) = o
 
-
 aInit : AState
 aInit = MkA 0.0 0.0 0.0 0.0
-
 
 export
 tests : List (IO Bool)

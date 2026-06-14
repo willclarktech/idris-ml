@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Gru — typed-surface GRU cell (Path C)
 ----------------------------------------------------------------------
@@ -29,7 +28,6 @@ record GruState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Grad
   hhB : TVec (3 * o) ex dt g           -- b_hh [3*o]
   hiddenT : Maybe (TVec o ex dt g)
 
-
 ----------------------------------------------------------------------
 -- Forward
 ----------------------------------------------------------------------
@@ -49,7 +47,6 @@ applyGru {o} st input = do
   hhPart <- tlinear st.hwT h st.hhB        -- W_hh @ h + b_hh
   newH <- tgruCell {n = o} ihPart hhPart h
   pure ({ hiddenT := Just newH } st, newH)
-
 
 ----------------------------------------------------------------------
 -- Constructor
@@ -82,7 +79,6 @@ gruLayer paramPrefix = do
 export
 resetGruState : {o : Nat} -> {0 ex : Executor} -> {0 g : GradMode} -> GruState i o ex dt g -> GruState i o ex dt g
 resetGruState st = { hiddenT := Nothing } st
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance

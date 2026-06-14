@@ -23,7 +23,6 @@ import Executor
 import Tensor
 import Checkpoint
 
-
 ----------------------------------------------------------------------
 -- Shared types (were in Train.idr; re-exported there for source compat)
 ----------------------------------------------------------------------
@@ -47,7 +46,6 @@ data EarlyStopConfig
     -- bimodal losses (variable-length-sequence tasks), picking p10 is the
     -- "best 100-epoch chunk in the window" — fires reliably once the model
     -- converges on at least the easier sequences.
-
 
 ----------------------------------------------------------------------
 -- Formatting (shared with examples via Train re-export)
@@ -80,7 +78,6 @@ showFix d x =
       if length s >= n
         then s
         else pack (List.replicate (n `minus` length s) '0') ++ s
-
 
 ----------------------------------------------------------------------
 -- Per-epoch generation bracket
@@ -119,7 +116,6 @@ withEpoch act = do
   primIO (primEpochEnd {ex})
   pure result
 
-
 ----------------------------------------------------------------------
 -- Eval-bracket metrics logging
 ----------------------------------------------------------------------
@@ -157,7 +153,6 @@ logEpoch metrics t0 ep loss m = do
   logInfo $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
            ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 
-
 ----------------------------------------------------------------------
 -- NaN handling
 ----------------------------------------------------------------------
@@ -176,7 +171,6 @@ diverged t0 ep m loss = do
   now <- clockTime Monotonic
   logWarn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
   pure (m, ep, loss)
-
 
 ----------------------------------------------------------------------
 -- Checkpoint resume / keep-best / return-best
@@ -228,7 +222,6 @@ returnBestCheckpoint : Maybe CheckpointPolicy -> IO ()
 returnBestCheckpoint Nothing    = pure ()
 returnBestCheckpoint (Just pol) =
   when pol.keepBest $ ignore $ pol.loadState (pol.dir ++ "/best")
-
 
 ----------------------------------------------------------------------
 -- Unified epoch loop + pluggable early-stop state machines

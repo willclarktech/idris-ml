@@ -21,7 +21,6 @@ import Test.Harness
 import Executor
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
@@ -76,7 +75,6 @@ matchesExpected (a, b, c, d) =
       delta = abs (a - ea) + abs (b - eb) + abs (c - ec) + abs (d - ed)
   in delta < 0.000001
 
-
 ----------------------------------------------------------------------
 -- Intra-backend smoke (matching backendTag → primIntraMigrate)
 ----------------------------------------------------------------------
@@ -111,7 +109,6 @@ intraTorchHwSmoke = do
 -- (intra-mlx fast path is exercised by `roundtripF32Smoke` below,
 -- whose MGpu→MCpu leg goes through the intra-mlx primIntraMigrate;
 -- a separate direct smoke would duplicate that coverage.)
-
 
 ----------------------------------------------------------------------
 -- Cross-backend smoke (differing backendTag → host round-trip)
@@ -195,7 +192,6 @@ roundtripF32Smoke = do
   v4 <- toExecutor (TorchExecutor TCpu) v3
   check "F32 roundtrip Torch TCpu→TMps→MlxGpu→MlxCpu→TCpu preserves value"
         (matchesExpected (read4 v4))
-
 
 ----------------------------------------------------------------------
 -- Public test list

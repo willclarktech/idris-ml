@@ -4,7 +4,6 @@ import Data.Vect
 import Gym.Env
 import Gym.Rng
 
-
 ----------------------------------------------------------------------
 -- FrozenLake-v1 (Gymnasium-compatible, 4x4 default map)
 --
@@ -45,7 +44,6 @@ record FLState where
   flMap : Vect 16 Tile
   flSeed : Seed
   flSlippery : Bool
-
 
 ||| Reset from a caller-provided seed and slipperiness flag.
 ||| The input Seed seeds the internal `flSeed` used by slip; the returned

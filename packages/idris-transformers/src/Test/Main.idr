@@ -13,7 +13,6 @@ import Test.HfLlama
 import Test.KVCache
 import Test.Tokenizer
 
-
 main : IO ()
 main = runAll (
   [ ("package wiring",

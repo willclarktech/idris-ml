@@ -59,7 +59,6 @@ unfreezeByPrefix opt pfx = do
   n <- getParamCount {ex}
   applyIfPrefix {ex} opt pfx (-1.0) (cast {to=Nat} n)
 
-
 ||| Freeze every registered parameter whose paramId ends with `sfx`.
 ||| Mirror of `freezeByPrefix` for the cases where naming convention
 ||| puts the discriminating component at the tail (e.g. LoRA adapter

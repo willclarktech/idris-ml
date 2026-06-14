@@ -9,7 +9,6 @@ import Executor
 import Tensor
 import Test.Config
 
-
 -- Small fixed tensors for the expression-op suite. ioRerun pins FFI
 -- ordering (pure-typed bulkToTensor* reorders across sibling
 -- let-bindings otherwise; see gotchas).
@@ -46,7 +45,6 @@ maxRowsValues = do
   r <- tmaxRows q
   let (x, y, z) = read3 r
   check "tmaxRows [[1,5],[7,2],[3,4]] = (5,7,4)" (x == 5 && y == 7 && z == 4)
-
 
 operatorAliases : IO Bool
 operatorAliases = do

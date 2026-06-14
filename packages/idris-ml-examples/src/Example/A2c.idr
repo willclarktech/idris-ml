@@ -24,7 +24,6 @@ import Executor
 import Tensor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Architecture: separate actor and critic MLPs (aligned with PyTorch
 -- reference `a2c.py`).  layer constructors take a paramPrefix
@@ -68,7 +67,6 @@ mkCritic = do
   ll3 <- linearLayerAny {i=Hidden} {o=1}      "critic_ll3"
   pure (ll1 ~~> tanhLayerAny ~~> ll2 ~~> tanhLayerAny ~~> OutputLayer ll3)
 
-
 ----------------------------------------------------------------------
 -- Observation helpers
 ----------------------------------------------------------------------
@@ -78,7 +76,6 @@ observeVec s = cpObserve s
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
 obsTensor v = VArray (map SArray v)
-
 
 ----------------------------------------------------------------------
 -- Rollout record
@@ -91,7 +88,6 @@ record RollStep where
   reward  : Double
   value   : Double
   isDone  : Bool
-
 
 ----------------------------------------------------------------------
 -- Sampling + rollout
@@ -125,7 +121,6 @@ rollout actor critic st (S k) = do
           nextSt = if isDone then MkCP 0 0 0 0 else st'
       recur <- rollout actor critic nextSt k
       pure (stepRec :: fst recur, snd recur)
-
 
 ----------------------------------------------------------------------
 -- Batched rollout (NumEnvs parallel envs, one batched forward per step)
@@ -210,7 +205,6 @@ rolloutBatched actor critic v0 rolloutLen = do
               accs' = zipWith (\acc, s => s :: acc) accs newSteps
           in go k envs' accs'
 
-
 ----------------------------------------------------------------------
 -- GAE helpers (pure Double — no autograd)
 ----------------------------------------------------------------------
@@ -248,7 +242,6 @@ normAdvs triples =
       renorm : (RollStep, Double, Double) -> (RollStep, Double, Double)
       renorm (s, a, r) = (s, (a - mu) / sd, r)
   in map renorm triples
-
 
 ----------------------------------------------------------------------
 -- Per-step A2C loss ( typed-surface, autograd-tracked)
@@ -289,14 +282,12 @@ perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) = do
   pure (MkTensor (primAdd {ex=ExampleExecutor} (primAdd {ex=ExampleExecutor} policyT.tensorPtr valueTerm.tensorPtr)
                           entTerm.tensorPtr) Nothing)
 
-
 aggregateLoss : List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 aggregateLoss losses = do
   zero <- tconstScalar 0.0
   let summed = foldl (\a, b => MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
       n = the Double (cast (natToInteger (length losses)))
   tmulScalar summed (1.0 / n)
-
 
 -- Build the batched loss tensor from pre-normalized (RollStep, adv, ret)
 -- triples. One batched actor + critic forward over the flat batch, then
@@ -356,7 +347,6 @@ buildLossBatched actor critic gamma lam entropyCoef valueCoef stepLists bootstra
         stepLists bootstraps
       flatMerged = concat (toList mergedPerEnv)
   in buildLossFromMerged actor critic entropyCoef valueCoef flatMerged
-
 
 ----------------------------------------------------------------------
 -- Config + epoch
@@ -463,7 +453,6 @@ a2cEpoch opt cfg st = do
         (r', eps) => case updateRetVect rs rest of
           (rs', restEps) => (r' :: rs', eps ++ restEps)
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation
 ----------------------------------------------------------------------
@@ -490,7 +479,6 @@ evalN _ Z acc = pure acc
 evalN actor (S k) acc = do
   ep <- evalEp actor (MkCP 0 0 0 0) MaxSteps 0.0
   evalN actor k (acc + ep)
-
 
 ----------------------------------------------------------------------
 -- Main

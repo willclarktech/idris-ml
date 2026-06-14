@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Lstm — typed-surface LSTM cell (Path C)
 ----------------------------------------------------------------------
@@ -28,7 +27,6 @@ record LstmState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gra
   c0T : TVec o ex dt g              -- learned initial cell state (zero-init)
   hiddenT : Maybe (TVec o ex dt g)
   cellT   : Maybe (TVec o ex dt g)
-
 
 ----------------------------------------------------------------------
 -- Forward
@@ -58,11 +56,9 @@ applyLstm {o} st input = do
   let st' = { hiddenT := Just newH, cellT := Just newC } st
   pure (st', newH)
 
-
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
-
 
 ||| Build an `LstmState i o TapeExecutor` with Xavier-uniform weight init,
 ||| two zero biases (matching `nn.LSTMCell`), and learned `h0`/`c0`
@@ -99,7 +95,6 @@ lstmLayer paramPrefix = do
 export
 resetLstmState : {o : Nat} -> {0 ex : Executor} -> {0 g : GradMode} -> LstmState i o ex dt g -> LstmState i o ex dt g
 resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
-
 
 ----------------------------------------------------------------------
 -- LayerLike instance — lets Lstm chain in `Network` via `~~>`

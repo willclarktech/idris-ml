@@ -11,7 +11,6 @@ import Layer.Linear
 import Layer.LoraLinear
 import Test.Config
 
-
 ----------------------------------------------------------------------
 -- Helpers (mirror Test.SwiGLU / Test.MixedLayerLike conventions)
 ----------------------------------------------------------------------
@@ -62,7 +61,6 @@ zeroBufN off k b = zeroBufN (off + 1) (k - 1) (prim__setDouble b off 0.0)
 setAt : Int -> Double -> AnyPtr -> AnyPtr
 setAt off val b = prim__setDouble b off val
 
-
 ----------------------------------------------------------------------
 -- Test #1 — Zero-B initialisation makes LoRA forward bit-identical
 -- to the bare base Linear. This is the load-bearing init property:
@@ -92,7 +90,6 @@ testInitZeroEquivalence = do
       putStrLn ("    base: " ++ show baseVals)
       putStrLn ("    lora: " ++ show loraVals)
       pure False
-
 
 ----------------------------------------------------------------------
 -- Test #2 — Manually-set B produces the analytically-expected
@@ -155,7 +152,6 @@ testNonZeroDelta = do
       putStrLn ("    actual delta:   " ++ show actualDelta)
       putStrLn ("    expected delta: " ++ show expectedDelta)
       pure False
-
 
 export
 tests : List (IO Bool)

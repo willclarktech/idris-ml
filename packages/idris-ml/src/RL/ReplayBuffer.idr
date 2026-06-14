@@ -16,7 +16,6 @@ import Data.Vect
 
 import Compat.Random
 
-
 ||| One recorded transition.
 public export
 record Transition (obsDim : Nat) (actDim : Nat) where
@@ -27,7 +26,6 @@ record Transition (obsDim : Nat) (actDim : Nat) where
   nextObs  : Vect obsDim Double
   done     : Bool
 
-
 ||| A uniform-sample ring buffer with capacity `capacity`.
 public export
 record ReplayBuffer (obsDim : Nat) (actDim : Nat) where
@@ -36,7 +34,6 @@ record ReplayBuffer (obsDim : Nat) (actDim : Nat) where
   cursor   : IORef Int
   size     : IORef Int
   storage  : IOArray (Transition obsDim actDim)
-
 
 ||| Create an empty buffer. obsDim/actDim are passed explicitly so they
 ||| can be inferred at instantiation (e.g. when mkBuffer is consumed into
@@ -51,14 +48,12 @@ mkBuffer capacity = do
   arr <- newArray cap
   pure (MkReplayBuffer cap cur sz arr)
 
-
 ||| Number of transitions currently stored (0..capacity).
 export
 bufferSize : ReplayBuffer obsDim actDim -> IO Nat
 bufferSize buf = do
   n <- readIORef buf.size
   pure (integerToNat (cast n))
-
 
 ||| Push a transition. When full, overwrites the oldest entry.
 export
@@ -72,7 +67,6 @@ push buf t = do
     then writeIORef buf.size (sz + 1)
     else pure ()
 
-
 -- Draw one uniform random index in [0, n).
 randomIdx : Int -> IO Int
 randomIdx n = do
@@ -81,7 +75,6 @@ randomIdx n = do
       scaled = cast (r * cast n)
   -- clamp to [0, n-1] defensively against r==1.0
   pure (if scaled >= n then n - 1 else scaled)
-
 
 ||| Sample `n` transitions uniformly at random (with replacement).
 ||| Returns `Nothing` if the buffer is empty.

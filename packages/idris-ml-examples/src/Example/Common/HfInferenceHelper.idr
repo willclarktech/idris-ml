@@ -28,7 +28,6 @@ import Executor
 import Tensor
 import Util
 
-
 ----------------------------------------------------------------------
 -- Token-id tensor construction
 ----------------------------------------------------------------------
@@ -50,7 +49,6 @@ public export
 toExistVect : (xs : List a) -> (n : Nat ** Vect n a)
 toExistVect xs = (length xs ** fromList xs)
 
-
 ----------------------------------------------------------------------
 -- Stdout dump of a [n]-shape row, one float per line
 ----------------------------------------------------------------------
@@ -67,7 +65,6 @@ printRow end i p =
       let v = primItem1d {ex=ExampleExecutor} p i
       putStrLn (show v)
       printRow end (i + 1) p
-
 
 ----------------------------------------------------------------------
 -- Argmax over a 1D row pointer
@@ -88,7 +85,6 @@ argmaxRow vocab p = go (cast {to=Int} vocab) 0 0 (-1.0e300)
              in if v > bestV
                   then go end (i + 1) i v
                   else go end (i + 1) bestI bestV
-
 
 ----------------------------------------------------------------------
 -- File dump (used by BitNet's --bisect-blocks)
@@ -123,7 +119,6 @@ dumpRowToFile path nElems ptr = do
     Left  err =>
       putStrLn ("ERR: writeFile " ++ path ++ ": " ++ show err)
 
-
 ----------------------------------------------------------------------
 -- argv parsing for --prompt / --num-tokens
 ----------------------------------------------------------------------
@@ -150,7 +145,6 @@ extractNumTokens dflt args = go args
       fromMaybe dflt (parsePositive {a=Nat} n)
     go (_ :: rest)                = go rest
     go []                         = dflt
-
 
 ----------------------------------------------------------------------
 -- Stage timer

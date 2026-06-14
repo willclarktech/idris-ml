@@ -15,7 +15,6 @@ import Test.ToyText.Taxi
 import Test.ToyText.FrozenLake
 import Test.ToyText.Blackjack
 
-
 main : IO ()
 main = runAll
   [ ("Rng",                            Test.Rng.tests)

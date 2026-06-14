@@ -15,7 +15,6 @@ import Train
 import Executor
 import BuildConfig
 
-
 ----------------------------------------------------------------------
 -- Env dimensions (Taxi-v3, deterministic 5x5 grid)
 ----------------------------------------------------------------------
@@ -23,7 +22,6 @@ import BuildConfig
 NumStates : Nat; NumStates = 500
 NumActions : Nat; NumActions = 6
 MaxSteps : Nat; MaxSteps = 200
-
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -49,7 +47,6 @@ qSet i j v (VArray rows) =
       newRow = VArray (Data.Vect.replaceAt j (SArray v) cells)
   in VArray (Data.Vect.replaceAt i newRow rows)
 
-
 ----------------------------------------------------------------------
 -- Nat -> Fin conversions (env guarantees in-range)
 ----------------------------------------------------------------------
@@ -63,7 +60,6 @@ toActionFin : Nat -> Fin NumActions
 toActionFin n = case natToFin n NumActions of
   Just f => f
   Nothing => FZ
-
 
 ----------------------------------------------------------------------
 -- Epsilon-greedy
@@ -83,7 +79,6 @@ epsGreedy eps qr u1 u2 =
               Just f => f
               Nothing => FZ
     else argmax qr
-
 
 ----------------------------------------------------------------------
 -- Episode rollout with Q-learning updates
@@ -111,7 +106,6 @@ runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
               then (q', reward)
               else let (qF, fut) = runEpisode alpha gamma eps st' q' steps rest
                    in (qF, reward + fut)
-
 
 ----------------------------------------------------------------------
 -- Config & training loop
@@ -148,7 +142,6 @@ genNoise (S k) = do
   rest <- genNoise k
   pure (u :: rest)
 
-
 ----------------------------------------------------------------------
 -- Greedy evaluation (deterministic env + fixed start = single trajectory).
 -- Average over N runs is the same number; loop only for parity with the
@@ -169,7 +162,6 @@ evalN : QTable -> Nat -> Double -> Double
 evalN _ Z acc = acc
 evalN q (S k) acc =
   evalN q k (acc + evalEpisode q defaultStart MaxSteps 0.0)
-
 
 ----------------------------------------------------------------------
 -- Main

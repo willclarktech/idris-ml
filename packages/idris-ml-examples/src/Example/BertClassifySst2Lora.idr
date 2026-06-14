@@ -43,7 +43,6 @@ import HfBertLora
 import HfDataset
 import HfLoraIO
 
-
 ----------------------------------------------------------------------
 -- Config (matches google/bert_uncased_L-2_H-128_A-2)
 ----------------------------------------------------------------------
@@ -80,7 +79,6 @@ SeqLen = 32
 
 PadId : Nat
 PadId = 0
-
 
 record Config where
   constructor MkConfig
@@ -120,7 +118,6 @@ specs = [ Arg "--lr"            (\v, c => { lr := cast v } c)
         , Arg "--save-adapter"  (\v, c => { saveAdapter := v } c)
         ]
 
-
 ----------------------------------------------------------------------
 -- Paths
 ----------------------------------------------------------------------
@@ -133,7 +130,6 @@ devTsvPath = "data/hf-datasets/glue-sst2/validation.tsv"
 
 ckptPath : String
 ckptPath = "models/google/bert_uncased_L-2_H-128_A-2/model.safetensors"
-
 
 ----------------------------------------------------------------------
 -- Model + helpers
@@ -157,7 +153,6 @@ Adapters = BertLoraAdapters NumLayers Hidden LoraR
 PaddedExample : Type
 PaddedExample = (Vect SeqLen Nat, Vect SeqLen Double, Nat)
 
-
 arangeSeqLen : Vect SeqLen Double
 arangeSeqLen = build SeqLen
   where
@@ -173,13 +168,11 @@ posVect = arangeSeqLen
 typeVect : Vect SeqLen Double
 typeVect = replicate SeqLen 0.0
 
-
 mkIdsTensor : Vect SeqLen Double -> IO (Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad)
 mkIdsTensor xs = ioRerun (\_ =>
   let raw = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType}
                          (VArray (map SArray xs))
   in tinput1d {n=SeqLen} raw)
-
 
 mkMaskTensor : Vect SeqLen Double
             -> IO (Tensor [SeqLen, SeqLen] ExampleExecutor ExampleDType WithGrad)
@@ -197,7 +190,6 @@ mkMaskTensor posMask = do
       let b' = prim__setDouble b off v
       in fillBuf b' (off + 1) rest
 
-
 oneHotTensor : Nat -> IO (Tensor [NumClasses] ExampleExecutor ExampleDType WithGrad)
 oneHotTensor lbl = ioRerun (\_ =>
   let oneHot : Vect NumClasses Double
@@ -207,7 +199,6 @@ oneHotTensor lbl = ioRerun (\_ =>
       raw = bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType}
                          (VArray (map SArray oneHot))
   in tinput1d {n=NumClasses} raw)
-
 
 -- Forward with the LoRA adapters threaded in. Same structure as the
 -- non-LoRA forwardOne but calls hfBertSeqClassifyForwardWithLora.
@@ -229,14 +220,12 @@ forwardOneLora model adapters (ids, mask, _) = do
         {numClasses=NumClasses} {r=LoraR}
         model (Just adapters) idsT posT typT (Just mskT)
 
-
 exampleLoss : Model -> Adapters -> PaddedExample
            -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
 exampleLoss model adapters ex@(_, _, label) = do
   logits <- forwardOneLora model adapters ex
   target <- oneHotTensor label
   tnllLoss logits target
-
 
 sumScalars : Tensor [] ExampleExecutor ExampleDType WithGrad
           -> List (Tensor [] ExampleExecutor ExampleDType WithGrad)
@@ -245,7 +234,6 @@ sumScalars acc []        = pure acc
 sumScalars acc (x :: xs) = do
   acc' <- tadd acc x
   sumScalars acc' xs
-
 
 epochLora : NativeOptimizer ExampleExecutor
          -> (batchSize : Nat) -> Model -> Adapters -> List PaddedExample
@@ -273,14 +261,12 @@ epochLora opt batchSize model adapters items = do
           v <- nativeTrainStep opt meanLoss
           go m a (accLoss + v) (S nBatches) rest
 
-
 predictClass : Model -> Adapters -> PaddedExample -> IO Nat
 predictClass model adapters ex = do
   logits <- forwardOneLora model adapters ex
   let v0 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 0
       v1 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 1
   pure $ if v0 >= v1 then 0 else 1
-
 
 heldOutAccuracy : Model -> Adapters -> List PaddedExample -> IO Double
 heldOutAccuracy model adapters items =
@@ -298,11 +284,9 @@ heldOutAccuracy model adapters items =
                    / cast {to=Double} (cast {to=Integer} n)
     pure acc
 
-
 capAt : Nat -> List a -> List a
 capAt 0 xs = xs
 capAt n xs = take n xs
-
 
 ----------------------------------------------------------------------
 -- main

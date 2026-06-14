@@ -6,7 +6,6 @@ import Executor
 import Layer.Core
 import Tensor
 
-
 ----------------------------------------------------------------------
 -- Type-level conv/pool output-dimension helpers
 ----------------------------------------------------------------------
@@ -20,7 +19,6 @@ ConvOutDim inDim kernel pad = ((inDim + 2 * pad) `minus` kernel) + 1
 public export
 PoolOutDim : Nat -> Nat -> Nat -> Nat
 PoolOutDim inDim kernel stride = div (inDim `minus` kernel) stride + 1
-
 
 ----------------------------------------------------------------------
 -- Conv — typed-surface conv + pool layers (Path C)
@@ -36,7 +34,6 @@ PoolOutDim inDim kernel stride = div (inDim `minus` kernel) stride + 1
 -- to `[c, spatial]` (1D) or `[c, h, w]` (2D), calls the C op, then
 -- flattens. Type-level `i / o` indices are computed with V1's
 -- `ConvOutDim` / `PoolOutDim` helpers.
-
 
 ----------------------------------------------------------------------
 -- Conv2D
@@ -104,7 +101,6 @@ applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
       out2d = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
   in MkTensor out2d Nothing
 
-
 ||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
 conv2dLayer : Backend ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
@@ -149,7 +145,6 @@ conv2dLayerAny : Backend ex dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
 conv2dLayerAny pid =
   map (MkAnyLayer (Conv2DState inC outC h w kH kW padH padW))
       (conv2dLayer {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} pid)
-
 
 ----------------------------------------------------------------------
 -- Conv1D
@@ -222,7 +217,6 @@ conv1dLayerAny : Backend ex dt => {inC, outC, len, kL, pad : Nat} ->
 conv1dLayerAny pid =
   map (MkAnyLayer (Conv1DState inC outC len kL pad))
       (conv1dLayer {inC} {outC} {len} {kL} {pad} pid)
-
 
 ----------------------------------------------------------------------
 -- MaxPool2D / AvgPool2D (no learnable params)
@@ -347,7 +341,6 @@ avgPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
 avgPool2dLayer =
   MkAnyLayer (AvgPool2DState c inH inW poolH poolW strH strW)
                MkAvgPool2D
-
 
 ----------------------------------------------------------------------
 -- MaxPool1D / AvgPool1D

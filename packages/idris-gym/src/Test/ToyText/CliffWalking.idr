@@ -4,7 +4,6 @@ import Test.Harness
 import Gym.Env
 import Gym.ToyText.CliffWalking
 
-
 rewardOf : (Double, CWState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r
 
@@ -14,10 +13,8 @@ stateOf (_, s, _, _) = s
 outcomeOf : (Double, CWState, Outcome, Info) -> Outcome
 outcomeOf (_, _, o, _) = o
 
-
 cwInit : CWState
 cwInit = MkCW 3 0
-
 
 export
 tests : List (IO Bool)
