@@ -284,8 +284,8 @@ benchNtmHead = do
 -- TransformerBlock (batch=2, dModel=64, heads=4, headDim=16)
 --
 -- The bare Nn.transformerBlock — the embedding + final-norm + vocab
--- projection that the legacy monolithic layer wrapped are insignificant
--- at these dims (and live in the decomposed surface, not the block).
+-- projection are insignificant at these dims (and live alongside the
+-- block in the decomposed surface, not inside it).
 -- Captures the attention + FFN + 2× LayerNorm + 2× residual pattern.
 ----------------------------------------------------------------------
 

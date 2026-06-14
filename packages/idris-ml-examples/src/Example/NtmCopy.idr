@@ -42,7 +42,7 @@ Model : Type
 Model = Ntm N M H InputW OutputW Ex F WithGrad
 
 ----------------------------------------------------------------------
--- Copy-task data (was Generate.copyTaskBinary / TwoPhaseDataPoint)
+-- Copy-task data
 ----------------------------------------------------------------------
 
 Seq : Type
@@ -210,8 +210,8 @@ main = do
   let dataStream = generate (genBatch cfg.batch cfg.minLen cfg.maxLen)
   putStrLn ""
 
-  -- Final loss is discarded (as the legacy did): with windowed-percentile
-  -- early stop the engine's returned loss isn't meaningful; the per-epoch
+  -- Final loss is discarded: with windowed-percentile early stop the
+  -- engine's returned loss isn't meaningful; the per-epoch
   -- log carries the real loss trajectory, and bit accuracy is the headline.
   (trained, epochsDone, _) <-
     fit (recurEpoch opt) opt dataStream

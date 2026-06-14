@@ -21,7 +21,7 @@ record Model where
   head : Linear 4 1 Ex F WithGrad
 
 ----------------------------------------------------------------------
--- Pattern data (was Generate.patternData / RecurrentDataPoint)
+-- Pattern data
 ----------------------------------------------------------------------
 
 patternSeq : Nat -> (List Double, List Double)

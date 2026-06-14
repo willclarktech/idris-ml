@@ -25,7 +25,7 @@ record Model where
   head : Linear 4 1 Ex F WithGrad
 
 ----------------------------------------------------------------------
--- Pattern data (was Generate.patternData / RecurrentDataPoint)
+-- Pattern data
 ----------------------------------------------------------------------
 
 -- Deterministic [0,1,0,0,1,0,...] cycle. Sequence k has length k+3;
@@ -86,7 +86,7 @@ seqLoss (MkModel cell0 head) (is, os) = do
       go cell' acc' (S cnt) rest
 
 -- One epoch = one pass over all NumSeqs sequences: mean per-seq loss, one
--- optimizer step (the legacy `epochRecurrentVar` shape, as an EpochStep).
+-- optimizer step. An EpochStep folding the recurrent cell over each sequence.
 recurEpoch : Optimizer Ex -> Model -> Vect NumSeqs (List Double, List Double) -> IO (Model, Double)
 recurEpoch opt model seqs = do
   seqLs <- traverse (seqLoss model) (toList seqs)

@@ -20,7 +20,7 @@ import ML.Simple
 import Train
 
 ----------------------------------------------------------------------
--- Architecture (flat dims, mirroring the legacy chain)
+-- Architecture (flat dims)
 ----------------------------------------------------------------------
 
 SeqLen : Nat
@@ -63,7 +63,7 @@ AfterPool2 : Nat
 AfterPool2 = C2 * Pool2Out  -- 48
 
 ----------------------------------------------------------------------
--- Synthetic data (was Generate.seqPoint / DataPoint)
+-- Synthetic data
 ----------------------------------------------------------------------
 
 randomInt : (lo, hi : Nat) -> IO Nat
