@@ -170,10 +170,14 @@ The decisive structural rule of the whole migration:
 
 - **Leaf** layer param fields stay **ω** (reused in the matmul *and* the
   rebuild — see QTT fact 2).
-- **Composite** fields that thread + re-pack sub-models (`SeqL`'s `(::)`,
-  `ResidualL`'s sublayer, and later `AttentionL`/`TransformerBlockL`) must be
-  **linear `(1 _)`**, so the rebuilt linear sub-models returned by `forwardL`
-  are accepted.
+- **Composite** fields that thread + re-pack sub-models *via a linear
+  `forwardL`* (`SeqL`'s `(::)`, `ResidualL`'s sublayer) must be **linear
+  `(1 _)`**, so the rebuilt linear sub-models returned by `forwardL` are
+  accepted.
+- **Read-only composites** (`TransformerBlock`, the `Ntm`/`Dnc` controllers)
+  keep their sub-model fields **ω** and delegate the forward/step to IO at the
+  linear boundary (see "consume-match-rebuild-delegate" above) — they never
+  re-pack a *linear* sub-result, so no linear field is needed.
 
 Multiplicity is chosen **per field by its role**, not uniformly per type.
 
@@ -185,6 +189,59 @@ dictionary-dispatched matches). It **works**: `forwardSeqL (l :: rest) x`
 destructures the banged output of `forwardL l x`, recurses on `rest`, and
 re-packs `(l' :: rest')` with both fields linear. Proven first in a spike,
 then on the real `Nn.Seq`/`Nn.Linear` types.
+
+### Consume-match-rebuild-delegate (the composite recurrent pattern)
+
+A leaf's `forwardL`/`recurStepL` can be written as a native `L IO` body (mirror
+the IO body, swap the wrapper for `ioRerunL`, return `MkBang y # rebuilt`). But
+the big composite recurrent cells (`Ntm`, `Dnc`) have large, raw-prim-heavy
+bodies that thread an LSTM controller **stored in an ω record field**. Two facts
+collide:
+
+- The controller field is **ω** (the IO `Recurrent`/`Params` instances project
+  it ~15×, so it can't be made linear while the IO surface still coexists).
+- A `forwardL`/`recurStepL` on the controller via the *linear* `recurStepL`
+  returns a `1`-bound updated controller — which **cannot go back into the ω
+  field** (the `Frozen`-ω rule above).
+
+So for now these delegate at the linear boundary:
+
+```idris
+recurStepL (MkNtm ctrl …state…) input = do
+  (updSt, out) <- liftIO1 (recurStep (MkNtm ctrl …state…) input)  -- IO step, ω
+  pure1 (MkBang out # updSt)
+```
+
+The **pattern-match discharges the scrutinee's linearity** (fields bind at ω);
+we rebuild an ω cell, run the IO `recurStep` (which threads the controller in ω
+internally), and return the fresh ω cell as the linear component of the pair.
+The handle-level guarantee — *you cannot reuse a stale cell after a step* —
+holds; only the internal threading stays ω. The inline `L IO` body (with a
+linear controller field) lands at the IO-surface collapse.
+
+**Trap that forces this shape:** you cannot pass the linear scrutinee `st`
+*directly* to the IO step — `recurStep st input` errors with "Trying to use
+linear name st in non-linear context", because `recurStep`'s argument is ω and
+applying an ω function **scales the argument's usage by ω** (1 ≠ ω). You must
+match-and-rebuild first. (This is the *dual* of the `Frozen`-ω rule: there a
+linear value can't *enter* an ω field; here a linear value can't *feed* an ω
+parameter.) The same applies to `recurResetL` / any delegation to an ω-arg IO
+function. `TransformerBlock`'s `forwardL` uses the identical shape — its forward
+is read-only on every sub-layer, so it delegates the multi-step pre-norm body to
+the IO `forward` and rebuilds the unchanged block.
+
+### Kind-mismatched layers get plain-function linear analogues
+
+`Attention` carries three config Nats (`dModel`/`numHeads`/`headDim`), so it
+doesn't fit the `(i, o, …)` 2-Nat kind of `Params`/`Module`; the IO surface
+exposes it as plain functions (`attentionParams`/`attentionCastGrad`/
+`attentionForward`) that the enclosing `TransformerBlock` splices into *its*
+interface impls. The linear surface mirrors that exactly: `attentionReflectL` /
+`attentionCastGradL` / `attentionDiscardL` / `attentionForwardL` are plain
+linear functions (same signatures as the interface methods would have, minus the
+dispatch), and the block's `ParamsL`/`ModuleL` splice them over the ω-bound
+`attn` field. Parameter-free free functions (`PosEncoding`, `RoPE`) need no
+linear surface at all — they hold no model resource.
 
 ## Writing a gate test that fails for the *right* reason
 
@@ -299,17 +356,31 @@ already concrete `L IO τ`.
   `evalL`/`freezeL`/`unfreezeL`/`trainableL`.
 - `packages/idris-ml/src/Nn/Linear.idr` — leaf exemplar (`ModuleL Linear`).
 - `packages/idris-ml/src/Nn/{Activation,Dropout,LayerNorm}.idr` — leaf Modules.
+- `packages/idris-ml/src/Nn/{Conv,Pool}.idr` — batched 4-D Modules (`ParamsL` +
+  `ModuleL`, inline `ioRerunL` bodies).
+- `packages/idris-ml/src/Nn/{BatchNorm,BitLinear,Embedding,LoraLinear,SwiGLU,RmsNorm}.idr`
+  — leaf `ParamsL`-only layers (1-D forwards, not batched Modules).
+- `packages/idris-ml/src/Nn/{Ntm,Dnc}.idr` — composite recurrent (`ParamsL` +
+  `RecurrentL`, consume-match-rebuild-delegate).
+- `packages/idris-ml/src/Nn/{Attention,Transformer}.idr` — the composites
+  (Attention's plain linear fns spliced by `TransformerBlock`'s `ParamsL`/
+  `ModuleL`).
 - `packages/idris-ml/src/Nn/SeqL.idr` — list composite (existential threading).
 - `packages/idris-ml/src/Nn/Residual.idr` — `ResidualL`, one-sublayer composite.
 - `packages/idris-ml/src/Test/{neg/ReuseAfterFreeze,pos/SingleUseCompiles}.idr`
   + `scripts/check-linear-model-gate.sh` — the gate.
+
+Not yet on the linear surface: `LinearMixed` (the mixed-precision
+`ModuleMixed`/`ParamsMixed` family — a distinct kind with the `computeDt` slot;
+a `*MixedL` surface is a follow-up). Parameter-free `PosEncoding`/`RoPE` need
+none.
 
 - `packages/idris-ml/src/Tensor.idr` — the additive `L IO` op surface
   (`ioRerunL` + `taddL`/`tlinearL`/`tlinear2dL`/`tzeroState1dL`/
   `tlstmGatesPairL`/`tgruCellL` + the six activation twins). The `IO` ops are
   unchanged beside them.
 - `packages/idris-ml/src/Nn/{Recurrent,Lstm,Gru}.idr` — `RecurrentL` bodies on
-  the `L IO` ops.
+  the `L IO` ops (the small recurrent cells; `Ntm`/`Dnc` delegate instead).
 
 Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface. No `forwardL`/
 `recurStepL` body still uses `liftIO1` for tensor math — the only remaining
