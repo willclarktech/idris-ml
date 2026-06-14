@@ -160,33 +160,23 @@ testApplyRopeAllHeadsLComposes = do
       pure False
 
 ----------------------------------------------------------------------
--- Bucket 5: NoGrad-from-birth RoPE tables (grad-poly buildLlamaRoPETables)
+-- Bucket 5: RoPE tables are non-learnable state constants
 ----------------------------------------------------------------------
 --
--- `buildLlamaRoPETables {g=NoGrad}` must yield cos/sin state tables that
--- are genuinely tape-free (C requires_grad==0), so a NoGrad Llama is fully
--- tape-free; the WithGrad default still labels them requires_grad==1.
-
 -- RoPE cos/sin come from `dtCreateState2d` — precomputed non-learnable
--- STATE (no paramId), so they are requires_grad==0 at the C level for BOTH
--- `g` labels. The grad-poly `g` index is purely type-level: it lets a
--- NoGrad Llama's `RoPETables` field type-check tape-free (uniform with the
--- model's other fields), while gradient still flows THROUGH them to q/k in
--- a WithGrad model. (Contrast `Nn.Linear`, whose params ARE learnable and
--- whose NoGrad branch genuinely flips requires_grad 1→0.)
+-- STATE (no paramId, requires_grad==0). `RoPETables` carries NO GradMode
+-- index (the rotation bodies touch the tables only as raw `.tensorPtr`, so
+-- a phantom `g` there would be vestigial); the grad-mode that matters lives
+-- on the `applyRope*` activation, independent of the tables.
 testTablesAreStateConstants : IO Bool
 testTablesAreStateConstants = do
-  MkRoPETables ngC ngS <- buildLlamaRoPETables {ex=TestExecutor} {dt=TestDType} {g=NoGrad}
-                            {maxPos=4} {headDim=4} ropeBase noScaling
-  MkRoPETables wgC wgS <- buildLlamaRoPETables {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
-                            {maxPos=4} {headDim=4} ropeBase noScaling
-  let r = the (List Int) [ primRequiresGrad {ex=TestExecutor} ngC.tensorPtr
-                         , primRequiresGrad {ex=TestExecutor} ngS.tensorPtr
-                         , primRequiresGrad {ex=TestExecutor} wgC.tensorPtr
-                         , primRequiresGrad {ex=TestExecutor} wgS.tensorPtr ]
-  check ("RoPE tables are non-learnable state constants both g labels (requires_grad "
-         ++ show r ++ ")")
-        (all (== 0) r)
+  MkRoPETables cosT sinT <- buildLlamaRoPETables {ex=TestExecutor} {dt=TestDType}
+                              {maxPos=4} {headDim=4} ropeBase noScaling
+  let rgC = primRequiresGrad {ex=TestExecutor} cosT.tensorPtr
+      rgS = primRequiresGrad {ex=TestExecutor} sinT.tensorPtr
+  check ("RoPE tables are non-learnable state constants (requires_grad cos=" ++ show rgC
+         ++ " sin=" ++ show rgS ++ ")")
+        (rgC == 0 && rgS == 0)
 
 ----------------------------------------------------------------------
 -- Suite

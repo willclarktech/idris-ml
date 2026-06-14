@@ -422,7 +422,7 @@ applyAttention : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt
                  -- passing coherent dims; misconfigured ratios become
                  -- runtime issues (garbage logits, no crash). -->
                  LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) ex dt g ->
-                 RoPETables maxPos headDim ex dt g ->
+                 RoPETables maxPos headDim ex dt ->
                  Tensor [seq, hidden] ex dt g ->
                  IO (Tensor [seq, hidden] ex dt g)
 applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn tables input = do
@@ -475,7 +475,7 @@ applyBlock : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
           -- qPrf / ratio proofs dropped — see applyAttention. -->
           -> (eps : Double)
           -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-          -> RoPETables maxPos headDim ex dt g
+          -> RoPETables maxPos headDim ex dt
           -> Tensor [seq, hidden] ex dt g
           -> IO (Tensor [seq, hidden] ex dt g)
 applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} eps blk tables x =
@@ -492,7 +492,7 @@ applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore e
            -- qPrf / ratio proofs dropped — see applyAttention. -->
            -> (eps : Double)
            -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g)
-           -> RoPETables maxPos headDim ex dt g
+           -> RoPETables maxPos headDim ex dt
            -> Tensor [seq, hidden] ex dt g
            -> IO (Tensor [seq, hidden] ex dt g)
 applyBlocks _   []        _      x = pure x
@@ -510,7 +510,7 @@ hfLlamaForward : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCor
               -- qPrf / ratio proofs dropped — see applyAttention. -->
               -> (eps : Double)
               -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-              -> RoPETables maxPos headDim ex dt g
+              -> RoPETables maxPos headDim ex dt
               -> Tensor [seq] ex dt g
               -> IO (Tensor [seq, hidden] ex dt g)
 hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
@@ -528,7 +528,7 @@ hfLlamaForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorC
                 -- qPrf / ratio proofs dropped — see applyAttention. -->
                 -> (eps : Double)
                 -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-                -> RoPETables maxPos headDim ex dt g
+                -> RoPETables maxPos headDim ex dt
                 -> Tensor [seq] ex dt g
                 -> IO (Tensor [seq, vocab] ex dt g)
 hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
@@ -561,7 +561,7 @@ applyAttentionCached :
        {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
     => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat}
     -> LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) ex dt g
-    -> RoPETables maxPos headDim ex dt g
+    -> RoPETables maxPos headDim ex dt
     -> KVCache (numKvHeads * headDim) ex dt
     -> Tensor [seq, hidden] ex dt g
     -> IO (KVCache (numKvHeads * headDim) ex dt, Tensor [seq, hidden] ex dt g)
@@ -633,7 +633,7 @@ applyBlockCached :
     => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
     -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-    -> RoPETables maxPos headDim ex dt g
+    -> RoPETables maxPos headDim ex dt
     -> KVCache (numKvHeads * headDim) ex dt
     -> Tensor [seq, hidden] ex dt g
     -> IO (KVCache (numKvHeads * headDim) ex dt, Tensor [seq, hidden] ex dt g)
@@ -655,7 +655,7 @@ applyBlocksCached :
     => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
     -> (eps : Double)
     -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g)
-    -> RoPETables maxPos headDim ex dt g
+    -> RoPETables maxPos headDim ex dt
     -> Vect n (KVCache (numKvHeads * headDim) ex dt)
     -> Tensor [seq, hidden] ex dt g
     -> IO (Vect n (KVCache (numKvHeads * headDim) ex dt), Tensor [seq, hidden] ex dt g)
@@ -677,7 +677,7 @@ hfLlamaForwardStep :
     => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
     -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-    -> RoPETables maxPos headDim ex dt g
+    -> RoPETables maxPos headDim ex dt
     -> Vect numLayers (KVCache (numKvHeads * headDim) ex dt)
     -> Tensor [seq] ex dt g
     -> IO (Vect numLayers (KVCache (numKvHeads * headDim) ex dt), Tensor [seq, hidden] ex dt g)
@@ -697,7 +697,7 @@ hfLlamaForwardLmStep :
     => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
     -> (eps : Double)
     -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-    -> RoPETables maxPos headDim ex dt g
+    -> RoPETables maxPos headDim ex dt
     -> Vect numLayers (KVCache (numKvHeads * headDim) ex dt)
     -> Tensor [seq] ex dt g
     -> IO (Vect numLayers (KVCache (numKvHeads * headDim) ex dt), Tensor [seq, vocab] ex dt g)

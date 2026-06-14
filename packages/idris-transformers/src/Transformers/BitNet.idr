@@ -597,7 +597,7 @@ applyAttention : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCor
               => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
               (eps : Double) ->
               BitNetAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) ex dt g ->
-              RoPETables maxPos headDim ex dt g ->
+              RoPETables maxPos headDim ex dt ->
               Tensor [seq, hidden] ex dt g ->
               IO (Tensor [seq, hidden] ex dt g)
 applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
@@ -663,7 +663,7 @@ applyBlock : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
           -> (eps : Double)
           -> BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-          -> RoPETables maxPos headDim ex dt g
+          -> RoPETables maxPos headDim ex dt
           -> Tensor [seq, hidden] ex dt g
           -> IO (Tensor [seq, hidden] ex dt g)
 applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} {intermediate}
@@ -681,7 +681,7 @@ applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore e
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
            -> (eps : Double)
            -> Vect n (BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g)
-           -> RoPETables maxPos headDim ex dt g
+           -> RoPETables maxPos headDim ex dt
            -> Tensor [seq, hidden] ex dt g
            -> IO (Tensor [seq, hidden] ex dt g)
 applyBlocks _   []        _      x = pure x
@@ -699,7 +699,7 @@ hfBitnetForward : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCo
               => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
               -> (eps : Double)
               -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-              -> RoPETables maxPos headDim ex dt g
+              -> RoPETables maxPos headDim ex dt
               -> Tensor [seq] ex dt g
               -> IO (Tensor [seq, hidden] ex dt g)
 hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model tables tokens = do
@@ -717,7 +717,7 @@ hfBitnetForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutor
                 => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
                 -> (eps : Double)
                 -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
-                -> RoPETables maxPos headDim ex dt g
+                -> RoPETables maxPos headDim ex dt
                 -> Tensor [seq] ex dt g
                 -> IO (Tensor [seq, vocab] ex dt g)
 hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tables tokens = do

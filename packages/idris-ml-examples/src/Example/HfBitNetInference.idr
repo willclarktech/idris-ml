@@ -88,7 +88,7 @@ iterateBlocksDumping :
   -> Vect n (BitNetBlockState (hidden cfg) (numHeads cfg * headDim cfg)
                               (numKvHeads cfg * headDim cfg) (intermediate cfg)
                               ExampleExecutor ExampleDType WithGrad)
-  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
   -> Tensor [2, hidden cfg] ExampleExecutor ExampleDType WithGrad
   -> (idx : Nat)
   -> (dumpFn : String -> AnyPtr -> Int -> IO ())
@@ -109,7 +109,7 @@ iterateBlocksDumping cfg (b :: bs) tables x idx dumpFn = do
 
 genOneStep : (cfg : BitNetConfig)
           -> BitNetModel cfg ExampleExecutor ExampleDType WithGrad
-          -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+          -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
           -> List (Fin (vocabSize cfg))
           -> IO (Maybe (Fin (vocabSize cfg)))
 genOneStep cfg model tables toksList = do
@@ -140,7 +140,7 @@ genOneStep cfg model tables toksList = do
 
 genLoop : (cfg : BitNetConfig)
        -> BitNetModel cfg ExampleExecutor ExampleDType WithGrad
-       -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+       -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
        -> List (Fin (vocabSize cfg))
        -> (remaining : Nat)
        -> IO (List (Fin (vocabSize cfg)))
@@ -162,7 +162,7 @@ genLoop cfg model tables tokens (S k) = do
 runGenerate : (cfg : BitNetConfig)
            -> Tokenizer (vocabSize cfg)
            -> BitNetModel cfg ExampleExecutor ExampleDType WithGrad
-           -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+           -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runGenerate cfg tok model tables prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt

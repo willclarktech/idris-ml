@@ -8,9 +8,9 @@
 ||| params from `model.safetensors`. The returned `(cfg ** model)` ties
 ||| the model's type to the file — nothing about Llama-3.2-1B is
 ||| hardcoded; `cfg.ropeBase` / `cfg.rmsNormEps` drive the RoPE tables +
-||| RmsNorm eps below. (Built `WithGrad`: `buildLlamaRoPETables` produces
-||| `WithGrad` tables, and the forward needs the model and tables to share
-||| a grad mode — a tape-free `NoGrad` RoPE path is a follow-up.)
+||| RmsNorm eps below. (The model is built `WithGrad`; the RoPE tables are
+||| grad-mode-free non-learnable constants — `RoPETables` carries no `g`
+||| index — independent of the model's grad mode.)
 |||
 ||| Three modes (all share the cache-aware decode path —
 ||| `genLoopCached`; the no-cache `genLoop` was dropped 2026-06-04
@@ -100,7 +100,7 @@ modelDir = "models/" ++ ModelRepo
 genStepCached :
      (cfg : LlamaConfig)
   -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
-  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
   -> Vect (numLayers cfg) (KVCache (numKvHeads cfg * headDim cfg) ExampleExecutor ExampleDType)
   -> List (Fin (vocabSize cfg))
   -> IO (Vect (numLayers cfg) (KVCache (numKvHeads cfg * headDim cfg) ExampleExecutor ExampleDType),
@@ -139,7 +139,7 @@ genStepCached cfg model tables caches toksList = do
 genLoopCached :
      (cfg : LlamaConfig)
   -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
-  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
   -> List (Fin (vocabSize cfg))   -- prompt
   -> (remaining : Nat)
   -> IO (List (Fin (vocabSize cfg)))
@@ -171,7 +171,7 @@ genLoopCached cfg model tables prompt remaining =
 
 runDumpHidden : (cfg : LlamaConfig)
              -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
-             -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+             -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
              -> IO ()
 runDumpHidden cfg model tables = do
   -- Fixed input: BPE("Hello") = [9906] in Llama 3 vocab.
@@ -197,7 +197,7 @@ runDumpHidden cfg model tables = do
 runGenerate : (cfg : LlamaConfig)
            -> Tokenizer (vocabSize cfg)
            -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
-           -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+           -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runGenerate cfg tok model tables prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt
@@ -227,7 +227,7 @@ runGenerate cfg tok model tables prompt numTokens = do
 runDumpTokens : (cfg : LlamaConfig)
              -> Tokenizer (vocabSize cfg)
              -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
-             -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+             -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
              -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runDumpTokens cfg tok model tables prompt numTokens = do
   Right (_ ** promptIds) <- tokenize tok prompt

@@ -190,12 +190,18 @@ writeSinTable buf halfDim sLen freqs pos i =
 ||| at 8192 for our small-context demos): table is 8192*32 = 262144
 ||| doubles per table = 2 MB at F64. Llama 3 max context (131072): 33 MB
 ||| per table. Both manageable.
+||| The cos/sin tables carry NO `GradMode` index: they are precomputed
+||| non-learnable constants (`dtCreateState2d`, `paramId = Nothing`,
+||| `requires_grad == 0`), and the rotation bodies touch them only as raw
+||| `.tensorPtr` (never a typed `g`-matching op), so a phantom `g` here would
+||| be vestigial. The grad-mode that matters — the activation's — lives on the
+||| `applyRope*` input/output tensor, independent of the tables.
 public export
 record RoPETables (maxPos : Nat) (headDim : Nat)
-                  (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
+                  (0 ex : Executor) (0 dt : DType) where
   constructor MkRoPETables
-  cosTable : Tensor [maxPos, div headDim 2] ex dt g
-  sinTable : Tensor [maxPos, div headDim 2] ex dt g
+  cosTable : Tensor [maxPos, div headDim 2] ex dt NoGrad
+  sinTable : Tensor [maxPos, div headDim 2] ex dt NoGrad
 
 ||| Construct Llama-3 RoPE tables.
 |||   `maxPos`   : maximum sequence position the tables cover (rows).
@@ -203,32 +209,23 @@ record RoPETables (maxPos : Nat) (headDim : Nat)
 |||   `base`     : rope_theta (Llama 3 = 500000).
 |||   `scaling`  : NTK scaling params (use `llama3Scaling` for default).
 export
-buildLlamaRoPETables : KnownGrad g => {0 ex : Executor} -> Backend ex dt
+buildLlamaRoPETables : {0 ex : Executor} -> Backend ex dt
                     => {maxPos, headDim : Nat}
                     -> (base : Double)
                     -> (scaling : LlamaRopeScaling)
-                    -> IO (RoPETables maxPos headDim ex dt g)
-buildLlamaRoPETables base scaling = do
-  -- Build the (paramId-less) cos/sin state tables at WithGrad, then on the
-  -- NoGrad branch weaken both so a NoGrad Llama is genuinely tape-free.
-  tbl <- the (IO (RoPETables maxPos headDim ex dt WithGrad)) $ ioRerun (\_ =>
-    let halfDimI = cast {to=Int} (div headDim 2)
-        sLenI   = cast {to=Int} maxPos
-        nElts   = halfDimI * sLenI
-        freqs   = toList (llamaInvFreq headDim base scaling)
-        cosBuf  = prim__allocDoubles nElts
-        sinBuf  = prim__allocDoubles nElts
-        cosBuf' = writeCosTable cosBuf halfDimI sLenI freqs 0 0
-        sinBuf' = writeSinTable sinBuf halfDimI sLenI freqs 0 0
-        cosPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {ex})
-        sinPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {ex})
-    in MkRoPETables (MkTensor cosPtr Nothing) (MkTensor sinPtr Nothing))
-  case sgrad {g} of
-    SWithGrad => pure tbl
-    SNoGrad   => do let MkRoPETables cosT sinT = tbl
-                    cosT' <- weakenGrad cosT
-                    sinT' <- weakenGrad sinT
-                    pure (MkRoPETables cosT' sinT')
+                    -> IO (RoPETables maxPos headDim ex dt)
+buildLlamaRoPETables base scaling = ioRerun (\_ =>
+  let halfDimI = cast {to=Int} (div headDim 2)
+      sLenI   = cast {to=Int} maxPos
+      nElts   = halfDimI * sLenI
+      freqs   = toList (llamaInvFreq headDim base scaling)
+      cosBuf  = prim__allocDoubles nElts
+      sinBuf  = prim__allocDoubles nElts
+      cosBuf' = writeCosTable cosBuf halfDimI sLenI freqs 0 0
+      sinBuf' = writeSinTable sinBuf halfDimI sLenI freqs 0 0
+      cosPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {ex})
+      sinPtr  = dtCreateState2d {ex} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {ex})
+  in MkRoPETables (MkTensor cosPtr Nothing) (MkTensor sinPtr Nothing))
 
 ----------------------------------------------------------------------
 -- applyRope — rotate a [seq, headDim] tensor in place
@@ -259,7 +256,7 @@ buildLlamaRoPETables base scaling = do
 public export
 applyRope : {0 ex : Executor} -> UserExecutorTraining ex =>
             {seq, headDim, maxPos : Nat} ->
-            RoPETables maxPos headDim ex dt g ->
+            RoPETables maxPos headDim ex dt ->
             (positionOffset : Nat) ->
             Tensor [seq, headDim] ex dt g ->
             IO (Tensor [seq, headDim] ex dt g)
@@ -294,7 +291,7 @@ applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioReru
 export
 applyRopeL : {0 ex : Executor} -> UserExecutorTraining ex =>
              {seq, headDim, maxPos : Nat} ->
-             RoPETables maxPos headDim ex dt g ->
+             RoPETables maxPos headDim ex dt ->
              (positionOffset : Nat) ->
              Tensor [seq, headDim] ex dt g ->
              LIO.L IO (Tensor [seq, headDim] ex dt g)
@@ -329,7 +326,7 @@ applyRopeL tables positionOffset input = liftIO1 (applyRope tables positionOffse
 public export
 applyRopeAllHeads : {0 ex : Executor} -> UserExecutorTraining ex =>
                     {seq, numHeads, headDim, maxPos : Nat} ->
-                    RoPETables maxPos headDim ex dt g ->
+                    RoPETables maxPos headDim ex dt ->
                     (positionOffset : Nat) ->
                     Tensor [seq, numHeads, headDim] ex dt g ->
                     IO (Tensor [seq, numHeads, headDim] ex dt g)
@@ -374,7 +371,7 @@ applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOf
 export
 applyRopeAllHeadsL : {0 ex : Executor} -> UserExecutorTraining ex =>
                      {seq, numHeads, headDim, maxPos : Nat} ->
-                     RoPETables maxPos headDim ex dt g ->
+                     RoPETables maxPos headDim ex dt ->
                      (positionOffset : Nat) ->
                      Tensor [seq, numHeads, headDim] ex dt g ->
                      LIO.L IO (Tensor [seq, numHeads, headDim] ex dt g)
@@ -403,14 +400,17 @@ export
 ropeAllHeadsFlat :
      {0 ex : Executor} -> UserExecutorTraining ex =>
      {seq, numH, headDim, maxPos : Nat} ->
-     RoPETables maxPos headDim ex dt g ->
+     RoPETables maxPos headDim ex dt ->
      (full : AnyPtr) ->                     -- [seq, numH * headDim]
      (sI, nHI, hdI : Int) ->
      (positionOffset : Nat) ->
      IO AnyPtr
 ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI offset = do
+  -- Raw-ptr round-trip: the internal Tensor's grad-mode is an erased phantom
+  -- (tape tracking is driven by the C requires_grad on `full` from the caller),
+  -- so NoGrad here is arbitrary and harmless.
   full3 <- ioRerun (\_ =>
-            the (Tensor [seq, numH, headDim] ex dt g)
+            the (Tensor [seq, numH, headDim] ex dt NoGrad)
                 (MkTensor (primReshape3d {ex} full sI nHI hdI) Nothing))
   rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables offset full3
   ioRerun (\_ => primReshape2d {ex} rot3.tensorPtr sI (nHI * hdI))
@@ -441,7 +441,7 @@ ropeAllHeadsFlat {ex} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI off
 public export
 applyRopeInverse : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seq, headDim, maxPos : Nat} ->
-                   RoPETables maxPos headDim ex dt g ->
+                   RoPETables maxPos headDim ex dt ->
                    (positionOffset : Nat) ->
                    Tensor [seq, headDim] ex dt g ->
                    IO (Tensor [seq, headDim] ex dt g)
@@ -472,7 +472,7 @@ applyRopeInverse {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input =
 public export
 applyRopeInverseAllHeads : {0 ex : Executor} -> UserExecutorTraining ex =>
                            {seq, numHeads, headDim, maxPos : Nat} ->
-                           RoPETables maxPos headDim ex dt g ->
+                           RoPETables maxPos headDim ex dt ->
                            (positionOffset : Nat) ->
                            Tensor [seq, numHeads, headDim] ex dt g ->
                            IO (Tensor [seq, numHeads, headDim] ex dt g)
