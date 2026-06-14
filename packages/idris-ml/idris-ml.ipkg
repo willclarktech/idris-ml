@@ -8,14 +8,10 @@ modules = Compat.Random
         , Array
         , Backend
         , BackendLib
-        , Backprop
         , Checkpoint
-        , Curriculum
         , Dataset
         , DataStream
         , Fit
-        , DataLoader
-        , DataPoint
         , Executor
         , Executor.Core
         , Executor.Mlx
@@ -37,29 +33,6 @@ modules = Compat.Random
         , Hpo
         , Hpo.LrFinder
         , Init
-        , Layer
-        , Layer.Activation
-        , Layer.BatchNorm
-        , Layer.BitLinear
-        , Layer.Conv
-        , Layer.Core
-        , Layer.Dropout
-        , Layer.Embedding
-        , Layer.Gru
-        , Layer.Residual
-        , Layer.LayerNorm
-        , Layer.Linear
-        , Layer.LinearMixed
-        , Layer.LoraLinear
-        , Layer.Lstm
-        , Layer.Dnc
-        , Layer.MixedCore
-        , Layer.Ntm
-        , Layer.RmsNorm
-        , Layer.Rnn
-        , Layer.RoPE
-        , Layer.SwiGLU
-        , Layer.Transformer
         , ML
         , ML.Config
         , ML.Simple

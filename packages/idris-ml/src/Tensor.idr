@@ -8,7 +8,6 @@ import Data.Vect
 import Array
 import Compat.Random
 import public DType.Core
-import DataPoint
 import Executor
 import Floating
 import public GradMode
@@ -783,11 +782,6 @@ vectorToTensorPersistent {n} (VArray elems) =
     packBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packBuf buf _ []                   = buf
     packBuf buf off (SArray v :: rest) = packBuf (prim__setDouble buf off v) (off + 1) rest
-
-||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
-export
-toTDP : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
-toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {ex} {dt} (x dp)) (vectorToTensorPersistent {ex} {dt} (y dp))
 
 -- runBackward is defined post-Tensor record below; the type-level
 -- gate (Tensor [] ex dt WithGrad-> IO ()) lives there.

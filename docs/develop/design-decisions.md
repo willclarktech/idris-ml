@@ -128,7 +128,9 @@ PyTorch's silent footgun: a loss tensor that came from inside `with torch.no_gra
 - *Hardcoded-WithGrad state records + `believe_me` casts in every layer impl* — works but undermines the "type system enforces it" claim with ~40 unaudited `believe_me`s.
 - *`mx::compile`-style type-level enable/disable scopes* — Idris 2 doesn't have ambient effects of this shape; would require either threading explicit witnesses or higher-rank polymorphism. State polymorphism turned out simpler.
 
-**Scope**: ~35 files touched, ~930 lines. Two CI gates (`check-gradmode-gate`, `check-gradmode-aliasing`) lock the design against regression.
+**Scope**: ~35 files touched, ~930 lines. CI gate `check-gradmode-gate` locks the `WithGrad`-gated training surface against regression.
+
+**Update (2026-06-15, v1 `Layer` deletion)**: the `Network`/`Layer/` surface this section describes (decisions 5, 6, 8, 9 — `freezeNetwork`/`unfreezeNetwork`/`forwardVar`, linear consumption, whole-network freezing) was retired in the v1 API rework's concrete collapse. The successor is the `Nn` models-as-records surface, where `freeze`/`unfreeze` (`Nn.Module`) flip C-side `requires_grad` and return a `Frozen m` wrapper. The aliasing CI gate (`check-gradmode-aliasing`) was removed with `Test/neg/AliasAfterFreeze.idr` — its property had no `Nn` equivalent because `Nn.freeze` is **not** linear (`l i o ex dt g -> IO (Frozen ...)`, unrestricted). Re-adding linear consumption to `Nn.freeze` to restore the anti-aliasing guard is open follow-up work. The tensor-level `weakenGrad` discipline (decision 4) and the `nativeTrainStep`/`runBackward` `WithGrad` gate (decision 7) survive unchanged.
 
 **Perf impact** (measured `8bccdb4` → `c55ca06` on this VM):
 - Clean idris-ml build: 6.25s → 7.85s (+25%, +1.6s absolute).
@@ -1941,8 +1943,7 @@ v1 roadmap).
   admissibility — bundling it would exclude integer dtypes everywhere). **Deliberate
   non-targets**: `targsort` (Linear-tier + `Compatible ex I64` — weaker than the bundle by
   design), the cross-executor transfer path (`Compatible d2 dt` on `toExecutor*` — two
-  executors, different shape), `Layer/Core.idr`'s `freezeNetwork` walker (partial stack, no
-  `RuntimeDType`; bundling would strengthen it for no gain), and dt-less signatures
+  executors, different shape), and dt-less signatures
   (`withNoGrad`, Checkpoint, Train) which keep plain `UserExecutorTraining ex`.
 - **Tier names reserved, not shipped** — `BackendCore`/`BackendInference`/`BackendStreamed`
   wait for real populations: `UserExecutorInference` has zero lib use sites and Core-only sites
