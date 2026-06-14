@@ -492,6 +492,22 @@ merge at Phase 9).
 
 ## Status / file map
 
+> **COLLAPSE COMPLETE (2026-06-17).** The model surface is now a SINGLE linear
+> surface — the dual IO/`L IO` model API was deleted and the `*L` model names
+> promoted to the base names (`ModuleL`→`Module`, `forwardL`→`forward`,
+> `evalL`→`eval`, `FitL`→`Fit`, `SeqL`→`Seq`, `lrFindL`→`lrFind`, …;
+> `Nn/SeqL.idr`→`Nn/Seq.idr`, `FitL.idr`→`Fit.idr`). `Params` gained a flat
+> read-only `params` (ω, `.parameters()` analogue) beside the linear
+> `reflect`/`castGrad`/`discard`. **Still dual / IO** (no footgun — tensors are
+> unrestricted): the `*L` tensor ops (`taddL`/…) beside the IO ones,
+> `runInitL`/`bornL`/`withNoGradL`/`withGenFreeL`, `ioRerunL`, the HF `hf*L`
+> forward twins, `ModuleMixed`/`ParamsMixed` (`Nn.LinearMixed`; a `MixedL`
+> linear twin is still a follow-up), and `Train.Engine`/`Train.EngineL`
+> (internal plumbing — `Fit` uses `EngineL.runEpochLoopL`). The file map below
+> is the pre-collapse layout; mentally drop the `L` from every *model* name.
+> See the CHANGELOG "Linear-model collapse" entry + the gotchas section at the
+> end of this doc.
+
 - `packages/idris-ml/src/Nn/Module.idr` — `ModuleL`, `FrozenL`, generic
   `evalL`/`freezeL`/`unfreezeL`/`trainableL`.
 - `packages/idris-ml/src/Nn/Linear.idr` — leaf exemplar (`ModuleL Linear`).
@@ -586,3 +602,43 @@ lifts are principled: `Module.idr`'s `evalL`/`freeze`/`unfreeze` flip C
 tensor op), and `Rnn` lifts its user-supplied IO activation field. The IO op
 surface is deleted once every caller (layers → fit → examples → transformers)
 is on `L IO`; that collapse renames `*L` → base.
+
+## The collapse — three gotchas (2026-06-17)
+
+Promoting the `*L` model surface to the base names and deleting the IO twins
+surfaced three traps worth recording for any future from-scratch language:
+
+1. **Operator fixity does NOT re-export through `import public` chains** (Idris
+   2 0.8.0). `Nn.Seq`'s chain operator `~~>` was `export infixr 5 ~~>`, which
+   reaches *direct* importers but not transitive ones — and the examples reach
+   it via `ML.Simple → ML → Nn → Nn.Seq`. The *name* `(~~>)` chains fine
+   (re-exported as a value), but without the fixity in scope the parser can't
+   read `l1 ~~> l2` as infix and reports **`Undefined name ~~>`**. Fix:
+   `public export infixr 5 ~~>`. (Before the collapse the fixity happened to
+   reach the examples because the *old IO* `Nn.Seq` — directly named in `Nn`'s
+   import — declared it; deleting that module exposed the gap.)
+
+2. **`%hide` of a renamed-into module hides the wrong thing.** The RL/Seq
+   examples carried `%hide Nn.Seq.{Nil,(::),(~~>)}` to disambiguate the *old
+   dual* surface (IO `Nn.Seq` vs `Nn.SeqL`) toward `SeqL`. After `SeqL.idr`
+   became `Nn.Seq`, those directives hid the *sole* surface's constructors →
+   `Undefined name ~~>` / `::` resolving to `Data.Vect`/`List`. Fix: delete the
+   `%hide`s (one surface now, nothing to disambiguate).
+
+3. **`if … then … else …` branches are `Lazy`, which breaks the linear `<-`
+   bind.** `if cfg.lrFind then run $ do { (… # m') <- lrFind …; … } else …`
+   elaborates the bind continuation under `Lazy`, and the L IO bind elaborator
+   reports a `(_ : ?_) -> ?delayTy` vs `(1 _ : …) -> L IO ?a` mismatch. Fix:
+   extract each branch's `run $ do { … }` into a top-level `… -> IO ()`
+   function so the `run` block is the function body, not a Lazy `if` arm. (Same
+   trap for an inline `case` scrutinising into a linear bind.)
+
+Two structural notes from the same pass: (a) **composite layers that thread
+sub-models in a monadic `forward`/`recurStep` need linear `(1 _)` constructor
+fields** (as `Seq`/`Residual` always had; `TransformerBlock` was switched to
+match) — a pure-context `reflect` can place a linear value into an ω field but
+the monadic `do`/`pure1` path cannot. (b) **NTM/DNC keep their LSTM controller
+ω internally** via `lstmStepIO` (the linear `recurStep` bridged to IO with
+`run` + a constructor match — matching the returned cell binds its fields at ω,
+so it rebuilds as an unrestricted value); the *cell* stays the single-owner
+linear resource, the controller does not need to be.
