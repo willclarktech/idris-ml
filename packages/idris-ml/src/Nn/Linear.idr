@@ -1,0 +1,57 @@
+||| `Linear` — the dense-layer port to the v1 `Nn` surface, and the
+||| exemplar every other dense layer follows.
+|||
+|||   * The record drops the `GradMode` index the legacy `LinearState`
+|||     carried: a layer owns its `WithGrad` params by construction, so the
+|||     fields are pinned `WithGrad` and `g` lives only on the activation.
+|||   * `Module`'s batched `forward` reuses the same fused C op
+|||     (`tlinear2d` / `primLinear2d`) the legacy `LayerLike.applyVarBatch`
+|||     called — forward path is perf-neutral by construction.
+|||   * `Params` is the hand-written 2-liner (the spike's verdict).
+|||   * `linear` is the `Init` smart constructor: it derives its module name
+|||     with `freshChild` and registers `<name>.weight` / `<name>.bias`,
+|||     matching the legacy `linearLayer` init (weight ~ N(0, 1/√fan_in),
+|||     zero bias) so an `Nn.Seq` MLP and the old `Network` MLP are
+|||     numerically identical given the same RNG stream.
+module Nn.Linear
+
+import Data.Vect
+
+import Executor
+import Tensor
+import Nn.Init
+import Nn.Module
+
+%default total
+
+||| A dense layer: `y = x · Wᵀ + b`. No `GradMode` index — params are
+||| `WithGrad` by construction.
+public export
+record Linear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) where
+  constructor MkLinear
+  weightT : Tensor [o, i] ex dt WithGrad
+  biasT   : Tensor [o] ex dt WithGrad
+
+public export
+Module Linear where
+  -- The params are `WithGrad`; the activation `g` is whatever the caller
+  -- pinned. `retypeGrad` aligns the params' phantom `g` to the activation's
+  -- (the C handles are unchanged — `g` is erased). Inference (`NoGrad` x)
+  -- yields a `NoGrad` result; training (`WithGrad` x) keeps the tape.
+  forward (MkLinear w b) x = tlinear2d (retypeGrad w) x (retypeGrad b)
+
+public export
+Params Linear where
+  params (MkLinear w b) = [toParam w, toParam b]
+
+||| Construct a `Linear i o` inside an `Init` derivation. Registers
+||| `<scope>.linear_<n>.weight` / `.bias`; weight ~ N(0, 1/√fan_in), bias
+||| zero (PyTorch `nn.Linear` normal-approx default, matching the legacy
+||| `linearLayer`).
+export
+linear : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Linear i o ex dt)
+linear = do
+  name <- freshChild "linear"
+  w <- liftIO $ tparam2dNormal {ex} {dt} {o} {i} (name ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} i))
+  b <- liftIO $ tparam1dConst  {ex} {dt} {n=o}   (name ++ ".bias")   0.0
+  pure (MkLinear w b)

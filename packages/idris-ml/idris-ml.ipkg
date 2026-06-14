@@ -63,6 +63,7 @@ modules = Compat.Random
         , Math
         , Nn.Group
         , Nn.Init
+        , Nn.Linear
         , Nn.Module
         , Nn.Seq
         , Optimizer

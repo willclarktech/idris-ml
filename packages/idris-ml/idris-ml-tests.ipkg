@@ -36,6 +36,7 @@ modules = Test.Main
         , Test.Nn.Freeze
         , Test.Nn.Group
         , Test.Nn.Init
+        , Test.Nn.Linear
         , Test.Nn.Module
         , Test.Nn.Seq
         , Test.MixedLayerLike

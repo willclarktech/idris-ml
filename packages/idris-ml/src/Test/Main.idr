@@ -12,6 +12,7 @@ import Test.Math
 import Test.Nn.Freeze as Test.Nn.Freeze
 import Test.Nn.Group as Test.Nn.Group
 import Test.Nn.Init as Test.Nn.Init
+import Test.Nn.Linear as Test.Nn.Linear
 import Test.Nn.Module as Test.Nn.Module
 import Test.Nn.Seq as Test.Nn.Seq
 import Test.Schedule
@@ -66,6 +67,7 @@ main = runAll
   , ("Nn.Freeze",       Test.Nn.Freeze.tests)
   , ("Nn.Group",        Test.Nn.Group.tests)
   , ("Nn.Init",         Test.Nn.Init.tests)
+  , ("Nn.Linear",       Test.Nn.Linear.tests)
   , ("Nn.Module",       Test.Nn.Module.tests)
   , ("Nn.Seq",          Test.Nn.Seq.tests)
   , ("Schedule",        Test.Schedule.tests)
