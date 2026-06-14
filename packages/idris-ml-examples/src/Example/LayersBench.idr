@@ -4,7 +4,7 @@
 -- | Axis B sits one rung up — instead of pure C-kernel timing, it
 -- | exercises the FFI + tape wrap + autograd graph at the *Idris-side
 -- | layer* granularity. Each section runs N fwd+bwd+step cycles on a
--- | layer-shaped network and emits a one-line `<label>:\t<ms> ms (<iters>
+-- | single Nn layer and emits a one-line `<label>:\t<ms> ms (<iters>
 -- | iters)` row that scripts/perf-fast.sh parses into a `kind: "op_bench"
 -- | axis="B"` JSONL entry.
 -- |
@@ -14,8 +14,8 @@
 -- | C-level Axis A benches.
 -- |
 -- | Selection (see docs/develop/testing-taxonomy.md): one entry per
--- | distinct compute pattern. Linear lands first; subsequent commits add
--- | LstmCell, TransformerBlock, NtmHead, Conv2dBlock.
+-- | distinct compute pattern — Linear, LstmCell, Conv2dBlock, NtmHead,
+-- | TransformerBlock.
 
 module Example.LayersBench
 
@@ -24,18 +24,9 @@ import Data.String
 import Data.Vect
 import System
 import System.Clock
+import Compat.Random
 
-import Backprop
-import DataPoint
-import Generate
-import Layer.Conv
-import Layer.Core
-import Layer.Linear
-import Layer.Lstm
-import Layer.Ntm
-import Layer.Transformer
-import Tensor
-import Executor
+import ML.Simple
 import BuildConfig
 
 %default partial
@@ -69,24 +60,8 @@ repeatEpoch (S k) step m _ = do
   (m', loss') <- step m
   repeatEpoch k step m' loss'
 
--- Tiny non-grad 1D vector for use as a TensorDataPoint input/target.
--- Same `dtCreateState1d` path Mnist.idr / Transformer.idr take to build
--- their per-sample tensors.
-buildDummyVector : (n : Nat) -> AnyPtr
-buildDummyVector n =
-  let nI   = the Int (cast n)
-      buf  = prim__allocDoubles nI
-      buf' = prim__setDouble buf 0 0.1
-  in dtCreateState1d {ex=ExampleExecutor} {t=ExampleDType} nI buf' (deviceStreamTag {ex=ExampleExecutor})
-
 ----------------------------------------------------------------------
 -- Linear (batch=32, in=512, out=512)
---
--- Measures dense matmul + bias + autograd graph fwd+bwd+step. The
--- batch dim is 32 so we exercise the matmul kernel's batched path
--- (not the per-sample fallback). Loss is sum-reduced MSE over each
--- row, summed over the batch — exactly what `epochVarTensorBatch`
--- does for any feedforward example.
 ----------------------------------------------------------------------
 
 LinearI : Nat
@@ -106,41 +81,24 @@ LinearWarmup = 10
 
 benchLinear : IO ()
 benchLinear = do
-  ll <- linearLayerAny {i=LinearI} {o=LinearO} "axisb_linear_ll"
-  let model : Network LinearI [] LinearO ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ll
-  let opt = nativeSgd 0.01
-
-  -- Build a shared dummy TensorDataPoint and replicate across the
-  -- batch dim. Sharing is fine — `epochVarTensorBatch`'s
-  -- `catAllTensors` copies on stack-and-reshape.
-  let inT  = buildDummyVector LinearI
-      tgtT = buildDummyVector LinearO
-      dp   = the (TensorDataPoint LinearI LinearO) (MkTensorDataPoint inT tgtT)
-      dps  = the (Vect LinearBatch (TensorDataPoint LinearI LinearO))
-               (Data.Vect.replicate LinearBatch dp)
-
-  (warmModel, _) <- repeatEpoch LinearWarmup
-    (\m => epochVarTensorBatch opt dps tmseLoss m) model 0.0
-
+  model <- runInit (linear {ex=Ex} {dt=F} {i=LinearI} {o=LinearO})
+  opt <- sgd 0.01 defaultOpts
+  let step = \m => do
+        x   <- tensor {dims=[LinearBatch, LinearI]} (Const 0.1)
+        tgt <- tensor {dims=[LinearBatch, LinearO]} (Const 0.1)
+        out <- forward {b=LinearBatch} m (retypeGrad x)
+        l   <- tnllLossMean {b=LinearBatch} {n=LinearO} out (retypeGrad tgt)
+        d   <- nativeTrainStep opt l
+        pure (m, d)
+  (warmModel, _) <- repeatEpoch LinearWarmup step model 0.0
   t0 <- clockTime Monotonic
-  _ <- repeatEpoch LinearIters
-    (\m => epochVarTensorBatch opt dps tmseLoss m) warmModel 0.0
+  _ <- repeatEpoch LinearIters step warmModel 0.0
   t1 <- clockTime Monotonic
-
-  let ms = elapsedMs t0 t1
-  putStrLn $ "linear bs=32 i=512 o=512:\t" ++ fmt3 ms ++ " ms\t("
+  putStrLn $ "linear bs=32 i=512 o=512:\t" ++ fmt3 (elapsedMs t0 t1) ++ " ms\t("
           ++ show LinearIters ++ " iters)"
 
 ----------------------------------------------------------------------
--- LstmCell (hidden=256, unbatched)
---
--- Recurrent cell — 4 internal matmuls + per-timestep h/c state. The
--- typeclass-default `applyVarBatch` isn't overridden for LSTM (only
--- `applyVar`), so we benchmark single-sample forward+backward+step
--- per iter. Each iter exercises one timestep; the persistent h/c
--- state threads through across the 100 iters via the LstmState
--- record's `Maybe (Tensor [o])` slots.
+-- LstmCell (hidden=256, unbatched, single timestep per iter)
 ----------------------------------------------------------------------
 
 LstmI : Nat
@@ -155,52 +113,26 @@ LstmIters = 100
 LstmWarmup : Nat
 LstmWarmup = 10
 
-lstmStep : NativeOptimizer ExampleExecutor ->
-           Tensor [LstmI] ExampleExecutor ExampleDType WithGrad ->
-           Tensor [LstmO] ExampleExecutor ExampleDType WithGrad ->
-           Network LstmI [] LstmO ExampleExecutor ExampleDType WithGrad ->
-           IO (Network LstmI [] LstmO ExampleExecutor ExampleDType WithGrad, Double)
-lstmStep opt inp tgt model = do
-  (model', pred) <- forwardVar model inp
-  loss <- tmseLoss pred tgt
-  ms <- nativeTrainStep opt loss
-  pure (model', ms)
-
 benchLstmCell : IO ()
 benchLstmCell = do
-  ll <- lstmLayerAny {i=LstmI} {o=LstmO} "axisb_lstm"
-  let model : Network LstmI [] LstmO ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ll
-  let opt = nativeSgd 0.01
-
-  let inT  = buildDummyVector LstmI
-      tgtT = buildDummyVector LstmO
-      inp  = the (Tensor [LstmI] ExampleExecutor ExampleDType WithGrad)
-               (MkTensor inT Nothing)
-      tgt  = the (Tensor [LstmO] ExampleExecutor ExampleDType WithGrad)
-               (MkTensor tgtT Nothing)
-
-  (warmModel, _) <- repeatEpoch LstmWarmup (\m => lstmStep opt inp tgt m) model 0.0
-
+  model <- runInit (lstm {ex=Ex} {dt=F} {i=LstmI} {o=LstmO})
+  opt <- sgd 0.01 defaultOpts
+  let step = \m => do
+        inp        <- retypeGrad <$> tensor {dims=[LstmI]} (Const 0.1)
+        (m', h)    <- recurStep m inp
+        tgt        <- retypeGrad <$> tensor {dims=[LstmO]} (Const 0.1)
+        l          <- tmseLoss h tgt
+        d          <- nativeTrainStep opt l
+        pure (m', d)
+  (warmModel, _) <- repeatEpoch LstmWarmup step model 0.0
   t0 <- clockTime Monotonic
-  _ <- repeatEpoch LstmIters (\m => lstmStep opt inp tgt m) warmModel 0.0
+  _ <- repeatEpoch LstmIters step warmModel 0.0
   t1 <- clockTime Monotonic
-
-  let ms = elapsedMs t0 t1
-  putStrLn $ "lstm_cell hidden=" ++ show LstmO ++ ":\t" ++ fmt3 ms ++ " ms\t("
+  putStrLn $ "lstm_cell hidden=" ++ show LstmO ++ ":\t" ++ fmt3 (elapsedMs t0 t1) ++ " ms\t("
           ++ show LstmIters ++ " iters)"
 
 ----------------------------------------------------------------------
 -- Conv2dBlock (batch=8, c_in=3, h=w=16, c_out=16, k=3)
---
--- Single Conv2D layer with bias. Conv overrides both `applyVar` and
--- `applyVarBatch`, so the batched fwd+bwd exercises the C-side
--- `tensor_conv2d_batched` kernel directly. Input is flat-encoded
--- (`inC * (h * w)` = 768 doubles per sample); the layer reshapes to
--- 4D internally for the kernel call. Smaller than MNIST's 28×28 so
--- the per-iter wall stays in the ~ms range; chosen specifically to
--- avoid the multiplicative-Nat-shape-literal elaborator trap (see
--- `feedback_idris2_tvar_nat_mult`).
 ----------------------------------------------------------------------
 
 ConvInC : Nat
@@ -244,45 +176,28 @@ ConvWarmup = 10
 
 benchConv2dBlock : IO ()
 benchConv2dBlock = do
-  ll <- conv2dLayerAny {inC=ConvInC, outC=ConvOutC, h=ConvH, w=ConvW,
-                         kH=ConvKH, kW=ConvKW, padH=0, padW=0} "axisb_conv"
-  let model : Network ConvInputDim [] ConvOutputDim ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ll
-  let opt = nativeSgd 0.01
-
-  let inT  = buildDummyVector ConvInputDim
-      tgtT = buildDummyVector ConvOutputDim
-      dp   = the (TensorDataPoint ConvInputDim ConvOutputDim)
-               (MkTensorDataPoint inT tgtT)
-      dps  = the (Vect ConvBatch (TensorDataPoint ConvInputDim ConvOutputDim))
-               (Data.Vect.replicate ConvBatch dp)
-
-  (warmModel, _) <- repeatEpoch ConvWarmup
-    (\m => epochVarTensorBatch opt dps tmseLoss m) model 0.0
-
+  model <- runInit (conv2d {ex=Ex} {dt=F} {inC=ConvInC} {outC=ConvOutC} {h=ConvH} {w=ConvW}
+                           {kH=ConvKH} {kW=ConvKW} {padH=0} {padW=0})
+  opt <- sgd 0.01 defaultOpts
+  let step = \m => do
+        x   <- tensor {dims=[ConvBatch, ConvInputDim]} (Const 0.1)
+        tgt <- tensor {dims=[ConvBatch, ConvOutputDim]} (Const 0.1)
+        out <- forward {b=ConvBatch} m (retypeGrad x)
+        l   <- tnllLossMean {b=ConvBatch} {n=ConvOutputDim} out (retypeGrad tgt)
+        d   <- nativeTrainStep opt l
+        pure (m, d)
+  (warmModel, _) <- repeatEpoch ConvWarmup step model 0.0
   t0 <- clockTime Monotonic
-  _ <- repeatEpoch ConvIters
-    (\m => epochVarTensorBatch opt dps tmseLoss m) warmModel 0.0
+  _ <- repeatEpoch ConvIters step warmModel 0.0
   t1 <- clockTime Monotonic
-
-  let ms = elapsedMs t0 t1
   putStrLn $ "conv2d_block bs=" ++ show ConvBatch
           ++ " " ++ show ConvInC ++ "x" ++ show ConvH ++ "x" ++ show ConvW
           ++ "->" ++ show ConvOutC
           ++ " k=" ++ show ConvKH ++ "x" ++ show ConvKW
-          ++ ":\t" ++ fmt3 ms ++ " ms\t(" ++ show ConvIters ++ " iters)"
+          ++ ":\t" ++ fmt3 (elapsedMs t0 t1) ++ " ms\t(" ++ show ConvIters ++ " iters)"
 
 ----------------------------------------------------------------------
 -- Ntm (head + controller, tiny dims, two-phase copy task)
---
--- The NTM layer doesn't expose a head-only AnyLayer constructor — the
--- head is fused inside `ntmLayerAny`. We benchmark the whole NTM
--- (controller + read/write head + memory) at *small* dims so the
--- per-iter wall stays manageable. Each iter = one `epochTwoPhaseVar`
--- call over a single-sample copy task; that runs the input phase
--- (seqLen timesteps reading) + output phase (seqLen timesteps writing)
--- + backward + step. Exercises the content + location-based addressing
--- code path that none of the other Axis B workloads touch.
 ----------------------------------------------------------------------
 
 NtmW : Nat
@@ -303,51 +218,76 @@ NtmM = 4
 NtmH : Nat
 NtmH = 20
 
-NtmBatch : Nat
-NtmBatch = 1
-
 NtmIters : Nat
 NtmIters = 30
 
 NtmWarmup : Nat
 NtmWarmup = 5
 
+sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
+sumLosses [] = assert_total $ idris_crash "LayersBench.sumLosses: empty"
+sumLosses (x :: xs) = go x xs
+  where
+    go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
+    go acc []        = pure acc
+    go acc (y :: ys) = do s <- tadd acc y; go s ys
+
+ntmTwoPhaseStep : Optimizer Ex -> List (Vect NtmInputW Double) -> List (Vect NtmOutputW Double) ->
+                  Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
+                  IO (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad, Double)
+ntmTwoPhaseStep opt encIns targs model = do
+  enc <- encodeAll (recurReset model) encIns
+  ls  <- decodeLosses enc targs
+  s   <- sumLosses ls
+  mean <- (1.0 / cast (length targs)) *: s
+  d <- nativeTrainStep opt mean
+  pure (model, d)
+  where
+    encodeAll : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
+                List (Vect NtmInputW Double) ->
+                IO (Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad)
+    encodeAll cell [] = pure cell
+    encodeAll cell (row :: rest) = do
+      x <- retypeGrad <$> tensor {dims=[NtmInputW]} (FromVect row)
+      (cell', _) <- recurStep cell x
+      encodeAll cell' rest
+    decodeLosses : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad ->
+                   List (Vect NtmOutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
+    decodeLosses _ [] = pure []
+    decodeLosses cell (trow :: rest) = do
+      z <- retypeGrad <$> tensor {dims=[NtmInputW]} (Const 0.0)
+      (cell', out) <- recurStep cell z
+      y <- retypeGrad <$> tensor {dims=[NtmOutputW]} (FromVect trow)
+      l <- tbceLoss out y
+      ls <- decodeLosses cell' rest
+      pure (l :: ls)
+
 benchNtmHead : IO ()
 benchNtmHead = do
-  ntmAny <- ntmLayerAny {i=NtmInputW, o=NtmOutputW, n=NtmN, m=NtmM, h=NtmH} "axisb_ntm"
-  let model : Network NtmInputW [] NtmOutputW ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer ntmAny
-
-  batch <- copyTaskBinaryBatchVect {w = NtmW} NtmBatch 2 4
-  let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.0
-
-  (warmModel, _) <- repeatEpoch NtmWarmup
-    (\m => epochTwoPhaseVar opt batch tbceLoss m) model 0.0
-
+  model <- runInit (ntm {n=NtmN} {m=NtmM} {h=NtmH} {i=NtmInputW} {o=NtmOutputW})
+  opt <- rmsprop 0.0001 {alpha=0.95} {momentum=0.0} ({ clip := NormClip 10.0 } defaultOpts)
+  -- Fixed single-sequence copy task: 3 data rows + delimiter, 3 targets.
+  let dataRows : List (Vect NtmW Double) = [[1,0,1], [0,1,1], [1,1,0]]
+      encIns : List (Vect NtmInputW Double)
+        = map (\r => r ++ [0.0]) dataRows ++ [Vect.replicate NtmW 0.0 ++ [1.0]]
+      targs  : List (Vect NtmOutputW Double) = dataRows
+  let step = ntmTwoPhaseStep opt encIns targs
+  (warmModel, _) <- repeatEpoch NtmWarmup step model 0.0
   t0 <- clockTime Monotonic
-  _ <- repeatEpoch NtmIters
-    (\m => epochTwoPhaseVar opt batch tbceLoss m) warmModel 0.0
+  _ <- repeatEpoch NtmIters step warmModel 0.0
   t1 <- clockTime Monotonic
-
-  let ms = elapsedMs t0 t1
   putStrLn $ "ntm n=" ++ show NtmN ++ " m=" ++ show NtmM
-          ++ " h=" ++ show NtmH ++ " batch=" ++ show NtmBatch
-          ++ ":\t" ++ fmt3 ms ++ " ms\t(" ++ show NtmIters ++ " iters)"
+          ++ " h=" ++ show NtmH ++ " batch=1"
+          ++ ":\t" ++ fmt3 (elapsedMs t0 t1) ++ " ms\t(" ++ show NtmIters ++ " iters)"
 
 ----------------------------------------------------------------------
--- TransformerBlock (small: batch=2, seq=16, dModel=64, heads=4, vocab=32)
+-- TransformerBlock (batch=2, dModel=64, heads=4, headDim=16)
 --
--- Approximated as a 1-block transformer (numBlocks=1) — the standard
--- `transformerLayerAny` doesn't expose a block-only AnyLayer
--- constructor, and the embedding + final-norm + vocabProj that wrap
--- the block are insignificant at these dims. Captures the attention
--- + FFN + 2× LayerNorm + 2× residual compute pattern none of the
--- other Axis B workloads touch. Kept deliberately small to avoid the
--- multiplicative-Nat elaborator trap on `seq * vocab` (here 16*32=512).
+-- The bare Nn.transformerBlock — embedding + final-norm + vocabProj that
+-- the legacy `transformerLayerAny` wrapped are insignificant at these dims
+-- (and live in the decomposed surface, not the block). Captures the
+-- attention + FFN + 2× LayerNorm + 2× residual compute pattern.
 ----------------------------------------------------------------------
-
-TxSeq : Nat
-TxSeq = 16
 
 TxDModel : Nat
 TxDModel = 64
@@ -357,15 +297,6 @@ TxHeads = 4
 
 TxHeadDim : Nat
 TxHeadDim = 16
-
-TxNumBlocks : Nat
-TxNumBlocks = 1
-
-TxVocab : Nat
-TxVocab = 32
-
-TxOutputDim : Nat
-TxOutputDim = TxSeq * TxVocab
 
 TxBatch : Nat
 TxBatch = 2
@@ -378,34 +309,23 @@ TxWarmup = 5
 
 benchTransformerBlock : IO ()
 benchTransformerBlock = do
-  txAny <- transformerLayerAny {seqLen=TxSeq, dModel=TxDModel,
-                                numHeads=TxHeads, headDim=TxHeadDim,
-                                numBlocks=TxNumBlocks, vocabSize=TxVocab}
-                               "axisb_tx"
-  let model : Network TxSeq [] TxOutputDim ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer txAny
-  let opt = nativeSgd 0.01
-
-  let inT  = buildDummyVector TxSeq
-      tgtT = buildDummyVector TxOutputDim
-      dp   = the (TensorDataPoint TxSeq TxOutputDim) (MkTensorDataPoint inT tgtT)
-      dps  = the (Vect TxBatch (TensorDataPoint TxSeq TxOutputDim))
-               (Data.Vect.replicate TxBatch dp)
-
-  (warmModel, _) <- repeatEpoch TxWarmup
-    (\m => epochVarTensorBatch opt dps tmseLoss m) model 0.0
-
+  model <- runInit (transformerBlock {ex=Ex} {dt=F} {dModel=TxDModel} {numHeads=TxHeads} {headDim=TxHeadDim})
+  opt <- sgd 0.01 defaultOpts
+  let step = \m => do
+        x   <- tensor {dims=[TxBatch, TxDModel]} (Const 0.1)
+        tgt <- tensor {dims=[TxBatch, TxDModel]} (Const 0.1)
+        out <- forward {b=TxBatch} m (retypeGrad x)
+        l   <- tnllLossMean {b=TxBatch} {n=TxDModel} out (retypeGrad tgt)
+        d   <- nativeTrainStep opt l
+        pure (m, d)
+  (warmModel, _) <- repeatEpoch TxWarmup step model 0.0
   t0 <- clockTime Monotonic
-  _ <- repeatEpoch TxIters
-    (\m => epochVarTensorBatch opt dps tmseLoss m) warmModel 0.0
+  _ <- repeatEpoch TxIters step warmModel 0.0
   t1 <- clockTime Monotonic
-
-  let ms = elapsedMs t0 t1
   putStrLn $ "transformer_block bs=" ++ show TxBatch
-          ++ " seq=" ++ show TxSeq
           ++ " d=" ++ show TxDModel
           ++ " heads=" ++ show TxHeads
-          ++ ":\t" ++ fmt3 ms ++ " ms\t(" ++ show TxIters ++ " iters)"
+          ++ ":\t" ++ fmt3 (elapsedMs t0 t1) ++ " ms\t(" ++ show TxIters ++ " iters)"
 
 ----------------------------------------------------------------------
 -- Main
