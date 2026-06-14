@@ -2192,3 +2192,27 @@ tgruCellL : UserExecutorNN ex => {n : Nat} ->
 tgruCellL {n} ih hh prevH = ioRerunL (\_ =>
   let nI = cast {to=Int} n
   in MkTensor (primGruCell {ex} ih.tensorPtr hh.tensorPtr prevH.tensorPtr nI) Nothing)
+
+export %inline
+ttanhL : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
+ttanhL v = ioRerunL (\_ => MkTensor (primTanh {ex} v.tensorPtr) Nothing)
+
+export %inline
+tsigmoidL : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
+tsigmoidL v = ioRerunL (\_ => MkTensor (primSigmoid {ex} v.tensorPtr) Nothing)
+
+export %inline
+treluL : {0 ex : Executor} -> UserExecutorCore ex => Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
+treluL v = ioRerunL (\_ => MkTensor (primClampMin {ex} v.tensorPtr 0.0) Nothing)
+
+export %inline
+tgeluL : {0 ex : Executor} -> UserExecutorTraining ex => Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
+tgeluL v = ioRerunL (\_ => MkTensor (primGelu {ex} v.tensorPtr) Nothing)
+
+export %inline
+tsiluL : {0 ex : Executor} -> UserExecutorTraining ex => Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
+tsiluL v = ioRerunL (\_ => MkTensor (primSilu {ex} v.tensorPtr) Nothing)
+
+export %inline
+tleakyReluL : {0 ex : Executor} -> UserExecutorTraining ex => Double -> Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
+tleakyReluL slope v = ioRerunL (\_ => MkTensor (primLeakyRelu {ex} v.tensorPtr slope) Nothing)

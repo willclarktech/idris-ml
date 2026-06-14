@@ -44,11 +44,15 @@ ParamsL Dropout where
   castGradL (MkDropout p t) = MkDropout p t
   discardL (MkDropout _ _)  = pure ()
 
-||| Linear-resource `Module` — reuses the IO `forward` under `liftIO1`.
+||| Linear-resource `Module` — sequences the `L IO` dropout op directly
+||| (identity in eval mode).
 public export
 ModuleL Dropout where
   forwardL (MkDropout p t) x = do
-    y <- liftIO1 (forward (MkDropout p t) x)
+    y <- the (L IO (Tensor [b, i] ex dt g)) $
+           if t
+             then ioRerunL (\_ => MkTensor (primDropout {ex} x.tensorPtr p 1 (dropoutSeed 0)) Nothing)
+             else pure x
     pure1 (MkBang y # MkDropout p t)
 
 ||| Dropout with drop probability `p`, starting in training mode.

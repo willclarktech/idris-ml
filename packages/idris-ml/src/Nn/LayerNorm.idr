@@ -39,11 +39,13 @@ ParamsL LayerNorm where
   castGradL (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
   discardL (MkLayerNorm _ _)         = pure ()
 
-||| Linear-resource `Module` — reuses the IO `forward` under `liftIO1`.
+||| Linear-resource `Module` — sequences the fused `L IO` layer-norm op
+||| directly.
 public export
 ModuleL LayerNorm where
   forwardL (MkLayerNorm gamma beta) x = do
-    y <- liftIO1 (forward (MkLayerNorm gamma beta) x)
+    y <- ioRerunL (\_ =>
+      MkTensor (primLayerNorm2d {ex} x.tensorPtr gamma.tensorPtr beta.tensorPtr 1.0e-5) Nothing)
     pure1 (MkBang y # MkLayerNorm gamma beta)
 
 ||| Construct a `LayerNorm n n` inside an `Init` derivation. Registers

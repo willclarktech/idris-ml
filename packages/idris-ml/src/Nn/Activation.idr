@@ -51,11 +51,17 @@ ParamsL Activation where
   castGradL (MkActivation k) = MkActivation k
   discardL (MkActivation _)  = pure ()
 
-||| Linear-resource `Module` — reuses the IO `forward` under `liftIO1`.
+||| Linear-resource `Module` — dispatches to the `L IO` activation ops.
 public export
 ModuleL Activation where
   forwardL (MkActivation k) x = do
-    y <- liftIO1 (forward (MkActivation k) x)
+    y <- the (L IO (Tensor [b, o] ex dt g)) $ case k of
+           ATanh          => ttanhL x
+           ASigmoid       => tsigmoidL x
+           ARelu          => treluL x
+           AGelu          => tgeluL x
+           ASilu          => tsiluL x
+           (ALeakyRelu s) => tleakyReluL s x
     pure1 (MkBang y # MkActivation k)
 
 -- Constructors (no Init needed — stateless, registers nothing).
