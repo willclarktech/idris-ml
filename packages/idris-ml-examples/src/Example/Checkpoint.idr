@@ -5,6 +5,8 @@
 ||| cross-backend tensor transfer demo lives in `Example/Transfer.idr`.
 module Example.Checkpoint
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -12,6 +14,7 @@ import System
 import BuildConfig
 import Checkpoint
 import Compat.Random
+import FitL
 import Hpo.LrFinder
 import ML.Simple
 import Train
@@ -94,6 +97,16 @@ nllLoss model (x, tgt) = do
   out <- forward {b=5} model (retypeGrad x)
   tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
 
+-- Linear-resource twin of `nllLoss` (used by the `fitSupervisedL` modes; the
+-- IO `nllLoss` above stays for the lrFind / trainStep path).
+nllLossL : (1 _ : Linear 2 3 Ex F WithGrad) ->
+           (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
+           L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Linear 2 3 Ex F WithGrad))
+nllLossL model (x, tgt) = do
+  (MkBang out # model') <- forwardL {b=5} model (retypeGrad x)
+  loss <- tnllLossMeanL {b=5} {n=3} out (retypeGrad tgt)
+  pure1 (MkBang loss # model')
+
 -- Single train step (for lrFind, which owns its own iteration).
 trainStep : Optimizer Ex -> Linear 2 3 Ex F WithGrad ->
             (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
@@ -116,16 +129,16 @@ showVec2 [a, b] = "[" ++ show a ++ ", " ++ show b ++ "]"
 evalInput : IO (Tensor [5, 2] Ex F NoGrad)
 evalInput = tensor {dims=[5, 2]} (FromVect flatInputs)
 
-evalLoss : {0 g : GradMode} -> Linear 2 3 Ex F g -> IO Double
-evalLoss model = withNoGrad {ex=Ex} $ do
-  out <- forward {b=5} model (retypeGrad !evalInput)
-  l   <- tnllLossMean {b=5} {n=3} out (retypeGrad !(tensor {dims=[5,3]}
-           (FromVect (concat targetsV))))
+-- Mean NLL loss from already-forwarded [5,3] logits (NoGrad → no tape). The
+-- forward itself happens in the linear block via `forwardL`.
+evalLossFrom : Tensor [5, 3] Ex F NoGrad -> IO Double
+evalLossFrom predB = do
+  tgt <- tensor {dims=[5,3]} (FromVect (concat targetsV))
+  l   <- tnllLossMean {b=5} {n=3} predB tgt
   pure (primItem {ex=Ex} l.tensorPtr)
 
-printPredictions : {0 g : GradMode} -> Linear 2 3 Ex F g -> IO ()
-printPredictions model = do
-  predB <- forward {b=5} model (retypeGrad !evalInput)
+printPredictionsFrom : Tensor [5, 3] Ex F NoGrad -> IO ()
+printPredictionsFrom predB =
   for_ (toList Fin.range) $ \i => do
     let r  = cast {to=Int} (finToNat i)
         v0   = primItem2d {ex=Ex} predB.tensorPtr r 0
@@ -136,62 +149,74 @@ printPredictions model = do
     putStrLn $ "  " ++ showVec2 (index i inputsV) ++ " -> class " ++ show pred
              ++ (if ok then " ok" else " WRONG")
 
+-- Eval + report a (linear) model: convert to inference (evalL), forward once
+-- on the fixed eval input, discard the leftover handle, then print loss +
+-- predictions + the result line. Shared by all three modes.
+evalReportL : List (String, String) -> (1 _ : Linear 2 3 Ex F WithGrad) -> L IO ()
+evalReportL extraFields trained = do
+  infer <- evalL trained
+  ein <- liftIO1 evalInput
+  (MkBang predB # infer') <- forwardL {b=5} infer ein
+  discardL infer'
+  liftIO1 $ do
+    el <- evalLossFrom predB
+    putStrLn $ "Eval loss: " ++ show el
+    printPredictionsFrom predB
+    putStrLn $ formatResult (extraFields ++ [("loss", show el),
+                                             ("backend", backendName {ex=Ex})])
+
 ----------------------------------------------------------------------
 -- Modes
 ----------------------------------------------------------------------
 
-doTrain : Config -> Optimizer Ex -> Linear 2 3 Ex F WithGrad -> IO ()
-doTrain cfg opt model = do
-  bs <- buildStream
-  putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
-  (trained, epochsDone, _) <-
-    fitSupervised opt nllLoss bs (simpleConfig cfg.epochs) model
-  if cfg.savePath == ""
+-- All three modes run on the linear surface: model born linear (runInitL),
+-- threaded through fitSupervisedL, eval-reported via evalReportL. `main : IO`
+-- re-enters via `run`.
+doTrain : Config -> Optimizer Ex -> IO ()
+doTrain cfg opt = Control.Linear.LIO.run $ do
+  model <- runInitL (linear {i=2} {o=3})
+  bs <- liftIO1 buildStream
+  liftIO1 $ putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
+  (MkBang (epochsDone, _) # trained) <-
+    fitSupervisedL opt nllLossL bs (simpleConfig cfg.epochs) model
+  liftIO1 $ if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
       ok <- saveAll {ex=Ex} cfg.savePath
       putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok2 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  el <- evalLoss trained
-  putStrLn $ "Eval loss: " ++ show el
-  printPredictions trained
-  putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
-                            ("loss", show el), ("backend", backendName {ex=Ex})]
+  evalReportL [("mode", "train"), ("epochs", show epochsDone)] trained
 
-doContinue : Config -> Optimizer Ex -> Linear 2 3 Ex F WithGrad -> IO ()
-doContinue cfg opt model = do
-  ok <- loadModel {ex=Ex} cfg.loadPath
-  putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  ok2 <- loadOptimizer (optPath cfg.loadPath) opt
-  putStrLn $ (if ok2 then "Loaded optimizer from " else "FAILED to load optimizer from ")
-           ++ optPath cfg.loadPath
-  bs <- buildStream
-  putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
-  (trained, epochsDone, _) <-
-    fitSupervised opt nllLoss bs (simpleConfig cfg.epochs) model
-  if cfg.savePath == ""
+doContinue : Config -> Optimizer Ex -> IO ()
+doContinue cfg opt = Control.Linear.LIO.run $ do
+  model <- runInitL (linear {i=2} {o=3})
+  liftIO1 $ do
+    ok <- loadModel {ex=Ex} cfg.loadPath
+    putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
+    ok2 <- loadOptimizer (optPath cfg.loadPath) opt
+    putStrLn $ (if ok2 then "Loaded optimizer from " else "FAILED to load optimizer from ")
+             ++ optPath cfg.loadPath
+  bs <- liftIO1 buildStream
+  liftIO1 $ putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
+  (MkBang (epochsDone, _) # trained) <-
+    fitSupervisedL opt nllLossL bs (simpleConfig cfg.epochs) model
+  liftIO1 $ if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
       ok3 <- saveAll {ex=Ex} cfg.savePath
       putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok4 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  el <- evalLoss trained
-  putStrLn $ "Eval loss: " ++ show el
-  printPredictions trained
-  putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
-                            ("loss", show el), ("backend", backendName {ex=Ex})]
+  evalReportL [("mode", "continue"), ("epochs", show epochsDone)] trained
 
-doInfer : Config -> Linear 2 3 Ex F WithGrad -> IO ()
-doInfer cfg model = do
-  ok <- loadModel {ex=Ex} cfg.loadPath
-  putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  el <- evalLoss model
-  putStrLn $ "Eval loss: " ++ show el
-  printPredictions model
-  putStrLn $ formatResult [("mode", "infer"), ("loss", show el),
-                            ("backend", backendName {ex=Ex})]
+doInfer : Config -> IO ()
+doInfer cfg = Control.Linear.LIO.run $ do
+  model <- runInitL (linear {i=2} {o=3})
+  liftIO1 $ do
+    ok <- loadModel {ex=Ex} cfg.loadPath
+    putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
+  evalReportL [("mode", "infer")] model
 
 ----------------------------------------------------------------------
 -- Main
@@ -208,22 +233,23 @@ main = do
   tsetInitSeed {ex = Ex} cfg.seed
 
   opt <- sgd cfg.lr defaultOpts
-  model <- runInit (linear {i=2} {o=3})
 
   putStrLn $ "=== Cross-Backend Transfer [" ++ backendName {ex=Ex} ++ "] -- "
            ++ cfg.mode ++ " ==="
 
-  when cfg.lrFind $ do
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 100 } defaultLrFindConfig
-    bs <- buildStream
-    _ <- lrFind lrCfg (trainStep opt) bs.next opt model
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  case cfg.mode of
-    "train"    => doTrain cfg opt model
-    "continue" => doContinue cfg opt model
-    "infer"    => doInfer cfg model
-    _          => putStrLn "Unknown mode. Use --mode train|continue|infer"
+  -- lrFind stays on the IO surface (HPO scaffolding, not the training path):
+  -- its own IO model feeds the IO `trainStep`/`nllLoss`.
+  if cfg.lrFind
+    then do
+      model <- runInit (linear {i=2} {o=3})
+      let lrCfg : LrFindConfig
+          lrCfg = { numIters := 100 } defaultLrFindConfig
+      bs <- buildStream
+      _ <- lrFind lrCfg (trainStep opt) bs.next opt model
+      putStrLn ""
+      putStrLn "Done — re-run without --lr-find at the recommended LR."
+    else case cfg.mode of
+      "train"    => doTrain cfg opt
+      "continue" => doContinue cfg opt
+      "infer"    => doInfer cfg
+      _          => putStrLn "Unknown mode. Use --mode train|continue|infer"
