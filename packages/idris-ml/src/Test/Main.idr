@@ -10,6 +10,7 @@ import Test.GradMode
 import Test.GradScaler
 import Test.Math
 import Test.Nn.Activation
+import Test.Nn.BatchNorm
 import Test.Nn.Dropout
 import Test.Nn.Embedding
 import Test.Nn.Equivalence
@@ -74,6 +75,7 @@ main = runAll
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)
   , ("Nn.Activation",   Test.Nn.Activation.tests)
+  , ("Nn.BatchNorm",    Test.Nn.BatchNorm.tests)
   , ("Nn.Dropout",      Test.Nn.Dropout.tests)
   , ("Nn.Embedding",    Test.Nn.Embedding.tests)
   , ("Nn.Equivalence",  Test.Nn.Equivalence.tests)

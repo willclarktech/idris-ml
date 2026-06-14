@@ -62,6 +62,7 @@ modules = Compat.Random
         , Layer.Transformer
         , Math
         , Nn.Activation
+        , Nn.BatchNorm
         , Nn.Dropout
         , Nn.Embedding
         , Nn.Group
