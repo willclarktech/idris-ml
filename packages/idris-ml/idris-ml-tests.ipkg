@@ -49,6 +49,7 @@ modules = Test.Main
         , Test.Nn.LoraLinear
         , Test.Nn.Lstm
         , Test.Nn.Module
+        , Test.Nn.Ntm
         , Test.Nn.Residual
         , Test.Nn.Recurrent
         , Test.Nn.RmsNorm
