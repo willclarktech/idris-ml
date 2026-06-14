@@ -8,9 +8,9 @@ module Nn.LayerNorm
 import Data.Vect
 
 import Executor
-import Tensor
 import Nn.Init
 import Nn.Module
+import Tensor
 
 %default total
 

@@ -3,8 +3,9 @@
 -- no tensor allocation.
 module Test.Properties.Reshape
 
-import Test.Property
 import Data.Vect
+
+import Test.Property
 
 %default total
 

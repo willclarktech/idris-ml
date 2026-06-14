@@ -2,11 +2,11 @@ module Test.GradScaler
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import GradScaler
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- A3 of #410: GradScaler state-machine. Verifies that the growth /
 -- backoff policy advances correctly across successful steps. We

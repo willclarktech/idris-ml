@@ -2,12 +2,12 @@ module Test.Nn.Dropout
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
-import Nn.Module
 import Nn.Dropout
+import Nn.Module
+import Tensor
 import Test.Config
+import Test.Harness
 
 read4 : Tensor [2, 2] TestExecutor TestDType g -> List Double
 read4 t = [ primItem2d {ex=TestExecutor} t.tensorPtr i j

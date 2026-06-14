@@ -2,16 +2,16 @@ module Test.MixedLayerLike
 
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
 import Array
 import Backprop
 import DataPoint
+import Executor
 import GradScaler
 import Layer
 import Layer.MixedCore
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- ---------------------------------------------------------------
 -- A0: LayerLikeMixed bridge + NetworkMixed

@@ -2,14 +2,14 @@ module Test.BitNet
 
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
 import Array
+import Executor
 import Layer
 import Layer.BitLinear
 import Layer.RmsNorm
+import Tensor
 import Test.Config
+import Test.Harness
 
 ----------------------------------------------------------------------
 -- BitNet MLP-block cross-language oracle (#411 B4.2)

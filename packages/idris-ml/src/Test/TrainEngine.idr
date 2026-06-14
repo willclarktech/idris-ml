@@ -1,17 +1,17 @@
 module Test.TrainEngine
 
-import Data.Vect
 import Data.IORef
+import Data.Vect
 import System.Clock
 
-import Test.Harness
 import Checkpoint
 import Executor
 import Optimizer
 import Tensor
+import Test.Config
+import Test.Harness
 import Train
 import Train.Engine
-import Test.Config
 
 ----------------------------------------------------------------------
 -- Equivalence oracle: runTrainingIO's early-stop behaviour, captured

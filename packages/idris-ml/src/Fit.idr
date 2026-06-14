@@ -21,16 +21,16 @@ import Data.Maybe
 import Data.Vect
 import System.Clock
 
+import Checkpoint
+import DataStream
+import Executor
+import GradScaler
+import Optimizer
+import Tensor
+import Train
+import Train.Engine
 import Util
 import Util.Log
-import Executor
-import Tensor
-import Optimizer
-import GradScaler
-import Checkpoint
-import Train          -- TrainConfig + its builders (reused as fit's config)
-import Train.Engine
-import DataStream
 
 ||| A training step: take the model + a batch, do whatever forward /
 ||| backward / optimizer-step / state-threading the task needs, and

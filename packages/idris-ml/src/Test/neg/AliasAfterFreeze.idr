@@ -16,8 +16,8 @@
 module AliasAfterFreeze
 
 import Executor
-import Tensor
 import Layer
+import Tensor
 
 -- A parameter-free Network (single tanh activation) so we don't need
 -- RNG to construct it.

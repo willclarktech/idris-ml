@@ -3,13 +3,13 @@ module Test.Nn.Recurrent
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
 import Nn.Module
 import Nn.Recurrent
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- o=i=1, W_ih=1, W_hh=0.5, biases 0, tanh, x=1, h0=0:
 --   step1: tanh(1·1 + 0.5·0 + 0)          = tanh(1)       ≈ 0.761594

@@ -2,13 +2,13 @@ module Test.BitLinear
 
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
 import Array
+import Executor
 import Layer
 import Layer.BitLinear
+import Tensor
 import Test.Config
+import Test.Harness
 
 ----------------------------------------------------------------------
 -- BitLinear forward oracle (#411 B2 / #424)

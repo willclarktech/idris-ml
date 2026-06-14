@@ -3,14 +3,14 @@ module Test.Nn.Lstm
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
+import Nn.Lstm
 import Nn.Module
 import Nn.Recurrent
-import Nn.Lstm
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- o=i=1; W_ih=W_hh=1, biases 0, h0=c0=0, x=1. Exact gate values depend on
 -- the C kernel's gate order, so assert deterministic *properties* instead:

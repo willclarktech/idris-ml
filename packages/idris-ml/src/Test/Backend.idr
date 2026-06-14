@@ -2,10 +2,10 @@ module Test.Backend
 
 import Data.Vect
 
-import Test.Harness
 import Executor
 import Tensor
 import Test.Config
+import Test.Harness
 
 -- The positive probe for the `Backend ex dt` bundle: a helper generic
 -- in (ex, dt) and constrained ONLY by the bundle. Its body needs, via

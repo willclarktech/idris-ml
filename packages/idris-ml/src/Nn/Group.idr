@@ -10,8 +10,8 @@ module Nn.Group
 import Data.List
 
 import Executor
-import Tensor
 import Nn.Module
+import Tensor
 
 ||| The registry names of every param owned by `m`, in traversal order.
 ||| Params without a registry name (intermediates) are dropped.

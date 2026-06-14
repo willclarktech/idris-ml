@@ -15,19 +15,19 @@
 ||| cross-backend hop.
 module Test.MainMulti
 
-import Test.Harness
 import Test.Array
 import Test.GradMode
-import Test.Math
-import Test.Schedule
+import Test.Harness
+import Test.Hpo.LrFinder
 import Test.Init
-import Test.Sampler
+import Test.ManagedHandle
+import Test.Math
+import Test.MultiExecutorRegistry
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
-import Test.Hpo.LrFinder
-import Test.ManagedHandle
+import Test.Sampler
+import Test.Schedule
 import Test.Transfer
-import Test.MultiExecutorRegistry
 
 main : IO ()
 main = runAll

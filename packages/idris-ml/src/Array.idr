@@ -1,9 +1,9 @@
 module Array
 
-import Data.Vect
 import Data.Fin
-import Compat.Random
+import Data.Vect
 
+import Compat.Random
 import Floating
 
 ----------------------------------------------------------------------

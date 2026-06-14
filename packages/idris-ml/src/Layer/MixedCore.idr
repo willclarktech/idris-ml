@@ -5,8 +5,8 @@ import System
 import System.File
 
 import Executor
-import Tensor
 import Layer.Core
+import Tensor
 
 ----------------------------------------------------------------------
 -- LayerLikeMixed: layer interface with separate param/compute dtypes

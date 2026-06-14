@@ -3,12 +3,12 @@ module Test.Nn.Pool
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Module
 import Nn.Pool
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- MaxPool2D, c=1 inH=2 inW=2, 2x2 window stride 2 over [[1,2],[3,4]] ->
 -- max = 4. PoolOutDim 2 2 2 = 1, so output is 1 value. Batched b=1:

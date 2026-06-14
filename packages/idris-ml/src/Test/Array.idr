@@ -2,8 +2,8 @@ module Test.Array
 
 import Data.Vect
 
-import Test.Harness
 import Array
+import Test.Harness
 
 export
 tests : List (IO Bool)

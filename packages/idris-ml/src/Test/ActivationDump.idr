@@ -7,11 +7,11 @@ import System
 import System.Directory
 import System.File
 
-import Test.Harness
-import Test.Config
 import Executor
-import Tensor
 import Layer
+import Tensor
+import Test.Config
+import Test.Harness
 import Util.Log
 
 -- Tests for the activation-dump machinery used by the TRACE-level

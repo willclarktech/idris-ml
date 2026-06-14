@@ -30,12 +30,11 @@ module Test.Properties.F32GradParity
 
 import Data.Vect
 
-import Test.Property
-import Test.Config
-import Test.Harness as Harness
-
 import Executor
 import Tensor
+import Test.Config
+import Test.Harness as Harness
+import Test.Property
 
 %default partial
 

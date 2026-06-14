@@ -37,6 +37,7 @@
 module DType.Core
 
 import public Data.Nat
+
 import Executor.Core
 
 ----------------------------------------------------------------------

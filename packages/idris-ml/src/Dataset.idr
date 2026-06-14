@@ -5,8 +5,8 @@
 ||| and how to materialise the sample at each in-bounds index.
 module Dataset
 
-import Data.Vect
 import Data.Fin
+import Data.Vect
 
 import Executor
 import Tensor

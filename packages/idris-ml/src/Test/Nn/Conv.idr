@@ -3,13 +3,13 @@ module Test.Nn.Conv
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
+import Nn.Conv
 import Nn.Init
 import Nn.Module
-import Nn.Conv
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- inC=1, outC=1, 3x3 input, 2x2 all-ones kernel, no pad, stride 1.
 -- ConvOutDim 3 2 0 = 2, so output is 2x2 = 4 values; each = sum of a 2x2

@@ -1,7 +1,7 @@
 module Test.RL.Gae
 
-import Test.Harness
 import RL.Gae
+import Test.Harness
 
 -- Reference values computed by hand.
 -- Inputs: rewards=[1,1,1], values=[0.5,0.5,0.5], dones=[F,F,T], bootstrap=0,

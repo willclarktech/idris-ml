@@ -4,14 +4,14 @@ import Data.List
 import Data.Maybe
 import Data.SortedMap
 import Data.Vect
-import Compat.Random
 
+import Array
+import Compat.Random
+import public DType.Core
 import DataPoint
 import Executor
-import public DType.Core
-import public GradMode
 import Floating
-import Array
+import public GradMode
 import public Init
 import Schedule
 import public Tensor.Internal

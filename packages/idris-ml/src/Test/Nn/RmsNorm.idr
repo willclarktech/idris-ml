@@ -3,13 +3,13 @@ module Test.Nn.RmsNorm
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
 import Nn.Module
 import Nn.RmsNorm
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- input [3,4], weight 1: mean(x²) = (9+16)/2 = 12.5, rms = sqrt(12.5+eps)
 -- ≈ 3.53553 → out ≈ [0.84853, 1.13137].

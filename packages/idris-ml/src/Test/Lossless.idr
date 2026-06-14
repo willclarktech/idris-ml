@@ -2,8 +2,8 @@ module Test.Lossless
 
 import Data.Nat
 
-import Test.Harness
 import DType.Core
+import Test.Harness
 
 -- ---------------------------------------------------------------
 -- A0.5: cross-family LosslessTo float-cast witnesses

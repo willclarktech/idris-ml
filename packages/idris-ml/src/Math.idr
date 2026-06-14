@@ -2,8 +2,8 @@ module Math
 
 import Data.Vect
 
-import Floating
 import Array
+import Floating
 
 ----------------------------------------------------------------------
 -- Activation Functions

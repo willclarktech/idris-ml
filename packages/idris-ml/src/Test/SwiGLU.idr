@@ -2,12 +2,12 @@ module Test.SwiGLU
 
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
 import Array
+import Executor
 import Layer.SwiGLU
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Tolerance for the value-pinning test against the all-ones weight
 -- reference. The forward composes ~7 ops. On tape + torch the F64

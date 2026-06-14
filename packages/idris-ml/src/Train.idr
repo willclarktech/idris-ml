@@ -8,13 +8,13 @@ import Data.List
 import Data.Nat
 import System.Clock
 
+import Checkpoint
+import Executor
+import Schedule
+import Tensor
+import public Train.Engine
 import Util
 import Util.Log
-import Executor
-import Tensor
-import Schedule
-import Checkpoint
-import public Train.Engine  -- MetricsFn, EarlyStopConfig, showFix + the shared engine pieces
 
 ----------------------------------------------------------------------
 -- CLI Argument Parsing

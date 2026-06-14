@@ -2,12 +2,12 @@ module Test.RmsNorm
 
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
 import Array
+import Executor
 import Layer.RmsNorm
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Tolerance for the forward-value check. The composed formulation
 -- (sq → primSum → primMulScalar → primAddScalar → primSqrt →

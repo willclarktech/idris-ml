@@ -7,25 +7,25 @@
 ||| grained control is wanted.
 module Layer
 
+import public Layer.Activation
+import public Layer.BatchNorm
+import public Layer.BitLinear
+import public Layer.Conv
 import public Layer.Core
-import public Layer.MixedCore
+import public Layer.Dnc
+import public Layer.Dropout
+import public Layer.Embedding
+import public Layer.Gru
+import public Layer.LayerNorm
 import public Layer.Linear
 import public Layer.LinearMixed
 import public Layer.LoraLinear
-import public Layer.BitLinear
-import public Layer.Activation
-import public Layer.LayerNorm
+import public Layer.Lstm
+import public Layer.MixedCore
+import public Layer.Ntm
+import public Layer.Residual
 import public Layer.RmsNorm
+import public Layer.Rnn
 import public Layer.RoPE
 import public Layer.SwiGLU
-import public Layer.BatchNorm
-import public Layer.Dropout
-import public Layer.Embedding
-import public Layer.Conv
-import public Layer.Residual
-import public Layer.Rnn
-import public Layer.Lstm
-import public Layer.Gru
-import public Layer.Ntm
-import public Layer.Dnc
 import public Layer.Transformer

@@ -2,12 +2,12 @@ module Test.Nn.Freeze
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
-import Nn.Module
 import Nn.Init
+import Nn.Module
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- A toy single-param layer (param-bearing, so freeze has a handle to flip).
 data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where

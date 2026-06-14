@@ -3,8 +3,8 @@ module Test.Hpo.LrFinder
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Hpo.LrFinder
+import Test.Harness
 
 tol : Double
 tol = 1.0e-6

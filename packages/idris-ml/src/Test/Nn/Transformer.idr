@@ -3,14 +3,14 @@ module Test.Nn.Transformer
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
 import Nn.Module
 import Nn.Seq
 import Nn.Transformer
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- dModel=4, numHeads=2, headDim=2 (dModel = numHeads*headDim), seqLen=3.
 read12 : Tensor [3, 4] TestExecutor TestDType g -> List Double

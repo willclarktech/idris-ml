@@ -8,11 +8,11 @@ module Test.Construct
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Array
 import Executor
 import Tensor
 import Test.Config
+import Test.Harness
 
 read4 : Tensor [4] TestExecutor TestDType g -> List Double
 read4 t = map (primItem1d {ex=TestExecutor} t.tensorPtr) [0, 1, 2, 3]

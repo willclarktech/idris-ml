@@ -2,11 +2,11 @@ module Test.GradMode
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Layer
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- weakenGrad round-trip: build a tensor with requires_grad=1, flip
 -- it to 0 via weakenGrad, confirm the C-side flag agrees.

@@ -3,14 +3,14 @@ module Test.Nn.LinearMixed
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
-import Optimizer
 import Nn.Init
-import Nn.Module
 import Nn.LinearMixed
+import Nn.Module
+import Optimizer
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- The mixed-precision (master-weights) Linear on the `Nn` surface. The
 -- distinguishing behaviour — a LOSSY paramDt → computeDt cast that still

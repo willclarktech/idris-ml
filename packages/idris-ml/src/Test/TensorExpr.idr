@@ -3,11 +3,11 @@ module Test.TensorExpr
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Array
 import Executor
 import Tensor
 import Test.Config
+import Test.Harness
 
 -- Small fixed tensors for the expression-op suite. ioRerun pins FFI
 -- ordering (pure-typed bulkToTensor* reorders across sibling

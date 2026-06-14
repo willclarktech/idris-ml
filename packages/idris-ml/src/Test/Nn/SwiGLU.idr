@@ -3,13 +3,13 @@ module Test.Nn.SwiGLU
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
 import Nn.Module
 import Nn.SwiGLU
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- hidden=2, intermediate=3, all weights 0.5, x=1.0:
 --   gate = up = [1,1,1] (sum_2 0.5*1 = 1 per row)

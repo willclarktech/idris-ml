@@ -1,11 +1,11 @@
 module Test.RL.ReplayBuffer
 
-import Data.Vect
 import Data.List
+import Data.Vect
 
-import Test.Harness
 import Compat.Random
 import RL.ReplayBuffer
+import Test.Harness
 
 sampleTransition : Double -> Transition 2 1
 sampleTransition k =

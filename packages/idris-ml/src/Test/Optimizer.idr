@@ -3,12 +3,12 @@ module Test.Optimizer
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
 import Optimizer
 import Schedule
 import Tensor
 import Test.Config
+import Test.Harness
 
 -- Trajectory equivalence: the new `sgd` / `rmsprop` constructors wrap
 -- the SAME C prims as `nativeSgd` / `nativeRmsprop`, so driving the

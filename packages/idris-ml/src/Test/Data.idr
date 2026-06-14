@@ -1,18 +1,18 @@
 module Test.Data
 
-import Data.Vect
 import Data.Fin
 import Data.List
 import Data.Maybe
+import Data.Vect
 import System
 import System.File
 
-import Test.Harness
-import Dataset
 import DataStream
+import Dataset
 import Executor
 import Tensor
 import Test.Config
+import Test.Harness
 
 -- Access a dataset at a raw Nat index via natToFin (no compile-time
 -- bound needed; the Fin is built at the dataset's runtime size).

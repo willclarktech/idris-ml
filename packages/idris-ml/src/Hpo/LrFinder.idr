@@ -21,9 +21,9 @@ module Hpo.LrFinder
 import Data.List
 import System.Clock
 
-import Util
 import Executor
 import Tensor
+import Util
 
 ----------------------------------------------------------------------
 -- Configuration

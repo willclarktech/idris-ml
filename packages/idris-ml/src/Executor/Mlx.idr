@@ -5,9 +5,9 @@
 ||| if the build's BACKEND list includes `mlx` (Apple-only).
 module Executor.Mlx
 
-import Executor.Core
-import DType.Core
 import BackendLib
+import DType.Core
+import Executor.Core
 import Hardware
 import Preset
 

@@ -2,12 +2,12 @@ module Test.Nn.Seq
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Module
 import Nn.Seq
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Trivial identity layer (i = o, no params) — exercises Seq's Nil/(::)
 -- composition + Params concatenation without a real layer port.

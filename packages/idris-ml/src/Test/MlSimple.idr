@@ -2,8 +2,8 @@ module Test.MlSimple
 
 import Data.Vect
 
-import Test.Harness
 import ML.Simple
+import Test.Harness
 
 -- `import ML.Simple` alone brings Tensor + Nn + Init + the build's (Ex, F)
 -- pin. A Linear is constructed and run with ZERO `{ex=}` spellings — the

@@ -12,12 +12,12 @@ import Data.Vect
 
 import Compat.Random
 import Executor
-import Tensor
 import Nn.Init
+import Nn.Linear
+import Nn.Lstm
 import Nn.Module
 import Nn.Recurrent
-import Nn.Lstm
-import Nn.Linear
+import Tensor
 
 ----------------------------------------------------------------------
 -- Shapes (type level)

@@ -2,8 +2,8 @@ module Test.RoPE
 
 import Data.Vect
 
-import Test.Harness
 import Layer.RoPE
+import Test.Harness
 
 -- Tolerance for the value-pin tests against the Python oracle.
 -- Pure host-side F64 math both sides; expected exact agreement modulo

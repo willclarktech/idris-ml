@@ -2,11 +2,11 @@ module Test.Nn.Module
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Module
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- A trivial identity module (i = o, no params) — exercises the Module +
 -- Params interfaces without depending on a real layer port.

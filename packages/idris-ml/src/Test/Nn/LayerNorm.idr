@@ -3,13 +3,13 @@ module Test.Nn.LayerNorm
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
-import Nn.Module
 import Nn.LayerNorm
+import Nn.Module
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Row [1, 3]: mean 2, population var 1 → normalised ≈ [-1, +1] (gamma=1,
 -- beta=0). eps=1e-5 makes it ≈ ∓0.999995.

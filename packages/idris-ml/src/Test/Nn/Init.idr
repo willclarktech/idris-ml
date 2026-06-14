@@ -2,11 +2,11 @@ module Test.Nn.Init
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- scoped + freshChild auto-number siblings per (scope, kind); a nested
 -- scope restarts numbering under its own path.

@@ -7,8 +7,8 @@
 module Compat.Random
 
 import Data.Fin
-import Data.Vect
 import Data.List
+import Data.Vect
 
 -- C standard library random functions
 %foreign "C:srand,libc"

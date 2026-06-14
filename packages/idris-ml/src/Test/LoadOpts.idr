@@ -23,11 +23,11 @@ module Test.LoadOpts
 import Data.Vect
 import System.File
 
-import Test.Harness
 import Checkpoint
 import Executor
 import Tensor
 import Test.Config
+import Test.Harness
 
 packBuf : List Double -> AnyPtr -> Int -> AnyPtr
 packBuf [] b _ = b

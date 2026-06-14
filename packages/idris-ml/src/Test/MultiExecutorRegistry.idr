@@ -23,9 +23,9 @@ module Test.MultiExecutorRegistry
 
 import Data.Vect
 
-import Test.Harness
 import Executor
 import Tensor
+import Test.Harness
 
 ||| Register one param on `TorchExecutor TCpu` and assert torch's registry
 ||| count grows by exactly one while tape's count is unchanged —

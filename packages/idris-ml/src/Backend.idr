@@ -29,8 +29,8 @@
 ||| has nothing to offer them).
 module Backend
 
-import Executor.Core
 import DType.Core
+import Executor.Core
 
 public export
 interface (UserExecutorTraining ex,

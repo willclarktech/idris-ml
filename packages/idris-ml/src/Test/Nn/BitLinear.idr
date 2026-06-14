@@ -3,12 +3,12 @@ module Test.Nn.BitLinear
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
-import Nn.Module
 import Nn.BitLinear
+import Nn.Module
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Same PyTorch-verified fixture as Test.BitLinear: ternary weight from
 -- packed bytes 0x71/0x17/0x4C ([3,4]), scale [0.5,0.25,0.75], bias

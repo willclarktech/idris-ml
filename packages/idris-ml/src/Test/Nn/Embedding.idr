@@ -3,13 +3,13 @@ module Test.Nn.Embedding
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
+import Nn.Embedding
 import Nn.Init
 import Nn.Module
-import Nn.Embedding
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- weight [3,2] = rows [1,2],[3,4],[5,6]; tokens [0,2] → flattened
 -- [row0, row2] = [1,2,5,6].

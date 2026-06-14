@@ -5,9 +5,9 @@
 ||| runtime if the build's BACKEND list includes `tape`.
 module Executor.Tape
 
-import Executor.Core
-import DType.Core
 import BackendLib
+import DType.Core
+import Executor.Core
 import Hardware
 import Preset
 

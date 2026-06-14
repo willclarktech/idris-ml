@@ -3,14 +3,14 @@ module Test.Nn.Ntm
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
 import Nn.Init
 import Nn.Module
-import Nn.Recurrent
 import Nn.Ntm
+import Nn.Recurrent
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Small NTM: 4 memory slots × width 3, hidden 8, in/out 2.
 mkNtm : IO (Ntm 4 3 8 2 2 TestExecutor TestDType WithGrad)

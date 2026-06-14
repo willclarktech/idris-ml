@@ -3,14 +3,14 @@ module Test.Nn.Gru
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
+import Nn.Gru
 import Nn.Init
 import Nn.Module
 import Nn.Recurrent
-import Nn.Gru
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Deterministic property checks (gate order is a C-kernel detail): hidden
 -- bounded, state carried, reset restores step-1 output exactly.

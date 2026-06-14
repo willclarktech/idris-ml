@@ -3,13 +3,13 @@ module Test.Nn.Group
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
-import Nn.Module
-import Nn.Init
 import Nn.Group
+import Nn.Init
+import Nn.Module
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- A toy single-param layer so groupOf has something to enumerate.
 data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where

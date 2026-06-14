@@ -17,11 +17,11 @@ import System.Clock
 
 import Backprop
 import DataPoint
+import Executor
 import Layer.Core
 import Schedule
 import Tensor
 import Util
-import Executor
 
 ----------------------------------------------------------------------
 -- Stage

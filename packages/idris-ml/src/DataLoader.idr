@@ -8,6 +8,7 @@ module DataLoader
 
 import Data.IORef
 import Data.Vect
+
 import Compat.Random
 
 ----------------------------------------------------------------------

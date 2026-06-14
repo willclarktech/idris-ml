@@ -3,14 +3,14 @@ module Test.Nn.Dnc
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
+import Nn.Dnc
 import Nn.Init
 import Nn.Module
 import Nn.Recurrent
-import Nn.Dnc
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Small DNC: 2 read heads, 4 memory slots × width 3, hidden 8, in/out 2.
 mkDnc : IO (Dnc 2 4 3 8 2 2 TestExecutor TestDType WithGrad)

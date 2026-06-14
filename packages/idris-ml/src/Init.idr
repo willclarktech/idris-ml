@@ -2,8 +2,8 @@ module Init
 
 import Data.Vect
 
-import public Sampler
 import Compat.Random
+import public Sampler
 
 ----------------------------------------------------------------------
 -- InitSpec (typed construction facade)

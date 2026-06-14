@@ -3,10 +3,10 @@ module Test.Math
 import Data.Fin
 import Data.Vect
 
-import Floating
-import Test.Harness
-import Math
 import Array
+import Floating
+import Math
+import Test.Harness
 
 tol : Double
 tol = 1.0e-6

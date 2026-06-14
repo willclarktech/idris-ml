@@ -3,12 +3,12 @@ module Backprop
 import Data.List
 import Data.Vect
 
+import Array
 import DataPoint
 import Executor
+import GradScaler
 import Layer.Core
 import Layer.MixedCore
-import Array
-import GradScaler
 import Tensor
 
 ----------------------------------------------------------------------

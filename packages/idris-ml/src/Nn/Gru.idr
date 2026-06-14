@@ -8,10 +8,10 @@ module Nn.Gru
 import Data.Vect
 
 import Executor
-import Tensor
 import Nn.Init
 import Nn.Module
 import Nn.Recurrent
+import Tensor
 
 %default total
 

@@ -25,11 +25,11 @@
 ||| `IDRISML_MACHINE_CHECK=warn` (log + continue) or `=off` (skip).
 module Machine.Verify
 
+import System
+
 import Machine
 import Machine.Verify.Probes
 import Util.Log
-
-import System
 
 public export
 data VerifyResult

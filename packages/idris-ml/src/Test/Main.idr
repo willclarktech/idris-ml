@@ -1,14 +1,26 @@
 module Test.Main
 
-import Test.Harness
+import Test.ActivationDump
 import Test.Array
 import Test.Backend
+import Test.BitLinear
+import Test.BitNet
+import Test.CheckpointSubset
 import Test.Construct
 import Test.Data
 import Test.Fit
 import Test.GradMode
 import Test.GradScaler
+import Test.Harness
+import Test.Hpo.LrFinder
+import Test.Init
+import Test.LoadOpts
+import Test.Log
+import Test.LoraLinear
+import Test.Lossless
+import Test.ManagedHandle
 import Test.Math
+import Test.MixedLayerLike
 import Test.MlSimple
 import Test.Nn.Activation
 import Test.Nn.BatchNorm
@@ -36,24 +48,6 @@ import Test.Nn.RmsNorm
 import Test.Nn.Seq
 import Test.Nn.SwiGLU
 import Test.Nn.Transformer
-import Test.Schedule
-import Test.Init
-import Test.Sampler
-import Test.TensorExpr
-import Test.TrainEngine
-import Test.RL.Gae
-import Test.RL.ReplayBuffer
-import Test.Hpo.LrFinder
-import Test.ActivationDump
-import Test.LoadOpts
-import Test.Log
-import Test.Lossless
-import Test.LoraLinear
-import Test.ManagedHandle
-import Test.BitLinear
-import Test.BitNet
-import Test.CheckpointSubset
-import Test.MixedLayerLike
 import Test.Optimizer
 import Test.Properties.F32GradParity as Props.F32GradParity
 import Test.Properties.GoldenDemo as Props.GoldenDemo
@@ -61,10 +55,16 @@ import Test.Properties.Reshape as Props.Reshape
 import Test.Properties.RmsNorm as Props.RmsNorm
 import Test.Properties.RoPE as Props.RoPE
 import Test.Properties.Softmax as Props.Softmax
+import Test.RL.Gae
+import Test.RL.ReplayBuffer
 import Test.RmsNorm
 import Test.RoPE
+import Test.Sampler
 import Test.SaveModelMatching
+import Test.Schedule
 import Test.SwiGLU
+import Test.TensorExpr
+import Test.TrainEngine
 -- NOTE: Test.Transfer (UserExecutorTransfer / toExecutor smoke) lives in
 -- the source tree but isn't wired into this default `tests` list:
 -- it deliberately references TapeExecutor / TorchExecutor / MlxExecutor by name to

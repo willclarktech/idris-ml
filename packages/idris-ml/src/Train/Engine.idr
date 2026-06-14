@@ -17,11 +17,11 @@ import Data.List
 import Data.Nat
 import System.Clock
 
-import Util
-import Util.Log
+import Checkpoint
 import Executor
 import Tensor
-import Checkpoint
+import Util
+import Util.Log
 
 ----------------------------------------------------------------------
 -- Shared types (were in Train.idr; re-exported there for source compat)

@@ -1,8 +1,8 @@
 module Test.Sampler
 
 import Compat.Random
-import Test.Harness
 import Sampler
+import Test.Harness
 
 tol : Double
 tol = 1.0e-12

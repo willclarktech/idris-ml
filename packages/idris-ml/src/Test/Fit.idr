@@ -2,15 +2,15 @@ module Test.Fit
 
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
-import Optimizer
-import GradScaler
-import Train
-import Fit
 import DataStream
+import Executor
+import Fit
+import GradScaler
+import Optimizer
+import Tensor
 import Test.Config
+import Test.Harness
+import Train
 
 -- Registered scalar param (mirrors Test.Optimizer / Test.TrainEngine).
 mkW : String -> Double -> IO (Tensor [] TestExecutor TestDType WithGrad)

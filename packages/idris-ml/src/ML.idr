@@ -8,13 +8,13 @@
 ||| default cell so example/tutorial code needs zero `{ex=}`.
 module ML
 
-import public Tensor
+import public Backend
+import public Checkpoint
+import public DataStream
+import public Dataset
+import public Fit
 import public Nn
 import public Nn.Init
 import public Optimizer
-import public Dataset
-import public DataStream
-import public Fit
+import public Tensor
 import public Train.Engine
-import public Checkpoint
-import public Backend

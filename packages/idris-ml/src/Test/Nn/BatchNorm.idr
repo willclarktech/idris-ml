@@ -3,14 +3,14 @@ module Test.Nn.BatchNorm
 import Data.List
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
 import Checkpoint
+import Executor
+import Nn.BatchNorm
 import Nn.Init
 import Nn.Module
-import Nn.BatchNorm
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- Eval mode with running mean=0, var=1, gamma=1, beta=0:
 --   out = (x - 0)/sqrt(1 + 1e-5) * 1 + 0 ≈ x.

@@ -6,8 +6,8 @@
 ||| The `fit` driver pulls `next` once per epoch.
 module DataStream
 
-import Data.IORef
 import Data.Fin
+import Data.IORef
 import Data.Nat
 import Data.Vect
 

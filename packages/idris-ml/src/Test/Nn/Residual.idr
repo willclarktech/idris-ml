@@ -2,13 +2,13 @@ module Test.Nn.Residual
 
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
-import Nn.Module
 import Nn.Activation
+import Nn.Module
 import Nn.Residual
+import Tensor
 import Test.Config
+import Test.Harness
 
 read4 : Tensor [2, 2] TestExecutor TestDType g -> List Double
 read4 t = [ primItem2d {ex=TestExecutor} t.tensorPtr i j

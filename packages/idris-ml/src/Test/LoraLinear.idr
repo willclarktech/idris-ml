@@ -2,14 +2,14 @@ module Test.LoraLinear
 
 import Data.Vect
 
-import Test.Harness
-import Executor
-import Tensor
 import Array
+import Executor
 import Layer.Core
 import Layer.Linear
 import Layer.LoraLinear
+import Tensor
 import Test.Config
+import Test.Harness
 
 ----------------------------------------------------------------------
 -- Helpers (mirror Test.SwiGLU / Test.MixedLayerLike conventions)

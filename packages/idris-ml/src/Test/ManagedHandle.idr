@@ -1,9 +1,9 @@
 module Test.ManagedHandle
 
-import Test.Harness
 import Executor
 import Tensor
 import Test.Config
+import Test.Harness
 
 -- These tests verify the Chez guardian + drain plumbing for the
 -- wrapped-handle ABI (see docs/develop/tensor-lifecycle-plan.md).

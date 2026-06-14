@@ -3,15 +3,15 @@ module Test.Nn.Equivalence
 import Data.List
 import Data.Vect
 
-import Test.Harness
 import Executor
-import Tensor
-import Optimizer
-import Nn.Module
-import Nn.Linear
 import Nn.Activation
+import Nn.Linear
+import Nn.Module
 import Nn.Seq
+import Optimizer
+import Tensor
 import Test.Config
+import Test.Harness
 
 -- The equivalence oracle (Phase 2 keystone). An MLP [3]→relu[4]→[2] is
 -- expressed two ways and trained identically:

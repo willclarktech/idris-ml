@@ -26,9 +26,9 @@
 module Executor
 
 import public Backend
+import public DType.Core
 import public Executor.Core
+import public Executor.Mlx
 import public Executor.Tape
 import public Executor.Torch
-import public Executor.Mlx
-import public DType.Core
 import public HwConfig
