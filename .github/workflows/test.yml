@@ -133,12 +133,17 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           cd packages/pytorch && $HOME/.local/bin/uv sync --quiet --only-group dev --no-install-project
-      - name: Lint Python surface (ruff + vulture)
-        # Runs `make py-lint` which exercises ruff check + ruff format
-        # --check + vulture (min-confidence 80% per pyproject.toml).
-        # Use --no-sync so the partially-synced venv from the previous
-        # step isn't filled with the heavy main deps.
+      - name: Lint Python surface (ruff check + vulture)
+        # Runs `make lint-py` — ruff check + vulture (min-confidence 80%
+        # per pyproject.toml). Use --no-sync so the partially-synced venv
+        # from the previous step isn't filled with the heavy main deps.
+        # Format-checking is a separate step (make check-fmt-py) so
+        # format != lint.
         run: make lint-py
+      - name: Check Python formatting (ruff format --check)
+        # Runs `make check-fmt-py` — the format half of the fmt family
+        # (mk/fmt.mk). Reuses the --only-group dev venv (ruff) from above.
+        run: make check-fmt-py
       - name: Typecheck stdlib Python scripts (pyright strict)
         # `make typecheck-py-scripts` — pyright strict over the
         # repo-root scripts/ tree (config root scripts/pyrightconfig
@@ -172,14 +177,18 @@ jobs:
         # locally. libopenblas-dev provides <cblas.h>, which clang-tidy
         # needs to parse the tape sources' non-Apple BLAS branch.
         run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format cppcheck clang-tidy libopenblas-dev
-      - name: Lint C / C++ backend surface (clang-format + cppcheck + clang-tidy)
-        # Runs `make lint-c`: clang-format --dry-run + cppcheck on
-        # all 3 backends + clang-tidy on tape (tape uses only libc
-        # + BLAS headers; no libtorch / mlx setup needed here). Full
-        # clang-tidy across the torch C++ backend runs in the
-        # lint-full job, which carries libtorch via the uv venv.
-        # clang-format rules live in `.clang-format`; cppcheck flags
-        # inline; clang-tidy check set in `.clang-tidy`.
+      - name: Check C / C++ formatting (clang-format --dry-run)
+        # Runs `make check-fmt-c` — the format half of the fmt family
+        # (mk/fmt.mk), clang-format over all 3 backends + shared at once.
+        # Separate from lint-c so format != lint.
+        run: make check-fmt-c
+      - name: Lint C / C++ backend surface (cppcheck + clang-tidy)
+        # Runs `make lint-c`: cppcheck on all 3 backends + clang-tidy on
+        # tape (tape uses only libc + BLAS headers; no libtorch / mlx
+        # setup needed here). Full clang-tidy across the torch C++ backend
+        # runs in the lint-full job, which carries libtorch via the uv
+        # venv. cppcheck flags inline; clang-tidy check set in
+        # `.clang-tidy`. clang-format is the check-fmt-c step above.
         run: make lint-c
       - name: Lint C misc-include-cleaner gate (rename-free)
         # Runs `make lint-c-include-cleaner` — clang-tidy with ONLY

@@ -77,6 +77,33 @@ load-bearing: `bench` writes a perf-log entry, `test` doesn't.
 > by 2-3×. The only honest measurement is `time make <target>` on the
 > box you care about.
 
+## `fmt` + `lint` families — static, no behaviour
+
+Two more static families sit alongside the verbs (neither runs the code
+under test). They are kept **separate from each other** — *format ≠ lint*:
+re-spacing source is not the same as finding bugs/dead code.
+
+`fmt` (writers) / `check-fmt` (checkers) — cross-language, in `mk/fmt.mk`:
+
+| Target | Scope |
+|---|---|
+| `fmt` / `check-fmt` | umbrella: all languages, write / check |
+| `fmt-idris` / `test-integration-lint-fmt` | Idris via **idris-fmt** (compiler-native, round-trip-oracle-gated; `packages/idris-fmt/`) |
+| `fmt-py` / `check-fmt-py` | Python via `ruff format` |
+| `fmt-c` / `check-fmt-c` | C/C++ via `clang-format -i` over all backends |
+
+`lint` (no umbrella today) — non-format static analysis only:
+
+| Target | Scope |
+|---|---|
+| `lint-py` | `ruff check` + `vulture` (NOT `ruff format` — that's `check-fmt-py`) |
+| `lint-c` | `cppcheck` + `clang-tidy` (NOT `clang-format` — that's `check-fmt-c`) |
+
+The Idris format-check is a `test-integration` leaf (it needs idris2/pack,
+runs in that CI job); the py/c format-checks run in the hand-written `lint`
+CI job (which carries the ruff venv + clang-format). `make fmt` before a
+commit; `make check-fmt` is the gate.
+
 ## Per-layer leaf naming convention
 
 Every leaf is named `test-{layer}-{topic}` (or

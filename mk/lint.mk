@@ -104,24 +104,26 @@ test-integration-lint-paired-defaults:
 lint-py: lint-py-pytorch lint-py-scripts lint-py-transformers lint-py-examples lint-py-jupyter
 	@echo "lint-py OK (all Python-bearing packages)"
 
+# ruff-check + vulture only; `ruff format --check` lives in the fmt
+# family (`make check-fmt-py`) so format != lint (see mk/fmt.mk).
 lint-py-pytorch:
-	@cd packages/pytorch && uv run --no-sync --quiet ruff check . && uv run --no-sync --quiet ruff format --check . && uv run --no-sync --quiet vulture
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check . && uv run --no-sync --quiet vulture
 	@echo "  lint-py-pytorch OK"
 
 lint-py-scripts:
-	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../../scripts && uv run --no-sync --quiet ruff format --check ../../scripts
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../../scripts
 	@echo "  lint-py-scripts OK"
 
 lint-py-transformers:
-	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../idris-transformers/scripts && uv run --no-sync --quiet ruff format --check ../idris-transformers/scripts
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../idris-transformers/scripts
 	@echo "  lint-py-transformers OK"
 
 lint-py-examples:
-	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../idris-ml-examples/scripts && uv run --no-sync --quiet ruff format --check ../idris-ml-examples/scripts
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../idris-ml-examples/scripts
 	@echo "  lint-py-examples OK"
 
 lint-py-jupyter:
-	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../jupyter && uv run --no-sync --quiet ruff format --check ../jupyter
+	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../jupyter
 	@echo "  lint-py-jupyter OK"
 
 # Typecheck the Python surface — same per-package split as lint-py.
@@ -186,20 +188,11 @@ typecheck-py-jupyter: packages/jupyter/.venv/bin/activate
 # pre-commit use. `lint-c` runs the full sweep including the C++
 # backends (slow — libtorch headers).
 lint-c: lint-c-tape lint-c-torch lint-c-mlx
-	@echo "lint-c OK (clang-format + cppcheck + clang-tidy across all 3 backends)"
+	@echo "lint-c OK (cppcheck + clang-tidy across all 3 backends; clang-format is make check-fmt-c)"
 
-# Shared C/C++ surface — linked into every backend, so re-check
-# from each lint-c-<backend> target. rename_*.h is auto-generated
-# (gen-rename-headers.py owns its layout) and excluded.
-BACKENDS_SHARED_SRCS := $(shell find packages/backends -maxdepth 1 \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) ! -name "rename_*.h" 2>/dev/null) \
-                       $(shell find packages/backends/shared \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) 2>/dev/null)
-
+# cppcheck + clang-tidy only; clang-format lives in the fmt family
+# (`make check-fmt-c`, all backends at once) so format != lint.
 lint-c-tape:
-	@if command -v clang-format >/dev/null 2>&1; then \
-		clang-format --dry-run -Werror --style=file $$(find packages/backends/backend_tape \( -name "*.c" -o -name "*.h" \) 2>/dev/null) $(BACKENDS_SHARED_SRCS) || exit 1; \
-	else \
-		echo "lint-c-tape: clang-format not installed (install via 'brew install clang-format' or 'apt-get install clang-format'; macOS Command Line Tools also ships one at /Library/Developer/CommandLineTools/usr/bin/clang-format if that's on PATH); skipping"; \
-	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape packages/backends/backend_tape/ || exit 1; \
 	else \
@@ -251,11 +244,6 @@ lint-c-include-cleaner:
 	fi
 
 lint-c-torch:
-	@if command -v clang-format >/dev/null 2>&1; then \
-		clang-format --dry-run -Werror --style=file $$(find packages/backends/backend_torch \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) 2>/dev/null) $(BACKENDS_SHARED_SRCS) || exit 1; \
-	else \
-		echo "lint-c-torch: clang-format not installed; skipping"; \
-	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_torch packages/backends/backend_torch/ || exit 1; \
 	else \
@@ -267,11 +255,6 @@ lint-c-torch:
 	fi
 
 lint-c-mlx:
-	@if command -v clang-format >/dev/null 2>&1; then \
-		clang-format --dry-run -Werror --style=file $$(find packages/backends/backend_mlx \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) 2>/dev/null) $(BACKENDS_SHARED_SRCS) || exit 1; \
-	else \
-		echo "lint-c-mlx: clang-format not installed; skipping"; \
-	fi
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_mlx packages/backends/backend_mlx/ || exit 1; \
 	else \
