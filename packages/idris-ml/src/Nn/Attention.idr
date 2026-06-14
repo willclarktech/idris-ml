@@ -8,6 +8,8 @@
 ||| the per-head weights so it composes.
 module Nn.Attention
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -45,6 +47,34 @@ attentionCastGrad : {0 dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> 
                     Attention dModel numHeads headDim ex dt g -> Attention dModel numHeads headDim ex dt g'
 attentionCastGrad (MkAttention qs ks vs ops) =
   MkAttention (map retypeGrad qs) (map retypeGrad ks) (map retypeGrad vs) (map retypeGrad ops)
+
+||| Linear-resource analogues of the splice functions above (the block's
+||| `ParamsL` splices these). `attentionReflectL` reflects the per-head params
+||| without losing the (linear) attention; the head weights bind at ω, so they
+||| feed both the param list and the rebuild.
+export
+attentionReflectL : {0 dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} ->
+                    (1 _ : Attention dModel numHeads headDim ex dt g) ->
+                    LPair (!* (List SomeParam)) (Attention dModel numHeads headDim ex dt g)
+attentionReflectL (MkAttention qs ks vs ops) =
+  MkBang (map toParam (toList qs) ++ map toParam (toList ks)
+            ++ map toParam (toList vs) ++ map toParam (toList ops))
+    # MkAttention qs ks vs ops
+
+||| Linear `castGrad` for `Attention` (`g → g'`); pure phantom retype.
+export
+attentionCastGradL : {0 dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> {0 dt : DType} -> {0 g, g' : GradMode} ->
+                     (1 _ : Attention dModel numHeads headDim ex dt g) ->
+                     Attention dModel numHeads headDim ex dt g'
+attentionCastGradL (MkAttention qs ks vs ops) =
+  MkAttention (map retypeGrad qs) (map retypeGrad ks) (map retypeGrad vs) (map retypeGrad ops)
+
+||| Explicit linear consumer for `Attention` (it carries no resource beyond
+||| the shared C-side params, so this is a no-op discharge).
+export
+attentionDiscardL : {0 dModel, numHeads, headDim : Nat} -> {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} ->
+                    (1 _ : Attention dModel numHeads headDim ex dt g) -> L IO ()
+attentionDiscardL (MkAttention _ _ _ _) = pure ()
 
 -- Strict upper triangle = 1.0 (future positions to mask); calloc zeroes
 -- the rest. (Int-indexed recursion → partial.)
@@ -89,6 +119,23 @@ attentionForward {headDim} (MkAttention qs ks vs ops) input = ioRerun (\_ =>
   let scale = 1.0 / sqrt (cast {to=Double} headDim)
       out = runHeads {ex} qs ks vs ops input.tensorPtr (buildCausalMask {ex} {dt} seqLen) scale Nothing
   in MkTensor out Nothing)
+
+||| Linear-resource causal self-attention forward. The head weights bind at ω
+||| (read-only in the forward), so the body sequences the same computation via
+||| `ioRerunL` and rebuilds the unchanged attention beside the banged output.
+export partial
+attentionForwardL : {0 ex : Executor} -> Backend ex dt => {0 g : GradMode} ->
+                    {dModel, numHeads, headDim, seqLen : Nat} ->
+                    (1 _ : Attention dModel numHeads headDim ex dt g) ->
+                    Tensor [seqLen, dModel] ex dt g ->
+                    L IO {use = 1} (LPair (!* (Tensor [seqLen, dModel] ex dt g))
+                                          (Attention dModel numHeads headDim ex dt g))
+attentionForwardL {headDim} (MkAttention qs ks vs ops) input = do
+  out <- ioRerunL (\_ =>
+    let scale = 1.0 / sqrt (cast {to=Double} headDim)
+        o = runHeads {ex} qs ks vs ops input.tensorPtr (buildCausalMask {ex} {dt} seqLen) scale Nothing
+    in MkTensor o Nothing)
+  pure1 (MkBang out # MkAttention qs ks vs ops)
 
 -- Build `numHeads` registered weight tensors named `<kind>_<j>.weight`.
 mkHeads : {0 ex : Executor} -> Backend ex dt => {a, b : Nat} ->

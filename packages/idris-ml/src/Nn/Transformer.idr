@@ -13,6 +13,8 @@
 ||| norm → head) at the example level.
 module Nn.Transformer
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -57,6 +59,29 @@ public export
   castGrad (MkTransformerBlock attn n1 n2 ff1 ff2) =
     MkTransformerBlock (attentionCastGrad attn) (castGrad n1) (castGrad n2)
                        (retypeGrad ff1) (retypeGrad ff2)
+
+||| Linear-resource params. attn/norms/ff weights bind at ω, so the splice
+||| reuses the IO `attentionParams`/`params` for both the reflected list and
+||| the rebuild.
+public export
+{numHeads, headDim : Nat} -> ParamsL (TransformerBlock numHeads headDim) where
+  reflectL (MkTransformerBlock attn n1 n2 ff1 ff2) =
+    MkBang (attentionParams attn ++ params n1 ++ params n2 ++ [toParam ff1, toParam ff2])
+      # MkTransformerBlock attn n1 n2 ff1 ff2
+  castGradL (MkTransformerBlock attn n1 n2 ff1 ff2) =
+    MkTransformerBlock (attentionCastGrad attn) (castGrad n1) (castGrad n2)
+                       (retypeGrad ff1) (retypeGrad ff2)
+  discardL (MkTransformerBlock _ _ _ _ _) = pure ()
+
+||| Linear-resource `Module`. The forward is read-only on every sub-layer
+||| (the block is returned unchanged), so it consumes the linear block,
+||| delegates the multi-step body to the IO `forward` at the linear boundary,
+||| and rebuilds the unchanged block beside the banged output.
+public export
+{numHeads, headDim : Nat} -> ModuleL (TransformerBlock numHeads headDim) where
+  forwardL (MkTransformerBlock attn n1 n2 ff1 ff2) h = do
+    out <- liftIO1 (forward (MkTransformerBlock attn n1 n2 ff1 ff2) h)
+    pure1 (MkBang out # MkTransformerBlock attn n1 n2 ff1 ff2)
 
 ||| Construct a pre-norm `TransformerBlock` inside an `Init` derivation.
 ||| Nests `attn.*` (per-head projections), `norm1`/`norm2`, and the
