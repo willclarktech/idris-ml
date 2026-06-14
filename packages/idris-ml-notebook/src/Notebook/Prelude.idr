@@ -12,6 +12,7 @@ import public Decidable.Equality
 import public System
 import public System.Random
 
+import public Array
 import public Backprop
 import public Checkpoint
 import public Curriculum
@@ -20,6 +21,7 @@ import public DataPoint
 import public Executor
 import public Floating
 import public Hpo
+import public HwExecutors
 import public Init
 import public Layer
 import public Math
@@ -27,8 +29,6 @@ import public RL.Gae
 import public RL.ReplayBuffer
 import public Sampler
 import public Schedule
-import public Array
+import public Tensor
 import public Train
 import public Util
-import public Tensor
-import public HwExecutors
