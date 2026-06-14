@@ -1,50 +1,40 @@
 -- | DNC Copy Task
 -- |
--- | Binary vector copy task with LSTM controller, DNC memory
--- | (usage allocation, temporal links, erase+add write),
--- | sigmoid output + BCE loss, and RMSprop optimizer.
+-- | Binary vector copy with a Differentiable Neural Computer (LSTM
+-- | controller + temporal link matrix), on the v1 Nn/fit surface. Same
+-- | two-phase encode/decode shape as NtmCopy (see it for the pattern);
+-- | the cell is `Nn.Dnc` instead of `Nn.Ntm`.
 
 module Example.DncCopy
 
 import Data.List
-import Data.String
 import Data.Vect
 import System
-import System.Clock
 import Compat.Random
 
-import Backprop
-import Checkpoint
-import DataPoint
-import Floating
-import Generate
-import Hpo.LrFinder
-import Layer.Core
-import Layer.Dnc
-import Math
-import Array
-import Train
-import Util
-import Executor
-import Tensor
-import BuildConfig
+import ML.Simple
+import Train          -- windowedPercentileConfig
+import BuildConfig    -- ChosenMachine / requireMachine
 
 
 ----------------------------------------------------------------------
--- Configuration
+-- Configuration (dims)
 ----------------------------------------------------------------------
 
 W : Nat
 W = 8
 
 InputW : Nat
-InputW = S W
+InputW = W + 1
 
 OutputW : Nat
 OutputW = W
 
+R : Nat
+R = 1
+
 N : Nat
-N = 32  -- Reduced from 128 for faster link matrix ops (O(n^2))
+N = 32  -- reduced from 128: link matrix is O(n^2)
 
 M : Nat
 M = 20
@@ -52,36 +42,119 @@ M = 20
 H : Nat
 H = 100
 
-R : Nat
-R = 1
-
-TestSize : Nat
-TestSize = 20
+Model : Type
+Model = Dnc R N M H InputW OutputW Ex F WithGrad
 
 
 ----------------------------------------------------------------------
--- Display Helpers
+-- Copy-task data
 ----------------------------------------------------------------------
 
-showBinaryVec : {w : Nat} -> Vector w Double -> String
-showBinaryVec (VArray xs) = "[" ++ go xs ++ "]"
+Seq : Type
+Seq = (List (Vect InputW Double), List (Vect OutputW Double))
+
+randomInt : (lo, hi : Nat) -> IO Nat
+randomInt lo hi = do
+  n <- randomRIO (cast {to=Int32} (natToInteger lo), cast {to=Int32} (natToInteger hi))
+  pure (fromInteger (cast {to=Integer} n))
+
+randomBitVec : (w : Nat) -> IO (Vect w Double)
+randomBitVec w = traverse (\_ => do b <- randomRIO (the Int32 0, 1)
+                                    pure (if b == 1 then 1.0 else 0.0))
+                          (Vect.replicate w ())
+
+genCopySeq : (seqLen : Nat) -> IO Seq
+genCopySeq seqLen = do
+  dataRows <- sequence (List.replicate seqLen (randomBitVec W))
+  let inputRows = map (\r => r ++ [0.0]) dataRows ++ [Vect.replicate W 0.0 ++ [1.0]]
+  pure (inputRows, dataRows)
+
+genBatch : (n, minLen, maxLen : Nat) -> IO (List Seq)
+genBatch Z _ _ = pure []
+genBatch (S k) minLen maxLen = do
+  len <- randomInt minLen maxLen
+  dp <- genCopySeq len
+  rest <- genBatch k minLen maxLen
+  pure (dp :: rest)
+
+
+----------------------------------------------------------------------
+-- Two-phase loss
+----------------------------------------------------------------------
+
+zeroIn : IO (Tensor [InputW] Ex F WithGrad)
+zeroIn = retypeGrad <$> tensor {dims = [InputW]} (Const 0.0)
+
+sumLosses : List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
+sumLosses [] = assert_total $ idris_crash "DncCopy.sumLosses: empty"
+sumLosses (x :: xs) = go x xs
   where
-    go : Vect k (Scalar Double) -> String
-    go [] = ""
-    go [SArray x] = if x >= 0.5 then "1" else "0"
-    go (SArray x :: rest) = (if x >= 0.5 then "1" else "0") ++ "," ++ go rest
+    go : Tensor [] Ex F WithGrad -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
+    go acc []        = pure acc
+    go acc (y :: ys) = do s <- tadd acc y; go s ys
 
-showBinaryLogits : {w : Nat} -> Vector w Double -> String
-showBinaryLogits (VArray xs) = "[" ++ go xs ++ "]"
-  where
-    go : Vect k (Scalar Double) -> String
-    go [] = ""
-    go [SArray x] = if sigD x >= 0.5 then "1" else "0"
-    go (SArray x :: rest) = (if sigD x >= 0.5 then "1" else "0") ++ "," ++ go rest
+encodeAll : Model -> List (Vect InputW Double) -> IO Model
+encodeAll cell [] = pure cell
+encodeAll cell (row :: rest) = do
+  x <- retypeGrad <$> tensor {dims = [InputW]} (FromVect row)
+  (cell', _) <- recurStep cell x
+  encodeAll cell' rest
+
+decodeLosses : Model -> List (Vect OutputW Double) -> IO (List (Tensor [] Ex F WithGrad))
+decodeLosses _ [] = pure []
+decodeLosses cell (trow :: rest) = do
+  z <- zeroIn
+  (cell', out) <- recurStep cell z
+  y <- retypeGrad <$> tensor {dims = [OutputW]} (FromVect trow)
+  l <- tbceLoss out y
+  ls <- decodeLosses cell' rest
+  pure (l :: ls)
+
+twoPhaseLoss : Model -> Seq -> IO (Tensor [] Ex F WithGrad)
+twoPhaseLoss model (encIns, targs) = do
+  enc <- encodeAll (recurReset model) encIns
+  ls  <- decodeLosses enc targs
+  s   <- sumLosses ls
+  (1.0 / cast (length targs)) *: s
+
+recurEpoch : Optimizer Ex -> Model -> List Seq -> IO (Model, Double)
+recurEpoch opt model batch = do
+  ls   <- traverse (twoPhaseLoss model) batch
+  s    <- sumLosses ls
+  mean <- (1.0 / cast (length batch)) *: s
+  d    <- nativeTrainStep opt mean
+  pure (model, d)
 
 
 ----------------------------------------------------------------------
--- CLI Argument Parsing
+-- Eval: bit accuracy over a fresh test batch (no grad)
+----------------------------------------------------------------------
+
+scoreSeq : Model -> Seq -> IO (Nat, Nat)
+scoreSeq model (encIns, targs) = withNoGrad {ex = Ex} $ do
+  enc <- encodeAll (recurReset model) encIns
+  go enc targs 0 0
+  where
+    go : Model -> List (Vect OutputW Double) -> Nat -> Nat -> IO (Nat, Nat)
+    go _ [] correct tot = pure (correct, tot)
+    go cell (trow :: rest) correct tot = do
+      z <- zeroIn
+      (cell', out) <- recurStep cell z
+      let logits  = [ primItem1d {ex = Ex} out.tensorPtr (cast j) | j <- [the Nat 0 .. OutputW `minus` 1] ]
+          matches = length [ () | (lg, tv) <- zip logits (toList trow), (lg >= 0.0) == (tv >= 0.5) ]
+      go cell' rest (correct + matches) (tot + OutputW)
+
+bitAccuracy : Model -> List Seq -> IO Double
+bitAccuracy model batch = do
+  scores <- traverse (scoreSeq model) batch
+  let (corrects, totals) = unzip scores
+      correct = sum corrects
+      tot     = sum totals
+  pure (if tot == 0 then 0.0 else cast correct / cast tot)
+
+
+----------------------------------------------------------------------
+-- Config & Main
 ----------------------------------------------------------------------
 
 record Config where
@@ -89,7 +162,6 @@ record Config where
   lr : Double
   clipVal : Double
   alpha : Double
-  eps : Double
   momentum : Double
   epochs : Nat
   esThreshold : Double
@@ -99,18 +171,14 @@ record Config where
   minLen : Nat
   maxLen : Nat
   batch : Nat
-  lrFind : Bool
-  checkpointDir : String
-  checkpointEvery : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 0.01 1000 3 42 1 10 1 False "" 1000
+defaultConfig = MkConfig 0.0001 10.0 0.95 0.9 50000 0.01 1000 3 42 1 10 1
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--clip" (\v, c => { clipVal := cast v } c)
         , Arg "--alpha" (\v, c => { alpha := cast v } c)
-        , Arg "--eps" (\v, c => { eps := cast v } c)
         , Arg "--momentum" (\v, c => { momentum := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--es-threshold" (\v, c => { esThreshold := cast v } c)
@@ -119,16 +187,9 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--min-len" (\v, c => { minLen := castNat v } c)
         , Arg "--max-len" (\v, c => { maxLen := castNat v } c)
-        , Arg "--batch" (\v, c => { batch := castNat v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
-        , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
-        , Arg "--resume" (\v, c => { checkpointDir := v } c)
-        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
+        , Arg "--batch" (\v, c => { batch := castNat v } c) ]
 
-
-----------------------------------------------------------------------
--- Main
-----------------------------------------------------------------------
+%default partial
 
 main : IO ()
 main = do
@@ -137,90 +198,31 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
-  tsetInitSeed {ex = ExampleExecutor} cfg.seed
+  tsetInitSeed {ex = Ex} cfg.seed
 
   putStrLn "=== DNC Copy ==="
-  putStrLn $ "Config: lr=" ++ show cfg.lr
-           ++ " clip=" ++ show cfg.clipVal
-           ++ " epochs=" ++ show cfg.epochs
-           ++ " seed=" ++ show cfg.seed
+  putStrLn $ "Config: lr=" ++ show cfg.lr ++ " clip=" ++ show cfg.clipVal
+           ++ " epochs=" ++ show cfg.epochs ++ " seed=" ++ show cfg.seed
            ++ " batch=" ++ show cfg.batch
            ++ " seqLen=" ++ show cfg.minLen ++ "-" ++ show cfg.maxLen
-  putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H ++ " R=" ++ show R
+  putStrLn $ "Architecture: R=" ++ show R ++ " N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
 
-  dncAny <- dncLayerAny {r = R, n = N, m = M, h = H, i = InputW, o = OutputW} "dnc"
-  let model : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer dncAny
+  opt <- rmsprop cfg.lr {alpha = cfg.alpha} {momentum = cfg.momentum}
+                 ({ clip := NormClip cfg.clipVal } defaultOpts)
+  model <- runInit (dnc {r = R} {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
+  let dataStream = generate (genBatch cfg.batch cfg.minLen cfg.maxLen)
   putStrLn ""
 
-  let opt = nativeRmsprop cfg.lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
-
-  -- Data source: fresh batch each epoch (raw Doubles)
-  let genBatch : IO (Vect (cfg.batch) (TwoPhaseDataPoint InputW OutputW Double))
-      genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
-
-  -- Metrics: bit accuracy + memory (computed at each log step)
-  let evalMetrics : Network InputW [] OutputW ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
-      evalMetrics m = do
-        evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
-        accs <- traverse (\dp => do
-                  (_, preds) <- forwardTwoPhase m dp
-                  pure (bitAccuracy preds (targets dp))) evalBatch
-        let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
-        pure [ ("acc", show (avgAcc * 100.0) ++ "%") ]
-
-  when cfg.lrFind $ do
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 100 } defaultLrFindConfig
-    _ <- lrFind lrCfg
-      (\m, d => epochTwoPhaseVar opt d tbceLoss m)
-      genBatch opt model
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  let trainCfgBase = mkTrainConfig cfg.epochs 100
-                   (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
-                   evalMetrics (\_ => pure ())
-      trainCfg = case cfg.checkpointDir of
-                   "" => trainCfgBase
-                   dir => withCheckpoint
-                            (fileCheckpoint dir cfg.checkpointEvery True opt)
-                            trainCfgBase
-
-  (trained, epochsDone, _) <- runTraining {ex=ExampleExecutor}
-    (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
-
-  -- Evaluation
-  let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = do
-        (_, preds) <- forwardTwoPhase trained dp
-        pure (bitAccuracy preds (targets dp))
-
-  shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
-  fullBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 20
-  shortAcc <- withNoGrad {ex=ExampleExecutor} $ do
-    accs <- traverse evalOne shortBatch
-    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  fullAcc <- withNoGrad {ex=ExampleExecutor} $ do
-    accs <- traverse evalOne fullBatch
-    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
+  (trained, epochsDone, _) <-
+    fit (recurEpoch opt) opt dataStream
+        (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
+        model
 
   putStrLn ""
   putStrLn "Eval:"
-  sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  withNoGrad {ex=ExampleExecutor} $ traverse_ (\dp => do
-    (_, preds) <- forwardTwoPhase trained dp
-    putStr "  Input:  "
-    putStrLn $ unwords (map showBinaryVec (encodingInputs dp))
-    putStr "  Target: "
-    putStrLn $ unwords (map showBinaryVec (targets dp))
-    putStr "  Output: "
-    putStrLn $ unwords (map showBinaryLogits preds)
-    putStrLn "") (toList sampleBatch)
-
-  putStrLn $ "  Short (len 1-5):  " ++ show (shortAcc * 100.0) ++ "% bit accuracy"
-  putStrLn $ "  Full  (len 1-20): " ++ show (fullAcc * 100.0) ++ "% bit accuracy"
+  testBatch <- genBatch 100 1 10
+  acc <- bitAccuracy trained testBatch
+  putStrLn $ "  Bit accuracy (len 1-10): " ++ show (acc * 100.0) ++ "%"
   putStrLn ""
-  putStrLn $ formatResult [("epochs", show epochsDone), ("acc_short", show shortAcc),
-                            ("acc_full", show fullAcc), ("seed", show cfg.seed)]
+  putStrLn $ formatResult [("epochs", show epochsDone),
+                           ("acc", show acc), ("seed", show cfg.seed)]
