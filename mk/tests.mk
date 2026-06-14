@@ -325,7 +325,8 @@ test-integration: \
 		test-integration-lint-legacy-surface \
 		test-integration-lint-fmt \
 		test-integration-checkpoint-resume \
-		test-integration-jupyter-cellparser
+		test-integration-jupyter-cellparser \
+		test-integration-py-scripts
 
 # E2E test layer — see docs/develop/testing-taxonomy.md.
 #

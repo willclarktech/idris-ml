@@ -168,6 +168,12 @@ jobs:
         # reuses the jupyter venv built by the typecheck step above).
         # Wired in by the gate-coverage lint.
         run: make test-integration-jupyter-cellparser
+      - name: Run repo Python tooling unit tests (scripts/tests)
+        # pytest over scripts/tests/ — FFI manifest integrity, coverage-gap
+        # probe, and perf-log writers (incl. kind=elab). Reuses the pytorch
+        # uv dev venv (pytest dev dep) synced for lint-py/typecheck-py above.
+        # Wired in by the gate-coverage lint (these were previously orphaned).
+        run: make test-integration-py-scripts
       - name: Install C-lint tools (clang-format + cppcheck + clang-tidy)
         # apt-installs clang-format + cppcheck + clang-tidy on the
         # Ubuntu runner. ~10s on a warm cache. Local devs install via

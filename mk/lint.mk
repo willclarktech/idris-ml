@@ -10,7 +10,8 @@
         test-integration-lint-ci-coverage \
         test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects \
-        test-integration-lint-paired-defaults lint-py lint-py-pytorch \
+        test-integration-lint-paired-defaults test-integration-py-scripts \
+        lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
         lint-py-jupyter typecheck-py typecheck-py-pytorch \
         typecheck-py-scripts typecheck-py-transformers \
@@ -123,6 +124,16 @@ lint-py-pytorch:
 lint-py-scripts:
 	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../../scripts
 	@echo "  lint-py-scripts OK"
+
+# Unit tests for the repo's Python tooling (scripts/tests/): the FFI
+# manifest integrity checks, the coverage-gap probe, and the perf-log
+# writers (incl. the kind=elab record). Runs in the lint job's uv dev
+# venv (pytest is a dev dep). An integration-layer leaf so the CI-coverage
+# gate enforces it actually runs — these were previously orphaned (no
+# target invoked them, so test_ffi_manifest_integrity sat red unnoticed).
+test-integration-py-scripts:
+	@cd packages/pytorch && uv run --no-sync --quiet pytest ../../scripts/tests/ -q
+	@echo "  test-integration-py-scripts OK"
 
 lint-py-transformers:
 	@cd packages/pytorch && uv run --no-sync --quiet ruff check ../idris-transformers/scripts
