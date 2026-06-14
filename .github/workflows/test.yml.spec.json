@@ -263,6 +263,16 @@
         ]
       },
       {
+        "name": "Verify legacy training surface stays deleted",
+        "run": "make test-integration-lint-legacy-surface",
+        "comment": [
+          "Ratchet: zero references to the deleted Layer/Network/epoch*/",
+          "DataPoint surface across every package's src (imports + code",
+          "identifiers; comments stripped). The v1 rework's concrete",
+          "collapse — keeps Nn/fit/Dataset the only training surface."
+        ]
+      },
+      {
         "name": "Verify .idr formatting (idris-fmt --check)",
         "run": "make test-integration-lint-fmt",
         "comment": [

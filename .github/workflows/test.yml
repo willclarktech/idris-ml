@@ -619,6 +619,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-lint-prim-ratchet
 
+      - name: Verify legacy training surface stays deleted
+        # Ratchet: zero references to the deleted Layer/Network/epoch*/
+        # DataPoint surface across every package's src (imports + code
+        # identifiers; comments stripped). The v1 rework's concrete
+        # collapse — keeps Nn/fit/Dataset the only training surface.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-legacy-surface
+
       - name: Verify .idr formatting (idris-fmt --check)
         # Fails if any tracked .idr file is not formatted by idris-fmt
         # (the repo's compiler-native formatter). Run `make fmt` to fix.
