@@ -11,6 +11,7 @@ depends = base
 modules = Test.Main
         , Test.Roundtrip
         , Test.Render
+        , Test.Imports
 
 main = Test.Main
 

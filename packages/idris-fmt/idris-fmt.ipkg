@@ -7,6 +7,7 @@ depends = base
         , idris-args
 
 modules = Format.Roundtrip
+        , Format.Imports
         , Format.Render
         , Main
 

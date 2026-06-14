@@ -9,6 +9,7 @@ import Data.List
 import Data.String
 
 import Format.Roundtrip
+import Format.Imports
 
 ||| Drop trailing spaces/tabs from a single line (no newline expected).
 rstrip : String -> String
@@ -39,14 +40,23 @@ hygiene src =
   let ls = trimBlanks (collapseBlanks (map rstrip (lines src)))
   in concat (map (++ "\n") ls)
 
-||| Reformat a source string. Guaranteed safe: if the hygiene pass ever
-||| produced output that did not round-trip, the original is returned
-||| unchanged.
+||| Apply the import-sort pass, gated by `safeImportSort`; on any doubt
+||| (bail, or oracle rejection) return the input unchanged.
+sortImportsSafe : String -> String
+sortImportsSafe src =
+  case sortImports src of
+    Nothing => src
+    Just cand => if safeImportSort src cand then cand else src
+
+||| Reformat a source string: whitespace hygiene, then import sort/dedup.
+||| Guaranteed safe — each pass is gated by its round-trip oracle and falls
+||| back to its input, so the result can never change the code's meaning.
 export
 format : String -> String
 format src =
-  let out = hygiene src
-  in if safeReformat src out then out else src
+  let hy = hygiene src
+      hy2 = if safeReformat src hy then hy else src
+  in sortImportsSafe hy2
 
 ||| Is the source already in formatted (fixed-point) form?
 export
