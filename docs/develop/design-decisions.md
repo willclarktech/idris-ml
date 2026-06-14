@@ -2328,3 +2328,29 @@ right invariant differs:
 
 Each pass falls back to its input on oracle rejection, so the all-or-nothing
 guarantee holds: the tool can reorder/realign but never change meaning.
+
+### Follow-up: `=` / `=>` alignment, and why reindentation stays deferred (2026-06-14)
+
+The colon machinery generalised cleanly to a token-parameterised driver
+(`Format.Align.alignWith`): a `match` predicate + an `okPre` LHS guard locate
+the first depth-0 key via the compiler lexer, and an `extends` rule decides run
+membership. Three passes now: `:` (annotations), `=` (bindings/clauses), `=>`
+(case/with arms), each independently `safeReformat`-gated. The one real choice was
+the **`=` scope**: aligning every same-indent `=` run churns the hand-formatted
+tree, so the pass aligns indented binding groups unconditionally but limits
+*top-level* runs to genuine multi-clause defs (all lines share one LHS head ident)
+— unrelated top-level defs are left alone.
+
+The reindentation deferral got a sharper justification. The earlier caveat ("`Show`
+doesn't descend into every where/let block") understates it: `Show PDeclNoFC` /
+`Show PClause` are **stubbed** — `PData`/`PRecord`/`PInterface`/`PImplementation`/
+`PParameters`/`PMutual`/`PNamespace` render to bare constructor names, and any
+clause with a `where` block (or any `with`-clause) collapses to `"MkPatClause"`/
+`"MkWithClause"`. So `astSig` is fine for transforms that leave decls textually
+intact (import-sort) but is **not** a usable oracle for reindentation. That makes
+the AST-printer route *two* big traversals (a ~57-constructor printer **and** a
+hand-written deep FC-insensitive `Module` equality). A token-driven reindenter
+avoids both — it preserves tokens (so `codeSig` stays a strong oracle for free) and
+re-lays-out lines by reconstructing the offside rule, at the cost of that
+reconstruction. Either way the value is low on a uniformly-2-space tree, so it
+stays the lone deferred row.
