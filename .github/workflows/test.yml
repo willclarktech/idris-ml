@@ -412,6 +412,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-unit-args
 
+      - name: Run idris-fmt unit suite
+        # Pure-Idris suite for the compiler-native formatter
+        # (packages/idris-fmt/): the round-trip safety oracle (token-stream
+        # + parse equivalence) and the conservative render pass.
+        if: ${{ !cancelled() }}
+        run: make test-unit-fmt
+
       - name: Run idris-transformers unit tests
         # Pure-Idris test harness for the HF-aligned model package
         # (packages/idris-transformers/): bertParamNames catalogue + an FFI
@@ -610,6 +617,13 @@ jobs:
         # example-migration sweep drives the baseline to zero.
         if: ${{ !cancelled() }}
         run: make test-integration-lint-prim-ratchet
+
+      - name: Verify .idr formatting (idris-fmt --check)
+        # Fails if any tracked .idr file is not formatted by idris-fmt
+        # (the repo's compiler-native formatter). Run `make fmt` to fix.
+        # Scoped to git ls-files, so generated sources are excluded.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-fmt
 
       - name: Run typed index-op round-trip (torch, Ubuntu)
         # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*

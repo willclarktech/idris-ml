@@ -90,6 +90,15 @@
         ]
       },
       {
+        "name": "Run idris-fmt unit suite",
+        "run": "make test-unit-fmt",
+        "comment": [
+          "Pure-Idris suite for the compiler-native formatter",
+          "(packages/idris-fmt/): the round-trip safety oracle (token-stream",
+          "+ parse equivalence) and the conservative render pass."
+        ]
+      },
+      {
         "name": "Run idris-transformers unit tests",
         "run": "make test-unit-idris-transformers",
         "comment": [
@@ -261,6 +270,15 @@
           "idris-ml-examples; fails on any increase or any new file.",
           "BringYourOwn.idr exempt (it IS the BYO recipe). The",
           "example-migration sweep drives the baseline to zero."
+        ]
+      },
+      {
+        "name": "Verify .idr formatting (idris-fmt --check)",
+        "run": "make test-integration-lint-fmt",
+        "comment": [
+          "Fails if any tracked .idr file is not formatted by idris-fmt",
+          "(the repo's compiler-native formatter). Run `make fmt` to fix.",
+          "Scoped to git ls-files, so generated sources are excluded."
         ]
       },
       {

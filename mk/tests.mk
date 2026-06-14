@@ -322,6 +322,7 @@ test-integration: \
 		test-integration-typegate-int-overflow-cast \
 		test-integration-typegate-backend-linked \
 		test-integration-lint-prim-ratchet \
+		test-integration-lint-fmt \
 		test-integration-checkpoint-resume \
 		test-integration-jupyter-cellparser
 
