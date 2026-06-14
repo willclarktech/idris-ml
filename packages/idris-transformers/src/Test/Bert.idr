@@ -14,16 +14,18 @@ module Test.Bert
 import Data.List
 import Data.String
 import Data.Vect
+import System.File
 
 import Transformers.Bert
 import Test.Harness
 import Test.Common
 
+import Array
+import Checkpoint
 import Executor
 import Executor.Core
-import Test.Config
 import Tensor
-import Array
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Reference catalogue (mirrors the live model's safetensors header)
@@ -288,6 +290,45 @@ testMaskedLmCombinedCatalogue =
          pure False
 
 ----------------------------------------------------------------------
+-- Bucket 4 — readBertConfig (config.json → BertConfig)
+----------------------------------------------------------------------
+
+-- Distinct per-field values (not bert-tiny's) so a swapped key mapping
+-- is caught: e.g. reading hidden_size into numLayers would make
+-- `numLayers cfg == 3` fail.
+testReadBertConfig : IO Bool
+testReadBertConfig = do
+  let path = "/tmp/idris_bert_config_full.json"
+  Right () <- writeFile path "{\"vocab_size\": 99, \"hidden_size\": 8, \"num_hidden_layers\": 3, \"num_attention_heads\": 2, \"intermediate_size\": 16, \"max_position_embeddings\": 32, \"type_vocab_size\": 2}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  Right cfg <- readBertConfig path
+    | Left e => do putStrLn ("  FAIL: readBertConfig: " ++ show e); pure False
+  check "readBertConfig maps all 7 HF keys to the right fields"
+        (vocabSize cfg == 99 && hidden cfg == 8 && numLayers cfg == 3 &&
+         numHeads cfg == 2 && intermediate cfg == 16 && maxPosition cfg == 32 &&
+         typeVocabSize cfg == 2)
+
+testReadBertConfigDefault : IO Bool
+testReadBertConfigDefault = do
+  let path = "/tmp/idris_bert_config_default.json"
+  Right () <- writeFile path "{\"vocab_size\": 10, \"hidden_size\": 4, \"num_hidden_layers\": 1, \"num_attention_heads\": 2, \"intermediate_size\": 8, \"max_position_embeddings\": 16}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  Right cfg <- readBertConfig path
+    | Left e => do putStrLn ("  FAIL: readBertConfig: " ++ show e); pure False
+  check "type_vocab_size defaults to 2 when the key is omitted" (typeVocabSize cfg == 2)
+
+testReadBertConfigMissing : IO Bool
+testReadBertConfigMissing = do
+  let path = "/tmp/idris_bert_config_missing.json"
+  Right () <- writeFile path "{\"vocab_size\": 10}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  res <- readBertConfig path
+  case res of
+    Left (ConfigError _) => check "a missing required field surfaces as ConfigError" True
+    Left e               => do putStrLn ("  FAIL: wrong error variant: " ++ show e); pure False
+    Right _              => do putStrLn "  FAIL: expected ConfigError, got Right"; pure False
+
+----------------------------------------------------------------------
 -- Test suite
 ----------------------------------------------------------------------
 
@@ -309,5 +350,10 @@ suite =
      [ testMlmParamCount
      , testMlmParamNamesMatchHfReference
      , testMaskedLmCombinedCatalogue
+     ])
+  , ("readBertConfig — config.json parsing",
+     [ testReadBertConfig
+     , testReadBertConfigDefault
+     , testReadBertConfigMissing
      ])
   ]

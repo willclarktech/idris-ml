@@ -10,6 +10,7 @@ modules = Transformers.Bert
         , Transformers.BertLora
         , Transformers.BitNet
         , Transformers.Common
+        , Transformers.Config
         , Transformers.Dataset
         , Transformers.Gpt2
         , Transformers.Llama

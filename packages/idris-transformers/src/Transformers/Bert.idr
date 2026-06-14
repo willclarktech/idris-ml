@@ -19,6 +19,8 @@ module Transformers.Bert
 
 import Data.Vect
 
+import Backend
+import Checkpoint
 import Compat.Random
 import Executor
 import GradMode
@@ -30,6 +32,7 @@ import Nn.Module
 import Sampler
 import Tensor
 import Transformers.Common
+import Transformers.Config
 
 ----------------------------------------------------------------------
 -- Config
@@ -920,3 +923,69 @@ evalBertForMaskedLm : {0 ex : Executor} -> UserExecutorTraining ex =>
 evalBertForMaskedLm m = do
   traverse_ (\p => primIO (primSetRequiresGrad {ex} p.paramPtr 0)) (bertForMaskedLmParams m)
   pure (castBertForMaskedLm m)
+
+----------------------------------------------------------------------
+-- fromPretrained
+----------------------------------------------------------------------
+
+||| The `BertForMaskedLM` state at the dims carried by a `BertConfig` —
+||| the honest "shapes determined by a file at runtime" type. Used as
+||| the second component of `fromPretrained`'s dependent pair so the dims
+||| stay tied to the config the caller can read back.
+public export
+BertForMaskedLm : (cfg : BertConfig) -> (0 ex : Executor) -> (0 dt : DType) -> (0 g : GradMode) -> Type
+BertForMaskedLm cfg ex dt g =
+  BertForMaskedLmState (vocabSize cfg) (hidden cfg) (numLayers cfg)
+                       (intermediate cfg) (maxPosition cfg) (typeVocabSize cfg) ex dt g
+
+||| Read a HuggingFace BERT `config.json` into a `BertConfig`. Pulls the
+||| seven architecture dims by their HF keys; `type_vocab_size` defaults
+||| to 2 (the HF default) when omitted. Field/parse failures surface as
+||| `ConfigError` naming the offending key.
+export
+readBertConfig : String -> IO (Either LoadError BertConfig)
+readBertConfig path = do
+  Right j <- readConfigFile path
+    | Left e => pure (Left e)
+  pure $ do
+    vocabSize     <- natField   j "vocab_size"
+    hidden        <- natField   j "hidden_size"
+    numLayers     <- natField   j "num_hidden_layers"
+    numHeads      <- natField   j "num_attention_heads"
+    intermediate  <- natField   j "intermediate_size"
+    maxPosition   <- natField   j "max_position_embeddings"
+    typeVocabSize <- natFieldOr j "type_vocab_size" 2
+    pure (MkBertConfig vocabSize hidden numLayers numHeads intermediate maxPosition typeVocabSize)
+
+||| Load a pretrained `BertForMaskedLM` from a local HF model directory.
+|||
+||| Reads `<dir>/config.json` to recover the architecture dims (so the
+||| shapes come from the file, not a hardcoded literal), builds the model
+||| at those dims, then fills every param from `<dir>/model.safetensors`.
+||| The returned dependent pair carries the `BertConfig` so the caller can
+||| read the runtime-determined dims back out and reuse them in the forward.
+|||
+||| The grad mode is the caller's choice: `{g = NoGrad}` builds a tape-free
+||| inference model (params born `requires_grad=0`), `{g = WithGrad}` a
+||| fine-tunable one. Weights load with `allowCast` so an F32 checkpoint
+||| populates an F64 model (and vice versa) without a manual convert.
+export
+fromPretrained : Backend ex dt => KnownGrad g
+              => (modelDir : String)
+              -> IO (Either LoadError (cfg : BertConfig ** BertForMaskedLm cfg ex dt g))
+fromPretrained dir = do
+  Right cfg <- readBertConfig (dir ++ "/config.json")
+    | Left e => pure (Left e)
+  model <- hfBertForMaskedLm {ex} {dt} {g}
+             {vocab        = vocabSize cfg}
+             {hidden       = hidden cfg}
+             {numLayers    = numLayers cfg}
+             {numHeads     = numHeads cfg}
+             {intermediate = intermediate cfg}
+             {maxPos       = maxPosition cfg}
+             {typeVocab    = typeVocabSize cfg}
+             "bert"
+  loaded <- load {ex} (dir ++ "/model.safetensors") ({ allowCast := True } defaultLoadOpts)
+  case loaded of
+    Left e   => pure (Left e)
+    Right () => pure (Right (cfg ** model))

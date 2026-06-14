@@ -50,6 +50,7 @@ data LoadError
   | UnsupportedDtype
   | ReadFailed
   | LoadFailed Int
+  | ConfigError String  -- config.json missing/malformed/missing-field (Idris-side only)
 
 export
 Eq LoadError where
@@ -60,6 +61,7 @@ Eq LoadError where
   UnsupportedDtype == UnsupportedDtype = True
   ReadFailed       == ReadFailed       = True
   LoadFailed n     == LoadFailed m     = n == m
+  ConfigError a    == ConfigError b    = a == b
   _                == _                = False
 
 export
@@ -71,6 +73,7 @@ Show LoadError where
   show UnsupportedDtype = "UnsupportedDtype"
   show ReadFailed       = "ReadFailed"
   show (LoadFailed n)   = "LoadFailed " ++ show n
+  show (ConfigError m)  = "ConfigError: " ++ m
 
 decodeLoadError : Int -> LoadError
 decodeLoadError (-1) = FileNotFound
