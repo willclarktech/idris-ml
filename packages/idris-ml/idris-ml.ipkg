@@ -62,6 +62,7 @@ modules = Compat.Random
         , Layer.Transformer
         , Math
         , Nn.Module
+        , Nn.Seq
         , Optimizer
         , RL.Gae
         , RL.ReplayBuffer
