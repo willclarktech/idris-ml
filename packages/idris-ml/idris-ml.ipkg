@@ -73,6 +73,7 @@ modules = Compat.Random
         , Nn.LoraLinear
         , Nn.Module
         , Nn.Residual
+        , Nn.Recurrent
         , Nn.RmsNorm
         , Nn.Seq
         , Nn.SwiGLU

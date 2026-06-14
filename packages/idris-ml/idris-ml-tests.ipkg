@@ -47,6 +47,7 @@ modules = Test.Main
         , Test.Nn.LoraLinear
         , Test.Nn.Module
         , Test.Nn.Residual
+        , Test.Nn.Recurrent
         , Test.Nn.RmsNorm
         , Test.Nn.Seq
         , Test.Nn.SwiGLU
