@@ -78,8 +78,11 @@ handLoopConverges = do
   _ <- oneEpoch
   _ <- oneEpoch
   let v = tensorItem w
+  -- tolerance is F32-safe: mlx (F32) yields 0.51199996, ~3.5e-8 off the
+  -- F64-exact 0.512. This runs through the real backend tensor (unlike the
+  -- pure-Double oracle checks above), so it must clear the F32 ULP floor.
   check ("withEpoch+nativeTrainStep hand loop converges (w=" ++ show v
-         ++ ", expect 0.512)") (abs (v - 0.512) < 1.0e-9)
+         ++ ", expect 0.512)") (abs (v - 0.512) < 1.0e-5)
 
 isDivergedDetectsNaN : IO Bool
 isDivergedDetectsNaN =
