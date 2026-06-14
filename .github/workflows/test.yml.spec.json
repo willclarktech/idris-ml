@@ -427,7 +427,7 @@
       },
       {
         "name": "Run HfBitNet end-to-end roundtrip (torch)",
-        "run": "make BACKEND=torch test-e2e-hf-bitnet-roundtrip",
+        "run": "if [ -z \"$HF_TOKEN\" ]; then unset HF_TOKEN; fi; make BACKEND=torch test-e2e-hf-bitnet-roundtrip",
         "comment": [
           "Cross-language gate: regenerate the Python oracle from",
           "microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference",
@@ -435,9 +435,14 @@
           "row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch",
           "because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu",
           "runner (see Low-priority TODO \"Tape F64 large-LM OOM\"). BitNet",
-          "is not license-gated, so no HF_TOKEN handling needed. The",
-          "job-level swapfile absorbs the cold-tree elaboration peak that",
-          "OOM-killed run 27364532457."
+          "is public (not license-gated), so it downloads anonymously —",
+          "but the job-level `HF_TOKEN: ${{ secrets.HF_TOKEN }}` resolves",
+          "to the EMPTY string on a mirror without the secret, and the HF",
+          "client then sends an illegal `Authorization: Bearer ` header",
+          "(httpx.LocalProtocolError, run 27536601520). Drop the empty var",
+          "so the download is cleanly anonymous; a real token (private",
+          "mirror) is preserved. The job-level swapfile absorbs the",
+          "cold-tree elaboration peak that OOM-killed run 27364532457."
         ]
       },
       {
