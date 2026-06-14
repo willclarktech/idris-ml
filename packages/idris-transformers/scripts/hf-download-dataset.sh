@@ -89,7 +89,9 @@ if dataset in NAMESPACE_FALLBACKS:
 ds = None
 for cand in candidates:
 		try:
-				ds = load_dataset(cand, token=os.environ.get("HF_TOKEN"), **ds_args)
+				# `or None`: empty HF_TOKEN (unset CI secret) ⇒ anonymous,
+				# else an empty `Authorization: Bearer ` header errors.
+				ds = load_dataset(cand, token=os.environ.get("HF_TOKEN") or None, **ds_args)
 				if cand != dataset:
 						print(f"  (using namespaced repo {cand!r})")
 				break

@@ -68,7 +68,11 @@ print(f"hf-download: snapshot_download({repo!r}, local_dir={dest!r})")
 path = snapshot_download(
 		repo,
 		local_dir=dest,
-		token=os.environ.get("HF_TOKEN"),
+		# `or None`: an unset secret in CI maps to "" (not absent), and
+		# snapshot_download("") emits an empty `Authorization: Bearer `
+		# header → httpx LocalProtocolError. Empty ⇒ anonymous download
+		# (correct for public/ungated repos like microsoft/bitnet-*).
+		token=os.environ.get("HF_TOKEN") or None,
 		${FORCE_FLAG}
 		# Allow-list (not deny-list): explicitly grab only what
 		# AutoModel.from_pretrained + AutoTokenizer.from_pretrained need.
