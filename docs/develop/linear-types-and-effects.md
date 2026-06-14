@@ -564,6 +564,20 @@ none.
     stay on the IO surface — they `runInit` + time `forward`s with no training
     lifecycle (no `fit`/freeze/eval), so there is no single-owner mutation to
     protect; they fold into the Phase-9 collapse.
+- `packages/idris-transformers/src/Transformers/{Bert,Gpt2,BertForClassification,BertLora}.idr`
+  — HF forward `L IO` twins (`hfBertForwardL`/`hfBertMlmForwardL`/
+  `hfBertSeqClassifyForwardL`/`hfGpt2ForwardLmL`/
+  `hfBertSeqClassifyForwardWithLoraL`). HF forwards are **read-only/stateless**,
+  so the twin is forward-level: match the model constructor, `liftIO1` the
+  existing IO forward, rebuild (single-owner per forward). LoRA splits by role —
+  frozen backbone ω, trained adapters linear. Llama/BitNet get **no** twins
+  (inference-only). `Tensor.bornL` (`(1 act : IO a) -> L IO {use=1} a`) is the
+  born-linear seam for the HF *constructors* (which are `IO`, not `Init`).
+- `packages/idris-ml-examples/src/Example/{BertClassifyFinetune,BertMlmFinetune,Gpt2LmFinetune,BertClassifySst2Finetune,BertClassifySst2Lora}.idr`
+  — the 5 HF fine-tune examples on the fine-grained linear surface (thread the
+  model/adapters through the `hf*L` forwards; eval under `withNoGradL`). With the
+  4 HF *inference* examples (HfBert/HfGpt2/HfLlama/HfBitNet — forward-only, no
+  lifecycle) these stay IO and fold into the Phase-9 collapse.
 
 Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface. No `forwardL`/
 `recurStepL` body still uses `liftIO1` for tensor math — the only remaining
