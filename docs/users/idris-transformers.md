@@ -48,9 +48,55 @@ mirrors that.
 
 | Module | HF target | Status |
 | --- | --- | --- |
-| `HfBert` | `google/bert_uncased_L-2_H-128_A-2` (and BERT-family checkpoints sharing the same naming) | ready |
-| `HfGpt2` | `hf-internal-testing/tiny-random-gpt2` (and GPT-2 family) | ready |
-| `HfLlama` | `unsloth/Llama-3.2-1B` (public mirror of Meta's weights; no `HF_TOKEN`) | ready (forward pass; KV cache follow-up) |
+| `Transformers.Bert` | `google/bert_uncased_L-2_H-128_A-2` (and BERT-family checkpoints sharing the same naming) | ready |
+| `Transformers.Gpt2` | `hf-internal-testing/tiny-random-gpt2` (and GPT-2 family) | ready |
+| `Transformers.Llama` | `unsloth/Llama-3.2-1B` (public mirror of Meta's weights; no `HF_TOKEN`) | ready (forward pass; KV cache follow-up) |
+
+## Loading a checkpoint: fromPretrained
+
+`Transformers.Bert.fromPretrained` is the one-call loader:
+
+```idris
+fromPretrained : Backend ex dt => KnownGrad g
+              => (modelDir : String)
+              -> IO (Either LoadError (cfg : BertConfig ** BertForMaskedLm cfg ex dt g))
+```
+
+Point it at a local HF model directory (the layout `hf-download.sh`
+produces). It reads `<dir>/config.json` for the architecture dims, builds
+the model at those dims, and fills every param from
+`<dir>/model.safetensors`. Three things make this the honest type for
+"load a model whose shapes a file decides at runtime":
+
+- **The dims come from the file.** The result is a dependent pair
+  `(cfg ** model)` where `model`'s type mentions `cfg`'s fields
+  (`BertForMaskedLm cfg` ≡ `BertForMaskedLmState (vocabSize cfg) (hidden
+  cfg) …`). You unpack `cfg` and read the dims back out — nothing is
+  hardcoded at the call site.
+- **The grad mode is yours.** `{g = NoGrad}` builds a tape-free
+  inference model (params born `requires_grad=0`); `{g = WithGrad}` a
+  fine-tunable one. Same loader, no `eval` flip.
+- **Errors are one channel.** A missing/unparseable `config.json`, a
+  missing field, or a weight-load failure all surface as
+  `Checkpoint.LoadError` — `ConfigError` names the offending key.
+
+Using the loaded model: the forward needs a `hidden = numHeads *
+headDim` proof. Since `numHeads` is read at runtime, recover the split
+with a `decEq` divisibility check (see `Example/HfBertInference.idr`):
+
+```idris
+Right (cfg ** model) <- fromPretrained {g = NoGrad} modelDir
+  | Left err => … show err …
+let nHeads = numHeads cfg
+    hDim   = hidden cfg `div` nHeads
+case decEq (hidden cfg) (nHeads * hDim) of
+  No  _   => … bail: hidden not divisible by head count …
+  Yes prf => … hfBertMlmForward {numHeads = nHeads} {headDim = hDim} {prf} model … …
+```
+
+The shared `config.json` plumbing (read + parse + integer-field
+extraction) lives in `Transformers.Config`; each adapter owns only its
+field set, beside its param-name catalogue.
 
 ## Worked example: load and run BERT-tiny
 
@@ -63,12 +109,19 @@ make example-hf-bert-inference
 
 This:
 
-1. Downloads `google/bert_uncased_L-2_H-128_A-2` (weights + `vocab.txt`)
-   via the `scripts/hf-download.sh` helper into the top-level
-   `models/` (gitignored local cache — `make clean-models` removes it).
+1. Downloads `google/bert_uncased_L-2_H-128_A-2` (`config.json` +
+   weights + `vocab.txt`) via the `scripts/hf-download.sh` helper into
+   the top-level `models/` (gitignored local cache — `make clean-models`
+   removes it).
 2. Builds the Idris example.
-3. Loads the checkpoint via plain `loadModel` (44 params: 39 encoder +
-   pooler + 5 MLM-head).
+3. Loads the checkpoint with one call — `Transformers.Bert.fromPretrained
+   modelDir` reads `config.json` for the dims, builds a tape-free
+   `NoGrad` model at those dims, and fills 44 params (39 encoder + pooler
+   + 5 MLM-head) from `model.safetensors`. It returns the dependent pair
+   `(cfg : BertConfig ** BertForMaskedLm cfg ex dt g)`, so the model's
+   type is tied to the file — nothing about bert-tiny is hardcoded in the
+   example (see [`fromPretrained`](#loading-a-checkpoint-frompretrained)
+   below).
 4. Runs **fill-in-the-mask** on three short sentences and prints the
    top-5 predictions per `[MASK]`:
 
@@ -86,10 +139,10 @@ Input:  the man worked as a [MASK] .
 Top-5:  man (+8.37), photographer (+7.95), teenager (+7.93), woman (+7.65), lawyer (+7.25)
 ```
 
-The three sentences are pre-tokenized (hand-picked IDs hardcoded in
-the example) because there's no WordPiece tokenizer in Idris yet —
-that's gated on Row 7 (the LLM-class example). vocab.txt is read at
-runtime for the predicted-id → string decode.
+The three sentences are tokenized through the real WordPiece tokenizer
+(`Transformers.Tokenizer`, which shells out to `scripts/hf_tokenize.py`)
+for both the input encode and the predicted-id → string decode — no
+hardcoded ID lists.
 
 To verify the *forward-pass* output matches HF transformers' Python
 answer (independent of the MLM head — exercises the encoder + pooler
