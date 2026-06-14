@@ -30,12 +30,12 @@ import Tensor
 public export
 record RnnState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkRnn
-  iwT : TMat o i ex dt g         -- W_ih [o, i]
-  rwT : TMat o o ex dt g         -- W_hh [o, o]
-  ihB : TVec o ex dt g           -- input-hidden bias [o]
-  hhB : TVec o ex dt g           -- hidden-hidden bias [o]
+  iwT        : TMat o i ex dt g         -- W_ih [o, i]
+  rwT        : TMat o o ex dt g         -- W_hh [o, o]
+  ihB        : TVec o ex dt g           -- input-hidden bias [o]
+  hhB        : TVec o ex dt g           -- hidden-hidden bias [o]
   activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')
-  prevOutT : Maybe (TVec o ex dt g)
+  prevOutT   : Maybe (TVec o ex dt g)
 
 ----------------------------------------------------------------------
 -- Forward

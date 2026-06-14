@@ -575,7 +575,7 @@ data ClipMode = NoClip | ValueClip Double | NormClip Double
 public export
 record NativeOptimizer (0 ex : Executor) where
   constructor MkNativeOptimizer
-  handle : AnyPtr
+  handle   : AnyPtr
   clipMode : ClipMode
   schedule : Maybe Schedule
 

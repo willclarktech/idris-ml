@@ -20,10 +20,10 @@ import Tensor
 public export
 record Gru (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGru
-  iwT : TMat (3 * o) i ex dt g
-  ihB : TVec (3 * o) ex dt g
-  hwT : TMat (3 * o) o ex dt g
-  hhB : TVec (3 * o) ex dt g
+  iwT     : TMat (3 * o) i ex dt g
+  ihB     : TVec (3 * o) ex dt g
+  hwT     : TMat (3 * o) o ex dt g
+  hhB     : TVec (3 * o) ex dt g
   hiddenT : Maybe (TVec o ex dt g)
 
 public export

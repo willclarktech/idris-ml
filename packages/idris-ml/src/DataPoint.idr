@@ -35,7 +35,7 @@ public export
 record TwoPhaseDataPoint i o ty where
   constructor MkTwoPhaseDataPoint
   encodingInputs : List (Vector i ty)
-  targets : List (Vector o ty)
+  targets        : List (Vector o ty)
 
 public export
 implementation Functor (TwoPhaseDataPoint i o) where
@@ -47,5 +47,5 @@ implementation Functor (TwoPhaseDataPoint i o) where
 public export
 record TensorDataPoint (i : Nat) (o : Nat) where
   constructor MkTensorDataPoint
-  inputTensor : AnyPtr   -- 1D tensor [i]
+  inputTensor  : AnyPtr   -- 1D tensor [i]
   targetTensor : AnyPtr  -- 1D tensor [o]

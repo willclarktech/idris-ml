@@ -24,7 +24,7 @@ import Util.Log
 public export
 record ArgSpec a where
   constructor Arg
-  flag : String
+  flag  : String
   apply : String -> a -> a
 
 ||| Parse CLI args using a list of flag specs.
@@ -77,9 +77,9 @@ formatResult kvs = "RESULT" ++ concatMap (\(k, v) => "\t" ++ k ++ "=" ++ v) kvs
 public export
 record RLMetricsState where
   constructor MkRLMetricsState
-  lastReturn : IORef Double
+  lastReturn   : IORef Double
   recentWindow : IORef (List Double)
-  windowSize : Nat
+  windowSize   : Nat
 
 ||| Build a fresh `RLMetricsState` with an empty rolling window of size N.
 export
@@ -121,11 +121,11 @@ public export
 record TrainConfig (model : Type) where
   constructor MkTrainConfig
   totalEpochs : Nat
-  logEvery : Nat
-  earlyStop : EarlyStopConfig
-  metrics : MetricsFn model
+  logEvery    : Nat
+  earlyStop   : EarlyStopConfig
+  metrics     : MetricsFn model
   beforeEpoch : Nat -> IO ()
-  checkpoint : Maybe CheckpointPolicy
+  checkpoint  : Maybe CheckpointPolicy
 
 ||| Simple config: run N epochs, log every 100, no early stopping.
 export

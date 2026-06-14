@@ -63,7 +63,7 @@ defaultLrFindConfig = MkLrFindConfig 1.0e-7 10.0 100 0.98 4.0 10.0
 public export
 record LrFindResult where
   constructor MkLrFindResult
-  points : List (Double, Double)
+  points        : List (Double, Double)
   recommendedLr : Double
 
 ----------------------------------------------------------------------

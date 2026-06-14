@@ -20,11 +20,11 @@ import Compat.Random
 public export
 record Transition (obsDim : Nat) (actDim : Nat) where
   constructor MkTransition
-  obs      : Vect obsDim Double
-  action   : Vect actDim Double
-  reward   : Double
-  nextObs  : Vect obsDim Double
-  done     : Bool
+  obs     : Vect obsDim Double
+  action  : Vect actDim Double
+  reward  : Double
+  nextObs : Vect obsDim Double
+  done    : Bool
 
 ||| A uniform-sample ring buffer with capacity `capacity`.
 public export

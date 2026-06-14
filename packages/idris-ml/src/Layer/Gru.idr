@@ -22,10 +22,10 @@ import Tensor
 public export
 record GruState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkGru
-  iwT : TMat (3 * o) i ex dt g         -- W_ih [3*o, i]
-  ihB : TVec (3 * o) ex dt g           -- b_ih [3*o]
-  hwT : TMat (3 * o) o ex dt g         -- W_hh [3*o, o]
-  hhB : TVec (3 * o) ex dt g           -- b_hh [3*o]
+  iwT     : TMat (3 * o) i ex dt g         -- W_ih [3*o, i]
+  ihB     : TVec (3 * o) ex dt g           -- b_ih [3*o]
+  hwT     : TMat (3 * o) o ex dt g         -- W_hh [3*o, o]
+  hhB     : TVec (3 * o) ex dt g           -- b_hh [3*o]
   hiddenT : Maybe (TVec o ex dt g)
 
 ----------------------------------------------------------------------

@@ -42,12 +42,12 @@ interface Recurrent (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _
 public export
 record Rnn (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkRnn
-  iwT : TMat o i ex dt g
-  rwT : TMat o o ex dt g
-  ihB : TVec o ex dt g
-  hhB : TVec o ex dt g
+  iwT        : TMat o i ex dt g
+  rwT        : TMat o o ex dt g
+  ihB        : TVec o ex dt g
+  hhB        : TVec o ex dt g
   activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')
-  prevOutT : Maybe (TVec o ex dt g)
+  prevOutT   : Maybe (TVec o ex dt g)
 
 public export
 Params Rnn where

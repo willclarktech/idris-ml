@@ -2,9 +2,9 @@ module Floating
 
 public export
 interface Floating ty where
-  exp : ty -> ty
-  log : ty -> ty
-  pow : ty -> ty -> ty
+  exp  : ty -> ty
+  log  : ty -> ty
+  pow  : ty -> ty -> ty
   sqrt : ty -> ty
 
 public export

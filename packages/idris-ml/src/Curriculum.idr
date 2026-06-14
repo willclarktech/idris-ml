@@ -33,9 +33,9 @@ import Util
 public export
 record Stage (0 ex : Executor) (i : Nat) (o : Nat) (n : Nat) where
   constructor MkStage
-  label : String
+  label     : String
   threshold : Double
-  generate : IO (Vect n (RecurrentDataPoint i o Double))
+  generate  : IO (Vect n (RecurrentDataPoint i o Double))
 
 ----------------------------------------------------------------------
 -- Internal

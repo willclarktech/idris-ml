@@ -19,12 +19,12 @@ import Tensor
 public export
 record LstmState (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLstm
-  iwT : TMat (4 * o) i ex dt g
-  rwT : TMat (4 * o) o ex dt g
-  ihB : TVec (4 * o) ex dt g        -- input-hidden bias [4*o] (b_ih)
-  hhB : TVec (4 * o) ex dt g        -- hidden-hidden bias [4*o] (b_hh)
-  h0T : TVec o ex dt g              -- learned initial hidden state (zero-init)
-  c0T : TVec o ex dt g              -- learned initial cell state (zero-init)
+  iwT     : TMat (4 * o) i ex dt g
+  rwT     : TMat (4 * o) o ex dt g
+  ihB     : TVec (4 * o) ex dt g        -- input-hidden bias [4*o] (b_ih)
+  hhB     : TVec (4 * o) ex dt g        -- hidden-hidden bias [4*o] (b_hh)
+  h0T     : TVec o ex dt g              -- learned initial hidden state (zero-init)
+  c0T     : TVec o ex dt g              -- learned initial cell state (zero-init)
   hiddenT : Maybe (TVec o ex dt g)
   cellT   : Maybe (TVec o ex dt g)
 

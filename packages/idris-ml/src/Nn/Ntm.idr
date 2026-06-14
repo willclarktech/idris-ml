@@ -101,10 +101,10 @@ record Ntm (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (
   outputFc     : Linear (h + m) o ex dt g
   memInitT     : TVec (m * n) ex dt g
   initReadOutT : TVec m ex dt g
-  memT       : Maybe (Tensor [n, m] ex dt g)
-  readAddrT  : Maybe (TVec n ex dt g)
-  writeAddrT : Maybe (TVec n ex dt g)
-  readOutT   : Maybe (TVec m ex dt g)
+  memT         : Maybe (Tensor [n, m] ex dt g)
+  readAddrT    : Maybe (TVec n ex dt g)
+  writeAddrT   : Maybe (TVec n ex dt g)
+  readOutT     : Maybe (TVec m ex dt g)
 
 public export
 {n, m, h : Nat} -> Params (Ntm n m h) where

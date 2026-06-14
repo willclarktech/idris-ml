@@ -29,7 +29,7 @@ randomInt32 = liftIO $ primIO prim__rand
 
 public export
 interface Random a where
-  randomIO : HasIO io => io a
+  randomIO  : HasIO io => io a
   randomRIO : HasIO io => (a, a) -> io a
 
 export

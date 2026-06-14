@@ -197,51 +197,51 @@ interface UserExecutorCore ex => HardwareClassed (0 ex : Executor) where
 public export
 interface UserExecutorCore ex => UserExecutorLinear (0 ex : Executor) where
   -- Linear algebra ----------------------------------------------------
-  primMv          : AnyPtr -> AnyPtr -> AnyPtr
-  primMm          : AnyPtr -> AnyPtr -> AnyPtr
-  primMatmul      : AnyPtr -> AnyPtr -> AnyPtr
-  primLinear      : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
-  primDot         : AnyPtr -> AnyPtr -> AnyPtr
-  primOuter       : AnyPtr -> AnyPtr -> AnyPtr
-  primBmm         : AnyPtr -> AnyPtr -> AnyPtr
-  primLinear2d    : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+  primMv       : AnyPtr -> AnyPtr -> AnyPtr
+  primMm       : AnyPtr -> AnyPtr -> AnyPtr
+  primMatmul   : AnyPtr -> AnyPtr -> AnyPtr
+  primLinear   : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+  primDot      : AnyPtr -> AnyPtr -> AnyPtr
+  primOuter    : AnyPtr -> AnyPtr -> AnyPtr
+  primBmm      : AnyPtr -> AnyPtr -> AnyPtr
+  primLinear2d : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
   -- Reductions --------------------------------------------------------
-  primSum         : AnyPtr -> AnyPtr
-  primMean        : AnyPtr -> AnyPtr
-  primTensorMin   : AnyPtr -> AnyPtr
-  primTensorMax   : AnyPtr -> AnyPtr
-  primSumDim      : AnyPtr -> Int -> Int -> AnyPtr
+  primSum       : AnyPtr -> AnyPtr
+  primMean      : AnyPtr -> AnyPtr
+  primTensorMin : AnyPtr -> AnyPtr
+  primTensorMax : AnyPtr -> AnyPtr
+  primSumDim    : AnyPtr -> Int -> Int -> AnyPtr
 
   -- Shape / view / reshape -------------------------------------------
-  primSelect      : AnyPtr -> Int -> Int -> AnyPtr
-  primUnsqueeze   : AnyPtr -> Int -> AnyPtr
-  primSqueeze     : AnyPtr -> Int -> AnyPtr
-  primStack       : AnyPtr -> Int -> Int -> AnyPtr
-  primView1d      : AnyPtr -> Int -> AnyPtr
-  primView2d      : AnyPtr -> Int -> Int -> AnyPtr
-  primReshape1d   : AnyPtr -> Int -> AnyPtr
-  primReshape2d   : AnyPtr -> Int -> Int -> AnyPtr
-  primReshape3d   : AnyPtr -> Int -> Int -> Int -> AnyPtr
-  primReshape4d   : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primNarrow      : AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primSelect         : AnyPtr -> Int -> Int -> AnyPtr
+  primUnsqueeze      : AnyPtr -> Int -> AnyPtr
+  primSqueeze        : AnyPtr -> Int -> AnyPtr
+  primStack          : AnyPtr -> Int -> Int -> AnyPtr
+  primView1d         : AnyPtr -> Int -> AnyPtr
+  primView2d         : AnyPtr -> Int -> Int -> AnyPtr
+  primReshape1d      : AnyPtr -> Int -> AnyPtr
+  primReshape2d      : AnyPtr -> Int -> Int -> AnyPtr
+  primReshape3d      : AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primReshape4d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primNarrow         : AnyPtr -> Int -> Int -> Int -> AnyPtr
   primTransposeLast2 : AnyPtr -> AnyPtr
-  primTranspose2d : AnyPtr -> AnyPtr
+  primTranspose2d    : AnyPtr -> AnyPtr
 
   -- Concatenation -----------------------------------------------------
-  primCat         : AnyPtr -> Int -> Int -> AnyPtr
-  primCat2        : AnyPtr -> AnyPtr -> AnyPtr
+  primCat           : AnyPtr -> Int -> Int -> AnyPtr
+  primCat2          : AnyPtr -> AnyPtr -> AnyPtr
   primConcat2dAxis1 : AnyPtr -> AnyPtr -> AnyPtr
 
   -- Indexing ----------------------------------------------------------
-  primGather      : AnyPtr -> AnyPtr -> Int -> AnyPtr
-  primGatherRows  : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-  primMaxRows     : AnyPtr -> Int -> Int -> AnyPtr
-  primScatterAdd  : AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primGather     : AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primGatherRows : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primMaxRows    : AnyPtr -> Int -> Int -> AnyPtr
+  primScatterAdd : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
   -- Sort / scan -------------------------------------------------------
-  primArgsort     : AnyPtr -> Int -> Int -> AnyPtr
-  primCumprod    : AnyPtr -> Int -> AnyPtr
+  primArgsort : AnyPtr -> Int -> Int -> AnyPtr
+  primCumprod : AnyPtr -> Int -> AnyPtr
 
 ----------------------------------------------------------------------
 -- UserExecutorNN — activations + softmax + norms + losses + recurrent
@@ -254,21 +254,21 @@ interface UserExecutorCore ex => UserExecutorLinear (0 ex : Executor) where
 public export
 interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   -- Activations -------------------------------------------------------
-  primGelu        : AnyPtr -> AnyPtr
-  primLeakyRelu   : AnyPtr -> Double -> AnyPtr
-  primSilu        : AnyPtr -> AnyPtr
-  primSoftplus    : AnyPtr -> AnyPtr
+  primGelu      : AnyPtr -> AnyPtr
+  primLeakyRelu : AnyPtr -> Double -> AnyPtr
+  primSilu      : AnyPtr -> AnyPtr
+  primSoftplus  : AnyPtr -> AnyPtr
 
   -- Softmax family ----------------------------------------------------
-  primSoftmax     : AnyPtr -> Int -> AnyPtr
-  primLogSoftmax  : AnyPtr -> Int -> AnyPtr
-  primSoftmax2d   : AnyPtr -> AnyPtr
+  primSoftmax      : AnyPtr -> Int -> AnyPtr
+  primLogSoftmax   : AnyPtr -> Int -> AnyPtr
+  primSoftmax2d    : AnyPtr -> AnyPtr
   primLogSoftmax2d : AnyPtr -> AnyPtr
-  primSoftmax3d   : AnyPtr -> AnyPtr
+  primSoftmax3d    : AnyPtr -> AnyPtr
 
   -- Masking -----------------------------------------------------------
-  primMaskedFill  : AnyPtr -> AnyPtr -> Double -> AnyPtr
-  primExpandMask  : AnyPtr -> Int -> AnyPtr
+  primMaskedFill : AnyPtr -> AnyPtr -> Double -> AnyPtr
+  primExpandMask : AnyPtr -> Int -> AnyPtr
 
   -- Norms / dropout ---------------------------------------------------
   primLayerNorm2d : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
@@ -277,8 +277,8 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   primDropout     : AnyPtr -> Double -> Int -> Int -> AnyPtr
 
   -- Embedding / similarity -------------------------------
-  primEmbedding      : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-  primEmbedding2d    : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primEmbedding   : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primEmbedding2d : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
   ||| Kept as a mandatory `UserExecutorNN` method (audit closure): a
   ||| pure-Idris alternative (`sum(a * b, dim) / (sqrt(sum(a^2, dim))
   ||| * sqrt(sum(b^2, dim)))`) would emit 8 lazy-graph nodes per call
@@ -304,9 +304,9 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   -- direct/streamed shape — both larger than the audit budget. Deferred
   -- to a future LSTM/recurrent-cell refactor that already needs to
   -- restructure the cell-state plumbing.
-  primLstmGatesPair  : AnyPtr -> AnyPtr -> Int -> AnyPtr
-  primPairFirst      : AnyPtr -> AnyPtr
-  primPairSecond     : AnyPtr -> AnyPtr
+  primLstmGatesPair : AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primPairFirst     : AnyPtr -> AnyPtr
+  primPairSecond    : AnyPtr -> AnyPtr
 
 ----------------------------------------------------------------------
 -- UserExecutorConv — convolution + pooling slice
@@ -322,10 +322,10 @@ interface UserExecutorNN ex => UserExecutorConv (0 ex : Executor) where
   primAvgPool1d      : AnyPtr -> Int -> Int -> AnyPtr
   primMaxPool1d      : AnyPtr -> Int -> Int -> AnyPtr
   -- 2D conv + pool
-  primConv2d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primConv2dBatched  : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primAvgPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primMaxPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primConv2d           : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primConv2dBatched    : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primAvgPool2d        : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primMaxPool2d        : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
   primMaxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 ----------------------------------------------------------------------
@@ -453,12 +453,12 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
 ||| Reverse-mode autodiff control surface.
 public export
 interface UserExecutorCore ex => UserExecutorAutograd (0 ex : Executor) where
-  primRequiresGrad      : AnyPtr -> Int
-  primSetRequiresGrad   : AnyPtr -> Int -> PrimIO ()
-  primNoGradBegin       : PrimIO ()
-  primNoGradEnd         : PrimIO ()
-  primDetach            : AnyPtr -> AnyPtr
-  primWithGrad          : AnyPtr -> AnyPtr
+  primRequiresGrad    : AnyPtr -> Int
+  primSetRequiresGrad : AnyPtr -> Int -> PrimIO ()
+  primNoGradBegin     : PrimIO ()
+  primNoGradEnd       : PrimIO ()
+  primDetach          : AnyPtr -> AnyPtr
+  primWithGrad        : AnyPtr -> AnyPtr
   ||| Run reverse-mode autodiff from a scalar loss tensor.
   primBackward          : AnyPtr -> PrimIO ()
 
@@ -498,11 +498,11 @@ interface UserExecutorParamRegistry ex => UserExecutorOptimizer (0 ex : Executor
   ||| Create a backend-specific optimizer over this backend's
   ||| registry. The returned handle is opaque and backend-bound; it
   ||| is consumed by `primNativeTrainStep` / the LR setters below.
-  primOptimizerCreateSgd      : Double -> AnyPtr
-  primOptimizerCreateRmsprop  : Double -> Double -> Double -> Double -> Double -> AnyPtr
-  primOptimizerCreateAdam     : Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateSgd       : Double -> AnyPtr
+  primOptimizerCreateRmsprop   : Double -> Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateAdam      : Double -> Double -> Double -> Double -> AnyPtr
   primOptimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String -> AnyPtr
-  primOptimizerCreateAdamW    : Double -> Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateAdamW     : Double -> Double -> Double -> Double -> Double -> AnyPtr
   ||| Set the optimizer's base LR.
   primOptimizerSetLr      : AnyPtr -> Double -> PrimIO ()
   ||| Set a per-parameter LR override (matched by paramId).
@@ -643,8 +643,8 @@ interface UserExecutorCore ex => UserExecutorProfiling (0 ex : Executor) where
 public export
 interface UserExecutorCore ex => UserExecutorTensorCreate (0 ex : Executor) where
   -- Shape / info queries -------------------------------------------
-  primTensorDim         : AnyPtr -> Int
-  primTensorSizeAt      : AnyPtr -> Int -> Int
+  primTensorDim    : AnyPtr -> Int
+  primTensorSizeAt : AnyPtr -> Int -> Int
 
   -- Scalar reads / data loading
   ||| Read element `(r, c)` from a 2-D tensor as a host Double.
@@ -667,17 +667,17 @@ interface UserExecutorCore ex => UserExecutorTensorCreate (0 ex : Executor) wher
   -- wrapper branches on dtypeTag (0=f32, 1=f64) to pick the right
   -- `_f32_streamed_<b>` / `_f64_streamed_<b>` C symbol. The `dtCreate*`
   -- free functions in `Tensor` source dtypeTag from `RuntimeDType`.
-  primCreateScalarStreamed : Double -> Int -> Int -> Int -> AnyPtr
-  primCreateStreamed       : AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primCreate1dStreamed     : Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
-  primCreate2dStreamed     : Int -> Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primCreateScalarStreamed  : Double -> Int -> Int -> Int -> AnyPtr
+  primCreateStreamed        : AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primCreate1dStreamed      : Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primCreate2dStreamed      : Int -> Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
   primCreateParam1dStreamed : Int -> AnyPtr -> Int -> Int -> AnyPtr
   primCreateParam2dStreamed : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
   primCreateParam3dStreamed : Int -> Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
   primCreateParam4dStreamed : Int -> Int -> Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
   primCreateState1dStreamed : Int -> AnyPtr -> Int -> Int -> AnyPtr
   primCreateState2dStreamed : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
-  primCastStreamed         : AnyPtr -> Int -> Int -> AnyPtr
+  primCastStreamed          : AnyPtr -> Int -> Int -> AnyPtr
 
   -- Seed the backend's init RNG (torch::manual_seed equivalent). No-op
   -- on backends without a seedable init-RNG.

@@ -128,28 +128,28 @@ fcApply cellPtr fc = primLinear {ex} fc.weightT.tensorPtr cellPtr fc.biasT.tenso
 public export
 record Dnc (r : Nat) (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkDnc
-  controller  : Lstm (DncControllerInput r m i) h ex dt g
-  writeKeyFc  : Linear h m ex dt g
-  writeBetaFc : Linear h 1 ex dt g
-  eraseFc     : Linear h m ex dt g
-  addFc       : Linear h m ex dt g
-  freeGatesFc : Linear h r ex dt g
-  allocGateFc : Linear h 1 ex dt g
-  writeGateFc : Linear h 1 ex dt g
-  readKeysFc  : Linear h (r * m) ex dt g
-  readBetasFc : Linear h r ex dt g
-  readModesFc : Linear h (r * 3) ex dt g
-  outputFc    : Linear (DncOutputInput h r m) o ex dt g
+  controller    : Lstm (DncControllerInput r m i) h ex dt g
+  writeKeyFc    : Linear h m ex dt g
+  writeBetaFc   : Linear h 1 ex dt g
+  eraseFc       : Linear h m ex dt g
+  addFc         : Linear h m ex dt g
+  freeGatesFc   : Linear h r ex dt g
+  allocGateFc   : Linear h 1 ex dt g
+  writeGateFc   : Linear h 1 ex dt g
+  readKeysFc    : Linear h (r * m) ex dt g
+  readBetasFc   : Linear h r ex dt g
+  readModesFc   : Linear h (r * 3) ex dt g
+  outputFc      : Linear (DncOutputInput h r m) o ex dt g
   memInitT      : TVec (m * n) ex dt g
   initReadOutsT : Vect r AnyPtr
   nonDiagMaskT  : AnyPtr
-  memT        : Maybe (Tensor [n, m] ex dt g)
-  usageT      : Maybe (TVec n ex dt g)
-  writeWtT    : Maybe (TVec n ex dt g)
-  precedenceT : Maybe (TVec n ex dt g)
-  linkT       : Maybe (Tensor [n, n] ex dt g)
-  readWtsT    : Maybe (Vect r AnyPtr)
-  readOutsT   : Maybe (Vect r AnyPtr)
+  memT          : Maybe (Tensor [n, m] ex dt g)
+  usageT        : Maybe (TVec n ex dt g)
+  writeWtT      : Maybe (TVec n ex dt g)
+  precedenceT   : Maybe (TVec n ex dt g)
+  linkT         : Maybe (Tensor [n, n] ex dt g)
+  readWtsT      : Maybe (Vect r AnyPtr)
+  readOutsT     : Maybe (Vect r AnyPtr)
 
 public export
 {r, n, m, h : Nat} -> Params (Dnc r n m h) where

@@ -22,12 +22,12 @@ import Tensor
 public export
 record Lstm (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkLstm
-  iwT : TMat (4 * o) i ex dt g
-  rwT : TMat (4 * o) o ex dt g
-  ihB : TVec (4 * o) ex dt g
-  hhB : TVec (4 * o) ex dt g
-  h0T : TVec o ex dt g
-  c0T : TVec o ex dt g
+  iwT     : TMat (4 * o) i ex dt g
+  rwT     : TMat (4 * o) o ex dt g
+  ihB     : TVec (4 * o) ex dt g
+  hhB     : TVec (4 * o) ex dt g
+  h0T     : TVec o ex dt g
+  c0T     : TVec o ex dt g
   hiddenT : Maybe (TVec o ex dt g)
   cellT   : Maybe (TVec o ex dt g)
 

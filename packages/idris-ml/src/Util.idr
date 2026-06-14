@@ -71,9 +71,9 @@ formatPerfMsPerEp t0 t1 epochs =
     then "PERF_MS_PER_EP=0.000000"
     else
       let dsec  : Double; dsec  = cast (seconds t1 - seconds t0)
-          dnano : Double; dnano = cast (nanoseconds t1 - nanoseconds t0)
+          dnano   : Double; dnano = cast (nanoseconds t1 - nanoseconds t0)
           totalMs : Double; totalMs = dsec * 1000.0 + dnano / 1.0e6
-          eps : Double; eps = cast (natToInteger epochs)
+          eps     : Double; eps = cast (natToInteger epochs)
           msPerEp = totalMs / eps
       in "PERF_MS_PER_EP=" ++ show msPerEp
 
