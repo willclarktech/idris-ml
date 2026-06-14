@@ -41,6 +41,20 @@ registryRoundTrip = do
   check ("registry holds the derived name (looking for rt.linear_0.weight)")
         ("rt.linear_0.weight" `elem` names)
 
+-- scopedChild numbers a *container* and nests its children; a second
+-- container of the same kind gets the next index.
+nestsComposites : IO Bool
+nestsComposites = do
+  ns <- runInit $ do
+    a <- scopedChild "block" (do
+           x <- freshChild "linear"
+           y <- freshChild "linear"
+           pure (the (List String) [x, y]))
+    b <- scopedChild "block" (freshChild "linear")
+    pure (a ++ [b])
+  check ("scopedChild numbers + nests composites (got " ++ show ns ++ ")")
+        (ns == ["block_0.linear_0", "block_0.linear_1", "block_1.linear_0"])
+
 export
 tests : List (IO Bool)
-tests = [namesAutoNumber, namedPins, registryRoundTrip]
+tests = [namesAutoNumber, namedPins, registryRoundTrip, nestsComposites]

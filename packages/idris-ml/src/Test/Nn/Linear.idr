@@ -46,6 +46,16 @@ smartCtorNames = do
   check "linear registers mlp.linear_0.weight + .bias"
         (("mlp.linear_0.weight" `elem` names) && ("mlp.linear_0.bias" `elem` names))
 
+-- linearWith with biasStd=0 produces an exactly-zero bias (the path NTM's
+-- heads and the default `linear` rely on).
+linearWithZeroBias : IO Bool
+linearWithZeroBias = do
+  lyr <- runInit $ scoped "lw" (linearWith {ex=TestExecutor} {dt=TestDType} {i=3} {o=2} 0.5 0.0)
+  let b0 = primItem1d {ex=TestExecutor} lyr.biasT.tensorPtr 0
+  let b1 = primItem1d {ex=TestExecutor} lyr.biasT.tensorPtr 1
+  check ("linearWith biasStd=0 → zero bias (got [" ++ show b0 ++ ", " ++ show b1 ++ "])")
+        (b0 == 0.0 && b1 == 0.0)
+
 export
 tests : List (IO Bool)
-tests = [forwardComputes, paramsExposed, smartCtorNames]
+tests = [forwardComputes, paramsExposed, smartCtorNames, linearWithZeroBias]

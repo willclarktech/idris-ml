@@ -44,14 +44,24 @@ public export
 Params Linear where
   params (MkLinear w b) = [toParam w, toParam b]
 
-||| Construct a `Linear i o` inside an `Init` derivation. Registers
-||| `<scope>.linear_<n>.weight` / `.bias`; weight ~ N(0, 1/√fan_in), bias
-||| zero (PyTorch `nn.Linear` normal-approx default, matching the legacy
-||| `linearLayer`).
+||| Construct a `Linear i o` with caller-chosen init: weight ~ N(0,
+||| weightStd), bias ~ N(0, biasStd) (biasStd = 0 → zero bias). Registers
+||| `<scope>.linear_<n>.weight` / `.bias`. The escape hatch for layers that
+||| need a non-default init (e.g. NTM's xavier-1.4 heads).
+export
+linearWith : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
+             (weightStd : Double) -> (biasStd : Double) -> Init (Linear i o ex dt)
+linearWith weightStd biasStd = do
+  name <- freshChild "linear"
+  w <- liftIO $ tparam2dNormal {ex} {dt} {o} {i} (name ++ ".weight") 0.0 weightStd
+  b <- liftIO $ if biasStd == 0.0
+                  then tparam1dConst  {ex} {dt} {n=o} (name ++ ".bias") 0.0
+                  else tparam1dNormal {ex} {dt} {n=o} (name ++ ".bias") 0.0 biasStd
+  pure (MkLinear w b)
+
+||| Construct a `Linear i o` with PyTorch's `nn.Linear` normal-approx
+||| default (weight ~ N(0, 1/√fan_in), zero bias) — matches the legacy
+||| `linearLayer`. The common case of `linearWith`.
 export
 linear : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Linear i o ex dt)
-linear = do
-  name <- freshChild "linear"
-  w <- liftIO $ tparam2dNormal {ex} {dt} {o} {i} (name ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} i))
-  b <- liftIO $ tparam1dConst  {ex} {dt} {n=o}   (name ++ ".bias")   0.0
-  pure (MkLinear w b)
+linear = linearWith (1.0 / sqrt (cast {to=Double} i)) 0.0
