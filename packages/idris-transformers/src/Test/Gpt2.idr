@@ -13,8 +13,10 @@ module Test.Gpt2
 import Data.List
 import Data.String
 import Data.Vect
+import System.File
 
 import Array
+import Checkpoint
 import Executor
 import Executor.Core
 import Tensor
@@ -128,7 +130,7 @@ testConstructorRegistersHfNames = do
   -- (`4 = 2 * 2`). Going through `cfg.hidden` keeps the proof
   -- existentially-quantified and the auto-implicit can't resolve.
   preCount <- primIO (primParamCount {ex=TestExecutor})
-  _ <- hfGpt2Model {ex=TestExecutor} {dt=TestDType}
+  _ <- hfGpt2Model {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
                    {vocab        = 8}
                    {hidden       = 4}
                    {numLayers    = 6}
@@ -151,6 +153,34 @@ testConstructorRegistersHfNames = do
       pure False
 
 ----------------------------------------------------------------------
+-- readGpt2Config (config.json → Gpt2Config)
+----------------------------------------------------------------------
+
+-- Distinct per-field values so a swapped key mapping is caught. headDim
+-- is derived (n_embd / n_head = 8 / 2 = 4); n_inner is present here.
+testReadGpt2Config : IO Bool
+testReadGpt2Config = do
+  let path = "/tmp/idris_gpt2_config_full.json"
+  Right () <- writeFile path "{\"vocab_size\": 99, \"n_embd\": 8, \"n_layer\": 3, \"n_head\": 2, \"n_inner\": 16, \"n_positions\": 32}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  Right cfg <- readGpt2Config path
+    | Left e => do putStrLn ("  FAIL: readGpt2Config: " ++ show e); pure False
+  check "readGpt2Config maps GPT-2 keys + derives head_dim = n_embd / n_head"
+        (vocabSize cfg == 99 && hidden cfg == 8 && numLayers cfg == 3 &&
+         numHeads cfg == 2 && headDim cfg == 4 && intermediate cfg == 16 &&
+         maxPosition cfg == 32)
+
+testReadGpt2ConfigInnerDefault : IO Bool
+testReadGpt2ConfigInnerDefault = do
+  let path = "/tmp/idris_gpt2_config_noinner.json"
+  Right () <- writeFile path "{\"vocab_size\": 50257, \"n_embd\": 768, \"n_layer\": 6, \"n_head\": 12, \"n_positions\": 1024}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  Right cfg <- readGpt2Config path
+    | Left e => do putStrLn ("  FAIL: readGpt2Config: " ++ show e); pure False
+  check "n_inner defaults to 4 * n_embd when omitted (distilgpt2: 3072)"
+        (intermediate cfg == 3072 && headDim cfg == 64)
+
+----------------------------------------------------------------------
 -- Suite export
 ----------------------------------------------------------------------
 
@@ -164,5 +194,9 @@ suite =
      ])
   , ("HfGpt2 — FFI constructor registry",
      [ testConstructorRegistersHfNames
+     ])
+  , ("readGpt2Config — config.json parsing",
+     [ testReadGpt2Config
+     , testReadGpt2ConfigInnerDefault
      ])
   ]

@@ -5,7 +5,14 @@
 ||| / 12 heads / head_dim 64 / FFN 3072 / max_pos 1024 / vocab 50257)
 ||| is real GPT-2 — distilled from gpt2 by HF. Same architecture as
 ||| gpt2 / gpt2-medium / gpt2-large / gpt2-xl; same on-disk naming
-||| conventions, so the HfGpt2 module covers the whole family.
+||| conventions, so the Transformers.Gpt2 module covers the whole family.
+|||
+||| The model is loaded with `Transformers.Gpt2.fromPretrained`: it reads
+||| `<dir>/config.json` for the dims (GPT-2 keys: `n_embd` / `n_head` /
+||| `n_layer` / `n_positions`; `head_dim = n_embd / n_head`), builds a
+||| tape-free `NoGrad` model, and fills params from `model.safetensors`.
+||| Nothing about distilgpt2 is hardcoded — the `(cfg ** model)` ties the
+||| model's type to the file, and a `decEq` recovers the head split.
 |||
 ||| Two modes — same shape as HfBert:
 |||
@@ -29,7 +36,7 @@
 ||| with HfLlama).
 |||
 ||| Pre-requisites (CI handles these via the make targets):
-|||   - `packages/idris-transformers/models/distilgpt2/model.safetensors`
+|||   - `models/distilgpt2/{config.json,model.safetensors}`
 |||     — fetch with `bash packages/idris-transformers/scripts/hf-download.sh distilgpt2`
 |||   - Python `transformers` available via the pytorch venv (for the
 |||     Tokenizer subprocess).
@@ -39,6 +46,7 @@ import Data.Fin
 import Data.List
 import Data.String
 import Data.Vect
+import Decidable.Equality
 import System
 import System.Clock
 import System.File
@@ -54,38 +62,14 @@ import Transformers.Tokenizer
 import Util
 
 ----------------------------------------------------------------------
--- Config (distilgpt2 dims, pinned at the type level)
+-- Model location (dims come from the file, not from here)
 ----------------------------------------------------------------------
-
-VocabSize : Nat
-VocabSize = 50257
-
-Hidden : Nat
-Hidden = 768
-
-NumLayers : Nat
-NumLayers = 6
-
-NumHeads : Nat
-NumHeads = 12
-
-HeadDim : Nat
-HeadDim = 64
-
-Intermediate : Nat
-Intermediate = 3072
-
-MaxPos : Nat
-MaxPos = 1024
 
 ModelRepo : String
 ModelRepo = "distilgpt2"
 
 modelDir : String
 modelDir = "models/" ++ ModelRepo
-
-hfWeightsPath : String
-hfWeightsPath = modelDir ++ "/model.safetensors"
 
 ----------------------------------------------------------------------
 -- Build small input-ID + position tensors (mkIds lives in HfInferenceHelper)
@@ -102,25 +86,28 @@ arangeVect n = go n 0.0
 -- --dump-final-hidden mode: forward [15496, 995] once, dump last hidden
 ----------------------------------------------------------------------
 
-runDumpHidden : Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                               ExampleExecutor ExampleDType WithGrad
+runDumpHidden : (cfg : Gpt2Config)
+             -> (nHeads, hDim : Nat)
+             -> (prf : hidden cfg = nHeads * hDim)
+             -> Gpt2Model cfg ExampleExecutor ExampleDType NoGrad
              -> IO ()
-runDumpHidden model = do
+runDumpHidden cfg nHeads hDim prf model = do
   -- BPE("Hello world") = [15496, 995]. Same as save_oracle_gpt2.py.
-  let inputIds = mkIds (the (Vect 2 Double) [15496.0, 995.0])
-      posIds   = mkIds (arangeVect 2)
+  let inputIds = retypeGrad (mkIds (the (Vect 2 Double) [15496.0, 995.0]))
+      posIds   = retypeGrad (mkIds (arangeVect 2))
   out <- hfGpt2Forward {ex=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 2}
-                       {vocab        = VocabSize}
-                       {hidden       = Hidden}
-                       {numLayers    = NumLayers}
-                       {numHeads     = NumHeads}
-                       {headDim      = HeadDim}
-                       {intermediate = Intermediate}
-                       {maxPos       = MaxPos}
+                       {vocab        = vocabSize cfg}
+                       {hidden       = hidden cfg}
+                       {numLayers    = numLayers cfg}
+                       {numHeads     = nHeads}
+                       {headDim      = hDim}
+                       {intermediate = intermediate cfg}
+                       {maxPos       = maxPosition cfg}
+                       {prf}
                        model inputIds posIds
   lastRow <- trowSelect out 1
-  printRow (cast {to=Int} Hidden) 0 lastRow.tensorPtr
+  printRow (cast {to=Int} (hidden cfg)) 0 lastRow.tensorPtr
 
 ----------------------------------------------------------------------
 -- Greedy generation (argmaxRow / toExistVect live in HfInferenceHelper)
@@ -128,16 +115,18 @@ runDumpHidden model = do
 
 -- One generation step: forward the current sequence, pick argmax of
 -- the last position's LM-head logits, return the next token ID as a
--- Fin VocabSize. The accumulator is `List (Fin VocabSize)` rather
--- than `Vect n` to dodge the `(n + 1) ~ S n` rewrite tax inside the
--- generation loop — every step would otherwise need a
+-- Fin (vocabSize cfg). The accumulator is `List (Fin (vocabSize cfg))`
+-- rather than `Vect n` to dodge the `(n + 1) ~ S n` rewrite tax inside
+-- the generation loop — every step would otherwise need a
 -- `plusCommutative`-style proof. We convert to `Vect` via fromList
 -- once at each genOneStep call (the length is whatever the list is).
-genOneStep : Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                            ExampleExecutor ExampleDType WithGrad
-          -> List (Fin VocabSize)
-          -> IO (Maybe (Fin VocabSize))
-genOneStep model toksList = do
+genOneStep : (cfg : Gpt2Config)
+          -> (nHeads, hDim : Nat)
+          -> (prf : hidden cfg = nHeads * hDim)
+          -> Gpt2Model cfg ExampleExecutor ExampleDType NoGrad
+          -> List (Fin (vocabSize cfg))
+          -> IO (Maybe (Fin (vocabSize cfg)))
+genOneStep cfg nHeads hDim prf model toksList = do
   -- Convert via dependent pair so the runtime length is bound to a
   -- fresh type variable `curLen`. Idris doesn't reduce
   -- `length idsList` against a let-bound name automatically, so the
@@ -145,52 +134,53 @@ genOneStep model toksList = do
   let idsList = map (cast {to=Double} . finToNat) toksList
   case toExistVect idsList of
     (curLen ** idDoubles) => do
-      let inputIds = mkIds idDoubles
-          posIds   = mkIds (arangeVect curLen)
+      let inputIds = retypeGrad (mkIds idDoubles)
+          posIds   = retypeGrad (mkIds (arangeVect curLen))
       logits <- hfGpt2ForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
                                 {seqLen       = curLen}
-                                {vocab        = VocabSize}
-                                {hidden       = Hidden}
-                                {numLayers    = NumLayers}
-                                {numHeads     = NumHeads}
-                                {headDim      = HeadDim}
-                                {intermediate = Intermediate}
-                                {maxPos       = MaxPos}
+                                {vocab        = vocabSize cfg}
+                                {hidden       = hidden cfg}
+                                {numLayers    = numLayers cfg}
+                                {numHeads     = nHeads}
+                                {headDim      = hDim}
+                                {intermediate = intermediate cfg}
+                                {maxPos       = maxPosition cfg}
+                                {prf}
                                 model inputIds posIds
       lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
-      nextN   <- argmaxRow VocabSize lastRow.tensorPtr
-      pure (natToFin nextN VocabSize)
+      nextN   <- argmaxRow (vocabSize cfg) lastRow.tensorPtr
+      pure (natToFin nextN (vocabSize cfg))
 
 -- Generate `remaining` more tokens, snoc'ing each onto the input.
 -- Returns the full token list (prompt + generated tokens).
-genLoop : Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                         ExampleExecutor ExampleDType WithGrad
-       -> List (Fin VocabSize)
+genLoop : (cfg : Gpt2Config)
+       -> (nHeads, hDim : Nat)
+       -> (prf : hidden cfg = nHeads * hDim)
+       -> Gpt2Model cfg ExampleExecutor ExampleDType NoGrad
+       -> List (Fin (vocabSize cfg))
        -> (remaining : Nat)
-       -> IO (List (Fin VocabSize))
-genLoop _     tokens Z     = pure tokens
-genLoop model tokens (S k) = do
-  mNext <- genOneStep model tokens
+       -> IO (List (Fin (vocabSize cfg)))
+genLoop _   _      _    _   _     tokens Z     = pure tokens
+genLoop cfg nHeads hDim prf model tokens (S k) = do
+  mNext <- genOneStep cfg nHeads hDim prf model tokens
   case mNext of
     Nothing => do
       putStrLn "  (argmax produced out-of-range token; stopping)"
       pure tokens
     Just next =>
-      genLoop model (tokens ++ [next]) k
-
-----------------------------------------------------------------------
--- --prompt argv parsing (helpers in HfInferenceHelper)
-----------------------------------------------------------------------
+      genLoop cfg nHeads hDim prf model (tokens ++ [next]) k
 
 ----------------------------------------------------------------------
 -- Default mode: greedy generation demo
 ----------------------------------------------------------------------
 
-runGenerate : Tokenizer VocabSize
-           -> Gpt2ModelState VocabSize Hidden NumLayers Intermediate MaxPos
-                             ExampleExecutor ExampleDType WithGrad
+runGenerate : (cfg : Gpt2Config)
+           -> (nHeads, hDim : Nat)
+           -> (prf : hidden cfg = nHeads * hDim)
+           -> Tokenizer (vocabSize cfg)
+           -> Gpt2Model cfg ExampleExecutor ExampleDType NoGrad
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
-runGenerate tok model prompt numTokens = do
+runGenerate cfg nHeads hDim prf tok model prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt
     | Left err => putStrLn ("ERR: tokenize: " ++ show err)
   putStrLn ""
@@ -201,7 +191,7 @@ runGenerate tok model prompt numTokens = do
   putStrLn ("Tokens in: " ++ show promptLen ++ ", generating: " ++ show numTokens)
   putStrLn ""
   let promptList = toList promptIds
-  finalList <- genLoop model promptList numTokens
+  finalList <- genLoop cfg nHeads hDim prf model promptList numTokens
   -- detokenize the FULL sequence so the printed text includes the
   -- prompt and the generation continuously. Convert List → Vect via
   -- fromList (length-existential is fine because detokenize accepts
@@ -221,47 +211,44 @@ main = do
   let dumpHidden = elem "--dump-final-hidden" args
   t0 <- clockTime Monotonic
 
-  -- Build a distilgpt2 model. Each param registers under the literal
-  -- HF name (`transformer.wte.weight`, etc.).
-  model <- hfGpt2Model {ex=ExampleExecutor} {dt=ExampleDType}
-                       {vocab        = VocabSize}
-                       {hidden       = Hidden}
-                       {numLayers    = NumLayers}
-                       {numHeads     = NumHeads}
-                       {headDim      = HeadDim}
-                       {intermediate = Intermediate}
-                       {maxPos       = MaxPos}
-                       ""
-  stageStamp "hfGpt2Model ok" t0
-  -- Load the HF checkpoint. loadModelAllowCast handles dtype
-  -- widening at the loader; distilgpt2 is F32 on disk so the cost is
-  -- a copy on F32 backends (mlx-gpu / torch-mps) and a widen on F64
-  -- backends (tape).
-  ok <- loadModelAllowCast {ex=ExampleExecutor} hfWeightsPath
-  if not ok
-    then do
-      putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
-      exitFailure
-    else pure ()
-  stageStamp "loadModelAllowCast ok" t0
+  -- Load distilgpt2 straight from the HF checkpoint dir. fromPretrained
+  -- reads config.json for the dims, builds a tape-free NoGrad model, and
+  -- fills params from model.safetensors (HF-native `transformer.*` names).
+  Right (cfg ** model) <- fromPretrained {ex=ExampleExecutor} {dt=ExampleDType} {g=NoGrad} modelDir
+    | Left err => do
+        putStrLn ("ERR: fromPretrained " ++ modelDir ++ ": " ++ show err)
+        exitFailure
+  stageStamp "fromPretrained ok" t0
 
-  if dumpHidden
-    then runDumpHidden model
-    else do
-      tokR <- mkTokenizer ModelRepo VocabSize
-      case tokR of
-        Left err  => do
-          putStrLn ("ERR: mkTokenizer: " ++ show err)
-          exitFailure
-        Right tok => do
-          let numTokens = extractNumTokens 8 args
-          benchT0 <- clockTime Monotonic
-          runGenerate tok model (extractPrompt "The quick brown fox" args) numTokens
-          benchT1 <- clockTime Monotonic
-          let benchMs =
-                let s  = cast {to=Double} (seconds benchT1 - seconds benchT0)
-                    ns = cast {to=Double} (nanoseconds benchT1 - nanoseconds benchT0)
-                in s * 1000.0 + ns / 1000000.0
-          putStrLn ""
-          putStrLn ("PERF_GENERATE_TOKENS=" ++ show numTokens)
-          putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)
+  -- Recover the per-head split from the config (head_dim = n_embd /
+  -- n_head). decEq supplies the `hidden = numHeads * headDim` proof the
+  -- forward needs, or we bail if n_embd isn't divisible by n_head.
+  let nHeads = numHeads cfg
+      hDim   = headDim cfg
+  case decEq (hidden cfg) (nHeads * hDim) of
+    No _ => do
+      putStrLn ("ERR: n_embd " ++ show (hidden cfg)
+                 ++ " not divisible by n_head " ++ show nHeads)
+      exitFailure
+    Yes prf =>
+      if dumpHidden
+        then runDumpHidden cfg nHeads hDim prf model
+        else do
+          tokR <- mkTokenizer ModelRepo (vocabSize cfg)
+          case tokR of
+            Left err  => do
+              putStrLn ("ERR: mkTokenizer: " ++ show err)
+              exitFailure
+            Right tok => do
+              let numTokens = extractNumTokens 8 args
+              benchT0 <- clockTime Monotonic
+              runGenerate cfg nHeads hDim prf tok model
+                          (extractPrompt "The quick brown fox" args) numTokens
+              benchT1 <- clockTime Monotonic
+              let benchMs =
+                    let s  = cast {to=Double} (seconds benchT1 - seconds benchT0)
+                        ns = cast {to=Double} (nanoseconds benchT1 - nanoseconds benchT0)
+                    in s * 1000.0 + ns / 1000000.0
+              putStrLn ""
+              putStrLn ("PERF_GENERATE_TOKENS=" ++ show numTokens)
+              putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)

@@ -31,15 +31,20 @@
 module Transformers.Gpt2
 
 import Data.Vect
+import Decidable.Equality
 
+import Backend
+import Checkpoint
 import Compat.Random
 import Executor
+import GradMode
 import Init
 import Nn.Embedding
 import Nn.LayerNorm
 import Sampler
 import Tensor
 import Transformers.Common
+import Transformers.Config
 
 ----------------------------------------------------------------------
 -- Config
@@ -150,7 +155,7 @@ zeroBuf buf _   0 = buf
 zeroBuf buf off n = zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
 fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
-fillConst buf _ 0 _   = buf
+fillConst buf _ 0 _ = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
@@ -163,43 +168,57 @@ record Gpt2Conv1D (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
   weight : Tensor [i, o] ex dt g  -- HF-native storage shape
   bias   : Tensor [o] ex dt g
 
-makeConv1D : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeConv1D : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {i, o : Nat}
           -> (paramPrefix : String)
-          -> IO (Gpt2Conv1D i o ex dt WithGrad)
+          -> IO (Gpt2Conv1D i o ex dt g)
 makeConv1D pfx = do
   -- HF GPT-2 uses normal(0, 0.02) init for Conv1D weights, zero bias.
   -- Fused C-side init via tparam2dNormal / tparam1dConst (commit
   -- 085348d); see Transformers.Bert.idr's makeBertLinear for the bottleneck
   -- replaced.
-  w <- tparam2dNormal {o=i} {i=o} (pfx ++ ".weight") 0.0 0.02
-  b <- tparam1dConst  {n=o}       (pfx ++ ".bias")   0.0
-  pure (MkGpt2Conv1D w b)
+  w <- tparam2dNormal {ex} {dt} {o=i} {i=o} (pfx ++ ".weight") 0.0 0.02
+  b <- tparam1dConst  {ex} {dt} {n=o}       (pfx ++ ".bias")   0.0
+  case sgrad {g} of
+    SWithGrad => pure (MkGpt2Conv1D w b)
+    SNoGrad => do
+      w' <- weakenGrad w
+      b' <- weakenGrad b
+      pure (MkGpt2Conv1D w' b')
 
 ||| HF-named LayerNorm: registers `<pfx>.weight` (γ, init 1.0) and
 ||| `<pfx>.bias` (β, init 0.0). GPT-2's `ln_*` / `ln_f` are standard
 ||| LayerNorms with affine params (unlike Llama's RMSNorm which only
 ||| has a weight).
-makeGpt2LN : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeGpt2LN : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {n : Nat}
           -> (paramPrefix : String)
-          -> IO (LayerNorm n n ex dt WithGrad)
+          -> IO (LayerNorm n n ex dt g)
 makeGpt2LN pfx = do
   -- Fused C-side const fill (γ = 1.0, β = 0.0); replaces fillConst /
   -- zeroBuf host-side loops.
-  g <- tparam1dConst {n} (pfx ++ ".weight") 1.0
-  b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
-  pure (MkLayerNorm g b)
+  gw <- tparam1dConst {ex} {dt} {n} (pfx ++ ".weight") 1.0
+  b  <- tparam1dConst {ex} {dt} {n} (pfx ++ ".bias")   0.0
+  case sgrad {g} of
+    SWithGrad => pure (MkLayerNorm gw b)
+    SNoGrad => do
+      gw' <- weakenGrad gw
+      b'  <- weakenGrad b
+      pure (MkLayerNorm gw' b')
 
 ||| Token / positional embedding: `[count, hidden]`.
-makeGpt2Embedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeGpt2Embedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                  => {count, hidden : Nat}
                  -> (paramPrefix : String)
-                 -> IO (Embedding count hidden ex dt WithGrad)
+                 -> IO (Embedding count hidden ex dt g)
 makeGpt2Embedding pfx = do
   -- Fused C-side normal(0, 0.02) init.
-  w <- tparam2dNormal {o=count} {i=hidden} (pfx ++ ".weight") 0.0 0.02
-  pure (MkEmbedding w)
+  w <- tparam2dNormal {ex} {dt} {o=count} {i=hidden} (pfx ++ ".weight") 0.0 0.02
+  case sgrad {g} of
+    SWithGrad => pure (MkEmbedding w)
+    SNoGrad => do
+      w' <- weakenGrad w
+      pure (MkEmbedding w')
 
 ----------------------------------------------------------------------
 -- State records
@@ -245,28 +264,28 @@ record Gpt2ModelState
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeAttention : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
              => {hidden : Nat}
              -> (paramPrefix : String)
-             -> IO (Gpt2AttentionState hidden ex dt WithGrad)
+             -> IO (Gpt2AttentionState hidden ex dt g)
 makeAttention pfx = do
   ca <- makeConv1D {i=hidden} {o=3 * hidden} (pfx ++ ".c_attn")
   cp <- makeConv1D {i=hidden} {o=hidden}     (pfx ++ ".c_proj")
   pure (MkGpt2Attention ca cp)
 
-makeMlp : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeMlp : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
        => {hidden, intermediate : Nat}
        -> (paramPrefix : String)
-       -> IO (Gpt2MlpState hidden intermediate ex dt WithGrad)
+       -> IO (Gpt2MlpState hidden intermediate ex dt g)
 makeMlp pfx = do
   cf <- makeConv1D {i=hidden}       {o=intermediate} (pfx ++ ".c_fc")
   cp <- makeConv1D {i=intermediate} {o=hidden}       (pfx ++ ".c_proj")
   pure (MkGpt2Mlp cf cp)
 
-makeBlock : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBlock : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
          => {hidden, intermediate : Nat}
          -> (paramPrefix : String)
-         -> IO (Gpt2BlockState hidden intermediate ex dt WithGrad)
+         -> IO (Gpt2BlockState hidden intermediate ex dt g)
 makeBlock pfx = do
   l1 <- makeGpt2LN {n=hidden} (pfx ++ ".ln_1")
   at <- makeAttention {hidden} (pfx ++ ".attn")
@@ -274,14 +293,14 @@ makeBlock pfx = do
   mp <- makeMlp {hidden} {intermediate} (pfx ++ ".mlp")
   pure (MkGpt2Block l1 at l2 mp)
 
-makeBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {hidden, intermediate : Nat}
           -> (paramPrefix : String)
           -> (n : Nat)
           -> (offset : Nat)
-          -> IO (Vect n (Gpt2BlockState hidden intermediate ex dt WithGrad))
-makeBlocks _   Z     _      = pure []
-makeBlocks pfx (S k) offset = do
+          -> IO (Vect n (Gpt2BlockState hidden intermediate ex dt g))
+makeBlocks _   Z     _       = pure []
+makeBlocks pfx (S k) offset  = do
   b  <- makeBlock {hidden} {intermediate} (blockPrefix pfx offset)
   bs <- makeBlocks pfx k (S offset)
   pure (b :: bs)
@@ -291,11 +310,11 @@ makeBlocks pfx (S k) offset = do
 ||| registered names are exactly HF's on-disk names — `transformer.wte.weight`,
 ||| `transformer.h.0.attn.c_attn.weight`, etc.).
 public export
-hfGpt2Model : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+hfGpt2Model : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
            => {vocab, hidden, numLayers, numHeads, headDim, intermediate, maxPos : Nat}
            -> {auto prfH : hidden = numHeads * headDim}
            -> (paramPrefix : String)
-           -> IO (Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt WithGrad)
+           -> IO (Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt g)
 hfGpt2Model pfx = do
   let pfx_t = if pfx == "" then "transformer" else pfx ++ ".transformer"
   wte    <- makeGpt2Embedding {count=vocab}  {hidden} (pfx_t ++ ".wte")
@@ -368,7 +387,7 @@ buildCausalHeads : {0 ex : Executor} -> UserExecutorTraining ex =>
                 -> (headDimI : Int) -> (scale : Double)
                 -> (remaining : Nat) -> (startI : Int) -> (acc : AnyPtr)
                 -> AnyPtr
-buildCausalHeads _ _ _ _ _ _ Z _ acc                                          = acc
+buildCausalHeads _ _ _ _ _ _ Z _ acc = acc
 buildCausalHeads qFull kFull vFull causalMask headDimI scale (S k) startI acc =
   let nextCtx = oneHeadCausalCtx {ex} qFull kFull vFull causalMask startI headDimI scale
       newAcc  = primConcat2dAxis1 {ex} acc nextCtx
@@ -390,17 +409,17 @@ applySelfAttn : {0 ex : Executor} -> UserExecutorTraining ex =>
              -> (causalMask : AnyPtr)
              -> Tensor [seqLen, hidden] ex dt g
              -> IO (Tensor [seqLen, hidden] ex dt g)
-applySelfAttn {numHeads = Z} _ _ input                                = pure input
+applySelfAttn {numHeads = Z} _ _ input = pure input
 applySelfAttn {numHeads = S Z} {hidden} {headDim} sa causalMask input = do
   -- Single head: still need fused-QKV split (the storage doesn't
   -- depend on numHeads), but skip the per-head narrow loop.
   qkv <- applyConv1D2d sa.cAttn input  -- [seq, 3*hidden]
   ctxT <- ioRerun (\_ =>
     let hI = cast {to=Int} hidden
-        q      = primNarrow {ex} qkv.tensorPtr 1 0       hI
-        k'     = primNarrow {ex} qkv.tensorPtr 1 hI      hI
-        v      = primNarrow {ex} qkv.tensorPtr 1 (2*hI)  hI
-        scale  = 1.0 / sqrt (cast {to=Double} headDim)
+        q  = primNarrow {ex} qkv.tensorPtr 1 0       hI
+        k' = primNarrow {ex} qkv.tensorPtr 1 hI      hI
+        v  = primNarrow {ex} qkv.tensorPtr 1 (2*hI)  hI
+        scale = 1.0 / sqrt (cast {to=Double} headDim)
         kT     = primTranspose2d {ex} k'
         scores = primMulScalar {ex} (primMm {ex} q kT) scale
         masked = primMaskedFill {ex} scores causalMask (-1.0e20)
@@ -460,7 +479,7 @@ applyBlocks : {0 ex : Executor} -> UserExecutorTraining ex =>
            -> (causalMask : AnyPtr)
            -> Tensor [seqLen, hidden] ex dt g
            -> IO (Tensor [seqLen, hidden] ex dt g)
-applyBlocks []        _ x  = pure x
+applyBlocks []        _ x = pure x
 applyBlocks (b :: bs) cm x = do
   x' <- applyBlock {numHeads} {headDim} b cm x
   applyBlocks {numHeads} {headDim} bs cm x'
@@ -474,7 +493,7 @@ applyEmbedLookup2d : {0 ex : Executor} -> UserExecutorTraining ex =>
                   -> IO (Tensor [seqLen, hidden] ex dt g)
 applyEmbedLookup2d {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
   let sI = cast {to=Int} seqLen
-      hI  = cast {to=Int} hidden
+      hI = cast {to=Int} hidden
       out = primEmbedding2d {ex} w.tensorPtr tokens.tensorPtr sI hI
   in MkTensor out Nothing)
 
@@ -511,7 +530,7 @@ hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
   let sI = cast {to=Int} seqLen
       maskBuf  = prim__allocDoubles (sI * sI)
       maskBuf' = writeCausalMask maskBuf 0 1 sI
-      mask     = dtCreateState2d {ex} {t=dt} sI sI maskBuf' (deviceStreamTag {ex})
+      mask = dtCreateState2d {ex} {t=dt} sI sI maskBuf' (deviceStreamTag {ex})
   -- Decoder stack
   hMid <- applyBlocks {numHeads} {headDim} model.blocks mask hEmb
   -- Final LayerNorm
@@ -534,3 +553,65 @@ hfGpt2ForwardLm {hidden} {vocab} {numHeads} {headDim} model tokenIds posIds = do
   -- [vocab, hidden]; tlinear2d wants weight as [out, in] = [vocab, hidden].
   -- Bias is zero (no separate LM bias in GPT-2).
   projectTiedLmHead model.wte.weightT hFinal
+
+----------------------------------------------------------------------
+-- fromPretrained
+----------------------------------------------------------------------
+
+||| The GPT-2 model state at the dims a `Gpt2Config` carries — the
+||| second component of `fromPretrained`'s dependent pair.
+public export
+Gpt2Model : (cfg : Gpt2Config) -> (0 ex : Executor) -> (0 dt : DType) -> (0 g : GradMode) -> Type
+Gpt2Model cfg ex dt g =
+  Gpt2ModelState (vocabSize cfg) (hidden cfg) (numLayers cfg) (intermediate cfg) (maxPosition cfg) ex dt g
+
+||| Read a HuggingFace GPT-2 `config.json` into a `Gpt2Config`. GPT-2's
+||| keys differ from BERT's (`n_embd` / `n_head` / `n_layer` /
+||| `n_positions`); `n_inner` is usually absent and defaults to `4 *
+||| n_embd`, and `head_dim` is derived as `n_embd / n_head`.
+export
+readGpt2Config : String -> IO (Either LoadError Gpt2Config)
+readGpt2Config path = do
+  Right j <- readConfigFile path
+    | Left e => pure (Left e)
+  pure $ do
+    vocabSize    <- natField   j "vocab_size"
+    hidden       <- natField   j "n_embd"
+    numLayers    <- natField   j "n_layer"
+    numHeads     <- natField   j "n_head"
+    maxPosition  <- natField   j "n_positions"
+    intermediate <- natFieldOr j "n_inner" (4 * hidden)
+    pure (MkGpt2Config vocabSize hidden numLayers numHeads (hidden `div` numHeads)
+                       intermediate maxPosition)
+
+||| Load a pretrained GPT-2 from a local HF model directory. Reads
+||| `config.json` for the dims (`head_dim = n_embd / n_head`, checked
+||| divisible via `decEq` — the `hidden = numHeads * headDim` proof the
+||| model needs), builds the model (`{g}` = caller's grad mode), and
+||| fills params from `model.safetensors` (HF-native names under
+||| `transformer.*`, so the prefix is `""`). Returns `(cfg ** model)`.
+export
+fromPretrained : Backend ex dt => KnownGrad g
+              => (modelDir : String)
+              -> IO (Either LoadError (cfg : Gpt2Config ** Gpt2Model cfg ex dt g))
+fromPretrained dir = do
+  Right cfg <- readGpt2Config (dir ++ "/config.json")
+    | Left e => pure (Left e)
+  case decEq (hidden cfg) (numHeads cfg * headDim cfg) of
+    No _ => pure (Left (ConfigError ("n_embd " ++ show (hidden cfg)
+                                       ++ " not divisible by n_head " ++ show (numHeads cfg))))
+    Yes prfH => do
+      model <- hfGpt2Model {ex} {dt} {g}
+                 {vocab        = vocabSize cfg}
+                 {hidden       = hidden cfg}
+                 {numLayers    = numLayers cfg}
+                 {numHeads     = numHeads cfg}
+                 {headDim      = headDim cfg}
+                 {intermediate = intermediate cfg}
+                 {maxPos       = maxPosition cfg}
+                 {prfH}
+                 ""
+      loaded <- load {ex} (dir ++ "/model.safetensors") ({ allowCast := True } defaultLoadOpts)
+      case loaded of
+        Left e   => pure (Left e)
+        Right () => pure (Right (cfg ** model))
