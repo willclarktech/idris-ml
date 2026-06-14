@@ -834,6 +834,12 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # unsloth/Llama-3.2-1B is download-gated on the public mirror; the
+    # llama steps below guard on env.HF_TOKEN != '' and skip when the
+    # secret is unset (the non-gated BitNet step still runs). Set the
+    # HF_TOKEN repo secret to enable them — see TODO "Add HF_TOKEN to CI".
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -863,13 +869,13 @@ jobs:
         # the gate-coverage lint (the roundtrip regenerates the oracle
         # anyway, but this gate asserts the generator script's own
         # invariants and fails earlier + cheaper).
-        if: ${{ !cancelled() }}
+        if: ${{ env.HF_TOKEN != '' && !cancelled() }}
         run: make test-e2e-transformers-oracle-llama
 
       - name: Run HfLlama generation oracle pytest
         # Greedy-decode oracle pytest paired with the llama-generate
         # roundtrip below. Wired in by the gate-coverage lint.
-        if: ${{ !cancelled() }}
+        if: ${{ env.HF_TOKEN != '' && !cancelled() }}
         run: make test-e2e-transformers-oracle-llama-generate
 
       - name: Run HfBitNet end-to-end roundtrip (torch)
@@ -887,8 +893,8 @@ jobs:
 
       - name: Run HfLlama end-to-end roundtrip (torch)
         # Cross-language gate for Llama 3.2 1B. Regenerates the Python
-        # oracle from unsloth/Llama-3.2-1B (public mirror of Meta's
-        # weights, no license-gate / no HF_TOKEN), runs the Idris
+        # oracle from unsloth/Llama-3.2-1B (download-gated on the mirror;
+        # guarded on env.HF_TOKEN above, skips when unset), runs the Idris
         # HfLlamaInference binary --dump-final-hidden, asserts the
         # 2048-dim last-position hidden state matches the oracle within
         # max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps
@@ -897,7 +903,7 @@ jobs:
         # BACKEND=torch because tape F64 doesn't fit (~10 GB params +
         # arena vs ~14 GB runner RAM); see Low-priority TODO "Tape F64
         # large-LM OOM".
-        if: ${{ !cancelled() }}
+        if: ${{ env.HF_TOKEN != '' && !cancelled() }}
         run: make BACKEND=torch test-e2e-hf-llama-roundtrip
 
       - name: Run HfLlama multi-step generation roundtrip (torch)
@@ -910,7 +916,7 @@ jobs:
         # do_sample=False, use_cache=True)` element-wise. Catches drift
         # in tokenization, every layer of the forward, argmax, and the
         # per-step glue that the single-forward gate can't see.
-        if: ${{ !cancelled() }}
+        if: ${{ env.HF_TOKEN != '' && !cancelled() }}
         run: make BACKEND=torch test-e2e-hf-llama-generate-roundtrip
 
       - name: Type-check HfLlamaInference example (torch)
@@ -922,7 +928,7 @@ jobs:
         # Ordered after the llama roundtrips with BACKEND=torch and a
         # shared --build-dir, so the elaboration this step needs has
         # always just happened in-job and the check is nearly free.
-        if: ${{ !cancelled() }}
+        if: ${{ env.HF_TOKEN != '' && !cancelled() }}
         run: make BACKEND=torch test-integration-lint-hf-llama-inference
       # <<< END GENERATED (test-e2e-hf-llama) <<<
 
