@@ -281,7 +281,7 @@ endif
 IDRIS_FLAGS := --build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers
 
 # Variable introspection: `make -s print-BUILD` / `print-EXAMPLE_SRC` etc.
-# echoes the resolved value of any make variable. Used by perf-elab.sh to
+# echoes the resolved value of any make variable. Used by perf-compile.sh to
 # reuse the build's flag/prefix resolution as the single source of truth
 # instead of duplicating it. A pattern rule, so it never becomes the
 # default goal; the explicit `print-torch` (mk/tests.mk) still wins for

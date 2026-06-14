@@ -77,10 +77,18 @@ OP_BENCH_FAIL_PCT = 40.0
 # build cache state, multi-iteration averaging, varied workload size.
 # Tighten once the noise profile is calibrated.
 RUN_FAIL_PCT = 100.0
+# Compilation (Axis E, kind="compile"): cold full-build wall is more
+# stable than example-run wall (mostly single-threaded elaboration, no
+# training noise) but a shared VM still jitters, and the linear-types
+# migration is the change class this axis exists to catch. Moderate FAIL
+# band; informational until the cold-build noise floor is calibrated
+# (gates only under PERF_GATE=1).
+COMPILE_FAIL_PCT = 30.0
 
 # How many prior entries to median over for the baseline.
 OP_BENCH_BASELINE_WINDOW = 5
 RUN_BASELINE_WINDOW = 10
+COMPILE_BASELINE_WINDOW = 5
 
 
 # Per-mode wiring: how to filter, group, and extract the metric.
@@ -92,6 +100,10 @@ def _key_run(entry: dict[str, Any]) -> tuple[str, str, str]:
     return (entry.get("example", ""), entry.get("backend", ""), entry.get("args", ""))
 
 
+def _key_compile(entry: dict[str, Any]) -> tuple[str, str, str]:
+    return (entry.get("unit", ""), entry.get("backend", ""), entry.get("device", ""))
+
+
 class ModeConfig(TypedDict):
     metric: str
     metric_label: str
@@ -100,6 +112,7 @@ class ModeConfig(TypedDict):
     fail_pct: float
     baseline_window: int
     always_gates: bool
+    precise: bool  # True → 4-decimal metric (ms/iter); False → integer ms
 
 
 MODES: dict[str, ModeConfig] = {
@@ -111,6 +124,7 @@ MODES: dict[str, ModeConfig] = {
         "fail_pct": OP_BENCH_FAIL_PCT,
         "baseline_window": OP_BENCH_BASELINE_WINDOW,
         "always_gates": True,
+        "precise": True,
     },
     "run": {
         "metric": "wall_ms",
@@ -120,8 +134,22 @@ MODES: dict[str, ModeConfig] = {
         "fail_pct": RUN_FAIL_PCT,
         "baseline_window": RUN_BASELINE_WINDOW,
         "always_gates": False,  # respect PERF_GATE env var
+        "precise": False,
+    },
+    "compile": {
+        "metric": "compile_ms",
+        "metric_label": "compile_ms",
+        "key_fn": _key_compile,
+        "key_labels": ("Unit", "Backend", "Device"),
+        "fail_pct": COMPILE_FAIL_PCT,
+        "baseline_window": COMPILE_BASELINE_WINDOW,
+        "always_gates": False,  # respect PERF_GATE env var (informational)
+        "precise": False,
     },
 }
+
+# `--mode all` fans out over these concrete modes (one table each).
+ALL_MODES = ("op_bench", "run", "compile")
 
 
 def load_entries(log_path: Path, kind: str, metric: str) -> list[dict[str, Any]]:
@@ -164,39 +192,23 @@ def classify(current: float, baseline: float, fail_pct: float) -> tuple[str, flo
     return ("FAIL", delta_pct)
 
 
-def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument(
-        "--mode",
-        choices=list(MODES.keys()),
-        default="op_bench",
-        help="Which kind of entries to gate over (default: op_bench).",
-    )
-    p.add_argument(
-        "--log",
-        type=Path,
-        default=DEFAULT_LOG,
-        help=f"Path to perf-log.jsonl (default: {DEFAULT_LOG})",
-    )
-    p.add_argument(
-        "--baseline-window",
-        type=int,
-        default=None,
-        help="How many prior entries to median for baseline "
-        "(mode-specific default: 5 for op_bench, 10 for run).",
-    )
-    args = p.parse_args()
-
-    mode_cfg = MODES[args.mode]
+def report_mode(mode: str, log_path: Path, baseline_window_override: int | None) -> int:
+    """Print one mode's Markdown verdict table. Returns the gating exit
+    contribution: 1 if this mode FAILed AND it gates (op_bench always;
+    run/elab only under PERF_GATE=1), else 0."""
+    mode_cfg = MODES[mode]
     metric = mode_cfg["metric"]
-    baseline_n = args.baseline_window or mode_cfg["baseline_window"]
+    baseline_n = baseline_window_override or mode_cfg["baseline_window"]
     fail_pct = mode_cfg["fail_pct"]
+    precise = mode_cfg["precise"]
+    cur_fmt = "{:.4f}" if precise else "{:.0f}"
 
-    entries = load_entries(args.log, kind=args.mode, metric=metric)
+    entries = load_entries(log_path, kind=mode, metric=metric)
     if not entries:
-        print(f"# Perf regression gate ({args.mode})")
+        print(f"# Perf regression gate ({mode})")
         print()
-        print(f'_No `kind: "{args.mode}"` entries in {args.log} yet._')
+        print(f'_No `kind: "{mode}"` entries in {log_path} yet._')
+        print()
         return 0
 
     cells = group_by_cell(entries, mode_cfg["key_fn"])
@@ -217,7 +229,7 @@ def main() -> int:
             current = current_entry[metric]
             baseline = statistics.median(e[metric] for e in window)
             verdict, delta_pct = classify(current, baseline, fail_pct)
-            baseline_str = f"{baseline:.4f}" if args.mode == "op_bench" else f"{baseline:.0f}"
+            baseline_str = f"{baseline:.4f}" if precise else f"{baseline:.0f}"
             sign = "+" if delta_pct >= 0 else ""
             delta_str = f"{sign}{delta_pct:.1f}%"
             counts[verdict] = counts.get(verdict, 0) + 1
@@ -235,9 +247,9 @@ def main() -> int:
         )
 
     # Markdown verdict table.
-    print(f"# Perf regression gate ({args.mode})")
+    print(f"# Perf regression gate ({mode})")
     print()
-    print(f"Source: `{args.log.relative_to(ROOT) if args.log.is_relative_to(ROOT) else args.log}`")
+    print(f"Source: `{log_path.relative_to(ROOT) if log_path.is_relative_to(ROOT) else log_path}`")
     print(f"Baseline window: median of prior {baseline_n} entries per cell.")
     print(f"Thresholds: ±{WARN_PCT:g}% (OK), > {WARN_PCT:g}% (WARN), > {fail_pct:g}% (FAIL).")
     print()
@@ -249,7 +261,6 @@ def main() -> int:
     print()
     k0_label, k1_label, k2_label = mode_cfg["key_labels"]
     metric_col = (f"Baseline ({mode_cfg['metric_label']})", f"Current ({mode_cfg['metric_label']})")
-    cur_fmt = "{:.4f}" if args.mode == "op_bench" else "{:.0f}"
     print(
         f"| {k0_label} | {k1_label} | {k2_label} | {metric_col[0]} "
         f"| {metric_col[1]} | Delta | Verdict | Commit |"
@@ -263,11 +274,43 @@ def main() -> int:
         )
     print()
 
-    # In gating modes (op_bench always; run only when PERF_GATE=1) a
+    # In gating modes (op_bench always; run/elab only when PERF_GATE=1) a
     # FAIL means exit 1. Otherwise the report is informational.
     if counts["FAIL"] > 0 and (mode_cfg["always_gates"] or os.environ.get("PERF_GATE") == "1"):
         return 1
     return 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "--mode",
+        choices=[*MODES.keys(), "all"],
+        default="op_bench",
+        help="Which kind of entries to gate over (default: op_bench). "
+        "`all` prints op_bench + run + compile tables in one pass (the "
+        "`make perf-compare` before/after view).",
+    )
+    p.add_argument(
+        "--log",
+        type=Path,
+        default=DEFAULT_LOG,
+        help=f"Path to perf-log.jsonl (default: {DEFAULT_LOG})",
+    )
+    p.add_argument(
+        "--baseline-window",
+        type=int,
+        default=None,
+        help="How many prior entries to median for baseline "
+        "(mode-specific default: 5 for op_bench/compile, 10 for run).",
+    )
+    args = p.parse_args()
+
+    modes = list(ALL_MODES) if args.mode == "all" else [args.mode]
+    rc = 0
+    for mode in modes:
+        rc |= report_mode(mode, args.log, args.baseline_window)
+    return rc
 
 
 if __name__ == "__main__":

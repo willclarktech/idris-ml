@@ -6,7 +6,7 @@
         bench-layers-py bench-fast bench-deep bench-full bench \
         test-integration-lint-benchmarks \
         test-integration-lint-perf-regression lint-perf-run \
-        bench-ops-compare
+        perf-compare bench-ops-compare
 
 bench-py:
 	cd packages/pytorch && uv run python -m torch_ref.benchmark $(BENCH)
@@ -99,6 +99,15 @@ test-integration-lint-perf-regression:
 # to hard-fail.
 lint-perf-run:
 	python3 scripts/check-perf-regression.py --mode run
+
+# The before/after view for "I just made a change": one combined
+# OK/WARN/FAIL table across runtime (op_bench + run) AND compilation
+# (Axis E, kind=compile) vs each cell's median-of-prior baseline. After a
+# change, run the relevant measurement (bench-fast captures op_bench +
+# compile; perf-run.sh / perf-sweep.sh capture run) then `make perf-compare`
+# to see the deltas. Advisory (exit 0) unless PERF_GATE=1.
+perf-compare:
+	@python3 scripts/check-perf-regression.py --mode all
 
 bench-ops-compare:
 	@for b in tape mlx torch; do \

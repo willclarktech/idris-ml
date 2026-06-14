@@ -127,7 +127,7 @@ lint-py-scripts:
 
 # Unit tests for the repo's Python tooling (scripts/tests/): the FFI
 # manifest integrity checks, the coverage-gap probe, and the perf-log
-# writers (incl. the kind=elab record). Runs in the lint job's uv dev
+# writers (incl. the kind=compile record). Runs in the lint job's uv dev
 # venv (pytest is a dev dep). An integration-layer leaf so the CI-coverage
 # gate enforces it actually runs — these were previously orphaned (no
 # target invoked them, so test_ffi_manifest_integrity sat red unnoticed).

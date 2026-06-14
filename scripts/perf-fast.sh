@@ -37,10 +37,12 @@ BENCHMARKS_PATH="BENCHMARKS.md"
 
 DO_BUILD=1
 DO_RENDER=1
+DO_COMPILE=1
 for arg in "$@"; do
 	case "$arg" in
 		--no-build) DO_BUILD=0 ;;
 		--no-render) DO_RENDER=0 ;;
+		--no-compile) DO_COMPILE=0 ;;
 		-h|--help)
 			sed -n '2,30p' "$0"
 			exit 0
@@ -94,5 +96,27 @@ if [ "$DO_RENDER" = "1" ]; then
 	echo "==> perf-fast: rendering BENCHMARKS.md"
 	python3 scripts/render-benchmarks.py
 fi
+
+# Axis E: cold full-compilation time (kind=compile) for a scoped unit set
+# — the idris-ml library (the heavy unit where the linear-types machinery
+# lives) plus a couple representative examples. This is the slow part of
+# perf-fast (cold library build is minutes); override the set via
+# PERF_FAST_COMPILE_UNITS, or skip with --no-compile. Each unit logs one
+# kind=compile entry; failures are recorded (exit field), not fatal here.
+if [ "$DO_COMPILE" = "1" ]; then
+	echo "==> perf-fast: Axis E (cold full compilation)"
+	COMPILE_UNITS=${PERF_FAST_COMPILE_UNITS:-"idris-ml \
+		packages/idris-ml-examples/src/Example/Supervised.idr \
+		packages/idris-ml-examples/src/Example/Transformer.idr"}
+	for u in $COMPILE_UNITS; do
+		scripts/perf-compile.sh "$u" tape || true
+	done
+fi
+
+# The before/after view: one OK/WARN/FAIL table across op_bench + run +
+# compile vs each cell's median-of-prior baseline. Advisory here (exit 0);
+# the gating copy is `make test-integration-lint-perf-regression`.
+echo "==> perf-fast: perf compare (vs baseline)"
+python3 scripts/check-perf-regression.py --mode all || true
 
 echo "==> perf-fast: done"

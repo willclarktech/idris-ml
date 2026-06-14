@@ -22,7 +22,7 @@ Every entry has these fields:
 |---|---|---|
 | `ts` | string | ISO-8601 UTC timestamp (`2026-05-09T15:14:00Z`) |
 | `date` | string | ISO date (`2026-05-09`) |
-| `kind` | string | `"run"` (perf-run.sh) / `"baseline"` (perf-baseline.sh) / `"op_bench"` (perf-fast.sh) / `"elab"` (perf-elab.sh) |
+| `kind` | string | `"run"` (perf-run.sh) / `"baseline"` (perf-baseline.sh) / `"op_bench"` (perf-fast.sh) / `"compile"` (perf-compile.sh) |
 | `example` | string | `ntm-copy`, `dnc-recall`, `a2c`, etc. |
 | `backend` | string | `tape`, `mlx`, or `torch` |
 | `device` | string | `cpu`, `gpu`, `mps`, `cuda`. For `mlx` reflects `MLX_DEVICE`; for `torch` reflects `TORCH_DEVICE` (added 2026-05-28; entries before that date with `backend=torch` can be assumed `cpu`); for `tape` always `cpu`. Added 2026-05-11 — entries before that date can be assumed `cpu`. |
@@ -64,21 +64,25 @@ PyTorch ref is always on the host CPU, and the idris side is always
 on tape today). When Axes B/C/D land, they'll add a `backend` field
 for the idris-side measurement to mirror the `kind: "run"` schema.
 
-**`kind: "elab"`** entries (emitted by `scripts/perf-elab.sh`) measure
-**cold Idris elaboration (typecheck) time** for one unit — the one perf
-axis the linear-types migration can move (linearity is compile-time only,
-so it can't touch runtime; the `run`/`baseline`/`op_bench` kinds cover
-runtime). Like `op_bench`, they carry `unit` instead of `example`:
+**`kind: "compile"`** entries (emitted by `scripts/perf-compile.sh`)
+measure **cold full Idris compilation time** for one unit — the
+developer-felt cost the linear-types migration can move (linearity is
+compile-time only, so it can't touch runtime; the `run`/`baseline`/
+`op_bench` kinds cover runtime). "Full compilation" is the whole build,
+not just the typecheck phase: libraries via `idris2 --build <pkg>.ipkg`
+(all modules → ttc), examples via `idris2 -o <name> Example/<Name>.idr`
+(elaborate + Chez codegen + executable). Like `op_bench`, they carry
+`unit` instead of `example`:
 
 | field | type | notes |
 |---|---|---|
-| `unit` | string | what was typechecked: a library package (`idris-ml`, `idris-transformers`, `idris-gym`) or an example module (`example-mnist`, `example-seq-classify`, …). Replaces `example`. |
-| `cold` | bool | `true` when the timer used a throwaway `--build-dir` so no cached ttc was reused (the default; perf-elab.sh is always cold). |
-| `exit` | int | `idris2` exit code (0 = typecheck clean). |
-| `elab_ms` | int | wall-clock of the `idris2 --typecheck`/`--check` phase only — no codegen, no C dylib build. |
-| `elab_human` | string | human-readable elaboration time (`1m 7s`, `4.242s`). |
+| `unit` | string | what was compiled: a library package (`idris-ml`, `idris-transformers`, `idris-gym`) or an example module (`example-mnist`, `example-seq-classify`, …). Replaces `example`. |
+| `cold` | bool | `true` when the timer used a throwaway `--build-dir` so no cached ttc was reused (the default; perf-compile.sh is always cold). |
+| `exit` | int | `idris2` exit code (0 = compiled clean). |
+| `compile_ms` | int | wall-clock of the full `idris2 --build`/`-o` build — elaboration + codegen + link. Does NOT relink the C dylib (reused). |
+| `compile_human` | string | human-readable compile time (`1m 7s`, `4.242s`). |
 
-These entries carry `backend`/`device` (the elaboration is backend-set
+These entries carry `backend`/`device` (compilation is backend-set
 specific — `Linked`/`Compatible` instances and `BuildConfig` differ per
 build) but not `mlx_compile`/`torch_dtype`/`args` (no runtime).
 

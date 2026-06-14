@@ -170,7 +170,7 @@ jobs:
         run: make test-integration-jupyter-cellparser
       - name: Run repo Python tooling unit tests (scripts/tests)
         # pytest over scripts/tests/ — FFI manifest integrity, coverage-gap
-        # probe, and perf-log writers (incl. kind=elab). Reuses the pytorch
+        # probe, and perf-log writers (incl. kind=compile). Reuses the pytorch
         # uv dev venv (pytest dev dep) synced for lint-py/typecheck-py above.
         # Wired in by the gate-coverage lint (these were previously orphaned).
         run: make test-integration-py-scripts
