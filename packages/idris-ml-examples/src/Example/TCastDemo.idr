@@ -15,9 +15,9 @@ import Data.Vect
 import System
 
 import Array
+import BuildConfig
 import Executor
 import Tensor
-import BuildConfig
 
 -- A fixed test vector. Same shape across builds.
 testValues : Vector 4 Double

@@ -15,9 +15,9 @@
 ||| Build + run via `make example-bring-your-own`.
 module Example.BringYourOwn
 
+import BuildConfig
 import Executor
 import Executor.Core
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Step 1: declare your device tag type.

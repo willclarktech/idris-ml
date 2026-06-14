@@ -3,12 +3,12 @@ module Example.Supervised
 import Data.List
 import Data.Vect
 import System
-import Compat.Random
 
+import BuildConfig
+import Compat.Random
+import GradScaler
 import ML.Simple
-import Train          -- simpleConfig / TrainConfig (no ~~> collision: Train pulls no Layer)
-import GradScaler     -- mixed-precision loss scaling
-import BuildConfig    -- ChosenMachine / requireMachine
+import Train
 
 -- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11): a 3-class
 -- (mutually-exclusive) problem, so the loss is multiclass NLL (tnllLossMean),

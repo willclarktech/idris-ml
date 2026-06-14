@@ -40,9 +40,9 @@ module Example.PrecisionDemo
 import Data.List
 import Data.Vect
 
+import BuildConfig
 import Executor
 import Tensor
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Helpers

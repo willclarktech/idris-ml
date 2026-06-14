@@ -34,8 +34,8 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Executor
 import Example.Common.HfInferenceHelper
+import Executor
 import HfBert
 import Tensor
 import Tokenizer

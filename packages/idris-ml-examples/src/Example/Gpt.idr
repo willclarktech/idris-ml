@@ -16,23 +16,23 @@ import Data.Vect
 import Decidable.Equality
 import System
 import System.File
-import Compat.Random
 
+import Array
 import Backprop
+import BuildConfig
 import Checkpoint
+import Compat.Random
 import DataPoint
+import Executor
 import Floating
 import Generate
 import Layer.Core
 import Layer.Transformer
 import Sampler
 import Schedule
-import Array
+import Tensor
 import Train
 import Util
-import Executor
-import Tensor
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Configuration

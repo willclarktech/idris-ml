@@ -46,12 +46,12 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Executor
 import Example.Common.HfInferenceHelper
+import Executor
 import HfGpt2
 import Tensor
-import Util
 import Tokenizer
+import Util
 
 ----------------------------------------------------------------------
 -- Config (distilgpt2 dims, pinned at the type level)

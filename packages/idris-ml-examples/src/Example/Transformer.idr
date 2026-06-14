@@ -13,23 +13,23 @@ import Data.List
 import Data.Vect
 import Decidable.Equality
 import System
-import Compat.Random
 
+import Array
 import Backprop
+import BuildConfig
+import Checkpoint
+import Compat.Random
 import DataPoint
+import Executor
 import Floating
 import Generate
 import Hpo.LrFinder
 import Layer.Core
 import Layer.Transformer
 import Math
-import Array
-import Checkpoint
+import Tensor
 import Train
 import Util
-import Executor
-import Tensor
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Configuration

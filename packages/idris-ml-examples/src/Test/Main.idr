@@ -1,7 +1,7 @@
 module Test.Main
 
-import Test.Harness
 import Test.Generate
+import Test.Harness
 import Test.Reinforce
 
 main : IO ()

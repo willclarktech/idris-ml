@@ -11,11 +11,11 @@ import Data.List
 import Data.Maybe
 import Data.Vect
 import System
-import Compat.Random
 
+import BuildConfig
+import Compat.Random
 import ML.Simple
-import Train          -- windowedPercentileConfig
-import BuildConfig    -- ChosenMachine / requireMachine
+import Train
 
 ----------------------------------------------------------------------
 -- Configuration (dims)

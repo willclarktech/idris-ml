@@ -3,12 +3,12 @@ module Example.Rnn
 import Data.List
 import Data.Vect
 import System
-import Compat.Random
 
+import BuildConfig
+import Checkpoint
+import Compat.Random
 import ML.Simple
-import Train          -- patienceConfig / withCheckpoint (no ~~> collision)
-import Checkpoint     -- fileCheckpoint
-import BuildConfig    -- ChosenMachine / requireMachine
+import Train
 
 -- RNN pattern-prediction example. Single RNN(1 -> 4, tanh) -> Linear(4 -> 1)
 -- network with BCE-with-logits loss, on the v1 Nn/fit surface. See

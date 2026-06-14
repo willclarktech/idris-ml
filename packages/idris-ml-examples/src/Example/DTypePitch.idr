@@ -37,9 +37,9 @@ module Example.DTypePitch
 
 import Data.Vect
 
+import BuildConfig
 import Executor
 import Tensor
-import BuildConfig
 
 -- Axis 1: Compatible (dtype admissibility). Build-independent — these
 -- need only the Compatible instance, which exists for every backend.

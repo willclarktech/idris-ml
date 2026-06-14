@@ -3,10 +3,10 @@ module Test.Generate
 import Data.List
 import Data.Vect
 
+import Array
 import DataPoint
 import Generate
 import Test.Harness
-import Array
 
 ||| Get the value at position j in a vector.
 getElem : {n : Nat} -> Nat -> Vector n Double -> Double

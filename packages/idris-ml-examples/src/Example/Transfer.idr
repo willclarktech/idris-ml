@@ -31,10 +31,10 @@ module Example.Transfer
 import Data.List
 import Data.Vect
 
+import BuildConfig
 import Executor
 import Tensor
 import Util
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Helpers

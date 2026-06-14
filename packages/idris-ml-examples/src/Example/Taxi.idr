@@ -1,19 +1,19 @@
 module Example.Taxi
 
-import Data.List
-import Data.Vect
 import Data.Fin
+import Data.List
 import Data.Maybe
+import Data.Vect
 import System
-import Compat.Random
 
+import Array
+import BuildConfig
+import Compat.Random
+import Executor
 import Gym.Env
 import Gym.ToyText.Taxi
 import Math
-import Array
 import Train
-import Executor
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Env dimensions (Taxi-v3, deterministic 5x5 grid)

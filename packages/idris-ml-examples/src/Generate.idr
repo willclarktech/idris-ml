@@ -5,14 +5,14 @@ import Data.List
 import Data.Nat
 import Data.Stream
 import Data.Vect
-import Compat.Random
 
-import DataPoint
-import Math
 import Array
-import Executor
-import Tensor
 import BuildConfig
+import Compat.Random
+import DataPoint
+import Executor
+import Math
+import Tensor
 
 ----------------------------------------------------------------------
 -- Port: SequenceTask

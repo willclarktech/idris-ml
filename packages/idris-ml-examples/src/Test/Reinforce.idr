@@ -4,10 +4,8 @@ import Data.List
 import Data.Vect
 import System
 
-import Compat.Random
-import Test.Harness
-
 import BuildConfig
+import Compat.Random
 import Example.Reinforce
 import Executor
 import Gym.ClassicControl.CartPole
@@ -16,6 +14,7 @@ import Layer.Activation
 import Layer.Core
 import Layer.Linear
 import Tensor
+import Test.Harness
 
 -- Short step budget so test runs are tape-friendly. 200 steps × N=2
 -- × 2 paths blew up under whatever backend the test linked against.

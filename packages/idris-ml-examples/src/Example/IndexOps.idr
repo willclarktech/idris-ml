@@ -19,10 +19,10 @@ import Data.Vect
 import System
 
 import Array
+import BuildConfig
+import DType.Core
 import Executor
 import Tensor
-import DType.Core
-import BuildConfig
 
 -- src to sort/index. Distinct values so the permutation is unambiguous.
 srcVals : Vector 4 Double

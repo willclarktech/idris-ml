@@ -1,11 +1,14 @@
 module Example.Ppo
 
+import Data.IORef
 import Data.List
 import Data.Vect
-import Data.IORef
 import System
-import Compat.Random
 
+import Array
+import BuildConfig
+import Compat.Random
+import Executor
 import Floating
 import Gym.ClassicControl.Acrobot
 import Gym.Env
@@ -17,12 +20,9 @@ import Layer.Linear
 import Math
 import RL.Gae
 import Sampler
-import Array
+import Tensor
 import Train
 import Util
-import Executor
-import Tensor
-import BuildConfig
 
 ----------------------------------------------------------------------
 -- Architecture: separate actor and critic MLPs with discrete-action

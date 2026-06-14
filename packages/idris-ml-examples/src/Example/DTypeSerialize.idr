@@ -19,11 +19,11 @@ import Data.Vect
 import System
 
 import Array
+import BuildConfig
+import Checkpoint
+import DType.Core
 import Executor
 import Tensor
-import DType.Core
-import Checkpoint
-import BuildConfig
 
 -- Values chosen to be exactly representable in bf16/f16 (binary fractions
 -- and powers of two) and in i32, so the cross-language check is exact.
