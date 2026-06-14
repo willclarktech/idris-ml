@@ -21,6 +21,8 @@
 ||| a clear message rather than training on empty data.
 module Example.BertClassifySst2Finetune
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -184,32 +186,34 @@ oneHotTensor lbl = ioRerun (\_ =>
                          (VArray (map SArray oneHot))
   in tinput1d {n=NumClasses} raw)
 
--- Run the full forward (with mask) on one padded example.
--- Returns the [NumClasses] logits tensor.
-forwardOne : Model -> PaddedExample
-          -> IO (Tensor [NumClasses] ExampleExecutor ExampleDType WithGrad)
-forwardOne model (ids, mask, _) = do
-  let idsDouble = map (\n => cast {to=Double} (cast {to=Integer} n)) ids
-  idsT <- mkIdsTensor idsDouble
-  posT <- mkIdsTensor posVect
-  typT <- mkIdsTensor typeVect
-  mskT <- mkMaskTensor mask
-  hfBertSeqClassifyForward {ex=ExampleExecutor} {dt=ExampleDType}
-                           {seqLen=SeqLen}
-                           {vocab=Vocab} {hidden=Hidden}
-                           {numLayers=NumLayers} {numHeads=NumHeads}
-                           {headDim=HeadDim} {intermediate=Intermediate}
-                           {maxPos=MaxPos} {typeVocab=TypeVocab}
-                           {numClasses=NumClasses}
-                           model idsT posT typT (Just mskT)
+-- Run the full forward (with mask) on one padded example, threading the
+-- (linear) model through hfBertSeqClassifyForwardL.
+forwardOneL : (1 _ : Model) -> PaddedExample
+           -> L IO {use = 1} (LPair (!* (Tensor [NumClasses] ExampleExecutor ExampleDType WithGrad)) Model)
+forwardOneL model (ids, mask, _) = do
+  (idsT, posT, typT, mskT) <-
+    liftIO1 (do let idsDouble = map (\n => cast {to=Double} (cast {to=Integer} n)) ids
+                idsT <- mkIdsTensor idsDouble
+                posT <- mkIdsTensor posVect
+                typT <- mkIdsTensor typeVect
+                mskT <- mkMaskTensor mask
+                pure (idsT, posT, typT, mskT))
+  hfBertSeqClassifyForwardL {ex=ExampleExecutor} {dt=ExampleDType}
+                            {seqLen=SeqLen}
+                            {vocab=Vocab} {hidden=Hidden}
+                            {numLayers=NumLayers} {numHeads=NumHeads}
+                            {headDim=HeadDim} {intermediate=Intermediate}
+                            {maxPos=MaxPos} {typeVocab=TypeVocab}
+                            {numClasses=NumClasses}
+                            model idsT posT typT (Just mskT)
 
--- Per-example forward → cross-entropy scalar loss.
-exampleLoss : Model -> PaddedExample
-           -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-exampleLoss model ex@(_, _, label) = do
-  logits <- forwardOne model ex
-  target <- oneHotTensor label
-  tnllLoss logits target
+-- Per-example forward → cross-entropy scalar loss, threading the model.
+exampleLossL : (1 _ : Model) -> PaddedExample
+            -> L IO {use = 1} (LPair (!* (Tensor [] ExampleExecutor ExampleDType WithGrad)) Model)
+exampleLossL model ex@(_, _, label) = do
+  (MkBang logits # model') <- forwardOneL model ex
+  loss <- liftIO1 (do target <- oneHotTensor label; tnllLoss logits target)
+  pure1 (MkBang loss # model')
 
 -- Sum scalar Tensor losses.
 sumScalars : Tensor [] ExampleExecutor ExampleDType WithGrad
@@ -220,57 +224,57 @@ sumScalars acc (x :: xs) = do
   acc' <- tadd acc x
   sumScalars acc' xs
 
--- Run one epoch over `items`, iterating in `batchSize` chunks. Each
--- chunk: forward each example, mean-reduce losses, one fused native
--- step. Returns the mean per-batch loss for logging.
-epochSst2 : NativeOptimizer ExampleExecutor
-         -> (batchSize : Nat) -> Model -> List PaddedExample
-         -> IO (Model, Double)
-epochSst2 opt batchSize model items = do
-  finalLoss <- go model 0.0 0 items
-  pure (model, finalLoss)
-  where
-    go : Model -> Double -> Nat -> List PaddedExample -> IO Double
-    go _ accLoss nBatches [] =
-      if nBatches == 0 then pure 0.0
-      else pure (accLoss / cast {to=Double} (cast {to=Integer} nBatches))
-    go m accLoss nBatches xs = do
-      let (batch, rest) = splitAt batchSize xs
-      case batch of
-        [] => go m accLoss nBatches rest
-        _  => do
-          losses <- traverse (exampleLoss m) batch
-          zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType}
-                                 "sst2.epoch_zero" 0.0
-          summed <- sumScalars zero losses
-          let denom = cast {to=Double} (cast {to=Integer} (length batch))
-          meanLoss <- tmulScalar summed (1.0 / denom)
-          v <- nativeTrainStep opt meanLoss
-          go m (accLoss + v) (S nBatches) rest
+-- Discard the (linear) model: its fields are ω registered-param records.
+discardModel : (1 _ : Model) -> L IO ()
+discardModel (MkBertForSeqClassify _ _) = pure ()
 
--- Greedy-argmax classification on a single padded example.
-predictClass : Model -> PaddedExample -> IO Nat
-predictClass model ex = do
-  logits <- forwardOne model ex
+-- Run one epoch over `items` in `batchSize` chunks, threading the model
+-- through each example's forward + one fused native step per chunk.
+epochSst2L : NativeOptimizer ExampleExecutor
+          -> (batchSize : Nat) -> (1 _ : Model) -> List PaddedExample
+          -> L IO {use = 1} (LPair (!* Double) Model)
+epochSst2L opt batchSize model items = go model 0.0 0 items
+  where
+    foldBatch : (1 _ : Model) -> List PaddedExample ->
+                List (Tensor [] ExampleExecutor ExampleDType WithGrad) ->
+                L IO {use = 1} (LPair (!* (List (Tensor [] ExampleExecutor ExampleDType WithGrad))) Model)
+    foldBatch model []          acc = pure1 (MkBang (reverse acc) # model)
+    foldBatch model (e :: rest) acc = do
+      (MkBang l # model') <- exampleLossL model e
+      foldBatch model' rest (l :: acc)
+    go : (1 _ : Model) -> Double -> Nat -> List PaddedExample -> L IO {use = 1} (LPair (!* Double) Model)
+    go model accLoss nBatches [] =
+      pure1 (MkBang (if nBatches == 0 then 0.0 else accLoss / cast {to=Double} (cast {to=Integer} nBatches)) # model)
+    go model accLoss nBatches all@(_ :: _) = do
+      let (batch, rest) = splitAt batchSize all
+      (MkBang losses # model') <- foldBatch model batch []
+      v <- liftIO1 (do zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "sst2.epoch_zero" 0.0
+                       summed <- sumScalars zero losses
+                       let denom = cast {to=Double} (cast {to=Integer} (length batch))
+                       meanLoss <- tmulScalar summed (1.0 / denom)
+                       nativeTrainStep opt meanLoss)
+      go model' (accLoss + v) (S nBatches) rest
+
+-- Greedy-argmax classification on a single padded example, threading the model.
+predictClassL : (1 _ : Model) -> PaddedExample -> L IO {use = 1} (LPair (!* Nat) Model)
+predictClassL model ex = do
+  (MkBang logits # model') <- forwardOneL model ex
   let v0 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 0
       v1 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 1
-  pure $ if v0 >= v1 then 0 else 1
+  pure1 (MkBang (if v0 >= v1 then the Nat 0 else 1) # model')
 
-heldOutAccuracy : Model -> List PaddedExample -> IO Double
-heldOutAccuracy model items =
-  withNoGrad {ex=ExampleExecutor} $ do
-    let go : List PaddedExample -> Nat -> Nat -> IO (Nat, Nat)
-        go [] n hits                         = pure (n, hits)
-        go (ex@(_, _, label) :: rest) n hits = do
-          p <- predictClass model ex
-          go rest (S n) (if p == label then S hits else hits)
-    (n, hits) <- go items 0 0
-    let acc : Double
-        acc = if n == 0
-              then 0.0
-              else cast {to=Double} (cast {to=Integer} hits)
-                   / cast {to=Double} (cast {to=Integer} n)
-    pure acc
+heldOutAccuracyL : (1 _ : Model) -> List PaddedExample -> L IO {use = 1} (LPair (!* Double) Model)
+heldOutAccuracyL model items = withNoGradL {ex=ExampleExecutor} $ do
+  (MkBang nh # model') <- go model items 0 0
+  let (n, hits) = nh
+  pure1 (MkBang (if n == 0 then 0.0
+                 else cast {to=Double} (cast {to=Integer} hits) / cast {to=Double} (cast {to=Integer} n)) # model')
+  where
+    go : (1 _ : Model) -> List PaddedExample -> Nat -> Nat -> L IO {use = 1} (LPair (!* (Nat, Nat)) Model)
+    go model [] n hits                         = pure1 (MkBang (n, hits) # model)
+    go model (ex@(_, _, label) :: rest) n hits = do
+      (MkBang p # model') <- predictClassL model ex
+      go model' rest (S n) (if p == label then S hits else hits)
 
 -- Apply a Nat cap to a List (0 = no cap).
 capAt : Nat -> List a -> List a
@@ -316,45 +320,45 @@ main = do
       let padTrain = map (padToSeqLen SeqLen PadId) trainItems
       let padDev   = map (padToSeqLen SeqLen PadId) devItems
 
-      model <- hfBertForSequenceClassification
-                 {ex=ExampleExecutor} {dt=ExampleDType}
-                 {vocab=Vocab} {hidden=Hidden} {numLayers=NumLayers}
-                 {numHeads=NumHeads} {intermediate=Intermediate}
-                 {maxPos=MaxPos} {typeVocab=TypeVocab}
-                 {numClasses=NumClasses}
-                 "bert" "classifier"
-
-      -- On-disk weights are F32; the tape default dtype is F64. Use
-      -- the AllowCast variant so the load silently upcasts (mirrors
-      -- HfBertInference's `loadModelAllowCast` call).
-      True <- loadModelPrefixAllowCast {ex=ExampleExecutor} ckptPath "bert."
-        | False => do
-            putStrLn $ "ERROR: failed to load backbone from " ++ ckptPath
-                    ++ " — run `make data-hf-bert-tiny`."
-            exitFailure
-      putStrLn "Backbone warm-started; head at fresh init."
-
-      let opt = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
-      when cfg.freezeBackbone $ do
-        putStrLn "Freezing `bert.*` — head-only training."
-        freezeByPrefix {ex=ExampleExecutor} opt "bert."
-
-      -- Manual training loop (HF model isn't Network-shaped).
-      let trainLoop : Model -> Nat -> Double -> IO (Model, Double)
-          trainLoop m Z lastLoss = pure (m, lastLoss)
-          trainLoop m (S k) _    = do
-            (m', loss) <- epochSst2 opt cfg.batchSize m padTrain
-            acc <- heldOutAccuracy m' padDev
-            putStrLn $ "Epoch " ++ show (minus cfg.epochs k)
-                    ++ ": loss=" ++ showFix 4 loss
-                    ++ "  dev-acc=" ++ showFix 3 acc
-            trainLoop m' k loss
-      (trained, finalLoss) <- trainLoop model cfg.epochs 0.0
-      finalAcc <- heldOutAccuracy trained padDev
-
-      putStrLn ""
-      putStrLn $ formatResult [ ("loss",     showFix 4 finalLoss)
-                              , ("accuracy", showFix 3 finalAcc)
-                              , ("epochs",   show cfg.epochs)
-                              , ("seed",     show cfg.seed)
-                              ]
+      -- Linear surface: model born linear (bornL), backbone warm-started by
+      -- name, threaded single-owner through the manual epoch loop + held-out
+      -- eval, discarded.
+      Control.Linear.LIO.run $ do
+        model <- bornL (hfBertForSequenceClassification
+                          {ex=ExampleExecutor} {dt=ExampleDType}
+                          {vocab=Vocab} {hidden=Hidden} {numLayers=NumLayers}
+                          {numHeads=NumHeads} {intermediate=Intermediate}
+                          {maxPos=MaxPos} {typeVocab=TypeVocab}
+                          {numClasses=NumClasses}
+                          "bert" "classifier")
+        -- On-disk weights are F32; the tape default dtype is F64. The AllowCast
+        -- variant upcasts silently (mirrors HfBertInference).
+        opt <- liftIO1 (do ok <- loadModelPrefixAllowCast {ex=ExampleExecutor} ckptPath "bert."
+                           if ok then putStrLn "Backbone warm-started; head at fresh init."
+                                 else do putStrLn $ "ERROR: failed to load backbone from " ++ ckptPath
+                                                 ++ " — run `make data-hf-bert-tiny`."
+                                         exitFailure
+                           let o = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
+                           when cfg.freezeBackbone $ do
+                             putStrLn "Freezing `bert.*` — head-only training."
+                             freezeByPrefix {ex=ExampleExecutor} o "bert."
+                           pure o)
+        let trainLoopL : (1 _ : Model) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Model)
+            trainLoopL model Z     lastLoss = pure1 (MkBang lastLoss # model)
+            trainLoopL model (S k) _        = do
+              (MkBang loss # model1) <- epochSst2L opt cfg.batchSize model padTrain
+              (MkBang acc # model2)  <- heldOutAccuracyL model1 padDev
+              liftIO1 (putStrLn $ "Epoch " ++ show (minus cfg.epochs k)
+                                ++ ": loss=" ++ showFix 4 loss
+                                ++ "  dev-acc=" ++ showFix 3 acc)
+              trainLoopL model2 k loss
+        (MkBang finalLoss # trained) <- trainLoopL model cfg.epochs 0.0
+        (MkBang finalAcc # trained') <- heldOutAccuracyL trained padDev
+        discardModel trained'
+        liftIO1 $ do
+          putStrLn ""
+          putStrLn $ formatResult [ ("loss",     showFix 4 finalLoss)
+                                  , ("accuracy", showFix 3 finalAcc)
+                                  , ("epochs",   show cfg.epochs)
+                                  , ("seed",     show cfg.seed)
+                                  ]
