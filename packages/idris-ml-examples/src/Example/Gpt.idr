@@ -12,6 +12,8 @@
 
 module Example.Gpt
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.String
 import Data.Vect
@@ -24,7 +26,7 @@ import Checkpoint
 import Compat.Random
 import DataStream
 import Executor
-import Fit
+import FitL
 import Floating
 import Generate
 import Nn
@@ -141,20 +143,20 @@ buildBody (S j) = do
   rest <- buildBody j
   pure (blk :: rest)
 
+-- Single `Init Model` (PE folded in via `liftIO`) so the model can be born
+-- linear with `runInitL`.
 partial
-mkModel : IO Model
-mkModel = do
-  (emb, bdy, hw) <- runInit $ do
-    e <- scoped "embed" (embedding {ex=ExampleExecutor} {dt=ExampleDType}
-                                   {vocab=VocabSize} {embedDim=DModel})
-    b <- buildBody NumBlocks
-    hn <- freshChild "head"
-    hw <- liftIO $ tparam2dNormal {ex=ExampleExecutor} {dt=ExampleDType}
-                                  {o=VocabSize} {i=DModel}
-                                  (hn ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} DModel))
-    pure (e, b, hw)
-  pe <- sinusoidalPE {ex=ExampleExecutor} {dt=ExampleDType} {seqLen=SeqLen} {dModel=DModel}
-  pure (MkGptModel emb bdy hw pe)
+mkModelInit : Init Model
+mkModelInit = do
+  e <- scoped "embed" (embedding {ex=ExampleExecutor} {dt=ExampleDType}
+                                 {vocab=VocabSize} {embedDim=DModel})
+  b <- buildBody NumBlocks
+  hn <- freshChild "head"
+  hw <- liftIO $ tparam2dNormal {ex=ExampleExecutor} {dt=ExampleDType}
+                                {o=VocabSize} {i=DModel}
+                                (hn ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} DModel))
+  pe <- liftIO $ sinusoidalPE {ex=ExampleExecutor} {dt=ExampleDType} {seqLen=SeqLen} {dModel=DModel}
+  pure (MkGptModel e b hw pe)
 
 -- Forward one sequence of token ids `[SeqLen]` → per-position logits
 -- `[SeqLen, VocabSize]`.
@@ -244,6 +246,16 @@ batchLoss model batch = do
   zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "gpt.epoch_zero" 0.0
   summed <- foldlM (\acc, l => tadd acc l) zero losses
   tmulScalar summed (1.0 / cast {to=Double} BatchSize)
+
+-- Linear-resource loss (consume-match-rebuild-delegate): match `MkGptModel …`
+-- to bind the fields at ω, delegate to the IO `batchLoss`, rebuild the record
+-- beside the banged loss.
+partial
+batchLossL : (1 _ : Model) -> Vect BatchSize GptSample ->
+             L IO {use = 1} (LPair (!* (Tensor [] ExampleExecutor ExampleDType WithGrad)) Model)
+batchLossL (MkGptModel emb body headW pe) batch = do
+  loss <- liftIO1 (batchLoss (MkGptModel emb body headW pe) batch)
+  pure1 (MkBang loss # MkGptModel emb body headW pe)
 
 ----------------------------------------------------------------------
 -- Autoregressive Generation (single-sample forward)
@@ -389,6 +401,38 @@ specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
         , Arg "--resume" (\v, c => { checkpointDir := v } c)
         , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
 
+----------------------------------------------------------------------
+-- Final eval + generation (consumes the trained linear model)
+----------------------------------------------------------------------
+
+-- Consume the trained (linear) model: match `MkGptModel …` to bind the fields
+-- at ω (discharging the single-owner obligation), then run the IO bpc eval +
+-- generation + RESULT report on the rebuilt record.
+partial
+finalReportL : Config -> (valIdx : List Int) -> (valLen : Nat) ->
+               (trainIdx : List Int) -> (trainLen : Nat) -> Nat -> (1 _ : Model) -> L IO ()
+finalReportL cfg valIndices valLen trainIndices trainLen epochsDone (MkGptModel emb body headW pe) =
+  liftIO1 $ do
+    let trained = MkGptModel emb body headW pe
+    putStrLn ""
+    valBpc <- evalBPC trained valIndices valLen 50
+    trainBpc <- evalBPC trained trainIndices trainLen 50
+    putStrLn $ "Final val_bpc: " ++ show valBpc
+            ++ "  (train_bpc: " ++ show trainBpc ++ ")"
+    putStrLn ""
+    putStrLn "Generation (seed='to be or '):"
+    sample1 <- withNoGrad {ex=ExampleExecutor} (generateText trained "to be or " 200 1.0)
+    putStrLn $ "  " ++ show sample1
+    putStrLn ""
+    putStrLn "Generation (seed='the '):"
+    sample2 <- withNoGrad {ex=ExampleExecutor} (generateText trained "the " 200 1.0)
+    putStrLn $ "  " ++ show sample2
+    putStrLn ""
+    let metricKey = if cfg.corpus == "embedded" then "bpc" else "val_bpc"
+    putStrLn $ formatResult [(metricKey, show valBpc),
+                              ("epochs", show epochsDone),
+                              ("seed", show cfg.seed)]
+
 partial
 main : IO ()
 main = do
@@ -424,60 +468,38 @@ main = do
       minLR    : Double   = cfg.lr * 0.1
       schedule : Schedule = cosineWithWarmup cfg.lr minLR warmupEpochs cfg.epochs
 
-  model <- mkModel
   opt0 <- adamW {ex=ExampleExecutor} cfg.lr 0.1 ({ beta2 := 0.99, clip := NormClip 1.0 } defaultOpts)
   let opt = withSchedule schedule opt0
   putStrLn ""
 
-  when cfg.lrFind $ do
-    putStrLn "lr_find skipped for GPT: cosine + warmup schedule conflicts with"
-    putStrLn "lrFind's group-level setting; transformer-forward cost is also"
-    putStrLn "prohibitive at 100 iters. See docs/develop/hyperparameter-tuning-2026.md."
-    exitSuccess
-
-  let evalMetrics : Model -> IO (List (String, String))
-      evalMetrics m = do
-        valBpc <- evalBPC m valIndices valLen 20
-        pure [("val_bpc", show valBpc)]
-
-  let noOpHook : Nat -> IO ()
-      noOpHook _ = pure ()
-
-  let trainCfgBase = mkTrainConfig cfg.epochs 100
-                       (if cfg.patience == 0
-                          then NoEarlyStop
-                          else Patience cfg.patience 0.001)
-                       evalMetrics
-                       noOpHook
-      trainCfg = case cfg.checkpointDir of
-                   ""  => trainCfgBase
-                   dir => withCheckpoint
-                            (fileCheckpoint dir cfg.checkpointEvery True opt)
-                            trainCfgBase
-
-  let stream = generate (gptBatch trainIndices trainLen BatchSize)
-
-  (trained, epochsDone, finalLoss) <-
-    fitSupervised {ex=ExampleExecutor} opt batchLoss stream trainCfg model
-
-  putStrLn ""
-  valBpc <- evalBPC trained valIndices valLen 50
-  trainBpc <- evalBPC trained trainIndices trainLen 50
-  putStrLn $ "Final val_bpc: " ++ show valBpc
-          ++ "  (train_bpc: " ++ show trainBpc ++ ")"
-
-  putStrLn ""
-  putStrLn "Generation (seed='to be or '):"
-  sample1 <- withNoGrad {ex=ExampleExecutor} (generateText trained "to be or " 200 1.0)
-  putStrLn $ "  " ++ show sample1
-
-  putStrLn ""
-  putStrLn "Generation (seed='the '):"
-  sample2 <- withNoGrad {ex=ExampleExecutor} (generateText trained "the " 200 1.0)
-  putStrLn $ "  " ++ show sample2
-
-  putStrLn ""
-  let metricKey = if cfg.corpus == "embedded" then "bpc" else "val_bpc"
-  putStrLn $ formatResult [(metricKey, show valBpc),
-                            ("epochs", show epochsDone),
-                            ("seed", show cfg.seed)]
+  if cfg.lrFind
+    then do
+      putStrLn "lr_find skipped for GPT: cosine + warmup schedule conflicts with"
+      putStrLn "lrFind's group-level setting; transformer-forward cost is also"
+      putStrLn "prohibitive at 100 iters. See docs/develop/hyperparameter-tuning-2026.md."
+    else do
+      -- The per-epoch val_bpc metric needs to forward the model, which the
+      -- linear loop's model-free `metricsL` can't do; the linear path runs
+      -- with no per-epoch metric (the final report below still computes bpc).
+      let noOpHook : Nat -> IO ()
+          noOpHook _ = pure ()
+      let trainCfgBase = mkTrainConfig cfg.epochs 100
+                           (if cfg.patience == 0
+                              then NoEarlyStop
+                              else Patience cfg.patience 0.001)
+                           (const (pure (the (List (String, String)) [])))
+                           noOpHook
+          trainCfg = case cfg.checkpointDir of
+                       ""  => trainCfgBase
+                       dir => withCheckpoint
+                                (fileCheckpoint dir cfg.checkpointEvery True opt)
+                                trainCfgBase
+      -- Linear surface end to end: model born linear (runInitL), threaded
+      -- through fitSupervisedL (batchLossL consumes-and-returns it each step),
+      -- final eval + generation via finalReportL (consumes the trained handle).
+      Control.Linear.LIO.run $ do
+        model <- runInitL mkModelInit
+        (MkBang (epochsDone, _) # trained) <-
+          fitSupervisedL {ex=ExampleExecutor} opt batchLossL
+                         (generate (gptBatch trainIndices trainLen BatchSize)) trainCfg model
+        finalReportL cfg valIndices valLen trainIndices trainLen epochsDone trained
