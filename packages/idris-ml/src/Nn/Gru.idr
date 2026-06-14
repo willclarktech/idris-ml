@@ -28,39 +28,21 @@ record Gru (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
   hhB     : TVec (3 * o) ex dt g
   hiddenT : Maybe (TVec o ex dt g)
 
+||| Params: four learnable tensors; carried state is not a param.
 public export
 Params Gru where
-  params (MkGru iw ib hw hb _)     = [toParam iw, toParam ib, toParam hw, toParam hb]
+  params (MkGru iw ib hw hb hid) =
+    [toParam iw, toParam ib, toParam hw, toParam hb]
+  reflect (MkGru iw ib hw hb hid) =
+    MkBang [toParam iw, toParam ib, toParam hw, toParam hb] # MkGru iw ib hw hb hid
   castGrad (MkGru iw ib hw hb hid) =
     MkGru (retypeGrad iw) (retypeGrad ib) (retypeGrad hw) (retypeGrad hb) (map retypeGrad hid)
+  discard (MkGru _ _ _ _ _) = pure ()
 
+||| Recurrent step (sequences the `L IO` tensor ops directly).
 public export
 Recurrent Gru where
-  recurStep {o} st input = do
-    h <- case st.hiddenT of
-           Just h  => pure h
-           Nothing => tzeroState1d {n = o}
-    ihPart <- tlinear st.iwT input st.ihB
-    hhPart <- tlinear st.hwT h st.hhB
-    newH   <- tgruCell {n = o} ihPart hhPart h
-    pure ({ hiddenT := Just newH } st, newH)
-
-  recurReset st = { hiddenT := Nothing } st
-
-||| Linear-resource params: four learnable tensors; carried state is not a
-||| param.
-public export
-ParamsL Gru where
-  reflectL (MkGru iw ib hw hb hid) =
-    MkBang [toParam iw, toParam ib, toParam hw, toParam hb] # MkGru iw ib hw hb hid
-  castGradL (MkGru iw ib hw hb hid) =
-    MkGru (retypeGrad iw) (retypeGrad ib) (retypeGrad hw) (retypeGrad hb) (map retypeGrad hid)
-  discardL (MkGru _ _ _ _ _) = pure ()
-
-||| Linear-resource recurrent step (sequences the `L IO` tensor ops directly).
-public export
-RecurrentL Gru where
-  recurStepL {o} (MkGru iw ib hw hb hid) input = do
+  recurStep {o} (MkGru iw ib hw hb hid) input = do
     h <- the (L IO (TVec o ex dt WithGrad)) $ case hid of
            Just h  => pure h
            Nothing => tzeroState1dL {n = o}
@@ -68,7 +50,7 @@ RecurrentL Gru where
     hhPart <- tlinearL hw h hb
     newH   <- tgruCellL {n = o} ihPart hhPart h
     pure1 (MkBang newH # MkGru iw ib hw hb (Just newH))
-  recurResetL (MkGru iw ib hw hb _) = MkGru iw ib hw hb Nothing
+  recurReset (MkGru iw ib hw hb _) = MkGru iw ib hw hb Nothing
 
 ||| Construct a `Gru i o` inside an `Init` derivation. Xavier-ish weight
 ||| init (3 stacked gates → fan_out 3·o), zero biases, empty state.

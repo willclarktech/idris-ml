@@ -30,22 +30,17 @@ data BatchNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradM
                 (training : Bool) -> (momentum : Double) -> (eps : Double) ->
                 BatchNorm (channels * spatialDim) (channels * spatialDim) ex dt g
 
+||| Params. gamma/beta are the ω param fields (reflected + rebuilt); the
+||| running-stat buffers ride at ω and stay `NoGrad`.
 public export
 Params BatchNorm where
-  params (MkBatchNorm gamma beta _ _ _ _ _) = [toParam gamma, toParam beta]
-  -- gamma/beta carry `g`; the running-stat buffers stay `NoGrad`.
+  params (MkBatchNorm gamma beta mean var tr mom eps) =
+    [toParam gamma, toParam beta]
+  reflect (MkBatchNorm gamma beta mean var tr mom eps) =
+    MkBang [toParam gamma, toParam beta] # MkBatchNorm gamma beta mean var tr mom eps
   castGrad (MkBatchNorm gamma beta mean var tr mom eps) =
     MkBatchNorm (retypeGrad gamma) (retypeGrad beta) mean var tr mom eps
-
-||| Linear-resource params. gamma/beta are the ω param fields (reflected +
-||| rebuilt); the running-stat buffers ride at ω and stay `NoGrad`.
-public export
-ParamsL BatchNorm where
-  reflectL (MkBatchNorm gamma beta mean var tr mom eps) =
-    MkBang [toParam gamma, toParam beta] # MkBatchNorm gamma beta mean var tr mom eps
-  castGradL (MkBatchNorm gamma beta mean var tr mom eps) =
-    MkBatchNorm (retypeGrad gamma) (retypeGrad beta) mean var tr mom eps
-  discardL (MkBatchNorm _ _ _ _ _ _ _) = pure ()
+  discard (MkBatchNorm _ _ _ _ _ _ _) = pure ()
 
 ||| 1-D batch-norm forward. Training mode uses batch stats + updates the
 ||| running buffers in place; eval mode uses the running buffers. Indexed by

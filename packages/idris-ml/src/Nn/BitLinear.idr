@@ -35,19 +35,14 @@ record BitLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gra
 ||| All three tensors (frozen ternary weight, frozen scale, trainable bias)
 ||| — dtype-erased into `SomeParam`, so the mixed Ternary/float dtypes
 ||| coexist. The frozen pair is grad-gated out of the optimizer.
+||| All three handles are ω fields (reflected + rebuilt); only the bias
+||| carries `g`. The frozen pair is grad-gated out of the optimizer.
 public export
 Params BitLinear where
-  params (MkBitLinear w s b) = [toParam w, toParam s, toParam b]
-  -- Only the bias carries `g`; the ternary weight + scale are frozen `NoGrad`.
+  params (MkBitLinear w s b)    = [toParam w, toParam s, toParam b]
+  reflect (MkBitLinear w s b)  = MkBang [toParam w, toParam s, toParam b] # MkBitLinear w s b
   castGrad (MkBitLinear w s b) = MkBitLinear w s (retypeGrad b)
-
-||| Linear-resource params. All three handles are ω fields (reflected +
-||| rebuilt); only the bias carries `g`.
-public export
-ParamsL BitLinear where
-  reflectL (MkBitLinear w s b)  = MkBang [toParam w, toParam s, toParam b] # MkBitLinear w s b
-  castGradL (MkBitLinear w s b) = MkBitLinear w s (retypeGrad b)
-  discardL (MkBitLinear _ _ _)  = pure ()
+  discard (MkBitLinear _ _ _)  = pure ()
 
 ||| Build a `BitLinear` from ready tensors (the ternary weight typically
 ||| from a checkpoint's packed bytes).

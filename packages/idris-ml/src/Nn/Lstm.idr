@@ -33,45 +33,26 @@ record Lstm (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode
   hiddenT : Maybe (TVec o ex dt g)
   cellT   : Maybe (TVec o ex dt g)
 
+||| Params: six learnable tensors; carried state is not a param. Fields bind
+||| at ω, free to reflect *and* rebuild.
 public export
 Params Lstm where
-  params (MkLstm iw rw ib hb h0 c0 _ _) =
+  params (MkLstm iw rw ib hb h0 c0 hid cell) =
     [toParam iw, toParam rw, toParam ib, toParam hb, toParam h0, toParam c0]
+  reflect (MkLstm iw rw ib hb h0 c0 hid cell) =
+    MkBang [toParam iw, toParam rw, toParam ib, toParam hb, toParam h0, toParam c0]
+      # MkLstm iw rw ib hb h0 c0 hid cell
   castGrad (MkLstm iw rw ib hb h0 c0 hid cell) =
     MkLstm (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb)
            (retypeGrad h0) (retypeGrad c0) (map retypeGrad hid) (map retypeGrad cell)
+  discard (MkLstm _ _ _ _ _ _ _ _) = pure ()
 
-public export
-Recurrent Lstm where
-  recurStep {o} st input = do
-    let h = case st.hiddenT of Just h => h; Nothing => st.h0T
-    let c = case st.cellT   of Just c => c; Nothing => st.c0T
-    inner    <- tlinear st.iwT input st.ihB
-    combined <- tlinear st.rwT h inner
-    gates    <- tadd combined st.hhB
-    (newH, newC) <- tlstmGatesPair {n = o} gates c
-    pure ({ hiddenT := Just newH, cellT := Just newC } st, newH)
-
-  recurReset st = { hiddenT := Nothing, cellT := Nothing } st
-
-||| Linear-resource params: six learnable tensors; carried state is not a
-||| param. Fields bind at ω, free to reflect *and* rebuild.
-public export
-ParamsL Lstm where
-  reflectL (MkLstm iw rw ib hb h0 c0 hid cell) =
-    MkBang [toParam iw, toParam rw, toParam ib, toParam hb, toParam h0, toParam c0]
-      # MkLstm iw rw ib hb h0 c0 hid cell
-  castGradL (MkLstm iw rw ib hb h0 c0 hid cell) =
-    MkLstm (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb)
-           (retypeGrad h0) (retypeGrad c0) (map retypeGrad hid) (map retypeGrad cell)
-  discardL (MkLstm _ _ _ _ _ _ _ _) = pure ()
-
-||| Linear-resource recurrent step. Sequences the `L IO` gate ops directly;
+||| Recurrent step. Sequences the `L IO` gate ops directly;
 ||| `tlstmGatesPairL` yields `(newH, newC)` (both unrestricted) — `newH` is the
 ||| output, both update the carried state in the rebuilt cell.
 public export
-RecurrentL Lstm where
-  recurStepL {o} (MkLstm iw rw ib hb h0 c0 hid cell) input = do
+Recurrent Lstm where
+  recurStep {o} (MkLstm iw rw ib hb h0 c0 hid cell) input = do
     let h = case hid  of Just h => h; Nothing => h0
     let c = case cell of Just c => c; Nothing => c0
     inner        <- tlinearL iw input ib
@@ -79,7 +60,20 @@ RecurrentL Lstm where
     gates        <- taddL combined hb
     (newH, newC) <- tlstmGatesPairL {n = o} gates c
     pure1 (MkBang newH # MkLstm iw rw ib hb h0 c0 (Just newH) (Just newC))
-  recurResetL (MkLstm iw rw ib hb h0 c0 _ _) = MkLstm iw rw ib hb h0 c0 Nothing Nothing
+  recurReset (MkLstm iw rw ib hb h0 c0 _ _) = MkLstm iw rw ib hb h0 c0 Nothing Nothing
+
+||| Step the LSTM in plain `IO` (ω in / ω out), bridging the linear `recurStep`
+||| via `run` + a constructor match (matching the returned cell binds its fields
+||| at ω, so it can be rebuilt as an unrestricted value). For composite layers
+||| (NTM/DNC) that thread their controller internally at ω while keeping the
+||| outer cell the single-owner linear resource.
+export
+lstmStepIO : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
+             Lstm i o ex dt WithGrad -> TVec i ex dt WithGrad ->
+             IO (Lstm i o ex dt WithGrad, TVec o ex dt WithGrad)
+lstmStepIO st input = run (do
+  (MkBang hv # MkLstm iw rw ib hb h0 c0 hid cell) <- recurStep st input
+  pure (MkLstm iw rw ib hb h0 c0 hid cell, hv))
 
 ||| Construct an `Lstm i o` inside an `Init` derivation. Xavier-ish weight
 ||| init (4 stacked gates → fan_out 4·o), zero biases + learned h0/c0,

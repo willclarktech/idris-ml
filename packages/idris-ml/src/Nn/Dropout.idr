@@ -24,31 +24,20 @@ public export
 data Dropout : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkDropout : (p : Double) -> (training : Bool) -> Dropout n n ex dt g
 
-public export
-Module Dropout where
-  forward (MkDropout p training) x =
-    if training
-      then ioRerun (\_ => MkTensor (primDropout {ex} x.tensorPtr p 1 (dropoutSeed 0)) Nothing)
-      else pure x
-
+||| Params (stateless — empty param list). `p`/`training` ride at ω quantity
+||| through the rebuild.
 public export
 Params Dropout where
-  params _                        = []
-  castGrad (MkDropout p training) = MkDropout p training
+  params (MkDropout p t)   = []
+  reflect (MkDropout p t)  = MkBang [] # MkDropout p t
+  castGrad (MkDropout p t) = MkDropout p t
+  discard (MkDropout _ _)  = pure ()
 
-||| Linear-resource params (stateless — empty param list). `p`/`training`
-||| ride at ω quantity through the rebuild.
+||| `Module` — sequences the `L IO` dropout op directly (identity in eval
+||| mode).
 public export
-ParamsL Dropout where
-  reflectL (MkDropout p t)  = MkBang [] # MkDropout p t
-  castGradL (MkDropout p t) = MkDropout p t
-  discardL (MkDropout _ _)  = pure ()
-
-||| Linear-resource `Module` — sequences the `L IO` dropout op directly
-||| (identity in eval mode).
-public export
-ModuleL Dropout where
-  forwardL (MkDropout p t) x = do
+Module Dropout where
+  forward (MkDropout p t) x = do
     y <- the (L IO (Tensor [b, i] ex dt g)) $
            if t
              then ioRerunL (\_ => MkTensor (primDropout {ex} x.tensorPtr p 1 (dropoutSeed 0)) Nothing)

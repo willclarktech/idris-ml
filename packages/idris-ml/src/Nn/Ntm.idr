@@ -108,18 +108,14 @@ record Ntm (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (
   writeAddrT   : Maybe (TVec n ex dt g)
   readOutT     : Maybe (TVec m ex dt g)
 
-public export
-{n, m, h : Nat} -> Params (Ntm n m h) where
-  params (MkNtm ctrl rfc wfc ofc memInit iro _ _ _ _) =
-    params ctrl ++ params rfc ++ params wfc ++ params ofc ++ [toParam memInit, toParam iro]
-  castGrad (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
-    MkNtm (castGrad ctrl) (castGrad rfc) (castGrad wfc) (castGrad ofc)
-          (retypeGrad memInit) (retypeGrad iro)
-          (map retypeGrad memS) (map retypeGrad raS) (map retypeGrad waS) (map retypeGrad roS)
-
-public export
-{n, m, h : Nat} -> Recurrent (Ntm n m h) where
-  recurStep {i} {o} st input = do
+-- IO step body for the NTM cell, shared by the (linear) `recurStep`. Threads
+-- the LSTM controller through ω fields; the addressing math is unchanged from
+-- the legacy Layer.Ntm. Kept as a top-level helper (not an interface method)
+-- so the linear `Recurrent` instance can delegate to it at the IO boundary.
+ntmStepIO : {0 ex : Executor} -> Backend ex dt => {n, m, h : Nat} -> {i, o : Nat} ->
+            Ntm n m h i o ex dt WithGrad -> Tensor [i] ex dt WithGrad ->
+            IO (Ntm n m h i o ex dt WithGrad, Tensor [o] ex dt WithGrad)
+ntmStepIO {i} {o} st input = do
     let nI = cast {to=Int} n
         mI         = cast {to=Int} m
         initMemPtr = primReshape2d {ex} (primSigmoid {ex} st.memInitT.tensorPtr) nI mI
@@ -129,7 +125,10 @@ public export
         roTPtr     = maybe st.initReadOutT.tensorPtr (.tensorPtr) st.readOutT
         lstmInputV = the (TVec (m + i) ex dt WithGrad)
                          (MkTensor (primCat2 {ex} roTPtr input.tensorPtr) Nothing)
-    (updCtrl, hiddenV) <- recurStep st.controller lstmInputV
+    -- Step the LSTM controller via `lstmStepIO` (ω in/out; the controller is
+    -- threaded ω internally, the cell's external handle is the single-owner
+    -- linear resource).
+    (updCtrl, hiddenV) <- lstmStepIO st.controller lstmInputV
     -- The LSTM step always sets cellT; the zero fallback is unreachable
     -- (kept total instead of crashing).
     let cellPtr = maybe (zeroState1d {ex} {dt} h) (.tensorPtr) updCtrl.cellT
@@ -160,40 +159,41 @@ public export
            , readOutT   := Just (MkTensor newReadOutT Nothing) } st
          , MkTensor outputPtr Nothing )
 
-  recurReset st =
-    { controller $= recurReset
-    , memT := Nothing, readAddrT := Nothing, writeAddrT := Nothing, readOutT := Nothing } st
-
-||| Linear-resource params. The controller + 3 heads + memory-init/read-out
-||| all bind at ω, so the sub-models reuse the IO `Params` methods (no
-||| `ParamsL` on the nested types needed) for both the reflected list and the
-||| rebuild; the per-sequence state fields ride at ω.
+||| Params for the NTM cell. The controller + 3 heads + memory-init/read-out
+||| all bind at ω, so the sub-models reuse their `Params` methods for both the
+||| reflected list and the rebuild; the per-sequence state fields ride at ω.
 public export
-{n, m, h : Nat} -> ParamsL (Ntm n m h) where
-  reflectL (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
-    MkBang (params ctrl ++ params rfc ++ params wfc ++ params ofc ++ [toParam memInit, toParam iro])
-      # MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS
-  castGradL (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
+{n, m, h : Nat} -> Params (Ntm n m h) where
+  params (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
+    params ctrl ++ params rfc ++ params wfc ++ params ofc ++ [toParam memInit, toParam iro]
+  reflect (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
+    let (MkBang pc # ctrl') = reflect ctrl
+        (MkBang p1 # rfc')  = reflect rfc
+        (MkBang p2 # wfc')  = reflect wfc
+        (MkBang p3 # ofc')  = reflect ofc in
+    MkBang (pc ++ p1 ++ p2 ++ p3 ++ [toParam memInit, toParam iro])
+      # MkNtm ctrl' rfc' wfc' ofc' memInit iro memS raS waS roS
+  castGrad (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) =
     MkNtm (castGrad ctrl) (castGrad rfc) (castGrad wfc) (castGrad ofc)
           (retypeGrad memInit) (retypeGrad iro)
           (map retypeGrad memS) (map retypeGrad raS) (map retypeGrad waS) (map retypeGrad roS)
-  discardL (MkNtm _ _ _ _ _ _ _ _ _ _) = pure ()
+  discard (MkNtm _ _ _ _ _ _ _ _ _ _) = pure ()
 
 ||| Linear-resource recurrent step. The body is large and raw-prim-heavy and
 ||| threads the LSTM controller through an ω record field, so for now it
-||| consumes the linear cell and delegates to the IO `recurStep` at the linear
-||| boundary (the handle-level guarantee — no reuse of a stale NTM — holds; the
-||| internal controller threading stays ω in IO). The inline `L IO` body lands
-||| with the IO-surface collapse, when the controller field can become linear.
+||| consumes the linear cell and delegates to the IO step helper (`ntmStepIO`)
+||| at the linear boundary (the handle-level guarantee — no reuse of a stale
+||| NTM — holds; the internal controller threading stays ω in IO). The inline
+||| `L IO` body lands when the controller field can become linear.
 public export
-{n, m, h : Nat} -> RecurrentL (Ntm n m h) where
+{n, m, h : Nat} -> Recurrent (Ntm n m h) where
   -- Pattern-match to discharge linearity (fields bind at ω), rebuild an ω
   -- cell, and delegate to the IO step; the returned cell rides the linear pair.
-  recurStepL (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) input = do
+  recurStep (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) input = do
     (updSt, out) <- liftIO1
-      (recurStep (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) input)
+      (ntmStepIO (MkNtm ctrl rfc wfc ofc memInit iro memS raS waS roS) input)
     pure1 (MkBang out # updSt)
-  recurResetL (MkNtm ctrl rfc wfc ofc memInit iro _ _ _ _) =
+  recurReset (MkNtm ctrl rfc wfc ofc memInit iro _ _ _ _) =
     MkNtm (recurReset ctrl) rfc wfc ofc memInit iro Nothing Nothing Nothing Nothing
 
 ||| Construct an `Ntm` inside an `Init` derivation, mirroring the PyTorch

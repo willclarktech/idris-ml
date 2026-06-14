@@ -34,17 +34,13 @@ public export
 data RmsNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkRmsNorm : TVec n ex dt g -> RmsNorm n n ex dt g
 
+||| The single learnable scale `w` is the ω param field.
 public export
 Params RmsNorm where
   params (MkRmsNorm w)   = [toParam w]
+  reflect (MkRmsNorm w)  = MkBang [toParam w] # MkRmsNorm w
   castGrad (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
-
-||| Linear-resource params. The single learnable scale `w` is the ω param field.
-public export
-ParamsL RmsNorm where
-  reflectL (MkRmsNorm w)  = MkBang [toParam w] # MkRmsNorm w
-  castGradL (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
-  discardL (MkRmsNorm _)  = pure ()
+  discard (MkRmsNorm _)  = pure ()
 
 ||| 1-D differentiable RMSNorm forward (per vector). `primSum` reduces the
 ||| whole vector, so this is single-vector only — see the module header.

@@ -1,22 +1,30 @@
-||| The v1 unified training driver. One `fit` for supervised, recurrent,
-||| two-phase, and RL — the step function owns control-flow + the
-||| optimizer step + (optional) model-state threading; `fit` owns the
-||| epoch loop, schedule tick, early stop, checkpointing, NaN handling,
-||| and the mlx generation hygiene (all via Train.Engine.runEpochLoop,
-||| the same engine the legacy runTrainingIO now uses). The supervised
-||| 90% use `fitSupervised` / `fitSupervisedMixed` and never touch
-||| `nativeTrainStep`; RL/custom loops pass their own `EpochStep`.
+||| The unified `fit` driver (`L IO`). The model is a single-owner linear
+||| resource: every step consumes it and threads it back (`EpochStep`), so
+||| reusing a stale handle (freeze/eval then train) is a compile-time linearity
+||| error. One `fit` for supervised / recurrent / two-phase / RL — the step
+||| function owns control-flow + the optimizer step + (optional) model-state
+||| threading; `fit` owns the epoch loop, schedule tick, early stop,
+||| checkpointing, NaN handling, and mlx generation hygiene (via
+||| `Train.EngineL.runEpochLoop`). Supervised 90% use `fitSupervised` /
+||| `fitSupervisedMixed` and never touch `nativeTrainStep`; RL/custom loops pass
+||| their own `EpochStep`.
 |||
-||| This refines api-critique §N6: there `fit` *owns* the optimizer step
-||| (Step returns just the loss), which can't express DQN's many-steps-
-||| per-episode or PPO's K-epoch update. The shape that already unifies
-||| every example — including RL — is runTrainingIO's `m -> dp ->
-||| IO (m, Double)`: the step owns stepping + threading. We adopt that
-||| and add the supervised convenience wrappers. (Recorded in
-||| design-decisions.md.)
+||| Imports `Data.Linear.Notation` (for `MkBang`/`!*`), **not** full
+||| `Data.Linear` — the latter re-exports `Copies`, whose `Nil`/`(::)` shadow
+||| `[]`/`::` (breaking scalar `Tensor []` and list literals) and perturb
+||| `Nat`-literal defaulting. `LPair`/`#` are `Builtin` (always in scope).
+||| The `Z`/`S` accumulators below keep clear of bare `Nat` literals.
+|||
+||| Data stays plain `IO` (`DataStream.next` lifted via `liftIO1`) — data is
+||| not a linear resource; model linearity is orthogonal to it. The optimizer
+||| step functions (`nativeTrainStep`/`trainStepScaled`/`applyScale`/`tick`)
+||| touch only the C registry, never the model value, so they stay `IO` and
+||| are lifted at the call site.
 module Fit
 
+import Control.Linear.LIO
 import Data.IORef
+import Data.Linear.Notation
 import Data.Maybe
 import Data.Vect
 import System.Clock
@@ -29,122 +37,119 @@ import Optimizer
 import Tensor
 import Train
 import Train.Engine
+import Train.EngineL
 import Util
 import Util.Log
 
-||| A training step: take the model + a batch, do whatever forward /
-||| backward / optimizer-step / state-threading the task needs, and
-||| return the (possibly updated) model and the loss to log. Supervised
-||| returns the model unchanged; RL threads its state bundle.
+||| A linear training step: consume the model + a batch, do the task's
+||| forward / backward / optimizer-step / state-threading, and return the
+||| (rebuilt) model beside the banged loss. The `L IO` analogue of
+||| `Fit.EpochStep`. Supervised rebuilds the model unchanged (params update
+||| in the C registry); RL threads its state bundle.
 public export
 0 EpochStep : Type -> Type -> Type
-EpochStep m batch = m -> batch -> IO (m, Double)
+EpochStep m batch = (1 _ : m) -> batch -> L IO {use = 1} (LPair (!* Double) m)
 
--- One full dataset pass: fold `step` over `steps` batches, accumulating
--- the mean of the *finite* batch losses. NaN handling honours `nanHalts`:
--- single precision (True) treats a NaN batch loss as divergence — short-
--- circuit, return NaN so the engine halts; mixed precision (False) means
--- the scaler skipped that step — drop it from the mean and continue. On
--- mlx, drain the per-step grad husks between batches so a long pass can't
--- outrun the MTLBuffer ceiling (no-op begin/end on tape/torch). Top-level
--- (not a where-clause) so its interface-constraint binding is unambiguous.
+-- One full dataset pass for the linear loop: fold `step` over `steps`
+-- batches, threading the model linearly and accumulating the mean of the
+-- *finite* batch losses (NaN handling per `nanHalts`, as in `Fit.runPass`).
+-- `Z`/`S` accumulators avoid bare `Nat` literals (see module header).
 runPass : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
-          {0 m : Type} -> {0 batch : Type} -> (nanHalts : Bool) ->
-          EpochStep m batch -> DataStream batch ->
-          (steps : Nat) -> (accSum : Double) -> (accCount : Nat) -> m -> IO (m, Double)
+           {0 m : Type} -> {0 batch : Type} -> (nanHalts : Bool) ->
+           EpochStep m batch -> DataStream batch ->
+           (steps : Nat) -> (accSum : Double) -> (accCount : Nat) -> (1 _ : m) ->
+           L IO {use = 1} (LPair (!* Double) m)
 runPass _ _ _ Z accSum accCount m =
-  pure (m, if accCount == 0 then 0.0/0.0 else accSum / cast accCount)
+  pure1 (MkBang (case accCount of
+                   Z     => 0.0 / 0.0
+                   (S _) => accSum / cast accCount) # m)
 runPass nanHalts step s (S k) accSum accCount m = do
-  b <- s.next
-  (m', loss) <- step m b
-  when (backendTag {ex} == "mlx") $ do
-    forceMajorGc
-    ignore drainManagedHandles
+  b <- liftIO1 s.next
+  (MkBang loss # m') <- step m b
+  liftIO1 (when (backendTag {ex} == "mlx") $ do
+             forceMajorGc
+             ignore drainManagedHandles)
   if isDiverged loss
     then if nanHalts
-           then pure (m', 0.0/0.0)
+           then pure1 (MkBang (0.0 / 0.0) # m')
            else runPass {ex} nanHalts step s k accSum accCount m'
-    else runPass {ex} nanHalts step s k (accSum + loss) (accCount + 1) m'
+    else runPass {ex} nanHalts step s k (accSum + loss) (S accCount) m'
 
-||| Optimizer-free `fit`: identical epoch-loop machinery (full dataset
-||| pass, early stop, checkpoint, NaN handling, mlx hygiene) with no
-||| optimizer and so no schedule tick. For training that isn't gradient-
-||| based — tabular RL, where the `EpochStep` mutates a pure model record
-||| directly (no registered params, no `nativeTrainStep`) — or any loop
-||| whose updates live entirely in the step. `fit` is exactly `fitCustom`
-||| plus a per-epoch `tick opt` to advance the optimizer's LR schedule.
+||| Optimizer-free linear `fit`: the `L IO` analogue of `Fit.fitCustom`.
+||| Same epoch-loop machinery (full pass, early stop, checkpoint, NaN
+||| handling, mlx hygiene) with no optimizer and so no schedule tick — for
+||| training whose updates live entirely in the (linear) step.
 export
 fitCustom : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
-            {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
-            EpochStep m batch -> DataStream batch -> TrainConfig m -> m ->
-            IO (m, Nat, Double)
+             {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
+             EpochStep m batch -> DataStream batch -> TrainConfig m -> (1 _ : m) ->
+             L IO {use = 1} (LPair (!* (Nat, Double)) m)
 fitCustom {nanHalts} step s cfg m0 = do
-  tStart <- clockTime Monotonic
-  logInfo $ "Fitting... [backend=" ++ backendName {ex} ++ "]"
-  bestRef <- newIORef (the Double (1.0/0.0))
-  startEp <- resumeFromCheckpoint cfg.checkpoint bestRef
-  let stepsPerEpoch : Nat := fromMaybe 1 s.epochLen
-  let perEpoch : m -> Nat -> IO (m, Double)
-      perEpoch m ep = do
-        cfg.beforeEpoch ep
-        runPass {ex} nanHalts step s stepsPerEpoch 0.0 0 m
+  tStart  <- liftIO1 (clockTime Monotonic)
+  liftIO1 (logInfo $ "Fitting... [backend=" ++ backendName {ex} ++ "]")
+  bestRef <- liftIO1 (newIORef (the Double (1.0 / 0.0)))
+  startEp <- liftIO1 (resumeFromCheckpoint cfg.checkpoint bestRef)
+  let stepsPerEpoch : Nat := fromMaybe (the Nat 1) s.epochLen
   let (_ ** (esStep, esInit, esTerm)) = earlyStopMachine cfg.earlyStop
-  (mFin, epochsDone, loss) <-
-    runEpochLoop {ex} cfg.totalEpochs cfg.logEvery cfg.metrics cfg.checkpoint
-                 bestRef nanHalts esStep esInit esTerm perEpoch tStart startEp m0
-  returnBestCheckpoint cfg.checkpoint
-  tEnd <- clockTime Monotonic
-  logInfo $ formatTimingSummary tStart tEnd epochsDone
-  logInfo $ formatPerfMsPerEp tStart tEnd epochsDone
-  profileReport {ex}
-  pure (mFin, epochsDone, loss)
+  (MkBang (epochsDone, loss) # mFin) <-
+    runEpochLoopL {ex} cfg.totalEpochs cfg.logEvery cfg.metricsL cfg.checkpoint
+                  bestRef nanHalts esStep esInit esTerm
+                  (\mm, ep => do
+                     liftIO1 (cfg.beforeEpoch ep)
+                     runPass {ex} nanHalts step s stepsPerEpoch 0.0 Z mm)
+                  tStart startEp m0
+  liftIO1 (returnBestCheckpoint cfg.checkpoint)
+  tEnd <- liftIO1 (clockTime Monotonic)
+  liftIO1 (logInfo $ formatTimingSummary tStart tEnd epochsDone)
+  liftIO1 (logInfo $ formatPerfMsPerEp tStart tEnd epochsDone)
+  liftIO1 (profileReport {ex})
+  pure1 (MkBang (epochsDone, loss) # mFin)
 
-||| Run training. Each epoch is one full dataset pass: `fit` pulls
-||| `epochLen` batches from `stream` (one batch when the stream is
-||| infinite — `epochLen = Nothing`, the RL/synthetic case), calls `step`
-||| on each, and reports the mean batch loss to the shared engine. Early
-||| stop / checkpoint cadence is therefore per-pass, matching PyTorch's
-||| epoch. `nanHalts` (default True) treats a NaN loss as divergence; set
-||| False for the mixed-precision overflow-skip semantics (the scaler
-||| returns NaN to mean "step skipped"). The optimizer carries the LR
-||| schedule (tick is called per epoch); `cfg.beforeEpoch` is an extra hook.
+||| Run linear training. The `L IO` analogue of `Fit.fit`: `fitCustom` plus
+||| a per-epoch `tick opt` to advance the optimizer's LR schedule.
 export
 fit : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
-      {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
-      EpochStep m batch -> Optimizer ex -> DataStream batch -> TrainConfig m -> m ->
-      IO (m, Nat, Double)
+       {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
+       EpochStep m batch -> Optimizer ex -> DataStream batch -> TrainConfig m -> (1 _ : m) ->
+       L IO {use = 1} (LPair (!* (Nat, Double)) m)
 fit {nanHalts} step opt s cfg m0 =
   fitCustom {ex} {nanHalts} step s
-            ({ beforeEpoch := \ep => do tick opt ep; cfg.beforeEpoch ep } cfg) m0
+             ({ beforeEpoch := \ep => do tick opt ep; cfg.beforeEpoch ep } cfg) m0
 
-||| Supervised convenience: give a loss function, never call
-||| `nativeTrainStep`. Builds an `EpochStep` that does one fused step per
-||| batch (zero-grad → backward → clip → step) and returns the model
-||| unchanged (params update in the registry).
+||| Supervised convenience for the linear loop: give a linear loss function
+||| (consume the model, run `forwardL`, return the scalar loss + the model),
+||| never call `nativeTrainStep`. Builds an `EpochStep` doing one fused step
+||| per batch (zero-grad → backward → clip → step) and threads the model. The
+||| `L IO` analogue of `Fit.fitSupervised`.
 export
 fitSupervised : {0 ex : Executor} -> Backend ex dt => UserExecutorTransfer ex =>
-                IsFloating dt => {0 m : Type} -> {0 batch : Type} ->
-                Optimizer ex -> (m -> batch -> IO (Tensor [] ex dt WithGrad)) ->
-                DataStream batch -> TrainConfig m -> m -> IO (m, Nat, Double)
+                 IsFloating dt => {0 m : Type} -> {0 batch : Type} ->
+                 Optimizer ex ->
+                 ((1 _ : m) -> batch -> L IO {use = 1} (LPair (!* (Tensor [] ex dt WithGrad)) m)) ->
+                 DataStream batch -> TrainConfig m -> (1 _ : m) ->
+                 L IO {use = 1} (LPair (!* (Nat, Double)) m)
 fitSupervised opt lossFn s cfg m0 =
-  fit (\m, b => do loss <- lossFn m b
-                   d <- nativeTrainStep opt loss
-                   pure (m, d))
-      opt s cfg m0
+  fit (\mm, b => do
+          (MkBang loss # m') <- lossFn mm b
+          d <- liftIO1 (nativeTrainStep opt loss)
+          pure1 (MkBang d # m'))
+       opt s cfg m0
 
-||| Mixed-precision supervised convenience: scales the loss + steps via
-||| the GradScaler (overflow → step skipped, not divergence). The loss
-||| function builds the loss at the compute dtype `dt`.
+||| Mixed-precision supervised convenience for the linear loop: scales the
+||| loss + steps via the `GradScaler` (overflow → step skipped, not
+||| divergence). The `L IO` analogue of `Fit.fitSupervisedMixed`.
 export
 fitSupervisedMixed : {0 ex : Executor} -> Backend ex dt => UserExecutorTransfer ex =>
-                     IsFloating dt => {0 m : Type} -> {0 batch : Type} ->
-                     Optimizer ex -> GradScaler ex dt ->
-                     (m -> batch -> IO (Tensor [] ex dt WithGrad)) ->
-                     DataStream batch -> TrainConfig m -> m -> IO (m, Nat, Double)
+                      IsFloating dt => {0 m : Type} -> {0 batch : Type} ->
+                      Optimizer ex -> GradScaler ex dt ->
+                      ((1 _ : m) -> batch -> L IO {use = 1} (LPair (!* (Tensor [] ex dt WithGrad)) m)) ->
+                      DataStream batch -> TrainConfig m -> (1 _ : m) ->
+                      L IO {use = 1} (LPair (!* (Nat, Double)) m)
 fitSupervisedMixed opt gs lossFn s cfg m0 =
   fit {nanHalts = False}
-      (\m, b => do loss <- lossFn m b
-                   scaled <- applyScale gs loss
-                   d <- trainStepScaled opt gs scaled
-                   pure (m, d))
-      opt s cfg m0
+       (\mm, b => do
+          (MkBang loss # m') <- lossFn mm b
+          scaled <- liftIO1 (applyScale gs loss)
+          d <- liftIO1 (trainStepScaled opt gs scaled)
+          pure1 (MkBang d # m'))
+       opt s cfg m0

@@ -33,55 +33,51 @@ data TransformerBlock : (numHeads : Nat) -> (headDim : Nat) ->
                         Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkTransformerBlock :
     {dModel : Nat} ->
-    Attention dModel numHeads headDim ex dt g ->
-    LayerNorm dModel dModel ex dt g ->
-    LayerNorm dModel dModel ex dt g ->
+    -- Sub-models are linear `(1 _)` fields (as `Seq`/`Residual`) so the
+    -- threaded sub-layers `forward`/`reflect` return re-pack cleanly. The ff
+    -- weight tensors stay ω.
+    (1 _ : Attention dModel numHeads headDim ex dt g) ->
+    (1 _ : LayerNorm dModel dModel ex dt g) ->
+    (1 _ : LayerNorm dModel dModel ex dt g) ->
     TMat (4 * dModel) dModel ex dt g ->   -- ff1 (bias-free)
     TMat dModel (4 * dModel) ex dt g ->   -- ff2 (bias-free)
     TransformerBlock numHeads headDim dModel dModel ex dt g
 
-public export
-{numHeads, headDim : Nat} -> Module (TransformerBlock numHeads headDim) where
-  forward (MkTransformerBlock attn n1 n2 ff1 ff2) h = assert_total $ do
-    normed1 <- forward n1 h
-    attnOut <- attentionForward attn normed1
-    h1      <- tadd attnOut h
-    normed2 <- forward n2 h1
-    ioRerun (\_ =>
-      let ffHidden = primClampMin {ex} (primMm {ex} normed2.tensorPtr (primTranspose2d {ex} ff1.tensorPtr)) 0.0
-          ffOut    = primMm {ex} ffHidden (primTranspose2d {ex} ff2.tensorPtr)
-      in MkTensor (primAdd {ex} ffOut h1.tensorPtr) Nothing)
-
+||| Params. attn/norms bind at ω from the match, so each is threaded once
+||| through its linear `reflect`/`attentionReflect`; the ff weights ride at ω.
 public export
 {numHeads, headDim : Nat} -> Params (TransformerBlock numHeads headDim) where
   params (MkTransformerBlock attn n1 n2 ff1 ff2) =
     attentionParams attn ++ params n1 ++ params n2 ++ [toParam ff1, toParam ff2]
+  reflect (MkTransformerBlock attn n1 n2 ff1 ff2) =
+    let (MkBang ap # attn') = attentionReflect attn
+        (MkBang p1 # n1')   = reflect n1
+        (MkBang p2 # n2')   = reflect n2 in
+    MkBang (ap ++ p1 ++ p2 ++ [toParam ff1, toParam ff2])
+      # MkTransformerBlock attn' n1' n2' ff1 ff2
   castGrad (MkTransformerBlock attn n1 n2 ff1 ff2) =
     MkTransformerBlock (attentionCastGrad attn) (castGrad n1) (castGrad n2)
                        (retypeGrad ff1) (retypeGrad ff2)
+  discard (MkTransformerBlock attn n1 n2 _ _) = do
+    attentionDiscard attn
+    discard n1
+    discard n2
 
-||| Linear-resource params. attn/norms/ff weights bind at ω, so the splice
-||| reuses the IO `attentionParams`/`params` for both the reflected list and
-||| the rebuild.
+||| `Module`. Pre-norm GPT-style forward, threading each sub-layer linearly:
+||| `h₁ = h + attn(LN₁ h)`, then `out = h₁ + FFN(LN₂ h₁)`. The block is
+||| returned with its (read-only) sub-layers rebuilt beside the banged output.
 public export
-{numHeads, headDim : Nat} -> ParamsL (TransformerBlock numHeads headDim) where
-  reflectL (MkTransformerBlock attn n1 n2 ff1 ff2) =
-    MkBang (attentionParams attn ++ params n1 ++ params n2 ++ [toParam ff1, toParam ff2])
-      # MkTransformerBlock attn n1 n2 ff1 ff2
-  castGradL (MkTransformerBlock attn n1 n2 ff1 ff2) =
-    MkTransformerBlock (attentionCastGrad attn) (castGrad n1) (castGrad n2)
-                       (retypeGrad ff1) (retypeGrad ff2)
-  discardL (MkTransformerBlock _ _ _ _ _) = pure ()
-
-||| Linear-resource `Module`. The forward is read-only on every sub-layer
-||| (the block is returned unchanged), so it consumes the linear block,
-||| delegates the multi-step body to the IO `forward` at the linear boundary,
-||| and rebuilds the unchanged block beside the banged output.
-public export
-{numHeads, headDim : Nat} -> ModuleL (TransformerBlock numHeads headDim) where
-  forwardL (MkTransformerBlock attn n1 n2 ff1 ff2) h = do
-    out <- liftIO1 (forward (MkTransformerBlock attn n1 n2 ff1 ff2) h)
-    pure1 (MkBang out # MkTransformerBlock attn n1 n2 ff1 ff2)
+{numHeads, headDim : Nat} -> Module (TransformerBlock numHeads headDim) where
+  forward (MkTransformerBlock attn n1 n2 ff1 ff2) h = assert_total $ do
+    (MkBang normed1 # n1')   <- forward n1 h
+    (MkBang attnOut # attn') <- attentionForward attn normed1
+    h1                       <- taddL attnOut h
+    (MkBang normed2 # n2')   <- forward n2 h1
+    out <- ioRerunL (\_ =>
+      let ffHidden = primClampMin {ex} (primMm {ex} normed2.tensorPtr (primTranspose2d {ex} ff1.tensorPtr)) 0.0
+          ffOut    = primMm {ex} ffHidden (primTranspose2d {ex} ff2.tensorPtr)
+      in MkTensor (primAdd {ex} ffOut h1.tensorPtr) Nothing)
+    pure1 (MkBang out # MkTransformerBlock attn' n1' n2' ff1 ff2)
 
 ||| Construct a pre-norm `TransformerBlock` inside an `Init` derivation.
 ||| Nests `attn.*` (per-head projections), `norm1`/`norm2`, and the

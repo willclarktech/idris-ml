@@ -1,7 +1,7 @@
-||| The v1 models-as-records surface. `import Nn` brings the whole layer
-||| library (Module/Params/Seq/Init/Group/Recurrent + all ~19 ported
-||| layers). Coexists with the legacy `Layer/` until the example sweep; see
-||| design-decisions.md "models-as-records: the `Nn` surface".
+||| The models-as-records surface. `import Nn` brings the whole layer library
+||| (Module/Params/Seq/Init/Group/Recurrent + all ~19 ported layers). Models are
+||| single-owner linear resources threaded through `L IO`; see design-decisions.md
+||| "models-as-records: the `Nn` surface" + docs/develop/linear-types-and-effects.md.
 module Nn
 
 import public Nn.Activation
@@ -28,6 +28,5 @@ import public Nn.Recurrent
 import public Nn.Residual
 import public Nn.RmsNorm
 import public Nn.Seq
-import public Nn.SeqL
 import public Nn.SwiGLU
 import public Nn.Transformer

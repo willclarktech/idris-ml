@@ -23,29 +23,19 @@ import Tensor
 
 %default total
 
-||| Stateful per-timestep layer. `recurStep` advances one timestep
-||| (threading hidden state through the returned layer); `recurReset`
-||| clears the hidden state (next step lazily re-initialises to zeros).
+||| Stateful per-timestep layer — the per-timestep capability on top of
+||| `Params`. `recurStep` advances one timestep: it consumes the layer `(1 _)`
+||| and returns the rebuilt layer (carrying the new hidden state) beside the
+||| output under the `(!*)` bang; `recurReset` clears the hidden state (next
+||| step lazily re-initialises to zeros). A recurrent layer is a single-owner
+||| resource threaded step by step — the natural fine-grained spot.
 public export
-interface Recurrent (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
+interface Params l => Recurrent (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
   recurStep : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
-              l i o ex dt WithGrad -> Tensor [i] ex dt WithGrad ->
-              IO (l i o ex dt WithGrad, Tensor [o] ex dt WithGrad)
+              (1 _ : l i o ex dt WithGrad) -> Tensor [i] ex dt WithGrad ->
+              L IO {use=1} (LPair (!* (Tensor [o] ex dt WithGrad)) (l i o ex dt WithGrad))
   recurReset : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {i, o : Nat} ->
-               l i o ex dt g -> l i o ex dt g
-
-||| `RecurrentL` — the linear-resource counterpart of `Recurrent` (the
-||| per-timestep capability on top of `ParamsL`). `recurStepL` is the most
-||| natural fine-grained spot: it already returns the updated layer, so
-||| consuming `(1 _)` and returning the rebuilt layer (with the output under
-||| the `(!*)` bang) is a direct retype. Mirrors `ModuleL` for batched layers.
-public export
-interface ParamsL l => RecurrentL (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
-  recurStepL : {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
-               (1 _ : l i o ex dt WithGrad) -> Tensor [i] ex dt WithGrad ->
-               L IO {use=1} (LPair (!* (Tensor [o] ex dt WithGrad)) (l i o ex dt WithGrad))
-  recurResetL : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {i, o : Nat} ->
-                (1 _ : l i o ex dt g) -> l i o ex dt g
+               (1 _ : l i o ex dt g) -> l i o ex dt g
 
 ----------------------------------------------------------------------
 -- RNN (vanilla nn.RNNCell): h_t = act(W_ih·x + b_ih + W_hh·h_{t-1} + b_hh)
@@ -64,43 +54,24 @@ record Rnn (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
   activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')
   prevOutT   : Maybe (TVec o ex dt g)
 
+||| Params for `Rnn`. Fields bind at ω, so the weight tensors feed both the
+||| reflected param list and the rebuild.
 public export
 Params Rnn where
-  params (MkRnn iw rw ib hb _ _)        = [toParam iw, toParam rw, toParam ib, toParam hb]
+  params (MkRnn iw rw ib hb _ _) = [toParam iw, toParam rw, toParam ib, toParam hb]
+  reflect (MkRnn iw rw ib hb act prev) =
+    MkBang [toParam iw, toParam rw, toParam ib, toParam hb] # MkRnn iw rw ib hb act prev
   castGrad (MkRnn iw rw ib hb act prev) =
     MkRnn (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb) act (map retypeGrad prev)
+  discard (MkRnn _ _ _ _ _ _) = pure ()
 
+||| Recurrent step: consume the cell, advance one timestep, return the
+||| (unrestricted, banged) output beside the rebuilt cell carrying the new
+||| hidden state. Body sequences the `L IO` tensor ops directly; only the
+||| user-supplied IO activation (`act`) is lifted via `liftIO1`.
 public export
 Recurrent Rnn where
-  recurStep {o} st input = do
-    p <- case st.prevOutT of
-           Just po => pure po
-           Nothing => tzeroState1d {n = o}
-    inner    <- tlinear st.iwT input st.ihB
-    combined <- tlinear st.rwT p inner
-    preact   <- tadd combined st.hhB
-    out      <- st.activation preact
-    pure ({ prevOutT := Just out } st, out)
-
-  recurReset st = { prevOutT := Nothing } st
-
-||| Linear-resource params for `Rnn`. Fields bind at ω, so the weight tensors
-||| feed both the reflected param list and the rebuild.
-public export
-ParamsL Rnn where
-  reflectL (MkRnn iw rw ib hb act prev) =
-    MkBang [toParam iw, toParam rw, toParam ib, toParam hb] # MkRnn iw rw ib hb act prev
-  castGradL (MkRnn iw rw ib hb act prev) =
-    MkRnn (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb) act (map retypeGrad prev)
-  discardL (MkRnn _ _ _ _ _ _) = pure ()
-
-||| Linear-resource recurrent step: consume the cell, advance one timestep,
-||| return the (unrestricted, banged) output beside the rebuilt cell carrying
-||| the new hidden state. Body sequences the `L IO` tensor ops directly; only
-||| the user-supplied IO activation (`act`) is still lifted via `liftIO1`.
-public export
-RecurrentL Rnn where
-  recurStepL {o} (MkRnn iw rw ib hb act prev) input = do
+  recurStep {o} (MkRnn iw rw ib hb act prev) input = do
     p <- the (L IO (TVec o ex dt WithGrad)) $ case prev of
            Just po => pure po
            Nothing => tzeroState1dL {n = o}
@@ -109,7 +80,7 @@ RecurrentL Rnn where
     preact   <- taddL combined hb
     out      <- liftIO1 (act preact)
     pure1 (MkBang out # MkRnn iw rw ib hb act (Just out))
-  recurResetL (MkRnn iw rw ib hb act _) = MkRnn iw rw ib hb act Nothing
+  recurReset (MkRnn iw rw ib hb act _) = MkRnn iw rw ib hb act Nothing
 
 ||| Construct an `Rnn i o` inside an `Init` derivation. Xavier-ish weight
 ||| init (W_ih std √(2/(i+o)), W_hh std 1/√o), zero biases, hidden state

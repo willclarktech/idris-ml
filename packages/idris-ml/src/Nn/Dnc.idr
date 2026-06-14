@@ -153,25 +153,17 @@ record Dnc (r : Nat) (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : E
   readWtsT      : Maybe (Vect r AnyPtr)
   readOutsT     : Maybe (Vect r AnyPtr)
 
-public export
-{r, n, m, h : Nat} -> Params (Dnc r n m h) where
-  params d =
-    params d.controller ++ params d.writeKeyFc ++ params d.writeBetaFc ++ params d.eraseFc
-      ++ params d.addFc ++ params d.freeGatesFc ++ params d.allocGateFc ++ params d.writeGateFc
-      ++ params d.readKeysFc ++ params d.readBetasFc ++ params d.readModesFc ++ params d.outputFc
-      ++ [toParam d.memInitT]
-  castGrad (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
-    MkDnc (castGrad ctrl) (castGrad wk) (castGrad wb) (castGrad er) (castGrad ad)
-          (castGrad fg) (castGrad ag) (castGrad wg) (castGrad rk) (castGrad rb)
-          (castGrad rm) (castGrad outFc) (retypeGrad mi) iros ndm
-          (map retypeGrad memS) (map retypeGrad usS) (map retypeGrad wwS)
-          (map retypeGrad prS) (map retypeGrad lkS) rwS roS
-
-public export
-{r, n, m, h : Nat} -> Recurrent (Dnc r n m h) where
-  -- partial: catReadOuts crashes on r=0 (a DNC needs ≥1 read head); the
-  -- legacy DNC was wholesale %default partial for the same reason.
-  recurStep {i} {o} st input = assert_total $ do
+-- IO step body for the DNC cell, shared by the (linear) `recurStep`. Threads
+-- the LSTM controller through ω fields; the memory dynamics are unchanged from
+-- the legacy Layer.Dnc. Kept as a top-level helper (not an interface method)
+-- so the linear `Recurrent` instance can delegate to it at the IO boundary.
+-- partial: catReadOuts crashes on r=0 (a DNC needs ≥1 read head); the legacy
+-- DNC was wholesale %default partial for the same reason.
+partial
+dncStepIO : {0 ex : Executor} -> Backend ex dt => {r, n, m, h : Nat} -> {i, o : Nat} ->
+            Dnc r n m h i o ex dt WithGrad -> Tensor [i] ex dt WithGrad ->
+            IO (Dnc r n m h i o ex dt WithGrad, Tensor [o] ex dt WithGrad)
+dncStepIO {i} {o} st input = assert_total $ do
     let nI = cast {to=Int} n
         mI         = cast {to=Int} m
         initMemPtr = primReshape2d {ex} (primSigmoid {ex} st.memInitT.tensorPtr) nI mI
@@ -184,7 +176,9 @@ public export
         roTsPtrs   = maybe st.initReadOutsT id st.readOutsT
         lstmInputV = the (TVec (DncControllerInput r m i) ex dt WithGrad)
                          (MkTensor (catReadOutsAndInput {ex} roTsPtrs input.tensorPtr) Nothing)
-    (updCtrl, hiddenV) <- recurStep st.controller lstmInputV
+    -- Step the LSTM controller via `lstmStepIO` (ω in/out; controller threaded
+    -- ω internally, the cell handle is the single-owner linear resource).
+    (updCtrl, hiddenV) <- lstmStepIO st.controller lstmInputV
     let cellPtr = maybe (zeroState1d {ex} {dt} h) (.tensorPtr) updCtrl.cellT
         onesScalar     = dtCreateScalar {ex} {t=dt} 1.0 0 (deviceStreamTag {ex})
         writeKeyT      = fcApply {ex} cellPtr st.writeKeyFc
@@ -236,44 +230,55 @@ public export
            , linkT := Just (MkTensor newLinkT Nothing), readWtsT := Just newRwTs, readOutsT := Just newRoTs } st
          , MkTensor outputT Nothing )
 
-  recurReset st =
-    { controller $= recurReset
-    , memT := Nothing, usageT := Nothing, writeWtT := Nothing, precedenceT := Nothing
-    , linkT := Nothing, readWtsT := Nothing, readOutsT := Nothing } st
-
-||| Linear-resource params. The controller + 11 heads + memory-init all bind
-||| at ω, so the sub-models reuse the IO `Params` methods for both the
-||| reflected list and the rebuild; the buffers + per-sequence state ride at ω.
+||| Params for the DNC cell. The controller + 11 heads + memory-init all bind
+||| at ω, so the sub-models reuse their `Params` methods for both the reflected
+||| list and the rebuild; the buffers + per-sequence state ride at ω.
 public export
-{r, n, m, h : Nat} -> ParamsL (Dnc r n m h) where
-  reflectL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
-    MkBang (params ctrl ++ params wk ++ params wb ++ params er ++ params ad ++ params fg
-              ++ params ag ++ params wg ++ params rk ++ params rb ++ params rm ++ params outFc
+{r, n, m, h : Nat} -> Params (Dnc r n m h) where
+  params (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
+    params ctrl ++ params wk ++ params wb ++ params er ++ params ad ++ params fg
+      ++ params ag ++ params wg ++ params rk ++ params rb ++ params rm ++ params outFc
+      ++ [toParam mi]
+  reflect (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
+    let (MkBang pc # ctrl')  = reflect ctrl
+        (MkBang pwk # wk')   = reflect wk
+        (MkBang pwb # wb')   = reflect wb
+        (MkBang per # er')    = reflect er
+        (MkBang pad # ad')    = reflect ad
+        (MkBang pfg # fg')    = reflect fg
+        (MkBang pag # ag')    = reflect ag
+        (MkBang pwg # wg')    = reflect wg
+        (MkBang prk # rk')    = reflect rk
+        (MkBang prb # rb')    = reflect rb
+        (MkBang prm # rm')    = reflect rm
+        (MkBang pof # outFc') = reflect outFc in
+    MkBang (pc ++ pwk ++ pwb ++ per ++ pad ++ pfg
+              ++ pag ++ pwg ++ prk ++ prb ++ prm ++ pof
               ++ [toParam mi])
-      # MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS
-  castGradL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
+      # MkDnc ctrl' wk' wb' er' ad' fg' ag' wg' rk' rb' rm' outFc' mi iros ndm memS usS wwS prS lkS rwS roS
+  castGrad (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
     MkDnc (castGrad ctrl) (castGrad wk) (castGrad wb) (castGrad er) (castGrad ad)
           (castGrad fg) (castGrad ag) (castGrad wg) (castGrad rk) (castGrad rb)
           (castGrad rm) (castGrad outFc) (retypeGrad mi) iros ndm
           (map retypeGrad memS) (map retypeGrad usS) (map retypeGrad wwS)
           (map retypeGrad prS) (map retypeGrad lkS) rwS roS
-  discardL (MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = pure ()
+  discard (MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = pure ()
 
 ||| Linear-resource recurrent step. As with NTM, the body is large and
 ||| raw-prim-heavy and threads the LSTM controller through an ω record field,
-||| so it consumes the linear cell and delegates to the IO `recurStep` at the
-||| linear boundary (the handle-level guarantee holds; controller threading
-||| stays ω in IO). The inline `L IO` body lands with the IO-surface collapse.
+||| so it consumes the linear cell and delegates to the IO step helper
+||| (`dncStepIO`) at the linear boundary (the handle-level guarantee holds;
+||| controller threading stays ω in IO). The inline `L IO` body lands later.
 public export
-{r, n, m, h : Nat} -> RecurrentL (Dnc r n m h) where
+{r, n, m, h : Nat} -> Recurrent (Dnc r n m h) where
   -- Pattern-match to discharge linearity (fields bind at ω), rebuild an ω
   -- cell, and delegate to the IO step; the returned cell rides the linear pair.
-  recurStepL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) input = do
+  recurStep (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) input = do
     (updSt, out) <- liftIO1
-      (recurStep (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm
+      (dncStepIO (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm
                         memS usS wwS prS lkS rwS roS) input)
     pure1 (MkBang out # updSt)
-  recurResetL (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm _ _ _ _ _ _ _) =
+  recurReset (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm _ _ _ _ _ _ _) =
     MkDnc (recurReset ctrl) wk wb er ad fg ag wg rk rb rm outFc mi iros ndm
           Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 

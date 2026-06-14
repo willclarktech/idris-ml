@@ -32,21 +32,17 @@ record LoraLinear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gr
   loraB : Tensor [o, rank] ex dt g
   alpha : Double
 
+||| The nested `base`, `loraA`/`loraB` adapters all bind at ω, so the base's
+||| params feed both the reflected list and the rebuild.
 public export
 Params LoraLinear where
-  params (MkLoraLinear base a b _)       = params base ++ [toParam a, toParam b]
-  castGrad (MkLoraLinear base a b alpha) = MkLoraLinear (castGrad base) (retypeGrad a) (retypeGrad b) alpha
-
-||| Linear-resource params. The nested `base`, `loraA`/`loraB` adapters all
-||| bind at ω, so the base's params reuse the IO `Params` methods (no `ParamsL`
-||| on the nested type needed) and feed both the reflected list and the rebuild.
-public export
-ParamsL LoraLinear where
-  reflectL (MkLoraLinear base a b alpha) =
-    MkBang (params base ++ [toParam a, toParam b]) # MkLoraLinear base a b alpha
-  castGradL (MkLoraLinear base a b alpha) =
+  params (MkLoraLinear base a b alpha) = params base ++ [toParam a, toParam b]
+  reflect (MkLoraLinear base a b alpha) =
+    let (MkBang pb # base') = reflect base in
+    MkBang (pb ++ [toParam a, toParam b]) # MkLoraLinear base' a b alpha
+  castGrad (MkLoraLinear base a b alpha) =
     MkLoraLinear (castGrad base) (retypeGrad a) (retypeGrad b) alpha
-  discardL (MkLoraLinear _ _ _ _) = pure ()
+  discard (MkLoraLinear _ _ _ _) = pure ()
 
 ||| 1-D LoRA forward: `W·x + b + (α/r)·B·(A·x)`.
 export

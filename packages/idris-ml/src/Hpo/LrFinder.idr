@@ -165,82 +165,28 @@ isFallbackCurve curve =
 ||| followed by a final
 |||   `RECOMMENDED_LR=<value>`
 ||| line. Plot the points externally to inspect the curve.
+||| Run the LR range test. The model is threaded single-owner through the
+||| sweep (every iteration consumes the model via the linear `epochFn` and hands
+||| it back), so a stale-model reuse after the sweep is a compile-time error.
+||| Returns the result beside the (banged) final model; the caller `discard`s it.
+|||
+||| Mutates the model and the optimizer's LR. The caller is responsible for
+||| using the returned recommendation against a *fresh* optimizer or for
+||| restoring the original LR before resuming training.
+|||
+||| Stdout output: one line per iteration as
+|||   `iter\t<i>\tlr\t<lr>\tloss\t<loss>\tsmoothed\t<smoothed>`
+||| followed by a final `RECOMMENDED_LR=<value>` line.
 export
 lrFind : {0 ex : Executor} -> UserExecutorTraining ex =>
          {0 model : Type} -> {0 dp : Type} ->
          LrFindConfig ->
-         (epochFn : model -> dp -> IO (model, Double)) ->
+         (epochFn : (1 _ : model) -> dp -> L IO {use = 1} (LPair (!* Double) model)) ->
          (dataSrc : IO dp) ->
          NativeOptimizer ex ->
-         model ->
-         IO LrFindResult
+         (1 _ : model) ->
+         L IO {use = 1} (LPair (!* LrFindResult) model)
 lrFind {model} cfg epochFn dataSrc opt model0 = do
-  putStrLn $ "lr_find: sweeping LR from " ++ show cfg.lrMin
-           ++ " to " ++ show cfg.lrMax
-           ++ " over " ++ show cfg.numIters ++ " iters"
-  tStart <- clockTime Monotonic
-  result <- go 0 model0 0.0 (1.0 / 0.0) []
-  tEnd <- clockTime Monotonic
-  putStrLn $ "lr_find done in " ++ formatElapsed tStart tEnd
-  let curveFallback = isFallbackCurve (points result)
-      recBelowMin = recommendedLr result <= cfg.lrMin
-  when (curveFallback || recBelowMin) $
-    putStrLn "WARNING: fallback recommendation — no usefully-descending region in the swept curve (recommendation at or below lrMin)."
-  putStrLn $ "RECOMMENDED_LR=" ++ show (recommendedLr result)
-  pure result
-  where
-    -- (i, model, prevSmoothed, minSmoothed, accPoints) -> result
-    go : Nat -> model -> Double -> Double -> List (Double, Double) ->
-         IO LrFindResult
-    go i m prevSmoothed minSmoothed accRev =
-      if i >= cfg.numIters then
-        let pts = reverse accRev
-            rec = recommendFromCurve cfg.recommendDiv pts
-        in pure (MkLrFindResult pts rec)
-      else do
-        let lr = sweepLr cfg.lrMin cfg.lrMax cfg.numIters i
-        setLearningRate opt lr
-        d <- dataSrc
-        (m', loss) <- epochFn m d
-        let beta = cfg.smoothBeta
-            -- bias-corrected EMA: avoids the initial-bias toward zero
-            avg       = beta * prevSmoothed + (1.0 - beta) * loss
-            iD        = cast {to=Double} (cast {to=Integer} i)
-            corrected = avg / (1.0 - Prelude.pow beta (iD + 1.0))
-            minS'     = if corrected < minSmoothed then corrected else minSmoothed
-            point     = (lr, corrected)
-            accRev'   = point :: accRev
-        putStrLn $ "  iter\t" ++ show i ++ "\tlr\t" ++ show lr
-                 ++ "\tloss\t" ++ show loss
-                 ++ "\tsmoothed\t" ++ show corrected
-        let diverged = hasDiverged cfg.divergeFactor minS' corrected && i > 0
-        if diverged
-          then do
-            putStrLn $ "  (diverged at iter " ++ show i
-                     ++ ", smoothed=" ++ show corrected
-                     ++ " > min=" ++ show minS'
-                     ++ " + " ++ show (cfg.divergeFactor - 1.0)
-                     ++ "*|min|)"
-            let pts = reverse accRev'
-                rec = recommendFromCurve cfg.recommendDiv pts
-            pure (MkLrFindResult pts rec)
-          else go (i + 1) m' avg minS' accRev'
-
-||| Linear-resource (`L IO`) counterpart of `lrFind`: the model is threaded
-||| single-owner through the sweep (every iteration consumes the model via the
-||| linear `epochFn` and hands it back), so a stale-model reuse after the sweep
-||| is a compile-time error. Returns the result beside the (banged) final model;
-||| the caller `discardL`s it. Behaviour and stdout match `lrFind` exactly.
-export
-lrFindL : {0 ex : Executor} -> UserExecutorTraining ex =>
-          {0 model : Type} -> {0 dp : Type} ->
-          LrFindConfig ->
-          (epochFn : (1 _ : model) -> dp -> L IO {use = 1} (LPair (!* Double) model)) ->
-          (dataSrc : IO dp) ->
-          NativeOptimizer ex ->
-          (1 _ : model) ->
-          L IO {use = 1} (LPair (!* LrFindResult) model)
-lrFindL {model} cfg epochFn dataSrc opt model0 = do
   liftIO1 $ putStrLn $ "lr_find: sweeping LR from " ++ show cfg.lrMin
                      ++ " to " ++ show cfg.lrMax
                      ++ " over " ++ show cfg.numIters ++ " iters"

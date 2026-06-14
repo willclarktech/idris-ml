@@ -24,17 +24,13 @@ record Embedding (vocab : Nat) (embedDim : Nat) (0 ex : Executor) (0 dt : DType)
   constructor MkEmbedding
   weightT : TMat vocab embedDim ex dt g
 
+||| The lookup table `w` is the single ω param field.
 public export
 Params Embedding where
   params (MkEmbedding w)   = [toParam w]
+  reflect (MkEmbedding w)  = MkBang [toParam w] # MkEmbedding w
   castGrad (MkEmbedding w) = MkEmbedding (retypeGrad w)
-
-||| Linear-resource params. The lookup table `w` is the single ω param field.
-public export
-ParamsL Embedding where
-  reflectL (MkEmbedding w)  = MkBang [toParam w] # MkEmbedding w
-  castGradL (MkEmbedding w) = MkEmbedding (retypeGrad w)
-  discardL (MkEmbedding _)  = pure ()
+  discard (MkEmbedding _)  = pure ()
 
 ||| Lookup forward: `tokens : [seqLen]` (ids as doubles) → flattened
 ||| `[seqLen * embedDim]` embedding vectors. (Standalone, not a `Module`.)

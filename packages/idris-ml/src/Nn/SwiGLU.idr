@@ -26,18 +26,14 @@ record SwiGLU (hidden : Nat) (intermediate : Nat) (0 ex : Executor) (0 dt : DTyp
   upW   : Tensor [intermediate, hidden] ex dt g
   downW : Tensor [hidden, intermediate] ex dt g
 
+||| The three bias-free projections are the ω param fields (reflected +
+||| rebuilt).
 public export
 Params SwiGLU where
-  params (MkSwiGLU g u d)   = [toParam g, toParam u, toParam d]
+  params (MkSwiGLU g u d)    = [toParam g, toParam u, toParam d]
+  reflect (MkSwiGLU g u d)  = MkBang [toParam g, toParam u, toParam d] # MkSwiGLU g u d
   castGrad (MkSwiGLU g u d) = MkSwiGLU (retypeGrad g) (retypeGrad u) (retypeGrad d)
-
-||| Linear-resource params. The three bias-free projections are the ω param
-||| fields (reflected + rebuilt).
-public export
-ParamsL SwiGLU where
-  reflectL (MkSwiGLU g u d)  = MkBang [toParam g, toParam u, toParam d] # MkSwiGLU g u d
-  castGradL (MkSwiGLU g u d) = MkSwiGLU (retypeGrad g) (retypeGrad u) (retypeGrad d)
-  discardL (MkSwiGLU _ _ _)  = pure ()
+  discard (MkSwiGLU _ _ _)  = pure ()
 
 ||| 1-D SwiGLU forward: `down(silu(gate·x) * (up·x))`.
 export

@@ -44,41 +44,20 @@ data MaxPool2D :
               (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
               ex dt g
 
-public export
-{c, inH, inW, poolH, poolW, strH, strW : Nat} ->
-  Module (MaxPool2D c inH inW poolH poolW strH strW) where
-  forward MkMaxPool2D input = ioRerun (\_ =>
-    let bI    = cast {to=Int} b
-        cI    = cast {to=Int} c
-        hI    = cast {to=Int} inH
-        wI    = cast {to=Int} inW
-        inp4d = primReshape4d {ex} input.tensorPtr bI cI hI wI
-        outT  = primMaxPool2dBatched {ex} inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
-                                            (cast {to=Int} strH) (cast {to=Int} strW)
-        outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-        out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
-    in MkTensor out2d Nothing)
-
+||| Params (param-free pool — empty list, identity retype).
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
   Params (MaxPool2D c inH inW poolH poolW strH strW) where
-  params _             = []
+  params MkMaxPool2D   = []
+  reflect MkMaxPool2D  = MkBang [] # MkMaxPool2D
   castGrad MkMaxPool2D = MkMaxPool2D
+  discard MkMaxPool2D  = pure ()
 
-||| Linear-resource params (param-free pool — empty list, identity retype).
+||| `Module`. Batched-pool body sequenced through `ioRerunL`.
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
-  ParamsL (MaxPool2D c inH inW poolH poolW strH strW) where
-  reflectL MkMaxPool2D  = MkBang [] # MkMaxPool2D
-  castGradL MkMaxPool2D = MkMaxPool2D
-  discardL MkMaxPool2D  = pure ()
-
-||| Linear-resource `Module`. Same batched-pool body as the IO `forward`,
-||| sequenced through `ioRerunL`.
-public export
-{c, inH, inW, poolH, poolW, strH, strW : Nat} ->
-  ModuleL (MaxPool2D c inH inW poolH poolW strH strW) where
-  forwardL MkMaxPool2D input = do
+  Module (MaxPool2D c inH inW poolH poolW strH strW) where
+  forward MkMaxPool2D input = do
     y <- ioRerunL (\_ =>
       let bI      = cast {to=Int} b
           cI    = cast {to=Int} c
@@ -116,35 +95,18 @@ data MaxPool1D :
               (c * PoolOutDim len poolK str)
               ex dt g
 
-public export
-{c, len, poolK, str : Nat} -> Module (MaxPool1D c len poolK str) where
-  forward MkMaxPool1D input = ioRerun (\_ =>
-    let bI    = cast {to=Int} b
-        cI      = cast {to=Int} c
-        lenI    = cast {to=Int} len
-        inp4d   = primReshape4d {ex} input.tensorPtr bI cI 1 lenI
-        outT    = primMaxPool2dBatched {ex} inp4d 1 (cast {to=Int} poolK) 1 (cast {to=Int} str)
-        outFlat = c * PoolOutDim len poolK str
-        out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
-    in MkTensor out2d Nothing)
-
+||| Params (param-free pool — empty list, identity retype).
 public export
 {c, len, poolK, str : Nat} -> Params (MaxPool1D c len poolK str) where
-  params _             = []
+  params MkMaxPool1D   = []
+  reflect MkMaxPool1D  = MkBang [] # MkMaxPool1D
   castGrad MkMaxPool1D = MkMaxPool1D
+  discard MkMaxPool1D  = pure ()
 
-||| Linear-resource params (param-free pool — empty list, identity retype).
+||| `Module`. Unit-height batched-pool body sequenced through `ioRerunL`.
 public export
-{c, len, poolK, str : Nat} -> ParamsL (MaxPool1D c len poolK str) where
-  reflectL MkMaxPool1D  = MkBang [] # MkMaxPool1D
-  castGradL MkMaxPool1D = MkMaxPool1D
-  discardL MkMaxPool1D  = pure ()
-
-||| Linear-resource `Module`. Same unit-height batched-pool body as the IO
-||| `forward`, sequenced through `ioRerunL`.
-public export
-{c, len, poolK, str : Nat} -> ModuleL (MaxPool1D c len poolK str) where
-  forwardL MkMaxPool1D input = do
+{c, len, poolK, str : Nat} -> Module (MaxPool1D c len poolK str) where
+  forward MkMaxPool1D input = do
     y <- ioRerunL (\_ =>
       let bI      = cast {to=Int} b
           cI      = cast {to=Int} c

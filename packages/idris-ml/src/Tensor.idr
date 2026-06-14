@@ -2127,20 +2127,21 @@ nativeTrainStepScaled opt loss scale = ioRerun (\_ =>
   in primNativeTrainStepScaled {ex} opt.handle clipMode clipVal loss.tensorPtr scaledLossVal scale)
 
 ----------------------------------------------------------------------
--- Linear-resource (L IO) op surface
+-- `L IO` op surface (the `*L` tensor ops)
 --
--- The `L IO` twins of the smart constructors above, for the linear model
--- surface (`Nn.Module.ModuleL` / `Nn.Recurrent.RecurrentL`). They let
--- `forwardL` / `recurStepL` bodies sequence tensor ops directly in `L IO`
--- instead of wrapping each one in `liftIO1`. Built natively on `ioRerunL`
--- (the single lifting primitive), so there is no per-op `liftIO1` seam —
--- the only lift is centralized here. Tensors are *unrestricted* (reverse-
--- mode AD shares them), so these return `L IO` at the default
--- `use = Unrestricted`.
+-- The `L IO` twins of the smart constructors above, for the model surface
+-- (`Nn.Module.Module` / `Nn.Recurrent.Recurrent`). They let `forward` /
+-- `recurStep` bodies sequence tensor ops directly in `L IO` instead of
+-- wrapping each one in `liftIO1`. Built natively on `ioRerunL` (the single
+-- lifting primitive), so there is no per-op `liftIO1` seam — the only lift is
+-- centralized here. Tensors are *unrestricted* (reverse-mode AD shares them),
+-- so these return `L IO` at the default `use = Unrestricted`.
 --
--- Transitional: the `IO` twins above stay for the not-yet-migrated callers
--- (~120 files). The migration collapses this section (delete the `IO` op,
--- rename `*L` → base) once every consumer is on `L IO`.
+-- The `IO` twins above are kept (the dual op surface is permanent): tensors
+-- carry no single-owner footgun, so imperative `IO` callers — benchmarks,
+-- hand-written HF forwards, the mixed-precision `ModuleMixed` path — keep
+-- using the `IO` ops, while model `forward`/`recurStep` bodies use the `*L`
+-- ones. (Only the *model* surface collapsed to a single linear form.)
 ----------------------------------------------------------------------
 
 ||| Lift a pure (FFI-side-effecting) expression into `L IO`, re-evaluated on

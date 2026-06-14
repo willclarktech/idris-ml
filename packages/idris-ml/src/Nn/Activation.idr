@@ -29,32 +29,19 @@ public export
 data Activation : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkActivation : ActivationKind -> Activation n n ex dt g
 
-public export
-Module Activation where
-  forward (MkActivation ATanh)          x = ttanh x
-  forward (MkActivation ASigmoid)       x = tsigmoid x
-  forward (MkActivation ARelu)          x = trelu x
-  forward (MkActivation AGelu)          x = tgelu x
-  forward (MkActivation ASilu)          x = tsilu x
-  forward (MkActivation (ALeakyRelu s)) x = tleakyRelu s x
-
+||| Params (stateless — empty param list). The tag `k` is bound at its ω
+||| constructor quantity, so it feeds the rebuild.
 public export
 Params Activation where
-  params _                  = []
+  params (MkActivation k)   = []
+  reflect (MkActivation k)  = MkBang [] # MkActivation k
   castGrad (MkActivation k) = MkActivation k
+  discard (MkActivation _)  = pure ()
 
-||| Linear-resource params (stateless — empty param list). The tag `k` is
-||| bound at its ω constructor quantity, so it feeds the rebuild.
+||| `Module` — dispatches to the `L IO` activation ops.
 public export
-ParamsL Activation where
-  reflectL (MkActivation k)  = MkBang [] # MkActivation k
-  castGradL (MkActivation k) = MkActivation k
-  discardL (MkActivation _)  = pure ()
-
-||| Linear-resource `Module` — dispatches to the `L IO` activation ops.
-public export
-ModuleL Activation where
-  forwardL (MkActivation k) x = do
+Module Activation where
+  forward (MkActivation k) x = do
     y <- the (L IO (Tensor [b, o] ex dt g)) $ case k of
            ATanh          => ttanhL x
            ASigmoid       => tsigmoidL x

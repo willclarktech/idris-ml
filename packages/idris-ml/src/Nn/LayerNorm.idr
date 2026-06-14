@@ -21,29 +21,19 @@ public export
 data LayerNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkLayerNorm : TVec n ex dt g -> TVec n ex dt g -> LayerNorm n n ex dt g
 
-public export
-Module LayerNorm where
-  forward (MkLayerNorm gamma beta) x = ioRerun (\_ =>
-    MkTensor (primLayerNorm2d {ex} x.tensorPtr gamma.tensorPtr beta.tensorPtr 1.0e-5) Nothing)
-
+||| Params. `gamma`/`beta` are ω tensors: they feed the reflected param list
+||| and the rebuild.
 public export
 Params LayerNorm where
   params (MkLayerNorm gamma beta)   = [toParam gamma, toParam beta]
+  reflect (MkLayerNorm gamma beta)  = MkBang [toParam gamma, toParam beta] # MkLayerNorm gamma beta
   castGrad (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
+  discard (MkLayerNorm _ _)         = pure ()
 
-||| Linear-resource params. `gamma`/`beta` are ω tensors: they feed the
-||| reflected param list and the rebuild.
+||| `Module` — sequences the fused `L IO` layer-norm op directly.
 public export
-ParamsL LayerNorm where
-  reflectL (MkLayerNorm gamma beta)  = MkBang [toParam gamma, toParam beta] # MkLayerNorm gamma beta
-  castGradL (MkLayerNorm gamma beta) = MkLayerNorm (retypeGrad gamma) (retypeGrad beta)
-  discardL (MkLayerNorm _ _)         = pure ()
-
-||| Linear-resource `Module` — sequences the fused `L IO` layer-norm op
-||| directly.
-public export
-ModuleL LayerNorm where
-  forwardL (MkLayerNorm gamma beta) x = do
+Module LayerNorm where
+  forward (MkLayerNorm gamma beta) x = do
     y <- ioRerunL (\_ =>
       MkTensor (primLayerNorm2d {ex} x.tensorPtr gamma.tensorPtr beta.tensorPtr 1.0e-5) Nothing)
     pure1 (MkBang y # MkLayerNorm gamma beta)

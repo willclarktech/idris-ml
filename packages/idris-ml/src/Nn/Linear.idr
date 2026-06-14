@@ -34,32 +34,22 @@ record Linear (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMo
   weightT : Tensor [o, i] ex dt g
   biasT   : Tensor [o] ex dt g
 
-public export
-Module Linear where
-  -- Params and activation share `g`, so no `retypeGrad`: a `WithGrad` model
-  -- keeps the tape, a `NoGrad` model is genuinely tape-free.
-  forward (MkLinear w b) x = tlinear2d w x b
-
+||| Params. Pattern-matching `MkLinear` binds `w`/`b` at their ω
+||| constructor quantity, so they are free to be reflected *and* rebuild the
+||| record (the whole-model linearity obligation is discharged by the single
+||| match).
 public export
 Params Linear where
   params (MkLinear w b)   = [toParam w, toParam b]
+  reflect (MkLinear w b)  = MkBang [toParam w, toParam b] # MkLinear w b
   castGrad (MkLinear w b) = MkLinear (retypeGrad w) (retypeGrad b)
+  discard (MkLinear _ _)  = pure ()
 
-||| Linear-resource params. Pattern-matching `MkLinear` binds `w`/`b` at
-||| their ω constructor quantity, so they are free to be reflected *and*
-||| rebuild the record (the whole-model linearity obligation is discharged by
-||| the single match).
+||| `Module`. The output tensor is unrestricted, so it rides the linear
+||| return pair under the `(!*)` bang.
 public export
-ParamsL Linear where
-  reflectL (MkLinear w b)  = MkBang [toParam w, toParam b] # MkLinear w b
-  castGradL (MkLinear w b) = MkLinear (retypeGrad w) (retypeGrad b)
-  discardL (MkLinear _ _)  = pure ()
-
-||| Linear-resource `Module`. The output tensor is unrestricted, so it rides
-||| the linear return pair under the `(!*)` bang.
-public export
-ModuleL Linear where
-  forwardL (MkLinear w b) x = do
+Module Linear where
+  forward (MkLinear w b) x = do
     y <- tlinear2dL w x b
     pure1 (MkBang y # MkLinear w b)
 
