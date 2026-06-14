@@ -67,10 +67,10 @@ SeqLen = 32
 
 record Config where
   constructor MkConfig
-  lr        : Double
-  steps     : Nat   -- number of train batches (1 batch = 1 example here, batched stack = future row)
-  seed      : Bits64
-  maxStart  : Nat   -- corpus cap (0 = full)
+  lr       : Double
+  steps    : Nat   -- number of train batches (1 batch = 1 example here, batched stack = future row)
+  seed     : Bits64
+  maxStart : Nat   -- corpus cap (0 = full)
 
 defaultConfig : Config
 defaultConfig = MkConfig 5.0e-5 100 42 0

@@ -86,11 +86,11 @@ recurEpoch opt model seqs = do
 
 record Config where
   constructor MkConfig
-  lr : Double
-  epochs : Nat
-  patience : Nat
-  seed : Bits64
-  checkpointDir : String
+  lr              : Double
+  epochs          : Nat
+  patience        : Nat
+  seed            : Bits64
+  checkpointDir   : String
   checkpointEvery : Nat
 
 defaultConfig : Config

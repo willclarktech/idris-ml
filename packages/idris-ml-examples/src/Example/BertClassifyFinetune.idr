@@ -85,10 +85,10 @@ labelTokens = [11.0, 13.0, 17.0]
 
 record Config where
   constructor MkConfig
-  lr            : Double
-  epochs        : Nat
-  patience      : Nat
-  seed          : Bits64
+  lr             : Double
+  epochs         : Nat
+  patience       : Nat
+  seed           : Bits64
   freezeBackbone : Bool
 
 defaultConfig : Config

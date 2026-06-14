@@ -24,7 +24,7 @@ import Tensor
 public export
 record SequenceTask (i : Nat) (o : Nat) where
   constructor MkSequenceTask
-  name : String
+  name          : String
   generatePoint : (len : Nat) -> IO (RecurrentDataPoint i o Double)
 
 ----------------------------------------------------------------------

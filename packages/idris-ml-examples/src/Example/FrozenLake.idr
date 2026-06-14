@@ -20,9 +20,9 @@ import Train
 -- Env dimensions (slippery 4x4 FrozenLake)
 ----------------------------------------------------------------------
 
-NumStates : Nat; NumStates = 16
+NumStates  : Nat; NumStates = 16
 NumActions : Nat; NumActions = 4
-MaxSteps : Nat; MaxSteps = 100
+MaxSteps   : Nat; MaxSteps = 100
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -115,11 +115,11 @@ runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
 
 record Config where
   constructor MkConfig
-  alpha : Double
-  gamma : Double
+  alpha   : Double
+  gamma   : Double
   epsilon : Double
-  epochs : Nat
-  seed : Bits64
+  epochs  : Nat
+  seed    : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.1 0.99 0.3 10000 42
@@ -135,7 +135,7 @@ specs = [ Arg "--alpha" (\v, c => { alpha := cast v } c)
 record EpochInput where
   constructor MkEI
   envSeed : Bits64
-  noise : List Double
+  noise   : List Double
 
 epochQLearning : Config -> QTable -> EpochInput -> (QTable, Double)
 epochQLearning cfg q (MkEI envSeed noise) =

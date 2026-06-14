@@ -19,9 +19,9 @@ import Train
 -- Env dimensions (Taxi-v3, deterministic 5x5 grid)
 ----------------------------------------------------------------------
 
-NumStates : Nat; NumStates = 500
+NumStates  : Nat; NumStates = 500
 NumActions : Nat; NumActions = 6
-MaxSteps : Nat; MaxSteps = 200
+MaxSteps   : Nat; MaxSteps = 200
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -113,11 +113,11 @@ runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
 
 record Config where
   constructor MkConfig
-  alpha : Double
-  gamma : Double
+  alpha   : Double
+  gamma   : Double
   epsilon : Double
-  epochs : Nat
-  seed : Bits64
+  epochs  : Nat
+  seed    : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.1 0.99 0.1 20000 42

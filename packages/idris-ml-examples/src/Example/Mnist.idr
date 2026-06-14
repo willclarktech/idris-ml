@@ -122,11 +122,11 @@ evalAccuracy model (x, tgt) = do
 
 record Config where
   constructor MkConfig
-  lr : Double
-  epochs : Nat
-  patience : Nat
-  seed : Bits64
-  dataDir : String
+  lr         : Double
+  epochs     : Nat
+  patience   : Nat
+  seed       : Bits64
+  dataDir    : String
   trainCount : Nat   -- 0 = full dataset
 
 defaultConfig : Config

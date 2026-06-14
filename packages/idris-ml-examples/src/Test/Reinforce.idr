@@ -61,7 +61,7 @@ testParityN1 = do
   model <- mkModel
   let rs : List Double = fakeRandomness testMaxSteps
       states : VecEnv 1 CPState = MkVecEnv [initState]
-      rss : Vect 1 (List Double) = [rs]
+      rss    : Vect 1 (List Double) = [rs]
 
   seqSteps <- rolloutEp model initState rs testMaxSteps []
   batchSteps <- rolloutEpBatched model states rss testMaxSteps
@@ -79,7 +79,7 @@ testParityN2 = do
   let rs1 = fakeRandomness testMaxSteps
       rs2 = drop 3 (fakeRandomness (testMaxSteps + 3))
       states : VecEnv 2 CPState = MkVecEnv [initState, initState]
-      rss : Vect 2 (List Double) = [rs1, rs2]
+      rss    : Vect 2 (List Double) = [rs1, rs2]
 
   seq1 <- rolloutEp model initState rs1 testMaxSteps []
   seq2 <- rolloutEp model initState rs2 testMaxSteps []

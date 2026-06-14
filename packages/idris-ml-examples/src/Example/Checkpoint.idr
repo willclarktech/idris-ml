@@ -38,13 +38,13 @@ flatInputs = [1.5, -2.7, -3.2, 4.1, 5.7, 0.0, -1.3, 8.8, 2.9, -1.4]
 
 record Config where
   constructor MkConfig
-  mode : String
-  epochs : Nat
-  lr : Double
-  seed : Bits64
+  mode     : String
+  epochs   : Nat
+  lr       : Double
+  seed     : Bits64
   savePath : String
   loadPath : String
-  lrFind : Bool
+  lrFind   : Bool
 
 defaultConfig : Config
 defaultConfig = MkConfig "train" 500 0.03 123456 "" "" False

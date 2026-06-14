@@ -311,13 +311,13 @@ setLRAll opt lr = do
 
 record Config where
   constructor MkConfig
-  corpus : String
-  lr : Double
-  epochs : Nat
-  patience : Nat
-  seed : Bits64
-  lrFind : Bool
-  checkpointDir : String
+  corpus          : String
+  lr              : Double
+  epochs          : Nat
+  patience        : Nat
+  seed            : Bits64
+  lrFind          : Bool
+  checkpointDir   : String
   checkpointEvery : Nat
 
 defaultConfig : Config
@@ -376,7 +376,7 @@ main = do
   putStrLn ""
 
   let warmupEpochs : Nat = min 100 (div cfg.epochs 10)
-      minLR : Double = cfg.lr * 0.1
+      minLR    : Double = cfg.lr * 0.1
       schedule : Schedule = cosineWithWarmup cfg.lr minLR warmupEpochs cfg.epochs
   epochRef <- newIORef Z
 

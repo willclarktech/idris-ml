@@ -26,10 +26,10 @@ import BuildConfig
 --   Critic : 4 -> 64 -> tanh -> 64 -> tanh -> 1 (state value)
 ----------------------------------------------------------------------
 
-ObsDim : Nat; ObsDim = 4
-Hidden : Nat; Hidden = 64
+ObsDim     : Nat; ObsDim = 4
+Hidden     : Nat; Hidden = 64
 NumActions : Nat; NumActions = 2
-MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
+MaxSteps   : Nat; MaxSteps = cartPoleMaxSteps
 RolloutLen : Nat; RolloutLen = 20
 
 ||| Number of parallel envs run per a2cEpoch. Compile-time because the
@@ -72,11 +72,11 @@ obsTensor v = VArray (map SArray v)
 
 record RollStep where
   constructor MkRS
-  obs     : Vect ObsDim Double
-  action  : Nat
-  reward  : Double
-  value   : Double
-  isDone  : Bool
+  obs    : Vect ObsDim Double
+  action : Nat
+  reward : Double
+  value  : Double
+  isDone : Bool
 
 ----------------------------------------------------------------------
 -- Batched rollout (NumEnvs parallel envs, one batched forward per step)

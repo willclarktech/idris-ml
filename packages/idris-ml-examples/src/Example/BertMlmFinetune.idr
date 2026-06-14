@@ -82,10 +82,10 @@ MaskProb = 0.15
 
 record Config where
   constructor MkConfig
-  lr        : Double
-  steps     : Nat
-  seed      : Bits64
-  maxStart  : Nat
+  lr       : Double
+  steps    : Nat
+  seed     : Bits64
+  maxStart : Nat
 
 defaultConfig : Config
 defaultConfig = MkConfig 5.0e-5 100 42 0

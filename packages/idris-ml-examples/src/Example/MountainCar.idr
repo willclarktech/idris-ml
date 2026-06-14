@@ -28,10 +28,10 @@ import BuildConfig
 -- Architecture: MLP 2 -> 64 -> relu -> 64 -> relu -> 3.
 ----------------------------------------------------------------------
 
-ObsDim : Nat; ObsDim = 2
-Hidden : Nat; Hidden = 64
+ObsDim     : Nat; ObsDim = 2
+Hidden     : Nat; Hidden = 64
 NumActions : Nat; NumActions = 3
-MaxSteps : Nat; MaxSteps = 200
+MaxSteps   : Nat; MaxSteps = 200
 
 ||| Parallel envs collecting transitions in lockstep. Mirrors
 ||| `Example.Dqn.NumEnvs`. env-0 is the primary.
@@ -180,18 +180,18 @@ batchLossBatched n online target gamma batch = do
 
 record DqnState where
   constructor MkDqnState
-  qNet      : QNet
-  target    : QNet
-  buffer    : ReplayBuffer ObsDim 1
-  envsRef   : IORef (VecEnv NumEnvs MCState)
-  stepRef   : IORef Nat
-  cfgEpsStart : Double
-  cfgEpsEnd   : Double
-  cfgEpsDecay : Nat
+  qNet         : QNet
+  target       : QNet
+  buffer       : ReplayBuffer ObsDim 1
+  envsRef      : IORef (VecEnv NumEnvs MCState)
+  stepRef      : IORef Nat
+  cfgEpsStart  : Double
+  cfgEpsEnd    : Double
+  cfgEpsDecay  : Nat
   cfgSyncEvery : Nat
-  cfgBatch    : Nat
-  cfgGamma    : Double
-  cfgShaping  : Double  -- multiplier on |vel| reward bonus
+  cfgBatch     : Nat
+  cfgGamma     : Double
+  cfgShaping   : Double  -- multiplier on |vel| reward bonus
 
 ----------------------------------------------------------------------
 -- Episode rollout
@@ -294,18 +294,18 @@ runEpisodeBatched opt st0 = do
 
 record Config where
   constructor MkConfig
-  lr          : Double
-  epochs      : Nat
-  gamma       : Double
-  batchSize   : Nat
-  bufferCap   : Nat
-  targetSync  : Nat
-  epsStart    : Double
-  epsEnd      : Double
-  epsDecay    : Nat
-  shaping     : Double
-  seed        : Bits64
-  lrFind      : Bool
+  lr         : Double
+  epochs     : Nat
+  gamma      : Double
+  batchSize  : Nat
+  bufferCap  : Nat
+  targetSync : Nat
+  epsStart   : Double
+  epsEnd     : Double
+  epsDecay   : Nat
+  shaping    : Double
+  seed       : Bits64
+  lrFind     : Bool
 
 defaultConfig : Config
 defaultConfig =

@@ -154,18 +154,18 @@ bitAccuracy model batch = do
 
 record Config where
   constructor MkConfig
-  lr : Double
-  clipVal : Double
-  alpha : Double
-  momentum : Double
-  epochs : Nat
+  lr          : Double
+  clipVal     : Double
+  alpha       : Double
+  momentum    : Double
+  epochs      : Nat
   esThreshold : Double
-  esWindow : Nat
-  esPatience : Nat
-  seed : Bits64
-  minLen : Nat
-  maxLen : Nat
-  batch : Nat
+  esWindow    : Nat
+  esPatience  : Nat
+  seed        : Bits64
+  minLen      : Nat
+  maxLen      : Nat
+  batch       : Nat
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.0001 10.0 0.95 0.9 50000 0.01 1000 3 42 1 10 1

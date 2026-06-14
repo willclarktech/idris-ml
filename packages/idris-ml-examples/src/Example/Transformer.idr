@@ -145,12 +145,12 @@ countMatches xs ys = foldl (\acc, (a, b) => if a == b then acc + 1 else acc) 0 (
 
 record Config where
   constructor MkConfig
-  lr : Double
-  epochs : Nat
-  patience : Nat
-  seed : Bits64
-  lrFind : Bool
-  checkpointDir : String
+  lr              : Double
+  epochs          : Nat
+  patience        : Nat
+  seed            : Bits64
+  lrFind          : Bool
+  checkpointDir   : String
   checkpointEvery : Nat
 
 defaultConfig : Config

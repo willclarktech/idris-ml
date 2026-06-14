@@ -21,10 +21,10 @@ import BuildConfig
 -- Architecture: MLP 4 -> 64 -> relu -> 64 -> relu -> 2
 ----------------------------------------------------------------------
 
-ObsDim : Nat; ObsDim = 4
-Hidden : Nat; Hidden = 64
+ObsDim     : Nat; ObsDim = 4
+Hidden     : Nat; Hidden = 64
 NumActions : Nat; NumActions = 2
-MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
+MaxSteps   : Nat; MaxSteps = cartPoleMaxSteps
 
 ||| Parallel envs collecting transitions in lockstep. Mirrors PyTorch's
 ||| `gym.vector.SyncVectorEnv`. Env-0 is the "primary" (its episode
@@ -171,17 +171,17 @@ batchLossBatched n online target gamma batch = do
 
 record DqnState where
   constructor MkDqnState
-  qNet      : QNet
-  target    : QNet
-  buffer    : ReplayBuffer ObsDim 1
-  envsRef   : IORef (VecEnv NumEnvs CPState)
-  stepRef   : IORef Nat
-  cfgEpsStart : Double
-  cfgEpsEnd   : Double
-  cfgEpsDecay : Nat
+  qNet         : QNet
+  target       : QNet
+  buffer       : ReplayBuffer ObsDim 1
+  envsRef      : IORef (VecEnv NumEnvs CPState)
+  stepRef      : IORef Nat
+  cfgEpsStart  : Double
+  cfgEpsEnd    : Double
+  cfgEpsDecay  : Nat
   cfgSyncEvery : Nat
-  cfgBatch    : Nat
-  cfgGamma    : Double
+  cfgBatch     : Nat
+  cfgGamma     : Double
 
 ----------------------------------------------------------------------
 -- Episode rollout with DQN updates
@@ -279,17 +279,17 @@ runEpisodeBatched opt st0 = do
 
 record Config where
   constructor MkConfig
-  lr          : Double
-  epochs      : Nat
-  gamma       : Double
-  batchSize   : Nat
-  bufferCap   : Nat
-  targetSync  : Nat
-  epsStart    : Double
-  epsEnd      : Double
-  epsDecay    : Nat
-  seed        : Bits64
-  lrFind      : Bool
+  lr         : Double
+  epochs     : Nat
+  gamma      : Double
+  batchSize  : Nat
+  bufferCap  : Nat
+  targetSync : Nat
+  epsStart   : Double
+  epsEnd     : Double
+  epsDecay   : Nat
+  seed       : Bits64
+  lrFind     : Bool
 
 defaultConfig : Config
 defaultConfig = MkConfig 5.0e-4 300 0.99 64 10000 100 1.0 0.05 10000 42 False

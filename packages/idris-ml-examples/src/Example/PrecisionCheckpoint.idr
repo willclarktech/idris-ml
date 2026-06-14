@@ -58,12 +58,12 @@ flatInputs = [1.5, -2.7, -3.2, 4.1, 5.7, 0.0, -1.3, 8.8, 2.9, -1.4]
 
 record Config where
   constructor MkConfig
-  mode : String
-  path : String
+  mode   : String
+  path   : String
   expect : String        -- "pass" | "fail" | "" (no expectation)
   epochs : Nat
-  lr : Double
-  seed : Bits64
+  lr     : Double
+  seed   : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig "save" "" "" 50 0.03 123456

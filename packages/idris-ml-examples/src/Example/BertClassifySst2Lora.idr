@@ -82,15 +82,15 @@ PadId = 0
 
 record Config where
   constructor MkConfig
-  lr           : Double
-  epochs       : Nat
-  seed         : Bits64
-  maxTrain     : Nat
-  batchSize    : Nat
-  maxDev       : Nat
-  loraRank     : Nat
-  loraAlpha    : Double
-  saveAdapter  : String  -- "" means don't save
+  lr          : Double
+  epochs      : Nat
+  seed        : Bits64
+  maxTrain    : Nat
+  batchSize   : Nat
+  maxDev      : Nat
+  loraRank    : Nat
+  loraAlpha   : Double
+  saveAdapter : String  -- "" means don't save
 
 -- Defaults mirror peft tutorial recommendations for BERT-tiny:
 --   lr = 1e-4 (LoRA tolerates higher LR than full FT because only the

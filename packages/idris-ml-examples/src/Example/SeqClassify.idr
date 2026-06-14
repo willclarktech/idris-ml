@@ -133,10 +133,10 @@ nllLoss model (x, tgt) = do
 
 record Config where
   constructor MkConfig
-  lr : Double
-  epochs : Nat
+  lr       : Double
+  epochs   : Nat
   patience : Nat
-  seed : Bits64
+  seed     : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.001 1000 200 42

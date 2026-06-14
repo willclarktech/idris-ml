@@ -29,8 +29,8 @@ import BuildConfig
 -- Critic: Linear(6→64) → tanh → Linear(64→64) → tanh → Linear(64→1)
 ----------------------------------------------------------------------
 
-ObsDim : Nat; ObsDim = 6
-Hidden : Nat; Hidden = 64
+ObsDim     : Nat; ObsDim = 6
+Hidden     : Nat; Hidden = 64
 NumActions : Nat; NumActions = 3
 EpisodeLen : Nat; EpisodeLen = 500   -- Acrobot defaultTimeLimit
 
@@ -40,7 +40,7 @@ NumEnvs : Nat; NumEnvs = 4
 ||| Per-env rollout length. Total samples per ppoEpoch is
 ||| `NumEnvs * RolloutLen` (256 × 4 = 1024).
 RolloutLen : Nat; RolloutLen = 256
-BatchSize : Nat; BatchSize = 64
+BatchSize  : Nat; BatchSize = 64
 
 Actor : Type
 Actor = Seq ObsDim NumActions Ex F WithGrad

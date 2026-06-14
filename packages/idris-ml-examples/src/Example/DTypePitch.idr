@@ -103,11 +103,11 @@ floatingOK = ()
 integralOK : IsIntegral dt => ()
 integralOK = ()
 
-okFloatF32 : () ; okFloatF32 = floatingOK {dt = F32}
-okFloatF64 : () ; okFloatF64 = floatingOK {dt = F64}
+okFloatF32  : () ; okFloatF32 = floatingOK {dt = F32}
+okFloatF64  : () ; okFloatF64 = floatingOK {dt = F64}
 okFloatBF16 : () ; okFloatBF16 = floatingOK {dt = BF16}
-okIntI32 : () ; okIntI32 = integralOK {dt = I32}
-okIntU8  : () ; okIntU8  = integralOK {dt = U8}
+okIntI32    : () ; okIntI32 = integralOK {dt = I32}
+okIntU8     : () ; okIntU8  = integralOK {dt = U8}
 
 -- Uncomment any: "Can't find an implementation for IsFloating/IsIntegral …".
 -- This is the same rejection the gated ops enforce — the loss fns
