@@ -81,7 +81,8 @@ def main() -> int:
                     line = strip_comments(raw)
                     m = IMPORT.search(line) or IDENT.search(line)
                     if m:
-                        failures.append(f"{path}:{n}: legacy surface reference `{m.group(0).strip()}`")
+                        ref = m.group(0).strip()
+                        failures.append(f"{path}:{n}: legacy surface reference `{ref}`")
     if failures:
         for msg in failures:
             print(f"FAIL: {msg}", file=sys.stderr)
