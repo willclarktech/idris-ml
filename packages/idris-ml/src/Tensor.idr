@@ -2178,6 +2178,25 @@ tnllLossMeanL {b} {n} p t = ioRerunL (\_ =>
   let neg  = primNeg {ex} (primSum {ex} prod) in
   MkTensor (primMulScalar {ex} neg (1.0 / cast (b * n))) Nothing)
 
+||| `withNoGrad` for the linear (`L IO`) surface: bracket a linear action with
+||| the per-backend no-grad scope (push counter → run → drain → pop), threading
+||| the action's linear result through. The `L IO` counterpart of `withNoGrad`,
+||| used by linear eval / rollout loops that thread a `WithGrad` model through
+||| `recurStepL` / `forwardSeqL` but want tape-free, memory-hygienic forwards
+||| (essential on mlx per the per-sequence-withNoGrad note in CLAUDE.md). As
+||| with plain `withNoGrad`, the linear result must not carry live *intermediate*
+||| tensors created inside the bracket (registered params and scalar/Nat results
+||| survive; a freshly-created output tensor would be freed by the exit drain).
+export
+withNoGradL : {0 ex : Executor} -> UserExecutorTraining ex => {0 a : Type} ->
+              (1 act : LIO.L IO {use = 1} a) -> LIO.L IO {use = 1} a
+withNoGradL act = do
+  liftIO1 (primIO (primNoGradBegin {ex}))
+  result <- act
+  liftIO1 (do forceMajorGc; _ <- drainManagedHandles; pure ())
+  liftIO1 (primIO (primNoGradEnd {ex}))
+  pure1 result
+
 export
 tzeroState1dL : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> LIO.L IO (Tensor [n] ex dt g)
 tzeroState1dL {n} = ioRerunL (\_ =>
