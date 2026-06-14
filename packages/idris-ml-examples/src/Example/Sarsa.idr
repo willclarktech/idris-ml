@@ -1,27 +1,29 @@
 module Example.Sarsa
 
-import Data.Fin
 import Data.List
-import Data.Maybe
 import Data.Vect
+import Data.Fin
+import Data.Maybe
 import System
-
-import Array
-import BuildConfig
 import Compat.Random
-import Executor
+
 import Gym.Env
 import Gym.ToyText.CliffWalking
 import Math
+import Array
+import DataStream
+import Fit
 import Train
+import Executor
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Env dimensions
 ----------------------------------------------------------------------
 
-NumStates  : Nat; NumStates = 48
+NumStates : Nat; NumStates = 48
 NumActions : Nat; NumActions = 4
-MaxSteps   : Nat; MaxSteps = 100
+MaxSteps : Nat; MaxSteps = 100
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -121,11 +123,11 @@ runEpisode alpha gamma eps st q steps (u1 :: u2 :: rest) =
 
 record Config where
   constructor MkConfig
-  alpha   : Double
-  gamma   : Double
+  alpha : Double
+  gamma : Double
   epsilon : Double
-  epochs  : Nat
-  seed    : Bits64
+  epochs : Nat
+  seed : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.5 1.0 0.1 1000 42
@@ -189,12 +191,12 @@ main = do
   putStrLn ""
 
   metrics <- newRLMetricsState 100
-  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
+  (trained, epochsDone, _) <- fitCustom {ex=ExampleExecutor}
     (\m, d => do
        let (m', loss) = epochSarsa cfg m d
        recordReturn metrics (negate loss)
        pure (m', loss))
-    (genNoise (MaxSteps * 2 + 2))
+    (generate (genNoise (MaxSteps * 2 + 2)))
     ({ metrics := \_ => readRLMetrics "recent_100" metrics }
        (simpleConfig {model = QTable} cfg.epochs))
     zeroQ

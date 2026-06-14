@@ -1,28 +1,30 @@
 module Example.FrozenLake
 
-import Data.Fin
 import Data.List
-import Data.Maybe
 import Data.Vect
+import Data.Fin
+import Data.Maybe
 import System
-
-import Array
-import BuildConfig
 import Compat.Random
-import Executor
+
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.FrozenLake
 import Math
+import Array
+import DataStream
+import Fit
 import Train
+import Executor
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Env dimensions (slippery 4x4 FrozenLake)
 ----------------------------------------------------------------------
 
-NumStates  : Nat; NumStates = 16
+NumStates : Nat; NumStates = 16
 NumActions : Nat; NumActions = 4
-MaxSteps   : Nat; MaxSteps = 100
+MaxSteps : Nat; MaxSteps = 100
 
 ----------------------------------------------------------------------
 -- Q-table as a Array
@@ -115,11 +117,11 @@ runEpisode alpha gamma eps st q (S steps) (u1 :: u2 :: rest) =
 
 record Config where
   constructor MkConfig
-  alpha   : Double
-  gamma   : Double
+  alpha : Double
+  gamma : Double
   epsilon : Double
-  epochs  : Nat
-  seed    : Bits64
+  epochs : Nat
+  seed : Bits64
 
 defaultConfig : Config
 defaultConfig = MkConfig 0.1 0.99 0.3 10000 42
@@ -135,7 +137,7 @@ specs = [ Arg "--alpha" (\v, c => { alpha := cast v } c)
 record EpochInput where
   constructor MkEI
   envSeed : Bits64
-  noise   : List Double
+  noise : List Double
 
 epochQLearning : Config -> QTable -> EpochInput -> (QTable, Double)
 epochQLearning cfg q (MkEI envSeed noise) =
@@ -207,12 +209,12 @@ main = do
   let trainCfg : TrainConfig QTable
       trainCfg = mkTrainConfig cfg.epochs 1000 NoEarlyStop
                    (\_ => readRLMetrics "recent_1000" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
+  (trained, epochsDone, _) <- fitCustom {ex=ExampleExecutor}
     (\m, d => do
        let (m', loss) = epochQLearning cfg m d
        recordReturn metrics (negate loss)
        pure (m', loss))
-    genInput
+    (generate genInput)
     trainCfg zeroQ
 
   putStrLn ""
