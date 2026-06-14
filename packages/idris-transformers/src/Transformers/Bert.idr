@@ -22,7 +22,6 @@ import Data.Vect
 import Compat.Random
 import Executor
 import GradMode
-import Transformers.Common
 import Init
 import Nn.Embedding
 import Nn.LayerNorm
@@ -30,6 +29,7 @@ import Nn.Linear
 import Nn.Module
 import Sampler
 import Tensor
+import Transformers.Common
 
 ----------------------------------------------------------------------
 -- Config
@@ -267,10 +267,10 @@ record BertEmbeddingsState
         (vocab, hidden, maxPos, typeVocab : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertEmbeddings
-  wordEmb     : Embedding vocab hidden ex dt g
-  posEmb      : Embedding maxPos hidden ex dt g
-  typeEmb     : Embedding typeVocab hidden ex dt g
-  layerNorm   : LayerNorm hidden hidden ex dt g
+  wordEmb   : Embedding vocab hidden ex dt g
+  posEmb    : Embedding maxPos hidden ex dt g
+  typeEmb   : Embedding typeVocab hidden ex dt g
+  layerNorm : LayerNorm hidden hidden ex dt g
 
 public export
 record BertSelfAttentionState
@@ -307,10 +307,10 @@ record BertLayerState
         (hidden, intermediate : Nat)
         (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkBertLayer
-  selfAttn   : BertSelfAttentionState hidden ex dt g
-  selfOut    : BertSelfOutputState hidden ex dt g
-  intermed   : BertIntermediateState hidden intermediate ex dt g
-  output     : BertOutputState hidden intermediate ex dt g
+  selfAttn : BertSelfAttentionState hidden ex dt g
+  selfOut  : BertSelfOutputState hidden ex dt g
+  intermed : BertIntermediateState hidden intermediate ex dt g
+  output   : BertOutputState hidden intermediate ex dt g
 
 public export
 record BertPoolerState

@@ -21,15 +21,14 @@ import Data.List
 import Data.String
 import Data.Vect
 
-import Transformers.BitNet
-import Test.Harness
-import Test.Common
-
 import Executor
 import Executor.Core
-import Test.Config
 import Nn.RoPE
 import Tensor
+import Test.Common
+import Test.Config
+import Test.Harness
+import Transformers.BitNet
 
 ----------------------------------------------------------------------
 -- Reference catalogue

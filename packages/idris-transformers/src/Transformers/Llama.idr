@@ -54,14 +54,14 @@ import Data.Vect
 
 import Compat.Random
 import Executor
-import Transformers.Common
 import Init
-import Transformers.KVCache
 import Nn.Embedding
 import Nn.RmsNorm
 import Nn.RoPE
 import Sampler
 import Tensor
+import Transformers.Common
+import Transformers.KVCache
 
 ----------------------------------------------------------------------
 -- Config

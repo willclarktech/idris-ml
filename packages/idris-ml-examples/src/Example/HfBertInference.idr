@@ -34,10 +34,10 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Executor
 import Example.Common.HfInferenceHelper
-import Transformers.Bert
+import Executor
 import Tensor
+import Transformers.Bert
 import Transformers.Tokenizer
 import Util
 

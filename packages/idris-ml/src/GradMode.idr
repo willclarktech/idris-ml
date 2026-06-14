@@ -54,7 +54,7 @@ DecEq GradMode where
 public export
 data SGrad : GradMode -> Type where
   SWithGrad : SGrad WithGrad
-  SNoGrad : SGrad NoGrad
+  SNoGrad   : SGrad NoGrad
 
 ||| `KnownGrad g` supplies the `SGrad g` witness as an auto-implicit, so a
 ||| caller writes `hfFooModel {g = NoGrad} …` and resolution finds it — the

@@ -11,13 +11,13 @@
 ||| ships a tokenizer change upstream the asserts fire loudly.
 module Test.Tokenizer
 
+import Data.Fin
 import Data.List
 import Data.String
 import Data.Vect
-import Data.Fin
 
-import Transformers.Tokenizer
 import Test.Harness
+import Transformers.Tokenizer
 
 ----------------------------------------------------------------------
 -- Helpers

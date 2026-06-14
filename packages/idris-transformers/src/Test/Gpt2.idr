@@ -14,15 +14,14 @@ import Data.List
 import Data.String
 import Data.Vect
 
-import Transformers.Gpt2
-import Test.Harness
-import Test.Common
-
+import Array
 import Executor
 import Executor.Core
-import Test.Config
 import Tensor
-import Array
+import Test.Common
+import Test.Config
+import Test.Harness
+import Transformers.Gpt2
 
 ----------------------------------------------------------------------
 -- Reference catalogue (mirrors `sshleifer/tiny-gpt2`'s safetensors header)

@@ -15,14 +15,13 @@ import Data.List
 import Data.String
 import Data.Vect
 
-import Transformers.Llama
-import Test.Harness
-import Test.Common
-
 import Executor
 import Executor.Core
-import Test.Config
 import Tensor
+import Test.Common
+import Test.Config
+import Test.Harness
+import Transformers.Llama
 
 ----------------------------------------------------------------------
 -- Reference catalogue (mirrors `unsloth/Llama-3.2-1B`'s safetensors

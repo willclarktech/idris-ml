@@ -63,13 +63,13 @@ import Data.Vect
 import Checkpoint
 import Compat.Random
 import Executor
-import Transformers.Common
 import Init
 import Nn.Embedding
 import Nn.RmsNorm
 import Nn.RoPE
 import Sampler
 import Tensor
+import Transformers.Common
 
 ----------------------------------------------------------------------
 -- Config

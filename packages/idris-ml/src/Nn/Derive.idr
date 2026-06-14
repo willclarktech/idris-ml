@@ -25,16 +25,15 @@
 ||| nested composite).
 module Nn.Derive
 
-import public Nn.Module
-
 import Data.Vect
 
 import Executor
-import Tensor
-import Nn.Linear
-import Nn.LayerNorm
 import Nn.Embedding
+import Nn.LayerNorm
+import Nn.Linear
+import public Nn.Module
 import Nn.RmsNorm
+import Tensor
 
 %default total
 

@@ -2,8 +2,8 @@ module Test.Nn.RoPE
 
 import Data.Vect
 
-import Test.Harness
 import Nn.RoPE
+import Test.Harness
 
 -- Value-pin tests for the relocated `Nn.RoPE` free functions against the
 -- same Python oracle as `Test.RoPE` (which stays on `Layer.RoPE` until the

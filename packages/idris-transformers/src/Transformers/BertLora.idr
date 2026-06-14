@@ -37,9 +37,9 @@ import Data.Vect
 
 import Executor
 import Nn.Linear
+import Tensor
 import Transformers.Bert
 import Transformers.BertForClassification
-import Tensor
 
 ----------------------------------------------------------------------
 -- Adapter records

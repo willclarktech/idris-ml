@@ -1,16 +1,16 @@
 module Test.Main
 
-import Test.Harness
 import Test.Bert
 import Test.BertAttentionMask
 import Test.BertForClassification
 import Test.BertLoraInject
-import Test.LoraIO
 import Test.BitNet
 import Test.Dataset
 import Test.Gpt2
-import Test.Llama
+import Test.Harness
 import Test.KVCache
+import Test.Llama
+import Test.LoraIO
 import Test.Tokenizer
 
 main : IO ()

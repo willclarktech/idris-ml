@@ -34,12 +34,12 @@ import Data.Vect
 
 import Compat.Random
 import Executor
-import Transformers.Common
 import Init
 import Nn.Embedding
 import Nn.LayerNorm
 import Sampler
 import Tensor
+import Transformers.Common
 
 ----------------------------------------------------------------------
 -- Config

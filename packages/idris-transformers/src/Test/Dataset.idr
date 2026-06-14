@@ -11,8 +11,8 @@ module Test.Dataset
 import Data.List
 import Data.Vect
 
-import Transformers.Dataset
 import Test.Harness
+import Transformers.Dataset
 
 -- The fixture path resolves relative to where the test binary runs
 -- (`make test-unit-idris-transformers` invokes `./packages/idris-transformers/build/exec/idris-transformers-test`,
