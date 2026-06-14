@@ -13,7 +13,7 @@
 ||| matching `Symbol ":"` / `Symbol "="` / `Symbol "=>"` precisely picks out
 ||| the intended token and skips look-alikes, bracketed colons, etc.
 |||
-||| Scope of the `=` pass (see TODO "align `=` / `=>`"): aligns indented
+||| Scope of the `=` pass: aligns indented
 ||| binding groups (let / where / local defs) unconditionally, and top-level
 ||| multi-clause definitions only when the run shares one LHS head name —
 ||| unrelated top-level defs are left alone to avoid churn.
