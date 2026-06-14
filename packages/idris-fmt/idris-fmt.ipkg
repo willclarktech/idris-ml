@@ -1,0 +1,12 @@
+package idris-fmt
+
+sourcedir = "src"
+
+depends = base
+        , idris2
+
+modules = Main
+
+main = Main
+
+executable = idris-fmt
