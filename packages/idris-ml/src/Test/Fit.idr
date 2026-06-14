@@ -93,8 +93,11 @@ fitFullPassMultiStep = do
   let s3 = the (DataStream ()) (MkDataStream (pure ()) (Just 3))
   _ <- fitSupervised {ex=TestExecutor} opt (\_, () => tmul w w) s3 (simpleConfig 1) ()
   let v = tensorItem w
+  -- Tolerance 1e-6, not 1e-9: mlx's F64 accumulation lands at 1.02399993
+  -- (~7e-8 off) where tape/torch hit 1.024 exactly. The assertion only
+  -- needs to separate correct multi-step (1.024) from one-step (1.6).
   check ("fit full-pass runs epochLen steps/epoch (w 2.0 -> " ++ show v ++ " ~ 1.024)")
-        (abs (v - 1.024) < 1.0e-9)
+        (abs (v - 1.024) < 1.0e-6)
 
 export
 tests : List (IO Bool)
