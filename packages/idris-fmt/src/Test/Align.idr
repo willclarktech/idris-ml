@@ -1,9 +1,9 @@
 module Test.Align
 
-import Test.Harness
 import Format.Align
 import Format.Render
 import Format.Roundtrip
+import Test.Harness
 
 recIn : String
 recIn = "module M\n\nrecord R where\n  constructor MkR\n  a : Int\n  bb : Int\n"

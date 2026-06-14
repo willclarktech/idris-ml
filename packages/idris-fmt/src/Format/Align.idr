@@ -15,13 +15,13 @@
 ||| expressions.
 module Format.Align
 
-import Parser.Source
-import Parser.Lexer.Source
-import Libraries.Text.Bounded
-
 import Data.List
 import Data.Maybe
 import Data.String
+import Libraries.Text.Bounded
+
+import Parser.Lexer.Source
+import Parser.Source
 
 leadingSpaces : String -> Nat
 leadingSpaces s = length (takeWhile (== ' ') (unpack s))
