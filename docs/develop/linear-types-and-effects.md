@@ -240,8 +240,12 @@ interface impls. The linear surface mirrors that exactly: `attentionReflectL` /
 `attentionCastGradL` / `attentionDiscardL` / `attentionForwardL` are plain
 linear functions (same signatures as the interface methods would have, minus the
 dispatch), and the block's `ParamsL`/`ModuleL` splice them over the ω-bound
-`attn` field. Parameter-free free functions (`PosEncoding`, `RoPE`) need no
-linear surface at all — they hold no model resource.
+`attn` field. Parameter-free free functions (`PosEncoding`, `RoPE`) are not
+`Module`s — they hold no model resource (and RoPE's true signature, Q+K
+per-head + a position offset, can't pass through `Module.forward`) — but they
+*do* get `L IO` twins (`sinusoidalPEL`, `applyRopeL`, `applyRopeAllHeadsL`,
+thin `liftIO1` lifts of the IO versions) so a model `forward` can call them
+inline without a `liftIO1` seam, consistent with the `*L` tensor ops.
 
 ## Writing a gate test that fails for the *right* reason
 
@@ -530,7 +534,9 @@ merge at Phase 9).
 On the linear surface as of 2026-06-17: `LinearMixed` (the mixed-precision
 `ModuleMixed`/`ParamsMixed` family — a distinct kind with the `computeDt` slot;
 `forwardMixed` consumes-and-threads, `ParamsMixed` mirrors `Params`).
-Parameter-free `PosEncoding`/`RoPE` need none.
+Parameter-free `PosEncoding`/`RoPE` are free functions, not `Module`s, but
+expose `L IO` twins (`sinusoidalPEL`/`applyRopeL`/`applyRopeAllHeadsL`) for
+seam-free use inside a model `forward`.
 
 - `packages/idris-ml/src/Tensor.idr` — the additive `L IO` op surface
   (`ioRerunL` + `taddL`/`tlinearL`/`tlinear2dL`/`tzeroState1dL`/
