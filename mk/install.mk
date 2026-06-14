@@ -18,7 +18,7 @@
         install-examples install-test-harness install check-idris-ml \
         check-gym check-transformers check-idris check
 
-install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(BUILD)/.library-cache-stamp
+install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(MLCONFIG_IDR) $(BUILD)/.library-cache-stamp
 	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --install idris-ml.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-ml-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-ml-install.log; exit 1; }
 
 # Install gym to local prefix

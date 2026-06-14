@@ -60,6 +60,9 @@ modules = Compat.Random
         , Layer.RoPE
         , Layer.SwiGLU
         , Layer.Transformer
+        , ML
+        , ML.Config
+        , ML.Simple
         , Math
         , Nn
         , Nn.Activation

@@ -33,6 +33,7 @@ modules = Test.Main
         , Test.LoraLinear
         , Test.ManagedHandle
         , Test.Math
+        , Test.MlSimple
         , Test.Nn.Activation
         , Test.Nn.BatchNorm
         , Test.Nn.BitLinear

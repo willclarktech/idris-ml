@@ -19,6 +19,11 @@ packages/idris-ml/src/HwExecutors.idr
 packages/idris-ml/src/Test/Config.idr
 packages/idris-transformers/src/Test/Config.idr
 
+# Generated per-build from ML/Config.idr.in + the active PRIMARY × hw envs
+# (Makefile MLCONFIG_IDR rule). The `ML.Simple` (Ex, F) pin; template tracked,
+# generated file not.
+packages/idris-ml/src/ML/Config.idr
+
 build/
 build-cov/
 data/

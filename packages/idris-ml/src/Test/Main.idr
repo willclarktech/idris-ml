@@ -9,6 +9,7 @@ import Test.Fit
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
+import Test.MlSimple
 import Test.Nn.Activation
 import Test.Nn.BatchNorm
 import Test.Nn.BitLinear
@@ -82,6 +83,7 @@ main = runAll
   , ("GradMode",        Test.GradMode.tests)
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)
+  , ("MlSimple",        Test.MlSimple.tests)
   , ("Nn.Activation",   Test.Nn.Activation.tests)
   , ("Nn.BatchNorm",    Test.Nn.BatchNorm.tests)
   , ("Nn.BitLinear",    Test.Nn.BitLinear.tests)

@@ -372,7 +372,7 @@ test-coverage: test-coverage-gap-probe test-coverage-backend
 # complete). pack-built artifacts land in packages/idris-ml/build/
 # next to the ipkg; the libidrisml.dylib needs to ride alongside
 # the executable for the FFI to resolve at runtime.
-test-unit-idris-ml: backend $(TESTCONFIG_IDR) $(HWCONFIG_IDR) $(HWDEVICES_IDR)
+test-unit-idris-ml: backend $(TESTCONFIG_IDR) $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(MLCONFIG_IDR)
 	cd packages/idris-ml && pack --no-prompt build idris-ml-tests.ipkg
 	cp $(LIB) packages/idris-ml/build/exec/test_app/
 	./packages/idris-ml/build/exec/test

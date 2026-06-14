@@ -31,6 +31,14 @@ HWCONFIG_IN  := packages/idris-ml/src/HwConfig.idr.in
 HWDEVICES_IDR := packages/idris-ml/src/HwExecutors.idr
 HWDEVICES_IN  := packages/idris-ml/src/HwExecutors.idr.in
 
+# Generated library-side `(DefaultExecutor, DefaultDType)` cell — the
+# `ML.Simple` pin (`Ex`/`F`). Same one-cell sed trick as BuildConfig, but
+# lives in the core library so `import ML.Simple` works without depending on
+# the examples package. Keyed on the same tuple as BuildConfig; git-ignored,
+# regenerated each build.
+MLCONFIG_IDR := packages/idris-ml/src/ML/Config.idr
+MLCONFIG_IN  := packages/idris-ml/src/ML/Config.idr.in
+
 # Generated `TestExecutor` / `TestDType` for the Idris unit test suite. Same
 # template trick as BuildConfig (one cell, sed-substituted from the active
 # PRIMARY × hw-device envs); lives in the test sourcedir (now colocated
@@ -250,3 +258,24 @@ $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 	 } > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[HwExecutors] BACKEND=$(BACKEND) → builtinExecutors for: $(BACKEND_LIST)"
+
+# Library-side ML.Config cell — only the (executor, dtype) substitution
+# (no Machine/Hardware/Preset tags; this cell is just the `ML.Simple` pin).
+# Shares the BuildConfig key + stamp (same active tuple). The ETYPE/DTYPE
+# case mirrors the BuildConfig rule — keep in sync when adding a Preset.
+$(MLCONFIG_IDR): $(MLCONFIG_IN) $(BUILD)/.buildconfig-stamp
+	@case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
+		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
+		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
+		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
+		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
+		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
+		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+	esac; \
+	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
+	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
+	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	sed "s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g" $< > $@.tmp; \
+	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+	@echo "[ML.Config] PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → DefaultExecutor=$$(awk -F' = ' '/^DefaultExecutor = / { print $$2; exit }' $@) / DefaultDType=$$(awk -F' = ' '/^DefaultDType = / { print $$2; exit }' $@)"
