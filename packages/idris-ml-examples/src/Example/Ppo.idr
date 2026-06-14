@@ -1,6 +1,8 @@
 module Example.Ppo
 
+import Control.Linear.LIO
 import Data.IORef
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -8,6 +10,7 @@ import System
 import Array
 import BuildConfig
 import Compat.Random
+import FitL
 import Floating
 import Gym.ClassicControl.Acrobot
 import Gym.Env
@@ -18,6 +21,11 @@ import Math
 import RL.Gae
 import Sampler
 import Train
+
+-- Actor + critic are linear `SeqL`s; hide the IO `Nn.Seq` constructors.
+%hide Nn.Seq.Nil
+%hide Nn.Seq.(::)
+%hide Nn.Seq.(~~>)
 
 ----------------------------------------------------------------------
 -- Architecture: separate actor and critic MLPs with discrete-action
@@ -43,20 +51,20 @@ RolloutLen : Nat; RolloutLen = 256
 BatchSize  : Nat; BatchSize = 64
 
 Actor : Type
-Actor = Seq ObsDim NumActions Ex F WithGrad
+Actor = SeqL ObsDim NumActions Ex F WithGrad
 
 Critic : Type
-Critic = Seq ObsDim 1 Ex F WithGrad
+Critic = SeqL ObsDim 1 Ex F WithGrad
 
-mkActor : IO Actor
-mkActor = runInit $ scoped "actor" $ do
+mkActor : Init Actor
+mkActor = scoped "actor" $ do
   l1 <- linear {i=ObsDim} {o=Hidden}
   l2 <- linear {i=Hidden} {o=Hidden}
   l3 <- linear {i=Hidden} {o=NumActions}
   pure (l1 ~~> tanhA ~~> l2 ~~> tanhA ~~> l3 ~~> Nil)
 
-mkCritic : IO Critic
-mkCritic = runInit $ scoped "critic" $ do
+mkCritic : Init Critic
+mkCritic = scoped "critic" $ do
   l1 <- linear {i=ObsDim} {o=Hidden}
   l2 <- linear {i=Hidden} {o=Hidden}
   l3 <- linear {i=Hidden} {o=1}
@@ -89,12 +97,13 @@ record RollStep where
 -- Single-sample critic value (via [1, ObsDim] batched forward)
 ----------------------------------------------------------------------
 
-criticValue : Critic -> Vect ObsDim Double -> IO Double
-criticValue critic obs = do
-  let stateV = the (Tensor [1, ObsDim] Ex F WithGrad)
-                 (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)
-  outV <- forwardSeq {b=1} critic stateV
-  pure (primItem2d {ex=Ex} outV.tensorPtr 0 0)
+criticValueL : (1 _ : Critic) -> Vect ObsDim Double -> L IO {use = 1} (LPair (!* Double) Critic)
+criticValueL critic obs = do
+  stateV <- liftIO1 (ioRerun (\_ =>
+    the (Tensor [1, ObsDim] Ex F WithGrad)
+        (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)))
+  (MkBang outV # critic') <- forwardSeqL {b=1} critic stateV
+  pure1 (MkBang (primItem2d {ex=Ex} outV.tensorPtr 0 0) # critic')
 
 ----------------------------------------------------------------------
 -- Batched rollout (NumEnvs parallel envs, one batched forward per step)
@@ -150,32 +159,31 @@ mkRollSteps (o :: os) (a :: as) (lp :: lps) (v :: vs) (r :: rs) (d :: ds) =
 ||| Batched per-env rollout. Each env steps RolloutLen times in lockstep;
 ||| one batched (actor, critic) forward per timestep. Threads per-env
 ||| stepsLeft for truncation. Done envs auto-reset.
-rolloutBatched : {n : Nat} -> Actor -> Critic ->
-                 VecEnv n AState -> Vect n Nat -> Nat ->
-                 IO (Vect n (List RollStep), VecEnv n AState, Vect n Nat)
-rolloutBatched actor critic v0 sl0 rolloutLen = do
-  (envs', sls', stepLists) <- go rolloutLen v0.envs sl0 (replicate n [])
-  pure (map reverse stepLists, MkVecEnv envs', sls')
+rolloutBatchedL : {n : Nat} -> (1 _ : Actor) -> (1 _ : Critic) ->
+                  VecEnv n AState -> Vect n Nat -> Nat ->
+                  L IO {use = 1} (LPair (!* (Vect n (List RollStep), VecEnv n AState, Vect n Nat))
+                                       (LPair Actor Critic))
+rolloutBatchedL actor critic v0 sl0 rolloutLen = do
+  (MkBang (envs', sls', stepLists) # (actor' # critic')) <- go rolloutLen actor critic v0.envs sl0 (replicate n [])
+  pure1 (MkBang (map reverse stepLists, MkVecEnv envs', sls') # (actor' # critic'))
   where
     mapIdx : (Nat -> a -> b) -> Vect k a -> Vect k b
     mapIdx _ []        = []
     mapIdx f (x :: xs) = f 0 x :: mapIdx (\i, v => f (S i) v) xs
 
-    go : Nat -> Vect n AState -> Vect n Nat -> Vect n (List RollStep) ->
-         IO (Vect n AState, Vect n Nat, Vect n (List RollStep))
-    go Z envs sls accs     = pure (envs, sls, accs)
-    go (S k) envs sls accs = withNoGrad {ex=Ex} $ do
+    go : Nat -> (1 _ : Actor) -> (1 _ : Critic) -> Vect n AState -> Vect n Nat -> Vect n (List RollStep) ->
+         L IO {use = 1} (LPair (!* (Vect n AState, Vect n Nat, Vect n (List RollStep))) (LPair Actor Critic))
+    go Z actor critic envs sls accs     = pure1 (MkBang (envs, sls, accs) # (actor # critic))
+    go (S k) actor critic envs sls accs = withNoGradL {ex=Ex} $ do
       -- Per-step no-grad bracket: free this step's forward intermediates.
-      let obsRows : Vect n (Vector ObsDim Double)
-          obsRows  = map (\s => obsTensor (observeVec s)) envs
-          batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
-          stateV : Tensor [n, ObsDim] Ex F WithGrad
-          stateV = MkTensor batchPtr Nothing
-      logitsV <- forwardSeq {b=n} actor stateV
+      stateV <- liftIO1 (ioRerun (\_ =>
+        the (Tensor [n, ObsDim] Ex F WithGrad)
+            (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\s => obsTensor (observeVec s)) envs)) Nothing)))
+      (MkBang logitsV # actor') <- forwardSeqL {b=n} actor stateV
       let logProbsV = the (Tensor [n, NumActions] Ex F WithGrad)
                         (MkTensor (primLogSoftmax2d {ex=Ex} logitsV.tensorPtr) Nothing)
-      valuesV <- forwardSeq {b=n} critic stateV
-      (acts, lps) <- sampleActionFromBatch logProbsV envs
+      (MkBang valuesV # critic') <- forwardSeqL {b=n} critic stateV
+      (acts, lps) <- liftIO1 (sampleActionFromBatch logProbsV envs)
       let valueRows : Vect n Double
           valueRows = mapIdx (\i, _ => primItem2d {ex=Ex} valuesV.tensorPtr (cast i) 0) envs
           obsVects : Vect n (Vect ObsDim Double)
@@ -184,21 +192,20 @@ rolloutBatched actor critic v0 sl0 rolloutLen = do
         (envs', rewards, dones, sls') =>
           let newSteps = mkRollSteps obsVects acts lps valueRows rewards dones
               accs' = zipWith (\acc, s => s :: acc) accs newSteps
-          in go k envs' sls' accs'
+          in go k actor' critic' envs' sls' accs'
 
 ----------------------------------------------------------------------
 -- GAE + advantage normalization
 ----------------------------------------------------------------------
 
-bootstrapV : Critic -> Vect ObsDim Double -> IO Double
-bootstrapV critic obs = criticValue critic obs
-
-computeBootstrap : Critic -> List RollStep -> AState -> IO Double
-computeBootstrap _ [] _               = pure 0.0
-computeBootstrap critic steps finalSt =
+computeBootstrapL : (1 _ : Critic) -> List RollStep -> AState ->
+                    L IO {use = 1} (LPair (!* Double) Critic)
+computeBootstrapL critic [] _          = pure1 (MkBang 0.0 # critic)
+computeBootstrapL critic steps finalSt =
   case last' steps of
-    Nothing => pure 0.0
-    Just ls => if ls.isDone then pure 0.0 else bootstrapV critic (observeVec finalSt)
+    Nothing => pure1 (MkBang 0.0 # critic)
+    Just ls => if ls.isDone then pure1 (MkBang 0.0 # critic)
+                            else criticValueL critic (observeVec finalSt)
 
 stepTriple : RollStep -> (Double, Double, Bool)
 stepTriple s = (s.reward, s.value, s.isDone)
@@ -326,32 +333,35 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
 
+-- Actor + critic are **linear** fields; the env / steps-left IORefs are ω.
 record PPOState where
   constructor MkPPO
-  actor    : Actor
-  critic   : Critic
+  1 actor  : Actor
+  1 critic : Critic
   envRef   : IORef (VecEnv NumEnvs AState)
   stepsRef : IORef (Vect NumEnvs Nat)
 
--- Per-env bootstrap: critic value at each env's final state, zeroed for
--- envs whose last step terminated.
-computeBootstrapsBatched : Critic -> Vect n (List RollStep) -> VecEnv n AState ->
-                           IO (Vect n Double)
-computeBootstrapsBatched critic stepLists v = batchOver stepLists v.envs
+-- Per-env bootstrap: critic value at each env's final state, threading the
+-- (linear) critic across envs.
+computeBootstrapsBatchedL : (1 _ : Critic) -> Vect n (List RollStep) -> VecEnv n AState ->
+                            L IO {use = 1} (LPair (!* (Vect n Double)) Critic)
+computeBootstrapsBatchedL critic stepLists v = batchOver critic stepLists v.envs
   where
-    batchOver : Vect k (List RollStep) -> Vect k AState -> IO (Vect k Double)
-    batchOver [] []                     = pure []
-    batchOver (steps :: rest) (s :: ss) = do
-      b <- computeBootstrap critic steps s
-      bs <- batchOver rest ss
-      pure (b :: bs)
+    batchOver : (1 _ : Critic) -> Vect k (List RollStep) -> Vect k AState ->
+                L IO {use = 1} (LPair (!* (Vect k Double)) Critic)
+    batchOver critic [] []                     = pure1 (MkBang [] # critic)
+    batchOver critic (steps :: rest) (s :: ss) = do
+      (MkBang b # critic') <- computeBootstrapL critic steps s
+      (MkBang bs # critic'') <- batchOver critic' rest ss
+      pure1 (MkBang (b :: bs) # critic'')
 
 -- Batched prepareRollout: per-env GAE → concat → normalize advantages
--- across the whole flat batch.
-prepareRolloutBatched : Critic -> Config -> Vect n (List RollStep) ->
-                        VecEnv n AState -> IO (List (RollStep, Double, Double))
-prepareRolloutBatched critic cfg stepLists finalEnvs = do
-  bootstraps <- computeBootstrapsBatched critic stepLists finalEnvs
+-- across the whole flat batch. Threads the critic (bootstrap forwards).
+prepareRolloutBatchedL : (1 _ : Critic) -> Config -> Vect n (List RollStep) ->
+                         VecEnv n AState ->
+                         L IO {use = 1} (LPair (!* (List (RollStep, Double, Double))) Critic)
+prepareRolloutBatchedL critic cfg stepLists finalEnvs = do
+  (MkBang bootstraps # critic') <- computeBootstrapsBatchedL critic stepLists finalEnvs
   let mergedPerEnv : Vect n (List (RollStep, Double, Double))
       mergedPerEnv = zipWith
         (\steps, boot =>
@@ -360,28 +370,28 @@ prepareRolloutBatched critic cfg stepLists finalEnvs = do
           in map flattenTriple (zip steps gaeOut))
         stepLists bootstraps
       flatMerged = concat (toList mergedPerEnv)
-  pure (normAdvs flatMerged)
+  pure1 (MkBang (normAdvs flatMerged) # critic')
 
 -- Stack mini-batch obs into [B, ObsDim], one batched actor + critic
 -- forward each, then per-sample loss expressions indexed into the
 -- [B, NumActions] / [B, 1] tensors. One Adam steps both nets.
-runBatch : Optimizer Ex -> Actor -> Critic -> Config ->
-           List (RollStep, Double, Double) -> IO ()
-runBatch opt actor critic cfg batch = withGenFree {ex=Ex} $ do
-  -- Per-minibatch generation bracket: free this update's grad
-  -- intermediates immediately (PPO runs K epochs × minibatches).
+runBatchL : Optimizer Ex -> (1 _ : Actor) -> (1 _ : Critic) -> Config ->
+            List (RollStep, Double, Double) -> L IO {use = 1} (LPair Actor Critic)
+runBatchL opt actor critic cfg batch = withGenFreeL {ex=Ex} $ do
+  -- Per-minibatch generation bracket: free this update's grad intermediates.
   let batchVec = Data.Vect.fromList batch
       n        = length batch
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
-      stackedT = bulkToTensor2d {ex=Ex} {dt=F} obsBatch
-      stackedV = the (Tensor [n, ObsDim] Ex F WithGrad) (MkTensor stackedT Nothing)
-  logitsB <- forwardSeq {b=n} actor stackedV
-  valueB  <- forwardSeq {b=n} critic stackedV
-  losses <- enumeratedLosses logitsB valueB batchVec 0
-  loss <- meanScalarLoss n losses
-  _ <- nativeTrainStep opt loss
-  pure ()
+  stackedV <- liftIO1 (ioRerun (\_ =>
+    the (Tensor [n, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} obsBatch) Nothing)))
+  (MkBang logitsB # actor') <- forwardSeqL {b=n} actor stackedV
+  (MkBang valueB # critic') <- forwardSeqL {b=n} critic stackedV
+  loss <- liftIO1 $ do
+            losses <- enumeratedLosses logitsB valueB batchVec 0
+            meanScalarLoss n losses
+  _ <- liftIO1 (nativeTrainStep opt loss)
+  pure1 (actor' # critic')
   where
     enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] Ex F WithGrad ->
                        Tensor [n, 1] Ex F WithGrad ->
@@ -393,38 +403,34 @@ runBatch opt actor critic cfg batch = withGenFree {ex=Ex} $ do
       ls <- enumeratedLosses lB vB rest (k + 1)
       pure (l :: ls)
 
--- Iterate runBatch over mini-batches via do-block recursion (NOT
--- traverse_, whose `*>` desugaring crashes mlx after a tape reset).
-runBatches : Optimizer Ex -> Actor -> Critic -> Config ->
-             List (List (RollStep, Double, Double)) -> IO ()
-runBatches _ _ _ _ []                       = pure ()
-runBatches opt actor critic cfg (b :: rest) = do
-  runBatch opt actor critic cfg b
-  runBatches opt actor critic cfg rest
+-- Iterate runBatchL over mini-batches, threading both nets.
+runBatchesL : Optimizer Ex -> (1 _ : Actor) -> (1 _ : Critic) -> Config ->
+              List (List (RollStep, Double, Double)) -> L IO {use = 1} (LPair Actor Critic)
+runBatchesL _ actor critic _ []              = pure1 (actor # critic)
+runBatchesL opt actor critic cfg (b :: rest) = do
+  (actor' # critic') <- runBatchL opt actor critic cfg b
+  runBatchesL opt actor' critic' cfg rest
 
-kEpochUpdate : Optimizer Ex -> Actor -> Critic -> Config ->
-               List (RollStep, Double, Double) -> Nat -> IO ()
-kEpochUpdate _ _ _ _ _ Z                        = pure ()
-kEpochUpdate opt actor critic cfg prepped (S k) = do
-  shuffled <- shuffleIO prepped
+kEpochUpdateL : Optimizer Ex -> (1 _ : Actor) -> (1 _ : Critic) -> Config ->
+                List (RollStep, Double, Double) -> Nat -> L IO {use = 1} (LPair Actor Critic)
+kEpochUpdateL _ actor critic _ _ Z               = pure1 (actor # critic)
+kEpochUpdateL opt actor critic cfg prepped (S k) = do
+  shuffled <- liftIO1 (shuffleIO prepped)
   let batches = chunksOf BatchSize shuffled
-  runBatches opt actor critic cfg batches
-  kEpochUpdate opt actor critic cfg prepped k
+  (actor' # critic') <- runBatchesL opt actor critic cfg batches
+  kEpochUpdateL opt actor' critic' cfg prepped k
 
-ppoEpoch : Optimizer Ex -> Config -> PPOState -> IO (PPOState, Double)
-ppoEpoch opt cfg st = do
-  startEnvs <- readIORef st.envRef
-  startSls  <- readIORef st.stepsRef
-  rolled <- rolloutBatched st.actor st.critic startEnvs startSls RolloutLen
-  let stepLists = fst rolled
-      finalEnvs = fst (snd rolled)
-      finalSls  = snd (snd rolled)
-  writeIORef st.envRef finalEnvs
-  writeIORef st.stepsRef finalSls
-
-  prepped <- withNoGrad {ex=Ex} (prepareRolloutBatched st.critic cfg stepLists finalEnvs)
-  kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
-
+ppoEpochL : Optimizer Ex -> Config -> (1 _ : PPOState) -> L IO {use = 1} (LPair (!* Double) PPOState)
+ppoEpochL opt cfg (MkPPO actor critic envRef stepsRef) = do
+  startEnvs <- liftIO1 (readIORef envRef)
+  startSls  <- liftIO1 (readIORef stepsRef)
+  (MkBang (stepLists, finalEnvs, finalSls) # (actor' # critic')) <-
+    rolloutBatchedL actor critic startEnvs startSls RolloutLen
+  liftIO1 (writeIORef envRef finalEnvs)
+  liftIO1 (writeIORef stepsRef finalSls)
+  (MkBang prepped # critic'') <-
+    withNoGradL {ex=Ex} (prepareRolloutBatchedL critic' cfg stepLists finalEnvs)
+  (actor'' # critic''') <- kEpochUpdateL opt actor' critic'' cfg prepped cfg.kEpochs
   let allReturns = concat (toList (map computeEpisodeReturns stepLists))
       nEp    = length allReturns
       sumEp  = sum allReturns
@@ -432,7 +438,7 @@ ppoEpoch opt cfg st = do
       avgEp  = if nEp > 0
               then sumEp / cast (natToInteger nEp)
               else sumRew / cast (natToInteger NumEnvs)
-  pure (st, negate avgEp)
+  pure1 (MkBang (negate avgEp) # MkPPO actor'' critic''' envRef stepsRef)
   where
     computeEpisodeReturns : List RollStep -> List Double
     computeEpisodeReturns = go 0.0 []
@@ -448,33 +454,70 @@ ppoEpoch opt cfg st = do
 -- Greedy evaluation
 ----------------------------------------------------------------------
 
-greedyAct : Actor -> Vect ObsDim Double -> IO Nat
-greedyAct actor obs = do
-  let stateV = the (Tensor [1, ObsDim] Ex F WithGrad)
-                 (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)
-  logits <- forwardSeq {b=1} actor stateV
+greedyActL : (1 _ : Actor) -> Vect ObsDim Double -> L IO {use = 1} (LPair (!* Nat) Actor)
+greedyActL actor obs = do
+  stateV <- liftIO1 (ioRerun (\_ =>
+    the (Tensor [1, ObsDim] Ex F WithGrad)
+        (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)))
+  (MkBang logits # actor') <- forwardSeqL {b=1} actor stateV
   let l0 = primItem2d {ex=Ex} logits.tensorPtr 0 0
       l1 = primItem2d {ex=Ex} logits.tensorPtr 0 1
       l2 = primItem2d {ex=Ex} logits.tensorPtr 0 2
-  pure (if l0 >= l1 && l0 >= l2 then 0
-        else if l1 >= l2 then 1
-        else 2)
+  pure1 (MkBang (if l0 >= l1 && l0 >= l2 then the Nat 0
+                 else if l1 >= l2 then 1
+                 else 2) # actor')
 
-evalEp : Actor -> AState -> Nat -> Double -> IO Double
-evalEp _ _ Z acc          = pure acc
-evalEp actor st (S k) acc = do
-  a <- greedyAct actor (observeVec st)
+evalEpL : (1 _ : Actor) -> AState -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Actor)
+evalEpL actor _ Z acc      = pure1 (MkBang acc # actor)
+evalEpL actor st (S k) acc = do
+  (MkBang a # actor') <- greedyActL actor (observeVec st)
   case aStep st a of
     (r, st', outcome, _) =>
       case outcome of
-        Terminated => pure (acc + r)
-        _          => evalEp actor st' k (acc + r)
+        Terminated => pure1 (MkBang (acc + r) # actor')
+        _          => evalEpL actor' st' k (acc + r)
 
-evalN : Actor -> Nat -> Double -> IO Double
-evalN _ Z acc         = pure acc
-evalN actor (S k) acc = do
-  v <- evalEp actor (MkA 0.0 0.0 0.0 0.0) EpisodeLen 0.0
-  evalN actor k (acc + v)
+evalNL : (1 _ : Actor) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Actor)
+evalNL actor Z acc     = pure1 (MkBang acc # actor)
+evalNL actor (S k) acc = do
+  (MkBang v # actor') <- evalEpL actor (MkA 0.0 0.0 0.0 0.0) EpisodeLen 0.0
+  evalNL actor' k (acc + v)
+
+----------------------------------------------------------------------
+-- State construction / eval / discard (linear)
+----------------------------------------------------------------------
+
+buildStateL : L IO {use = 1} PPOState
+buildStateL = do
+  actor  <- runInitL mkActor
+  critic <- runInitL mkCritic
+  resetSeedI <- liftIO1 randomInt32
+  let initEnvs : VecEnv NumEnvs AState
+      initEnvs = fst (resetAll {state=AState} {action=Nat} {obs=Vect 6 Double}
+                              (cast resetSeedI))
+  envRef   <- liftIO1 (newIORef initEnvs)
+  stepsRef <- liftIO1 (newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs EpisodeLen)))
+  pure1 (MkPPO actor critic envRef stepsRef)
+
+discardStateL : (1 _ : PPOState) -> L IO ()
+discardStateL (MkPPO actor critic _ _) = do
+  discardL actor
+  discardL critic
+
+finalReportL : Config -> Nat -> (1 _ : PPOState) -> L IO ()
+finalReportL cfg epochsDone (MkPPO actor critic _ _) = do
+  let nEval = the Nat 20
+  (MkBang evalSum # actor') <- withNoGradL {ex=Ex} (evalNL actor nEval 0.0)
+  discardL actor'
+  discardL critic
+  liftIO1 $ do
+    let avgReturn = evalSum / cast (natToInteger nEval)
+    putStrLn ""
+    putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
+    putStrLn ""
+    putStrLn $ formatResult [("avg_return", show avgReturn),
+                              ("epochs", show epochsDone),
+                              ("seed", show cfg.seed)]
 
 ----------------------------------------------------------------------
 -- Main
@@ -502,48 +545,32 @@ main = do
            ++ " entropy=" ++ show cfg.entropyCoef
            ++ " seed=" ++ show cfg.seed
 
-  actor  <- mkActor
-  critic <- mkCritic
-  resetSeedI <- randomInt32
-  let initEnvs : VecEnv NumEnvs AState
-      initEnvs = fst (resetAll {state=AState} {action=Nat} {obs=Vect 6 Double}
-                              (cast resetSeedI))
-  envRef   <- newIORef initEnvs
-  stepsRef <- newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs EpisodeLen))
-  let st0 = MkPPO actor critic envRef stepsRef
-  -- Single Adam over both actor + critic (all params registered).
-  opt <- adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts)
-
   putStrLn ""
 
-  when cfg.lrFind $ do
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 30 } defaultLrFindConfig
-    _ <- lrFind lrCfg
-      (\s, _ => ppoEpoch opt cfg s)
-      (pure ()) opt st0
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  metrics <- newRLMetricsState 50
-  let trainCfg : TrainConfig PPOState
-      trainCfg = mkTrainConfig cfg.epochs 10 NoEarlyStop
-                   (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- fit {batch = ()}
-    (\s, _ => do
-       (s', loss) <- ppoEpoch opt cfg s
-       recordReturn metrics (negate loss)
-       pure (s', loss))
-    opt (generate (pure ()))
-    trainCfg st0
-
-  putStrLn ""
-  let nEval = the Nat 20
-  evalSum <- withNoGrad {ex=Ex} (evalN trained.actor nEval 0.0)
-  let avgReturn = evalSum / cast (natToInteger nEval)
-  putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
-  putStrLn ""
-  putStrLn $ formatResult [("avg_return", show avgReturn),
-                            ("epochs", show epochsDone),
-                            ("seed", show cfg.seed)]
+  if cfg.lrFind
+    then Control.Linear.LIO.run $ do
+      st0 <- buildStateL
+      opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
+      let lrCfg : LrFindConfig
+          lrCfg = { numIters := 30 } defaultLrFindConfig
+      (MkBang _ # st') <- lrFindL lrCfg (\s, _ => ppoEpochL opt cfg s) (pure ()) opt st0
+      discardStateL st'
+      liftIO1 $ do
+        putStrLn ""
+        putStrLn "Done — re-run without --lr-find at the recommended LR."
+    else Control.Linear.LIO.run $ do
+      st0 <- buildStateL
+      -- Single Adam over both actor + critic (all params registered).
+      opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
+      metrics <- liftIO1 (newRLMetricsState 50)
+      let trainCfg : TrainConfig PPOState
+          trainCfg = { metricsL := readRLMetrics "recent_50" metrics }
+                       (mkTrainConfig cfg.epochs 10 NoEarlyStop
+                          (const (pure (the (List (String, String)) []))) (\_ => pure ()))
+      (MkBang (epochsDone, _) # trained) <- fitL {batch = ()}
+        (\s, _ => do
+           (MkBang loss # s') <- ppoEpochL opt cfg s
+           dd <- liftIO1 (do recordReturn metrics (negate loss); pure loss)
+           pure1 (MkBang dd # s'))
+        opt (generate (pure ())) trainCfg st0
+      finalReportL cfg epochsDone trained
