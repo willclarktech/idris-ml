@@ -33,4 +33,19 @@ tests =
         "xs : List Nat\nys = 1 :: 2 :: []\n"
   , check "alignment output passes the round-trip oracle" $
       safeReformat recIn (format recIn)
+  -- equals alignment: indented binding group (let/where)
+  , check "aligns `=` in an indented binding group" $
+      alignEquals "  a = 1\n  bb = 2\n" == "  a  = 1\n  bb = 2\n"
+  -- equals alignment: top-level multi-clause (shared LHS head)
+  , check "aligns `=` across top-level multi-clause def (shared head)" $
+      alignEquals "f Zero = 0\nf (S n) = n\n" == "f Zero  = 0\nf (S n) = n\n"
+  -- equals alignment: unrelated top-level defs are left alone (no churn)
+  , check "leaves unrelated top-level def `=` untouched" $
+      alignEquals "foo = 1\nbarbaz = 2\n" == "foo = 1\nbarbaz = 2\n"
+  -- equals alignment: never matches `==` / `=>` / `:=`
+  , check "does not align `==` as `=`" $
+      alignEquals "  x == y\n  zzz == w\n" == "  x == y\n  zzz == w\n"
+  -- arrows alignment: case / with arms
+  , check "aligns `=>` across case arms" $
+      alignArrows "  Zero => z\n  S n => s\n" == "  Zero => z\n  S n  => s\n"
   ]

@@ -49,12 +49,18 @@ sortImportsSafe src =
     Nothing => src
     Just cand => if safeImportSort src cand then cand else src
 
-||| Apply the colon-alignment pass, gated by `safeReformat` (pure spacing,
-||| so the token stream + parse must be identical); fall back on rejection.
-alignSafe : String -> String
-alignSafe src =
-  let out = alignColons src
+||| Apply one alignment pass, gated by `safeReformat` (pure spacing, so the
+||| token stream + parse must be identical); fall back on rejection.
+alignPass : (String -> String) -> String -> String
+alignPass pass src =
+  let out = pass src
   in if safeReformat src out then out else src
+
+||| Run every alignment pass in turn, each independently oracle-gated.
+||| Colons (annotations), then equals (bindings / multi-clause defs), then
+||| arrows (case / with arms). The passes target disjoint lines in practice.
+alignSafe : String -> String
+alignSafe = alignPass alignArrows . alignPass alignEquals . alignPass alignColons
 
 ||| Reformat a source string: whitespace hygiene, import sort/dedup, then
 ||| colon alignment. Guaranteed safe — each pass is gated by its round-trip
