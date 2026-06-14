@@ -13,6 +13,7 @@ modules = Test.Main
         , Test.Render
         , Test.Imports
         , Test.Align
+        , Test.Reindent
 
 main = Test.Main
 

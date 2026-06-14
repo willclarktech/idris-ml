@@ -9,6 +9,7 @@ depends = base
 modules = Format.Roundtrip
         , Format.Align
         , Format.Imports
+        , Format.Reindent
         , Format.Render
         , Main
 
