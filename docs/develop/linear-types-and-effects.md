@@ -369,12 +369,37 @@ identical across examples; the recipe (verified on `Supervised` + `Rnn`):
    `do`-block under the linear `run $ do …` also trips the ambiguity limit;
    move the model derivation to a top-level `mkModel : Init Model` and call
    `runInitL mkModel`.
-4. **The loss / step function goes linear.** For `fitSupervisedL`, the loss
-   consumes the model, runs `forwardL`, returns `MkBang loss # model'`. For a
-   custom `fitL` step over a **user record** model that's read many times per
-   epoch (recurrent/RL), use **consume-match-rebuild-delegate**: match the
-   record (fields bind ω), reuse them freely inside an IO body via `liftIO1`,
-   rebuild the record beside the banged result. (Same pattern as Ntm/Dnc.)
+4. **The loss / step function goes linear — fine-grained (the locked rule).**
+   The model is threaded single-owner through **every** forward/step in the loss
+   body, *not* dropped to ω and run in IO for the whole epoch. For
+   `fitSupervisedL`, the loss consumes the model, runs `forwardL`/`forwardSeqL`,
+   returns `MkBang loss # model'`. For a custom `fitL` step that reads the model
+   many times per epoch:
+   - **Recurrent** (state changes each timestep): thread the cell through
+     `recurStepL` one timestep at a time (`Rnn`/`Lstm`/`Gru`: a `go` fold
+     threading `(1 _ : cell)`; NTM/DNC: the bare cell threaded through
+     `encodeAllL`/`decodeLossesL`). This makes stale-state reuse a compile error.
+   - **Feed-forward read many times** (transformer per-sample, RL rollout):
+     thread the (stateless) model through every `forwardSeqL` anyway — a `go`/
+     fold threading `(1 _ : body)` across samples/timesteps. Uniform single-owner
+     even though forward is a read (the Option-3 decision: maximum type safety +
+     elegance, invasiveness accepted).
+   - **Mixed field multiplicity by role.** In a user record, make the threaded
+     sub-model a **linear field** (`1 cell : …` / `1 body : …`) and leave
+     read-only weights (an output `head`, embeddings, PE) as **ω** fields
+     (accessed by `.field` projection). Matching the record binds the linear
+     field at `1` and the ω fields at ω.
+   - **Multiple nets** (A2C/PPO actor+critic, SAC 4 nets, DQN online+target):
+     thread each through its forwards; return several linear values via a nested
+     `LPair` (`LPair (!* loss) (LPair netA netB)`) or by threading the whole
+     state record (linear net fields) through the helpers.
+   - **No-grad eval/rollout** uses `withNoGradL` (the `L IO` no-grad bracket) so
+     the threaded `WithGrad` model still gets tape-free forwards.
+   The coarse **consume-match-rebuild-delegate** (match → ω → run the whole body
+   in IO) is *rejected at the example level* — it's the lifecycle-seam-only
+   guarantee the plan rejected. It survives only as a **library-internal** last
+   resort inside `Ntm`/`Dnc`'s `recurStepL` (controller stored in an ω field
+   while the IO surface coexists — see the section above), never in example code.
 5. **Consume the final model.** `fitL`/`fitSupervisedL` return
    `LPair (!* (Nat, Double)) m`; unwrap `(MkBang (epochs, loss) # trained)`,
    then `evalL`/`forwardL` it for inference (each consumes + returns), and
