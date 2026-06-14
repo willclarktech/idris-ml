@@ -517,8 +517,13 @@ none.
 
 - `packages/idris-ml/src/Tensor.idr` — the additive `L IO` op surface
   (`ioRerunL` + `taddL`/`tlinearL`/`tlinear2dL`/`tzeroState1dL`/
-  `tlstmGatesPairL`/`tgruCellL` + the six activation twins). The `IO` ops are
-  unchanged beside them.
+  `tlstmGatesPairL`/`tgruCellL` + the six activation twins + `tnllLossMeanL`).
+  Plus the `L IO` bracket twins **`withNoGradL`** (no-grad: threads a `WithGrad`
+  model through tape-free forwards in eval/rollout) and **`withGenFreeL`**
+  (generation bracket: frees a replay step's grad intermediates, autograd ON).
+  The `IO` ops are unchanged beside them.
+- `packages/idris-ml/src/Hpo/LrFinder.idr` — `lrFindL` (the `L IO` LR-range
+  test) beside `lrFind`.
 - `packages/idris-ml/src/Nn/{Recurrent,Lstm,Gru}.idr` — `RecurrentL` bodies on
   the `L IO` ops (the small recurrent cells; `Ntm`/`Dnc` delegate instead).
 - `packages/idris-ml/src/Nn/Init.idr` — `runInitL` (born-linear construction
@@ -533,10 +538,32 @@ none.
   `EpochStepL`); sibling to `Fit.idr`. Hides `Copies.Nil`; `Z`/`S` accumulators.
 - `packages/idris-ml/src/Train.idr` — `TrainConfig` gains a `metricsL` field
   (model-free) beside `metrics`.
-- `packages/idris-ml-examples/src/Example/{Supervised,Rnn}.idr` — first two
-  example families on the linear surface (supervised `fitSupervisedL`; custom
-  record + `fitL` recurrent step). The recipe above; the rest of Phase 6 is
-  mechanical. `mk/config.mk` adds `-p linear` to the example `IDRIS_FLAGS`.
+- `packages/idris-ml-examples/src/Example/*.idr` — **all 22 training examples**
+  are on the fine-grained linear surface (`mk/config.mk` adds `-p linear`):
+  - Feed-forward: Supervised, Mnist, SeqClassify, Checkpoint, PrecisionCheckpoint
+    (`fitSupervisedL` + `forwardL`/`forwardSeqL`).
+  - Recurrent: Rnn, Lstm, Gru (linear `cell` field threaded via `recurStepL`,
+    ω `head`).
+  - Memory: NtmCopy, NtmAssociativeRecall, DncCopy, DncAssociativeRecall (bare
+    cell threaded via `recurStepL`; eval under `withNoGradL`).
+  - Transformer: Transformer (`SeqL` body + `lrFindL` for `--lr-find`), Gpt
+    (`SeqL` body, generation + bpc eval threaded).
+  - RL: Reinforce (single-net `SeqL` policy); Dqn, MountainCar (two Q-nets via
+    nested `LPair`, `withGenFreeL` replay step); A2c, Ppo (actor+critic nested
+    `LPair`); Sac, MountainCarCont (**5-net linear `Nets` bundle** record —
+    named-field access instead of a 5-deep nested `LPair`).
+  - **Two multi-net threading shapes:** nested `LPair (!* x) (LPair a b)` for
+    2 nets; a **linear `Nets` record** (all fields `1`) for ≥3 nets — match it,
+    use/thread the needed nets, rebuild with the rest passed through.
+  - **`<- (inline case/if)` of a linear result trips the `L IO` bind
+    elaborator** ("delayTy" mismatch — `if`/`case` branches are `Lazy`). Fix:
+    extract the case to a top-level function and bind its *call* (`x <- helperL
+    …`), or make the case the function-body tail (not a `<-` RHS). Strict
+    `case b of True/False` is fine as a tail but not as a `<-` RHS.
+  - The 4 benchmark/smoke utilities (Bench, Profile, LayersBench, MlxStreamDemo)
+    stay on the IO surface — they `runInit` + time `forward`s with no training
+    lifecycle (no `fit`/freeze/eval), so there is no single-owner mutation to
+    protect; they fold into the Phase-9 collapse.
 
 Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface. No `forwardL`/
 `recurStepL` body still uses `liftIO1` for tensor math — the only remaining
