@@ -269,6 +269,7 @@ void tape_optimizer_step(void* h) {
 
 	for (int i = 0; i < param_count(); i++) {
 		if (!opt_owns_param(opt, i)) continue;
+		if (param_is_buffer(i)) continue; /* non-learnable buffer — never stepped */
 		if (skip_lstm_init) {
 			const char* nm = param_name(i);
 			size_t L = strlen(nm);
@@ -438,6 +439,7 @@ void tape_optimizer_clip_grad_value_filtered(void* h, double max_val) {
 	TapeOptimizer* opt = (TapeOptimizer*)h;
 	for (int i = 0; i < param_count(); i++) {
 		if (!opt_owns_param(opt, i)) continue;
+		if (param_is_buffer(i)) continue;
 		Tensor* t = (Tensor*)param_tensor(i);
 		if (!t->grad) continue;
 		for (int j = 0; j < t->numel; j++) {
@@ -455,6 +457,7 @@ double tape_optimizer_clip_grad_norm_filtered(void* h, double max_norm) {
 	double total = 0;
 	for (int i = 0; i < param_count(); i++) {
 		if (!opt_owns_param(opt, i)) continue;
+		if (param_is_buffer(i)) continue;
 		Tensor* t = (Tensor*)param_tensor(i);
 		if (!t->grad) continue;
 		for (int j = 0; j < t->numel; j++)
@@ -465,6 +468,7 @@ double tape_optimizer_clip_grad_norm_filtered(void* h, double max_norm) {
 		double scale = max_norm / norm;
 		for (int i = 0; i < param_count(); i++) {
 			if (!opt_owns_param(opt, i)) continue;
+			if (param_is_buffer(i)) continue;
 			Tensor* t = (Tensor*)param_tensor(i);
 			if (!t->grad) continue;
 			for (int j = 0; j < t->numel; j++)

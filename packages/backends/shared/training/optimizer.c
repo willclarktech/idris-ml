@@ -94,6 +94,7 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
 	int blended = 0;
 	double one_minus_tau = 1.0 - tau;
 	for (int i = 0; i < param_count(); i++) {
+		if (param_is_buffer(i)) continue; /* buffers aren't part of the EMA */
 		const char* on_name = param_name(i);
 		if (strncmp(on_name, online_scope, on_len) != 0) continue;
 		char tgt_name[256];
@@ -121,6 +122,7 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
 
 void optimizer_clip_grad_value(double max_val) {
 	for (int i = 0; i < param_count(); i++) {
+		if (param_is_buffer(i)) continue; /* buffers carry no grad — never clipped */
 		void* t = param_tensor(i);
 		if (!g_active_port.tensor_has_grad(t)) continue;
 		int n = g_active_port.tensor_numel(t);
@@ -137,6 +139,7 @@ void optimizer_clip_grad_value(double max_val) {
 double optimizer_clip_grad_norm(double max_norm) {
 	double total = 0;
 	for (int i = 0; i < param_count(); i++) {
+		if (param_is_buffer(i)) continue; /* buffers contribute no grad norm */
 		void* t = param_tensor(i);
 		if (!g_active_port.tensor_has_grad(t)) continue;
 		int n = g_active_port.tensor_numel(t);
@@ -149,6 +152,7 @@ double optimizer_clip_grad_norm(double max_norm) {
 	if (norm > max_norm) {
 		double scale = max_norm / norm;
 		for (int i = 0; i < param_count(); i++) {
+			if (param_is_buffer(i)) continue;
 			void* t = param_tensor(i);
 			if (!g_active_port.tensor_has_grad(t)) continue;
 			int n = g_active_port.tensor_numel(t);
@@ -237,6 +241,7 @@ double native_train_step_scaled(OptimizerHandle opt, int clip_mode, double clip_
 	double inv_scale = 1.0 / scale;
 	int has_nonfinite = 0;
 	for (int i = 0; i < param_count(); i++) {
+		if (param_is_buffer(i)) continue; /* buffers carry no grad to unscale */
 		void* t = param_tensor(i);
 		if (!g_active_port.tensor_has_grad(t)) continue;
 		int n = g_active_port.tensor_numel(t);

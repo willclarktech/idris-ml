@@ -43,6 +43,7 @@ static std::vector<at::Tensor> collect_param_tensors() {
 	std::vector<at::Tensor> params;
 	params.reserve((size_t)param_count());
 	for (int i_ = 0; i_ < param_count(); i_++) {
+		if (param_is_buffer(i_)) continue; /* buffers are never handed to the optimizer */
 		auto* tensor = (at::Tensor*)param_tensor(i_);
 		params.push_back(*tensor);
 	}
@@ -74,6 +75,7 @@ static std::vector<at::Tensor> collect_param_tensors_filtered(const std::string&
 	std::vector<at::Tensor> params;
 	params.reserve((size_t)param_count());
 	for (int i_ = 0; i_ < param_count(); i_++) {
+		if (param_is_buffer(i_)) continue; /* buffers contribute no grad to clip */
 		auto* tensor = (at::Tensor*)param_tensor(i_);
 		if (prefix.empty()) {
 			params.push_back(*tensor);
@@ -461,6 +463,7 @@ extern "C" void optimizer_set_param_lr(OptimizerHandle h, const char* name, doub
 	   -1 sentinel) clears any existing override, restoring the base LR. */
 	auto* w = static_cast<OptWrapper*>(h);
 	for (int i = 0; i < param_count(); i++) {
+		if (param_is_buffer(i)) continue; /* buffers have no LR — never stepped */
 		if (std::strcmp(param_name(i), name) == 0) {
 			const void* key = ((at::Tensor*)param_tensor(i))->unsafeGetTensorImpl();
 			if (lr < 0.0)
@@ -519,6 +522,7 @@ extern "C" int polyak_blend(double tau, const char* online_scope, const char* ta
 	int blended = 0;
 	torch::NoGradGuard no_grad;
 	for (int i = 0; i < param_count(); i++) {
+		if (param_is_buffer(i)) continue; /* buffers aren't part of the EMA */
 		std::string on_name(param_name(i));
 		if (on_name.rfind(on_s, 0) != 0) continue;
 		std::string tgt_name = tg_s + on_name.substr(on_s.size());

@@ -128,6 +128,7 @@ extern "C" void optimizer_set_param_lr(OptimizerHandle h, const char* name, doub
 	int np = param_count();
 	if ((int)opt->param_lr.size() < np) opt->param_lr.resize(np, -1.0);
 	for (int i = 0; i < np; i++) {
+		if (param_is_buffer(i)) continue; /* buffers have no LR — never stepped */
 		if (strcmp(param_name(i), name) == 0) {
 			opt->param_lr[i] = lr;
 			return;
@@ -220,6 +221,7 @@ static void adam_step_compile(Optimizer* opt, int np) {
 	active_idx.reserve(np);
 	for (int i = 0; i < np; i++) {
 		if (!opt_owns_param_mlx(opt, i)) continue;
+		if (param_is_buffer(i)) continue; /* non-learnable buffer — never stepped */
 		auto t = (Tensor*)param_tensor(i);
 		if (!t->has_grad) continue;
 		active_idx.push_back(i);
@@ -341,6 +343,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 
 	for (int i = 0; i < np; i++) {
 		if (!opt_owns_param_mlx(opt, i)) continue;
+		if (param_is_buffer(i)) continue; /* non-learnable buffer — never stepped */
 		auto t = (Tensor*)param_tensor(i);
 		if (!t->has_grad) continue;
 
@@ -428,6 +431,7 @@ static void clip_grad_value_filtered(const std::string& prefix, double max_val) 
 	for (int i = 0; i < param_count(); i++) {
 		std::string p_name = param_name(i);
 		auto* p_tensor = (Tensor*)param_tensor(i);
+		if (param_is_buffer(i)) continue; /* buffers contribute no grad to clip */
 		if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
 		if (p_tensor->has_grad) {
 			auto lo = scalar_like(-max_val, p_tensor->grad);
@@ -445,6 +449,7 @@ static double clip_grad_norm_filtered(const std::string& prefix, double max_norm
 	for (int i = 0; i < param_count(); i++) {
 		std::string p_name = param_name(i);
 		auto* p_tensor = (Tensor*)param_tensor(i);
+		if (param_is_buffer(i)) continue; /* buffers contribute no grad norm */
 		if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
 		if (p_tensor->has_grad) {
 			auto s = mx::sum(mx::square(p_tensor->grad));
@@ -461,6 +466,7 @@ static double clip_grad_norm_filtered(const std::string& prefix, double max_norm
 		for (int i = 0; i < param_count(); i++) {
 			std::string p_name = param_name(i);
 			auto* p_tensor = (Tensor*)param_tensor(i);
+			if (param_is_buffer(i)) continue; /* buffers contribute no grad norm */
 			if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
 			if (p_tensor->has_grad) {
 				p_tensor->grad = mx::multiply(p_tensor->grad, scalar_like(scale, p_tensor->grad));
@@ -484,6 +490,7 @@ extern "C" int polyak_blend(double tau, const char* online_scope, const char* ta
 	std::string on_s(online_scope), tg_s(target_scope);
 	int blended = 0;
 	for (int i = 0; i < param_count(); i++) {
+		if (param_is_buffer(i)) continue; /* buffers aren't part of the EMA */
 		std::string on_name = param_name(i);
 		if (on_name.rfind(on_s, 0) != 0) continue;
 		std::string tgt_name = tg_s + on_name.substr(on_s.size());
@@ -625,6 +632,7 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	for (int i = 0; i < param_count(); i++) {
 		std::string p_name = param_name(i);
 		auto* p_tensor = (Tensor*)param_tensor(i);
+		if (param_is_buffer(i)) continue; /* buffers carry no grad to unscale */
 		if (!o->prefix.empty() && p_name.rfind(o->prefix, 0) != 0) continue;
 		if (!p_tensor->has_grad) continue;
 		p_tensor->grad = mx::multiply(p_tensor->grad, scalar_like(inv_scale, p_tensor->grad));

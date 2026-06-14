@@ -22,8 +22,10 @@ import Tensor
 applyIfPrefix : UserExecutorTraining ex => NativeOptimizer ex -> String -> Double -> Nat -> IO ()
 applyIfPrefix opt pfx lr Z = pure ()
 applyIfPrefix opt pfx lr (S k) = do
-  name <- getParamName {ex} (cast {to=Int} k)
-  when (isPrefixOf pfx name) (setParamLR {ex} opt name lr)
+  let i = cast {to=Int} k
+  isBuf <- getParamIsBuffer {ex} i
+  name  <- getParamName {ex} i
+  when (not isBuf && isPrefixOf pfx name) (setParamLR {ex} opt name lr)
   applyIfPrefix opt pfx lr k
 
 -- Per-name worker: walks indices from k-1 down to 0; if a name ends
@@ -31,8 +33,10 @@ applyIfPrefix opt pfx lr (S k) = do
 applyIfSuffix : UserExecutorTraining ex => NativeOptimizer ex -> String -> Double -> Nat -> IO ()
 applyIfSuffix opt sfx lr Z = pure ()
 applyIfSuffix opt sfx lr (S k) = do
-  name <- getParamName {ex} (cast {to=Int} k)
-  when (isSuffixOf sfx name) (setParamLR {ex} opt name lr)
+  let i = cast {to=Int} k
+  isBuf <- getParamIsBuffer {ex} i
+  name  <- getParamName {ex} i
+  when (not isBuf && isSuffixOf sfx name) (setParamLR {ex} opt name lr)
   applyIfSuffix opt sfx lr k
 
 ||| Freeze every registered parameter whose paramId starts with
