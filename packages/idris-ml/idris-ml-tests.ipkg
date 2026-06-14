@@ -33,6 +33,7 @@ modules = Test.Main
         , Test.LoraLinear
         , Test.ManagedHandle
         , Test.Math
+        , Test.Nn.Module
         , Test.MixedLayerLike
         , Test.Optimizer
         , Test.Properties.F32GradParity
