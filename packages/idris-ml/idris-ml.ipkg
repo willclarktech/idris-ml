@@ -73,6 +73,7 @@ modules = Compat.Random
         , Nn.Residual
         , Nn.RmsNorm
         , Nn.Seq
+        , Nn.SwiGLU
         , Optimizer
         , RL.Gae
         , RL.ReplayBuffer

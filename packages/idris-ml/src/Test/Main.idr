@@ -23,6 +23,7 @@ import Test.Nn.Module as Test.Nn.Module
 import Test.Nn.Residual as Test.Nn.Residual
 import Test.Nn.RmsNorm as Test.Nn.RmsNorm
 import Test.Nn.Seq as Test.Nn.Seq
+import Test.Nn.SwiGLU as Test.Nn.SwiGLU
 import Test.Schedule
 import Test.Init
 import Test.Sampler
@@ -86,6 +87,7 @@ main = runAll
   , ("Nn.Residual",     Test.Nn.Residual.tests)
   , ("Nn.RmsNorm",      Test.Nn.RmsNorm.tests)
   , ("Nn.Seq",          Test.Nn.Seq.tests)
+  , ("Nn.SwiGLU",       Test.Nn.SwiGLU.tests)
   , ("Schedule",        Test.Schedule.tests)
   , ("TensorExpr",      Test.TensorExpr.tests)
   , ("TrainEngine",     Test.TrainEngine.tests)
