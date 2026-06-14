@@ -67,6 +67,16 @@ smartCtorNames = do
         (("dnc_0.controller.weight_ih" `elem` names) && ("dnc_0.read_keys.weight" `elem` names)
          && ("dnc_0.output.bias" `elem` names))
 
+-- NoGrad-from-birth: `dnc {g=NoGrad}` builds every learnable param tape-free
+-- (controller + 11 head FCs weakened via their grad-poly sub-ctors; memInit
+-- weakened directly; the Kaiming read-out buffers + mask are NoGrad raw state).
+noGradConstructs : IO Bool
+noGradConstructs = do
+  dn <- runInit (dnc {ex=TestExecutor} {dt=TestDType} {r=2} {n=4} {m=3} {h=8} {i=2} {o=2} {g=NoGrad})
+  let flags = the (List Int) (map (\p => primRequiresGrad {ex=TestExecutor} p.paramPtr) (params dn))
+  check ("dnc {g=NoGrad} all params tape-free (requires_grad " ++ show flags ++ ")")
+        (all (== 0) flags)
+
 export
 tests : List (IO Bool)
-tests = [stepCarriesState, resetRestores, paramsCompose, smartCtorNames]
+tests = [stepCarriesState, resetRestores, paramsCompose, smartCtorNames, noGradConstructs]

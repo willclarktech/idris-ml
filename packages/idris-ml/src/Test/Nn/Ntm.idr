@@ -67,6 +67,16 @@ smartCtorNames = do
         (("ntm_0.controller.weight_ih" `elem` names) && ("ntm_0.read_fc.weight" `elem` names)
          && ("ntm_0.output_fc.bias" `elem` names))
 
+-- NoGrad-from-birth: `ntm {g=NoGrad}` builds every learnable param tape-free
+-- (controller + heads weakened via their grad-poly sub-ctors; memInit weakened
+-- directly; the iro read-out is a NoGrad state constant).
+noGradConstructs : IO Bool
+noGradConstructs = do
+  nt <- runInit (ntm {ex=TestExecutor} {dt=TestDType} {n=4} {m=3} {h=8} {i=2} {o=2} {g=NoGrad})
+  let flags = the (List Int) (map (\p => primRequiresGrad {ex=TestExecutor} p.paramPtr) (params nt))
+  check ("ntm {g=NoGrad} all params tape-free (requires_grad " ++ show flags ++ ")")
+        (all (== 0) flags)
+
 export
 tests : List (IO Bool)
-tests = [stepCarriesState, resetRestores, paramsCompose, smartCtorNames]
+tests = [stepCarriesState, resetRestores, paramsCompose, smartCtorNames, noGradConstructs]

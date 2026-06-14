@@ -201,15 +201,21 @@ public export
 ||| N(0,0.01); output head LeCun-ish; memory-init xavier-normal; fixed
 ||| Kaiming read-out). Nests sub-modules under `<scope>.ntm_<n>.…`.
 export partial
-ntm : {0 ex : Executor} -> Backend ex dt => {n, m, h, i, o : Nat} -> Init (Ntm n m h i o ex dt WithGrad)
+ntm : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {n, m, h, i, o : Nat} -> Init (Ntm n m h i o ex dt g)
 ntm = scopedChild "ntm" $ do
   let xavStd : (a, b : Nat) -> Double
       xavStd a b = 1.4 * sqrt (2.0 / cast {to=Double} (a + b))
       memStd     = sqrt (2.0 / cast {to=Double} (m + n))
-  ctrl <- named "controller" (lstm {i = m + i} {o = h})
-  rfc  <- named "read_fc"  (linearWith {i = h}     {o = ReadParamWidth m}  (xavStd h (ReadParamWidth m))  0.01)
-  wfc  <- named "write_fc" (linearWith {i = h}     {o = WriteParamWidth m} (xavStd h (WriteParamWidth m)) 0.01)
-  ofc  <- named "output_fc" (linearWith {i = h + m} {o = o} (1.0 / sqrt (cast {to=Double} (h + m))) 0.01)
+  -- Sub-modules built at the requested `g` (annotated so `g` flows up front,
+  -- as in transformerBlock); the directly-created memInit param + iro state
+  -- tensor are built WithGrad then weakened on the NoGrad branch.
+  ctrl <- the (Init (Lstm (m + i) h ex dt g)) (named "controller" (lstm {i = m + i} {o = h}))
+  rfc  <- the (Init (Linear h (ReadParamWidth m) ex dt g))
+              (named "read_fc"  (linearWith {i = h} {o = ReadParamWidth m}  (xavStd h (ReadParamWidth m))  0.01))
+  wfc  <- the (Init (Linear h (WriteParamWidth m) ex dt g))
+              (named "write_fc" (linearWith {i = h} {o = WriteParamWidth m} (xavStd h (WriteParamWidth m)) 0.01))
+  ofc  <- the (Init (Linear (h + m) o ex dt g))
+              (named "output_fc" (linearWith {i = h + m} {o = o} (1.0 / sqrt (cast {to=Double} (h + m))) 0.01))
   mname <- freshChild "memory_init"
   memInit <- liftIO $ tparam1dNormal {ex} {dt} {n = m * n} mname 0.0 memStd
   iro <- liftIO $ do
@@ -218,4 +224,8 @@ ntm = scopedChild "ntm" $ do
     let buf = packDoubles (prim__allocDoubles (cast m)) 0 iroVals
     pure (the (TVec m ex dt WithGrad)
               (MkTensor (dtCreateState1d {ex} {t=dt} (cast m) buf (deviceStreamTag {ex})) Nothing))
-  pure (MkNtm ctrl rfc wfc ofc memInit iro Nothing Nothing Nothing Nothing)
+  case sgrad {g} of
+    SWithGrad => pure (MkNtm ctrl rfc wfc ofc memInit iro Nothing Nothing Nothing Nothing)
+    SNoGrad   => do memInit' <- liftIO (weakenGrad memInit)
+                    iro'     <- liftIO (weakenGrad iro)
+                    pure (MkNtm ctrl rfc wfc ofc memInit' iro' Nothing Nothing Nothing Nothing)

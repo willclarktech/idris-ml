@@ -297,27 +297,39 @@ mkKaimingReadOuts (S k) m bound = do
 ||| output head LeCun-ish; memory-init xavier-normal; fixed Kaiming
 ||| read-outs; precomputed 1−I mask). Nests under `<scope>.dnc_<n>.…`.
 export partial
-dnc : {0 ex : Executor} -> Backend ex dt => {r, n, m, h, i, o : Nat} -> Init (Dnc r n m h i o ex dt WithGrad)
+dnc : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {r, n, m, h, i, o : Nat} -> Init (Dnc r n m h i o ex dt g)
 dnc = scopedChild "dnc" $ do
   let xavStd : (a, b : Nat) -> Double
       xavStd a b = 1.4 * sqrt (2.0 / cast {to=Double} (a + b))
       biasStd    = 0.01
-  ctrl <- named "controller" (lstm {i = DncControllerInput r m i} {o = h})
-  wkFc <- named "write_key"    (linearWith {i=h} {o=m}     (xavStd h m)       biasStd)
-  wbFc <- named "write_beta"   (linearWith {i=h} {o=1}     (xavStd h 1)       biasStd)
-  eFc  <- named "erase"        (linearWith {i=h} {o=m}     (xavStd h m)       biasStd)
-  aFc  <- named "add"          (linearWith {i=h} {o=m}     (xavStd h m)       biasStd)
-  fgFc <- named "free_gates"   (linearWith {i=h} {o=r}     (xavStd h r)       biasStd)
-  agFc <- named "alloc_gate"   (linearWith {i=h} {o=1}     (xavStd h 1)       biasStd)
-  wgFc <- named "write_gate"   (linearWith {i=h} {o=1}     (xavStd h 1)       biasStd)
-  rkFc <- named "read_keys"    (linearWith {i=h} {o=r * m} (xavStd h (r*m))   biasStd)
-  rbFc <- named "read_betas"   (linearWith {i=h} {o=r}     (xavStd h r)       biasStd)
-  rmFc <- named "read_modes"   (linearWith {i=h} {o=r * 3} (xavStd h (r*3))   biasStd)
-  oFc  <- named "output"       (linearWith {i=DncOutputInput h r m} {o=o}
-                                  (1.0 / sqrt (cast {to=Double} (DncOutputInput h r m))) biasStd)
+  -- Sub-modules built at the requested `g`, each `the`-annotated so `g` (+ ex/dt)
+  -- flow up front (a bare `{g}` pin leaves Backend ?ex ?dt unsolved at the bind,
+  -- as in transformerBlock). Only the directly-created memInit param needs
+  -- explicit weakening (read-out buffers + mask are raw `AnyPtr`, not g-typed;
+  -- state fields are Nothing).
+  ctrl <- the (Init (Lstm (DncControllerInput r m i) h ex dt g))
+              (named "controller" (lstm {i = DncControllerInput r m i} {o = h}))
+  wkFc <- the (Init (Linear h m ex dt g)) (named "write_key"  (linearWith {i=h} {o=m} (xavStd h m) biasStd))
+  wbFc <- the (Init (Linear h 1 ex dt g)) (named "write_beta" (linearWith {i=h} {o=1} (xavStd h 1) biasStd))
+  eFc  <- the (Init (Linear h m ex dt g)) (named "erase"      (linearWith {i=h} {o=m} (xavStd h m) biasStd))
+  aFc  <- the (Init (Linear h m ex dt g)) (named "add"        (linearWith {i=h} {o=m} (xavStd h m) biasStd))
+  fgFc <- the (Init (Linear h r ex dt g)) (named "free_gates" (linearWith {i=h} {o=r} (xavStd h r) biasStd))
+  agFc <- the (Init (Linear h 1 ex dt g)) (named "alloc_gate" (linearWith {i=h} {o=1} (xavStd h 1) biasStd))
+  wgFc <- the (Init (Linear h 1 ex dt g)) (named "write_gate" (linearWith {i=h} {o=1} (xavStd h 1) biasStd))
+  rkFc <- the (Init (Linear h (r * m) ex dt g)) (named "read_keys"  (linearWith {i=h} {o=r * m} (xavStd h (r*m)) biasStd))
+  rbFc <- the (Init (Linear h r ex dt g))       (named "read_betas" (linearWith {i=h} {o=r}     (xavStd h r)     biasStd))
+  rmFc <- the (Init (Linear h (r * 3) ex dt g)) (named "read_modes" (linearWith {i=h} {o=r * 3} (xavStd h (r*3)) biasStd))
+  oFc  <- the (Init (Linear (DncOutputInput h r m) o ex dt g))
+              (named "output" (linearWith {i=DncOutputInput h r m} {o=o}
+                                  (1.0 / sqrt (cast {to=Double} (DncOutputInput h r m))) biasStd))
   mname <- freshChild "memory_init"
   memInit <- liftIO $ tparam1dNormal {ex} {dt} {n = m * n} mname 0.0 (sqrt (2.0 / cast {to=Double} (m + n)))
   iros <- liftIO $ mkKaimingReadOuts {ex} {dt} r m (1.0 / sqrt (cast {to=Double} m))
-  pure (MkDnc ctrl wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-              memInit iros (buildNonDiagMask {ex} {dt} n)
-              Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
+  case sgrad {g} of
+    SWithGrad => pure (MkDnc ctrl wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                             memInit iros (buildNonDiagMask {ex} {dt} n)
+                             Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
+    SNoGrad   => do memInit' <- liftIO (weakenGrad memInit)
+                    pure (MkDnc ctrl wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                                memInit' iros (buildNonDiagMask {ex} {dt} n)
+                                Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
