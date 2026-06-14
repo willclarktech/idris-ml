@@ -26,6 +26,7 @@ import Init
 import Nn.Embedding
 import Nn.LayerNorm
 import Nn.Linear
+import Nn.Module
 import Sampler
 import Tensor
 
@@ -790,3 +791,108 @@ hfBertMlmForward (MkBertForMaskedLm (MkBertModel emb layers _) head) i p t mask 
   hEmb <- applyEmbeddings emb i p t
   hEnc <- applyEncoder {numHeads} {headDim} layers (map (\m => m.tensorPtr) mask) hEmb
   applyMlmHead head emb.wordEmb.weightT hEnc
+
+
+----------------------------------------------------------------------
+-- Grad-mode retype + `eval` (inference)
+----------------------------------------------------------------------
+--
+-- The composite state records aren't the `Params` leaf-kind (they carry
+-- many config Nats), so the generic `Nn.eval` doesn't apply directly.
+-- These field-wise `castGrad` helpers thread the grad-mode retype through
+-- the record tree, reusing the leaf Nn types' `Params.castGrad`; the
+-- matching `params` traversals collect every leaf param for the C-side
+-- `requires_grad` flip. `evalBertForMaskedLm` = flip + retype, yielding
+-- a genuinely tape-free inference model (`NoGrad`) the optimizer rejects.
+
+-- Field-wise grad-mode retype (pure — `g` is an erased phantom).
+castEmbeddingsState : BertEmbeddingsState v h mp tv ex dt g -> BertEmbeddingsState v h mp tv ex dt g'
+castEmbeddingsState (MkBertEmbeddings we pe te ln) =
+  MkBertEmbeddings (castGrad we) (castGrad pe) (castGrad te) (castGrad ln)
+
+castSelfAttn : BertSelfAttentionState h ex dt g -> BertSelfAttentionState h ex dt g'
+castSelfAttn (MkBertSelfAttn q k v) = MkBertSelfAttn (castGrad q) (castGrad k) (castGrad v)
+
+castSelfOut : BertSelfOutputState h ex dt g -> BertSelfOutputState h ex dt g'
+castSelfOut (MkBertSelfOut d ln) = MkBertSelfOut (castGrad d) (castGrad ln)
+
+castIntermed : BertIntermediateState h i ex dt g -> BertIntermediateState h i ex dt g'
+castIntermed (MkBertIntermediate d) = MkBertIntermediate (castGrad d)
+
+castOutput : BertOutputState h i ex dt g -> BertOutputState h i ex dt g'
+castOutput (MkBertOut d ln) = MkBertOut (castGrad d) (castGrad ln)
+
+castLayer : BertLayerState h i ex dt g -> BertLayerState h i ex dt g'
+castLayer (MkBertLayer sa so im ou) =
+  MkBertLayer (castSelfAttn sa) (castSelfOut so) (castIntermed im) (castOutput ou)
+
+castPooler : BertPoolerState h ex dt g -> BertPoolerState h ex dt g'
+castPooler (MkBertPooler d) = MkBertPooler (castGrad d)
+
+||| Retype a whole BERT encoder/pooler `WithGrad <-> NoGrad` (pure).
+export
+castBertModel : BertModelState v h nl i mp tv ex dt g -> BertModelState v h nl i mp tv ex dt g'
+castBertModel (MkBertModel emb layers pool) =
+  MkBertModel (castEmbeddingsState emb) (map castLayer layers) (castPooler pool)
+
+castMlmHead : BertMlmHeadState v h ex dt g -> BertMlmHeadState v h ex dt g'
+castMlmHead (MkBertMlmHead td tn b) = MkBertMlmHead (castGrad td) (castGrad tn) (retypeGrad b)
+
+||| Retype a whole `BertForMaskedLM` `WithGrad <-> NoGrad` (pure).
+export
+castBertForMaskedLm : BertForMaskedLmState v h nl i mp tv ex dt g ->
+                      BertForMaskedLmState v h nl i mp tv ex dt g'
+castBertForMaskedLm (MkBertForMaskedLm base mlm) =
+  MkBertForMaskedLm (castBertModel base) (castMlmHead mlm)
+
+-- Param traversals (leaf params via the Nn `Params` instances).
+embeddingsStateParams : BertEmbeddingsState v h mp tv ex dt g -> List SomeParam
+embeddingsStateParams (MkBertEmbeddings we pe te ln) =
+  params we ++ params pe ++ params te ++ params ln
+
+selfAttnParams : BertSelfAttentionState h ex dt g -> List SomeParam
+selfAttnParams (MkBertSelfAttn q k v) = params q ++ params k ++ params v
+
+selfOutParams : BertSelfOutputState h ex dt g -> List SomeParam
+selfOutParams (MkBertSelfOut d ln) = params d ++ params ln
+
+intermedParams : BertIntermediateState h i ex dt g -> List SomeParam
+intermedParams (MkBertIntermediate d) = params d
+
+outputStateParams : BertOutputState h i ex dt g -> List SomeParam
+outputStateParams (MkBertOut d ln) = params d ++ params ln
+
+layerStateParams : BertLayerState h i ex dt g -> List SomeParam
+layerStateParams (MkBertLayer sa so im ou) =
+  selfAttnParams sa ++ selfOutParams so ++ intermedParams im ++ outputStateParams ou
+
+poolerStateParams : BertPoolerState h ex dt g -> List SomeParam
+poolerStateParams (MkBertPooler d) = params d
+
+bertModelParams : BertModelState v h nl i mp tv ex dt g -> List SomeParam
+bertModelParams (MkBertModel emb layers pool) =
+  embeddingsStateParams emb
+    ++ concatMap layerStateParams (toList layers)
+    ++ poolerStateParams pool
+
+mlmHeadStateParams : BertMlmHeadState v h ex dt g -> List SomeParam
+mlmHeadStateParams (MkBertMlmHead td tn b) = params td ++ params tn ++ [toParam b]
+
+bertForMaskedLmParams : BertForMaskedLmState v h nl i mp tv ex dt g -> List SomeParam
+bertForMaskedLmParams (MkBertForMaskedLm base mlm) =
+  bertModelParams base ++ mlmHeadStateParams mlm
+
+||| Inference-mode `BertForMaskedLM`: flip every param's C `requires_grad`
+||| off and retype the model `WithGrad -> NoGrad`. The result runs
+||| genuinely tape-free (no `withNoGrad` bracket needed) and the optimizer
+||| can't accept it (it needs a `WithGrad` loss). The transformer-model
+||| counterpart of `Nn.eval` (which only fits the leaf `Params` kind).
+export
+evalBertForMaskedLm : {0 ex : Executor} -> UserExecutorTraining ex =>
+                      {0 vocab, hidden, numLayers, intermediate, maxPos, typeVocab : Nat} ->
+                      {0 dt : DType} ->
+                      BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab ex dt WithGrad ->
+                      IO (BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab ex dt NoGrad)
+evalBertForMaskedLm m = do
+  traverse_ (\p => primIO (primSetRequiresGrad {ex} p.paramPtr 0)) (bertForMaskedLmParams m)
+  pure (castBertForMaskedLm m)

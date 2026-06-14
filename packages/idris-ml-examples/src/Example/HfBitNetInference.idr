@@ -48,7 +48,7 @@ import Checkpoint
 import Executor
 import Example.Common.HfInferenceHelper
 import Transformers.BitNet
-import Layer.RoPE
+import Nn.RoPE
 import Tensor
 import Transformers.Tokenizer
 import Util

@@ -135,20 +135,20 @@ bertMaskTokenId = 103
 runMaskDemo : Tokenizer VocabSize
            -> (model : BertForMaskedLmState VocabSize Hidden NumLayers
                                             Intermediate MaxPos TypeVocab
-                                            ExampleExecutor ExampleDType WithGrad)
+                                            ExampleExecutor ExampleDType NoGrad)
            -> (sentence : String)
            -> IO ()
-runMaskDemo tok model sentence = do
+runMaskDemo tok evalModel sentence = do
   Right (seqLen ** tokens) <- tokenize tok sentence
     | Left err => putStrLn ("  ERR: tokenize: " ++ show err)
   case findIndex (\f => finToNat f == bertMaskTokenId) tokens of
-    Nothing      => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
+    Nothing => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
     Just maskFin => do
       -- Each Fin VocabSize → Double via finToNat → cast.
       let idDoubles = map (cast {to=Double} . finToNat) tokens
-          inputIds = mkIds idDoubles
-          posIds   = mkIds (arangeVect seqLen)
-          typeIds  = mkIds (zerosVect seqLen)
+          inputIds  = retypeGrad (mkIds idDoubles)
+          posIds    = retypeGrad (mkIds (arangeVect seqLen))
+          typeIds   = retypeGrad (mkIds (zerosVect seqLen))
       logits <- hfBertMlmForward {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seqLen}
                                  {vocab        = VocabSize}
@@ -159,11 +159,11 @@ runMaskDemo tok model sentence = do
                                  {intermediate = Intermediate}
                                  {maxPos       = MaxPos}
                                  {typeVocab    = TypeVocab}
-                                 model inputIds posIds typeIds Nothing
+                                 evalModel inputIds posIds typeIds Nothing
       maskRow <- trowSelect logits (cast {to=Int} (finToNat maskFin))
       pairs   <- readLogits VocabSize maskRow.tensorPtr
       let top5     = topK 5 pairs
-          topIds    = map fst top5
+          topIds   = map fst top5
           topLogits = map snd top5
       -- Lift each Nat → Fin VocabSize. mapMaybe drops any that fail;
       -- our IDs come from readLogits over the 30522-wide logits row
@@ -184,9 +184,9 @@ runMaskDemo tok model sentence = do
     fmt : String -> Double -> String
     fmt tok x =
       let scaled : Int = cast (x * 100.0 + (if x < 0.0 then -0.5 else 0.5))
-          whole   = scaled `div` 100
-          frac    = abs (scaled `mod` 100)
-          sign    = if x < 0.0 then "-" else "+"
+          whole = scaled `div` 100
+          frac  = abs (scaled `mod` 100)
+          sign  = if x < 0.0 then "-" else "+"
           fracStr = if frac < 10 then "0" ++ show frac else show frac
       in tok ++ " (" ++ sign ++ show (abs whole) ++ "." ++ fracStr ++ ")"
 
@@ -205,13 +205,15 @@ printPooled end i p =
 
 runPooledDump : (model : BertForMaskedLmState VocabSize Hidden NumLayers
                                               Intermediate MaxPos TypeVocab
-                                              ExampleExecutor ExampleDType WithGrad)
+                                              ExampleExecutor ExampleDType NoGrad)
              -> IO ()
 runPooledDump model = do
   -- Same fixed input save_oracle.py uses: [CLS] hello [SEP].
-  let inputIds = mkIds (the (Vect 3 Double) [101.0, 7592.0, 102.0])
-      posIds  = mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0])
-      typeIds = mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0])
+  -- `retypeGrad` lifts the WithGrad ids `mkIds` builds to the model's
+  -- NoGrad (inference) gradmode — the single-g forward needs them to match.
+  let inputIds = retypeGrad (mkIds (the (Vect 3 Double) [101.0, 7592.0, 102.0]))
+      posIds   = retypeGrad (mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0]))
+      typeIds  = retypeGrad (mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0]))
   out <- hfBertForward {ex=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 3}
                        {vocab        = VocabSize}
@@ -255,8 +257,14 @@ main = do
     else pure ()
   stageStamp "loadModelAllowCast ok" t0
 
+  -- Inference model: flip every param's requires_grad off + retype
+  -- WithGrad -> NoGrad. The forward below is then genuinely tape-free
+  -- (no withNoGrad bracket) and this model can't be fed to an optimizer.
+  evalModel <- evalBertForMaskedLm model
+  stageStamp "eval (inference NoGrad) ok" t0
+
   if dumpPooled
-    then runPooledDump model
+    then runPooledDump evalModel
     else do
       -- Construct the BERT tokenizer once; each demo reuses it for both
       -- the input-string encode AND the top-5 token-id decode. The
@@ -276,9 +284,9 @@ main = do
           -- id 103 (by AutoTokenizer); runMaskDemo searches for it to
           -- locate the position to score.
           benchT0 <- clockTime Monotonic
-          runMaskDemo tok model "paris is the capital of [MASK] ."
-          runMaskDemo tok model "i went to the [MASK] to buy bread ."
-          runMaskDemo tok model "the man worked as a [MASK] ."
+          runMaskDemo tok evalModel "paris is the capital of [MASK] ."
+          runMaskDemo tok evalModel "i went to the [MASK] to buy bread ."
+          runMaskDemo tok evalModel "the man worked as a [MASK] ."
           benchT1 <- clockTime Monotonic
           -- Axis D perf marker: token count = 25 (wordpiece-aware:
           -- 8 + 8 + 9 across the three sentences including [CLS]/[SEP]

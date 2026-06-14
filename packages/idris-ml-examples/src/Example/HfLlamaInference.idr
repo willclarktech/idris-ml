@@ -70,7 +70,7 @@ import Executor
 import Example.Common.HfInferenceHelper
 import Transformers.Llama
 import Transformers.KVCache
-import Layer.RoPE
+import Nn.RoPE
 import Tensor
 import Transformers.Tokenizer
 import Util
