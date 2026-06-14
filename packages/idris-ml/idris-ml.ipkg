@@ -65,6 +65,7 @@ modules = Compat.Random
         , Nn.BatchNorm
         , Nn.BitLinear
         , Nn.Conv
+        , Nn.Dnc
         , Nn.Dropout
         , Nn.Embedding
         , Nn.Group

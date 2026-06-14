@@ -37,6 +37,7 @@ modules = Test.Main
         , Test.Nn.BatchNorm
         , Test.Nn.BitLinear
         , Test.Nn.Conv
+        , Test.Nn.Dnc
         , Test.Nn.Dropout
         , Test.Nn.Embedding
         , Test.Nn.Equivalence

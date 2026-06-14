@@ -13,6 +13,7 @@ import Test.Nn.Activation
 import Test.Nn.BatchNorm
 import Test.Nn.BitLinear
 import Test.Nn.Conv
+import Test.Nn.Dnc
 import Test.Nn.Dropout
 import Test.Nn.Embedding
 import Test.Nn.Equivalence
@@ -84,6 +85,7 @@ main = runAll
   , ("Nn.BatchNorm",    Test.Nn.BatchNorm.tests)
   , ("Nn.BitLinear",    Test.Nn.BitLinear.tests)
   , ("Nn.Conv",         Test.Nn.Conv.tests)
+  , ("Nn.Dnc",          Test.Nn.Dnc.tests)
   , ("Nn.Dropout",      Test.Nn.Dropout.tests)
   , ("Nn.Embedding",    Test.Nn.Embedding.tests)
   , ("Nn.Equivalence",  Test.Nn.Equivalence.tests)
