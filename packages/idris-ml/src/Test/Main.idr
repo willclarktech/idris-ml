@@ -9,6 +9,7 @@ import Test.Fit
 import Test.GradMode
 import Test.GradScaler
 import Test.Math
+import Test.Nn.Freeze as Test.Nn.Freeze
 import Test.Nn.Group as Test.Nn.Group
 import Test.Nn.Init as Test.Nn.Init
 import Test.Nn.Module as Test.Nn.Module
@@ -62,6 +63,7 @@ main = runAll
   , ("GradMode",        Test.GradMode.tests)
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)
+  , ("Nn.Freeze",       Test.Nn.Freeze.tests)
   , ("Nn.Group",        Test.Nn.Group.tests)
   , ("Nn.Init",         Test.Nn.Init.tests)
   , ("Nn.Module",       Test.Nn.Module.tests)
