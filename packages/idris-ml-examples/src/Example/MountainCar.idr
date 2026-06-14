@@ -1,7 +1,9 @@
 module Example.MountainCar
 
+import Control.Linear.LIO
 import Data.Fin
 import Data.IORef
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -9,6 +11,7 @@ import System
 import Array
 import BuildConfig
 import Compat.Random
+import FitL
 import Gym.ClassicControl.MountainCar
 import Gym.Env
 import Gym.Vector
@@ -16,6 +19,11 @@ import Hpo.LrFinder
 import ML.Simple
 import RL.ReplayBuffer
 import Train
+
+-- The Q-nets are linear `SeqL`s; hide the IO `Nn.Seq` constructors.
+%hide Nn.Seq.Nil
+%hide Nn.Seq.(::)
+%hide Nn.Seq.(~~>)
 
 ----------------------------------------------------------------------
 -- DQN on MountainCar-v0 with reward shaping.
@@ -38,10 +46,10 @@ MaxSteps   : Nat; MaxSteps = 200
 NumEnvs : Nat; NumEnvs = 4
 
 QNet : Type
-QNet = Seq ObsDim NumActions Ex F WithGrad
+QNet = SeqL ObsDim NumActions Ex F WithGrad
 
-mkQNet : (scope : String) -> IO QNet
-mkQNet scope = runInit $ scoped scope $ do
+mkQNet : (scope : String) -> Init QNet
+mkQNet scope = scoped scope $ do
   l1 <- linear {i=ObsDim} {o=Hidden}
   l2 <- linear {i=Hidden} {o=Hidden}
   l3 <- linear {i=Hidden} {o=NumActions}
@@ -63,28 +71,18 @@ epsilonAt step start end decaySteps =
   let frac = min (cast (natToInteger step) / cast (natToInteger decaySteps)) 1.0
   in start + frac * (end - start)
 
-greedyAction : QNet -> Vect ObsDim Double -> IO Nat
-greedyAction online obs = do
-  let stateT = bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]
-      stateV = the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor stateT Nothing)
-  qV <- forwardSeq {b=1} online stateV
+-- Argmax over Q(s, *) from the online net (threads the linear net).
+greedyActionL : (1 _ : QNet) -> Vect ObsDim Double -> L IO {use = 1} (LPair (!* Nat) QNet)
+greedyActionL online obs = do
+  stateV <- liftIO1 (ioRerun (\_ =>
+    the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)))
+  (MkBang qV # online') <- forwardSeqL {b=1} online stateV
   let q0 = primItem2d {ex=Ex} qV.tensorPtr 0 0
       q1 = primItem2d {ex=Ex} qV.tensorPtr 0 1
       q2 = primItem2d {ex=Ex} qV.tensorPtr 0 2
-  pure (if q0 >= q1 && q0 >= q2 then 0
-        else if q1 >= q2 then 1
-        else 2)
-
-epsGreedyIO : QNet -> Vect ObsDim Double -> Double -> IO Nat
-epsGreedyIO online obs eps = do
-  u <- randomRIO (the Double 0.0, 1.0)
-  if u < eps
-    then do
-      u2 <- randomRIO (the Double 0.0, 1.0)
-      pure (if u2 < (1.0 / 3.0) then 0
-            else if u2 < (2.0 / 3.0) then 1
-            else 2)
-    else greedyAction online obs
+  pure1 (MkBang (if q0 >= q1 && q0 >= q2 then the Nat 0
+                 else if q1 >= q2 then 1
+                 else 2) # online')
 
 -- Batched epsilon-greedy across NumEnvs envs: one batched forward,
 -- then per-env eps-vs-greedy with independent random draws.
@@ -125,14 +123,15 @@ rowMax2d t =
      else if v1 >= v2 then v1
      else v2
 
-computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> IO Double
-computeTargetVal target gamma t = do
-  let stateT = bulkToTensor2d {ex=Ex} {dt=F} [obsTensor t.nextObs]
-      stateV = the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor stateT Nothing)
-  qV <- forwardSeq {b=1} target stateV
+computeTargetValL : (1 _ : QNet) -> Double -> Transition ObsDim 1 ->
+                    L IO {use = 1} (LPair (!* Double) QNet)
+computeTargetValL target gamma t = do
+  stateV <- liftIO1 (ioRerun (\_ =>
+    the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor t.nextObs]) Nothing)))
+  (MkBang qV # target') <- forwardSeqL {b=1} target stateV
   let nextMax = rowMax2d qV.tensorPtr
       bootstrap = if t.done then 0.0 else gamma * nextMax
-  pure (t.reward + bootstrap)
+  pure1 (MkBang (t.reward + bootstrap) # target')
 
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
@@ -153,16 +152,27 @@ meanScalarLoss n losses = do
   let summed = foldl (\a, b => MkTensor (primAdd {ex=Ex} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
-batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
-                   Vect n (Transition ObsDim 1) -> IO (Tensor [] Ex F WithGrad)
-batchLossBatched n online target gamma batch = do
-  targetVals <- traverse (computeTargetVal target gamma) batch
-  let obsTensors = map (\t => obsTensor t.obs) batch
-      obsBT = bulkToTensor2d {ex=Ex} {dt=F} obsTensors
-      obsBV = the (Tensor [n, ObsDim] Ex F WithGrad) (MkTensor obsBT Nothing)
-  qOutB <- forwardSeq {b=n} online obsBV
-  losses <- go qOutB (toList batch) (toList targetVals) 0
-  meanScalarLoss n losses
+-- Thread the (linear) target net across the batch, collecting bootstrap values.
+foldTargetsL : (1 _ : QNet) -> Double -> List (Transition ObsDim 1) -> List Double ->
+               L IO {use = 1} (LPair (!* (List Double)) QNet)
+foldTargetsL target _     []          acc = pure1 (MkBang (reverse acc) # target)
+foldTargetsL target gamma (t :: rest) acc = do
+  (MkBang tv # target') <- computeTargetValL target gamma t
+  foldTargetsL target' gamma rest (tv :: acc)
+
+batchLossBatchedL : (n : Nat) -> (1 _ : QNet) -> (1 _ : QNet) -> Double ->
+                    Vect n (Transition ObsDim 1) ->
+                    L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (LPair QNet QNet))
+batchLossBatchedL n online target gamma batch = do
+  (MkBang targetVals # target') <- foldTargetsL target gamma (toList batch) []
+  obsBV <- liftIO1 (ioRerun (\_ =>
+    the (Tensor [n, ObsDim] Ex F WithGrad)
+        (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\t => obsTensor t.obs) batch)) Nothing)))
+  (MkBang qOutB # online') <- forwardSeqL {b=n} online obsBV
+  loss <- liftIO1 $ do
+            losses <- go qOutB (toList batch) targetVals 0
+            meanScalarLoss n losses
+  pure1 (MkBang loss # (online' # target'))
   where
     go : {n : Nat} -> Tensor [n, NumActions] Ex F WithGrad ->
          List (Transition ObsDim 1) ->
@@ -178,10 +188,11 @@ batchLossBatched n online target gamma batch = do
 -- DQN state
 ----------------------------------------------------------------------
 
+-- The two Q-nets are **linear** fields; the buffer / IORefs / config are ω.
 record DqnState where
   constructor MkDqnState
-  qNet         : QNet
-  target       : QNet
+  1 qNet       : QNet
+  1 target     : QNet
   buffer       : ReplayBuffer ObsDim 1
   envsRef      : IORef (VecEnv NumEnvs MCState)
   stepRef      : IORef Nat
@@ -200,25 +211,24 @@ record DqnState where
 actionToVec : Nat -> Vect 1 Double
 actionToVec a = [cast (natToInteger a)]
 
-trainIfReady : Optimizer Ex -> DqnState -> IO DqnState
-trainIfReady opt st = do
-  bufSz <- bufferSize st.buffer
-  if bufSz < st.cfgBatch
-    then pure st
+-- Train-if-ready, threading both nets through the batch loss + step inside a
+-- linear generation bracket (withGenFreeL: frees the replay step's grad
+-- intermediates so the within-epoch live handle count stays small — one epoch
+-- is ~106k ops; registry params rc>1 are spared).
+trainIfReadyL : Optimizer Ex -> ReplayBuffer ObsDim 1 -> Nat -> Double ->
+                (1 _ : QNet) -> (1 _ : QNet) -> L IO {use = 1} (LPair QNet QNet)
+trainIfReadyL opt buffer cfgBatch gamma online target = do
+  bufSz <- liftIO1 (bufferSize buffer)
+  if bufSz < cfgBatch
+    then pure1 (online # target)
     else do
-      mBatch <- sampleN st.cfgBatch st.buffer
+      mBatch <- liftIO1 (sampleN cfgBatch buffer)
       case mBatch of
-        Just batchVec => do
-          -- Per-step generation bracket: free this replay step's grad
-          -- intermediates immediately so the within-epoch live handle
-          -- count stays small (one DQN epoch is ~106k ops). Params update
-          -- in-place via the registry (rc>1, spared).
-          withGenFree {ex=Ex} $ do
-            loss <- batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
-            _ <- nativeTrainStep opt loss
-            pure ()
-          pure st
-        Nothing => pure st
+        Just batchVec => withGenFreeL {ex=Ex} $ do
+          (MkBang loss # (online' # target')) <- batchLossBatchedL cfgBatch online target gamma batchVec
+          _ <- liftIO1 (nativeTrainStep opt loss)
+          pure1 (online' # target')
+        Nothing => pure1 (online # target)
 
 ----------------------------------------------------------------------
 -- Batched episode rollout: NumEnvs parallel envs collect transitions
@@ -246,47 +256,43 @@ pushAllTransitionsMC buf shaping (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d ::
   push buf (MkTransition (mcObserve s) (actionToVec a) shapedR (mcObserve s') d)
   pushAllTransitionsMC buf shaping ss as rs ss' ds
 
-runEpisodeBatched : Optimizer Ex -> DqnState -> IO (DqnState, Double)
-runEpisodeBatched opt st0 = do
-  startEnvs <- readIORef st0.envsRef
-  go st0 startEnvs.envs MaxSteps 0.0
+runEpisodeBatchedL : Optimizer Ex -> (1 _ : DqnState) -> L IO {use = 1} (LPair (!* Double) DqnState)
+runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping) = do
+  startEnvs <- liftIO1 (readIORef envsRef)
+  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs MaxSteps 0.0
+  pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping)
   where
-    go : DqnState -> Vect NumEnvs MCState -> Nat -> Double -> IO (DqnState, Double)
-    go st _ Z ret = do
-      writeIORef st.envsRef (MkVecEnv (replicate NumEnvs (MkMC (-0.5) 0.0)))
-      pure (st, ret)
-    go st envs (S steps) ret = do
-      stepCount <- readIORef st.stepRef
-      let eps = epsilonAt stepCount st.cfgEpsStart st.cfgEpsEnd st.cfgEpsDecay
-          obsRows : Vect NumEnvs (Vector ObsDim Double)
-          obsRows  = map (\s => obsTensor (mcObserve s)) envs
-          batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
-          stateV : Tensor [NumEnvs, ObsDim] Ex F WithGrad
-          stateV = MkTensor batchPtr Nothing
-      actions <- withNoGrad {ex=Ex} $ do
-        qB <- forwardSeq {b=NumEnvs} st.qNet stateV
-        epsGreedyBatched qB envs eps
+    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs MCState -> Nat -> Double ->
+         L IO {use = 1} (LPair (!* Double) (LPair QNet QNet))
+    go qNet target _ Z ret = do
+      liftIO1 (writeIORef envsRef (MkVecEnv (replicate NumEnvs (MkMC (-0.5) 0.0))))
+      pure1 (MkBang ret # (qNet # target))
+    go qNet target envs (S steps) ret = do
+      stepCount <- liftIO1 (readIORef stepRef)
+      let eps = epsilonAt stepCount epsStart epsEnd epsDecay
+      stateV <- liftIO1 (ioRerun (\_ =>
+        the (Tensor [NumEnvs, ObsDim] Ex F WithGrad)
+            (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\s => obsTensor (mcObserve s)) envs)) Nothing)))
+      (MkBang actions # qNet') <- withNoGradL {ex=Ex} $ do
+        (MkBang qB # qNet') <- forwardSeqL {b=NumEnvs} qNet stateV
+        acts <- liftIO1 (epsGreedyBatched qB envs eps)
+        pure1 (MkBang acts # qNet')
       case stepAllAutoResetMC envs actions of
         (envs', rewards, dones) => do
-          pushAllTransitionsMC st.buffer st.cfgShaping envs actions rewards envs' dones
-          writeIORef st.stepRef (stepCount + 1)
-          let ret0 : Double
-              ret0 = head rewards
-              done0 : Bool
+          liftIO1 (pushAllTransitionsMC buffer shaping envs actions rewards envs' dones)
+          liftIO1 (writeIORef stepRef (stepCount + 1))
+          let ret0  = head rewards
               done0 = head dones
               ret'  = ret + ret0
-
-          st' <- trainIfReady opt st
-
-          when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
-            _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"
-            pure ()
-
+          (qNet'' # target') <- trainIfReadyL opt buffer batch gamma qNet' target
+          liftIO1 (when ((stepCount + 1) `mod` syncEvery == 0) $ do
+                     _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"
+                     pure ())
           if done0
             then do
-              writeIORef st'.envsRef (MkVecEnv envs')
-              pure (st', ret')
-            else go st' envs' steps ret'
+              liftIO1 (writeIORef envsRef (MkVecEnv envs'))
+              pure1 (MkBang ret' # (qNet'' # target'))
+            else go qNet'' target' envs' steps ret'
 
 ----------------------------------------------------------------------
 -- Config & main
@@ -330,20 +336,60 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 -- Greedy evaluation (raw reward, no shaping).
 ----------------------------------------------------------------------
 
-evalEp : QNet -> MCState -> Nat -> Double -> IO Double
-evalEp _ _ Z acc      = pure acc
-evalEp q st (S k) acc = do
-  action <- greedyAction q (mcObserve st)
+evalEpL : (1 _ : QNet) -> MCState -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) QNet)
+evalEpL q _ Z acc      = pure1 (MkBang acc # q)
+evalEpL q st (S k) acc = do
+  (MkBang action # q') <- greedyActionL q (mcObserve st)
   case mcStep st action of
     (reward, st', outcome, _) =>
-      if done outcome then pure (acc + reward)
-      else evalEp q st' k (acc + reward)
+      if done outcome then pure1 (MkBang (acc + reward) # q')
+      else evalEpL q' st' k (acc + reward)
 
-evalN : QNet -> Nat -> Double -> IO Double
-evalN _ Z acc     = pure acc
-evalN q (S k) acc = do
-  ep <- evalEp q (MkMC (-0.5) 0.0) MaxSteps 0.0
-  evalN q k (acc + ep)
+evalNL : (1 _ : QNet) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) QNet)
+evalNL q Z acc     = pure1 (MkBang acc # q)
+evalNL q (S k) acc = do
+  (MkBang ep # q') <- evalEpL q (MkMC (-0.5) 0.0) MaxSteps 0.0
+  evalNL q' k (acc + ep)
+
+----------------------------------------------------------------------
+-- State construction / eval / discard (linear)
+----------------------------------------------------------------------
+
+buildStateL : Config -> L IO {use = 1} DqnState
+buildStateL cfg = do
+  qNet0   <- runInitL (mkQNet "online")
+  target0 <- runInitL (mkQNet "target")
+  liftIO1 (do _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"; pure ())
+  buffer  <- liftIO1 (mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap)
+  resetSeedI <- liftIO1 randomInt32
+  let initEnvs : VecEnv NumEnvs MCState
+      initEnvs = fst (resetAll {state=MCState} {action=Nat} {obs=Vect 2 Double}
+                              (cast resetSeedI))
+  envsRef <- liftIO1 (newIORef initEnvs)
+  stepRef <- liftIO1 (newIORef (the Nat 0))
+  pure1 (MkDqnState qNet0 target0 buffer envsRef stepRef
+                    cfg.epsStart cfg.epsEnd cfg.epsDecay
+                    cfg.targetSync cfg.batchSize cfg.gamma cfg.shaping)
+
+discardStateL : (1 _ : DqnState) -> L IO ()
+discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _) = do
+  discardL qNet
+  discardL target
+
+finalReportL : Config -> Nat -> (1 _ : DqnState) -> L IO ()
+finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _) = do
+  let nEval = the Nat 30
+  (MkBang totalReturn # qNet') <- withNoGradL {ex=Ex} (evalNL qNet nEval 0.0)
+  discardL qNet'
+  discardL target
+  liftIO1 $ do
+    let avgReturn = totalReturn / cast (natToInteger nEval)
+    putStrLn ""
+    putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
+    putStrLn ""
+    putStrLn $ formatResult [("avg_return", show avgReturn),
+                              ("epochs", show epochsDone),
+                              ("seed", show cfg.seed)]
 
 ----------------------------------------------------------------------
 -- Main
@@ -369,54 +415,35 @@ main = do
            ++ " eps=" ++ show cfg.epsStart ++ "→" ++ show cfg.epsEnd
            ++ " shaping=" ++ show cfg.shaping
            ++ " seed=" ++ show cfg.seed
-
-  qNet0 <- mkQNet "online"
-  target0 <- mkQNet "target"
-  _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"
-
-  buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
-  resetSeedI <- randomInt32
-  let initEnvs : VecEnv NumEnvs MCState
-      initEnvs = fst (resetAll {state=MCState} {action=Nat} {obs=Vect 2 Double}
-                              (cast resetSeedI))
-  envsRef <- newIORef initEnvs
-  stepRef <- newIORef (the Nat 0)
-  let st0 = MkDqnState qNet0 target0 buffer envsRef stepRef
-                       cfg.epsStart cfg.epsEnd cfg.epsDecay
-                       cfg.targetSync cfg.batchSize cfg.gamma cfg.shaping
-  -- Adam scoped to "online" only — target syncs via polyakUpdate.
-  opt <- adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts)
-
   putStrLn ""
 
-  when cfg.lrFind $ do
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 30 } defaultLrFindConfig
-    _ <- lrFind lrCfg
-      (\st, _ => do (st', ret) <- runEpisodeBatched opt st; pure (st', negate ret))
-      (pure ()) opt st0
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  metrics <- newRLMetricsState 50
-  let trainCfg : TrainConfig DqnState
-      trainCfg = mkTrainConfig cfg.epochs 50 NoEarlyStop
-                   (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- fit {batch = ()}
-    (\st, _ => do
-       (st', ret) <- runEpisodeBatched opt st
-       recordReturn metrics ret
-       pure (st', negate ret))
-    opt (generate (pure ()))
-    trainCfg st0
-
-  putStrLn ""
-  let nEval = the Nat 30
-  totalReturn <- withNoGrad {ex=Ex} (evalN trained.qNet nEval 0.0)
-  let avgReturn = totalReturn / cast (natToInteger nEval)
-  putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
-  putStrLn ""
-  putStrLn $ formatResult [("avg_return", show avgReturn),
-                            ("epochs", show epochsDone),
-                            ("seed", show cfg.seed)]
+  if cfg.lrFind
+    then Control.Linear.LIO.run $ do
+      st0 <- buildStateL cfg
+      opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+      let lrCfg : LrFindConfig
+          lrCfg = { numIters := 30 } defaultLrFindConfig
+      (MkBang _ # st') <- lrFindL lrCfg
+        (\st, _ => do
+           (MkBang ret # st') <- runEpisodeBatchedL opt st
+           pure1 (MkBang (negate ret) # st'))
+        (pure ()) opt st0
+      discardStateL st'
+      liftIO1 $ do
+        putStrLn ""
+        putStrLn "Done — re-run without --lr-find at the recommended LR."
+    else Control.Linear.LIO.run $ do
+      st0 <- buildStateL cfg
+      opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+      metrics <- liftIO1 (newRLMetricsState 50)
+      let trainCfg : TrainConfig DqnState
+          trainCfg = { metricsL := readRLMetrics "recent_50" metrics }
+                       (mkTrainConfig cfg.epochs 50 NoEarlyStop
+                          (const (pure (the (List (String, String)) []))) (\_ => pure ()))
+      (MkBang (epochsDone, _) # trained) <- fitL {batch = ()}
+        (\st, _ => do
+           (MkBang ret # st') <- runEpisodeBatchedL opt st
+           dd <- liftIO1 (do recordReturn metrics ret; pure (negate ret))
+           pure1 (MkBang dd # st'))
+        opt (generate (pure ())) trainCfg st0
+      finalReportL cfg epochsDone trained
