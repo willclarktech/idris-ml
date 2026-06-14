@@ -8,6 +8,7 @@ module Format.Render
 import Data.List
 import Data.String
 
+import Format.Align
 import Format.Imports
 import Format.Roundtrip
 
@@ -48,15 +49,23 @@ sortImportsSafe src =
     Nothing => src
     Just cand => if safeImportSort src cand then cand else src
 
-||| Reformat a source string: whitespace hygiene, then import sort/dedup.
-||| Guaranteed safe — each pass is gated by its round-trip oracle and falls
-||| back to its input, so the result can never change the code's meaning.
+||| Apply the colon-alignment pass, gated by `safeReformat` (pure spacing,
+||| so the token stream + parse must be identical); fall back on rejection.
+alignSafe : String -> String
+alignSafe src =
+  let out = alignColons src
+  in if safeReformat src out then out else src
+
+||| Reformat a source string: whitespace hygiene, import sort/dedup, then
+||| colon alignment. Guaranteed safe — each pass is gated by its round-trip
+||| oracle and falls back to its input, so the result can never change the
+||| code's meaning.
 export
 format : String -> String
 format src =
   let hy = hygiene src
       hy2 = if safeReformat src hy then hy else src
-  in sortImportsSafe hy2
+  in alignSafe (sortImportsSafe hy2)
 
 ||| Is the source already in formatted (fixed-point) form?
 export

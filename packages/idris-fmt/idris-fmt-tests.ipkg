@@ -12,6 +12,7 @@ modules = Test.Main
         , Test.Roundtrip
         , Test.Render
         , Test.Imports
+        , Test.Align
 
 main = Test.Main
 
