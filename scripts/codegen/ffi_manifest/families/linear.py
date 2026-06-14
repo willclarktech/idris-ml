@@ -9,6 +9,13 @@ ENTRIES = {
     "tensor_bmm": Entry(
         args=("T", "T"), ret="T", slice="UserExecutorLinear", idris_method="primBmm"
     ),
+    # B × [...] -> [B, ...] collation (DataStream.collate). mlx="direct":
+    # the no-grad data stack runs on the default stream, matching the
+    # non-streamed tensor_one_hot data-creation precedent that already
+    # feeds the mlx-gpu collation→loss path.
+    "tensor_batch": Entry(
+        args=("R", "i"), ret="T", slice="UserExecutorLinear", idris_method="primBatch", mlx="direct"
+    ),
     "tensor_cat": Entry(
         args=("R", "i", "i"), ret="T", slice="UserExecutorLinear", idris_method="primCat"
     ),

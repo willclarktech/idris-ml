@@ -10,13 +10,6 @@ ENTRIES = {
     "tensor_backward_conditional": Entry(args=("T",), ret="i"),
     "tensor_backward_return_loss": Entry(args=("T", "d"), ret="d"),
     "tensor_backward_return": Entry(args=("T",), ret="T"),
-    # B × [...] -> [B, ...] collation, bound as a UserExecutorLinear method
-    # (DataStream.collate). mlx="direct": the no-grad data stack runs on the
-    # default stream, matching the non-streamed tensor_one_hot data-creation
-    # precedent that already feeds the mlx-gpu collation→loss path.
-    "tensor_batch": Entry(
-        args=("R", "i"), ret="T", slice="UserExecutorLinear", idris_method="primBatch", mlx="direct"
-    ),
     "tensor_bmm_3x3": Entry(args=("T", "T"), ret="T"),
     "tensor_cast_dtype_streamed": Entry(args=("T", "i", "i"), ret="T"),
     "tensor_cat_from_array": Entry(args=("R", "i", "i"), ret="T"),
