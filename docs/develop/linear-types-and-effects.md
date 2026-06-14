@@ -246,6 +246,53 @@ file: `forwardL`/`recurStep` are `fGetLine`, `freezeL`/`evalL` transform it,
 - **Pattern-match, never project**, linear values — design the surface so
   projection of a linear field is simply unavailable.
 
+## Migrating the op surface bottom-up (the `L IO` Tensor ops)
+
+The autograd op surface (`tadd`/`tlinear`/`ttanh`/… in `Tensor.idr`) is the
+root of the dependency DAG: ~125 files call these ops in `IO` do-blocks.
+Retyping them in place from `IO (Tensor …)` to `L IO (Tensor …)` would break
+all 125 at once — incompatible with build-green-per-commit. So the migration
+is **additive**: an `L IO` op surface lands beside the `IO` one, consumers
+move onto it bottom-up (layers → fit → examples → transformers), and the `IO`
+ops are deleted last (rename `*L` → base). Standard shape for a monad change
+at the bottom of the stack.
+
+- **One lifting primitive.** `ioRerunL : (() -> a) -> L IO a`, defined
+  `ioRerunL f = liftIO1 (ioRerun f)`. Every `L IO` op is `ioRerunL (\_ =>
+  MkTensor (prim… ) Nothing)` — the *same* pure FFI-thunk body as its `IO`
+  twin, only the wrapper differs. The `%foreign` prims stay `PrimIO`/`IO`; the
+  single lift is centralized in `ioRerunL`, so no `liftIO1` is scattered in
+  layer code. Tensors are **unrestricted**, so the ops return `L IO` at the
+  default `use = Unrestricted` (a tensor binds with `<-` and is freely reused
+  — only the *model* is linear).
+- **Import the type qualified, the lift unqualified.** `L` lives in
+  `Control.Linear.LIO` but `liftIO1` is in `Prelude.IO`. In a file full of
+  `IO` do-blocks (`Tensor.idr`), `import Control.Linear.LIO as LIO` and write
+  `LIO.L IO τ` for the type — a qualified import keeps LIO's names out of the
+  unqualified namespace so it can't make the existing `IO` `>>=`/`pure`
+  ambiguous. `liftIO1` is then just `Prelude.IO.liftIO1`, unqualified.
+
+### The `the (L IO τ)` pin (a real elaboration trap)
+
+`Applicative (L io)` exists (`Applicative io => Applicative (L io)`), but a
+bare `pure x`, or a `case`/`if-then-else` whose branches feed a `<-` bind,
+fails with **"Can't find an implementation for Applicative (L IO)"**. The
+cause: the `L` type's `use` parameter is an unsolved metavariable during that
+sub-elaboration, so `Applicative (L IO {use = ?u})` can't match the
+`use = Unrestricted` instance head. Pin the monad explicitly:
+
+```idris
+p <- the (L IO (TVec o ex dt WithGrad)) $ case prev of
+       Just po => pure po               -- now resolves: use = Unrestricted
+       Nothing => tzeroState1dL {n = o}
+```
+
+Needed wherever a branch is a *value lifted with `pure`* (the `Just`/identity
+arms of recurrent state init and eval-mode dropout) and wherever a `case`
+result is the subject of a do-bind (the `Activation` kind dispatch). A branch
+that is itself an op call (`ttanhL x`) needs no pin — its return type is
+already concrete `L IO τ`.
+
 ## Status / file map
 
 - `packages/idris-ml/src/Nn/Module.idr` — `ModuleL`, `FrozenL`, generic
@@ -257,7 +304,17 @@ file: `forwardL`/`recurStep` are `fGetLine`, `freezeL`/`evalL` transform it,
 - `packages/idris-ml/src/Test/{neg/ReuseAfterFreeze,pos/SingleUseCompiles}.idr`
   + `scripts/check-linear-model-gate.sh` — the gate.
 
-Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface; the IO surface
-is deleted once every caller (layers → fit → examples → transformers) is on
-`L IO` and `Tensor.idr`'s ops are `L IO`-native (which removes the `liftIO1`
-seam in every `forwardL`).
+- `packages/idris-ml/src/Tensor.idr` — the additive `L IO` op surface
+  (`ioRerunL` + `taddL`/`tlinearL`/`tlinear2dL`/`tzeroState1dL`/
+  `tlstmGatesPairL`/`tgruCellL` + the six activation twins). The `IO` ops are
+  unchanged beside them.
+- `packages/idris-ml/src/Nn/{Recurrent,Lstm,Gru}.idr` — `RecurrentL` bodies on
+  the `L IO` ops.
+
+Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface. No `forwardL`/
+`recurStepL` body still uses `liftIO1` for tensor math — the only remaining
+lifts are principled: `Module.idr`'s `evalL`/`freeze`/`unfreeze` flip C
+`requires_grad` via `liftIO1 (primIO …)` (a param-flag side effect, not a
+tensor op), and `Rnn` lifts its user-supplied IO activation field. The IO op
+surface is deleted once every caller (layers → fit → examples → transformers)
+is on `L IO`; that collapse renames `*L` → base.
