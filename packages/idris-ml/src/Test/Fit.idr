@@ -82,7 +82,21 @@ fitMixedTrains = do
   let v = tensorItem w
   check ("fitSupervisedMixed trains (w 2.0 -> " ++ show v ++ ")") (v < 1.0)
 
+-- Full-pass epochs: a stream advertising `epochLen = Just k` makes ONE
+-- fit epoch do k steps (a full dataset pass), not 1. loss=w², lr 0.1 →
+-- w *= 0.8 per step; one epoch over epochLen=3 → w = 2*0.8³ = 1.024,
+-- whereas the old one-step-per-epoch behaviour would give 2*0.8 = 1.6.
+fitFullPassMultiStep : IO Bool
+fitFullPassMultiStep = do
+  w <- mkW "fit_fp_w" 2.0
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
+  let s3 = the (DataStream ()) (MkDataStream (pure ()) (Just 3))
+  _ <- fitSupervised {ex=TestExecutor} opt (\_, () => tmul w w) s3 (simpleConfig 1) ()
+  let v = tensorItem w
+  check ("fit full-pass runs epochLen steps/epoch (w 2.0 -> " ++ show v ++ " ~ 1.024)")
+        (abs (v - 1.024) < 1.0e-9)
+
 export
 tests : List (IO Bool)
 tests = [ fitSupervisedConverges, fitEqualsLegacy
-        , recurrentFoldConverges, fitMixedTrains ]
+        , recurrentFoldConverges, fitMixedTrains, fitFullPassMultiStep ]

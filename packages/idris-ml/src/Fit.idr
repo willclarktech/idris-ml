@@ -17,6 +17,7 @@
 module Fit
 
 import Data.IORef
+import Data.Maybe
 import Data.Vect
 import System.Clock
 
@@ -39,12 +40,41 @@ public export
 0 EpochStep : Type -> Type -> Type
 EpochStep m batch = m -> batch -> IO (m, Double)
 
-||| Run training. Pulls one batch per epoch from `stream`, calls `step`,
-||| and drives the shared engine. `nanHalts` (default True) treats a NaN
-||| loss as divergence; set False for the mixed-precision overflow-skip
-||| semantics (the scaler returns NaN to mean "step skipped").
-||| The optimizer carries the LR schedule (tick is called per epoch);
-||| `cfg.beforeEpoch` remains as an extra hook.
+-- One full dataset pass: fold `step` over `steps` batches, accumulating
+-- the mean of the *finite* batch losses. NaN handling honours `nanHalts`:
+-- single precision (True) treats a NaN batch loss as divergence — short-
+-- circuit, return NaN so the engine halts; mixed precision (False) means
+-- the scaler skipped that step — drop it from the mean and continue. On
+-- mlx, drain the per-step grad husks between batches so a long pass can't
+-- outrun the MTLBuffer ceiling (no-op begin/end on tape/torch). Top-level
+-- (not a where-clause) so its interface-constraint binding is unambiguous.
+runPass : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
+          {0 m : Type} -> {0 batch : Type} -> (nanHalts : Bool) ->
+          EpochStep m batch -> DataStream batch ->
+          (steps : Nat) -> (accSum : Double) -> (accCount : Nat) -> m -> IO (m, Double)
+runPass _ _ _ Z accSum accCount m =
+  pure (m, if accCount == 0 then 0.0/0.0 else accSum / cast accCount)
+runPass nanHalts step s (S k) accSum accCount m = do
+  b <- s.next
+  (m', loss) <- step m b
+  when (backendTag {ex} == "mlx") $ do
+    forceMajorGc
+    ignore drainManagedHandles
+  if isDiverged loss
+    then if nanHalts
+           then pure (m', 0.0/0.0)
+           else runPass {ex} nanHalts step s k accSum accCount m'
+    else runPass {ex} nanHalts step s k (accSum + loss) (accCount + 1) m'
+
+||| Run training. Each epoch is one full dataset pass: `fit` pulls
+||| `epochLen` batches from `stream` (one batch when the stream is
+||| infinite — `epochLen = Nothing`, the RL/synthetic case), calls `step`
+||| on each, and reports the mean batch loss to the shared engine. Early
+||| stop / checkpoint cadence is therefore per-pass, matching PyTorch's
+||| epoch. `nanHalts` (default True) treats a NaN loss as divergence; set
+||| False for the mixed-precision overflow-skip semantics (the scaler
+||| returns NaN to mean "step skipped"). The optimizer carries the LR
+||| schedule (tick is called per epoch); `cfg.beforeEpoch` is an extra hook.
 export
 fit : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
       {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
@@ -55,12 +85,12 @@ fit {nanHalts} step opt s cfg m0 = do
   logInfo $ "Fitting... [backend=" ++ backendName {ex} ++ "]"
   bestRef <- newIORef (the Double (1.0/0.0))
   startEp <- resumeFromCheckpoint cfg.checkpoint bestRef
+  let stepsPerEpoch : Nat := fromMaybe 1 s.epochLen
   let perEpoch : m -> Nat -> IO (m, Double)
       perEpoch m ep = do
         tick opt ep
         cfg.beforeEpoch ep
-        b <- s.next
-        step m b
+        runPass {ex} nanHalts step s stepsPerEpoch 0.0 0 m
   let (_ ** (esStep, esInit, esTerm)) = earlyStopMachine cfg.earlyStop
   (mFin, epochsDone, loss) <-
     runEpochLoop {ex} cfg.totalEpochs cfg.logEvery cfg.metrics cfg.checkpoint
