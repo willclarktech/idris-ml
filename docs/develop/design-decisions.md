@@ -2298,3 +2298,33 @@ leading/trailing-blank trim, single final newline) — applied repo-wide as a wh
 CLI is the repo's own `idris-args` (`--write`/`--check`/`--parse-check`). Wired as `make fmt` /
 `make check-fmt` (CI gate `test-integration-lint-fmt`) / `make test-unit-fmt`; dogfoods itself. The
 deferred reindentation + full style (alignment + import-sort) is the L-sized TODO follow-up.
+
+### Follow-up: cross-language `fmt` family + textual import-sort/alignment (2026-06-14)
+
+Two refinements after the conservative formatter landed.
+
+**`fmt` is a cross-language family, and format is split from lint.** `make fmt` /
+`make check-fmt` are umbrellas over `fmt-{idris,py,c}` / `test-integration-lint-fmt`
++ `check-fmt-{py,c}` (`mk/fmt.mk`). The format-CHECK moved *out* of `lint-py`/
+`lint-c` (which are now pure ruff-check+vulture / cppcheck+clang-tidy), matching
+testing-taxonomy.md's "format != lint". This also added Python + tape-C format
+gating to CI that wasn't actually running before.
+
+**Import-sort and alignment are oracle-gated *textual* passes — no pretty-printer.**
+The expensive part of a formatter (a faithful `PDecl`/`PTerm` printer) is only
+needed for full reindentation, which is deferred. Import-sort re-emits just the
+import block (`Show Import` already prints the canonical line) and alignment only
+edits spaces before a `:`. The safety oracle is **per-transform**, because the
+right invariant differs:
+
+- whitespace/alignment: token stream identical (`codeSig`) ∧ still parses. Spacing
+  can't change tokens or the parse.
+- import-sort: it deliberately reorders, so `codeSig` differs by design. The gate
+  is `safeImportSort` = decls untouched (`astSig`) ∧ same import *set*
+  (reorder + exact-dup dedup). `astSig` is FC-insensitive for free because `Show`
+  omits FC — no hand-written `stripFC` needed. (Caveat: `Show` doesn't descend
+  into every where/let-local block, so `astSig` guards transforms that leave decls
+  structurally intact, not reindentation.)
+
+Each pass falls back to its input on oracle rejection, so the all-or-nothing
+guarantee holds: the tool can reorder/realign but never change meaning.
