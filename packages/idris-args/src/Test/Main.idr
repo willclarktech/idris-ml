@@ -1,7 +1,7 @@
 module Test.Main
 
-import Test.Harness
 import Test.Args
+import Test.Harness
 
 main : IO ()
 main = runAll
