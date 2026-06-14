@@ -1,8 +1,7 @@
-||| The reformatter. The current pass is conservative whitespace hygiene
-||| (no reindentation, no alignment, no import sorting yet — those layer on
-||| top in later passes); every result is gated by `safeReformat` so the
-||| tool can only ever emit code that lexes+parses to the same tokens as its
-||| input, falling back to the original text otherwise.
+||| The reformatter. Passes run in order — whitespace hygiene, import
+||| sort/dedup, column alignment, then reindentation — and each is gated by its
+||| own round-trip oracle, falling back to its input on any doubt, so the tool
+||| can only ever emit code that means the same as its input.
 module Format.Render
 
 import Data.List
@@ -10,6 +9,7 @@ import Data.String
 
 import Format.Align
 import Format.Imports
+import Format.Reindent
 import Format.Roundtrip
 
 ||| Drop trailing spaces/tabs from a single line (no newline expected).
@@ -49,12 +49,18 @@ sortImportsSafe src =
     Nothing   => src
     Just cand => if safeImportSort src cand then cand else src
 
-||| Apply one alignment pass, gated by `safeReformat` (pure spacing, so the
-||| token stream + parse must be identical); fall back on rejection.
-alignPass : (String -> String) -> String -> String
-alignPass pass src =
+||| Apply one transform, gated by a round-trip oracle; fall back to the input
+||| on rejection. The oracle differs per transform (spacing vs reindent), so it
+||| is a parameter.
+gatedPass : (String -> String -> Bool) -> (String -> String) -> String -> String
+gatedPass safe pass src =
   let out = pass src
-  in if safeReformat src out then out else src
+  in if safe src out then out else src
+
+||| Alignment passes are pure spacing, so the token stream + parse must be
+||| identical: gate with `safeReformat`.
+alignPass : (String -> String) -> String -> String
+alignPass = gatedPass safeReformat
 
 ||| Run every alignment pass in turn, each independently oracle-gated.
 ||| Colons (annotations), then equals (bindings / multi-clause defs), then
@@ -62,16 +68,22 @@ alignPass pass src =
 alignSafe : String -> String
 alignSafe = alignPass alignArrows . alignPass alignEquals . alignPass alignColons
 
-||| Reformat a source string: whitespace hygiene, import sort/dedup, then
-||| colon alignment. Guaranteed safe — each pass is gated by its round-trip
-||| oracle and falls back to its input, so the result can never change the
-||| code's meaning.
+||| Reindentation changes leading whitespace only; gate with `safeReindent`
+||| (parse + deep AST equality + imports unchanged — `codeSig` is trivially
+||| preserved here so it cannot oracle a layout change).
+reindentSafe : String -> String
+reindentSafe = gatedPass safeReindent reindent
+
+||| Reformat a source string: whitespace hygiene, import sort/dedup, column
+||| alignment, then reindentation. Guaranteed safe — each pass is gated by its
+||| round-trip oracle and falls back to its input, so the result can never
+||| change the code's meaning.
 export
 format : String -> String
 format src =
   let hy = hygiene src
       hy2 = if safeReformat src hy then hy else src
-  in alignSafe (sortImportsSafe hy2)
+  in reindentSafe (alignSafe (sortImportsSafe hy2))
 
 ||| Is the source already in formatted (fixed-point) form?
 export
