@@ -10,15 +10,24 @@
 
 module Example.Mnist
 
+import Control.Linear.LIO
 import Data.Fin
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
 
 import BuildConfig
 import Compat.Random
+import FitL
 import ML.Simple
 import Train
+
+-- This example's model is a linear `SeqL`; hide the IO `Nn.Seq` constructors
+-- (same `Nil`/`::`/`~~>` names) so the chain builder resolves unambiguously.
+%hide Nn.Seq.Nil
+%hide Nn.Seq.(::)
+%hide Nn.Seq.(~~>)
 
 ----------------------------------------------------------------------
 -- Architecture (flat dims)
@@ -71,10 +80,13 @@ EvalSize = 1000
 ----------------------------------------------------------------------
 
 Model : Type
-Model = Seq InputDim NumClasses Ex F WithGrad
+Model = SeqL InputDim NumClasses Ex F WithGrad
 
-buildModel : IO Model
-buildModel = runInit $ do
+-- Top-level `Init` value (not inline under `runInitL`): a nested do-block under
+-- the linear `run $ do …` trips the elaborator's ambiguity-depth limit. Built
+-- as a linear `SeqL`.
+mkModel : Init Model
+mkModel = do
   c1 <- conv2d {inC = InC}   {outC = OutC1} {h = ImgH}     {w = ImgH}     {kH = KH} {kW = KH} {padH = 0} {padW = 0}
   c2 <- conv2d {inC = OutC1} {outC = OutC2} {h = Pool1Out} {w = Pool1Out} {kH = KH} {kW = KH} {padH = 0} {padW = 0}
   l  <- linear {i = AfterPool2} {o = NumClasses}
@@ -85,11 +97,15 @@ buildModel = runInit $ do
            ~~> dropout 0.5
            ~~> l ~~> Nil)
 
-nllLoss : Model -> (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize, NumClasses] Ex F NoGrad) ->
-          IO (Tensor [] Ex F WithGrad)
-nllLoss model (x, tgt) = do
-  out <- forwardSeq {b = BatchSize} model (retypeGrad x)
-  tnllLossMean {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
+-- Linear-resource loss: consume the model, forward via forwardSeqL, return the
+-- banged scalar loss beside the rebuilt model.
+nllLossL : (1 _ : Model) ->
+           (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize, NumClasses] Ex F NoGrad) ->
+           L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) Model)
+nllLossL model (x, tgt) = do
+  (MkBang out # model') <- forwardSeqL {b = BatchSize} model (retypeGrad x)
+  loss <- tnllLossMeanL {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
+  pure1 (MkBang loss # model')
 
 ----------------------------------------------------------------------
 -- Evaluation: argmax accuracy over one EvalSize batch of test images
@@ -106,15 +122,16 @@ argmaxRow t r = go 1 0 (primItem2d {ex=Ex} t r 0)
            in if v > bestV then assert_total (go (j + 1) j v)
                            else assert_total (go (j + 1) best bestV)
 
-evalAccuracy : Seq InputDim NumClasses Ex F NoGrad ->
-               (Tensor [EvalSize, InputDim] Ex F NoGrad, Tensor [EvalSize, NumClasses] Ex F NoGrad) ->
-               IO Double
-evalAccuracy model (x, tgt) = do
-  pred <- forwardSeq {b = EvalSize} model x
+-- Argmax accuracy over the already-forwarded [EvalSize, NumClasses] logits.
+-- Pure (primItem2d reads are pure FFI); the forward itself happens in the
+-- linear block via forwardSeqL.
+accuracyFrom : Tensor [EvalSize, NumClasses] Ex F NoGrad ->
+               Tensor [EvalSize, NumClasses] Ex F NoGrad -> Double
+accuracyFrom pred tgt =
   let correct = length $ filter id
         [ argmaxRow pred.tensorPtr r == argmaxRow tgt.tensorPtr r
         | r <- map (cast {to=Int}) [the Nat 0 .. EvalSize `minus` 1] ]
-  pure (cast {to=Double} correct / cast {to=Double} EvalSize)
+  in cast {to=Double} correct / cast {to=Double} EvalSize
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -177,24 +194,30 @@ main = do
   putStrLn $ "Train: " ++ show trainDs.size ++ " images, Test: " ++ show testDs.size ++ " images"
 
   opt <- adam cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
-  model <- buildModel
   trainStream <- stream (Shuffle cfg.seed) trainDs
   let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} trainStream
-  putStrLn ""
-
-  (trained, epochsDone, finalLoss) <-
-    fitSupervised opt nllLoss bs (patienceConfig cfg.epochs cfg.patience) model
-
-  -- Accuracy on one EvalSize batch of (shuffled) test images.
-  putStrLn ""
-  infer <- eval trained
   testStream <- stream (Shuffle cfg.seed) testDs
   evalBatch <- (batched {b = EvalSize} {i = InputDim} {o = NumClasses} testStream).next
-  acc <- evalAccuracy infer evalBatch
-  putStrLn $ "Final accuracy (" ++ show EvalSize ++ " test samples): " ++ show (acc * 100.0) ++ "%"
-
   putStrLn ""
-  putStrLn $ formatResult [("accuracy", show acc),
-                           ("epochs", show epochsDone),
-                           ("loss", show finalLoss),
-                           ("seed", show cfg.seed)]
+
+  -- Linear surface end to end: model born linear (runInitL), threaded through
+  -- fitSupervisedL, converted to an inference model (evalL), forwarded once on
+  -- the eval batch (forwardSeqL), then discarded. `run` is fully qualified —
+  -- `import System` brings other `run`s that otherwise blow the ambiguity-depth
+  -- limit in this do-block.
+  Control.Linear.LIO.run $ do
+    model <- runInitL mkModel
+    (MkBang (epochsDone, finalLoss) # trained) <-
+      fitSupervisedL opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
+    liftIO1 (putStrLn "")
+    infer <- evalL trained
+    (MkBang predB # infer') <- forwardSeqL {b = EvalSize} infer (fst evalBatch)
+    discardL infer'
+    liftIO1 $ do
+      let acc = accuracyFrom predB (snd evalBatch)
+      putStrLn $ "Final accuracy (" ++ show EvalSize ++ " test samples): " ++ show (acc * 100.0) ++ "%"
+      putStrLn ""
+      putStrLn $ formatResult [("accuracy", show acc),
+                               ("epochs", show epochsDone),
+                               ("loss", show finalLoss),
+                               ("seed", show cfg.seed)]
