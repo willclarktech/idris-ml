@@ -177,6 +177,13 @@ static void torch_port_load_int64(void* h, const int64_t* src, int n) {
 	t->view({n}).copy_(staging);
 }
 
+/* Per-param LR override — defined in this backend's optimizer.cpp (renamed
+   to optimizer_set_param_lr_torch by the force-included rename header). Wired
+   into the port so the shared training trampolines reach the real impl if/when
+   torch joins that shared TU; the Idris surface already calls the suffixed
+   symbol directly. */
+extern "C" void optimizer_set_param_lr(void* opt, const char* name, double lr);
+
 const BackendPort g_active_port = {
     /* Tensor introspection + per-element access + bulk grad/data ops:
        supplied by the torch port shims above. */
@@ -203,7 +210,7 @@ const BackendPort g_active_port = {
     .optimizer_create_adamw = nullptr,
     .optimizer_free = nullptr,
     .optimizer_set_lr = nullptr,
-    .optimizer_set_param_lr = nullptr,
+    .optimizer_set_param_lr = optimizer_set_param_lr,
     .optimizer_step = nullptr,
     .optimizer_buf_count = nullptr,
     .optimizer_get_m = nullptr,

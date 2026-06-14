@@ -21,6 +21,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <ATen/ATen.h>
 #include <torch/torch.h>
@@ -53,8 +54,15 @@ struct OptWrapper {
 	int type; // 0=sgd, 1=rmsprop, 2=adam, 3=adamw
 	double lr, beta1, beta2, eps, alpha, weight_decay, momentum;
 	torch::optim::Optimizer* opt;
-	std::string prefix;       // empty = manages all params; else only params whose
-	                          // registry name starts with `prefix` (SAC multi-opt)
+	std::string prefix; // empty = manages all params; else only params whose
+	                    // registry name starts with `prefix` (SAC multi-opt)
+	std::unordered_map<const void*, double>
+	    param_lr;             // per-param LR overrides, keyed by the param's
+	                          // TensorImpl* (stable across re-sync). Empty in the
+	                          // common case → optimizer_step takes the single-LR
+	                          // fast path. Mirrors tape/mlx's param_lr arrays;
+	                          // libtorch has no native per-param LR within a group,
+	                          // so optimizer_step buckets params by effective LR.
 	int64_t pending_step = 0; // step count restored by optimizer_set_meta,
 	                          // stamped onto per-param state when it is first
 	                          // created (lazily, in optimizer_set_m/_v) — the
@@ -187,7 +195,7 @@ static void adam_core_foreach(double lr, double beta1, double beta2, double eps,
 	at::_foreach_addcdiv_(params, m_list, denom, -step_size);
 }
 
-static void adam_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params) {
+static void adam_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params, double lr) {
 	auto& opt = *w->opt;
 	auto& state = opt.state();
 
@@ -222,7 +230,7 @@ static void adam_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& para
 	/* In-place updates on leaf params with requires_grad=true would trip
 	   autograd's check_inplace. Same wrap as torch::optim::Adam::step(). */
 	torch::NoGradGuard no_grad;
-	adam_core_foreach(w->lr, w->beta1, w->beta2, w->eps, new_step, active_params, m_list, v_list,
+	adam_core_foreach(lr, w->beta1, w->beta2, w->eps, new_step, active_params, m_list, v_list,
 	                  g_list);
 }
 
@@ -230,7 +238,7 @@ static void adam_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& para
    BEFORE the Adam math. AdamWParamState is a distinct libtorch type from
    AdamParamState but exposes the same field accessors, so the shared
    adam_core_foreach math is reusable. */
-static void adamw_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params) {
+static void adamw_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params, double lr) {
 	auto& opt = *w->opt;
 	auto& state = opt.state();
 
@@ -264,12 +272,14 @@ static void adamw_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& par
 
 	torch::NoGradGuard no_grad;
 
-	/* Decoupled weight decay: p *= 1 - lr*wd  (skip when wd == 0). */
+	/* Decoupled weight decay: p *= 1 - lr*wd  (skip when wd == 0). Uses the
+	   effective (possibly per-param-overridden) lr, matching PyTorch's
+	   per-group decoupling. */
 	if (w->weight_decay != 0.0) {
-		at::_foreach_mul_(active_params, 1.0 - w->lr * w->weight_decay);
+		at::_foreach_mul_(active_params, 1.0 - lr * w->weight_decay);
 	}
 
-	adam_core_foreach(w->lr, w->beta1, w->beta2, w->eps, new_step, active_params, m_list, v_list,
+	adam_core_foreach(lr, w->beta1, w->beta2, w->eps, new_step, active_params, m_list, v_list,
 	                  g_list);
 }
 
@@ -281,7 +291,7 @@ static void adamw_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& par
      (momentum)  buf.mul_(m).addcdiv_(g, avg);     p -= lr * buf
      (no momentum)                                 p -= lr * g / avg
    v / buf live in RMSpropParamState. */
-static void rmsprop_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params) {
+static void rmsprop_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params, double lr) {
 	auto& opt = *w->opt;
 	auto& state = opt.state();
 	const bool use_momentum = (w->momentum > 0.0);
@@ -327,7 +337,7 @@ static void rmsprop_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& p
 		g_eff = g_list;
 	}
 
-	double alpha = w->alpha, lr = w->lr, eps = w->eps;
+	double alpha = w->alpha, eps = w->eps;
 	at::_foreach_mul_(v_list, alpha);
 	at::_foreach_addcmul_(v_list, g_eff, g_eff, 1.0 - alpha);
 	auto avg = at::_foreach_sqrt(v_list);
@@ -344,7 +354,8 @@ static void rmsprop_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& p
 
 /* SGD: our wrapper exposes only lr (no momentum / wd / nesterov), so the
    math collapses to a single _foreach_add_ call. */
-static void sgd_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params) {
+static void sgd_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params, double lr) {
+	(void)w;
 	std::vector<at::Tensor> active, grads;
 	active.reserve(params.size());
 	grads.reserve(params.size());
@@ -355,7 +366,27 @@ static void sgd_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& param
 	}
 	if (active.empty()) return;
 	torch::NoGradGuard no_grad;
-	at::_foreach_add_(active, grads, -w->lr);
+	at::_foreach_add_(active, grads, -lr);
+}
+
+/* Dispatch one effective-LR bucket to the matching fused step. */
+static void dispatch_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& params, double lr) {
+	switch (w->type) {
+	case 0:
+		sgd_step_foreach(w, params, lr);
+		break;
+	case 1:
+		rmsprop_step_foreach(w, params, lr);
+		break;
+	case 2:
+		adam_step_foreach(w, params, lr);
+		break;
+	case 3:
+		adamw_step_foreach(w, params, lr);
+		break;
+	default:
+		w->opt->step();
+	}
 }
 
 extern "C" void optimizer_step(OptimizerHandle h) {
@@ -381,21 +412,27 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 			return !(e && (e[0] == '0'));
 		}();
 		if (foreach_enabled) {
-			switch (w->type) {
-			case 0:
-				sgd_step_foreach(w, params_ref);
-				break;
-			case 1:
-				rmsprop_step_foreach(w, params_ref);
-				break;
-			case 2:
-				adam_step_foreach(w, params_ref);
-				break;
-			case 3:
-				adamw_step_foreach(w, params_ref);
-				break;
-			default:
-				opt->step();
+			if (w->param_lr.empty()) {
+				/* Common case: one LR for every param — single fused pass. */
+				dispatch_step_foreach(w, params_ref, w->lr);
+			} else {
+				/* Per-param LR overrides active (groups / freezeByPrefix /
+				   setParamLR). libtorch has no per-param LR within a param
+				   group, so bucket params by effective LR and run one fused
+				   pass per bucket. Each param appears in exactly one bucket,
+				   so its state (m/v/step) is touched exactly once. Buckets are
+				   rebuilt every step from the override map keyed on TensorImpl*,
+				   so an overridden param keeps its LR across the registry
+				   re-sync above (no group membership to preserve). */
+				std::unordered_map<double, std::vector<at::Tensor>> buckets;
+				for (auto& p : params_ref) {
+					double eff_lr = w->lr;
+					auto it = w->param_lr.find(p.unsafeGetTensorImpl());
+					if (it != w->param_lr.end()) eff_lr = it->second;
+					buckets[eff_lr].push_back(p);
+				}
+				for (auto& kv : buckets)
+					dispatch_step_foreach(w, kv.second, kv.first);
 			}
 		} else {
 			opt->step();
@@ -417,11 +454,22 @@ extern "C" void optimizer_zero_grad(OptimizerHandle h) {
 }
 
 extern "C" void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
-	/* TODO: libtorch uses native param groups — per-param LR overrides
-	   would require rebuilding groups. Not yet implemented. */
-	(void)h;
-	(void)name;
-	(void)lr;
+	/* Record a per-param LR override keyed on the param's TensorImpl* (stable
+	   across the registry re-sync in optimizer_step). The override is consumed
+	   by optimizer_step's per-LR bucketing — libtorch has no native per-param
+	   LR within a param group. Mirrors tape/mlx's name→lr lookup. lr < 0 (the
+	   -1 sentinel) clears any existing override, restoring the base LR. */
+	auto* w = static_cast<OptWrapper*>(h);
+	for (int i = 0; i < param_count(); i++) {
+		if (std::strcmp(param_name(i), name) == 0) {
+			const void* key = ((at::Tensor*)param_tensor(i))->unsafeGetTensorImpl();
+			if (lr < 0.0)
+				w->param_lr.erase(key);
+			else
+				w->param_lr[key] = lr;
+			return;
+		}
+	}
 }
 
 extern "C" void optimizer_set_lr(OptimizerHandle h, double lr) {

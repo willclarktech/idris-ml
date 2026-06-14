@@ -137,9 +137,9 @@ Test(training_optimizer_rmsprop, lr_outside_buffer) {
 }
 
 /* Per-param LR: override one param's LR while leaving the base in
-   effect for the others. Tape + mlx implement the override; torch's
-   backend wires `optimizer_set_param_lr` as a no-op so we tolerate
-   either outcome on `w` and require `b`'s base-LR behaviour either way. */
+   effect for the others. Implemented on all three backends (tape + mlx
+   per-param arrays; torch via per-param LR buckets in optimizer_step).
+   w override 0.5 → 5.0 - 0.5*1 = 4.5; b base 0.1 → 3.0 - 0.1*1 = 2.9. */
 Test(training_optimizer_per_param_lr, partial_override) {
     param_clear();
     TensorHandle w = tensor_create_scalar(5.0, 1);
@@ -152,12 +152,8 @@ Test(training_optimizer_per_param_lr, partial_override) {
     optimizer_set_param_lr(opt, "w", 0.5);
     optimizer_step(opt);
     double w_val = tensor_item(w);
-    if (w_val < 4.8) {
-        /* Per-param LR applied (tape/mlx). */
-        cr_assert_float_eq(w_val, 4.5, 1e-5, "w after per-param LR");
-    }
-    /* Otherwise: w stayed at 4.9 (torch's no-op). Both shapes acceptable. */
-    cr_assert_float_eq(tensor_item(b), 2.9, 1e-5, "b after base LR");
+    cr_assert_float_eq(w_val, 4.5, 1e-5, "w after per-param LR (got %.6f)", w_val);
+    cr_assert_float_eq(tensor_item(b), 2.9, 1e-5, "b after base LR (got %.6f)", tensor_item(b));
     optimizer_free(opt);
     param_clear();
 }
