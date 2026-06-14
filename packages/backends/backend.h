@@ -810,6 +810,12 @@ int* create_index_array(int n);
 int* shuffle_index_array(int* arr, int n);
 int index_array_get(int* arr, int i);
 
+/* Seeded per-stream index array (DataStream). Opaque handle with its own
+ * xoshiro256++ state — reproducible from seed, independent of rand(). */
+void* create_seeded_index_array(int n, unsigned long long seed);
+void* seeded_index_array_shuffle(void* handle);
+int seeded_index_array_get(void* handle, int i);
+
 /* ---------- MLX compile (Job 3 Phase B) ---------- */
 
 /* Returns 1 if MLX_COMPILE env var is set to a truthy value ("1", "true",

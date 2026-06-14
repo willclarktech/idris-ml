@@ -47,6 +47,72 @@ int index_array_get(int* arr, int i) {
 	return arr[i];
 }
 
+/* --- Seeded per-stream index array (DataStream) ---
+ *
+ * Carries its own xoshiro256++ RNG state so each stream shuffles
+ * reproducibly from its seed, independent of the process-global rand()
+ * that shuffle_index_array uses. The state is seeded once at creation
+ * (splitmix64-expanded from the user seed) and ADVANCES on each
+ * reshuffle, so epoch k's permutation is deterministic but distinct from
+ * epoch k-1's — and two streams created with the same seed produce the
+ * same sequence of permutations regardless of interleaving. */
+
+typedef struct {
+	int* idx;
+	int n;
+	uint64_t s[4];
+} SeededIndexArray;
+
+static uint64_t splitmix64_next(uint64_t* x) {
+	uint64_t z = (*x += 0x9e3779b97f4a7c15ULL);
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+	return z ^ (z >> 31);
+}
+
+static uint64_t xoshiro_rotl(uint64_t x, int k) {
+	return (x << k) | (x >> (64 - k));
+}
+
+static uint64_t xoshiro_next(uint64_t s[4]) {
+	const uint64_t result = xoshiro_rotl(s[1] * 5, 7) * 9;
+	const uint64_t t = s[1] << 17;
+	s[2] ^= s[0];
+	s[3] ^= s[1];
+	s[1] ^= s[2];
+	s[0] ^= s[3];
+	s[2] ^= t;
+	s[3] = xoshiro_rotl(s[3], 45);
+	return result;
+}
+
+void* create_seeded_index_array(int n, unsigned long long seed) {
+	SeededIndexArray* h = (SeededIndexArray*)malloc(sizeof(SeededIndexArray));
+	h->idx = (int*)malloc((size_t)n * sizeof(int));
+	for (int i = 0; i < n; i++)
+		h->idx[i] = i;
+	h->n = n;
+	uint64_t sm = (uint64_t)seed;
+	for (int i = 0; i < 4; i++)
+		h->s[i] = splitmix64_next(&sm);
+	return h;
+}
+
+void* seeded_index_array_shuffle(void* handle) {
+	SeededIndexArray* h = (SeededIndexArray*)handle;
+	for (int i = h->n - 1; i > 0; i--) {
+		int j = (int)(xoshiro_next(h->s) % (uint64_t)(i + 1));
+		int tmp = h->idx[i];
+		h->idx[i] = h->idx[j];
+		h->idx[j] = tmp;
+	}
+	return handle;
+}
+
+int seeded_index_array_get(void* handle, int i) {
+	return ((SeededIndexArray*)handle)->idx[i];
+}
+
 /* --- RSS reporting --- */
 
 /* Peak RSS in MB. macOS reports ru_maxrss in bytes; Linux in KB. */

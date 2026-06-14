@@ -88,6 +88,9 @@ def extract_symbols(header_text: str) -> list[str]:
         "create_index_array",
         "shuffle_index_array",
         "index_array_get",
+        "create_seeded_index_array",
+        "seeded_index_array_shuffle",
+        "seeded_index_array_get",
         "get_rss_mb",
         "get_current_rss_mb",
         # C buffer helpers — byte-identical malloc wrappers across all

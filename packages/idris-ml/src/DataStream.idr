@@ -17,20 +17,22 @@ import Tensor
 
 
 ----------------------------------------------------------------------
--- C FFI: index array with Fisher-Yates shuffle (the surviving engine
--- behind shuffled iteration). Declared PrimIO here — these mutate /
--- read mutable C state, so IO sequencing must force them (DataLoader's
--- legacy pure typing needs a manual read-to-force; PrimIO is cleaner).
+-- C FFI: seeded per-stream index array (Fisher-Yates over an embedded
+-- xoshiro256++ state). Each stream's shuffle order is reproducible from
+-- its seed and independent of the process-global rand() — so two streams
+-- (e.g. train + val) shuffle independently, and a multi-seed campaign is
+-- reproducible per stream. Declared PrimIO here — these mutate / read
+-- mutable C state, so IO sequencing must force them.
 ----------------------------------------------------------------------
 
-%foreign "C:create_index_array,libidrisml"
-prim__createIndexArray : Int -> PrimIO AnyPtr
+%foreign "C:create_seeded_index_array,libidrisml"
+prim__createSeededIndexArray : Int -> Bits64 -> PrimIO AnyPtr
 
-%foreign "C:shuffle_index_array,libidrisml"
-prim__shuffleIndexArray : AnyPtr -> Int -> PrimIO AnyPtr
+%foreign "C:seeded_index_array_shuffle,libidrisml"
+prim__seededIndexArrayShuffle : AnyPtr -> PrimIO AnyPtr
 
-%foreign "C:index_array_get,libidrisml"
-prim__indexArrayGet : AnyPtr -> Int -> PrimIO Int
+%foreign "C:seeded_index_array_get,libidrisml"
+prim__seededIndexArrayGet : AnyPtr -> Int -> PrimIO Int
 
 
 ----------------------------------------------------------------------
@@ -51,11 +53,12 @@ public export
 Functor DataStream where
   map f (MkDataStream nxt el) = MkDataStream (map f nxt) el
 
-||| Shuffle policy for `stream`. `Shuffle` uses the process-global
-||| Fisher-Yates RNG (seed via `srand` upstream, as examples already do);
-||| a per-stream seed would need a C signature change (deferred).
+||| Shuffle policy for `stream`. `Shuffle seed` permutes via a per-stream
+||| xoshiro256++ RNG seeded by `seed` (reproducible, independent of the
+||| process-global rand() and of any other stream); `NoShuffle` iterates
+||| in index order.
 public export
-data ShuffleSpec = NoShuffle | Shuffle
+data ShuffleSpec = NoShuffle | Shuffle Bits64
 
 ||| Wrap an IO action as an infinite stream — synthetic tasks (copy /
 ||| recall), RL rollout feeds, on-the-fly augmentation. This is exactly
@@ -74,12 +77,12 @@ pullSample spec (MkDataset sz itm) arr sizeI posRef = do
   pos <- readIORef posRef
   pos' <- if pos >= sizeI
             then do case spec of
-                      Shuffle   => ignore $ primIO (prim__shuffleIndexArray arr sizeI)
+                      Shuffle _ => ignore $ primIO (prim__seededIndexArrayShuffle arr)
                       NoShuffle => pure ()
                     writeIORef posRef 0
                     pure 0
             else pure pos
-  rawIdx <- primIO (prim__indexArrayGet arr pos')
+  rawIdx <- primIO (prim__seededIndexArrayGet arr pos')
   let natIdx = cast {to=Nat} (cast {to=Integer} rawIdx)
   writeIORef posRef (pos' + 1)
   case natToFin natIdx sz of
@@ -96,9 +99,12 @@ export
 stream : {0 a : Type} -> ShuffleSpec -> Dataset a -> IO (DataStream a)
 stream spec ds@(MkDataset sz _) = do
   let sizeI : Int := cast sz
-  arr <- primIO (prim__createIndexArray sizeI)
+      seed  : Bits64 := case spec of
+                          Shuffle s => s
+                          NoShuffle => 0
+  arr <- primIO (prim__createSeededIndexArray sizeI seed)
   case spec of
-    Shuffle   => ignore $ primIO (prim__shuffleIndexArray arr sizeI)
+    Shuffle _ => ignore $ primIO (prim__seededIndexArrayShuffle arr)
     NoShuffle => pure ()
   posRef <- newIORef (the Int 0)
   pure $ MkDataStream (pullSample spec ds arr sizeI posRef) (Just sz)

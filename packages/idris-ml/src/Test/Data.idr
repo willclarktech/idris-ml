@@ -60,10 +60,25 @@ streamNoShuffleInOrder = do
 
 streamShufflePermutes : IO Bool
 streamShufflePermutes = do
-  s <- stream Shuffle (fromVect (the (Vect 5 Nat) [0, 1, 2, 3, 4]))
+  s <- stream (Shuffle 42) (fromVect (the (Vect 5 Nat) [0, 1, 2, 3, 4]))
   xs <- pullList 5 s
   check ("stream Shuffle is a permutation (sorted " ++ show (sort xs) ++ ")")
         (sort xs == [0, 1, 2, 3, 4])
+
+-- Seeded shuffle is reproducible BY CONSTRUCTION: two streams built with
+-- the same seed yield identical orders; different seeds yield different
+-- orders (over 20 elems a coincidental match is ~1/20!). The legacy
+-- global-rand Shuffle could not guarantee this — a second same-process
+-- stream saw an advanced rand() state. Both orders are still permutations.
+streamShuffleSeeded : IO Bool
+streamShuffleSeeded = do
+  let ds = fromIndexed 20 (\n => pure n)
+  a <- stream (Shuffle 7)  ds >>= pullList 20
+  b <- stream (Shuffle 7)  ds >>= pullList 20
+  c <- stream (Shuffle 99) ds >>= pullList 20
+  check ("seeded shuffle reproducible (same-seed eq=" ++ show (a == b)
+         ++ ", diff-seed neq=" ++ show (a /= c) ++ ")")
+        (a == b && a /= c && sort a == sort c)
 
 generateRepeats : IO Bool
 generateRepeats = do
@@ -142,5 +157,5 @@ idxDatasetLoads = do
 export
 tests : List (IO Bool)
 tests = [ fromVectRoundTrip, fromIndexedSquares
-        , streamNoShuffleInOrder, streamShufflePermutes, generateRepeats
-        , batchedCollates, batched1Collates, idxDatasetLoads ]
+        , streamNoShuffleInOrder, streamShufflePermutes, streamShuffleSeeded
+        , generateRepeats, batchedCollates, batched1Collates, idxDatasetLoads ]
