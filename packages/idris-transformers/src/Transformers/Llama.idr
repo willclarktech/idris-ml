@@ -103,7 +103,7 @@ llama32_1B_Config = MkLlamaConfig
   }
 
 ||| Llama 3.2 NTK-aware RoPE scaling. Exposed here (instead of only
-||| via `Layer.RoPE.llama3Scaling`) so the example / inference site
+||| via `Nn.RoPE.llama3Scaling`) so the example / inference site
 ||| can import the per-arch scaling from the same module as the
 ||| per-arch config record — mirrors `Transformers.BitNet.bitnetRopeScaling`.
 public export
@@ -354,7 +354,7 @@ hfLlamaModel pfx = do
   pure (MkLlamaModel emb blocks ln)
 
 ----------------------------------------------------------------------
--- Forward (composed from existing 2D primitives + Layer.RoPE)
+-- Forward (composed from existing 2D primitives + Nn.RoPE)
 ----------------------------------------------------------------------
 
 %default partial

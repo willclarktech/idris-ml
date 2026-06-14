@@ -456,7 +456,7 @@ hfBitnetModel pfx = do
   pure (MkBitNetModel emb blocks ln)
 
 ----------------------------------------------------------------------
--- Forward (composed from existing 2D primitives + Layer.RoPE +
+-- Forward (composed from existing 2D primitives + Nn.RoPE +
 -- tBitlinearFwdHfQuant for the BitLinears)
 ----------------------------------------------------------------------
 

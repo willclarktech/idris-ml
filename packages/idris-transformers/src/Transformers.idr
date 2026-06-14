@@ -6,13 +6,17 @@
 ||| so loading is plain `loadModel "model.safetensors"` from
 ||| `Checkpoint.idr` — no rename map, no shape-split adapter.
 |||
-||| See `CONVENTIONS.md` for the design rules every Hf-prefixed
+||| See `CONVENTIONS.md` for the design rules every `Transformers.*`
 ||| module follows.
 |||
-||| Currently this top-level module is a placeholder. As HF model
-||| modules land they will be re-exported from here:
+||| The per-architecture modules — import directly:
 |||
-|||   import HfBert   -- BERT encoder + pooler (prajjwal1/bert-tiny)
-|||   import HfGpt2   -- (follow-up row)
-|||   import HfLlama  -- (Row 7 — LLM-class example)
+|||   import Transformers.Bert    -- BERT encoder + pooler + MLM head
+|||   import Transformers.Gpt2    -- GPT-2 family (distilgpt2)
+|||   import Transformers.Llama   -- Llama 3.x (GQA + RoPE + KV cache)
+|||   import Transformers.BitNet  -- BitNet b1.58 (ternary BitLinears)
+|||
+||| Each exposes `fromPretrained : Backend ex dt => KnownGrad g => String
+||| -> IO (Either LoadError (cfg ** Model cfg ex dt g))` — point it at a
+||| local HF model dir and the dims come from its `config.json`.
 module Transformers
