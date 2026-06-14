@@ -5,7 +5,7 @@
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
-.PHONY: test-e2e-examples all-backends test-convergence
+.PHONY: test-e2e-examples all-backends test-convergence test-convergence-campaign
 
 EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-matmul-bench example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-checkpoint
 # 5-lane matrix. `mlx-gpu` (BACKEND=mlx MLX_DEVICE=gpu) and `torch-mps`
@@ -64,4 +64,27 @@ test-convergence:
 	+@MAKE='$(MAKE)' EXAMPLES='$(EXAMPLES)' \
 		CONVERGENCE_TIMEOUT='$(CONVERGENCE_TIMEOUT)' \
 		CONVERGENCE_EXPECT='$(CONVERGENCE_EXPECT)' \
+		bash scripts/test-convergence.sh
+
+# Multi-seed convergence CAMPAIGN: the same runner with SEEDS + a
+# resumable TSV (CONVERGENCE_OUT) → per-example pass-rate table (the
+# "multi-seed convergence is required" alignment policy). Cheapest-first
+# example order so the fast/medium table lands early; NTM/DNC grind last.
+# Resumable — re-run after a kill and it continues from the TSV.
+CONVERGENCE_SEEDS ?= 42 1 2 3 4
+CONVERGENCE_OUT   ?= docs/develop/convergence-campaign.tsv
+CONVERGENCE_CAMPAIGN_EXAMPLES := example-supervised example-rnn example-lstm \
+	example-gru example-transformer example-seq-classify example-transfer \
+	example-gpt example-q-learning example-sarsa example-monte-carlo \
+	example-frozen-lake example-taxi example-mnist example-reinforce \
+	example-dqn example-mountain-car example-mountain-car-cont example-a2c \
+	example-ppo example-sac example-ntm-copy example-ntm-associative-recall \
+	example-dnc-copy example-dnc-recall
+
+test-convergence-campaign:
+	+@MAKE='$(MAKE)' EXAMPLES='$(CONVERGENCE_CAMPAIGN_EXAMPLES)' \
+		SEEDS='$(CONVERGENCE_SEEDS)' \
+		CONVERGENCE_TIMEOUT='$(CONVERGENCE_TIMEOUT)' \
+		CONVERGENCE_EXPECT='$(CONVERGENCE_EXPECT)' \
+		CONVERGENCE_OUT='$(CONVERGENCE_OUT)' \
 		bash scripts/test-convergence.sh
