@@ -1,0 +1,17 @@
+package idris-fmt-tests
+
+-- Colocated tests pointed at the same sourcedir as the library ipkg; the
+-- library's `modules` excludes Test.*. See docs/develop/testing.md.
+sourcedir = "src"
+
+depends = base
+        , idris-fmt
+        , idris-test
+
+modules = Test.Main
+        , Test.Roundtrip
+        , Test.Render
+
+main = Test.Main
+
+executable = idris-fmt-test

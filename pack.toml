@@ -93,3 +93,8 @@ ipkg = "idris-args-tests.ipkg"
 type = "local"
 path = "packages/idris-fmt"
 ipkg = "idris-fmt.ipkg"
+
+[custom.all.idris-fmt-tests]
+type = "local"
+path = "packages/idris-fmt"
+ipkg = "idris-fmt-tests.ipkg"

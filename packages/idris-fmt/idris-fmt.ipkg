@@ -5,7 +5,9 @@ sourcedir = "src"
 depends = base
         , idris2
 
-modules = Main
+modules = Format.Roundtrip
+        , Format.Render
+        , Main
 
 main = Main
 
