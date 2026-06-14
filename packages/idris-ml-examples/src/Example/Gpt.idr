@@ -1,33 +1,34 @@
 -- | GPT: Character-Level Language Model
 -- |
 -- | Character-level language model on embedded Shakespeare text, following
--- | Karpathy's char-rnn/minGPT tradition. Reuses the multi-block transformer
--- | with learned embeddings, sinusoidal PE, and causal self-attention.
+-- | Karpathy's char-rnn/minGPT tradition. A multi-block pre-norm transformer
+-- | with learned token embeddings, sinusoidal PE, and causal self-attention,
+-- | assembled on the `Nn` models-as-records surface (`Nn.Embedding` +
+-- | `Nn.transformerBlock` stacked in a `Seq` + bias-free output head) and
+-- | trained via the `fit` driver.
 -- |
--- | Input: sliding window of SeqLen characters from corpus (one-hot)
--- | Target: shifted by 1 (next character at each position)
+-- | Input: sliding window of SeqLen characters from corpus (token ids)
+-- | Target: shifted by 1 (next character at each position, one-hot)
 
 module Example.Gpt
 
-import Data.IORef
 import Data.List
 import Data.String
 import Data.Vect
-import Decidable.Equality
 import System
 import System.File
 
 import Array
-import Backprop
 import BuildConfig
 import Checkpoint
 import Compat.Random
-import DataPoint
+import DataStream
 import Executor
+import Fit
 import Floating
 import Generate
-import Layer.Core
-import Layer.Transformer
+import Nn
+import Optimizer
 import Sampler
 import Schedule
 import Tensor
@@ -58,12 +59,6 @@ NumBlocks = 2
 
 BatchSize : Nat
 BatchSize = 32
-
-InputDim : Nat
-InputDim = SeqLen
-
-OutputDim : Nat
-OutputDim = SeqLen * VocabSize
 
 ----------------------------------------------------------------------
 -- Corpus & Tokenization
@@ -114,6 +109,73 @@ idxToChar i =
   in go chars n
 
 ----------------------------------------------------------------------
+-- Model (Nn surface): embedding + sinusoidal PE + transformer blocks +
+-- final norm + bias-free output head.
+----------------------------------------------------------------------
+
+public export
+record GptModel (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
+  constructor MkGptModel
+  embed : Embedding VocabSize DModel ex dt g
+  -- NumBlocks pre-norm transformer blocks followed by the final LayerNorm,
+  -- all `DModel -> DModel`, stacked in one `Seq`.
+  body  : Seq DModel DModel ex dt g
+  -- Bias-free vocab projection (matches the legacy `primMm`-only head).
+  headW : TMat VocabSize DModel ex dt g
+  -- Cached sinusoidal positional encoding (no paramId, optimizer-invisible).
+  pe    : Tensor [SeqLen, DModel] ex dt g
+
+Model : Type
+Model = GptModel ExampleExecutor ExampleDType WithGrad
+
+-- Build the block stack + final norm inside an `Init` derivation. Blocks
+-- land at `block_0.*`..`block_{n-1}.*`; the final norm trails.
+buildBody : (k : Nat) -> Init (Seq DModel DModel ExampleExecutor ExampleDType WithGrad)
+buildBody Z = do
+  ln <- layerNorm {ex=ExampleExecutor} {dt=ExampleDType} {n=DModel}
+  pure (ln :: Nil)
+buildBody (S j) = do
+  blk  <- scopedChild "block"
+            (transformerBlock {ex=ExampleExecutor} {dt=ExampleDType}
+                              {dModel=DModel} {numHeads=NumHeads} {headDim=HeadDim})
+  rest <- buildBody j
+  pure (blk :: rest)
+
+partial
+mkModel : IO Model
+mkModel = do
+  (emb, bdy, hw) <- runInit $ do
+    e <- scoped "embed" (embedding {ex=ExampleExecutor} {dt=ExampleDType}
+                                   {vocab=VocabSize} {embedDim=DModel})
+    b <- buildBody NumBlocks
+    hn <- freshChild "head"
+    hw <- liftIO $ tparam2dNormal {ex=ExampleExecutor} {dt=ExampleDType}
+                                  {o=VocabSize} {i=DModel}
+                                  (hn ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} DModel))
+    pure (e, b, hw)
+  pe <- sinusoidalPE {ex=ExampleExecutor} {dt=ExampleDType} {seqLen=SeqLen} {dModel=DModel}
+  pure (MkGptModel emb bdy hw pe)
+
+-- Forward one sequence of token ids `[SeqLen]` → per-position logits
+-- `[SeqLen, VocabSize]`.
+partial
+gptForward : Model -> Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad ->
+             IO (Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad)
+gptForward (MkGptModel emb body headW pe) tokens = do
+  embFlat <- embeddingForward {ex=ExampleExecutor} {seqLen=SeqLen} {embedDim=DModel}
+                              {vocab=VocabSize} emb tokens
+  let sI = cast {to=Int} SeqLen
+      dI = cast {to=Int} DModel
+  emb2d <- ioRerun (\_ =>
+    the (Tensor [SeqLen, DModel] ExampleExecutor ExampleDType WithGrad)
+        (MkTensor (primReshape2d {ex=ExampleExecutor} embFlat.tensorPtr sI dI) Nothing))
+  h0 <- tadd emb2d pe
+  hN <- forwardSeq {b=SeqLen} body h0
+  ioRerun (\_ =>
+    MkTensor (primMm {ex=ExampleExecutor} hN.tensorPtr
+                     (primTranspose2d {ex=ExampleExecutor} headW.tensorPtr)) Nothing)
+
+----------------------------------------------------------------------
 -- Data generation
 ----------------------------------------------------------------------
 
@@ -130,12 +192,16 @@ packIntBuf buf _ []          = buf
 packIntBuf buf off (x :: xs) =
   packIntBuf (prim__setInt buf off x) (off + 1) xs
 
-gptTensorPoint : (corpus : List Int) -> (corpusLen : Nat) ->
-                 IO (TensorDataPoint InputDim OutputDim)
-gptTensorPoint corpus corpusLen = do
+-- One (input ids, one-hot target) training pair for a random window.
+GptSample : Type
+GptSample = ( Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad
+            , Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad )
+
+gptSample : (corpus : List Int) -> (corpusLen : Nat) -> IO GptSample
+gptSample corpus corpusLen = do
   let maxStart = minus corpusLen (SeqLen + 1)
-  startN <- randomInt 0 (cast maxStart)
-  let start = the Nat (cast startN)
+  startN <- randomInt 0 maxStart
+  let start      = startN
       window     = listSlice corpus start (SeqLen + 1)
       inputToks  = Data.List.take SeqLen window
       targetToks = Data.List.take SeqLen (drop 1 window)
@@ -143,41 +209,48 @@ gptTensorPoint corpus corpusLen = do
       vI         = cast {to=Int} VocabSize
       inT        = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
       tgtIdxBuf  = packIntBuf (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
+      tgtFlat    = primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
+      tgt2d      = primReshape2d {ex=ExampleExecutor} tgtFlat sI vI
+  pure ( MkTensor inT Nothing, MkTensor tgt2d Nothing )
 
-gptBatchVect : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) ->
-               IO (Vect n (TensorDataPoint InputDim OutputDim))
-gptBatchVect _ _ Z                  = pure []
-gptBatchVect corpus corpusLen (S k) = do
-  dp <- gptTensorPoint corpus corpusLen
-  rest <- gptBatchVect corpus corpusLen k
-  pure (dp :: rest)
+gptBatch : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) -> IO (Vect n GptSample)
+gptBatch _ _ Z                  = pure []
+gptBatch corpus corpusLen (S k) = do
+  s    <- gptSample corpus corpusLen
+  rest <- gptBatch corpus corpusLen k
+  pure (s :: rest)
 
 ----------------------------------------------------------------------
--- Loss: Cross-entropy on all positions ( typed-surface)
+-- Loss: categorical cross-entropy on ALL positions (standard LM loss)
 ----------------------------------------------------------------------
 
-||| Categorical cross-entropy on ALL positions (standard LM loss).
-||| Operates on a flat [SeqLen * VocabSize] Tensor; reshapes to
-||| [SeqLen, VocabSize] and computes mean NLL across positions.
-allPositionsCELoss : TVec OutputDim ExampleExecutor ExampleDType WithGrad -> TVec OutputDim ExampleExecutor ExampleDType WithGrad -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-allPositionsCELoss predV targetV = ioRerun (\_ =>
-  let vsI = cast {to=Int} VocabSize
-      sI       = cast {to=Int} SeqLen
-      logitsR  = primReshape2d {ex=ExampleExecutor} predV.tensorPtr sI vsI
-      logProbs = primLogSoftmax2d {ex=ExampleExecutor} logitsR
-      tgtsR    = primReshape2d {ex=ExampleExecutor} targetV.tensorPtr sI vsI
-      product  = primMul {ex=ExampleExecutor} logProbs tgtsR
+-- Mean NLL across positions from `[SeqLen, VocabSize]` logits + one-hot.
+lmLoss : Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad ->
+         Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad ->
+         IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+lmLoss logits targets = ioRerun (\_ =>
+  let logProbs = primLogSoftmax2d {ex=ExampleExecutor} logits.tensorPtr
+      product  = primMul {ex=ExampleExecutor} logProbs targets.tensorPtr
       totalSum = primSum {ex=ExampleExecutor} product
       loss     = primMulScalar {ex=ExampleExecutor} (primNeg {ex=ExampleExecutor} totalSum) (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
+
+-- Mean loss over a batch: forward each sequence, sum the scalar losses,
+-- divide by batch size. `fitSupervised` owns the fused optimizer step.
+partial
+batchLoss : Model -> Vect BatchSize GptSample -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+batchLoss model batch = do
+  losses <- traverse (\(ids, tgt) => do logits <- gptForward model ids; lmLoss logits tgt) (toList batch)
+  zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "gpt.epoch_zero" 0.0
+  summed <- foldlM (\acc, l => tadd acc l) zero losses
+  tmulScalar summed (1.0 / cast {to=Double} BatchSize)
 
 ----------------------------------------------------------------------
 -- Autoregressive Generation (single-sample forward)
 ----------------------------------------------------------------------
 
-generateText : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
-               String -> Nat -> Double -> IO String
+partial
+generateText : Model -> String -> Nat -> Double -> IO String
 generateText model seed genLen temperature = do
   let seedIdxs = map charToIdx (unpack seed)
       padLen  = minus SeqLen (length seedIdxs)
@@ -195,13 +268,11 @@ generateText model seed genLen temperature = do
                 ,60,61,62,63,64
                 ]
 
-    sampleAt : AnyPtr -> Nat -> List Double
-    sampleAt outT pos =
-      let vsI = cast {to=Int} VocabSize
-          sI      = cast {to=Int} SeqLen
-          logitsR = primReshape2d {ex=ExampleExecutor} outT sI vsI
-          posI    = cast {to=Int} (natToInteger pos)
-      in map (\j => exp (primItem2d {ex=ExampleExecutor} logitsR posI (cast j) / temperature))
+    -- Probabilities at position `pos` from `[SeqLen, VocabSize]` logits.
+    sampleAt : Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad -> Nat -> List Double
+    sampleAt logits pos =
+      let posI = cast {to=Int} (natToInteger pos)
+      in map (\j => exp (primItem2d {ex=ExampleExecutor} logits.tensorPtr posI (cast j) / temperature))
              vocabIdxs
 
     argmax : List Double -> Int
@@ -210,15 +281,14 @@ generateText model seed genLen temperature = do
            (the (Int, Double) (0, -1.0e10))
            (zip (map cast vocabIdxs) probs))
 
-    go : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
-         List Int -> Nat -> List Char -> IO (List Char)
+    go : Model -> List Int -> Nat -> List Char -> IO (List Char)
     go _ _ Z acc       = pure (reverse acc)
     go m ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
           inT = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0 (deviceStreamTag {ex=ExampleExecutor})
-          inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
-      (_, predV) <- forwardVar m inV
-      let unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
+          inV = the (Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
+      logits <- gptForward m inV
+      let unnorm = sampleAt logits (minus SeqLen 1)
           totSum  = foldl (+) 0.0 unnorm
           probs   = map (/ totSum) unnorm
           bestIdx = argmax probs
@@ -230,8 +300,8 @@ generateText model seed genLen temperature = do
 -- Evaluation: bits-per-character on a held-out corpus slice
 ----------------------------------------------------------------------
 
-evalBPC : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
-          (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> IO Double
+partial
+evalBPC : Model -> (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> IO Double
 evalBPC model corpus corpusLen nSamples = go nSamples 0.0
   where
     singleBPC : Nat -> IO Double
@@ -243,11 +313,12 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           vI         = cast {to=Int} VocabSize
           inT        = dtCreate1d {ex=ExampleExecutor} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {ex=ExampleExecutor})
           tgtIdxBuf  = packIntBuf (prim__allocInts sI) 0 targetToks
-          tgtT       = primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
-          inV        = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
-          tgtV       = the (TVec OutputDim ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
-      (_, predV) <- forwardVar model inV
-      lossT <- allPositionsCELoss predV tgtV
+          tgtFlat    = primOneHot {ex=ExampleExecutor} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
+          tgt2d      = primReshape2d {ex=ExampleExecutor} tgtFlat sI vI
+          inV        = the (Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad) (MkTensor inT Nothing)
+          tgtV       = the (Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad) (MkTensor tgt2d Nothing)
+      logits <- gptForward model inV
+      lossT <- lmLoss logits tgtV
       pure (primItem {ex=ExampleExecutor} lossT.tensorPtr / log 2.0)
 
     go : Nat -> Double -> IO Double
@@ -286,24 +357,6 @@ trainValSplit valFrac idx =
       nVal   = the Nat (cast (cast {to=Double} (natToInteger n) * valFrac))
       nTrain = minus n nVal
   in (Data.List.take nTrain idx, drop nTrain idx)
-
-----------------------------------------------------------------------
--- LR-schedule helper: update all registered params each epoch.
-----------------------------------------------------------------------
-
-setLRAll : NativeOptimizer ExampleExecutor -> Double -> IO ()
-setLRAll opt lr = do
-  n <- getParamCount {ex=ExampleExecutor}
-  go 0 n
-  where
-    go : Int -> Int -> IO ()
-    go i n =
-      if i >= n
-        then pure ()
-        else do
-          nm <- getParamName {ex=ExampleExecutor} i
-          setParamLR opt nm lr
-          go (i + 1) n
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -346,8 +399,6 @@ main = do
   srand cfg.seed
   tsetInitSeed {ex = ExampleExecutor} cfg.seed
 
-  let opt = nativeAdamW cfg.lr 0.9 0.99 1.0e-8 0.1 1.0
-
   corpusText <- loadCorpusText cfg.corpus
   let allIndices = map charToIdx (unpack corpusText)
       (trainIndices, valIndices) =
@@ -367,36 +418,30 @@ main = do
   putStrLn $ "Corpus: " ++ show (length allIndices) ++ " chars"
            ++ " (train=" ++ show trainLen ++ ", val=" ++ show valLen ++ ")"
 
-  tfmAny <- transformerLayerAny
-              {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
-               headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
-              "tfm0"
-  let model : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad
-      model = OutputLayer tfmAny
-  putStrLn ""
-
+  -- Cosine LR schedule with warmup, carried on the optimizer (fit ticks it
+  -- per epoch). adamW betas (0.9, 0.99), weight decay 0.1, grad-clip norm 1.
   let warmupEpochs : Nat = min 100 (div cfg.epochs 10)
       minLR    : Double   = cfg.lr * 0.1
       schedule : Schedule = cosineWithWarmup cfg.lr minLR warmupEpochs cfg.epochs
-  epochRef <- newIORef Z
 
-  let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
-      genBatch = gptBatchVect trainIndices trainLen BatchSize
+  model <- mkModel
+  opt0 <- adamW {ex=ExampleExecutor} cfg.lr 0.1 ({ beta2 := 0.99, clip := NormClip 1.0 } defaultOpts)
+  let opt = withSchedule schedule opt0
+  putStrLn ""
 
-  let evalMetrics : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad -> IO (List (String, String))
+  when cfg.lrFind $ do
+    putStrLn "lr_find skipped for GPT: cosine + warmup schedule conflicts with"
+    putStrLn "lrFind's group-level setting; transformer-forward cost is also"
+    putStrLn "prohibitive at 100 iters. See docs/develop/hyperparameter-tuning-2026.md."
+    exitSuccess
+
+  let evalMetrics : Model -> IO (List (String, String))
       evalMetrics m = do
         valBpc <- evalBPC m valIndices valLen 20
         pure [("val_bpc", show valBpc)]
 
   let noOpHook : Nat -> IO ()
       noOpHook _ = pure ()
-
-  when cfg.lrFind $ do
-    putStrLn "lr_find skipped for GPT: per-param LR schedule (cosine + warmup)"
-    putStrLn "conflicts with lrFind's group-level setting; transformer-forward"
-    putStrLn "cost is also prohibitive at 100 iters."
-    putStrLn "See docs/develop/hyperparameter-tuning-2026.md."
-    exitSuccess
 
   let trainCfgBase = mkTrainConfig cfg.epochs 100
                        (if cfg.patience == 0
@@ -410,17 +455,10 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  let stepFn : Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad ->
-               Vect BatchSize (TensorDataPoint InputDim OutputDim) ->
-               IO (Network InputDim [] OutputDim ExampleExecutor ExampleDType WithGrad, Double)
-      stepFn m d = do
-        ep <- readIORef epochRef
-        let lr = schedule ep
-        setLRAll opt lr
-        writeIORef epochRef (S ep)
-        epochVarTensorBatch opt d allPositionsCELoss m
+  let stream = generate (gptBatch trainIndices trainLen BatchSize)
 
-  (trained, epochsDone, finalLoss) <- runTrainingIO {ex=ExampleExecutor} stepFn genBatch trainCfg model
+  (trained, epochsDone, finalLoss) <-
+    fitSupervised {ex=ExampleExecutor} opt batchLoss stream trainCfg model
 
   putStrLn ""
   valBpc <- evalBPC trained valIndices valLen 50
