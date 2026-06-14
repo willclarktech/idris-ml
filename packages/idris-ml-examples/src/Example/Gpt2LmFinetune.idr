@@ -25,7 +25,6 @@ import System.File
 import Compat.Random
 
 import Array
-import Backprop
 import BuildConfig
 import Executor
 import Executor.Core

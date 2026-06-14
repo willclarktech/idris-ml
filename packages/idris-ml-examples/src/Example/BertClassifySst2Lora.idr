@@ -28,7 +28,6 @@ import System
 import Compat.Random
 
 import Array
-import Backprop
 import BuildConfig
 import Executor
 import Tensor
