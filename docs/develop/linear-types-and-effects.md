@@ -350,6 +350,45 @@ result is the subject of a do-bind (the `Activation` kind dispatch). A branch
 that is itself an op call (`ttanhL x`) needs no pin — its return type is
 already concrete `L IO τ`.
 
+## Migrating an example to the linear surface (the recipe)
+
+Phase 6 turns each example's `main` into a linear pipeline. The mechanic is
+identical across examples; the recipe (verified on `Supervised` + `Rnn`):
+
+1. **Imports.** Add `import Control.Linear.LIO` (`L`, `run`, `pure1`,
+   `liftIO1`) and `import Data.Linear.Notation` (`MkBang`, `!*`) and
+   `import FitL` (`fitL`/`fitSupervisedL`/`fitCustomL`). `LPair`/`#` are
+   `Builtin`. Never `import Data.Linear` (Copies — see above). The examples
+   build with `-p linear` (added to `IDRIS_FLAGS`).
+2. **Fully-qualify `Control.Linear.LIO.run`.** `import System` (getArgs)
+   brings `System.run` / `System.Escaped.run`; an unqualified `run $ do …`
+   makes the whole block ambiguous and blows the elaborator's depth-3
+   ambiguity limit (the symptom is *"Maximum ambiguity depth exceeded"* with
+   a `System.run --> (>>) --> (>>=)` trace). Qualifying pins it.
+3. **Lift inline `runInitL $ do {…}` to a top-level `Init` value.** A nested
+   `do`-block under the linear `run $ do …` also trips the ambiguity limit;
+   move the model derivation to a top-level `mkModel : Init Model` and call
+   `runInitL mkModel`.
+4. **The loss / step function goes linear.** For `fitSupervisedL`, the loss
+   consumes the model, runs `forwardL`, returns `MkBang loss # model'`. For a
+   custom `fitL` step over a **user record** model that's read many times per
+   epoch (recurrent/RL), use **consume-match-rebuild-delegate**: match the
+   record (fields bind ω), reuse them freely inside an IO body via `liftIO1`,
+   rebuild the record beside the banged result. (Same pattern as Ntm/Dnc.)
+5. **Consume the final model.** `fitL`/`fitSupervisedL` return
+   `LPair (!* (Nat, Double)) m`; unwrap `(MkBang (epochs, loss) # trained)`,
+   then `evalL`/`forwardL` it for inference (each consumes + returns), and
+   discard the last handle — `discardL` for a `ParamsL` layer, or a 3-line
+   `discardModel (MkRec _ _) = pure ()` for a user record (the handles are
+   C-managed; dropping the matched ω fields is a no-op discharge).
+6. **Loss/eval ops not yet on the `L IO` surface** get an `*L` twin added to
+   `Tensor.idr` as needed (e.g. `tnllLossMeanL`), same `ioRerunL (\_ => …)`
+   shape as the rest.
+7. **Mixed-precision paths stay on IO.** `ModuleMixed`/`ParamsMixed` have no
+   linear surface yet (the `*MixedL` follow-up), so a mixed branch keeps using
+   the IO `forwardMixed`/`fitSupervisedMixed`. `main : IO` calls `run` for the
+   linear branch and plain IO for the mixed one — they coexist.
+
 ## Born-linear construction (`runInitL`)
 
 A model must enter the linear world *linear* — if construction handed back an
@@ -462,6 +501,10 @@ none.
   `EpochStepL`); sibling to `Fit.idr`. Hides `Copies.Nil`; `Z`/`S` accumulators.
 - `packages/idris-ml/src/Train.idr` — `TrainConfig` gains a `metricsL` field
   (model-free) beside `metrics`.
+- `packages/idris-ml-examples/src/Example/{Supervised,Rnn}.idr` — first two
+  example families on the linear surface (supervised `fitSupervisedL`; custom
+  record + `fitL` recurrent step). The recipe above; the rest of Phase 6 is
+  mechanical. `mk/config.mk` adds `-p linear` to the example `IDRIS_FLAGS`.
 
 Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface. No `forwardL`/
 `recurStepL` body still uses `liftIO1` for tensor math — the only remaining
