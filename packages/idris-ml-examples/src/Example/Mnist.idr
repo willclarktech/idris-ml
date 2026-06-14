@@ -194,7 +194,6 @@ main = do
   trainStream <- stream (Shuffle cfg.seed) trainDs
   let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} trainStream
   testStream <- stream (Shuffle cfg.seed) testDs
-  evalBatch <- (batched {b = EvalSize} {i = InputDim} {o = NumClasses} testStream).next
   putStrLn ""
 
   -- Linear surface end to end: model born linear (runInitL), threaded through
@@ -202,12 +201,18 @@ main = do
   -- the eval batch (forwardSeq), then discarded. `run` is fully qualified —
   -- `import System` brings other `run`s that otherwise blow the ambiguity-depth
   -- limit in this do-block.
+  --
+  -- The eval batch is pulled *after* training (mirroring Transformer/Gpt's
+  -- post-train eval): a collated batch is an intermediate arena tensor, so each
+  -- training step's `optimizer_step` → `arena_reset` would dangle a batch
+  -- pre-fetched before the loop (a use-after-free at eval).
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
     (MkBang (epochsDone, finalLoss) # trained) <-
       fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
     liftIO1 (putStrLn "")
     infer <- eval trained
+    evalBatch <- liftIO1 (batched {b = EvalSize} {i = InputDim} {o = NumClasses} testStream).next
     (MkBang predB # infer') <- forwardSeq {b = EvalSize} infer (fst evalBatch)
     discard infer'
     liftIO1 $ do
