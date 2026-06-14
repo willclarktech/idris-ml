@@ -244,11 +244,48 @@ runs:
         echo "$HOME/.idris2/bin" >> $GITHUB_PATH
         export PATH="$HOME/.local/bin:$PATH"
         pack info
+        # SOUNDNESS — purge STALE local packages from the pack store.
+        # The pack cache is restored via prefix fallback from an
+        # earlier commit (key falls back past ${github.sha}), so its
+        # installed copies of the workspace's own packages can be
+        # stale. pack rebuilds a local package only when its source
+        # mtime is newer than the install — but `git restore-mtime`
+        # stamped sources with OLD commit dates, so pack keeps the stale
+        # copy and the downstream `pack build`/`install-deps` resolve
+        # against it. That is the 2026-06-15 "Undefined name KnownGrad"
+        # failure: idris-transformers built against a cached idris-ml
+        # whose GradMode.ttc predated the KnownGrad interface. The store
+        # records the commit it was built at (.build-commit, written by
+        # save-idris-ml-caches); remove every local package whose source
+        # changed since then so the next resolve reinstalls it fresh.
+        # Unchanged packages and the expensive EXTERNAL collection
+        # (hedgehog, contrib, …) stay warm — no over-invalidation. Store
+        # layout: ~/.local/state/pack/install/<idris2-commit>/<pkg>/.
+        store="$HOME/.local/state/pack"
+        packcommit=""
+        [ -f "$store/.build-commit" ] && packcommit="$(cat "$store/.build-commit")"
+        purge_all=0
+        if [ -z "$packcommit" ] || ! git cat-file -e "${packcommit}^{commit}" 2>/dev/null; then
+          echo "pack store commit unknown/unreachable — purging all local packages."
+          purge_all=1
+          changed=""
+        else
+          echo "pack store built at $packcommit; purging local packages changed since."
+          changed="$(git diff --name-only "${packcommit}" HEAD -- packages/)"
+        fi
+        for name in idris-ml idris-ml-examples idris-gym idris-transformers \
+                    idris-test idris-args idris-fmt; do
+          if [ "$purge_all" = 1 ] || printf '%s\n' "$changed" | grep -q "^packages/${name}/"; then
+            echo "  purging stale local package from pack store: $name"
+            rm -rf "$store"/install/*/"$name"
+          fi
+        done
         # Front-load what the pack-driven test targets would lazily
         # install mid-job: installing the shared test harness
         # (idris-test, carries the hedgehog dep) forces the pinned
         # collection's compiler to build as a side effect.
-        # Deterministic here + lands in the pack cache.
+        # Deterministic here + lands in the pack cache. Runs after the
+        # purge so a changed idris-test is rebuilt fresh.
         pack --no-prompt install idris-test
 
     # Torch lane: the uv-managed venv under packages/pytorch carries
@@ -305,13 +342,20 @@ runs:
     # then the newest tree from any prior sha. The cmp-then-mv-guarded
     # generated sources (BuildConfig.idr etc.) must be cached too —
     # regenerating them fresh would invalidate every downstream module.
-    # Bump -v3 to force-flush a wedged tree. (v2 -> v3: 2026-06-12, pre-rebase
-    # trees restored via prefix fallback were incoherent after the history
-    # rewrite and one poisoned a same-sha key.) Since the content-based
-    # .library-src-sha guard (mk/config.mk, 2026-06-12), a restored tree
-    # whose lib sources don't match the current commit self-nukes at
-    # make-install time — bumps should now only be needed for corruption
-    # outside the lib-source invalidation's reach (C objects, vendored).
+    #
+    # SOUNDNESS — cross-commit restore is incremental-safe only because
+    # the "Reconcile mtimes" step below force-rebuilds whatever changed
+    # since the restored tree's build commit (build/.cache-commit).
+    # Without it, prefix fallback + `git restore-mtime` (which stamps
+    # sources with their last-commit date) makes a source that changed
+    # AFTER the cached tree was built look OLDER than the stale .ttc it
+    # no longer matches, so idris2 skips rebuilding it — the 2026-06-15
+    # "Undefined name safeReindent / KnownGrad" failures (Render built
+    # against a stale Roundtrip.ttc; see also the pack-store purge above
+    # for the idris-transformers half). Bump -v4 to force-flush a wedged
+    # tree. (v2->v3: 2026-06-12 pre-rebase incoherence; v3->v4: 2026-06-15
+    # introducing the .cache-commit reconciliation — old trees lack the
+    # sidecar.)
     - name: Restore TTC cache
       if: inputs.restore-ttc == 'true'
       uses: actions/cache/restore@v5
@@ -325,10 +369,49 @@ runs:
           packages/idris-ml/src/HwExecutors.idr
           packages/idris-ml/src/Test/Config.idr
           packages/idris-transformers/src/Test/Config.idr
-        key: ttc-${{ inputs.os-label }}-v3-${{ github.sha }}-${{ inputs.ttc-job }}
+        key: ttc-${{ inputs.os-label }}-v4-${{ github.sha }}-${{ inputs.ttc-job }}
         restore-keys: |
-          ttc-${{ inputs.os-label }}-v3-${{ github.sha }}-
-          ttc-${{ inputs.os-label }}-v3-
+          ttc-${{ inputs.os-label }}-v4-${{ github.sha }}-
+          ttc-${{ inputs.os-label }}-v4-
+
+    # Make cross-commit cache restore sound. The TTC cache is restored
+    # via prefix fallback (any prior commit's tree) to stay warm, and
+    # `git restore-mtime` (above) stamped every source with its
+    # last-commit date. That combination is unsound: a source changed
+    # AFTER the restored tree was built can carry an mtime OLDER than
+    # the stale .ttc it no longer matches, so idris2/make skip the
+    # rebuild and a dependent compiles against a stale interface
+    # ("Undefined name …"). The saved tree records the commit it was
+    # built at (build/.cache-commit, written by save-idris-ml-caches);
+    # touch every path that changed between that commit and HEAD to
+    # NOW. idris2 then rebuilds exactly those modules (source newer
+    # than .ttc) and cascades to their importers via interface-hash +
+    # newer-import-ttc checks; make rebuilds the affected C objects.
+    # Unchanged sources keep their old mtime and stay warm — so this
+    # adds zero over-invalidation (the heavy ~2B-param example
+    # elaborations are untouched when only unrelated files moved).
+    - name: Reconcile source mtimes against the restored TTC tree
+      if: inputs.restore-ttc == 'true'
+      shell: bash
+      run: |
+        cached=""
+        [ -f build/.cache-commit ] && cached="$(cat build/.cache-commit)"
+        if [ -z "$cached" ]; then
+          echo "No build/.cache-commit (cold or pre-v4 tree) — nothing to reconcile."
+          exit 0
+        fi
+        if ! git cat-file -e "${cached}^{commit}" 2>/dev/null; then
+          echo "Cached commit ${cached} not in history (rebased away?) — forcing full rebuild."
+          find packages \( -name '*.idr' -o -name '*.ipkg' \) -print0 | xargs -0r touch
+          exit 0
+        fi
+        echo "Restored tree was built at ${cached}; touching files changed since then:"
+        git diff --name-only "${cached}" HEAD | sed 's/^/  /'
+        # -z/-0: NUL-delimited so paths are handled verbatim. touch -c
+        # skips files deleted since (don't recreate); the rest exist in
+        # the checkout and get bumped past every restored artifact, so
+        # idris2/make rebuild exactly them and cascade to importers.
+        git diff -z --name-only "${cached}" HEAD | xargs -0r touch -c
 
     # Datasets the e2e example runs fetch (MNIST, SST-2, the torch_ref
     # downloads under packages/pytorch/data). The fetch rules are

@@ -1517,6 +1517,57 @@ Out of scope (separate rows if measured to matter):
 - Pruning the installed-prefix tree (per-set installed libraries can
   duplicate set-agnostic content like idris-gym). Disk is cheap.
 
+### CI cross-commit cache restore is made sound by mtime reconciliation (2026-06-15)
+
+**Problem.** CI restores its build-artifact caches (the TTC/object tree
+and pack's installed local packages) via **cross-commit prefix
+fallback** — a fresh commit reuses the newest prior commit's warm tree
+to skip the ~30–60 min cold elaboration. To make Idris/make's
+mtime-based incremental detection cooperate, `git restore-mtime` stamps
+every source with its last-commit date. That pairing is **unsound**: a
+source that changed *after* the restored tree was built receives an old
+commit date, so it can look *older* than the now-stale `.ttc` it no
+longer matches — idris2/make skip the rebuild and a dependent compiles
+against a stale interface. The 2026-06-15 failures (run 27536601520):
+`Format.Render` built against a cached `Format.Roundtrip.ttc` predating
+`safeReindent`; `Transformers.Llama` built against a pack-installed
+`idris-ml` whose `GradMode.ttc` predated the `KnownGrad` interface.
+
+This had been patched location-by-location (the `v2→v3` key bumps, the
+`.library-src-sha` nuke in `mk/config.mk`) — each covering one artifact
+location, each leaving others (pack store, idris-fmt's build dir)
+exposed. It is whack-a-mole because the model itself is unsound.
+
+**Fix — content-aware staleness, not content-aware cache keys.** Pure
+content-keyed caches (hash the sources into the key, no cross-content
+fallback) would be sound but over-invalidate: *any* `.idr` edit busts
+the whole cache, forcing the heavy ~2B-param HF example jobs
+(`test-e2e-hf-llama`, split off precisely because they time out cold)
+to cold-elaborate on nearly every commit. Instead, keep the warm
+cross-commit restore and make the **staleness detection** sound:
+
+- Each saved tree records the commit it was built at — `build/.cache-commit`
+  for the TTC tree, `~/.local/state/pack/.build-commit` for the pack
+  store (written by `save-idris-ml-caches`).
+- On restore, `setup-idris-ml` `touch`es every source that changed
+  between that commit and `HEAD`. idris2 then rebuilds exactly those
+  modules (source newer than `.ttc`) and cascades to importers via its
+  interface-hash check; make rebuilds the affected C objects. Unchanged
+  sources keep their old mtime and stay warm — **zero over-invalidation**.
+- The pack store gets the same treatment as a targeted purge: a local
+  package is removed (forcing a fresh `pack` reinstall) only when its
+  `packages/<pkg>/` source changed since the store's commit. pack was
+  verified to rebuild a local dep on a newer source mtime, so the purge
+  is the belt to the touch's braces — and since pack's cache falls back
+  at least as far as the TTC cache, the purge window is a superset.
+
+TTC cache key bumped `v3→v4` (old trees lack the `.cache-commit`
+sidecar; a missing sidecar degrades safely to "cold build"). The
+heavily-commented mechanism lives in the two composite actions
+(`setup-idris-ml`, `save-idris-ml-caches`); the `.library-src-sha`
+guard is now subsumed by the reconciliation and is a candidate for
+removal once the new path has soaked.
+
 ### `TORCH_DTYPE` opt-in dtype override + BF16 torch-mps gate (2026-05-28)
 
 The default `(ExampleDevice, ExampleDType)` cell for `BACKEND=torch

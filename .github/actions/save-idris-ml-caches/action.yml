@@ -57,6 +57,18 @@ inputs:
 runs:
   using: composite
   steps:
+    # Stamp the tree with the commit it was built at. setup-idris-ml's
+    # "Reconcile source mtimes" step reads this back on restore to
+    # force-rebuild whatever changed since — the load-bearing half of
+    # the cross-commit-restore soundness fix. Written into build/ so it
+    # rides along in the cached path set below.
+    - name: Stamp TTC cache build commit
+      if: inputs.save-ttc == 'true'
+      shell: bash
+      run: |
+        mkdir -p build
+        echo "${{ github.sha }}" > build/.cache-commit
+
     - name: Save TTC cache
       if: inputs.save-ttc == 'true'
       uses: actions/cache/save@v5
@@ -70,7 +82,7 @@ runs:
           packages/idris-ml/src/HwExecutors.idr
           packages/idris-ml/src/Test/Config.idr
           packages/idris-transformers/src/Test/Config.idr
-        key: ttc-${{ inputs.os-label }}-v3-${{ github.sha }}-${{ inputs.ttc-job }}
+        key: ttc-${{ inputs.os-label }}-v4-${{ github.sha }}-${{ inputs.ttc-job }}
 
     - name: Save dataset cache
       if: inputs.save-datasets == 'true'
@@ -89,6 +101,17 @@ runs:
           models
           ~/.cache/huggingface
         key: hf-models-${{ inputs.os-label }}-${{ inputs.hf-cache-suffix }}${{ hashFiles('mk/examples.mk') }}
+
+    # Stamp the pack store with the commit it was built at, so
+    # setup-idris-ml's bootstrap step can purge exactly the local
+    # packages whose source changed since (the cross-commit-restore
+    # soundness fix for the pack store; see the comment there).
+    - name: Stamp pack cache build commit
+      if: inputs.save-pack == 'true'
+      shell: bash
+      run: |
+        mkdir -p "$HOME/.local/state/pack"
+        echo "${{ github.sha }}" > "$HOME/.local/state/pack/.build-commit"
 
     - name: Save pack cache
       if: inputs.save-pack == 'true'
