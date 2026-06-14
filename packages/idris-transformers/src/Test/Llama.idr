@@ -14,7 +14,9 @@ module Test.Llama
 import Data.List
 import Data.String
 import Data.Vect
+import System.File
 
+import Checkpoint
 import Executor
 import Executor.Core
 import Tensor
@@ -127,7 +129,7 @@ testConstructorRegistersHfNames = do
   --
   -- Literal Nats so the auto-implicits can resolve (each Nat is small).
   preCount <- primIO (primParamCount {ex=TestExecutor})
-  _ <- hfLlamaModel {ex=TestExecutor} {dt=TestDType}
+  _ <- hfLlamaModel {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
                     {vocab        = 8}
                     {hidden       = 4}
                     {numLayers    = 16}
@@ -149,6 +151,33 @@ testConstructorRegistersHfNames = do
       pure False
 
 ----------------------------------------------------------------------
+-- Bucket 3 — readLlamaConfig (config.json → LlamaConfig)
+----------------------------------------------------------------------
+
+testReadLlamaConfig : IO Bool
+testReadLlamaConfig = do
+  let path = "/tmp/idris_llama_config.json"
+  Right () <- writeFile path "{\"vocab_size\": 99, \"hidden_size\": 8, \"num_hidden_layers\": 3, \"num_attention_heads\": 4, \"num_key_value_heads\": 2, \"head_dim\": 2, \"intermediate_size\": 16, \"max_position_embeddings\": 32, \"rope_theta\": 500000.0, \"rms_norm_eps\": 1.0e-5}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  Right cfg <- readLlamaConfig path
+    | Left e => do putStrLn ("  FAIL: readLlamaConfig: " ++ show e); pure False
+  check "readLlamaConfig maps GQA head counts + rope_theta + rms_norm_eps"
+        (vocabSize cfg == 99 && hidden cfg == 8 && numLayers cfg == 3 &&
+         numHeads cfg == 4 && numKvHeads cfg == 2 && headDim cfg == 2 &&
+         intermediate cfg == 16 && maxPosition cfg == 32 &&
+         ropeBase cfg == 500000.0 && rmsNormEps cfg == 1.0e-5)
+
+testReadLlamaConfigHeadDimDefault : IO Bool
+testReadLlamaConfigHeadDimDefault = do
+  let path = "/tmp/idris_llama_config_nohd.json"
+  Right () <- writeFile path "{\"vocab_size\": 10, \"hidden_size\": 16, \"num_hidden_layers\": 1, \"num_attention_heads\": 4, \"num_key_value_heads\": 2, \"intermediate_size\": 8, \"max_position_embeddings\": 16, \"rope_theta\": 10000.0, \"rms_norm_eps\": 1.0e-6}"
+    | Left e => do putStrLn ("  FAIL: writeFile: " ++ show e); pure False
+  Right cfg <- readLlamaConfig path
+    | Left e => do putStrLn ("  FAIL: readLlamaConfig: " ++ show e); pure False
+  check "head_dim defaults to hidden_size / num_attention_heads (16/4 = 4)"
+        (headDim cfg == 4)
+
+----------------------------------------------------------------------
 -- Suite export
 ----------------------------------------------------------------------
 
@@ -162,5 +191,9 @@ suite =
      ])
   , ("HfLlama — FFI constructor registry",
      [ testConstructorRegistersHfNames
+     ])
+  , ("readLlamaConfig — config.json parsing",
+     [ testReadLlamaConfig
+     , testReadLlamaConfigHeadDimDefault
      ])
   ]

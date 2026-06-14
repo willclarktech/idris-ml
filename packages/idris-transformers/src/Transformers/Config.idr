@@ -56,8 +56,9 @@ natField (JObject fields) key =
 natField _ _ = Left (ConfigError "config root is not a JSON object")
 
 ||| Like `natField`, but returns `def` when the key is absent. Use for
-||| HF fields that default when omitted (e.g. `type_vocab_size`). A
-||| present-but-non-numeric value is still a `ConfigError`.
+||| HF fields that default when omitted (e.g. `type_vocab_size`, or
+||| `head_dim` defaulting to `hidden / numHeads`). A present-but-non-numeric
+||| value is still a `ConfigError`.
 export
 natFieldOr : JSON -> (key : String) -> (def : Nat) -> Either LoadError Nat
 natFieldOr (JObject fields) key def =
@@ -65,3 +66,15 @@ natFieldOr (JObject fields) key def =
     Nothing => Right def
     Just _  => natField (JObject fields) key
 natFieldOr _ _ def = Right def
+
+||| Pull a required floating-point field (e.g. `rope_theta`,
+||| `rms_norm_eps`) out of a JSON object by its HF key. Missing or
+||| non-numeric is a `ConfigError` naming the key.
+export
+doubleField : JSON -> (key : String) -> Either LoadError Double
+doubleField (JObject fields) key =
+  case lookup key fields of
+    Just (JNumber d) => Right d
+    Just _           => Left (ConfigError ("field is not a number: " ++ key))
+    Nothing          => Left (ConfigError ("missing field: " ++ key))
+doubleField _ _ = Left (ConfigError "config root is not a JSON object")

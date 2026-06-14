@@ -2,13 +2,15 @@
 ||| mirror of `meta-llama/Llama-3.2-1B`'s weights, no `HF_TOKEN`) and run
 ||| Llama through the typed-tensor / type-safe-dependent-shape stack.
 |||
-||| Llama 3.2 1B: vocab=128256, hidden=2048, n_layer=16, n_head=32,
-||| n_kv_heads=8 (GQA 4:1), head_dim=64, intermediate=8192,
-||| max_position=131072 (with NTK scaling factor=32 from the original
-||| 8192 training context), rope_base=500000, rms_norm_eps=1e-5,
-||| tie_word_embeddings=true. On-disk ~2.5 GB BF16; loadModelAllowCast
-||| widens to F32 (mlx-gpu / torch-mps) or F64 (tape — but won't fit
-||| in 16 GB).
+||| The model is loaded with `Transformers.Llama.fromPretrained`: it reads
+||| `<dir>/config.json` for the dims (GQA head counts, `rope_theta`,
+||| `rms_norm_eps`), builds the model at the file's shapes, and fills
+||| params from `model.safetensors`. The returned `(cfg ** model)` ties
+||| the model's type to the file — nothing about Llama-3.2-1B is
+||| hardcoded; `cfg.ropeBase` / `cfg.rmsNormEps` drive the RoPE tables +
+||| RmsNorm eps below. (Built `WithGrad`: `buildLlamaRoPETables` produces
+||| `WithGrad` tables, and the forward needs the model and tables to share
+||| a grad mode — a tape-free `NoGrad` RoPE path is a follow-up.)
 |||
 ||| Three modes (all share the cache-aware decode path —
 ||| `genLoopCached`; the no-cache `genLoop` was dropped 2026-06-04
@@ -29,30 +31,21 @@
 |||                           HF's `model.generate(do_sample=False,
 |||                           use_cache=True)` on the same prompt;
 |||                           comparator asserts exact sequence
-|||                           match. Catches generation-path drift
-|||                           that the single-forward
-|||                           --dump-final-hidden gate can't see.
+|||                           match.
 |||
 |||   (default)               User-facing demo. Reads --prompt (default
 |||                           "The capital of France is") and
 |||                           --num-tokens (default 8). Tokenize via
-|||                           the Phase-2 Tokenizer subprocess,
-|||                           greedy-decode N tokens, detokenize,
-|||                           print.
+|||                           the Tokenizer subprocess, greedy-decode N
+|||                           tokens, detokenize, print.
 |||
 ||| Pre-requisites (CI handles these via the make targets):
-|||   - `packages/idris-transformers/models/unsloth/Llama-3.2-1B/model.safetensors`
+|||   - `models/unsloth/Llama-3.2-1B/{config.json,model.safetensors}`
 |||     — fetch with
 |||         bash packages/idris-transformers/scripts/hf-download.sh unsloth/Llama-3.2-1B
 |||     (public mirror; no `HF_TOKEN` required).
 |||   - Python `transformers` available via the pytorch venv (for the
 |||     Tokenizer subprocess).
-|||
-||| Note: no KV cache in v1. Each generated token reruns forward on
-||| the full growing sequence. ~16 generated tokens with hidden=2048 +
-||| 16 layers is multiple seconds on tape and tens of seconds on
-||| torch-mps; first-token latency dominated by the 76 param-load
-||| operations. KV cache is filed as a follow-up.
 module Example.HfLlamaInference
 
 import Data.Fin
@@ -76,59 +69,25 @@ import Transformers.Tokenizer
 import Util
 
 ----------------------------------------------------------------------
--- Llama 3.2 1B config, pinned at the type level
+-- Model location (dims come from the file, not from here)
 ----------------------------------------------------------------------
 
-VocabSize : Nat
-VocabSize = 128256
-
-Hidden : Nat
-Hidden = 2048
-
-NumLayers : Nat
-NumLayers = 16
-
-NumHeads : Nat
-NumHeads = 32
-
-NumKvHeads : Nat
-NumKvHeads = 8
-
-HeadDim : Nat
-HeadDim = 64
-
-QOut : Nat
-QOut = NumHeads * HeadDim   -- = 2048
-
-KvOut : Nat
-KvOut = NumKvHeads * HeadDim  -- = 512
-
-Intermediate : Nat
-Intermediate = 8192
-
--- Clamped to the original training context (8192). The model's full
--- 131072 max with NTK scaling is supported by the table builder, but
--- the cos/sin tables at 131072 × 32 are 32 MB each; clamping keeps the
--- demo modest. Llama's positional behaviour at <8k is identical
--- regardless of `maxPos` chosen for the tables (positions m get the
--- same cos/sin values).
+-- Clamped RoPE-table context. The model's full 131072 max with NTK
+-- scaling is supported by the table builder, but the cos/sin tables at
+-- 131072 × 32 are 32 MB each; clamping to the original 8192 training
+-- context keeps the demo modest. Llama's positional behaviour at <8k is
+-- identical regardless of the `maxPos` chosen for the tables. This is a
+-- table-size knob, separate from the model's `cfg.maxPosition`, so it
+-- stays a local literal (it also appears at type position in
+-- `RoPETables MaxPos (headDim cfg) ...`).
 MaxPos : Nat
 MaxPos = 8192
-
--- `ropeBase` and `rmsNormEps` come from `llama32_1B_Config`; no local
--- duplicates. `MaxPos` stays a top-level Nat because it shows up at
--- type position in `RoPETables MaxPos HeadDim ...` and the demo clamps
--- it well below `llama32_1B_Config.maxPosition` (131072) to keep the
--- cos/sin tables small.
 
 ModelRepo : String
 ModelRepo = "unsloth/Llama-3.2-1B"
 
 modelDir : String
 modelDir = "models/" ++ ModelRepo
-
-hfWeightsPath : String
-hfWeightsPath = modelDir ++ "/model.safetensors"
 
 ----------------------------------------------------------------------
 -- Cache-aware greedy generation
@@ -139,14 +98,14 @@ hfWeightsPath = modelDir ++ "/model.safetensors"
 ||| [prevGenerated] each subsequent step), returns updated caches +
 ||| next-token id (or Nothing on out-of-range argmax).
 genStepCached :
-     LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                     ExampleExecutor ExampleDType WithGrad
-  -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
-  -> Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType)
-  -> List (Fin VocabSize)
-  -> IO (Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType),
-         Maybe (Fin VocabSize))
-genStepCached model tables caches toksList = do
+     (cfg : LlamaConfig)
+  -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+  -> Vect (numLayers cfg) (KVCache (numKvHeads cfg * headDim cfg) ExampleExecutor ExampleDType)
+  -> List (Fin (vocabSize cfg))
+  -> IO (Vect (numLayers cfg) (KVCache (numKvHeads cfg * headDim cfg) ExampleExecutor ExampleDType),
+         Maybe (Fin (vocabSize cfg)))
+genStepCached cfg model tables caches toksList = do
   let idsList = map (cast {to=Double} . finToNat) toksList
   case toExistVect idsList of
     (curLen ** idDoubles) => do
@@ -154,60 +113,50 @@ genStepCached model tables caches toksList = do
       (caches', logits) <- hfLlamaForwardLmStep
                                  {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seq          = curLen}
-                                 {vocab        = VocabSize}
-                                 {hidden       = Hidden}
-                                 {numLayers    = NumLayers}
-                                 {numHeads     = NumHeads}
-                                 {numKvHeads   = NumKvHeads}
-                                 {headDim      = HeadDim}
-                                 {intermediate = Intermediate}
+                                 {vocab        = vocabSize cfg}
+                                 {hidden       = hidden cfg}
+                                 {numLayers    = numLayers cfg}
+                                 {numHeads     = numHeads cfg}
+                                 {numKvHeads   = numKvHeads cfg}
+                                 {headDim      = headDim cfg}
+                                 {intermediate = intermediate cfg}
                                  {maxPos       = MaxPos}
-                                 llama32_1B_Config.rmsNormEps model tables caches inputIds
+                                 (rmsNormEps cfg) model tables caches inputIds
       lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
-      nextN   <- argmaxRow VocabSize lastRow.tensorPtr
-      pure (caches', natToFin nextN VocabSize)
+      nextN   <- argmaxRow (vocabSize cfg) lastRow.tensorPtr
+      pure (caches', natToFin nextN (vocabSize cfg))
 
 ||| Cache-aware greedy decode — the canonical (and only) generation
 ||| path. Seed step feeds the full prompt into empty caches; each
 ||| subsequent step feeds only the previously-generated token, with
-||| the per-layer caches threading through. The caches store
-||| post-RoPE K and pre-RoPE V from earlier positions, so each new
-||| step computes only the new token's K/V (constant per step)
-||| instead of re-projecting the full growing prefix every time.
-|||
-||| Returns the full token list (prompt + generated). Caller is
-||| responsible for any tokenizer-side decoding.
+||| the per-layer caches threading through.
 |||
 ||| Convention: this example has a single decode path. The legacy
 ||| no-cache `genLoop` / `genOneStep` were dropped 2026-06-04 — they
-||| were correctness-equivalent (verified GREEN at Phase A baseline,
-||| commit `b5443135`) but doubled Chez elaboration cost on this
-||| file (the example's compile peak hit ~23 GB on a 16 GB VM with
-||| both paths in scope; dropping the no-cache branch is the lever).
-||| HfBert / HfGpt2 / HfBitNet follow the same single-decode-path
-||| convention. Recover via `git show 70f5017c:...HfLlamaInference.idr`
+||| were correctness-equivalent but doubled Chez elaboration cost on
+||| this file. Recover via `git show 70f5017c:...HfLlamaInference.idr`
 ||| if differential debugging is needed.
 genLoopCached :
-     LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                     ExampleExecutor ExampleDType WithGrad
-  -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
-  -> List (Fin VocabSize)   -- prompt
+     (cfg : LlamaConfig)
+  -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+  -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
+  -> List (Fin (vocabSize cfg))   -- prompt
   -> (remaining : Nat)
-  -> IO (List (Fin VocabSize))
-genLoopCached model tables prompt remaining =
-  let initialCaches : Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType)
-      initialCaches = emptyKVCaches {numLayers=NumLayers} {kvOut=KvOut}
+  -> IO (List (Fin (vocabSize cfg)))
+genLoopCached cfg model tables prompt remaining =
+  let initialCaches : Vect (numLayers cfg) (KVCache (numKvHeads cfg * headDim cfg) ExampleExecutor ExampleDType)
+      initialCaches = emptyKVCaches {numLayers = numLayers cfg} {kvOut = numKvHeads cfg * headDim cfg}
   in go initialCaches prompt prompt remaining
   where
-    go : Vect NumLayers (KVCache KvOut ExampleExecutor ExampleDType)
-      -> List (Fin VocabSize)   -- accumulator (prompt + generated so far)
-      -> List (Fin VocabSize)   -- new tokens to feed this step (prompt on seed, [prev] on steady)
-      -> Nat                     -- remaining tokens to generate
-      -> IO (List (Fin VocabSize))
-    go _      acc _    Z     = pure acc
-    go caches acc feed (S k) = do
+    go : Vect (numLayers cfg) (KVCache (numKvHeads cfg * headDim cfg) ExampleExecutor ExampleDType)
+      -> List (Fin (vocabSize cfg))   -- accumulator (prompt + generated so far)
+      -> List (Fin (vocabSize cfg))   -- new tokens to feed this step (prompt on seed, [prev] on steady)
+      -> Nat                          -- remaining tokens to generate
+      -> IO (List (Fin (vocabSize cfg)))
+    go _      acc _    Z         = pure acc
+    go caches acc feed (S k)     = do
       perfReset {ex=ExampleExecutor}
-      (caches', mNext) <- genStepCached model tables caches feed
+      (caches', mNext) <- genStepCached cfg model tables caches feed
       ops <- perfOpCount {ex=ExampleExecutor}
       putStrLn ("[perf] step " ++ show (length acc) ++ ": " ++ show ops ++ " ops")
       case mNext of
@@ -220,39 +169,37 @@ genLoopCached model tables prompt remaining =
 -- --dump-final-hidden mode
 ----------------------------------------------------------------------
 
-runDumpHidden : LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                                ExampleExecutor ExampleDType WithGrad
-             -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
+runDumpHidden : (cfg : LlamaConfig)
+             -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+             -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
              -> IO ()
-runDumpHidden model tables = do
-  -- Fixed input: BPE("Hello") = [9906] in Llama 3 vocab (verified by
-  -- save_oracle_llama.py if/when added). Single token to keep the
-  -- compute cheap on the first run.
+runDumpHidden cfg model tables = do
+  -- Fixed input: BPE("Hello") = [9906] in Llama 3 vocab.
   let inputIds = mkIds (the (Vect 1 Double) [9906.0])
   out <- hfLlamaForward {ex=ExampleExecutor} {dt=ExampleDType}
                         {seq          = 1}
-                        {vocab        = VocabSize}
-                        {hidden       = Hidden}
-                        {numLayers    = NumLayers}
-                        {numHeads     = NumHeads}
-                        {numKvHeads   = NumKvHeads}
-                        {headDim      = HeadDim}
-                        {intermediate = Intermediate}
+                        {vocab        = vocabSize cfg}
+                        {hidden       = hidden cfg}
+                        {numLayers    = numLayers cfg}
+                        {numHeads     = numHeads cfg}
+                        {numKvHeads   = numKvHeads cfg}
+                        {headDim      = headDim cfg}
+                        {intermediate = intermediate cfg}
                         {maxPos       = MaxPos}
-                        llama32_1B_Config.rmsNormEps model tables inputIds
+                        (rmsNormEps cfg) model tables inputIds
   lastRow <- trowSelect out 0
-  printRow (cast {to=Int} Hidden) 0 lastRow.tensorPtr
+  printRow (cast {to=Int} (hidden cfg)) 0 lastRow.tensorPtr
 
 ----------------------------------------------------------------------
 -- Default mode: greedy generation demo
 ----------------------------------------------------------------------
 
-runGenerate : Tokenizer VocabSize
-           -> LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                              ExampleExecutor ExampleDType WithGrad
-           -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
+runGenerate : (cfg : LlamaConfig)
+           -> Tokenizer (vocabSize cfg)
+           -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+           -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
-runGenerate tok model tables prompt numTokens = do
+runGenerate cfg tok model tables prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt
     | Left err => putStrLn ("ERR: tokenize: " ++ show err)
   putStrLn ""
@@ -263,7 +210,7 @@ runGenerate tok model tables prompt numTokens = do
   putStrLn ("Tokens in: " ++ show promptLen ++ ", generating: " ++ show numTokens)
   putStrLn ""
   let promptList = toList promptIds
-  finalList <- genLoopCached model tables promptList numTokens
+  finalList <- genLoopCached cfg model tables promptList numTokens
   Right text <- detokenize tok (fromList finalList)
     | Left err => putStrLn ("ERR: detokenize: " ++ show err)
   putStrLn ("Output:    " ++ text)
@@ -276,29 +223,19 @@ runGenerate tok model tables prompt numTokens = do
 ||| dump every output token id (prompt + generated) one Nat per line
 ||| to stdout. The Python oracle (`save_oracle_llama_generate.py`)
 ||| runs HF `model.generate(do_sample=False, use_cache=True)` on the
-||| same prompt and saves the resulting full id sequence under
-||| key `"token_ids"`; the comparator
-||| (`compare_inference.py --token-sequence`) asserts exact match.
-|||
-||| Banner / status text is suppressed (the comparator parses one
-||| integer per line + filters `[stage]` / `[perf]` diagnostic
-||| lines). `genLoop`'s `[perf] step N: K ops` lines are filtered;
-||| no other text is emitted on success. On argmax-out-of-range
-||| (unreachable in practice) `genLoop` emits a human-facing diag
-||| line that would FAIL the comparator — that's the correct
-||| failure mode.
-runDumpTokens : Tokenizer VocabSize
-             -> LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
-                                ExampleExecutor ExampleDType WithGrad
-             -> RoPETables MaxPos HeadDim ExampleExecutor ExampleDType WithGrad
+||| same prompt; the comparator asserts exact match.
+runDumpTokens : (cfg : LlamaConfig)
+             -> Tokenizer (vocabSize cfg)
+             -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+             -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType WithGrad
              -> (prompt : String) -> (numTokens : Nat) -> IO ()
-runDumpTokens tok model tables prompt numTokens = do
+runDumpTokens cfg tok model tables prompt numTokens = do
   Right (_ ** promptIds) <- tokenize tok prompt
     | Left err => do
         putStrLn ("ERR: tokenize: " ++ show err)
         exitFailure
   let promptList = toList promptIds
-  finalList <- genLoopCached model tables promptList numTokens
+  finalList <- genLoopCached cfg model tables promptList numTokens
   traverse_ (putStrLn . show . finToNat) finalList
 
 ----------------------------------------------------------------------
@@ -313,14 +250,21 @@ main = do
   let dumpTokens = elem "--dump-tokens" args
   t0 <- clockTime Monotonic
 
-  -- Probe the tokenizer up-front (~1s subprocess call) BEFORE the
-  -- expensive model construction + 2.5 GB param load. If the
-  -- tokenizer files aren't downloaded yet, fail in seconds instead
-  -- of after 30+ seconds of model setup. The dump-hidden mode
-  -- doesn't strictly need a tokenizer but probing in both branches
-  -- keeps the failure semantics uniform. dump-tokens mode DOES need
-  -- it (tokenization is part of the gate).
-  tokR <- mkTokenizer ModelRepo VocabSize
+  -- Load the full Llama 3.2 1B state straight from the HF checkpoint
+  -- dir: fromPretrained reads config.json for the dims, builds the
+  -- model (146 params, ~1.2B values), and fills them from
+  -- model.safetensors (~2.5 GB BF16, cast-on-load to F32/F64). Tape
+  -- (F64-only) doesn't fit in 16 GB; the example targets F32 backends.
+  putStrLn "[stage] fromPretrained — reading config.json + 146-param state (~2.5 GB BF16)..."
+  Right (cfg ** model) <- fromPretrained {ex=ExampleExecutor} {dt=ExampleDType} {g=WithGrad} modelDir
+    | Left err => do
+        putStrLn ("ERR: fromPretrained " ++ modelDir ++ ": " ++ show err)
+        exitFailure
+  stageStamp "fromPretrained ok" t0
+
+  -- Probe the tokenizer (~1s subprocess). dump-hidden mode doesn't
+  -- strictly need it, but probing keeps the failure semantics uniform.
+  tokR <- mkTokenizer ModelRepo (vocabSize cfg)
   case tokR of
     Left err =>
       if not dumpHidden
@@ -335,52 +279,24 @@ main = do
     Right _ => pure ()
   stageStamp "tokenizer probe ok" t0
 
-  -- Build the full Llama 3.2 1B state — 146 params, ~1.2B values at
-  -- F64 = ~10 GB allocation. F32 backends (mlx-gpu / torch-mps) cut
-  -- that to ~5 GB; that's the practical config for this VM. Tape
-  -- (F64-only) doesn't fit in 16 GB; the example skips that lane.
-  putStrLn "[stage] hfLlamaModel — constructing 146-param state (~5 GB at F32 / 10 GB at F64)..."
-  model <- hfLlamaModel {ex=ExampleExecutor} {dt=ExampleDType}
-                        {vocab        = VocabSize}
-                        {hidden       = Hidden}
-                        {numLayers    = NumLayers}
-                        {qOut         = QOut}
-                        {kvOut        = KvOut}
-                        {intermediate = Intermediate}
-                        "model"
-  stageStamp "hfLlamaModel ok" t0
-
-  -- Load the gated HF checkpoint. Requires HF_TOKEN with Llama 3.2
-  -- license accepted on huggingface.co. ~2.5 GB BF16 on disk; the
-  -- cast-on-load widens to F32 / F64 depending on backend.
-  putStrLn ("[stage] loadModelAllowCast — reading " ++ hfWeightsPath ++ " (~2.5 GB BF16, casting to "
-            ++ "F32/F64 host-side)...")
-  ok <- loadModelAllowCast {ex=ExampleExecutor} hfWeightsPath
-  if not ok
-    then do
-      putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
-      exitFailure
-    else pure ()
-  stageStamp "loadModelAllowCast ok" t0
-
-  -- Build RoPE tables once (reused across all forward passes /
-  -- decode steps).
+  -- Build RoPE tables once (reused across all forward passes / decode
+  -- steps). headDim + ropeBase come from the loaded config.
   putStrLn "[stage] buildLlamaRoPETables — precomputing cos/sin tables..."
   tables <- buildLlamaRoPETables {ex=ExampleExecutor} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
-                                  {headDim = HeadDim}
-                                  llama32_1B_Config.ropeBase llama32_1B_RopeScaling
+                                  {headDim = headDim cfg}
+                                  (ropeBase cfg) llama32_1B_RopeScaling
   stageStamp "buildLlamaRoPETables ok" t0
 
   if dumpHidden
     then do
       putStrLn "[stage] forward (dump-hidden mode) — single forward pass..."
-      runDumpHidden model tables
+      runDumpHidden cfg model tables
       stageStamp "dump-hidden done" t0
       pure ()
     else case tokR of
       -- Unreachable in practice: dumpHidden=False + Left would have
-      -- exitFailure'd at the top-of-main probe. Idris's type checker
+      -- exitFailure'd at the tokenizer probe. Idris's type checker
       -- doesn't know that, so we handle Left defensively.
       Left err  => do
         putStrLn ("ERR: mkTokenizer (post-probe inconsistency): " ++ show err)
@@ -389,7 +305,7 @@ main = do
         if dumpTokens
           then do
             putStrLn "[stage] runDumpTokens — greedy decode + dump token ids..."
-            runDumpTokens tok model tables
+            runDumpTokens cfg tok model tables
                           (extractPrompt "The capital of France is" args)
                           (extractNumTokens 4 args)
             stageStamp "runDumpTokens done" t0
@@ -404,7 +320,7 @@ main = do
             putStrLn "[stage] runGenerate — greedy decode loop..."
             let numTokens = extractNumTokens 8 args
             benchT0 <- clockTime Monotonic
-            runGenerate tok model tables (extractPrompt "The capital of France is" args) numTokens
+            runGenerate cfg tok model tables (extractPrompt "The capital of France is" args) numTokens
             benchT1 <- clockTime Monotonic
             stageStamp "runGenerate done" t0
             let benchMs =
@@ -414,16 +330,6 @@ main = do
             putStrLn ""
             putStrLn ("PERF_GENERATE_TOKENS=" ++ show numTokens)
             putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)
-            -- Explicit pre-exit cleanup. Forces the backend's per-tensor
-            -- destructor cascade (libtorch CPUAllocator releases on torch-
-            -- cpu, mlx::array refcount drops on mlx-cpu) to run inside main
-            -- where the cost is timed + bounded, rather than during the
-            -- post-main C/OS teardown (where it took 20+ min on torch-cpu
-            -- BF16 Llama). See TODO #394.
-            _ <- drainManagedHandles
-            forceMajorGc
-            _ <- drainManagedHandles
-            stageStamp "drain + GC done" t0
             releaseAllPersistent {ex=ExampleExecutor}
             stageStamp "releaseAllPersistent done" t0
             pure ()

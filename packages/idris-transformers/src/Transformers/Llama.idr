@@ -52,8 +52,11 @@ module Transformers.Llama
 
 import Data.Vect
 
+import Backend
+import Checkpoint
 import Compat.Random
 import Executor
+import GradMode
 import Init
 import Nn.Embedding
 import Nn.RmsNorm
@@ -61,6 +64,7 @@ import Nn.RoPE
 import Sampler
 import Tensor
 import Transformers.Common
+import Transformers.Config
 import Transformers.KVCache
 
 ----------------------------------------------------------------------
@@ -173,10 +177,10 @@ record LlamaLinearNoBias (i, o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gr
   constructor MkLlamaLinear
   weight : Tensor [o, i] ex dt g
 
-makeLlamaLinear : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeLlamaLinear : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                => {i, o : Nat}
                -> (paramFullName : String)
-               -> IO (LlamaLinearNoBias i o ex dt WithGrad)
+               -> IO (LlamaLinearNoBias i o ex dt g)
 makeLlamaLinear paramFullName = do
   -- Fused C-side normal(0, 0.02) init (commit 085348d). Replaces the
   -- `traverse normalSample` + `packDs` chain that, at Llama-3.2-1B's
@@ -184,37 +188,49 @@ makeLlamaLinear paramFullName = do
   -- (per the head-to-head in scripts/time_inference_llama.py). With
   -- the fused primitive, libtorch's torch::nn::init::normal_ runs the
   -- entire fill at memory-bandwidth speed in C — no per-element FFI.
-  w <- tparam2dNormal {o} {i} paramFullName 0.0 0.02
-  pure (MkLlamaLinear w)
+  w <- tparam2dNormal {ex} {dt} {o} {i} paramFullName 0.0 0.02
+  case sgrad {g} of
+    SWithGrad => pure (MkLlamaLinear w)
+    SNoGrad => do
+      w' <- weakenGrad w
+      pure (MkLlamaLinear w')
 
 ||| HF-named RmsNorm: one weight tensor, no bias. The param name comes
 ||| from HF on-disk (`model.norm.weight`, `…input_layernorm.weight`,
 ||| `…post_attention_layernorm.weight`). The eps comes from the model
 ||| config (1e-5 for Llama 3).
-makeLlamaRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeLlamaRmsNorm : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                 => {n : Nat}
                 -> (paramFullName : String)
-                -> IO (RmsNorm n n ex dt WithGrad)
+                -> IO (RmsNorm n n ex dt g)
 makeLlamaRmsNorm paramFullName = do
   -- Fused C-side const fill (weight = 1.0). Replaces fillConst loop
   -- + per-element FFI.
-  w <- tparam1dConst {n} paramFullName 1.0
-  pure (MkRmsNorm w)
+  w <- tparam1dConst {ex} {dt} {n} paramFullName 1.0
+  case sgrad {g} of
+    SWithGrad => pure (MkRmsNorm w)
+    SNoGrad => do
+      w' <- weakenGrad w
+      pure (MkRmsNorm w')
 
 ||| Token embedding: `[vocab, hidden]`. Used for both the input
 ||| embedding lookup AND the (tied) LM head at forward time.
-makeLlamaEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeLlamaEmbedding : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
                   => {vocab, hidden : Nat}
                   -> (paramFullName : String)
-                  -> IO (Embedding vocab hidden ex dt WithGrad)
+                  -> IO (Embedding vocab hidden ex dt g)
 makeLlamaEmbedding paramFullName = do
   -- Fused C-side normal(0, 0.02) init. Llama 3.2's embed_tokens is
   -- [128256, 2048] = 263M elements — the single largest tensor in
   -- the model. At per-element FFI rates the host-side fill alone was
   -- ~10 min; under the fused-init primitive it's a libtorch in-place
   -- kernel that completes in ~ms.
-  w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
-  pure (MkEmbedding w)
+  w <- tparam2dNormal {ex} {dt} {o=vocab} {i=hidden} paramFullName 0.0 0.02
+  case sgrad {g} of
+    SWithGrad => pure (MkEmbedding w)
+    SNoGrad => do
+      w' <- weakenGrad w
+      pure (MkEmbedding w')
 
 ----------------------------------------------------------------------
 -- State records (one per HF Llama subtree)
@@ -275,10 +291,10 @@ record LlamaModelState
 -- Smart constructors
 ----------------------------------------------------------------------
 
-makeAttention : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeAttention : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
              => {hidden, qOut, kvOut : Nat}
              -> (layerPfx : String)
-             -> IO (LlamaAttentionState hidden qOut kvOut ex dt WithGrad)
+             -> IO (LlamaAttentionState hidden qOut kvOut ex dt g)
 makeAttention layerPfx = do
   q <- makeLlamaLinear {i=hidden} {o=qOut}  (layerPfx ++ ".self_attn.q_proj.weight")
   k <- makeLlamaLinear {i=hidden} {o=kvOut} (layerPfx ++ ".self_attn.k_proj.weight")
@@ -286,20 +302,20 @@ makeAttention layerPfx = do
   o <- makeLlamaLinear {i=qOut}   {o=hidden} (layerPfx ++ ".self_attn.o_proj.weight")
   pure (MkLlamaAttention q k v o)
 
-makeMlp : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeMlp : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
        => {hidden, intermediate : Nat}
        -> (layerPfx : String)
-       -> IO (LlamaMlpState hidden intermediate ex dt WithGrad)
+       -> IO (LlamaMlpState hidden intermediate ex dt g)
 makeMlp layerPfx = do
   g  <- makeLlamaLinear {i=hidden}       {o=intermediate} (layerPfx ++ ".mlp.gate_proj.weight")
   u  <- makeLlamaLinear {i=hidden}       {o=intermediate} (layerPfx ++ ".mlp.up_proj.weight")
   dn <- makeLlamaLinear {i=intermediate} {o=hidden}       (layerPfx ++ ".mlp.down_proj.weight")
   pure (MkLlamaMlp g u dn)
 
-makeBlock : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBlock : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
          => {hidden, qOut, kvOut, intermediate : Nat}
          -> (layerPfx : String)
-         -> IO (LlamaBlockState hidden qOut kvOut intermediate ex dt WithGrad)
+         -> IO (LlamaBlockState hidden qOut kvOut intermediate ex dt g)
 makeBlock layerPfx = do
   ln1 <- makeLlamaRmsNorm {n=hidden} (layerPfx ++ ".input_layernorm.weight")
   at  <- makeAttention {hidden} {qOut} {kvOut} layerPfx
@@ -307,10 +323,10 @@ makeBlock layerPfx = do
   mp  <- makeMlp {hidden} {intermediate} layerPfx
   pure (MkLlamaBlock ln1 at ln2 mp)
 
-makeBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+makeBlocks : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
           => {hidden, qOut, kvOut, intermediate : Nat}
           -> (modelPfx : String) -> (n : Nat) -> (offset : Nat)
-          -> IO (Vect n (LlamaBlockState hidden qOut kvOut intermediate ex dt WithGrad))
+          -> IO (Vect n (LlamaBlockState hidden qOut kvOut intermediate ex dt g))
 makeBlocks _   Z     _      = pure []
 makeBlocks pfx (S k) offset = do
   b  <- makeBlock {hidden} {qOut} {kvOut} {intermediate}
@@ -327,10 +343,10 @@ makeBlocks pfx (S k) offset = do
 ||| system catches dimension mismatches at construction time. For
 ||| `llama32_1B_Config`: qOut=2048, kvOut=512.
 public export
-hfLlamaModel : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt
+hfLlamaModel : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt => KnownGrad g
             => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
             -> (modelPrefix : String)
-            -> IO (LlamaModelState vocab hidden numLayers qOut kvOut intermediate ex dt WithGrad)
+            -> IO (LlamaModelState vocab hidden numLayers qOut kvOut intermediate ex dt g)
 hfLlamaModel pfx = do
   emb    <- makeLlamaEmbedding {vocab} {hidden} (pfx ++ ".embed_tokens.weight")
   blocks <- makeBlocks {hidden} {qOut} {kvOut} {intermediate} pfx numLayers 0
@@ -697,3 +713,68 @@ hfLlamaForwardLmStep {numHeads} {numKvHeads} {headDim} eps model tables caches t
 public export
 emptyKVCaches : {numLayers, kvOut : Nat} -> Vect numLayers (KVCache kvOut ex dt)
 emptyKVCaches = replicate numLayers emptyKVCache
+
+----------------------------------------------------------------------
+-- fromPretrained
+----------------------------------------------------------------------
+
+||| The Llama model state at the dims a `LlamaConfig` carries. The query
+||| / KV projection out-dims are `numHeads * headDim` and `numKvHeads *
+||| headDim` (GQA), baked into the state type — so the forward needs no
+||| extra divisibility proof, the products unify straight from the type.
+public export
+LlamaModel : (cfg : LlamaConfig) -> (0 ex : Executor) -> (0 dt : DType) -> (0 g : GradMode) -> Type
+LlamaModel cfg ex dt g =
+  LlamaModelState (vocabSize cfg) (hidden cfg) (numLayers cfg)
+                  (numHeads cfg * headDim cfg) (numKvHeads cfg * headDim cfg)
+                  (intermediate cfg) ex dt g
+
+||| Read a HuggingFace Llama `config.json` into a `LlamaConfig`. Pulls
+||| the GQA head counts (`num_attention_heads` / `num_key_value_heads`),
+||| the two floating-point knobs (`rope_theta` / `rms_norm_eps`), and
+||| `head_dim` (defaulting to `hidden_size / num_attention_heads` when
+||| the key is absent — older Llama configs omit it).
+export
+readLlamaConfig : String -> IO (Either LoadError LlamaConfig)
+readLlamaConfig path = do
+  Right j <- readConfigFile path
+    | Left e => pure (Left e)
+  pure $ do
+    vocabSize    <- natField    j "vocab_size"
+    hidden       <- natField    j "hidden_size"
+    numLayers    <- natField    j "num_hidden_layers"
+    numHeads     <- natField    j "num_attention_heads"
+    numKvHeads   <- natField    j "num_key_value_heads"
+    intermediate <- natField    j "intermediate_size"
+    maxPosition  <- natField    j "max_position_embeddings"
+    headDim      <- natFieldOr  j "head_dim" (hidden `div` numHeads)
+    ropeBase     <- doubleField j "rope_theta"
+    rmsNormEps   <- doubleField j "rms_norm_eps"
+    pure (MkLlamaConfig vocabSize hidden numLayers numHeads numKvHeads headDim
+                        intermediate maxPosition ropeBase rmsNormEps)
+
+||| Load a pretrained Llama from a local HF model directory. Reads
+||| `config.json` for the dims, builds the model at the GQA shapes
+||| (`{g}` = caller's grad mode), and fills params from
+||| `model.safetensors` (HF-native names under `model.*`). Returns
+||| `(cfg ** model)`; `cfg.ropeBase` / `cfg.rmsNormEps` feed the
+||| forward's RoPE tables + RmsNorm eps.
+export
+fromPretrained : Backend ex dt => KnownGrad g
+              => (modelDir : String)
+              -> IO (Either LoadError (cfg : LlamaConfig ** LlamaModel cfg ex dt g))
+fromPretrained dir = do
+  Right cfg <- readLlamaConfig (dir ++ "/config.json")
+    | Left e => pure (Left e)
+  model <- hfLlamaModel {ex} {dt} {g}
+             {vocab        = vocabSize cfg}
+             {hidden       = hidden cfg}
+             {numLayers    = numLayers cfg}
+             {qOut         = numHeads cfg * headDim cfg}
+             {kvOut        = numKvHeads cfg * headDim cfg}
+             {intermediate = intermediate cfg}
+             "model"
+  loaded <- load {ex} (dir ++ "/model.safetensors") ({ allowCast := True } defaultLoadOpts)
+  case loaded of
+    Left e   => pure (Left e)
+    Right () => pure (Right (cfg ** model))
