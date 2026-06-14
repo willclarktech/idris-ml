@@ -158,7 +158,7 @@ reportResult cfg epochsDone finalLoss correct =
 -- `main : IO` re-enters via `run`. (The mixed-precision path below stays on
 -- the IO surface — `ModuleMixed` has no linear surface yet.)
 runDefault : Config -> Optimizer Ex -> IO ()
-runDefault cfg opt = run $ do
+runDefault cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
   bs <- liftIO1 buildStream
   liftIO1 (putStrLn "")
