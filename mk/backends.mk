@@ -37,6 +37,12 @@ ifneq ($(filter torch,$(BACKEND_LIST)),)
   TORCH_INC := $(LIBTORCH_PATH)/include
   TORCH_INC_API := $(LIBTORCH_PATH)/include/torch/csrc/api/include
   TORCH_LIB := $(LIBTORCH_PATH)/lib
+  # The top header `<torch/torch.h>` whose mtime clang bakes into the PCH.
+  # Listed as a PCH prerequisite below so a cache restore that lands a newer
+  # torch.h than the cached .gch rebuilds the PCH instead of failing the
+  # consuming TUs with "torch.h has been modified since the precompiled
+  # header was built".
+  TORCH_MAIN_HEADER := $(TORCH_INC_API)/torch/torch.h
 endif
 
 torch_CC := c++
@@ -256,10 +262,10 @@ TORCH_PCH := $(BUILD)/torch_pch.h.gch
 TORCH_PCH_USE := -Winvalid-pch -include $(BUILD)/torch_pch.h
 endif
 
-$(BUILD)/torch_pch.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/torch_pch.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h $(TORCH_MAIN_HEADER) | $(BUILD) $(BUILD)/.backends-cache-stamp
 	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -x c++-header -c -o $@ $<
 
-$(BUILD)/torch_pch.h.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h | $(BUILD) $(BUILD)/.backends-cache-stamp
+$(BUILD)/torch_pch.h.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h $(TORCH_MAIN_HEADER) | $(BUILD) $(BUILD)/.backends-cache-stamp
 	cp $< $(BUILD)/torch_pch.h
 	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -x c++-header -c -o $@ $(BUILD)/torch_pch.h
 
