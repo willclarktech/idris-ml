@@ -33,6 +33,8 @@
 ||| registry HF-aligned to match the backbone load path).
 module Transformers.BertLora
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.Vect
 
 import Executor
@@ -315,3 +317,28 @@ hfBertSeqClassifyForwardWithLora (MkBertForSeqClassify base (MkBertClassifierHea
                                  lora i p t mask = do
   pooled <- hfBertForwardWithLora {numHeads} {headDim} base lora i p t mask
   tlinear head.weightT pooled head.biasT
+
+||| Linear (`L IO`) twin of `hfBertSeqClassifyForwardWithLora`. In the LoRA
+||| workflow the backbone is frozen (read-only → ordinary ω arg, like a constant);
+||| the **adapters** are the trained, single-owner resource, so they are threaded
+||| linearly (consumed and returned per forward). The classifier head rides
+||| inside the ω `model`. Returns the logits (banged) beside the rebuilt adapters.
+export
+hfBertSeqClassifyForwardWithLoraL :
+     {0 ex : Executor} -> UserExecutorCore ex => UserExecutorTraining ex
+  => {seqLen, vocab, hidden, numLayers, numHeads, headDim,
+      intermediate, maxPos, typeVocab, numClasses, r : Nat}
+  -> {auto prf : hidden = numHeads * headDim}
+  -> BertForSequenceClassificationState vocab hidden numLayers intermediate
+                                        maxPos typeVocab numClasses ex dt g
+  -> (1 _ : BertLoraAdapters numLayers hidden r ex dt g)
+  -> (inputIds     : Tensor [seqLen] ex dt g)
+  -> (positionIds  : Tensor [seqLen] ex dt g)
+  -> (tokenTypeIds : Tensor [seqLen] ex dt g)
+  -> (attentionMask : Maybe (Tensor [seqLen, seqLen] ex dt g))
+  -> L IO {use = 1} (LPair (!* (Tensor [numClasses] ex dt g))
+                          (BertLoraAdapters numLayers hidden r ex dt g))
+hfBertSeqClassifyForwardWithLoraL model (MkBertLoraAdapters rn al qs vs) i p t mask = do
+  out <- liftIO1 (hfBertSeqClassifyForwardWithLora {numHeads} {headDim}
+                    model (Just (MkBertLoraAdapters rn al qs vs)) i p t mask)
+  pure1 (MkBang out # MkBertLoraAdapters rn al qs vs)

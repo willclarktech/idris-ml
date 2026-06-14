@@ -22,6 +22,8 @@
 ||| (then `make validate-lora-adapter ADAPTER_DIR=/tmp/lora-out`)
 module Example.BertClassifySst2Lora
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -199,17 +201,20 @@ oneHotTensor lbl = ioRerun (\_ =>
                          (VArray (map SArray oneHot))
   in tinput1d {n=NumClasses} raw)
 
--- Forward with the LoRA adapters threaded in. Same structure as the
--- non-LoRA forwardOne but calls hfBertSeqClassifyForwardWithLora.
-forwardOneLora : Model -> Adapters -> PaddedExample
-              -> IO (Tensor [NumClasses] ExampleExecutor ExampleDType WithGrad)
-forwardOneLora model adapters (ids, mask, _) = do
-  let idsDouble = map (\n => cast {to=Double} (cast {to=Integer} n)) ids
-  idsT <- mkIdsTensor idsDouble
-  posT <- mkIdsTensor posVect
-  typT <- mkIdsTensor typeVect
-  mskT <- mkMaskTensor mask
-  hfBertSeqClassifyForwardWithLora
+-- Forward with the LoRA adapters threaded in. The frozen backbone `model` is
+-- read-only (ω); the trained `adapters` are threaded single-owner via
+-- hfBertSeqClassifyForwardWithLoraL.
+forwardOneLoraL : Model -> (1 _ : Adapters) -> PaddedExample
+               -> L IO {use = 1} (LPair (!* (Tensor [NumClasses] ExampleExecutor ExampleDType WithGrad)) Adapters)
+forwardOneLoraL model adapters (ids, mask, _) = do
+  (idsT, posT, typT, mskT) <-
+    liftIO1 (do let idsDouble = map (\n => cast {to=Double} (cast {to=Integer} n)) ids
+                idsT <- mkIdsTensor idsDouble
+                posT <- mkIdsTensor posVect
+                typT <- mkIdsTensor typeVect
+                mskT <- mkMaskTensor mask
+                pure (idsT, posT, typT, mskT))
+  hfBertSeqClassifyForwardWithLoraL
         {ex=ExampleExecutor} {dt=ExampleDType}
         {seqLen=SeqLen}
         {vocab=Vocab} {hidden=Hidden}
@@ -217,14 +222,18 @@ forwardOneLora model adapters (ids, mask, _) = do
         {headDim=HeadDim} {intermediate=Intermediate}
         {maxPos=MaxPos} {typeVocab=TypeVocab}
         {numClasses=NumClasses} {r=LoraR}
-        model (Just adapters) idsT posT typT (Just mskT)
+        model adapters idsT posT typT (Just mskT)
 
-exampleLoss : Model -> Adapters -> PaddedExample
-           -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-exampleLoss model adapters ex@(_, _, label) = do
-  logits <- forwardOneLora model adapters ex
-  target <- oneHotTensor label
-  tnllLoss logits target
+exampleLossL : Model -> (1 _ : Adapters) -> PaddedExample
+            -> L IO {use = 1} (LPair (!* (Tensor [] ExampleExecutor ExampleDType WithGrad)) Adapters)
+exampleLossL model adapters ex@(_, _, label) = do
+  (MkBang logits # adapters') <- forwardOneLoraL model adapters ex
+  loss <- liftIO1 (do target <- oneHotTensor label; tnllLoss logits target)
+  pure1 (MkBang loss # adapters')
+
+-- Discard the (linear) adapters: their fields are ω registered-param Vects.
+discardAdapters : (1 _ : Adapters) -> L IO ()
+discardAdapters (MkBertLoraAdapters _ _ _ _) = pure ()
 
 sumScalars : Tensor [] ExampleExecutor ExampleDType WithGrad
           -> List (Tensor [] ExampleExecutor ExampleDType WithGrad)
@@ -234,54 +243,50 @@ sumScalars acc (x :: xs) = do
   acc' <- tadd acc x
   sumScalars acc' xs
 
-epochLora : NativeOptimizer ExampleExecutor
-         -> (batchSize : Nat) -> Model -> Adapters -> List PaddedExample
-         -> IO (Model, Adapters, Double)
-epochLora opt batchSize model adapters items = do
-  finalLoss <- go model adapters 0.0 0 items
-  pure (model, adapters, finalLoss)
+epochLoraL : NativeOptimizer ExampleExecutor
+          -> (batchSize : Nat) -> Model -> (1 _ : Adapters) -> List PaddedExample
+          -> L IO {use = 1} (LPair (!* Double) Adapters)
+epochLoraL opt batchSize model adapters items = go adapters 0.0 0 items
   where
-    go : Model -> Adapters -> Double -> Nat -> List PaddedExample
-      -> IO Double
-    go _ _ accLoss nBatches [] =
-      if nBatches == 0 then pure 0.0
-      else pure (accLoss / cast {to=Double} (cast {to=Integer} nBatches))
-    go m a accLoss nBatches xs = do
-      let (batch, rest) = splitAt batchSize xs
-      case batch of
-        [] => go m a accLoss nBatches rest
-        _  => do
-          losses <- traverse (exampleLoss m a) batch
-          zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType}
-                                 "sst2lora.epoch_zero" 0.0
-          summed <- sumScalars zero losses
-          let denom = cast {to=Double} (cast {to=Integer} (length batch))
-          meanLoss <- tmulScalar summed (1.0 / denom)
-          v <- nativeTrainStep opt meanLoss
-          go m a (accLoss + v) (S nBatches) rest
+    foldBatch : (1 _ : Adapters) -> List PaddedExample ->
+                List (Tensor [] ExampleExecutor ExampleDType WithGrad) ->
+                L IO {use = 1} (LPair (!* (List (Tensor [] ExampleExecutor ExampleDType WithGrad))) Adapters)
+    foldBatch adapters []          acc = pure1 (MkBang (reverse acc) # adapters)
+    foldBatch adapters (e :: rest) acc = do
+      (MkBang l # adapters') <- exampleLossL model adapters e
+      foldBatch adapters' rest (l :: acc)
+    go : (1 _ : Adapters) -> Double -> Nat -> List PaddedExample -> L IO {use = 1} (LPair (!* Double) Adapters)
+    go adapters accLoss nBatches [] =
+      pure1 (MkBang (if nBatches == 0 then 0.0 else accLoss / cast {to=Double} (cast {to=Integer} nBatches)) # adapters)
+    go adapters accLoss nBatches all@(_ :: _) = do
+      let (batch, rest) = splitAt batchSize all
+      (MkBang losses # adapters') <- foldBatch adapters batch []
+      v <- liftIO1 (do zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "sst2lora.epoch_zero" 0.0
+                       summed <- sumScalars zero losses
+                       let denom = cast {to=Double} (cast {to=Integer} (length batch))
+                       meanLoss <- tmulScalar summed (1.0 / denom)
+                       nativeTrainStep opt meanLoss)
+      go adapters' (accLoss + v) (S nBatches) rest
 
-predictClass : Model -> Adapters -> PaddedExample -> IO Nat
-predictClass model adapters ex = do
-  logits <- forwardOneLora model adapters ex
+predictClassL : Model -> (1 _ : Adapters) -> PaddedExample -> L IO {use = 1} (LPair (!* Nat) Adapters)
+predictClassL model adapters ex = do
+  (MkBang logits # adapters') <- forwardOneLoraL model adapters ex
   let v0 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 0
       v1 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 1
-  pure $ if v0 >= v1 then 0 else 1
+  pure1 (MkBang (if v0 >= v1 then the Nat 0 else 1) # adapters')
 
-heldOutAccuracy : Model -> Adapters -> List PaddedExample -> IO Double
-heldOutAccuracy model adapters items =
-  withNoGrad {ex=ExampleExecutor} $ do
-    let go : List PaddedExample -> Nat -> Nat -> IO (Nat, Nat)
-        go [] n hits                         = pure (n, hits)
-        go (ex@(_, _, label) :: rest) n hits = do
-          p <- predictClass model adapters ex
-          go rest (S n) (if p == label then S hits else hits)
-    (n, hits) <- go items 0 0
-    let acc : Double
-        acc = if n == 0
-              then 0.0
-              else cast {to=Double} (cast {to=Integer} hits)
-                   / cast {to=Double} (cast {to=Integer} n)
-    pure acc
+heldOutAccuracyL : Model -> (1 _ : Adapters) -> List PaddedExample -> L IO {use = 1} (LPair (!* Double) Adapters)
+heldOutAccuracyL model adapters items = withNoGradL {ex=ExampleExecutor} $ do
+  (MkBang nh # adapters') <- go adapters items 0 0
+  let (n, hits) = nh
+  pure1 (MkBang (if n == 0 then 0.0
+                 else cast {to=Double} (cast {to=Integer} hits) / cast {to=Double} (cast {to=Integer} n)) # adapters')
+  where
+    go : (1 _ : Adapters) -> List PaddedExample -> Nat -> Nat -> L IO {use = 1} (LPair (!* (Nat, Nat)) Adapters)
+    go adapters [] n hits                         = pure1 (MkBang (n, hits) # adapters)
+    go adapters (ex@(_, _, label) :: rest) n hits = do
+      (MkBang p # adapters') <- predictClassL model adapters ex
+      go adapters' rest (S n) (if p == label then S hits else hits)
 
 capAt : Nat -> List a -> List a
 capAt 0 xs = xs
@@ -329,72 +334,64 @@ main = do
       let padTrain = map (padToSeqLen SeqLen PadId) trainItems
       let padDev   = map (padToSeqLen SeqLen PadId) devItems
 
-      model <- hfBertForSequenceClassification
-                 {ex=ExampleExecutor} {dt=ExampleDType}
-                 {vocab=Vocab} {hidden=Hidden} {numLayers=NumLayers}
-                 {numHeads=NumHeads} {intermediate=Intermediate}
-                 {maxPos=MaxPos} {typeVocab=TypeVocab}
-                 {numClasses=NumClasses}
-                 "bert" "classifier"
-
-      True <- loadModelPrefixAllowCast {ex=ExampleExecutor} ckptPath "bert."
-        | False => do
-            putStrLn $ "ERROR: failed to load backbone from " ++ ckptPath
-                    ++ " — run `make data-hf-bert-tiny`."
-            exitFailure
-      putStrLn "Backbone warm-started from HF safetensors."
-
-      -- Register LoRA adapters under HF-aligned names (Q + V on every
-      -- attention layer, the peft default `target_modules=["query","value"]`).
-      -- This is the canonical LoRA setup; matches the paired peft ref.
-      adapters <- loraInjectBert
-                    {ex=ExampleExecutor} {dt=ExampleDType} {hidden=Hidden}
-                    "bert" NumLayers LoraR cfg.loraAlpha
-      putStrLn $ "LoRA adapters injected (rank=" ++ show LoraR
-              ++ ", alpha=" ++ show cfg.loraAlpha
-              ++ ", target_modules=[\"query\",\"value\"])"
-
-      let opt = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
-
-      -- Canonical LoRA freeze: freeze everything matching `bert.`
-      -- (backbone weights + the adapter params themselves), then
-      -- unfreeze the adapter suffixes to keep them trainable. The
-      -- classifier head (`classifier.*`) doesn't match the `bert.`
-      -- prefix, so it stays trainable for free.
-      freezeByPrefix   {ex=ExampleExecutor} opt "bert."
-      unfreezeBySuffix {ex=ExampleExecutor} opt "lora_A"
-      unfreezeBySuffix {ex=ExampleExecutor} opt "lora_B"
-      putStrLn "Backbone frozen; LoRA adapters + classifier head trainable."
-
-      -- Manual training loop.
-      let trainLoop : Model -> Adapters -> Nat -> Double -> IO (Model, Adapters, Double)
-          trainLoop m a Z lastLoss = pure (m, a, lastLoss)
-          trainLoop m a (S k) _    = do
-            (m', a', loss) <- epochLora opt cfg.batchSize m a padTrain
-            acc <- heldOutAccuracy m' a' padDev
-            putStrLn $ "Epoch " ++ show (minus cfg.epochs k)
-                    ++ ": loss=" ++ showFix 4 loss
-                    ++ "  dev-acc=" ++ showFix 3 acc
-            trainLoop m' a' k loss
-      (trained, trainedAdp, finalLoss) <-
-        trainLoop model adapters cfg.epochs 0.0
-      finalAcc <- heldOutAccuracy trained trainedAdp padDev
-
-      putStrLn ""
-      putStrLn $ formatResult [ ("loss",     showFix 4 finalLoss)
-                              , ("accuracy", showFix 3 finalAcc)
-                              , ("epochs",   show cfg.epochs)
-                              , ("seed",     show cfg.seed)
-                              ]
-
-      -- Optional: write the trained adapter to a peft-compatible directory.
-      when (cfg.saveAdapter /= "") $ do
-        let adapterCfg = MkLoraAdapterConfig
-              cfg.loraRank
-              cfg.loraAlpha
-              (the (List String) ["query", "value"])
-              "SEQ_CLS"
-        ok <- saveLoraAdapter {ex=ExampleExecutor} cfg.saveAdapter adapterCfg
-        if ok
-          then putStrLn $ "Saved LoRA adapter to " ++ cfg.saveAdapter
-          else putStrLn $ "WARNING: failed to save adapter to " ++ cfg.saveAdapter
+      -- Linear surface: the frozen backbone `model` stays ω (read-only); the
+      -- trained `adapters` are born linear (bornL) and threaded single-owner
+      -- through the manual epoch loop + held-out eval, then discarded.
+      Control.Linear.LIO.run $ do
+        model <- liftIO1 (hfBertForSequenceClassification
+                            {ex=ExampleExecutor} {dt=ExampleDType}
+                            {vocab=Vocab} {hidden=Hidden} {numLayers=NumLayers}
+                            {numHeads=NumHeads} {intermediate=Intermediate}
+                            {maxPos=MaxPos} {typeVocab=TypeVocab}
+                            {numClasses=NumClasses}
+                            "bert" "classifier")
+        liftIO1 (do ok <- loadModelPrefixAllowCast {ex=ExampleExecutor} ckptPath "bert."
+                    if ok then putStrLn "Backbone warm-started from HF safetensors."
+                          else do putStrLn $ "ERROR: failed to load backbone from " ++ ckptPath
+                                          ++ " — run `make data-hf-bert-tiny`."
+                                  exitFailure)
+        -- LoRA adapters under HF-aligned names (Q + V per layer, peft default).
+        adapters <- bornL (loraInjectBert
+                             {ex=ExampleExecutor} {dt=ExampleDType} {hidden=Hidden}
+                             "bert" NumLayers LoraR cfg.loraAlpha)
+        opt <- liftIO1 (do putStrLn $ "LoRA adapters injected (rank=" ++ show LoraR
+                                    ++ ", alpha=" ++ show cfg.loraAlpha
+                                    ++ ", target_modules=[\"query\",\"value\"])"
+                           let o = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
+                           -- Canonical LoRA freeze: freeze `bert.` then unfreeze
+                           -- the adapter suffixes; classifier.* stays trainable.
+                           freezeByPrefix   {ex=ExampleExecutor} o "bert."
+                           unfreezeBySuffix {ex=ExampleExecutor} o "lora_A"
+                           unfreezeBySuffix {ex=ExampleExecutor} o "lora_B"
+                           putStrLn "Backbone frozen; LoRA adapters + classifier head trainable."
+                           pure o)
+        let trainLoopL : (1 _ : Adapters) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Adapters)
+            trainLoopL adapters Z     lastLoss = pure1 (MkBang lastLoss # adapters)
+            trainLoopL adapters (S k) _        = do
+              (MkBang loss # adapters1) <- epochLoraL opt cfg.batchSize model adapters padTrain
+              (MkBang acc # adapters2)  <- heldOutAccuracyL model adapters1 padDev
+              liftIO1 (putStrLn $ "Epoch " ++ show (minus cfg.epochs k)
+                                ++ ": loss=" ++ showFix 4 loss
+                                ++ "  dev-acc=" ++ showFix 3 acc)
+              trainLoopL adapters2 k loss
+        (MkBang finalLoss # trainedAdp) <- trainLoopL adapters cfg.epochs 0.0
+        (MkBang finalAcc # trainedAdp') <- heldOutAccuracyL model trainedAdp padDev
+        discardAdapters trainedAdp'
+        liftIO1 $ do
+          putStrLn ""
+          putStrLn $ formatResult [ ("loss",     showFix 4 finalLoss)
+                                  , ("accuracy", showFix 3 finalAcc)
+                                  , ("epochs",   show cfg.epochs)
+                                  , ("seed",     show cfg.seed)
+                                  ]
+          -- Optional: write the trained adapter to a peft-compatible directory.
+          when (cfg.saveAdapter /= "") $ do
+            let adapterCfg = MkLoraAdapterConfig
+                  cfg.loraRank
+                  cfg.loraAlpha
+                  (the (List String) ["query", "value"])
+                  "SEQ_CLS"
+            ok <- saveLoraAdapter {ex=ExampleExecutor} cfg.saveAdapter adapterCfg
+            if ok
+              then putStrLn $ "Saved LoRA adapter to " ++ cfg.saveAdapter
+              else putStrLn $ "WARNING: failed to save adapter to " ++ cfg.saveAdapter
