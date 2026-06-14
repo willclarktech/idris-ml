@@ -18,9 +18,13 @@ import Train
 -- Example.Lstm for the recurrent migration shape (record of cell + head,
 -- per-sequence hand-folded `recurStep` + 1-D `tlinear` head).
 
+-- Mixed field multiplicity by role: the recurrent `cell` carries the hidden
+-- state and is threaded single-owner (a **linear** field), so a stale-state
+-- reuse is a compile-time error; the `head` is read-only weights applied every
+-- timestep, so it is an ordinary (ω) field accessed by projection.
 record Model where
   constructor MkModel
-  cell : Rnn 1 4 Ex F WithGrad
+  1 cell : Rnn 1 4 Ex F WithGrad
   head : Linear 4 1 Ex F WithGrad
 
 -- Top-level `Init` derivation (not an inline `do` inside `runInitL`): a
@@ -63,46 +67,62 @@ sumLosses (x :: xs) = go x xs
     go acc []        = pure acc
     go acc (y :: ys) = do s <- tadd acc y; go s ys
 
-seqLoss : Model -> (List Double, List Double) -> IO (Tensor [] Ex F WithGrad)
-seqLoss (MkModel cell0 head) (is, os) = do
-  (sumL, n) <- go (recurReset cell0) Nothing 0 (zip is os)
-  if n == 0 then pure sumL else (1.0 / cast n) *: sumL
+-- Per-sequence loss, fine-grained: reset then thread the **linear** cell one
+-- timestep at a time through `recurStepL`, applying the ω `head` and BCE per
+-- step, accumulating the sum forward (order-preserving), and returning the mean
+-- beside the final cell. The cell is never aliased — each `recurStepL` consumes
+-- it and hands back the advanced one.
+seqLossL : Linear 4 1 Ex F WithGrad -> (1 _ : Rnn 1 4 Ex F WithGrad) ->
+           (List Double, List Double) ->
+           L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Rnn 1 4 Ex F WithGrad))
+seqLossL head cell0 (is, os) = go (recurResetL cell0) Nothing 0 (zip is os)
   where
-    go : Rnn 1 4 Ex F WithGrad -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
-         List (Double, Double) -> IO (Tensor [] Ex F WithGrad, Nat)
-    go _ acc cnt [] = case acc of
-      Just s  => pure (s, cnt)
-      Nothing => assert_total $ idris_crash "Rnn.seqLoss: empty sequence"
+    go : (1 _ : Rnn 1 4 Ex F WithGrad) -> Maybe (Tensor [] Ex F WithGrad) -> Nat ->
+         List (Double, Double) ->
+         L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Rnn 1 4 Ex F WithGrad))
+    go cell acc cnt [] = do
+      mean <- liftIO1 (case acc of
+                         Nothing => assert_total $ idris_crash "Rnn.seqLossL: empty sequence"
+                         Just s  => if cnt == 0 then pure s else (1.0 / cast cnt) *: s)
+      pure1 (MkBang mean # cell)
     go cell acc cnt ((xi, yi) :: rest) = do
-      x          <- scalar1 xi
-      (cell', h) <- recurStep cell x
-      out        <- tlinear head.weightT h head.biasT
-      y          <- scalar1 yi
-      l          <- tbceLoss out y
-      acc'       <- case acc of
-                      Just s  => Just <$> tadd s l
-                      Nothing => pure (Just l)
+      x              <- liftIO1 (scalar1 xi)
+      (MkBang h # cell') <- recurStepL cell x
+      acc'           <- liftIO1 $ do
+                          out <- tlinear head.weightT h head.biasT
+                          y   <- scalar1 yi
+                          l   <- tbceLoss out y
+                          case acc of
+                            Just s  => Just <$> tadd s l
+                            Nothing => pure (Just l)
       go cell' acc' (S cnt) rest
 
--- Linear-resource epoch step (consume-match-rebuild-delegate): the model is
--- read once per sequence (8×), so match `MkModel cell head` to bind the
--- fields at their ω constructor quantity, reuse them freely in the IO loss
--- computation, then rebuild the model beside the banged loss. The
--- single-owner obligation is discharged by the one pattern-match.
+-- Linear-resource epoch step, fine-grained: match `MkModel cell head` (cell
+-- linear, head ω), thread the cell through every sequence (each resets it),
+-- accumulate the per-sequence losses (ω tensors), one optimizer step, rebuild
+-- the model with the final cell.
 recurEpochL : Optimizer Ex -> (1 _ : Model) -> Vect NumSeqs (List Double, List Double) ->
               L IO {use = 1} (LPair (!* Double) Model)
 recurEpochL opt (MkModel cell head) seqs = do
+  (MkBang seqLs # cellFinal) <- foldSeqs head cell (toList seqs) []
   d <- liftIO1 $ do
-         seqLs <- traverse (seqLoss (MkModel cell head)) (toList seqs)
          totalL <- sumLosses seqLs
          mean <- (1.0 / cast NumSeqs) *: totalL
          nativeTrainStep opt mean
-  pure1 (MkBang d # MkModel cell head)
+  pure1 (MkBang d # MkModel cellFinal head)
+  where
+    foldSeqs : Linear 4 1 Ex F WithGrad -> (1 _ : Rnn 1 4 Ex F WithGrad) ->
+               List (List Double, List Double) -> List (Tensor [] Ex F WithGrad) ->
+               L IO {use = 1} (LPair (!* (List (Tensor [] Ex F WithGrad))) (Rnn 1 4 Ex F WithGrad))
+    foldSeqs _  cell []          acc = pure1 (MkBang (reverse acc) # cell)
+    foldSeqs hd cell (s :: rest) acc = do
+      (MkBang l # cell') <- seqLossL hd cell s
+      foldSeqs hd cell' rest (l :: acc)
 
--- Consume the final (linear) model: it holds only C-managed param handles,
--- so dropping the matched ω fields is a no-op discharge (leaf-`discardL` shape).
+-- Consume the final (linear) model: the cell field is linear so it must be
+-- discharged (discardL); the ω head drops freely.
 discardModel : (1 _ : Model) -> L IO ()
-discardModel (MkModel _ _) = pure ()
+discardModel (MkModel cell _) = discardL cell
 
 ----------------------------------------------------------------------
 -- Config & Main
