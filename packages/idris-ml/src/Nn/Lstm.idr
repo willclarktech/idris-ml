@@ -7,6 +7,8 @@
 ||| param.
 module Nn.Lstm
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -51,6 +53,34 @@ Recurrent Lstm where
     pure ({ hiddenT := Just newH, cellT := Just newC } st, newH)
 
   recurReset st = { hiddenT := Nothing, cellT := Nothing } st
+
+||| Linear-resource params: six learnable tensors; carried state is not a
+||| param. Fields bind at ω, free to reflect *and* rebuild.
+public export
+ParamsL Lstm where
+  reflectL (MkLstm iw rw ib hb h0 c0 hid cell) =
+    MkBang [toParam iw, toParam rw, toParam ib, toParam hb, toParam h0, toParam c0]
+      # MkLstm iw rw ib hb h0 c0 hid cell
+  castGradL (MkLstm iw rw ib hb h0 c0 hid cell) =
+    MkLstm (retypeGrad iw) (retypeGrad rw) (retypeGrad ib) (retypeGrad hb)
+           (retypeGrad h0) (retypeGrad c0) (map retypeGrad hid) (map retypeGrad cell)
+  discardL (MkLstm _ _ _ _ _ _ _ _) = pure ()
+
+||| Linear-resource recurrent step. The IO body returns `(newH, newC)` (both
+||| unrestricted via `liftIO1`); `newH` is the output, both update the carried
+||| state in the rebuilt cell.
+public export
+RecurrentL Lstm where
+  recurStepL {o} (MkLstm iw rw ib hb h0 c0 hid cell) input = do
+    (newH, newC) <- liftIO1 $ do
+      let h = case hid  of Just h => h; Nothing => h0
+      let c = case cell of Just c => c; Nothing => c0
+      inner    <- tlinear iw input ib
+      combined <- tlinear rw h inner
+      gates    <- tadd combined hb
+      tlstmGatesPair {n = o} gates c
+    pure1 (MkBang newH # MkLstm iw rw ib hb h0 c0 (Just newH) (Just newC))
+  recurResetL (MkLstm iw rw ib hb h0 c0 _ _) = MkLstm iw rw ib hb h0 c0 Nothing Nothing
 
 ||| Construct an `Lstm i o` inside an `Init` derivation. Xavier-ish weight
 ||| init (4 stacked gates → fan_out 4·o), zero biases + learned h0/c0,

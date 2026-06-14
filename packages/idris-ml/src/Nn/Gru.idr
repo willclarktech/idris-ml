@@ -5,6 +5,8 @@
 ||| the four learnable tensors.
 module Nn.Gru
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -44,6 +46,30 @@ Recurrent Gru where
     pure ({ hiddenT := Just newH } st, newH)
 
   recurReset st = { hiddenT := Nothing } st
+
+||| Linear-resource params: four learnable tensors; carried state is not a
+||| param.
+public export
+ParamsL Gru where
+  reflectL (MkGru iw ib hw hb hid) =
+    MkBang [toParam iw, toParam ib, toParam hw, toParam hb] # MkGru iw ib hw hb hid
+  castGradL (MkGru iw ib hw hb hid) =
+    MkGru (retypeGrad iw) (retypeGrad ib) (retypeGrad hw) (retypeGrad hb) (map retypeGrad hid)
+  discardL (MkGru _ _ _ _ _) = pure ()
+
+||| Linear-resource recurrent step (reuses the IO gate path under `liftIO1`).
+public export
+RecurrentL Gru where
+  recurStepL {o} (MkGru iw ib hw hb hid) input = do
+    newH <- liftIO1 $ do
+      h <- case hid of
+             Just h  => pure h
+             Nothing => tzeroState1d {n = o}
+      ihPart <- tlinear iw input ib
+      hhPart <- tlinear hw h hb
+      tgruCell {n = o} ihPart hhPart h
+    pure1 (MkBang newH # MkGru iw ib hw hb (Just newH))
+  recurResetL (MkGru iw ib hw hb _) = MkGru iw ib hw hb Nothing
 
 ||| Construct a `Gru i o` inside an `Init` derivation. Xavier-ish weight
 ||| init (3 stacked gates → fan_out 3·o), zero biases, empty state.

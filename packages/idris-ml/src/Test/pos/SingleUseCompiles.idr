@@ -12,8 +12,10 @@ import Executor
 import GradMode
 import Nn.Activation
 import Nn.Dropout
+import Nn.Gru
 import Nn.LayerNorm
 import Nn.Linear
+import Nn.Lstm
 import Nn.Module
 import Nn.Recurrent
 import Nn.Residual
@@ -60,3 +62,11 @@ okRnnStep r x = recurStepL r x
 okRnnEval : (1 _ : Rnn 2 3 TapeExecutor F64 WithGrad) ->
             L IO {use=1} (Rnn 2 3 TapeExecutor F64 NoGrad)
 okRnnEval r = evalL r
+
+okLstmEval : (1 _ : Lstm 2 3 TapeExecutor F64 WithGrad) ->
+             L IO {use=1} (Lstm 2 3 TapeExecutor F64 NoGrad)
+okLstmEval l = evalL l
+
+okGruEval : (1 _ : Gru 2 3 TapeExecutor F64 WithGrad) ->
+            L IO {use=1} (Gru 2 3 TapeExecutor F64 NoGrad)
+okGruEval g = evalL g
