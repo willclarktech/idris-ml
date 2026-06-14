@@ -13,7 +13,6 @@ depends = contrib
         , idris-test
 
 modules = Test.Main
-        , Test.Generate
         , Test.Reinforce
 
 main = Test.Main
