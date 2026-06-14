@@ -6,35 +6,29 @@ import Data.IORef
 import System
 import Compat.Random
 
-import Floating
+import ML.Simple
+import Array            -- Vector / VArray / SArray
+import Floating         -- Math.tanh's Floating interface
 import Gym.ClassicControl.MountainCarCont
 import Gym.Env
 import Gym.Vector
-import Layer.Activation
-import Layer.Core
-import Layer.Linear
 import Math
 import RL.ReplayBuffer
 import Sampler
-import Array
 import Train
-import Util
-import Executor
-import Tensor
 import BuildConfig
 
 ----------------------------------------------------------------------
 -- SAC on MountainCarContinuous-v0 with velocity-magnitude reward shaping.
 --
--- MountainCarCont's reward is sparse (terminal +100 for reaching goal,
--- per-step -0.1*action²). Random Gaussian exploration almost never finds
--- the goal in 999 steps. Shape the *training* reward with `r_shaped =
--- r_raw + shaping * |v_next|` to densify toward kinetic energy. Eval
--- reports the *raw* return.
+-- MountainCarCont's reward is sparse (terminal +100, per-step -0.1·a²).
+-- Shape the *training* reward with `r_shaped = r_raw + shaping·|v_next|`.
+-- Eval reports the *raw* return.
 --
--- Architecture mirrors Example.Sac (separate actor + Q1 + Q2 + 2 target
--- Q nets, scoped paramIds, three Adam optimizers, polyak τ-soft target
--- update). Aligned with `torch_ref/models/mountain_car_cont.py`.
+-- Architecture: separate actor + Q1 + Q2 + 2 target Q nets, scoped
+-- paramIds, three Adam optimizers, polyak τ-soft target update. The
+-- scope segments carry a trailing underscore so "q1_" is not a substring
+-- of "q1tgt_" (else the q1 optimizer would also step the q1-target net).
 ----------------------------------------------------------------------
 
 ObsDim : Nat; ObsDim = 2
@@ -44,32 +38,30 @@ Hidden : Nat; Hidden = 64
 EpisodeLen : Nat; EpisodeLen = 999
 MaxAct : Double; MaxAct = 1.0
 
-||| Parallel envs collecting transitions in lockstep. Each outer step
-||| advances NumEnvs envs through one batched actor forward + one
-||| batched gradient update on a sample drawn from the shared buffer.
+||| Parallel envs collecting transitions in lockstep.
 NumEnvs : Nat; NumEnvs = 4
 
 -- --- Architectures --------------------------------------------------
 
 ActorNet : Type
-ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor ExampleDType WithGrad
+ActorNet = Seq ObsDim 1 Ex F WithGrad
 
 QNet : Type
-QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor ExampleDType WithGrad
+QNet = Seq QInputDim 1 Ex F WithGrad
 
 mkActor : IO ActorNet
-mkActor = do
-  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden} "actor_ll1"
-  ll2 <- linearLayerAny {i=Hidden} {o=Hidden} "actor_ll2"
-  ll3 <- linearLayerAny {i=Hidden} {o=1}      "actor_ll3"
-  pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
+mkActor = runInit $ scoped "actor_" $ do
+  l1 <- linear {i=ObsDim} {o=Hidden}
+  l2 <- linear {i=Hidden} {o=Hidden}
+  l3 <- linear {i=Hidden} {o=1}
+  pure (l1 ~~> reluA ~~> l2 ~~> reluA ~~> l3 ~~> Nil)
 
 mkQ : (scope : String) -> IO QNet
-mkQ scope = do
-  ll1 <- linearLayerAny {i=QInputDim} {o=Hidden} (scope ++ "ll1")
-  ll2 <- linearLayerAny {i=Hidden} {o=Hidden}    (scope ++ "ll2")
-  ll3 <- linearLayerAny {i=Hidden} {o=1}         (scope ++ "ll3")
-  pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
+mkQ scope = runInit $ scoped scope $ do
+  l1 <- linear {i=QInputDim} {o=Hidden}
+  l2 <- linear {i=Hidden} {o=Hidden}
+  l3 <- linear {i=Hidden} {o=1}
+  pure (l1 ~~> reluA ~~> l2 ~~> reluA ~~> l3 ~~> Nil)
 
 -- --- Observation helpers --------------------------------------------
 
@@ -95,26 +87,27 @@ squashCorrection u =
   let tu = Math.tanh u
   in Prelude.log (1.0 - tu * tu + 1.0e-6) + Prelude.log MaxAct
 
--- --- Forward helpers (single-sample) --------------------------------
+-- --- Forward helpers (single-sample, via [1, n] batched forward) -----
 
 actorMean : ActorNet -> Vect ObsDim Double -> IO Double
 actorMean actor obs = do
-  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
-  (_, outV) <- forwardVar actor stateV
-  pure (primItem1d {ex=ExampleExecutor} outV.tensorPtr 0)
+  let stateV = the (Tensor [1, ObsDim] Ex F WithGrad)
+                 (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)
+  outV <- forwardSeq {b=1} actor stateV
+  pure (primItem2d {ex=Ex} outV.tensorPtr 0 0)
 
 qValue : QNet -> Vect ObsDim Double -> Double -> IO Double
 qValue q obs action = do
-  let inV = the (TVec QInputDim ExampleExecutor ExampleDType WithGrad)
-                (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (qInputTensor (qInput obs action))) Nothing)
-  (_, outV) <- forwardVar q inV
-  pure (primItem1d {ex=ExampleExecutor} outV.tensorPtr 0)
+  let inV = the (Tensor [1, QInputDim] Ex F WithGrad)
+                (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [qInputTensor (qInput obs action)]) Nothing)
+  outV <- forwardSeq {b=1} q inV
+  pure (primItem2d {ex=Ex} outV.tensorPtr 0 0)
 
-sampleActionIO : ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad -> Vect ObsDim Double ->
+sampleActionIO : ActorNet -> Tensor [] Ex F WithGrad -> Vect ObsDim Double ->
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
   mean <- actorMean actor obs
-  let logStd = primItem {ex=ExampleExecutor} logStdV.tensorPtr
+  let logStd = primItem {ex=Ex} logStdV.tensorPtr
       std = Prelude.exp logStd
   eps <- normalSample
   let u = mean + std * eps
@@ -125,26 +118,24 @@ sampleActionIO actor logStdV obs = do
 
 -- Batched action sampling across NumEnvs envs: one batched actor forward
 -- (mean per env), then N independent eps draws. Shared logStd scalar.
--- Returns N actions (each tanh-squashed). Log-probs aren't needed by
--- the rollout (the actor loss recomputes via reparameterization).
-sampleActionsBatched : {n : Nat} -> ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
+sampleActionsBatched : {n : Nat} -> ActorNet -> Tensor [] Ex F WithGrad ->
                        Vect n MCCState -> IO (Vect n Double)
 sampleActionsBatched actor logStdV envs = do
   let obsRows : Vect n (Vector ObsDim Double)
       obsRows = map (\s => obsTensor (observeVec s)) envs
-      batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
-      stateV : Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad
+      batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
+      stateV : Tensor [n, ObsDim] Ex F WithGrad
       stateV = MkTensor batchPtr Nothing
-  (_, meanB) <- forwardVarBatch actor stateV
-  let logStd = primItem {ex=ExampleExecutor} logStdV.tensorPtr
+  meanB <- forwardSeq {b=n} actor stateV
+  let logStd = primItem {ex=Ex} logStdV.tensorPtr
       std = Prelude.exp logStd
   go meanB std 0 envs
   where
-    go : {n : Nat} -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
+    go : {n : Nat} -> Tensor [n, 1] Ex F WithGrad ->
          Double -> Int -> Vect k MCCState -> IO (Vect k Double)
     go _ _ _ [] = pure []
     go meanB std i (_ :: rest) = do
-      let mean = primItem2d {ex=ExampleExecutor} meanB.tensorPtr i 0
+      let mean = primItem2d {ex=Ex} meanB.tensorPtr i 0
       eps <- normalSample
       let u = mean + std * eps
           action = Math.tanh u * MaxAct
@@ -160,7 +151,7 @@ record SACState where
   q2      : QNet
   q1Tgt   : QNet
   q2Tgt   : QNet
-  logStdV : Tensor [] ExampleExecutor ExampleDType WithGrad
+  logStdV : Tensor [] Ex F WithGrad
   buffer  : ReplayBuffer ObsDim ActDim
   stepRef : IORef Nat
   envRef  : IORef (VecEnv NumEnvs MCCState)
@@ -210,7 +201,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 -- --- Q-network loss (batched) ---------------------------------------
 
-computeTargetVal : QNet -> QNet -> ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
+computeTargetVal : QNet -> QNet -> ActorNet -> Tensor [] Ex F WithGrad ->
                    Double -> Double -> Transition ObsDim ActDim -> IO Double
 computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
   nextPair <- sampleActionIO actor logStdV t.nextObs
@@ -222,8 +213,8 @@ computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
       doneMask = if t.done then 0.0 else 1.0
   pure (t.reward + gamma * doneMask * (minQNextD - alpha * nextLogP))
 
-perSampleQLoss : {n : Nat} -> (qOutB : Tensor [n, 1] ExampleExecutor ExampleDType WithGrad) -> Double ->
-                 Int -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+perSampleQLoss : {n : Nat} -> (qOutB : Tensor [n, 1] Ex F WithGrad) -> Double ->
+                 Int -> IO (Tensor [] Ex F WithGrad)
 perSampleQLoss qOutB tv k = do
   qRow    <- trowSelect qOutB k
   qScalar <- telemSelect qRow 0
@@ -231,28 +222,28 @@ perSampleQLoss qOutB tv k = do
   diff    <- tsub qScalar targetT
   tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {ex=Ex} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
-qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
+qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] Ex F WithGrad ->
              Double -> Double -> Vect n (Transition ObsDim ActDim) ->
-             IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+             IO (Tensor [] Ex F WithGrad)
 qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
   targetVals <- traverse (computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha) batch
   let qInputs = the (Vect n (Vector QInputDim Double))
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)
-      qInputBT = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} qInputs
-      qInputV = the (Tensor [n, QInputDim] ExampleExecutor ExampleDType WithGrad) (MkTensor qInputBT Nothing)
-  (_, qOutB) <- forwardVarBatch qOnline qInputV
+      qInputBT = bulkToTensor2d {ex=Ex} {dt=F} qInputs
+      qInputV = the (Tensor [n, QInputDim] Ex F WithGrad) (MkTensor qInputBT Nothing)
+  qOutB <- forwardSeq {b=n} qOnline qInputV
   losses <- go qOutB (toList targetVals) 0
   meanScalarLoss n losses
   where
     oneAct : Vect ActDim Double -> Double
     oneAct [a] = a
-    go : {n : Nat} -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> List Double -> Int -> IO (List (Tensor [] ExampleExecutor ExampleDType WithGrad))
+    go : {n : Nat} -> Tensor [n, 1] Ex F WithGrad -> List Double -> Int -> IO (List (Tensor [] Ex F WithGrad))
     go _ [] _ = pure []
     go qOutB (tv :: rest) k = do
       l <- perSampleQLoss qOutB tv k
@@ -261,30 +252,30 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 
 -- --- Actor loss with reparameterization -----------------------------
 
-buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad
+buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] Ex F WithGrad
 buildScalarColumn {n} xs =
   let rows = the (Vect n (Vector 1 Double)) (map (\x => VArray [SArray x]) xs)
-      ptr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} rows
+      ptr = bulkToTensor2d {ex=Ex} {dt=F} rows
   in MkTensor ptr Nothing
 
 actorPerStepLoss : {n : Nat} ->
-                   Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
-                   Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
-                   Tensor [] ExampleExecutor ExampleDType WithGrad -> Double ->
-                   Int -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+                   Tensor [n, 1] Ex F WithGrad -> Tensor [n, 1] Ex F WithGrad ->
+                   Tensor [n, 1] Ex F WithGrad -> Tensor [n, 1] Ex F WithGrad ->
+                   Tensor [] Ex F WithGrad -> Double ->
+                   Int -> IO (Tensor [] Ex F WithGrad)
 actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   q1Row <- trowSelect q1B rowIdx
   q1S   <- telemSelect q1Row 0
-  let q1Val = primItem1d {ex=ExampleExecutor} q1Row.tensorPtr 0
+  let q1Val = primItem1d {ex=Ex} q1Row.tensorPtr 0
   q2Row <- trowSelect q2B rowIdx
   q2S   <- telemSelect q2Row 0
-  let q2Val = primItem1d {ex=ExampleExecutor} q2Row.tensorPtr 0
+  let q2Val = primItem1d {ex=Ex} q2Row.tensorPtr 0
       minQS = if q1Val <= q2Val then q1S else q2S
   meanRow <- trowSelect meanB rowIdx
   meanS   <- telemSelect meanRow 0
   uRow    <- trowSelect uBT rowIdx
   uS      <- telemSelect uRow 0
-  let uVal = primItem1d {ex=ExampleExecutor} uRow.tensorPtr 0
+  let uVal = primItem1d {ex=Ex} uRow.tensorPtr 0
   diffM    <- tsub uS meanS
   negTwoLs <- tmulScalar logStdV (-2.0)
   varInv   <- texp negTwoLs
@@ -300,31 +291,31 @@ actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   alphaLogP <- tmulScalar lpV alpha
   tsub alphaLogP minQS
 
-actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] ExampleExecutor ExampleDType WithGrad ->
-                 Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] Ex F WithGrad ->
+                 Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] Ex F WithGrad)
 actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
-  let logStd = primItem {ex=ExampleExecutor} logStdV.tensorPtr
+  let logStd = primItem {ex=Ex} logStdV.tensorPtr
       stdVal = Prelude.exp logStd
   epses <- traverse (\_ => normalSample) obsBatch
   let obsTensors = the (Vect n (Vector ObsDim Double)) (map obsTensor obsBatch)
-      obsBT = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsTensors
-      obsBV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor obsBT Nothing)
-  (_, meanB) <- forwardVarBatch actor obsBV
+      obsBT = bulkToTensor2d {ex=Ex} {dt=F} obsTensors
+      obsBV = the (Tensor [n, ObsDim] Ex F WithGrad) (MkTensor obsBT Nothing)
+  meanB <- forwardSeq {b=n} actor obsBV
   let epsScales = map (\e => stdVal * e) epses
       epsBV = buildScalarColumn epsScales
   uBT         <- tadd meanB epsBV
   aSquashedBT <- ttanh uBT
   aReparamBT  <- tmulScalar aSquashedBT MaxAct
   qInputBT    <- tconcat2dAxis1 obsBV aReparamBT
-  (_, q1B)    <- forwardVarBatch q1 qInputBT
-  (_, q2B)    <- forwardVarBatch q2 qInputBT
+  q1B    <- forwardSeq {b=n} q1 qInputBT
+  q2B    <- forwardSeq {b=n} q2 qInputBT
   losses <- go meanB uBT q1B q2B (toList epses) 0
   meanScalarLoss n losses
   where
     go : {n : Nat} ->
-         Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
-         Tensor [n, 1] ExampleExecutor ExampleDType WithGrad -> Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
-         List Double -> Int -> IO (List (Tensor [] ExampleExecutor ExampleDType WithGrad))
+         Tensor [n, 1] Ex F WithGrad -> Tensor [n, 1] Ex F WithGrad ->
+         Tensor [n, 1] Ex F WithGrad -> Tensor [n, 1] Ex F WithGrad ->
+         List Double -> Int -> IO (List (Tensor [] Ex F WithGrad))
     go _ _ _ _ [] _ = pure []
     go meanB uBT q1B q2B (_ :: rest) k = do
       l <- actorPerStepLoss meanB uBT q1B q2B logStdV alpha k
@@ -333,7 +324,7 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
 
 -- --- Batch update ---------------------------------------------------
 
-runBatchUpdate : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
+runBatchUpdate : Optimizer Ex -> Optimizer Ex -> Optimizer Ex ->
                  SACState -> Config -> {n : Nat} ->
                  Vect n (Transition ObsDim ActDim) -> IO ()
 runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
@@ -350,11 +341,8 @@ runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
 
 -- --- Main loop ------------------------------------------------------
 
--- Step every env with its action; auto-reset on done OR per-env
--- EpisodeLen truncation. Returns next states, rewards, done flags,
--- updated per-env ep_lens. Bootstrap-done uses the gym-side "Terminated"
--- only (truncation doesn't kill the value bootstrap chain, matches
--- single-env semantics).
+-- Step every env with its action; auto-reset on Terminated OR per-env
+-- EpisodeLen truncation. Bootstrap-done uses Terminated only.
 stepAllAutoResetMCC : Vect n MCCState -> Vect n Double -> Vect n Nat ->
                       (Vect n MCCState, Vect n Double, Vect n Bool,
                        Vect n Bool, Vect n Nat)
@@ -373,7 +361,7 @@ stepAllAutoResetMCC (s :: ss) (a :: as) (l :: ls) =
            (rest, rs, bds, ds, restL) =>
              (nextS :: rest, r :: rs, terminated :: bds, isDone :: ds, nextL :: restL)
 
-sacStepBatched : NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor -> NativeOptimizer ExampleExecutor ->
+sacStepBatched : Optimizer Ex -> Optimizer Ex -> Optimizer Ex ->
                  Config -> SACState -> IO (SACState, Double)
 sacStepBatched q1Opt q2Opt actorOpt cfg st = do
   stepCount <- readIORef st.stepRef
@@ -385,18 +373,15 @@ sacStepBatched q1Opt q2Opt actorOpt cfg st = do
   -- uses one batched actor forward → N tanh-squashed Gaussian samples.
   actions <- if stepCount < cfg.warmupSteps
                then traverse (\_ => randomRIO (the Double (negate MaxAct), MaxAct)) envs0.envs
-               else withNoGrad {ex=ExampleExecutor} (sampleActionsBatched st.actor st.logStdV envs0.envs)
+               else withNoGrad {ex=Ex} (sampleActionsBatched st.actor st.logStdV envs0.envs)
 
   case stepAllAutoResetMCC envs0.envs actions epLens of
     (envs', rewards, bufferDones, isDones, newEpLens) => do
-      -- Push N transitions to the buffer with per-env reward shaping.
       pushAll envs0.envs actions rewards envs' bufferDones cfg.shaping
       writeIORef st.envRef (MkVecEnv envs')
       writeIORef st.stepRef (stepCount + 1)
       writeIORef st.epLenRef newEpLens
 
-      -- Per-env episodic return tracking. On any env's done, write its
-      -- completed-episode return into lastEpRef (last completed wins).
       let newRets : Vect NumEnvs Double
           newRets = zipWith3 (\old, r, d => if d then 0.0 else old + r) oldRets rewards isDones
           completed : List Double
@@ -406,7 +391,6 @@ sacStepBatched q1Opt q2Opt actorOpt cfg st = do
         []        => pure ()
         (e :: es) => writeIORef st.lastEpRef (last (e :: es))
 
-      -- One gradient update per outer step (replay-ratio shifts by N).
       bufSz <- bufferSize st.buffer
       _ <- if bufSz >= cfg.batchSize && stepCount >= cfg.warmupSteps
              then do
@@ -415,8 +399,8 @@ sacStepBatched q1Opt q2Opt actorOpt cfg st = do
                  Nothing => pure ()
                  Just batch => do
                    runBatchUpdate q1Opt q2Opt actorOpt st cfg batch
-                   _ <- polyakUpdate {ex=ExampleExecutor} cfg.tau "q1_" "q1tgt_"
-                   _ <- polyakUpdate {ex=ExampleExecutor} cfg.tau "q2_" "q2tgt_"
+                   _ <- polyakUpdate {ex=Ex} cfg.tau "q1_" "q1tgt_"
+                   _ <- polyakUpdate {ex=Ex} cfg.tau "q2_" "q2tgt_"
                    pure ()
              else pure ()
 
@@ -463,10 +447,12 @@ evalEp actor st (S k) acc = do
 evalN : ActorNet -> Nat -> Double -> IO Double
 evalN _ Z acc = pure acc
 evalN actor (S k) acc = do
-  v <- withNoGrad {ex=ExampleExecutor} (evalEp actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
+  v <- withNoGrad {ex=Ex} (evalEp actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
   evalN actor k (acc + v)
 
 -- --- Main -----------------------------------------------------------
+
+%default partial
 
 main : IO ()
 main = do
@@ -474,7 +460,7 @@ main = do
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
-  tsetInitSeed {ex = ExampleExecutor} cfg.seed
+  tsetInitSeed {ex = Ex} cfg.seed
 
   putStrLn "=== SAC on MountainCarContinuous ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
@@ -492,10 +478,10 @@ main = do
   q2 <- mkQ "q2_"
   q1Tgt <- mkQ "q1tgt_"
   q2Tgt <- mkQ "q2tgt_"
-  logStdV <- the (IO (Tensor [] ExampleExecutor ExampleDType WithGrad)) (tparamScalar "actor_log_std" 0.0)
+  logStdV <- the (IO (Tensor [] Ex F WithGrad)) (tparamScalar "actor_log_std" 0.0)
 
-  _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "q1_" "q1tgt_"
-  _ <- polyakUpdate {ex=ExampleExecutor} 1.0 "q2_" "q2tgt_"
+  _ <- polyakUpdate {ex=Ex} 1.0 "q1_" "q1tgt_"
+  _ <- polyakUpdate {ex=Ex} 1.0 "q2_" "q2tgt_"
 
   buffer <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
@@ -509,9 +495,11 @@ main = do
   lastEpRef <- newIORef (the Double 0.0)
 
   let st0 = MkSAC actor q1 q2 q1Tgt q2Tgt logStdV buffer stepRef envRef epLenRef retRef lastEpRef
-      actorOpt = nativeAdamGroup "actor_" cfg.lr 0.9 0.999 1.0e-8 cfg.clipNorm
-      q1Opt    = nativeAdamGroup "q1_"    cfg.lr 0.9 0.999 1.0e-8 cfg.clipNorm
-      q2Opt    = nativeAdamGroup "q2_"    cfg.lr 0.9 0.999 1.0e-8 cfg.clipNorm
+  -- Three Adams, each scoped to one network (trailing "_" keeps "q1_"
+  -- distinct from "q1tgt_"). The actor opt also covers "actor_log_std".
+  actorOpt <- adam {scope="actor_"} cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts)
+  q1Opt    <- adam {scope="q1_"}    cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts)
+  q2Opt    <- adam {scope="q2_"}    cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts)
 
   putStrLn ""
 
@@ -525,12 +513,12 @@ main = do
       trainCfg = mkTrainConfig cfg.epochs 2000
                             (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
                             (\_ => readRLMetrics "recent_20" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
+  (trained, epochsDone, _) <- fit {batch = ()}
     (\s, _ => do
        (s', loss) <- sacStepBatched q1Opt q2Opt actorOpt cfg s
        recordReturn metrics (negate loss)
        pure (s', loss))
-    (pure ())
+    actorOpt (generate (pure ()))
     trainCfg st0
 
   putStrLn ""
