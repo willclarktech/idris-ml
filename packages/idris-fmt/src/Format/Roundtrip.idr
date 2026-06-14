@@ -66,11 +66,13 @@ parseModule src =
 ||| the same declaration tree modulo source positions + comments — used to
 ||| prove a layout/import transform left the *code* untouched.
 |||
-||| Caveat: `Show` does not descend into every `where`/`let`-local block, so
-||| `astSig` is NOT a sufficient oracle for a transform that *reindents*
-||| declaration bodies — only for ones that leave decls structurally intact
-||| (import-sort, alignment). Reindentation is a deferred follow-up and would
-||| need a stronger structural equality.
+||| Caveat: `Show PDeclNoFC` / `Show PClause` are *shallow* — they collapse
+||| `PData`/`PRecord`/`PInterface`/`PImplementation`/`PParameters`/`PMutual`/
+||| `PNamespace`/`PFail` to bare constructor names, and any `where`-bearing or
+||| `with` clause to `"MkPatClause"`/`"MkWithClause"`. So `astSig` suffices for
+||| transforms that leave declarations textually intact (import-sort, alignment)
+||| but is blind to reindentation, which can silently move a clause out of a
+||| `where` block or a method out of an interface. Use `deepSig` for that.
 export
 astSig : String -> Maybe (List String)
 astSig src = (\m => map (\d => show d.val) m.decls) <$> parseModule src
@@ -105,3 +107,81 @@ safeImportSort original formatted =
   (case (importSig original, importSig formatted) of
      (Just a, Just b) => sort (nub a) == sort (nub b)
      _                => False)
+
+-- Deep, FC-insensitive structural signature ----------------------------------
+-- `astSig`/`Show` are shallow: `Show PDeclNoFC` collapses data/record/interface/
+-- implementation/parameters/mutual/namespace/failing blocks to bare names, and
+-- `Show PClause` collapses any `where`-bearing or `with` clause to
+-- "MkPatClause"/"MkWithClause". The functions below descend that declaration +
+-- clause layer by hand, reusing the compiler's already-deep `Show PTerm`,
+-- `Show PTypeDecl`, and `Show (PiBindData ·)` at every term leaf — so a false
+-- "equal" cannot hide a block-membership change (a clause leaving a `where`
+-- block, a method leaving an interface, a field leaving a record, …). Term
+-- internals (do/case/let/with layout) ride for free on `Show PTerm`.
+
+mutual
+  sigDecls : List PDecl -> String
+  sigDecls ds = concatMap (\d => sigDeclNoFC d.val ++ ";") ds
+
+  sigClauses : List PClause -> String
+  sigClauses cs = concatMap (\c => sigClause c ++ "|") cs
+
+  sigClause : PClause -> String
+  sigClause (MkPatClause _ lhs rhs wb) =
+    "PC(" ++ show lhs ++ "=" ++ show rhs ++ "){" ++ sigDecls wb ++ "}"
+  sigClause (MkWithClause _ lhs _ _ cs) =
+    "WC(" ++ show lhs ++ "){" ++ sigClauses cs ++ "}"
+  sigClause (MkImpossible _ lhs) = "IMP(" ++ show lhs ++ ")"
+
+  sigField : PField -> String
+  sigField pf = concatMap (show . val) pf.names ++ ":" ++ show pf.val
+
+  sigData : PDataDecl -> String
+  sigData (MkPData _ n _ _ cons) = "data " ++ show n ++ "=" ++ show cons
+  sigData (MkPLater _ n ty)      = "dataLater " ++ show n ++ ":" ++ show ty
+
+  sigRecord : PRecordDecl' Name -> String
+  sigRecord (MkPRecord n _ _ _ flds) =
+    "rec " ++ show n ++ "{" ++ concatMap sigField flds ++ "}"
+  sigRecord (MkPRecordLater n _) = "recLater " ++ show n
+
+  ||| Deep signature of one declaration. Constructors with hidden nested decls /
+  ||| clauses are descended explicitly; the rest fall back to `Show PDeclNoFC`
+  ||| (`PClaim` is already fully deep there; `PFixity`/`PDirective`/`PBuiltin`
+  ||| are single-line and reindent-inert).
+  sigDeclNoFC : PDeclNoFC -> String
+  sigDeclNoFC (PDef cls)                = "PDef{" ++ sigClauses cls ++ "}"
+  sigDeclNoFC (PData _ _ _ dd)          = "PData{" ++ sigData dd ++ "}"
+  sigDeclNoFC (PParameters _ ds)        = "PParameters{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PUsing _ ds)             = "PUsing{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PInterface _ _ n _ _ _ _ ds) =
+    "PInterface " ++ show n ++ "{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PImplementation _ _ _ _ _ n _ _ _ mds) =
+    "PImpl " ++ show n ++ "{" ++ maybe "" sigDecls mds ++ "}"
+  sigDeclNoFC (PRecord _ _ _ rd)        = "PRecord{" ++ sigRecord rd ++ "}"
+  sigDeclNoFC (PFail _ ds)              = "PFail{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PMutual ds)              = "PMutual{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PNamespace _ ds)         = "PNamespace{" ++ sigDecls ds ++ "}"
+  sigDeclNoFC (PTransform s a b)        = "PTransform " ++ s ++ " " ++ show a ++ " " ++ show b
+  sigDeclNoFC (PRunElabDecl t)          = "PRunElabDecl " ++ show t
+  sigDeclNoFC d                         = show d
+
+||| Deep, FC-insensitive structural signature of the top-level declarations —
+||| the reindentation oracle. Unlike `astSig` it descends `where` blocks and
+||| every nested-declaration block, so it detects a layout change that silently
+||| re-parents a clause/method/field.
+export
+deepSig : String -> Maybe (List String)
+deepSig src = (\m => map (\d => sigDeclNoFC d.val) m.decls) <$> parseModule src
+
+||| Safety gate for the reindentation pass, which changes only leading
+||| whitespace. `codeSig` is trivially preserved by a whitespace-only edit so it
+||| is *not* a sufficient oracle here; `deepSig` is. Holds when the output still
+||| parses, its deep declaration signature is unchanged, and its imports are
+||| untouched.
+export
+safeReindent : (original : String) -> (formatted : String) -> Bool
+safeReindent original formatted =
+  parses formatted &&
+  deepSig original == deepSig formatted &&
+  importSig original == importSig formatted

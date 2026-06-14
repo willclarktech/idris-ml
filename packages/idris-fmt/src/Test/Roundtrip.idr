@@ -54,4 +54,20 @@ tests =
   , check "old codeSig oracle rejects a reordering (why astSig is needed)" $
       not (safeReformat "module M\n\nimport Data.Vect\nimport Data.List\n"
                         "module M\n\nimport Data.List\nimport Data.Vect\n")
+  -- deepSig: descends where-blocks / nested decls that astSig (Show) collapses
+  , check "deepSig sees a where-block RHS change that astSig is blind to" $
+      let a = "module M\n\nf : Nat\nf = g\n  where\n    g : Nat\n    g = 1\n"
+          b = "module M\n\nf : Nat\nf = g\n  where\n    g : Nat\n    g = 2\n"
+      in astSig a == astSig b && deepSig a /= deepSig b
+  , check "deepSig ignores the indentation of a where-block" $
+      let a = "module M\n\nf : Nat\nf = g\n  where\n    g : Nat\n    g = 1\n"
+          b = "module M\n\nf : Nat\nf = g\n   where\n       g : Nat\n       g = 1\n"
+      in deepSig a == deepSig b
+  , check "deepSig sees a nested-decl-count change inside a where-block" $
+      let a = "module M\n\nf : Nat\nf = g\n  where\n    g : Nat\n    g = 1\n"
+          b = "module M\n\nf : Nat\nf = g\n  where\n    g : Nat\n    g = 1\n    h : Nat\n    h = 2\n"
+      in deepSig a /= deepSig b
+  , check "safeReindent accepts a pure reindent of a where-block" $
+      safeReindent "module M\n\nf : Nat\nf = g\n  where\n    g : Nat\n    g = 1\n"
+                   "module M\n\nf : Nat\nf = g\n      where\n          g : Nat\n          g = 1\n"
   ]
