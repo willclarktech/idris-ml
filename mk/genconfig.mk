@@ -97,6 +97,28 @@ $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 #   * packages/idris-ml/src/Executor/Mlx.idr   (MlxBackend × Cpu/AppleGpu)
 # Adding a new (Backend, Hardware) Preset means updating BOTH here and
 # the Idris instance.
+#
+# Shared shell snippet: resolve (PRIMARY, HARDWARE_RESOLVED) → ETYPE/DTYPE,
+# then apply the per-backend TORCH/MLX/TAPE_DTYPE overrides. Referenced from
+# all four config recipes (BuildConfig / TestConfig / transformers TestConfig /
+# ML.Config) so the case-table lives in exactly one place. Each line ends with
+# `\` so the expansion stays one shell command with the trailing `sed`; the
+# caller appends ` \` after `$(GEN_ETYPE_DTYPE)`. Leaves ETYPE/DTYPE set in the
+# shell environment for the caller's sed.
+define GEN_ETYPE_DTYPE
+case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
+		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
+		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
+		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
+		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
+		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
+		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
+	esac; \
+	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
+	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
+	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi;
+endef
 
 $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(MACHINE_RESOLVED)" in \
@@ -119,18 +141,7 @@ $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		cuda)   HTAG="Cuda 0" ;;    \
 		*)      HTAG="Cpu" ;;       \
 	esac; \
-	case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
-		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
-		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
-		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
-		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
-		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
-		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-	esac; \
-	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
-	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
-	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	$(GEN_ETYPE_DTYPE) \
 	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[BuildConfig] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → ExampleExecutor=$$(awk -F' = ' '/^ExampleExecutor = / { print $$2; exit }' $@) / ExampleDType=$$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
@@ -156,18 +167,7 @@ $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		cuda)   HTAG="Cuda 0" ;;    \
 		*)      HTAG="Cpu" ;;       \
 	esac; \
-	case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
-		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
-		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
-		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
-		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
-		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
-		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-	esac; \
-	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
-	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
-	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	$(GEN_ETYPE_DTYPE) \
 	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[TestConfig] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → TestExecutor=$$(awk -F' = ' '/^TestExecutor = / { print $$2; exit }' $@) / TestDType=$$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
@@ -197,18 +197,7 @@ $(IDRIS_TRANSFORMERS_TESTCONFIG_IDR): $(IDRIS_TRANSFORMERS_TESTCONFIG_IN) $(BUIL
 		cuda)   HTAG="Cuda 0" ;;    \
 		*)      HTAG="Cpu" ;;       \
 	esac; \
-	case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
-		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
-		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
-		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
-		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
-		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
-		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-	esac; \
-	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
-	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
-	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	$(GEN_ETYPE_DTYPE) \
 	sed "s|@CHOSEN_MACHINE_TAG@|$$MTAG|g; s|@PRIMARY_BACKEND_TAG@|$$BTAG|g; s|@CHOSEN_HARDWARE_TAG@|$$HTAG|g; s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g; s|@PRIMARY@|$(PRIMARY)|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[TestConfig:transformers] MACHINE=$(MACHINE_RESOLVED) PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → TestExecutor=$$(awk -F' = ' '/^TestExecutor = / { print $$2; exit }' $@) / TestDType=$$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
@@ -264,18 +253,7 @@ $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 # Shares the BuildConfig key + stamp (same active tuple). The ETYPE/DTYPE
 # case mirrors the BuildConfig rule — keep in sync when adding a Preset.
 $(MLCONFIG_IDR): $(MLCONFIG_IN) $(BUILD)/.buildconfig-stamp
-	@case "$(PRIMARY)/$(HARDWARE_RESOLVED)" in \
-		tape/cpu)     ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-		torch/cpu)    ETYPE="TorchExecutor TCpu";        DTYPE="F64" ;; \
-		torch/metal)  ETYPE="TorchExecutor TMps";        DTYPE="F32" ;; \
-		torch/cuda)   ETYPE="TorchExecutor (TCuda 0)";   DTYPE="F64" ;; \
-		mlx/cpu)      ETYPE="MlxExecutor MCpu";          DTYPE="F64" ;; \
-		mlx/metal)    ETYPE="MlxExecutor MGpu";          DTYPE="F32" ;; \
-		*)            ETYPE="TapeExecutor";              DTYPE="F64" ;; \
-	esac; \
-	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
-	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
-	if [ -n "$(TAPE_DTYPE)"  ] && [ "$(PRIMARY)" = "tape"  ]; then DTYPE="$(TAPE_DTYPE)";  fi; \
+	@$(GEN_ETYPE_DTYPE) \
 	sed "s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[ML.Config] PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → DefaultExecutor=$$(awk -F' = ' '/^DefaultExecutor = / { print $$2; exit }' $@) / DefaultDType=$$(awk -F' = ' '/^DefaultDType = / { print $$2; exit }' $@)"
