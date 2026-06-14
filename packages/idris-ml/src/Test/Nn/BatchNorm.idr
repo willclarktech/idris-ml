@@ -6,6 +6,7 @@ import Data.Vect
 import Test.Harness
 import Executor
 import Tensor
+import Checkpoint
 import Nn.Init
 import Nn.Module
 import Nn.BatchNorm
@@ -46,6 +47,33 @@ smartCtorNames = do
   check "batchNorm registers net.batch_norm_0.weight + .bias"
         (("net.batch_norm_0.weight" `elem` names) && ("net.batch_norm_0.bias" `elem` names))
 
+-- Running mean/var are non-learnable BUFFERS: the optimizer must not step
+-- them, but save/load MUST persist them (they hold trained statistics).
+-- This roundtrip drives the running stats off their 0/1 init in training
+-- mode, saves, then loads into a fresh model and checks the stats came back.
+bufferRoundtrip : IO Bool
+bufferRoundtrip = do
+  let path = "/tmp/idris-ml-bn-buffer-roundtrip.safetensors"
+  -- Trained model: run training-mode forwards so running stats diverge.
+  bn <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {channels=2} {spatialDim=1})
+  x  <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [3.0, 4.0])
+  for_ [the Nat 1 .. 20] $ \_ => batchNormForward bn x
+  let (meanP, varP) = runningStatPtrs bn
+  let tMean = primItem1d {ex=TestExecutor} meanP 0
+      tVar  = primItem1d {ex=TestExecutor} varP 0
+  _  <- saveAll {ex=TestExecutor} path
+  -- Fresh model re-registers the same names with reset 0/1 buffers.
+  fresh <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {channels=2} {spatialDim=1})
+  _  <- loadModel {ex=TestExecutor} path
+  let (fmeanP, fvarP) = runningStatPtrs fresh
+  let lMean = primItem1d {ex=TestExecutor} fmeanP 0
+      lVar  = primItem1d {ex=TestExecutor} fvarP 0
+  r0 <- check ("training moved running mean off 0 (got " ++ show tMean ++ ")") (abs tMean > 0.5)
+  r1 <- check ("training moved running var off 1 (got " ++ show tVar ++ ")") (abs (tVar - 1.0) > 0.1)
+  r2 <- checkClose ("running mean restored after load (trained " ++ show tMean ++ ")") tMean lMean 1.0e-6
+  r3 <- checkClose ("running var restored after load (trained " ++ show tVar ++ ")") tVar lVar 1.0e-6
+  pure (r0 && r1 && r2 && r3)
+
 export
 tests : List (IO Bool)
-tests = [evalUsesRunningStats, paramsAreGammaBeta, smartCtorNames]
+tests = [evalUsesRunningStats, paramsAreGammaBeta, smartCtorNames, bufferRoundtrip]
