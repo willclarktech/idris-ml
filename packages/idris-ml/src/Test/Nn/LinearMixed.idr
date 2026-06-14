@@ -1,5 +1,7 @@
 module Test.Nn.LinearMixed
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
@@ -36,7 +38,10 @@ forwardMixedComputes = do
   b <- param {ex=TestExecutor} {dt=TestDType} {dims=[2]}    "lmt.b" (Const 1.0)
   let lyr = the (LinearMixed 3 2 TestExecutor TestDType TestDType WithGrad) (MkLinearMixed w b)
   x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} (Const 2.0)
-  out <- forwardMixed {b=2} lyr (retypeGrad x)
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # lyr') <- forwardMixed {b=2} lyr (retypeGrad x)
+           discardMixed lyr'
+           pure o)
   check ("LinearMixed.forwardMixed computes cast(x·Wᵀ+b) (got " ++ show (read4 out) ++ ")")
         (read4 out == [4.0, 4.0, 4.0, 4.0])
 
@@ -75,12 +80,15 @@ masterGradFlows = do
   tgt0 <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 1]} (Const 0.0)
   let x   = the (Tensor [2, 2] TestExecutor TestDType WithGrad) (retypeGrad x0)
   let tgt = the (Tensor [2, 1] TestExecutor TestDType WithGrad) (retypeGrad tgt0)
-  out <- forwardMixed {b=2} lyr x
+  out <- Control.Linear.LIO.run (do
+           (MkBang o # lyr') <- forwardMixed {b=2} lyr x
+           discardMixed lyr'
+           pure o)
   loss <- the (IO (Tensor [] TestExecutor TestDType WithGrad)) $ ioRerun (\_ =>
     let diff = primSub {ex=TestExecutor} out.tensorPtr tgt.tensorPtr
         sq   = primMul {ex=TestExecutor} diff diff
     in MkTensor (primSum {ex=TestExecutor} sq) Nothing)
-  opt <- pure (nativeSgd {ex=TestExecutor} 0.1)
+  let opt = nativeSgd {ex=TestExecutor} 0.1
   _ <- nativeTrainStep opt loss
   let after = primItem2d {ex=TestExecutor} w.tensorPtr 0 0
   check ("masterGradFlows: w[0,0] moves after a step (" ++ show before ++ " -> " ++ show after ++ ")")

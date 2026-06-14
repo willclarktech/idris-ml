@@ -96,18 +96,18 @@ nllLossDefaultL model (x, tgt) = do
   pure1 (MkBang loss # model')
 
 -- Mixed-precision loss (linear): `forwardMixed` casts paramDt → computeDt (F)
--- internally and stays IO, so we pattern-match the constructor (binding the
--- fields at ω so they feed both `forwardMixed` and the rebuild), lift the IO
--- forward + loss via `liftIO1`, then rebuild the model for threading.
+-- internally and now consumes-and-threads the model on the `L IO` surface,
+-- so the body is the exact mirror of `nllLossDefaultL` — no `liftIO1`, no
+-- constructor-rebuild ceremony.
 nllLossMixedL : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
                 (1 _ : LinearMixed 2 3 Ex pDt F WithGrad) ->
                 (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
                 L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad))
                                       (LinearMixed 2 3 Ex pDt F WithGrad))
-nllLossMixedL (MkLinearMixed w b) (x, tgt) = do
-  out  <- liftIO1 (forwardMixed {b=5} (MkLinearMixed w b) (retypeGrad x))
-  loss <- liftIO1 (tnllLossMean {b=5} {n=3} out (retypeGrad tgt))
-  pure1 (MkBang loss # MkLinearMixed w b)
+nllLossMixedL model (x, tgt) = do
+  (MkBang out # model') <- forwardMixed {b=5} model (retypeGrad x)
+  loss <- tnllLossMeanL {b=5} {n=3} out (retypeGrad tgt)
+  pure1 (MkBang loss # model')
 
 ----------------------------------------------------------------------
 -- Eval (shared across modes: takes the [5,3] logits)
@@ -152,8 +152,8 @@ reportResult cfg epochsDone finalLoss correct =
 -- step consumes-and-returns it), converted to a linear inference model
 -- (`eval`), forwarded once (`forward`), and its leftover handle discarded
 -- (`discard`) — so a stale-alias reuse would be a compile-time error.
--- `main : IO` re-enters via `run`. (The mixed-precision path below stays on
--- the IO surface — `ModuleMixed` has no linear surface yet.)
+-- `main : IO` re-enters via `run`. (The mixed-precision path below is on the
+-- same linear surface — `ModuleMixed` collapsed onto `L IO` too.)
 runDefault : Config -> Optimizer Ex -> IO ()
 runDefault cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
@@ -191,12 +191,13 @@ runMixedGeneric cfg opt mkModel modeLabel = Control.Linear.LIO.run $ do
     fitSupervisedMixed opt gs nllLossMixedL bs (simpleConfig cfg.epochs) model
   liftIO1 (putStrLn "")
   liftIO1 (putStrLn "Eval:")
-  -- No `eval` for the mixed (ParamsMixed) path yet; lift the input to WithGrad
-  -- so the trained model forwards (predictions read without backward). Consume
-  -- the trained model by matching its constructor (fields read at ω).
+  -- Lift the input to WithGrad so the trained model forwards (predictions read
+  -- without backward); `forwardMixed` now consumes-and-threads on the linear
+  -- surface, so we discard the leftover handle (a stale-alias reuse would be a
+  -- compile-time error).
   ein <- liftIO1 evalInput
-  let MkLinearMixed w b = trained
-  predB <- liftIO1 (forwardMixed {b=5} (MkLinearMixed w b) (retypeGrad ein))
+  (MkBang predB # trained') <- forwardMixed {b=5} trained (retypeGrad ein)
+  discardMixed trained'
   liftIO1 $ do
     correct <- evalPredictions predB
     putStrLn ""

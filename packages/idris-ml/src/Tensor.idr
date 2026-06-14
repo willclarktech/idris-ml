@@ -2139,9 +2139,10 @@ nativeTrainStepScaled opt loss scale = ioRerun (\_ =>
 --
 -- The `IO` twins above are kept (the dual op surface is permanent): tensors
 -- carry no single-owner footgun, so imperative `IO` callers — benchmarks,
--- hand-written HF forwards, the mixed-precision `ModuleMixed` path — keep
--- using the `IO` ops, while model `forward`/`recurStep` bodies use the `*L`
--- ones. (Only the *model* surface collapsed to a single linear form.)
+-- hand-written HF forwards — keep using the `IO` ops, while model
+-- `forward`/`recurStep` bodies (now including the mixed-precision
+-- `ModuleMixed.forwardMixed`) use the `*L` ones. (Only the *model* surface
+-- collapsed to a single linear form.)
 ----------------------------------------------------------------------
 
 ||| Lift a pure (FFI-side-effecting) expression into `L IO`, re-evaluated on
@@ -2167,6 +2168,15 @@ export %inline
 taddL : {0 ex : Executor} -> UserExecutorCore ex =>
         Tensor dims ex dt g -> Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
 taddL a b = ioRerunL (\_ => MkTensor (primAdd {ex} a.tensorPtr b.tensorPtr) Nothing)
+
+||| `L IO` twin of `tcastUnsafe`: the autograd-aware (unchecked) dtype cast on
+||| the model surface, used by the mixed-precision `ModuleMixed.forwardMixed`
+||| to materialise the `paramDt → computeDt` cast without a `liftIO1` seam.
+export %inline
+tcastUnsafeL : {0 ex : Executor} -> (0 to : DType) -> Backend ex to =>
+               (IsDType from, IsDType to) =>
+               Tensor dims ex from g -> LIO.L IO (Tensor dims ex to g)
+tcastUnsafeL to v = ioRerunL (\_ => MkTensor (dtCastFrom {ex} {t=to} v.tensorPtr (deviceStreamTag {ex})) Nothing)
 
 export %inline
 tlinearL : {0 ex : Executor} -> UserExecutorTraining ex =>

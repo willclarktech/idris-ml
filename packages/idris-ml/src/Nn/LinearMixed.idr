@@ -14,6 +14,8 @@
 |||     multi-layer mixed chain is actually needed, a future `SeqMixed`).
 module Nn.LinearMixed
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -34,18 +36,24 @@ record LinearMixed (i : Nat) (o : Nat) (0 ex : Executor)
   biasT   : Tensor [o] ex paramDt g
 
 public export
+ParamsMixed LinearMixed where
+  paramsMixed (MkLinearMixed w b)   = [toParam w, toParam b]
+  reflectMixed (MkLinearMixed w b)  = MkBang [toParam w, toParam b] # MkLinearMixed w b
+  castGradMixed (MkLinearMixed w b) = MkLinearMixed (retypeGrad w) (retypeGrad b)
+  discardMixed (MkLinearMixed _ _)  = pure ()
+
+public export
 ModuleMixed LinearMixed where
   -- Cast the master weight + bias paramDt → computeDt (autograd-aware), then
   -- the fused matmul + bias-add in computeDt. Master params share the
-  -- activation's `g`, so no `retypeGrad` is needed before the cast.
+  -- activation's `g`, so no `retypeGrad` is needed before the cast. Linear:
+  -- pattern-match binds `w`/`b` at ω so they feed the cast/matmul *and* the
+  -- record rebuild; the output rides the `(!*)` bang beside the threaded model.
   forwardMixed {computeDt} (MkLinearMixed w b) x = do
-    wc <- tcastUnsafe computeDt w
-    bc <- tcastUnsafe computeDt b
-    tlinear2d wc x bc
-
-public export
-ParamsMixed LinearMixed where
-  paramsMixed (MkLinearMixed w b) = [toParam w, toParam b]
+    wc <- tcastUnsafeL computeDt w
+    bc <- tcastUnsafeL computeDt b
+    y  <- tlinear2dL wc x bc
+    pure1 (MkBang y # MkLinearMixed w b)
 
 ||| Construct a `LinearMixed i o ex paramDt computeDt` with PyTorch's
 ||| `nn.Linear` normal-approx default (weight ~ N(0, 1/√fan_in), zero bias),

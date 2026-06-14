@@ -55,33 +55,49 @@ toParam : {0 dims : Vect rank Nat} -> {0 ex : Executor} -> {0 dt : DType} -> {0 
           Tensor dims ex dt g -> SomeParam
 toParam t = MkSomeParam t.tensorPtr t.paramId
 
-||| Mixed-precision model component (the master-weights half). Five-index
-||| kind: `(in, out, executor, paramDt, computeDt)` — `paramDt` is where
-||| weights are stored (the F32 "master"), `computeDt` where activations
-||| flow (BF16 / F16). `forwardMixed` casts `paramDt → computeDt` inside
-||| the layer, autograd-aware, so backward writes a `paramDt` gradient back
-||| into the master. NO `GradMode` on the type (as `Module`); `g` lives on
-||| the activation only.
-|||
-||| `IsDType paramDt` is required so the forward can call `tcastUnsafe` to
-||| materialise the (typically lossy) `paramDt → computeDt` cast; the
-||| activation side rides `Backend ex computeDt`. For `paramDt = computeDt`
-||| the cast is a dtype-level no-op (the diagonal case).
-public export
-interface ModuleMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
-  forwardMixed : {0 ex : Executor} -> Backend ex computeDt => IsDType paramDt => IsDType computeDt =>
-                 {0 g : GradMode} -> {i, o, b : Nat} ->
-                 l i o ex paramDt computeDt g -> Tensor [b, i] ex computeDt g ->
-                 IO (Tensor [b, o] ex computeDt g)
-
-||| Parameter traversal for a mixed-precision component. Identical erased
-||| `SomeParam` list as `Params` (master weights live in `paramDt`, but
-||| `SomeParam` is dtype-erased) — a separate interface only because the
-||| kind carries the extra `computeDt` slot.
+||| Parameter traversal for a mixed-precision component — the `Params` twin
+||| with the extra `computeDt` slot. Master weights live in `paramDt` but
+||| `SomeParam` is dtype-erased, so the erased list matches `Params`; the
+||| interface is separate only because the kind carries six indices. Mirrors
+||| `Params` exactly: `paramsMixed` reads ω (registration / checkpointing);
+||| `reflectMixed`/`castGradMixed`/`discardMixed` are the linear twins so a
+||| mixed model is a single-owner resource threaded through `L IO` like any
+||| other (a future `evalMixed`/`fitSupervisedMixed` reflects the param list).
 public export
 interface ParamsMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
   paramsMixed : {0 ex : Executor} -> {0 paramDt, computeDt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
                 l i o ex paramDt computeDt g -> List SomeParam
+  reflectMixed : {0 ex : Executor} -> {0 paramDt, computeDt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+                 (1 _ : l i o ex paramDt computeDt g) ->
+                 LPair (!* (List SomeParam)) (l i o ex paramDt computeDt g)
+  castGradMixed : {0 ex : Executor} -> {0 paramDt, computeDt : DType} -> {0 g, g' : GradMode} -> {0 i, o : Nat} ->
+                  (1 _ : l i o ex paramDt computeDt g) -> l i o ex paramDt computeDt g'
+  discardMixed : {0 ex : Executor} -> {0 paramDt, computeDt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+                 (1 _ : l i o ex paramDt computeDt g) -> L IO ()
+
+||| Mixed-precision model component (the master-weights half). Six-index
+||| kind: `(in, out, executor, paramDt, computeDt, gradmode)` — `paramDt` is
+||| where weights are stored (the F32 "master"), `computeDt` where activations
+||| flow (BF16 / F16). `forwardMixed` casts `paramDt → computeDt` inside the
+||| layer, autograd-aware, so backward writes a `paramDt` gradient back into
+||| the master. `g` is shared by the master params and the activation (as
+||| `Module`).
+|||
+||| Linear like `Module`: `forwardMixed` **consumes** the model handle and
+||| threads it back beside the (unrestricted, `(!*)`-banged) output, so the
+||| mixed path is single-owner end to end on the `L IO` surface.
+|||
+||| `IsDType paramDt` is required so the forward can call `tcastUnsafeL` to
+||| materialise the (typically lossy) `paramDt → computeDt` cast; the
+||| activation side rides `Backend ex computeDt`. For `paramDt = computeDt`
+||| the cast is a dtype-level no-op (the diagonal case).
+public export
+interface ParamsMixed l => ModuleMixed (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) -> Type) where
+  forwardMixed : {0 ex : Executor} -> Backend ex computeDt => IsDType paramDt => IsDType computeDt =>
+                 {0 g : GradMode} -> {i, o, b : Nat} ->
+                 (1 _ : l i o ex paramDt computeDt g) -> Tensor [b, i] ex computeDt g ->
+                 L IO {use = 1} (LPair (!* (Tensor [b, o] ex computeDt g))
+                                       (l i o ex paramDt computeDt g))
 
 ----------------------------------------------------------------------
 -- The model surface (`L IO`): models are single-owner linear resources
