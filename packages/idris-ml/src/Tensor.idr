@@ -1,5 +1,7 @@
 module Tensor
 
+import Control.Linear.LIO as LIO
+
 import Data.List
 import Data.Maybe
 import Data.SortedMap
@@ -2123,3 +2125,70 @@ nativeTrainStepScaled opt loss scale = ioRerun (\_ =>
       clipVal       = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
       scaledLossVal = primItem {ex} loss.tensorPtr
   in primNativeTrainStepScaled {ex} opt.handle clipMode clipVal loss.tensorPtr scaledLossVal scale)
+
+----------------------------------------------------------------------
+-- Linear-resource (L IO) op surface
+--
+-- The `L IO` twins of the smart constructors above, for the linear model
+-- surface (`Nn.Module.ModuleL` / `Nn.Recurrent.RecurrentL`). They let
+-- `forwardL` / `recurStepL` bodies sequence tensor ops directly in `L IO`
+-- instead of wrapping each one in `liftIO1`. Built natively on `ioRerunL`
+-- (the single lifting primitive), so there is no per-op `liftIO1` seam —
+-- the only lift is centralized here. Tensors are *unrestricted* (reverse-
+-- mode AD shares them), so these return `L IO` at the default
+-- `use = Unrestricted`.
+--
+-- Transitional: the `IO` twins above stay for the not-yet-migrated callers
+-- (~120 files). The migration collapses this section (delete the `IO` op,
+-- rename `*L` → base) once every consumer is on `L IO`.
+----------------------------------------------------------------------
+
+||| Lift a pure (FFI-side-effecting) expression into `L IO`, re-evaluated on
+||| every sequencing (the `L IO` counterpart of `ioRerun`). The single seam
+||| between the `PrimIO`/`IO` prims and the `L IO` op surface.
+export %inline
+ioRerunL : (() -> a) -> LIO.L IO a
+ioRerunL f = liftIO1 (ioRerun f)
+
+export %inline
+taddL : {0 ex : Executor} -> UserExecutorCore ex =>
+        Tensor dims ex dt g -> Tensor dims ex dt g -> LIO.L IO (Tensor dims ex dt g)
+taddL a b = ioRerunL (\_ => MkTensor (primAdd {ex} a.tensorPtr b.tensorPtr) Nothing)
+
+export %inline
+tlinearL : {0 ex : Executor} -> UserExecutorTraining ex =>
+           Tensor [o, i] ex dt g -> Tensor [i] ex dt g -> Tensor [o] ex dt g ->
+           LIO.L IO (Tensor [o] ex dt g)
+tlinearL w x bias = ioRerunL (\_ =>
+  MkTensor (primLinear {ex} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
+
+export %inline
+tlinear2dL : {0 ex : Executor} -> UserExecutorTraining ex =>
+             Tensor [o, i] ex dt g -> Tensor [b, i] ex dt g -> Tensor [o] ex dt g ->
+             LIO.L IO (Tensor [b, o] ex dt g)
+tlinear2dL w x bias = ioRerunL (\_ =>
+  MkTensor (primLinear2d {ex} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
+
+export
+tzeroState1dL : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> LIO.L IO (Tensor [n] ex dt g)
+tzeroState1dL {n} = ioRerunL (\_ =>
+  let nI = cast {to=Int} n
+      buf = prim__allocDoubles nI
+  in MkTensor (dtCreateState1d {ex} {t=dt} nI buf (deviceStreamTag {ex})) Nothing)
+
+export
+tlstmGatesPairL : UserExecutorNN ex => {n : Nat} ->
+                  TVec (4 * n) ex dt g -> TVec n ex dt g ->
+                  LIO.L IO (TVec n ex dt g, TVec n ex dt g)
+tlstmGatesPairL {n} combined prevCell = ioRerunL (\_ =>
+  let nI = cast {to=Int} n
+      pair = primLstmGatesPair {ex} combined.tensorPtr prevCell.tensorPtr nI
+  in (MkTensor (primPairFirst {ex} pair) Nothing, MkTensor (primPairSecond {ex} pair) Nothing))
+
+export
+tgruCellL : UserExecutorNN ex => {n : Nat} ->
+            TVec (3 * n) ex dt g -> TVec (3 * n) ex dt g -> TVec n ex dt g ->
+            LIO.L IO (TVec n ex dt g)
+tgruCellL {n} ih hh prevH = ioRerunL (\_ =>
+  let nI = cast {to=Int} n
+  in MkTensor (primGruCell {ex} ih.tensorPtr hh.tensorPtr prevH.tensorPtr nI) Nothing)

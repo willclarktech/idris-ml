@@ -96,18 +96,18 @@ ParamsL Rnn where
 
 ||| Linear-resource recurrent step: consume the cell, advance one timestep,
 ||| return the (unrestricted, banged) output beside the rebuilt cell carrying
-||| the new hidden state. Body reuses today's IO tensor ops under `liftIO1`.
+||| the new hidden state. Body sequences the `L IO` tensor ops directly; only
+||| the user-supplied IO activation (`act`) is still lifted via `liftIO1`.
 public export
 RecurrentL Rnn where
   recurStepL {o} (MkRnn iw rw ib hb act prev) input = do
-    out <- liftIO1 $ do
-      p <- case prev of
-             Just po => pure po
-             Nothing => tzeroState1d {n = o}
-      inner    <- tlinear iw input ib
-      combined <- tlinear rw p inner
-      preact   <- tadd combined hb
-      act preact
+    p <- the (L IO (TVec o ex dt WithGrad)) $ case prev of
+           Just po => pure po
+           Nothing => tzeroState1dL {n = o}
+    inner    <- tlinearL iw input ib
+    combined <- tlinearL rw p inner
+    preact   <- taddL combined hb
+    out      <- liftIO1 (act preact)
     pure1 (MkBang out # MkRnn iw rw ib hb act (Just out))
   recurResetL (MkRnn iw rw ib hb act _) = MkRnn iw rw ib hb act Nothing
 

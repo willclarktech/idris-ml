@@ -70,7 +70,7 @@ public export
 ModuleL ResidualL where
   forwardL (MkResidualL sub) x = do
     (MkBang fx # sub') <- forwardL sub x
-    y <- liftIO1 (tadd x fx)
+    y <- taddL x fx
     pure1 (MkBang y # MkResidualL sub')
 
 ||| Wrap a sublayer in a linear residual connection.

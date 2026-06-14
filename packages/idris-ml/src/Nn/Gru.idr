@@ -57,17 +57,16 @@ ParamsL Gru where
     MkGru (retypeGrad iw) (retypeGrad ib) (retypeGrad hw) (retypeGrad hb) (map retypeGrad hid)
   discardL (MkGru _ _ _ _ _) = pure ()
 
-||| Linear-resource recurrent step (reuses the IO gate path under `liftIO1`).
+||| Linear-resource recurrent step (sequences the `L IO` tensor ops directly).
 public export
 RecurrentL Gru where
   recurStepL {o} (MkGru iw ib hw hb hid) input = do
-    newH <- liftIO1 $ do
-      h <- case hid of
-             Just h  => pure h
-             Nothing => tzeroState1d {n = o}
-      ihPart <- tlinear iw input ib
-      hhPart <- tlinear hw h hb
-      tgruCell {n = o} ihPart hhPart h
+    h <- the (L IO (TVec o ex dt WithGrad)) $ case hid of
+           Just h  => pure h
+           Nothing => tzeroState1dL {n = o}
+    ihPart <- tlinearL iw input ib
+    hhPart <- tlinearL hw h hb
+    newH   <- tgruCellL {n = o} ihPart hhPart h
     pure1 (MkBang newH # MkGru iw ib hw hb (Just newH))
   recurResetL (MkGru iw ib hw hb _) = MkGru iw ib hw hb Nothing
 

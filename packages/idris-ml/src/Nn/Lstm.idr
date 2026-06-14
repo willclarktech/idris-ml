@@ -66,19 +66,18 @@ ParamsL Lstm where
            (retypeGrad h0) (retypeGrad c0) (map retypeGrad hid) (map retypeGrad cell)
   discardL (MkLstm _ _ _ _ _ _ _ _) = pure ()
 
-||| Linear-resource recurrent step. The IO body returns `(newH, newC)` (both
-||| unrestricted via `liftIO1`); `newH` is the output, both update the carried
-||| state in the rebuilt cell.
+||| Linear-resource recurrent step. Sequences the `L IO` gate ops directly;
+||| `tlstmGatesPairL` yields `(newH, newC)` (both unrestricted) — `newH` is the
+||| output, both update the carried state in the rebuilt cell.
 public export
 RecurrentL Lstm where
   recurStepL {o} (MkLstm iw rw ib hb h0 c0 hid cell) input = do
-    (newH, newC) <- liftIO1 $ do
-      let h = case hid  of Just h => h; Nothing => h0
-      let c = case cell of Just c => c; Nothing => c0
-      inner    <- tlinear iw input ib
-      combined <- tlinear rw h inner
-      gates    <- tadd combined hb
-      tlstmGatesPair {n = o} gates c
+    let h = case hid  of Just h => h; Nothing => h0
+    let c = case cell of Just c => c; Nothing => c0
+    inner        <- tlinearL iw input ib
+    combined     <- tlinearL rw h inner
+    gates        <- taddL combined hb
+    (newH, newC) <- tlstmGatesPairL {n = o} gates c
     pure1 (MkBang newH # MkLstm iw rw ib hb h0 c0 (Just newH) (Just newC))
   recurResetL (MkLstm iw rw ib hb h0 c0 _ _) = MkLstm iw rw ib hb h0 c0 Nothing Nothing
 

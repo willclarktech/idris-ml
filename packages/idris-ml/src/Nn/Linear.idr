@@ -60,7 +60,7 @@ ParamsL Linear where
 public export
 ModuleL Linear where
   forwardL (MkLinear w b) x = do
-    y <- liftIO1 (tlinear2d w x b)
+    y <- tlinear2dL w x b
     pure1 (MkBang y # MkLinear w b)
 
 ||| Construct a `Linear i o` with caller-chosen init: weight ~ N(0,
