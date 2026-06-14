@@ -1,11 +1,14 @@
 module Example.Supervised
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
 
 import BuildConfig
 import Compat.Random
+import FitL
 import GradScaler
 import ML.Simple
 import Train
@@ -89,6 +92,17 @@ nllLossDefault model (x, tgt) = do
   out <- forward {b=5} model (retypeGrad x)
   tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
 
+-- Linear-resource default loss: the `L IO` twin of `nllLossDefault`. Consumes
+-- the model, runs `forwardL`, returns the scalar loss (banged) beside the
+-- rebuilt model so `fitSupervisedL` can thread it through the epoch.
+nllLossDefaultL : (1 _ : Linear 2 3 Ex F WithGrad) ->
+                  (Tensor [5, 2] Ex F NoGrad, Tensor [5, 3] Ex F NoGrad) ->
+                  L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (Linear 2 3 Ex F WithGrad))
+nllLossDefaultL model (x, tgt) = do
+  (MkBang out # model') <- forwardL {b=5} model (retypeGrad x)
+  loss <- tnllLossMeanL {b=5} {n=3} out (retypeGrad tgt)
+  pure1 (MkBang loss # model')
+
 -- Mixed-precision loss: forward casts paramDt → computeDt (F) internally.
 nllLossMixed : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
                LinearMixed 2 3 Ex pDt F WithGrad ->
@@ -136,22 +150,32 @@ reportResult cfg epochsDone finalLoss correct =
 -- Run modes
 ----------------------------------------------------------------------
 
+-- The default path now runs on the linear (`L IO`) surface end to end: the
+-- model is born linear (`runInitL`), threaded through `fitSupervisedL` (every
+-- step consumes-and-returns it), converted to a linear inference model
+-- (`evalL`), forwarded once (`forwardL`), and its leftover handle discarded
+-- (`discardL`) — so a stale-alias reuse would be a compile-time error.
+-- `main : IO` re-enters via `run`. (The mixed-precision path below stays on
+-- the IO surface — `ModuleMixed` has no linear surface yet.)
 runDefault : Config -> Optimizer Ex -> IO ()
-runDefault cfg opt = do
-  model <- runInit (linear {i=2} {o=3})
-  bs <- buildStream
-  putStrLn ""
-  (trained, epochsDone, finalLoss) <-
-    fitSupervised opt nllLossDefault bs (simpleConfig cfg.epochs) model
-  putStrLn ""
-  putStrLn "Eval:"
+runDefault cfg opt = run $ do
+  model <- runInitL (linear {i=2} {o=3})
+  bs <- liftIO1 buildStream
+  liftIO1 (putStrLn "")
+  (MkBang (epochsDone, finalLoss) # trained) <-
+    fitSupervisedL opt nllLossDefaultL bs (simpleConfig cfg.epochs) model
+  liftIO1 (putStrLn "")
+  liftIO1 (putStrLn "Eval:")
   -- Convert to an inference (NoGrad) model: forward is then genuinely
   -- tape-free, and the type witnesses it.
-  infer <- eval trained
-  predB <- forward {b=5} infer !evalInput
-  correct <- evalPredictions predB
-  putStrLn ""
-  reportResult cfg epochsDone finalLoss correct
+  infer <- evalL trained
+  ein <- liftIO1 evalInput
+  (MkBang predB # infer') <- forwardL {b=5} infer ein
+  discardL infer'
+  liftIO1 $ do
+    correct <- evalPredictions predB
+    putStrLn ""
+    reportResult cfg epochsDone finalLoss correct
 
 -- Mixed-precision run, polymorphic over the master dtype. The caller pins
 -- paramDt by the `mkModel` action's result type (Idris can't dispatch types

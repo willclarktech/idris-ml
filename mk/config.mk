@@ -278,7 +278,7 @@ endif
 # Idris flags for example/test builds (use installed packages). `--build-dir`
 # routes ttc + exec output under `$(BUILD)` so each backend set has its own
 # warm cache for example/test compilation, mirroring the per-set install tree.
-IDRIS_FLAGS := --build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym -p idris-transformers
+IDRIS_FLAGS := --build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers
 
 # Library source files — any change invalidates the per-set ttc caches.
 # Idris 2's interface-hash dependency tracking doesn't invalidate downstream
