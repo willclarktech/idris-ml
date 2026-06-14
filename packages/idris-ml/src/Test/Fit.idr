@@ -3,6 +3,7 @@ module Test.Fit
 import Data.Vect
 
 import DataStream
+import Dataset
 import Executor
 import Fit
 import GradScaler
@@ -111,8 +112,45 @@ fitCustomThreadsModel = do
          ++ show epochs ++ " epochs)")
         (abs (vFin - 0.0625) < 1.0e-12 && epochs == 5)
 
+-- P1 regression: in-memory training data across epochs. `fromVect` of
+-- device tensors caches one fixed handle per index; the backend frees
+-- non-grad input tensors after each optimizer step (they're assumed
+-- per-epoch-fresh, freed by the tape arena reset), so epoch 2's pull of a
+-- `fromVect`-cached handle reads freed memory ("invalid memory reference",
+-- reproduced). `fromVectIO` honours `item`'s fresh-per-access contract:
+-- it holds host values and materialises a NEW tensor per access, so each
+-- epoch gets live handles. The loss is data-only (no params), so the same
+-- host data must give the SAME loss in epoch 2 as epoch 1.
+fromVectIOMultiEpochSafe : IO Bool
+fromVectIOMultiEpochSafe = do
+  let rows : Vect 2 (Vect 2 Double, Vect 2 Double)
+          := [([1.0, 2.0], [1.0, 0.0]), ([3.0, 4.0], [0.0, 1.0])]
+  let ds : Dataset (Tensor [2] TestExecutor TestDType NoGrad, Tensor [2] TestExecutor TestDType NoGrad)
+         := fromVectIO rows (\(xs, ys) => do
+              x <- tensor {dims=[2]} (FromVect xs)
+              y <- tensor {dims=[2]} (FromVect ys)
+              pure (x, y))
+  s <- stream NoShuffle ds
+  let bs = batched {b=2} {i=2} {o=2} s
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
+  -- epoch 1: pull batch, record the data-only loss, then a train step whose
+  -- backward + arena reset frees this epoch's input tensors.
+  (xb1, yb1) <- bs.next
+  l1 <- the (IO (Tensor [] TestExecutor TestDType WithGrad))
+            (tnllLossMean {b=2} {n=2} (retypeGrad xb1) (retypeGrad yb1))
+  let v1 = tensorItem l1
+  _ <- nativeTrainStep opt l1
+  -- epoch 2: the stream wraps and re-materialises FRESH tensors from the
+  -- retained host rows (a `fromVect` cache would be freed memory here).
+  (xb2, yb2) <- bs.next
+  l2 <- the (IO (Tensor [] TestExecutor TestDType WithGrad))
+            (tnllLossMean {b=2} {n=2} (retypeGrad xb2) (retypeGrad yb2))
+  let v2 = tensorItem l2
+  check ("fromVectIO survives 2 epochs (l1=" ++ show v1 ++ " l2=" ++ show v2 ++ ")")
+        (v1 == v2)
+
 export
 tests : List (IO Bool)
 tests = [ fitSupervisedConverges, fitEqualsLegacy
         , recurrentFoldConverges, fitMixedTrains, fitFullPassMultiStep
-        , fitCustomThreadsModel ]
+        , fitCustomThreadsModel, fromVectIOMultiEpochSafe ]

@@ -20,9 +20,29 @@ record Dataset (sample : Type) where
   item : Fin size -> IO sample
 
 ||| Dataset backed by an in-memory `Vect`. `index` is total.
+|||
+||| CACHES one fixed `sample` per index (`item` returns it unchanged every
+||| access). Correct for pure / eval use, but a **footgun for multi-epoch
+||| training over device tensors**: the backend frees non-grad input
+||| tensors after each optimizer step (they're assumed per-epoch-fresh), so
+||| a cached `Tensor` handle becomes a use-after-free on epoch 2. For
+||| in-memory *training* data hold the host values and materialise fresh
+||| tensors per access with `fromVectIO` (or use `fromIndexed`).
 export
 fromVect : {n : Nat} -> Vect n sample -> Dataset sample
 fromVect {n} xs = MkDataset n (\i => pure (index i xs))
+
+||| In-memory Dataset that is SAFE for multi-epoch training: holds host
+||| values `xs` and runs `mk` to materialise a FRESH `sample` on every
+||| access, so each epoch gets new device handles. This is the in-memory
+||| sibling of `fromIndexed`, honouring `item`'s fresh-per-access contract
+||| — unlike `fromVect`, whose cached tensor handle is freed by the first
+||| optimizer step's arena reset. Typical use: `fromVectIO hostRows (\(xs,
+||| ys) => do x <- tensor (FromVect xs); y <- tensor (FromVect ys); pure
+||| (x, y))`.
+export
+fromVectIO : {n : Nat} -> Vect n a -> (a -> IO sample) -> Dataset sample
+fromVectIO {n} xs mk = MkDataset n (\i => mk (index i xs))
 
 ||| Dataset backed by a file/IO callback. The callback receives the raw
 ||| `Nat` index (already bounds-guaranteed by the `Fin`); use this to
