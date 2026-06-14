@@ -7,6 +7,8 @@
 ||| so a pool slots into a flattened `Seq`.
 module Nn.Pool
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Nat
 import Data.Vect
 
@@ -63,6 +65,33 @@ public export
   params _             = []
   castGrad MkMaxPool2D = MkMaxPool2D
 
+||| Linear-resource params (param-free pool — empty list, identity retype).
+public export
+{c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+  ParamsL (MaxPool2D c inH inW poolH poolW strH strW) where
+  reflectL MkMaxPool2D  = MkBang [] # MkMaxPool2D
+  castGradL MkMaxPool2D = MkMaxPool2D
+  discardL MkMaxPool2D  = pure ()
+
+||| Linear-resource `Module`. Same batched-pool body as the IO `forward`,
+||| sequenced through `ioRerunL`.
+public export
+{c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+  ModuleL (MaxPool2D c inH inW poolH poolW strH strW) where
+  forwardL MkMaxPool2D input = do
+    y <- ioRerunL (\_ =>
+      let bI      = cast {to=Int} b
+          cI    = cast {to=Int} c
+          hI    = cast {to=Int} inH
+          wI    = cast {to=Int} inW
+          inp4d = primReshape4d {ex} input.tensorPtr bI cI hI wI
+          outT  = primMaxPool2dBatched {ex} inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
+                                              (cast {to=Int} strH) (cast {to=Int} strW)
+          outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
+          out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
+      in MkTensor out2d Nothing)
+    pure1 (MkBang y # MkMaxPool2D)
+
 ||| MaxPool2D with the given window + stride (no params, nothing to init).
 public export
 maxPool2d : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
@@ -103,6 +132,29 @@ public export
 {c, len, poolK, str : Nat} -> Params (MaxPool1D c len poolK str) where
   params _             = []
   castGrad MkMaxPool1D = MkMaxPool1D
+
+||| Linear-resource params (param-free pool — empty list, identity retype).
+public export
+{c, len, poolK, str : Nat} -> ParamsL (MaxPool1D c len poolK str) where
+  reflectL MkMaxPool1D  = MkBang [] # MkMaxPool1D
+  castGradL MkMaxPool1D = MkMaxPool1D
+  discardL MkMaxPool1D  = pure ()
+
+||| Linear-resource `Module`. Same unit-height batched-pool body as the IO
+||| `forward`, sequenced through `ioRerunL`.
+public export
+{c, len, poolK, str : Nat} -> ModuleL (MaxPool1D c len poolK str) where
+  forwardL MkMaxPool1D input = do
+    y <- ioRerunL (\_ =>
+      let bI      = cast {to=Int} b
+          cI      = cast {to=Int} c
+          lenI    = cast {to=Int} len
+          inp4d   = primReshape4d {ex} input.tensorPtr bI cI 1 lenI
+          outT    = primMaxPool2dBatched {ex} inp4d 1 (cast {to=Int} poolK) 1 (cast {to=Int} str)
+          outFlat = c * PoolOutDim len poolK str
+          out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
+      in MkTensor out2d Nothing)
+    pure1 (MkBang y # MkMaxPool1D)
 
 ||| MaxPool1D with the given window + stride (no params, nothing to init).
 public export

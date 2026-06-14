@@ -11,6 +11,8 @@
 ||| without a hand-written shape constant.
 module Nn.Conv
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -62,6 +64,34 @@ public export
   Params (Conv2D inC outC h w kH kW padH padW) where
   params (MkConv2D ker bias)   = [toParam ker, toParam bias]
   castGrad (MkConv2D ker bias) = MkConv2D (retypeGrad ker) (retypeGrad bias)
+
+||| Linear-resource params. Kernel + bias bind at ω (reflected + rebuilt).
+public export
+{inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+  ParamsL (Conv2D inC outC h w kH kW padH padW) where
+  reflectL (MkConv2D ker bias)  = MkBang [toParam ker, toParam bias] # MkConv2D ker bias
+  castGradL (MkConv2D ker bias) = MkConv2D (retypeGrad ker) (retypeGrad bias)
+  discardL (MkConv2D _ _)       = pure ()
+
+||| Linear-resource `Module`. Same batched conv body as the IO `forward`,
+||| sequenced through `ioRerunL`; output rides the linear pair under `(!*)`.
+public export
+{inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+  ModuleL (Conv2D inC outC h w kH kW padH padW) where
+  forwardL (MkConv2D ker bias) input = do
+    y <- ioRerunL (\_ =>
+      let bI      = cast {to=Int} b
+          inCI    = cast {to=Int} inC
+          hI      = cast {to=Int} h
+          wI      = cast {to=Int} w
+          inp4d   = primReshape4d {ex} input.tensorPtr bI inCI hI wI
+          padHI   = cast {to=Int} padH
+          padWI   = cast {to=Int} padW
+          outT    = primConv2dBatched {ex} inp4d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
+          outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
+          out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
+      in MkTensor out2d Nothing)
+    pure1 (MkBang y # MkConv2D ker bias)
 
 ||| Construct a `Conv2D` inside an `Init` derivation. He-normal kernel
 ||| (std = √(2/fan_in), fan_in = inC·kH·kW), zero bias. Registers
@@ -121,6 +151,32 @@ public export
 {inC, outC, len, kL, pad : Nat} -> Params (Conv1D inC outC len kL pad) where
   params (MkConv1D ker bias)   = [toParam ker, toParam bias]
   castGrad (MkConv1D ker bias) = MkConv1D (retypeGrad ker) (retypeGrad bias)
+
+||| Linear-resource params. Kernel + bias bind at ω (reflected + rebuilt).
+public export
+{inC, outC, len, kL, pad : Nat} -> ParamsL (Conv1D inC outC len kL pad) where
+  reflectL (MkConv1D ker bias)  = MkBang [toParam ker, toParam bias] # MkConv1D ker bias
+  castGradL (MkConv1D ker bias) = MkConv1D (retypeGrad ker) (retypeGrad bias)
+  discardL (MkConv1D _ _)       = pure ()
+
+||| Linear-resource `Module`. Same unit-height batched-2D body as the IO
+||| `forward`, sequenced through `ioRerunL`.
+public export
+{inC, outC, len, kL, pad : Nat} -> ModuleL (Conv1D inC outC len kL pad) where
+  forwardL (MkConv1D ker bias) input = do
+    y <- ioRerunL (\_ =>
+      let bI      = cast {to=Int} b
+          inCI    = cast {to=Int} inC
+          lenI    = cast {to=Int} len
+          outCI   = cast {to=Int} outC
+          kLI     = cast {to=Int} kL
+          inp4d   = primReshape4d {ex} input.tensorPtr bI inCI 1 lenI
+          ker4d   = primReshape4d {ex} ker.tensorPtr outCI inCI 1 kLI
+          outT    = primConv2dBatched {ex} inp4d ker4d bias.tensorPtr 0 (cast {to=Int} pad) 1 1
+          outFlat = outC * ConvOutDim len kL pad
+          out2d   = primReshape2d {ex} outT bI (cast {to=Int} outFlat)
+      in MkTensor out2d Nothing)
+    pure1 (MkBang y # MkConv1D ker bias)
 
 ||| Construct a `Conv1D` inside an `Init` derivation. He-normal kernel
 ||| (std = √(2/fan_in), fan_in = inC·kL), zero bias. Registers
