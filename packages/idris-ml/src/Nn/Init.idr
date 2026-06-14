@@ -12,6 +12,7 @@
 ||| they required.
 module Nn.Init
 
+import Control.Linear.LIO
 import Data.List
 
 %default total
@@ -118,3 +119,17 @@ runInit : Init a -> IO a
 runInit (MkInit f) = do
   (a, _) <- f (MkInitState [] [] Nothing)
   pure a
+
+||| Run a derivation from the empty scope into `L IO`, conferring **linearity**
+||| on the result (`use = 1`) — the born-linear model-construction seam. The
+||| `Init` monad and its constructors are unchanged internally (still plain
+||| `IO` state-threading); this exit point lifts the whole derivation once via
+||| `liftIO1` and re-emits the result through `pure1`, so the model a layer
+||| smart-constructor builds enters the rest of the library as a single-owner
+||| linear resource that MUST be threaded through `forwardL`/`recurStepL`/
+||| `evalL`/`freezeL`. The IO `runInit` coexists until the example sweep.
+export
+runInitL : Init a -> L IO {use = 1} a
+runInitL (MkInit f) = do
+  (a, _) <- liftIO1 (f (MkInitState [] [] Nothing))
+  pure1 a
