@@ -26,10 +26,10 @@ example-gpt                      bpc          <   5.0
 example-transfer                 loss         <   0.5
 
 # ---- Memory-augmented (NTM/DNC at full default 50K-100K epochs) ----
-example-ntm-copy                 acc_short    >=  0.9
-example-ntm-associative-recall   acc_k2       >=  0.8
-example-dnc-copy                 acc_short    >=  0.8
-example-dnc-recall               acc_k2       >=  0.6
+example-ntm-copy                 acc          >=  0.9
+example-ntm-associative-recall   acc          >=  0.8
+example-dnc-copy                 acc          >=  0.8
+example-dnc-recall               acc          >=  0.6
 
 # ---- RL: tabular ----
 example-q-learning               avg_return   >=  -120
