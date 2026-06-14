@@ -11,6 +11,7 @@ include mk/config.mk
 include mk/backends.mk
 include mk/genconfig.mk
 include mk/lint.mk
+include mk/fmt.mk
 include mk/tests.mk
 include mk/install.mk
 include mk/examples.mk

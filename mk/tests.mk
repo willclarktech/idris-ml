@@ -21,7 +21,8 @@
         check-examples test-unit test-unit-idris test test-integration \
         test-e2e test-coverage test-unit-idris-ml \
         test-unit-multi-backend test-unit-gym test-unit-args \
-        test-unit-idris-transformers bench-gym test-unit-examples
+        test-unit-idris-transformers bench-gym test-unit-examples \
+        test-unit-fmt
 
 # Criterion prefix autodetection: nix profile (local dev), then brew
 # (macOS CI), then /usr (Ubuntu CI's libcriterion-dev). Explicit
@@ -291,7 +292,7 @@ check-examples: install
 test-unit: test-unit-idris test-unit-c
 
 # All Idris-side unit suites (across packages).
-test-unit-idris: test-unit-idris-ml test-unit-gym test-unit-args test-unit-idris-transformers test-unit-examples
+test-unit-idris: test-unit-idris-ml test-unit-gym test-unit-args test-unit-idris-transformers test-unit-examples test-unit-fmt
 
 # Default `test` aggregator — alias for the unit-test layer (the
 # fast tier that's safe to run pre-commit). For broader gates use
