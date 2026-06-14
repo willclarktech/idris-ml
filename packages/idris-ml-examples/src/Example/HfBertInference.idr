@@ -5,6 +5,14 @@
 ||| prints the top-5 predicted fill-ins per sentence — the canonical
 ||| BERT demo, in idris-ml's typed-tensor surface.
 |||
+||| The model is loaded with `Transformers.Bert.fromPretrained`: it reads
+||| `<dir>/config.json` for the dims, builds a tape-free `NoGrad` model at
+||| those dims, and fills params from `<dir>/model.safetensors`. Nothing
+||| about bert-tiny is hardcoded here — the returned `(cfg ** model)` ties
+||| the model's type to the file's dims, and the per-head split is
+||| recovered from the config (a runtime divisibility check supplies the
+||| `hidden = numHeads * headDim` proof the forward needs).
+|||
 ||| The CI gate (`make test-hf-bert-roundtrip`) invokes this same
 ||| binary with `--dump-pooled`, which switches output to the legacy
 ||| 128-dim pooled `[CLS]` vector on the input `[101, 7592, 102]`
@@ -15,7 +23,7 @@
 ||| and the user-facing demo on the same code path.
 |||
 ||| Pre-requisites (CI handles these automatically via the make targets):
-|||   - `packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2/model.safetensors`
+|||   - `models/google/bert_uncased_L-2_H-128_A-2/{config.json,model.safetensors}`
 |||     — fetch with `bash packages/idris-transformers/scripts/hf-download.sh`
 |||   - Python `transformers` package available via packages/pytorch's uv
 |||     venv — `Transformers.Tokenizer.idr` shells out to `scripts/hf_tokenize.py`
@@ -27,6 +35,7 @@ import Data.Fin
 import Data.List
 import Data.String
 import Data.Vect
+import Decidable.Equality
 import System
 import System.Clock
 import System.File
@@ -42,39 +51,11 @@ import Transformers.Tokenizer
 import Util
 
 ----------------------------------------------------------------------
--- Config (bert-tiny dims pinned at the type level)
+-- Model location (dims come from the file, not from here)
 ----------------------------------------------------------------------
 
-VocabSize : Nat
-VocabSize = 30522
-
-Hidden : Nat
-Hidden = 128
-
-NumLayers : Nat
-NumLayers = 2
-
-NumHeads : Nat
-NumHeads = 2
-
-HeadDim : Nat
-HeadDim = 64
-
-Intermediate : Nat
-Intermediate = 512
-
-MaxPos : Nat
-MaxPos = 512
-
-TypeVocab : Nat
-TypeVocab = 2
-
 modelDir : String
-modelDir =
-  "models/google/bert_uncased_L-2_H-128_A-2"
-
-hfWeightsPath : String
-hfWeightsPath = modelDir ++ "/model.safetensors"
+modelDir = "models/google/bert_uncased_L-2_H-128_A-2"
 
 ----------------------------------------------------------------------
 -- Build small input-ID tensors (mkIds lives in HfInferenceHelper)
@@ -132,44 +113,46 @@ bertMaskTokenId = 103
 -- individual words. `joinBy` for the formatted output comes from
 -- Data.String.
 
-runMaskDemo : Tokenizer VocabSize
-           -> (model : BertForMaskedLmState VocabSize Hidden NumLayers
-                                            Intermediate MaxPos TypeVocab
-                                            ExampleExecutor ExampleDType NoGrad)
+runMaskDemo : (cfg : BertConfig)
+           -> (nHeads, hDim : Nat)
+           -> (prf : hidden cfg = nHeads * hDim)
+           -> Tokenizer (vocabSize cfg)
+           -> BertForMaskedLm cfg ExampleExecutor ExampleDType NoGrad
            -> (sentence : String)
            -> IO ()
-runMaskDemo tok evalModel sentence = do
+runMaskDemo cfg nHeads hDim prf tok model sentence = do
   Right (seqLen ** tokens) <- tokenize tok sentence
     | Left err => putStrLn ("  ERR: tokenize: " ++ show err)
   case findIndex (\f => finToNat f == bertMaskTokenId) tokens of
     Nothing => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
     Just maskFin => do
-      -- Each Fin VocabSize → Double via finToNat → cast.
+      -- Each Fin (vocabSize cfg) → Double via finToNat → cast.
       let idDoubles = map (cast {to=Double} . finToNat) tokens
           inputIds  = retypeGrad (mkIds idDoubles)
           posIds    = retypeGrad (mkIds (arangeVect seqLen))
           typeIds   = retypeGrad (mkIds (zerosVect seqLen))
       logits <- hfBertMlmForward {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seqLen}
-                                 {vocab        = VocabSize}
-                                 {hidden       = Hidden}
-                                 {numLayers    = NumLayers}
-                                 {numHeads     = NumHeads}
-                                 {headDim      = HeadDim}
-                                 {intermediate = Intermediate}
-                                 {maxPos       = MaxPos}
-                                 {typeVocab    = TypeVocab}
-                                 evalModel inputIds posIds typeIds Nothing
+                                 {vocab        = vocabSize cfg}
+                                 {hidden       = hidden cfg}
+                                 {numLayers    = numLayers cfg}
+                                 {numHeads     = nHeads}
+                                 {headDim      = hDim}
+                                 {intermediate = intermediate cfg}
+                                 {maxPos       = maxPosition cfg}
+                                 {typeVocab    = typeVocabSize cfg}
+                                 {prf}
+                                 model inputIds posIds typeIds Nothing
       maskRow <- trowSelect logits (cast {to=Int} (finToNat maskFin))
-      pairs   <- readLogits VocabSize maskRow.tensorPtr
+      pairs   <- readLogits (vocabSize cfg) maskRow.tensorPtr
       let top5     = topK 5 pairs
           topIds   = map fst top5
           topLogits = map snd top5
-      -- Lift each Nat → Fin VocabSize. mapMaybe drops any that fail;
-      -- our IDs come from readLogits over the 30522-wide logits row
-      -- so all of them are < VocabSize and Nothings should be impossible.
-      let lifted : List (Fin VocabSize)
-          lifted = mapMaybe (\n => natToFin n VocabSize) topIds
+      -- Lift each Nat → Fin (vocabSize cfg). mapMaybe drops any that fail;
+      -- our IDs come from readLogits over the (vocabSize cfg)-wide logits
+      -- row so all of them are in range and Nothings should be impossible.
+      let lifted : List (Fin (vocabSize cfg))
+          lifted = mapMaybe (\n => natToFin n (vocabSize cfg)) topIds
       -- Detokenize all 5 IDs in one subprocess call; BERT WordPiece's
       -- decode joins space-separated → split back on whitespace.
       Right decoded <- detokenize tok (fromList lifted)
@@ -203,11 +186,12 @@ printPooled end i p =
       putStrLn (show v)
       printPooled end (i + 1) p
 
-runPooledDump : (model : BertForMaskedLmState VocabSize Hidden NumLayers
-                                              Intermediate MaxPos TypeVocab
-                                              ExampleExecutor ExampleDType NoGrad)
+runPooledDump : (cfg : BertConfig)
+             -> (nHeads, hDim : Nat)
+             -> (prf : hidden cfg = nHeads * hDim)
+             -> BertForMaskedLm cfg ExampleExecutor ExampleDType NoGrad
              -> IO ()
-runPooledDump model = do
+runPooledDump cfg nHeads hDim prf model = do
   -- Same fixed input save_oracle.py uses: [CLS] hello [SEP].
   -- `retypeGrad` lifts the WithGrad ids `mkIds` builds to the model's
   -- NoGrad (inference) gradmode — the single-g forward needs them to match.
@@ -216,16 +200,17 @@ runPooledDump model = do
       typeIds  = retypeGrad (mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0]))
   out <- hfBertForward {ex=ExampleExecutor} {dt=ExampleDType}
                        {seqLen       = 3}
-                       {vocab        = VocabSize}
-                       {hidden       = Hidden}
-                       {numLayers    = NumLayers}
-                       {numHeads     = NumHeads}
-                       {headDim      = HeadDim}
-                       {intermediate = Intermediate}
-                       {maxPos       = MaxPos}
-                       {typeVocab    = TypeVocab}
+                       {vocab        = vocabSize cfg}
+                       {hidden       = hidden cfg}
+                       {numLayers    = numLayers cfg}
+                       {numHeads     = nHeads}
+                       {headDim      = hDim}
+                       {intermediate = intermediate cfg}
+                       {maxPos       = maxPosition cfg}
+                       {typeVocab    = typeVocabSize cfg}
+                       {prf}
                        model.base inputIds posIds typeIds Nothing
-  printPooled (cast {to=Int} Hidden) 0 out.tensorPtr
+  printPooled (cast {to=Int} (hidden cfg)) 0 out.tensorPtr
 
 ----------------------------------------------------------------------
 -- main (stageStamp lives in HfInferenceHelper)
@@ -238,63 +223,63 @@ main = do
   let dumpPooled = elem "--dump-pooled" args
   t0 <- clockTime Monotonic
 
-  -- Build the full BertForMaskedLM (encoder + pooler + MLM head, 44 params).
-  -- Construct the inference model directly in NoGrad: every param is born
-  -- with requires_grad=0 (no post-construction `eval` flip), so the forward
-  -- below is genuinely tape-free and this model can't be fed to an optimizer.
-  model <- hfBertForMaskedLm {ex=ExampleExecutor} {dt=ExampleDType} {g=NoGrad}
-                             {vocab        = VocabSize}
-                             {hidden       = Hidden}
-                             {numLayers    = NumLayers}
-                             {numHeads     = NumHeads}
-                             {intermediate = Intermediate}
-                             {maxPos       = MaxPos}
-                             {typeVocab    = TypeVocab}
-                             "bert"
-  stageStamp "hfBertForMaskedLm ok" t0
-  ok <- loadModelAllowCast {ex=ExampleExecutor} hfWeightsPath
-  if not ok
-    then do
-      putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
-      exitFailure
-    else pure ()
-  stageStamp "loadModelAllowCast ok" t0
+  -- Load the full BertForMaskedLM straight from the HF checkpoint dir:
+  -- fromPretrained reads config.json for the dims, builds the model at
+  -- those dims (NoGrad → born requires_grad=0, so the forward is
+  -- genuinely tape-free), and fills every param from model.safetensors.
+  Right (cfg ** model) <- fromPretrained {ex=ExampleExecutor} {dt=ExampleDType} {g=NoGrad} modelDir
+    | Left err => do
+        putStrLn ("ERR: fromPretrained " ++ modelDir ++ ": " ++ show err)
+        exitFailure
+  stageStamp "fromPretrained ok" t0
 
-  if dumpPooled
-    then runPooledDump model
-    else do
-      -- Construct the BERT tokenizer once; each demo reuses it for both
-      -- the input-string encode AND the top-5 token-id decode. The
-      -- subprocess startup cost (~1s) amortises across the three demos.
-      tokR <- mkTokenizer "google/bert_uncased_L-2_H-128_A-2" VocabSize
-      case tokR of
-        Left err => do
-          putStrLn ("ERR: mkTokenizer: " ++ show err)
-          exitFailure
-        Right tok => do
-          putStrLn ""
-          putStrLn "BERT fill-in-the-mask — google/bert_uncased_L-2_H-128_A-2"
-          putStrLn "=========================================================="
-          putStrLn ""
-          -- Three sentences fed through the tokenizer. The "[MASK]"
-          -- literal in each string is tokenized to BERT's mask token
-          -- id 103 (by AutoTokenizer); runMaskDemo searches for it to
-          -- locate the position to score.
-          benchT0 <- clockTime Monotonic
-          runMaskDemo tok model "paris is the capital of [MASK] ."
-          runMaskDemo tok model "i went to the [MASK] to buy bread ."
-          runMaskDemo tok model "the man worked as a [MASK] ."
-          benchT1 <- clockTime Monotonic
-          -- Axis D perf marker: token count = 25 (wordpiece-aware:
-          -- 8 + 8 + 9 across the three sentences including [CLS]/[SEP]
-          -- as tokenized by bert-tiny's WordPiece). Wall is the sum
-          -- across all three demos including tokenize + forward +
-          -- decode subprocess hops; that's the user-observable inference
-          -- cost so it's the right number to report.
-          let benchMs =
-                let s  = cast {to=Double} (seconds benchT1 - seconds benchT0)
-                    ns = cast {to=Double} (nanoseconds benchT1 - nanoseconds benchT0)
-                in s * 1000.0 + ns / 1000000.0
-          putStrLn ""
-          putStrLn ("PERF_GENERATE_TOKENS=25")
-          putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)
+  -- Recover the per-head split from the config. The forward needs a
+  -- proof that hidden = numHeads * headDim; for a config read at runtime
+  -- that's a divisibility check, not a compile-time literal — decEq
+  -- supplies the proof, or we bail if hidden isn't divisible by heads.
+  let nHeads = numHeads cfg
+      hDim   = hidden cfg `div` nHeads
+  case decEq (hidden cfg) (nHeads * hDim) of
+    No _ => do
+      putStrLn ("ERR: hidden " ++ show (hidden cfg)
+                 ++ " not divisible by num heads " ++ show nHeads)
+      exitFailure
+    Yes prf =>
+      if dumpPooled
+        then runPooledDump cfg nHeads hDim prf model
+        else do
+          -- Construct the BERT tokenizer once; each demo reuses it for both
+          -- the input-string encode AND the top-5 token-id decode. The
+          -- subprocess startup cost (~1s) amortises across the three demos.
+          tokR <- mkTokenizer "google/bert_uncased_L-2_H-128_A-2" (vocabSize cfg)
+          case tokR of
+            Left err => do
+              putStrLn ("ERR: mkTokenizer: " ++ show err)
+              exitFailure
+            Right tok => do
+              putStrLn ""
+              putStrLn "BERT fill-in-the-mask — google/bert_uncased_L-2_H-128_A-2"
+              putStrLn "=========================================================="
+              putStrLn ""
+              -- Three sentences fed through the tokenizer. The "[MASK]"
+              -- literal in each string is tokenized to BERT's mask token
+              -- id 103 (by AutoTokenizer); runMaskDemo searches for it to
+              -- locate the position to score.
+              benchT0 <- clockTime Monotonic
+              runMaskDemo cfg nHeads hDim prf tok model "paris is the capital of [MASK] ."
+              runMaskDemo cfg nHeads hDim prf tok model "i went to the [MASK] to buy bread ."
+              runMaskDemo cfg nHeads hDim prf tok model "the man worked as a [MASK] ."
+              benchT1 <- clockTime Monotonic
+              -- Axis D perf marker: token count = 25 (wordpiece-aware:
+              -- 8 + 8 + 9 across the three sentences including [CLS]/[SEP]
+              -- as tokenized by bert-tiny's WordPiece). Wall is the sum
+              -- across all three demos including tokenize + forward +
+              -- decode subprocess hops; that's the user-observable inference
+              -- cost so it's the right number to report.
+              let benchMs =
+                    let s  = cast {to=Double} (seconds benchT1 - seconds benchT0)
+                        ns = cast {to=Double} (nanoseconds benchT1 - nanoseconds benchT0)
+                    in s * 1000.0 + ns / 1000000.0
+              putStrLn ""
+              putStrLn ("PERF_GENERATE_TOKENS=25")
+              putStrLn ("PERF_GENERATE_WALL_MS=" ++ show benchMs)
