@@ -75,12 +75,19 @@ runPass nanHalts step s (S k) accSum accCount m = do
 ||| False for the mixed-precision overflow-skip semantics (the scaler
 ||| returns NaN to mean "step skipped"). The optimizer carries the LR
 ||| schedule (tick is called per epoch); `cfg.beforeEpoch` is an extra hook.
+||| Optimizer-free `fit`: identical epoch-loop machinery (full dataset
+||| pass, early stop, checkpoint, NaN handling, mlx hygiene) with no
+||| optimizer and so no schedule tick. For training that isn't gradient-
+||| based — tabular RL, where the `EpochStep` mutates a pure model record
+||| directly (no registered params, no `nativeTrainStep`) — or any loop
+||| whose updates live entirely in the step. `fit` is exactly `fitCustom`
+||| plus a per-epoch `tick opt` to advance the optimizer's LR schedule.
 export
-fit : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
-      {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
-      EpochStep m batch -> Optimizer ex -> DataStream batch -> TrainConfig m -> m ->
-      IO (m, Nat, Double)
-fit {nanHalts} step opt s cfg m0 = do
+fitCustom : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
+            {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
+            EpochStep m batch -> DataStream batch -> TrainConfig m -> m ->
+            IO (m, Nat, Double)
+fitCustom {nanHalts} step s cfg m0 = do
   tStart <- clockTime Monotonic
   logInfo $ "Fitting... [backend=" ++ backendName {ex} ++ "]"
   bestRef <- newIORef (the Double (1.0/0.0))
@@ -88,7 +95,6 @@ fit {nanHalts} step opt s cfg m0 = do
   let stepsPerEpoch : Nat := fromMaybe 1 s.epochLen
   let perEpoch : m -> Nat -> IO (m, Double)
       perEpoch m ep = do
-        tick opt ep
         cfg.beforeEpoch ep
         runPass {ex} nanHalts step s stepsPerEpoch 0.0 0 m
   let (_ ** (esStep, esInit, esTerm)) = earlyStopMachine cfg.earlyStop
@@ -101,6 +107,15 @@ fit {nanHalts} step opt s cfg m0 = do
   logInfo $ formatPerfMsPerEp tStart tEnd epochsDone
   profileReport {ex}
   pure (mFin, epochsDone, loss)
+
+export
+fit : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
+      {0 m : Type} -> {0 batch : Type} -> {default True nanHalts : Bool} ->
+      EpochStep m batch -> Optimizer ex -> DataStream batch -> TrainConfig m -> m ->
+      IO (m, Nat, Double)
+fit {nanHalts} step opt s cfg m0 =
+  fitCustom {ex} {nanHalts} step s
+            ({ beforeEpoch := \ep => do tick opt ep; cfg.beforeEpoch ep } cfg) m0
 
 ||| Supervised convenience: give a loss function, never call
 ||| `nativeTrainStep`. Builds an `EpochStep` that does one fused step per

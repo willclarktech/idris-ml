@@ -98,7 +98,21 @@ fitFullPassMultiStep = do
   check ("fit full-pass runs epochLen steps/epoch (w 2.0 -> " ++ show v ++ " ~ 1.024)")
         (abs (v - 1.024) < 1.0e-6)
 
+-- fitCustom: the optimizer-free driver for non-gradient training
+-- (tabular RL). A pure Double "model" halved each epoch by the
+-- EpochStep — no registered params, no optimizer, no nativeTrainStep.
+-- Proves the model threads through epochs and the loop runs the
+-- requested count: 2.0 * 0.5^5 = 0.0625 over 5 epochs.
+fitCustomThreadsModel : IO Bool
+fitCustomThreadsModel = do
+  (vFin, epochs, _) <- fitCustom {ex=TestExecutor} {m=Double} {batch=()}
+    (\v, () => pure (v * 0.5, v)) units (simpleConfig 5) 2.0
+  check ("fitCustom threads pure model (2.0 -> " ++ show vFin ++ " ~ 0.0625, "
+         ++ show epochs ++ " epochs)")
+        (abs (vFin - 0.0625) < 1.0e-12 && epochs == 5)
+
 export
 tests : List (IO Bool)
 tests = [ fitSupervisedConverges, fitEqualsLegacy
-        , recurrentFoldConverges, fitMixedTrains, fitFullPassMultiStep ]
+        , recurrentFoldConverges, fitMixedTrains, fitFullPassMultiStep
+        , fitCustomThreadsModel ]
