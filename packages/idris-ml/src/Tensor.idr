@@ -2077,6 +2077,21 @@ tnllLoss {n} p t = ioRerun (\_ =>
   let neg = primNeg {ex} (primSum {ex} prod) in
   MkTensor (primMulScalar {ex} neg (1.0 / cast n)) Nothing)
 
+||| Batched multiclass NLL against one-hot targets, mean-reduced over
+||| `batch × classes`. The batched-first counterpart to `tnllLoss` for the
+||| `Nn`/`fit` surface: `-(target * logSoftmax(pred, axis=1)).sum() / (b*n)`
+||| — exactly the per-row `tnllLoss` (which carries the `1/n` classes factor)
+||| meaned over the batch, and matching PyTorch's
+||| `nll_loss(log_softmax(logits, -1), target)`.
+export
+tnllLossMean : {0 ex : Executor} -> UserExecutorNN ex => IsFloating dt => {b, n : Nat} ->
+               Tensor [b, n] ex dt g -> Tensor [b, n] ex dt g -> IO (Tensor [] ex dt g)
+tnllLossMean {b} {n} p t = ioRerun (\_ =>
+  let logP = primLogSoftmax2d {ex} p.tensorPtr in
+  let prod = primMul {ex} logP t.tensorPtr in
+  let neg = primNeg {ex} (primSum {ex} prod) in
+  MkTensor (primMulScalar {ex} neg (1.0 / cast (b * n))) Nothing)
+
 ||| Binary cross-entropy with logits, mean-reduced. Numerically stable
 ||| (wraps `primBceWithLogits`). For multi-element predictions/targets
 ||| use `tbceLoss : Tensor [n] ex dt g-> Tensor [n] ex dt g-> Tensor [] ex dt g`;

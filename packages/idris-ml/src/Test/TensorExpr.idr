@@ -177,6 +177,29 @@ tdLossAcceptance = do
   check ("TD loss: expr form == 37-line oracle (loss " ++ show vNew
          ++ " vs " ++ show vOr ++ "; grads match)") (closeV && closeG)
 
+-- Batched NLL oracle: with all-equal logits, logSoftmax is uniform
+-- (log(1/C) per class), so for one-hot targets tnllLossMean collapses to
+-- -(1/(b*C)) * sum_rows log(1/C) = log(C)/C, independent of the logit
+-- value and the batch size. C=3 → log(3)/3 ≈ 0.3662. Pins both the
+-- axis=1 (row-wise) softmax and the 1/(b*C) scaling against PyTorch's
+-- nll_loss(log_softmax(logits,-1), target).
+row3 : Double -> Double -> Double -> Vector 3 Double
+row3 a b c = VArray [SArray a, SArray b, SArray c]
+
+nllLossMeanOracle : IO Bool
+nllLossMeanOracle = do
+  pred0 <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 3]} (Const 0.0)
+  tgt0  <- the (IO (Tensor [2, 3] TestExecutor TestDType NoGrad)) $
+             ioRerun (\_ => MkTensor (bulkToTensor2d {ex=TestExecutor} {dt=TestDType}
+                                        [row3 1 0 0, row3 0 1 0]) Nothing)
+  let pred = the (Tensor [2, 3] TestExecutor TestDType WithGrad) (retypeGrad pred0)
+  let tgt  = the (Tensor [2, 3] TestExecutor TestDType WithGrad) (retypeGrad tgt0)
+  l <- tnllLossMean {b=2} {n=3} pred tgt
+  let v = tensorItem l
+  let expected = log 3.0 / 3.0
+  check ("tnllLossMean uniform-logits oracle = log(3)/3 (got " ++ show v ++ ")")
+        (abs (v - expected) < 1.0e-9)
+
 export
 tests : List (IO Bool)
-tests = [gatherRowsPicks, maxRowsValues, operatorAliases, tdLossAcceptance]
+tests = [gatherRowsPicks, maxRowsValues, operatorAliases, tdLossAcceptance, nllLossMeanOracle]
