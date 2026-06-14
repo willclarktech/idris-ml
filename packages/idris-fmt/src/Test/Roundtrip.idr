@@ -1,7 +1,7 @@
 module Test.Roundtrip
 
-import Test.Harness
 import Format.Roundtrip
+import Test.Harness
 
 -- A small but real module used as a parse/round-trip fixture.
 clean : String

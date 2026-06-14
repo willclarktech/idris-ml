@@ -1,9 +1,9 @@
 module Test.Main
 
 import Test.Harness
-import Test.Roundtrip
-import Test.Render
 import Test.Imports
+import Test.Render
+import Test.Roundtrip
 
 main : IO ()
 main = runAll

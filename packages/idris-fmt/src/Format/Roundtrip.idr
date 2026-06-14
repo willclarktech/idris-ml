@@ -53,6 +53,7 @@ parses src =
     Right _ => True
 
 ||| Parse to the compiler's surface `Module`, or `Nothing` on a parse error.
+export
 parseModule : String -> Maybe Module
 parseModule src =
   let origin = Virtual Interactive in

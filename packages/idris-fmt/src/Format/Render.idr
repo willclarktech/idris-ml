@@ -8,8 +8,8 @@ module Format.Render
 import Data.List
 import Data.String
 
-import Format.Roundtrip
 import Format.Imports
+import Format.Roundtrip
 
 ||| Drop trailing spaces/tabs from a single line (no newline expected).
 rstrip : String -> String

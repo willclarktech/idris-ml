@@ -1,9 +1,9 @@
 module Test.Imports
 
-import Test.Harness
-import Format.Render
 import Format.Imports
+import Format.Render
 import Format.Roundtrip
+import Test.Harness
 
 unsorted : String
 unsorted = "module M\n\nimport Tensor\nimport Data.Vect\nimport Layer\nimport Data.List\nimport Data.List\n\nfoo : Nat\nfoo = 1\n"

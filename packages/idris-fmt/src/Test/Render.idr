@@ -1,8 +1,8 @@
 module Test.Render
 
-import Test.Harness
 import Format.Render
 import Format.Roundtrip
+import Test.Harness
 
 clean : String
 clean = "module M\n\nfoo : Nat\nfoo = 1\n"
