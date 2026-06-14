@@ -375,6 +375,46 @@ def append_baseline(
     return entry
 
 
+def append_elab(
+    *,
+    unit: str,
+    backend: str,
+    device: str,
+    commit: str,
+    elab_ms: int,
+    elab_human: str,
+    exit_code: int,
+    cold: bool = True,
+    log_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Build a `kind="elab"` entry and append it.
+
+    One record per cold elaboration (typecheck) of a single unit — the
+    `idris-ml` / `idris-transformers` library, or an `example-<name>`
+    module. `elab_ms` is the wall time of the `idris2 --typecheck` /
+    `--check` phase only (no codegen, no C dylib build); `cold` records
+    that the timer used a throwaway `--build-dir` so no cached ttc was
+    reused. This is the one perf axis the linear-types migration can move
+    (runtime is linearity-invariant); see linear-types-and-effects.md.
+    """
+    ts, date = now_ts()
+    entry: dict[str, Any] = {
+        "ts": ts,
+        "date": date,
+        "kind": "elab",
+        "unit": unit,
+        "backend": backend,
+        "device": device,
+        "commit": commit,
+        "cold": cold,
+        "exit": exit_code,
+        "elab_ms": elab_ms,
+        "elab_human": elab_human,
+    }
+    _append(entry, log_path)
+    return entry
+
+
 def append_op_bench(
     *,
     axis: str,
@@ -466,6 +506,21 @@ def _cmd_append_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_append_elab(args: argparse.Namespace) -> int:
+    append_elab(
+        unit=args.unit,
+        backend=args.backend,
+        device=args.device,
+        commit=args.commit,
+        elab_ms=args.elab_ms,
+        elab_human=args.elab_human,
+        exit_code=args.exit_code,
+        cold=not args.warm,
+        log_path=args.log_path,
+    )
+    return 0
+
+
 def _cmd_parse_op_bench(args: argparse.Namespace) -> int:
     blob = Path(args.input).read_text()
     rows = parse_op_bench_output(blob)
@@ -546,6 +601,21 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--n-long", type=int, required=True)
     pb.add_argument("--seed", type=int, required=True)
     pb.set_defaults(func=_cmd_append_baseline)
+
+    pe = sub.add_parser("append-elab", help="Append a kind=elab entry.")
+    pe.add_argument("--unit", required=True, help="idris-ml / idris-transformers / example-<name>.")
+    pe.add_argument("--backend", required=True)
+    pe.add_argument("--device", required=True)
+    pe.add_argument("--commit", required=True)
+    pe.add_argument("--elab-ms", type=int, required=True)
+    pe.add_argument("--elab-human", required=True)
+    pe.add_argument("--exit-code", type=int, required=True)
+    pe.add_argument(
+        "--warm",
+        action="store_true",
+        help="Mark the elaboration as warm (cached ttc reused); default is cold.",
+    )
+    pe.set_defaults(func=_cmd_append_elab)
 
     po = sub.add_parser(
         "parse-op-bench",
