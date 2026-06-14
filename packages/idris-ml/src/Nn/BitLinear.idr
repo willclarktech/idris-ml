@@ -12,6 +12,8 @@
 ||| `tCreateTernaryPacked2d`); `bitLinear` builds one from ready tensors.
 module Nn.BitLinear
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -38,6 +40,14 @@ Params BitLinear where
   params (MkBitLinear w s b) = [toParam w, toParam s, toParam b]
   -- Only the bias carries `g`; the ternary weight + scale are frozen `NoGrad`.
   castGrad (MkBitLinear w s b) = MkBitLinear w s (retypeGrad b)
+
+||| Linear-resource params. All three handles are ω fields (reflected +
+||| rebuilt); only the bias carries `g`.
+public export
+ParamsL BitLinear where
+  reflectL (MkBitLinear w s b)  = MkBang [toParam w, toParam s, toParam b] # MkBitLinear w s b
+  castGradL (MkBitLinear w s b) = MkBitLinear w s (retypeGrad b)
+  discardL (MkBitLinear _ _ _)  = pure ()
 
 ||| Build a `BitLinear` from ready tensors (the ternary weight typically
 ||| from a checkpoint's packed bytes).

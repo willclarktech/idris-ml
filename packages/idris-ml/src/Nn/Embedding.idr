@@ -7,6 +7,8 @@
 ||| happens at the example level via `embeddingForward`.
 module Nn.Embedding
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -26,6 +28,13 @@ public export
 Params Embedding where
   params (MkEmbedding w)   = [toParam w]
   castGrad (MkEmbedding w) = MkEmbedding (retypeGrad w)
+
+||| Linear-resource params. The lookup table `w` is the single ω param field.
+public export
+ParamsL Embedding where
+  reflectL (MkEmbedding w)  = MkBang [toParam w] # MkEmbedding w
+  castGradL (MkEmbedding w) = MkEmbedding (retypeGrad w)
+  discardL (MkEmbedding _)  = pure ()
 
 ||| Lookup forward: `tokens : [seqLen]` (ids as doubles) → flattened
 ||| `[seqLen * embedDim]` embedding vectors. (Standalone, not a `Module`.)

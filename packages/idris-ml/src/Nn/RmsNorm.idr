@@ -12,6 +12,8 @@
 ||| become a real `Module`.
 module Nn.RmsNorm
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -36,6 +38,13 @@ public export
 Params RmsNorm where
   params (MkRmsNorm w)   = [toParam w]
   castGrad (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
+
+||| Linear-resource params. The single learnable scale `w` is the ω param field.
+public export
+ParamsL RmsNorm where
+  reflectL (MkRmsNorm w)  = MkBang [toParam w] # MkRmsNorm w
+  castGradL (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
+  discardL (MkRmsNorm _)  = pure ()
 
 ||| 1-D differentiable RMSNorm forward (per vector). `primSum` reduces the
 ||| whole vector, so this is single-vector only — see the module header.

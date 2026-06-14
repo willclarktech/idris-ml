@@ -7,6 +7,8 @@
 ||| `{spatialDim}` at the forward (the legacy `applyBatchNorm` did too).
 module Nn.BatchNorm
 
+import Control.Linear.LIO
+import Data.Linear
 import Data.Vect
 
 import Executor
@@ -34,6 +36,16 @@ Params BatchNorm where
   -- gamma/beta carry `g`; the running-stat buffers stay `NoGrad`.
   castGrad (MkBatchNorm gamma beta mean var tr mom eps) =
     MkBatchNorm (retypeGrad gamma) (retypeGrad beta) mean var tr mom eps
+
+||| Linear-resource params. gamma/beta are the ω param fields (reflected +
+||| rebuilt); the running-stat buffers ride at ω and stay `NoGrad`.
+public export
+ParamsL BatchNorm where
+  reflectL (MkBatchNorm gamma beta mean var tr mom eps) =
+    MkBang [toParam gamma, toParam beta] # MkBatchNorm gamma beta mean var tr mom eps
+  castGradL (MkBatchNorm gamma beta mean var tr mom eps) =
+    MkBatchNorm (retypeGrad gamma) (retypeGrad beta) mean var tr mom eps
+  discardL (MkBatchNorm _ _ _ _ _ _ _) = pure ()
 
 ||| 1-D batch-norm forward. Training mode uses batch stats + updates the
 ||| running buffers in place; eval mode uses the running buffers. Indexed by
