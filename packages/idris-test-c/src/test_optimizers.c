@@ -314,3 +314,49 @@ Test(training_optimizer_fused_mv, multi_epoch_loss_decreases) {
     optimizer_free(sgd);
     param_clear();
 }
+
+/* Non-learnable buffer (PyTorch register_buffer): a buffer must be SAVED +
+   RELOADED by name like a param, but the optimizer must NEVER step it. To
+   prove the is_buffer skip is load-bearing (and not just the no-grad guard),
+   the buffer here is deliberately given requires_grad=1 and put in the loss,
+   so it receives a real gradient — yet the step must leave it untouched. */
+Test(training_optimizer_buffer, buffer_saved_but_not_stepped) {
+    param_clear();
+    /* idx 0 = learnable param w=1.0; idx 1 = buffer buf=5.0 (with a grad). */
+    TensorHandle w = tensor_create_scalar(1.0, 1);
+    param_register("buftest.w", w);
+    TensorHandle buf = tensor_create_scalar(5.0, 1);
+    param_register_buffer("buftest.buf", buf);
+
+    cr_assert_eq(param_is_buffer(0), 0, "w is not a buffer");
+    cr_assert_eq(param_is_buffer(1), 1, "buf is a buffer");
+
+    /* loss = w*w + buf → grad_w = 2.0, grad_buf = 1.0. SGD(0.1): w -> 0.8;
+       buf would -> 4.9 if stepped, must stay 5.0. */
+    TensorHandle loss = tensor_add(tensor_mul(w, w), buf);
+    OptimizerHandle opt = optimizer_create_sgd(0.1);
+    native_train_step(opt, 0, 0.0, loss, 1.0);
+
+    /* tol 1e-5: mlx scalars are F32, so 0.8 round-trips as 0.80000001. */
+    cr_assert_float_eq(tensor_item(w), 0.8, 1e-5, "param stepped (got %.15f)", tensor_item(w));
+    cr_assert_float_eq(tensor_item(buf), 5.0, 1e-5, "buffer NOT stepped (got %.15f)",
+                       tensor_item(buf));
+    optimizer_free(opt);
+
+    /* Save (must include the buffer), wipe, re-register fresh, reload. */
+    const char* path = "/tmp/idris-ml-c-buffer-roundtrip.safetensors";
+    cr_assert_eq(param_save(path), 0, "param_save ok");
+    param_clear();
+    TensorHandle w2 = tensor_create_scalar(9.0, 1);
+    param_register("buftest.w", w2);
+    TensorHandle buf2 = tensor_create_scalar(9.0, 1);
+    param_register_buffer("buftest.buf", buf2);
+    cr_assert_eq(param_load(path), 0, "param_load ok");
+
+    cr_assert_float_eq(tensor_item(buf2), 5.0, 1e-5, "buffer reloaded by name (got %.15f)",
+                       tensor_item(buf2));
+    cr_assert_float_eq(tensor_item(w2), 0.8, 1e-5, "param reloaded by name (got %.15f)",
+                       tensor_item(w2));
+    cr_assert_eq(param_is_buffer(1), 1, "buffer flag survives re-register");
+    param_clear();
+}
