@@ -2267,3 +2267,34 @@ composition + that the cast keeps the tape intact through to the master.
 
 Out of scope (later rows): the `ML`/`ML.Simple` single-import preludes; migrating the ~33 examples to
 `Nn` + deleting `Layer/`.
+
+## idris-fmt: a compiler-native Idris 2 formatter (2026-06-14)
+
+`packages/idris-fmt/` is the repo's own Idris 2 source formatter. Two decisions shaped it.
+
+**Build our own on the compiler-as-a-library, don't vendor.** The 2026-06-08 survey found one
+live external candidate (`gvnkd/idris2-fmt`, single-author, syntax-only) whose README flagged the
+exact constructs this codebase is dense with (record-update `:=`, deep `where`, "some TTImp
+constructs → placeholder comments" — a silent code-drop risk). Instead `idris-fmt` `depends = idris2`
+(the compiler published by `idris2api.ipkg`) and parses with the *compiler's own* parser. Feasibility
+was proven before committing: all 292 repo `.idr` files parse cleanly with `Idris.Parser.prog`;
+`PTerm` preserves surface sugar (`PDoBlock`/`PBang`/`PSectionL-R`/`PLocal`/…) and FC-annotates every
+node; comments survive at the lexer (`Comment`/`DocComment` bounds). The one gap: the compiler ships
+**no** declaration-layout printer (only `Pretty IdrisSyntax IPTerm` for expressions, `Show PDeclNoFC`
+for debug) — so reindentation/alignment is a greenfield layout engine, deferred (TODO row).
+
+**A round-trip oracle, not faith.** A formatter for a layout-sensitive language is all-or-nothing: a
+pass that drops a token or shifts a block is worse than none (you hand-undo it every PR). So every
+reformat is gated by `Format.Roundtrip.safeReformat`: the output must still **parse** (compiler
+parser) *and* its lexer token stream must be byte-identical modulo whitespace+comments (`codeSig`).
+Neither check alone suffices — `lex` drops `Space`, so the token check can't see a layout-breaking
+reindent (hence the parse check); and the parse check only proves it parses, not that it parses *the
+same* (hence, for the future reindentation step, an FC-insensitive AST equality is still needed — see
+TODO). If the gate fails, `format` returns the input unchanged. The tool can therefore never alter a
+file's meaning.
+
+Current scope is conservative whitespace hygiene (trailing-WS strip, blank-run collapse,
+leading/trailing-blank trim, single final newline) — applied repo-wide as a whitespace-only diff.
+CLI is the repo's own `idris-args` (`--write`/`--check`/`--parse-check`). Wired as `make fmt` /
+`make check-fmt` (CI gate `test-integration-lint-fmt`) / `make test-unit-fmt`; dogfoods itself. The
+deferred reindentation + full style (alignment + import-sort) is the L-sized TODO follow-up.
