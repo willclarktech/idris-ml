@@ -29,7 +29,8 @@
 
 typedef struct {
 	char name[256];
-	void* tensor; /* backend-opaque TensorHandle */
+	void* tensor;  /* backend-opaque TensorHandle */
+	int is_buffer; /* 1 = non-learnable buffer (saved/loaded, never stepped) */
 } ParamEntry;
 
 #define MAX_PARAMS 65536
@@ -40,17 +41,20 @@ static int param_count_val = 0;
    Registration / introspection. Pure storage — no port calls.
    ---------------------------------------------------------------------- */
 
-void param_register(const char* name, TensorHandle h) {
-	/* Replace if exists (idempotent re-registration is intentional —
-	   safetensors load + the per-epoch tape reset both re-register
-	   under existing names). The retain/release pair lets backends
-	   with refcount lifecycle (mlx) keep their params anchored against
-	   sweeps that walk all_tensors; tape and torch ship no-op
-	   retain/release in backend.h. */
+/* Shared registration core. `is_buffer` is set ONLY when a name is first
+   seen; re-registration (idempotent by design — safetensors load + the
+   per-epoch tape reset both re-register under existing names) swaps the
+   tensor handle but PRESERVES the existing buffer flag, so a buffer never
+   silently becomes a stepped param (or vice versa) across a reload. */
+static void param_register_impl(const char* name, TensorHandle h, int is_buffer) {
+	/* The retain/release pair lets backends with refcount lifecycle (mlx)
+	   keep their params anchored against sweeps that walk all_tensors;
+	   tape and torch ship no-op retain/release in backend.h. */
 	for (int i = 0; i < param_count_val; i++) {
 		if (strcmp(param_registry_arr[i].name, name) == 0) {
 			void* old = param_registry_arr[i].tensor;
 			param_registry_arr[i].tensor = (void*)h;
+			/* is_buffer intentionally untouched on re-register. */
 			tensor_retain_handle((TensorHandle)h);
 			tensor_release_handle((TensorHandle)old);
 			return;
@@ -60,9 +64,22 @@ void param_register(const char* name, TensorHandle h) {
 		strncpy(param_registry_arr[param_count_val].name, name, 255);
 		param_registry_arr[param_count_val].name[255] = '\0';
 		param_registry_arr[param_count_val].tensor = (void*)h;
+		param_registry_arr[param_count_val].is_buffer = is_buffer;
 		param_count_val++;
 		tensor_retain_handle((TensorHandle)h);
 	}
+}
+
+void param_register(const char* name, TensorHandle h) {
+	param_register_impl(name, h, 0);
+}
+
+/* Register a non-learnable buffer (PyTorch register_buffer). It lands in
+   the same table as params — so save/load picks it up by name with no
+   extra plumbing — but `param_is_buffer` flags it so every optimizer /
+   clip / grad-norm walk skips it. */
+void param_register_buffer(const char* name, TensorHandle h) {
+	param_register_impl(name, h, 1);
 }
 
 void param_clear(void) {
@@ -103,6 +120,9 @@ const char* param_name(int i) {
 }
 TensorHandle param_tensor(int i) {
 	return (TensorHandle)param_registry_arr[i].tensor;
+}
+int param_is_buffer(int i) {
+	return param_registry_arr[i].is_buffer;
 }
 
 /* ----------------------------------------------------------------------

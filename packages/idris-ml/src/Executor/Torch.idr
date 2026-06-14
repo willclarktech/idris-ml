@@ -476,6 +476,10 @@ prim__tensorDimTorch : AnyPtr -> Int
 prim__tensorSizeAtTorch : AnyPtr -> Int -> Int
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-return-torch)) (set-top-level-value! 'idris-ffi-param-register-return-torch (foreign-procedure \"param_register_return_torch\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-return-torch) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__paramRegisterTorch : String -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-buffer-return-torch)) (set-top-level-value! 'idris-ffi-param-register-buffer-return-torch (foreign-procedure \"param_register_buffer_return_torch\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-buffer-return-torch) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__paramRegisterBufferTorch : String -> AnyPtr -> AnyPtr
+%foreign "C:param_is_buffer_torch,libidrisml"
+prim__paramIsBufferTorch : Int -> PrimIO Int
 %foreign "C:polyak_blend_torch,libidrisml"
 prim__polyakBlendTorch : Double -> String -> String -> PrimIO Int
 %foreign "C:param_count_torch,libidrisml"
@@ -633,8 +637,10 @@ public export
   primParamCount = prim__paramCountTorch
   primParamEraseByPrefix = prim__paramEraseByPrefixTorch
   primParamGradItemAt = prim__paramGradItemAtTorch
+  primParamIsBuffer = prim__paramIsBufferTorch
   primParamName = prim__paramNameTorch
   primParamRegister = prim__paramRegisterTorch
+  primParamRegisterBuffer = prim__paramRegisterBufferTorch
   primParamZeroAll = prim__paramZeroAllTorch
   -- <<< END GENERATED <<<
 

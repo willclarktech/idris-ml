@@ -51,6 +51,7 @@
 #define param_grad_item param_grad_item_tape
 #define param_grad_item_and_zero param_grad_item_and_zero_tape
 #define param_grad_item_at param_grad_item_at_tape
+#define param_is_buffer param_is_buffer_tape
 #define param_load param_load_tape
 #define param_load_data param_load_data_tape
 #define param_load_data_int64 param_load_data_int64_tape
@@ -58,6 +59,8 @@
 #define param_load_with_prefix param_load_with_prefix_tape
 #define param_name param_name_tape
 #define param_register param_register_tape
+#define param_register_buffer param_register_buffer_tape
+#define param_register_buffer_return param_register_buffer_return_tape
 #define param_register_return param_register_return_tape
 #define param_save param_save_tape
 #define param_save_by_name param_save_by_name_tape

@@ -29,6 +29,14 @@ TensorHandle param_register_return(const char* name, TensorHandle t) {
 	return t;
 }
 
+/* Buffer variant: register WITHOUT marking requires_grad (buffers carry no
+   gradient). The tensor is created via the state-tensor path, so it already
+   has requires_grad=0; we only add it to the registry as a buffer. */
+TensorHandle param_register_buffer_return(const char* name, TensorHandle t) {
+	param_register_buffer(name, t);
+	return t;
+}
+
 int param_zero_all_grads_return(int dummy) {
 	(void)dummy;
 	param_zero_all_grads();

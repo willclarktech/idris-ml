@@ -446,11 +446,16 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle w, TensorHandle sca
 
 /* Register a named parameter for gradient collection after backward() */
 void param_register(const char* name, TensorHandle t);
+/* Register a non-learnable buffer (PyTorch register_buffer): saved/loaded
+   by name like a param, but param_is_buffer flags it so the optimizer,
+   clip, and grad-norm walks skip it. */
+void param_register_buffer(const char* name, TensorHandle t);
 void param_clear(void);
 void param_erase_by_prefix(const char* prefix); /* drop entries with paramId starting with prefix */
 int param_count(void);
 const char* param_name(int idx);
-double param_grad_item(int idx);                        /* read scalar grad for param i */
+int param_is_buffer(int idx);    /* 1 = non-learnable buffer (never stepped) */
+double param_grad_item(int idx); /* read scalar grad for param i */
 double param_grad_item_at(int param_idx, int elem_idx); /* read grad element */
 double param_grad_item_and_zero(int idx);               /* read grad, then zero it */
 TensorHandle param_tensor(int idx);
@@ -633,7 +638,9 @@ TensorHandle tensor_swiglu_2d(TensorHandle gate, TensorHandle up);
 TensorHandle tensor_backward_return(TensorHandle t); /* backward(t); return t */
 TensorHandle param_register_return(const char* name,
                                    TensorHandle t); /* set_requires_grad + register; return t */
-int param_zero_all_grads_return(int dummy);         /* zero_all_grads(); return 0 */
+TensorHandle param_register_buffer_return(const char* name,
+                                          TensorHandle t); /* register_buffer (no grad); return t */
+int param_zero_all_grads_return(int dummy);                /* zero_all_grads(); return 0 */
 /* tensor_write_double_return / tensor_ptr_array_set_return /
  * tensor_alloc_ints / tensor_free_ints / tensor_write_int_return
  * are unified across backends — declared in shared_utils.h. */

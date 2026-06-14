@@ -816,6 +816,13 @@ export
 getParamName : UserExecutorTraining ex => Int -> IO String
 getParamName i = primIO (primParamName {ex} i)
 
+||| True if the `i`th registered entry is a non-learnable buffer (saved /
+||| loaded by name, but never stepped by the optimizer). Used by the freeze
+||| walk to skip buffers.
+export
+getParamIsBuffer : UserExecutorTraining ex => Int -> IO Bool
+getParamIsBuffer i = (/= 0) <$> primIO (primParamIsBuffer {ex} i)
+
 ||| Get gradient element for param i, element j.
 export
 getParamGradAt : UserExecutorTraining ex => Int -> Int -> IO Double
@@ -1715,6 +1722,26 @@ scalarSpecValue (Const x)       = pure x
 scalarSpecValue (Normal mu sd)  = pure (mu + sd * !normalSample)
 scalarSpecValue (Uniform lo hi) = randomRIO (lo, hi)
 scalarSpecValue (FromVect [x])  = pure x
+
+||| Create a registered NON-LEARNABLE buffer [n] (PyTorch register_buffer)
+||| from a double buffer. Lands in the same registry as a param — so
+||| save/load persists it by name with no extra plumbing — but it carries
+||| no gradient and `param_is_buffer` flags it so every optimizer / clip /
+||| grad-norm walk skips it. Used for running statistics (BatchNorm).
+export
+tbuffer1d : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> (bufId : String) -> AnyPtr -> IO (Tensor [n] ex dt NoGrad)
+tbuffer1d {n} bid buf = ioRerun (\_ =>
+  let nI = cast {to=Int} n
+      reg = primParamRegisterBuffer {ex} bid (dtCreateState1d {ex} {t=dt} nI buf (deviceStreamTag {ex}))
+  in MkTensor reg (Just bid))
+
+||| `tbuffer1d` filled with a constant — the running-stat init path
+||| (mean=0, var=1).
+export
+tbuffer1dConst : {0 ex : Executor} -> Backend ex dt => {n : Nat} -> (bufId : String) -> (value : Double) -> IO (Tensor [n] ex dt NoGrad)
+tbuffer1dConst {n} bid value = do
+  buf <- fillSpecBuf (cast n) (the (InitSpec n) (Const value))
+  tbuffer1d {ex} {dt} {n} bid buf
 
 ||| Construct a non-learnable tensor of any rank from an `InitSpec`.
 ||| `FromVect`'s length is tied to `Numel dims` at compile time, so a

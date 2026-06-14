@@ -485,6 +485,10 @@ prim__tensorDimMlx : AnyPtr -> Int
 prim__tensorSizeAtMlx : AnyPtr -> Int -> Int
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-return-mlx)) (set-top-level-value! 'idris-ffi-param-register-return-mlx (foreign-procedure \"param_register_return_mlx\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-return-mlx) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 prim__paramRegisterMlx : String -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-buffer-return-mlx)) (set-top-level-value! 'idris-ffi-param-register-buffer-return-mlx (foreign-procedure \"param_register_buffer_return_mlx\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-buffer-return-mlx) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
+prim__paramRegisterBufferMlx : String -> AnyPtr -> AnyPtr
+%foreign "C:param_is_buffer_mlx,libidrisml"
+prim__paramIsBufferMlx : Int -> PrimIO Int
 %foreign "C:polyak_blend_mlx,libidrisml"
 prim__polyakBlendMlx : Double -> String -> String -> PrimIO Int
 %foreign "C:param_count_mlx,libidrisml"
@@ -640,8 +644,10 @@ public export
   primParamCount = prim__paramCountMlx
   primParamEraseByPrefix = prim__paramEraseByPrefixMlx
   primParamGradItemAt = prim__paramGradItemAtMlx
+  primParamIsBuffer = prim__paramIsBufferMlx
   primParamName = prim__paramNameMlx
   primParamRegister = prim__paramRegisterMlx
+  primParamRegisterBuffer = prim__paramRegisterBufferMlx
   primParamZeroAll = prim__paramZeroAllMlx
   -- <<< END GENERATED <<<
 

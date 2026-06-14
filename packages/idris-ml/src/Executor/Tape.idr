@@ -437,6 +437,10 @@ prim__tensorDimTape : AnyPtr -> Int
 prim__tensorSizeAtTape : AnyPtr -> Int -> Int
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-return-tape)) (set-top-level-value! 'idris-ffi-param-register-return-tape (foreign-procedure \"param_register_return_tape\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-return-tape) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__paramRegisterTape : String -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-buffer-return-tape)) (set-top-level-value! 'idris-ffi-param-register-buffer-return-tape (foreign-procedure \"param_register_buffer_return_tape\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-buffer-return-tape) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__paramRegisterBufferTape : String -> AnyPtr -> AnyPtr
+%foreign "C:param_is_buffer_tape,libidrisml"
+prim__paramIsBufferTape : Int -> PrimIO Int
 %foreign "C:polyak_blend_tape,libidrisml"
 prim__polyakBlendTape : Double -> String -> String -> PrimIO Int
 %foreign "C:param_count_tape,libidrisml"
@@ -595,8 +599,10 @@ UserExecutorParamRegistry TapeExecutor where
   primParamCount = prim__paramCountTape
   primParamEraseByPrefix = prim__paramEraseByPrefixTape
   primParamGradItemAt = prim__paramGradItemAtTape
+  primParamIsBuffer = prim__paramIsBufferTape
   primParamName = prim__paramNameTape
   primParamRegister = prim__paramRegisterTape
+  primParamRegisterBuffer = prim__paramRegisterBufferTape
   primParamZeroAll = prim__paramZeroAllTape
   -- <<< END GENERATED <<<
 

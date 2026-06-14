@@ -480,6 +480,12 @@ interface UserExecutorCore ex => UserExecutorAutograd (0 ex : Executor) where
 public export
 interface UserExecutorAutograd ex => UserExecutorParamRegistry (0 ex : Executor) where
   primParamRegister     : String -> AnyPtr -> AnyPtr
+  ||| Register a non-learnable buffer (PyTorch register_buffer). Lands in
+  ||| the same table as `primParamRegister` so save/load picks it up by
+  ||| name, but `primParamIsBuffer` flags it so the optimizer skips it.
+  primParamRegisterBuffer : String -> AnyPtr -> AnyPtr
+  ||| 1 if the `i`th registered entry is a buffer (never stepped), else 0.
+  primParamIsBuffer     : Int -> PrimIO Int
   ||| Number of params registered in this backend's registry.
   primParamCount        : PrimIO Int
   ||| paramId of the `i`th registered param.

@@ -32,6 +32,21 @@ ENTRIES = {
         c_symbol="param_register_return",
         mlx="direct",
     ),
+    "param_register_buffer": Entry(
+        args=("s", "T"),
+        ret="T",
+        slice="UserExecutorParamRegistry",
+        idris_method="primParamRegisterBuffer",
+        c_symbol="param_register_buffer_return",
+        mlx="direct",
+    ),
+    "param_is_buffer": Entry(
+        args=("i",),
+        ret="i",
+        slice="UserExecutorParamRegistry",
+        idris_method="primParamIsBuffer",
+        mlx="direct",
+    ),
     "param_zero_all": Entry(
         args=(),
         ret="v",
