@@ -10,6 +10,7 @@ import Test.GradMode
 import Test.GradScaler
 import Test.Math
 import Test.Nn.Activation as Test.Nn.Activation
+import Test.Nn.Equivalence as Test.Nn.Equivalence
 import Test.Nn.Freeze as Test.Nn.Freeze
 import Test.Nn.Group as Test.Nn.Group
 import Test.Nn.Init as Test.Nn.Init
@@ -67,6 +68,7 @@ main = runAll
   , ("GradScaler",      Test.GradScaler.tests)
   , ("Math",            Test.Math.tests)
   , ("Nn.Activation",   Test.Nn.Activation.tests)
+  , ("Nn.Equivalence",  Test.Nn.Equivalence.tests)
   , ("Nn.Freeze",       Test.Nn.Freeze.tests)
   , ("Nn.Group",        Test.Nn.Group.tests)
   , ("Nn.Init",         Test.Nn.Init.tests)
