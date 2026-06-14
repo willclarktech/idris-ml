@@ -1,5 +1,7 @@
 module Test.Reinforce
 
+import Control.Linear.LIO
+import Data.Linear.Notation
 import Data.List
 import Data.Vect
 import System
@@ -61,8 +63,13 @@ testParityN1 = do
       states : VecEnv 1 CPState     = MkVecEnv [initState]
       rss    : Vect 1 (List Double) = [rs]
 
-  seqSteps <- rolloutEp model initState rs testMaxSteps []
-  batchSteps <- rolloutEpBatched model states rss testMaxSteps
+  -- Thread the (linear) policy through both rollout paths; rollouts are
+  -- read-only on params, so the two paths see identical weights → parity.
+  (seqSteps, batchSteps) <- Control.Linear.LIO.run (do
+     (MkBang ss # p1) <- rolloutEpL model initState rs testMaxSteps []
+     (MkBang bs # p2) <- rolloutEpBatchedL p1 states rss testMaxSteps
+     discard p2
+     pure (ss, bs))
   let seqReward = sumRewards seqSteps
       batchReward = sumRewards (head batchSteps)
 
@@ -79,9 +86,12 @@ testParityN2 = do
       states : VecEnv 2 CPState     = MkVecEnv [initState, initState]
       rss    : Vect 2 (List Double) = [rs1, rs2]
 
-  seq1 <- rolloutEp model initState rs1 testMaxSteps []
-  seq2 <- rolloutEp model initState rs2 testMaxSteps []
-  batch <- rolloutEpBatched model states rss testMaxSteps
+  (seq1, seq2, batch) <- Control.Linear.LIO.run (do
+     (MkBang s1 # p1) <- rolloutEpL model initState rs1 testMaxSteps []
+     (MkBang s2 # p2) <- rolloutEpL p1 initState rs2 testMaxSteps []
+     (MkBang b # p3) <- rolloutEpBatchedL p2 states rss testMaxSteps
+     discard p3
+     pure (s1, s2, b))
   let batch1 = index 0 batch
       batch2 = index 1 batch
 
