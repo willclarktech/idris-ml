@@ -11,6 +11,7 @@ import Test.GradScaler
 import Test.Math
 import Test.Nn.Activation as Test.Nn.Activation
 import Test.Nn.Dropout as Test.Nn.Dropout
+import Test.Nn.Embedding as Test.Nn.Embedding
 import Test.Nn.Equivalence as Test.Nn.Equivalence
 import Test.Nn.Freeze as Test.Nn.Freeze
 import Test.Nn.Group as Test.Nn.Group
@@ -19,6 +20,7 @@ import Test.Nn.LayerNorm as Test.Nn.LayerNorm
 import Test.Nn.Linear as Test.Nn.Linear
 import Test.Nn.Module as Test.Nn.Module
 import Test.Nn.Residual as Test.Nn.Residual
+import Test.Nn.RmsNorm as Test.Nn.RmsNorm
 import Test.Nn.Seq as Test.Nn.Seq
 import Test.Schedule
 import Test.Init
@@ -71,6 +73,7 @@ main = runAll
   , ("Math",            Test.Math.tests)
   , ("Nn.Activation",   Test.Nn.Activation.tests)
   , ("Nn.Dropout",      Test.Nn.Dropout.tests)
+  , ("Nn.Embedding",    Test.Nn.Embedding.tests)
   , ("Nn.Equivalence",  Test.Nn.Equivalence.tests)
   , ("Nn.Freeze",       Test.Nn.Freeze.tests)
   , ("Nn.Group",        Test.Nn.Group.tests)
@@ -79,6 +82,7 @@ main = runAll
   , ("Nn.Linear",       Test.Nn.Linear.tests)
   , ("Nn.Module",       Test.Nn.Module.tests)
   , ("Nn.Residual",     Test.Nn.Residual.tests)
+  , ("Nn.RmsNorm",      Test.Nn.RmsNorm.tests)
   , ("Nn.Seq",          Test.Nn.Seq.tests)
   , ("Schedule",        Test.Schedule.tests)
   , ("TensorExpr",      Test.TensorExpr.tests)

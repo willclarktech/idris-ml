@@ -35,6 +35,7 @@ modules = Test.Main
         , Test.Math
         , Test.Nn.Activation
         , Test.Nn.Dropout
+        , Test.Nn.Embedding
         , Test.Nn.Equivalence
         , Test.Nn.Freeze
         , Test.Nn.Group
@@ -43,6 +44,7 @@ modules = Test.Main
         , Test.Nn.Linear
         , Test.Nn.Module
         , Test.Nn.Residual
+        , Test.Nn.RmsNorm
         , Test.Nn.Seq
         , Test.MixedLayerLike
         , Test.Optimizer

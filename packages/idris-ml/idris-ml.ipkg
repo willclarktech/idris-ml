@@ -63,12 +63,14 @@ modules = Compat.Random
         , Math
         , Nn.Activation
         , Nn.Dropout
+        , Nn.Embedding
         , Nn.Group
         , Nn.Init
         , Nn.LayerNorm
         , Nn.Linear
         , Nn.Module
         , Nn.Residual
+        , Nn.RmsNorm
         , Nn.Seq
         , Optimizer
         , RL.Gae
