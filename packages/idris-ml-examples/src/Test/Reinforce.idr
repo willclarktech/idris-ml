@@ -4,16 +4,11 @@ import Data.List
 import Data.Vect
 import System
 
-import BuildConfig
 import Compat.Random
 import Example.Reinforce
-import Executor
 import Gym.ClassicControl.CartPole
 import Gym.Vector
-import Layer.Activation
-import Layer.Core
-import Layer.Linear
-import Tensor
+import ML.Simple
 import Test.Harness
 
 -- Short step budget so test runs are tape-friendly. 200 steps × N=2
@@ -22,15 +17,18 @@ testMaxSteps : Nat
 testMaxSteps = 20
 
 ||| Build a fresh deterministic REINFORCE policy for use in both rollout
-||| paths. Initialization reads from C-side RNG state, so we build it
-||| ONCE per test and reuse the same Network for sequential and batched
-||| rollouts.
-mkModel : IO (Network 4 [16, 16] 2 ExampleExecutor ExampleDType WithGrad)
+||| paths. Built ONCE per test and reused across the sequential and
+||| batched rollouts, so the two paths see an identical model — that's
+||| what makes the parity assertion meaningful (the init values
+||| themselves don't matter). Mirrors the example's `Policy` MLP
+||| (4 -> 128 -> tanh -> 2) on the `Nn`/`runInit` surface.
+mkModel : IO Policy
 mkModel = do
   srand 12345  -- deterministic init for parity reproducibility
-  ll1 <- linearLayerAny {i=4} {o=16} "test_ll1"
-  ll2 <- linearLayerAny {i=16} {o=2} "test_ll2"
-  pure (ll1 ~~> tanhLayerAny ~~> OutputLayer ll2)
+  runInit $ do
+    l1 <- linear {i=4} {o=128}
+    l2 <- linear {i=128} {o=2}
+    pure (l1 ~~> tanhA ~~> l2 ~~> Nil)
 
 ||| A deterministic pseudo-RNG sequence to drive `categoricalSample`.
 ||| Pre-computed so both rollouts see identical randomness. Idris is

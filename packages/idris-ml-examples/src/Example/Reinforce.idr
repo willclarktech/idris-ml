@@ -24,6 +24,7 @@ observe : CPState -> Vector 4 Double
 observe s = VArray (map SArray (cpObserve s))
 
 -- Policy network: MLP 4 -> 128 -> tanh -> 2 (action logits).
+public export
 Policy : Type
 Policy = Seq 4 2 Ex F WithGrad
 
