@@ -2317,6 +2317,14 @@ distinguishing lossy-cast numerics stay C-tested (`cast_grad_propagation`); the 
 `paramDt = computeDt` (cross-backend-safe — F64 isn't `Compatible` on mlx-gpu/torch-mps) and verify
 composition + that the cast keeps the tape intact through to the master.
 
+*Update (2026-06-17): collapsed onto the linear surface.* When `Module`/`Params` became single-owner
+linear resources (the linear-model collapse), `ModuleMixed`/`ParamsMixed` were the last interfaces left
+on plain `IO`. No-backcompat → collapse, not twin: `forwardMixed` now consumes-and-threads the model
+handle (mirror of `Module.forward`, output rides the `(!*)` bang), and `ParamsMixed` gained linear
+`reflectMixed`/`castGradMixed`/`discardMixed` beside the ω-read `paramsMixed`. Behaviour-preserving
+(the `paramDt→computeDt` math is unchanged); the retyped `Test.Nn.LinearMixed` (incl. `masterGradFlows`)
++ the C `cast_grad_propagation` test guard it. Added a `tcastUnsafeL` `*L` op twin for the forward body.
+
 Out of scope (later rows): the `ML`/`ML.Simple` single-import preludes; migrating the ~33 examples to
 `Nn` + deleting `Layer/`.
 

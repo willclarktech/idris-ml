@@ -416,10 +416,11 @@ identical across examples; the recipe (verified on `Supervised` + `Rnn`):
 7. **Loss/eval ops not yet on the `L IO` surface** get an `*L` twin added to
    `Tensor.idr` as needed (e.g. `tnllLossMeanL`), same `ioRerunL (\_ => …)`
    shape as the rest.
-7. **Mixed-precision paths stay on IO.** `ModuleMixed`/`ParamsMixed` have no
-   linear surface yet (the `*MixedL` follow-up), so a mixed branch keeps using
-   the IO `forwardMixed`/`fitSupervisedMixed`. `main : IO` calls `run` for the
-   linear branch and plain IO for the mixed one — they coexist.
+7. **Mixed-precision paths are on the linear surface too.** `ModuleMixed`/
+   `ParamsMixed` collapsed onto `L IO` (2026-06-17): `forwardMixed` consumes-
+   and-threads the model handle (mirror of `Module.forward`), `ParamsMixed`
+   adds linear `reflectMixed`/`castGradMixed`/`discardMixed` beside the ω-read
+   `paramsMixed`. A mixed branch threads its model through `run` like any other.
 
 ## Born-linear construction (`runInitL`)
 
@@ -501,9 +502,9 @@ merge at Phase 9).
 > `reflect`/`castGrad`/`discard`. **Still dual / IO** (no footgun — tensors are
 > unrestricted): the `*L` tensor ops (`taddL`/…) beside the IO ones,
 > `runInitL`/`bornL`/`withNoGradL`/`withGenFreeL`, `ioRerunL`, the HF `hf*L`
-> forward twins, `ModuleMixed`/`ParamsMixed` (`Nn.LinearMixed`; a `MixedL`
-> linear twin is still a follow-up), and `Train.Engine`/`Train.EngineL`
-> (internal plumbing — `Fit` uses `EngineL.runEpochLoopL`). The file map below
+> forward twins, and `Train.Engine`/`Train.EngineL`
+> (internal plumbing — `Fit` uses `EngineL.runEpochLoopL`). (`ModuleMixed`/
+> `ParamsMixed` were collapsed onto the linear surface 2026-06-17.) The file map below
 > is the pre-collapse layout; mentally drop the `L` from every *model* name.
 > See the CHANGELOG "Linear-model collapse" entry + the gotchas section at the
 > end of this doc.
@@ -526,10 +527,10 @@ merge at Phase 9).
 - `packages/idris-ml/src/Test/{neg/ReuseAfterFreeze,pos/SingleUseCompiles}.idr`
   + `scripts/check-linear-model-gate.sh` — the gate.
 
-Not yet on the linear surface: `LinearMixed` (the mixed-precision
+On the linear surface as of 2026-06-17: `LinearMixed` (the mixed-precision
 `ModuleMixed`/`ParamsMixed` family — a distinct kind with the `computeDt` slot;
-a `*MixedL` surface is a follow-up). Parameter-free `PosEncoding`/`RoPE` need
-none.
+`forwardMixed` consumes-and-threads, `ParamsMixed` mirrors `Params`).
+Parameter-free `PosEncoding`/`RoPE` need none.
 
 - `packages/idris-ml/src/Tensor.idr` — the additive `L IO` op surface
   (`ioRerunL` + `taddL`/`tlinearL`/`tlinear2dL`/`tzeroState1dL`/
