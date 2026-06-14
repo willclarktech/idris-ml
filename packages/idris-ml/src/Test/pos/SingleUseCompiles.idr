@@ -15,6 +15,7 @@ import Nn.Dropout
 import Nn.LayerNorm
 import Nn.Linear
 import Nn.Module
+import Nn.Residual
 import Nn.SeqL
 
 -- Leaf: consume the trainable model exactly once, return the inference one.
@@ -39,3 +40,8 @@ okDropout d = evalL d
 okLayerNorm : (1 _ : LayerNorm 4 4 TapeExecutor F64 WithGrad) ->
               L IO {use=1} (LayerNorm 4 4 TapeExecutor F64 NoGrad)
 okLayerNorm n = evalL n
+
+-- Composite-with-sublayer: a linear residual block also satisfies `evalL`.
+okResidual : (1 _ : ResidualL 4 4 TapeExecutor F64 WithGrad) ->
+             L IO {use=1} (ResidualL 4 4 TapeExecutor F64 NoGrad)
+okResidual r = evalL r
