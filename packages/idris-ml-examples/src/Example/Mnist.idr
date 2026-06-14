@@ -1,42 +1,28 @@
 -- | MNIST: Convolutional Neural Network
 -- |
--- | LeNet-style CNN for handwritten digit classification.
--- | Conv2d(1->16,k=5) -> ReLU -> MaxPool(2) ->
+-- | LeNet-style CNN for handwritten digit classification, on the v1 Nn/fit
+-- | surface. Conv2d(1->16,k=5) -> ReLU -> MaxPool(2) ->
 -- | Conv2d(16->32,k=5) -> ReLU -> MaxPool(2) -> Dropout(0.5) ->
--- | Linear(512->10). Outputs raw logits; tnllLoss applies log_softmax.
+-- | Linear(512->10). Raw logits; tnllLossMean applies log_softmax.
 -- |
--- | Loads MNIST .idx files via C FFI. Trains on random mini-batches.
+-- | Loads MNIST .idx files via the `idxDataset` Dataset adapter, streams
+-- | shuffled mini-batches with `batched`, trains with `fitSupervised`.
 
 module Example.Mnist
 
+import Data.Fin
 import Data.List
-import Data.String
 import Data.Vect
-import Decidable.Equality
 import System
 import Compat.Random
 
-import Backprop
-import DataLoader
-import DataPoint
-import Floating
-import Generate
-import Hpo.LrFinder
-import Layer.Activation
-import Layer.Conv  -- ConvOutDim / PoolOutDim type-level helpers
-import Layer.Core
-import Layer.Dropout
-import Layer.Linear
-import Array
-import Train
-import Util
-import Executor
-import Tensor
-import BuildConfig
+import ML.Simple
+import Train          -- patienceConfig
+import BuildConfig    -- ChosenMachine / requireMachine
 
 
 ----------------------------------------------------------------------
--- Architecture
+-- Architecture (flat dims)
 ----------------------------------------------------------------------
 
 InC : Nat
@@ -51,58 +37,26 @@ OutC2 = 32
 KH : Nat
 KH = 5
 
-KW : Nat
-KW = 5
-
 ImgH : Nat
 ImgH = 28
 
-ImgW : Nat
-ImgW = 28
+Conv1Out : Nat
+Conv1Out = ConvOutDim ImgH KH 0  -- 24
 
--- After Conv1: 28-5+1 = 24
-Conv1OutH : Nat
-Conv1OutH = ConvOutDim ImgH KH 0  -- 24
+Pool1Out : Nat
+Pool1Out = PoolOutDim Conv1Out 2 2  -- 12
 
-Conv1OutW : Nat
-Conv1OutW = ConvOutDim ImgW KW 0  -- 24
+Conv2Out : Nat
+Conv2Out = ConvOutDim Pool1Out KH 0  -- 8
 
--- After Pool1: 24/2 = 12
-Pool1OutH : Nat
-Pool1OutH = PoolOutDim Conv1OutH 2 2  -- 12
+Pool2Out : Nat
+Pool2Out = PoolOutDim Conv2Out 2 2  -- 4
 
-Pool1OutW : Nat
-Pool1OutW = PoolOutDim Conv1OutW 2 2  -- 12
-
--- After Conv2: 12-5+1 = 8
-Conv2OutH : Nat
-Conv2OutH = ConvOutDim Pool1OutH KH 0  -- 8
-
-Conv2OutW : Nat
-Conv2OutW = ConvOutDim Pool1OutW KW 0  -- 8
-
--- After Pool2: 8/2 = 4
-Pool2OutH : Nat
-Pool2OutH = PoolOutDim Conv2OutH 2 2  -- 4
-
-Pool2OutW : Nat
-Pool2OutW = PoolOutDim Conv2OutW 2 2  -- 4
-
--- Flat dimensions for Network chain
 InputDim : Nat
-InputDim = InC * (ImgH * ImgW)  -- 784
-
-AfterConv1 : Nat
-AfterConv1 = OutC1 * (Conv1OutH * Conv1OutW)  -- 9216
-
-AfterPool1 : Nat
-AfterPool1 = OutC1 * (Pool1OutH * Pool1OutW)  -- 2304
-
-AfterConv2 : Nat
-AfterConv2 = OutC2 * (Conv2OutH * Conv2OutW)  -- 2048
+InputDim = InC * (ImgH * ImgH)  -- 784
 
 AfterPool2 : Nat
-AfterPool2 = OutC2 * (Pool2OutH * Pool2OutW)  -- 512
+AfterPool2 = OutC2 * (Pool2Out * Pool2Out)  -- 512
 
 NumClasses : Nat
 NumClasses = 10
@@ -110,110 +64,60 @@ NumClasses = 10
 BatchSize : Nat
 BatchSize = 64
 
-
-----------------------------------------------------------------------
--- Data Loading
-----------------------------------------------------------------------
-
-||| Fetch a single MNIST image as a TensorDataPoint (raw tensor pointer).
-mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
-mnistItem ds idx = do
-  let -- idxImage / one_hot are dtype-aware: ExampleDType is fixed at the
-      -- type level via the {t=ExampleDType} implicit, so both yield
-      -- ExampleDType directly (no cast on any build). idxImage produces
-      -- the flat 1-D shape the model consumes — no intermediate
-      -- [1, 28, 28] handle to reshape away.
-      flatImg = idxImage {ex=ExampleExecutor} {t=ExampleDType} ds (cast {to=Int} (natToInteger idx)) (cast {to=Int} InputDim)
-      lbl = prim__idxLabel ds (cast {to=Int} (natToInteger idx))
-      lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
-      tgtT = primOneHot {ex=ExampleExecutor} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
-  pure (MkTensorDataPoint flatImg tgtT)
+EvalSize : Nat
+EvalSize = 1000
 
 
 ----------------------------------------------------------------------
--- Evaluation
+-- Model + loss
 ----------------------------------------------------------------------
 
-||| Evaluate accuracy on nSamples random test images by forwarding each
-||| image through the  model and arg-maxing the logits.
-evalAccuracy : {hs : List Nat} ->
-               Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad ->
-               AnyPtr -> Int -> Nat -> IO (Double, Double)
-evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
+Model : Type
+Model = Seq InputDim NumClasses Ex F WithGrad
+
+buildModel : IO Model
+buildModel = runInit $ do
+  c1 <- conv2d {inC = InC}   {outC = OutC1} {h = ImgH}     {w = ImgH}     {kH = KH} {kW = KH} {padH = 0} {padW = 0}
+  c2 <- conv2d {inC = OutC1} {outC = OutC2} {h = Pool1Out} {w = Pool1Out} {kH = KH} {kW = KH} {padH = 0} {padW = 0}
+  l  <- linear {i = AfterPool2} {o = NumClasses}
+  pure (c1 ~~> reluA
+           ~~> maxPool2d {c = OutC1} {inH = Conv1Out} {inW = Conv1Out} {poolH = 2} {poolW = 2} {strH = 2} {strW = 2}
+           ~~> c2 ~~> reluA
+           ~~> maxPool2d {c = OutC2} {inH = Conv2Out} {inW = Conv2Out} {poolH = 2} {poolW = 2} {strH = 2} {strW = 2}
+           ~~> dropout 0.5
+           ~~> l ~~> Nil)
+
+nllLoss : Model -> (Tensor [BatchSize, InputDim] Ex F NoGrad, Tensor [BatchSize, NumClasses] Ex F NoGrad) ->
+          IO (Tensor [] Ex F WithGrad)
+nllLoss model (x, tgt) = do
+  out <- forwardSeq {b = BatchSize} model (retypeGrad x)
+  tnllLossMean {b = BatchSize} {n = NumClasses} out (retypeGrad tgt)
+
+
+----------------------------------------------------------------------
+-- Evaluation: argmax accuracy over one EvalSize batch of test images
+----------------------------------------------------------------------
+
+-- argmax over the NumClasses entries of row r of a [b, NumClasses] tensor.
+argmaxRow : AnyPtr -> Int -> Int
+argmaxRow t r = go 1 0 (primItem2d {ex=Ex} t r 0)
   where
-    argmax : AnyPtr -> Double -> Int -> Int -> Int
-    argmax outT best bestI idx =
-      if idx >= cast {to=Int} NumClasses then bestI
-      else let v = primItem1d {ex=ExampleExecutor} outT idx
-           in if v > best then assert_total $ argmax outT v idx (idx + 1)
-                          else assert_total $ argmax outT best bestI (idx + 1)
+    go : Int -> Int -> Double -> Int
+    go j best bestV =
+      if j >= cast {to=Int} NumClasses then best
+      else let v = primItem2d {ex=Ex} t r j
+           in if v > bestV then assert_total (go (j + 1) j v)
+                           else assert_total (go (j + 1) best bestV)
 
-    go : Nat -> Nat -> Double -> IO (Double, Double)
-    go Z correct totalLoss =
-      let n = cast {to=Double} (natToInteger nSamples)
-      in pure (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
-    go (S k) correct totalLoss = do
-      let pos = cast {to=Int} (k * cast numImages `div` nSamples)
-          flatImg = idxImage {ex=ExampleExecutor} {t=ExampleDType} ds pos (cast {to=Int} InputDim)
-          lbl = prim__idxLabel ds pos
-          inV = the (TVec InputDim ExampleExecutor ExampleDType WithGrad) (MkTensor flatImg Nothing)
-      -- `forwardVarTraced` is `forwardVar` + a log-level switch: at
-      -- INFO (default) it's a passthrough, at DEBUG it emits a
-      -- per-layer min/max/mean line via `logDebug`, at TRACE it
-      -- additionally dumps each layer's activation to
-      -- `${IDRISML_ACTIVATION_DIR}/mnist_eval-<seq>.safetensors`.
-      -- See `Layer/Core.idr`'s `forwardVarTraced` doc.
-      (_, predV) <- forwardVarTraced "mnist_eval" model inV
-      let outT = predV.tensorPtr
-          pred = argmax outT (-1.0e30) 0 0
-          correct' = if pred == lbl then S correct else correct
-          lblBuf = prim__allocInts 1
-          lblBuf' = prim__setInt lblBuf 0 lbl
-          tgtT = primOneHot {ex=ExampleExecutor} lblBuf' 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
-          tgtV = the (TVec NumClasses ExampleExecutor ExampleDType WithGrad) (MkTensor tgtT Nothing)
-      lossT <- tnllLoss predV tgtV
-      let lossVal = primItem {ex=ExampleExecutor} lossT.tensorPtr
-      go k correct' (totalLoss + lossVal)
-
-
-----------------------------------------------------------------------
--- Training helpers
-----------------------------------------------------------------------
-
-||| One epoch = one full pass over the training set (PyTorch semantics).
-||| Threads the model and accumulates per-batch loss across all
-||| `batchesPerEpoch` mini-batches drawn from the indexed loader.
-||| Each mini-batch invokes `epochVarTensorBatch` (single batched
-||| forward through the Network + per-row loss + backward + step).
-||| This is the wrapper-overhead-killing version: one
-||| `tensor_conv2d_batched` C call per mini-batch instead of B per-
-||| sample `tensor_conv2d` calls.
-partial
-trainOneFullPass : {hs : List Nat} ->
-                   NativeOptimizer ExampleExecutor ->
-                   IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
-                   (batchesPerEpoch : Nat) ->
-                   Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad ->
-                   IO (Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad, Double)
-trainOneFullPass opt genBatch n m0 = go m0 n 0.0
-  where
-    go : Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad -> Nat -> Double ->
-         IO (Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad, Double)
-    go m Z     acc = pure (m, acc / cast (natToInteger n))
-    go m (S k) acc = do
-      batch <- genBatch
-      (m', loss) <- epochVarTensorBatch opt batch tnllLoss m
-      go m' k (acc + loss)
-
-||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
-mnistMetrics : {hs : List Nat} ->
-               AnyPtr -> Int ->
-               Network InputDim hs NumClasses ExampleExecutor ExampleDType WithGrad ->
-               IO (List (String, String))
-mnistMetrics testDs testCount m = do
-  pair <- withNoGrad {ex=ExampleExecutor} (evalAccuracy m testDs testCount 200)
-  pure [("test_acc", show (fst pair)),
-        ("test_loss", show (snd pair))]
+evalAccuracy : Seq InputDim NumClasses Ex F NoGrad ->
+               (Tensor [EvalSize, InputDim] Ex F NoGrad, Tensor [EvalSize, NumClasses] Ex F NoGrad) ->
+               IO Double
+evalAccuracy model (x, tgt) = do
+  pred <- forwardSeq {b = EvalSize} model x
+  let correct = length $ filter id
+        [ argmaxRow pred.tensorPtr r == argmaxRow tgt.tensorPtr r
+        | r <- map (cast {to=Int}) [the Nat 0 .. EvalSize `minus` 1] ]
+  pure (cast {to=Double} correct / cast {to=Double} EvalSize)
 
 
 ----------------------------------------------------------------------
@@ -227,11 +131,10 @@ record Config where
   patience : Nat
   seed : Bits64
   dataDir : String
-  lrFind : Bool
-  trainCount : Nat   -- 0 = use full dataset
+  trainCount : Nat   -- 0 = full dataset
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5 3 42 "data/mnist" False 0
+defaultConfig = MkConfig 0.001 5 3 42 "data/mnist" 0
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -239,11 +142,19 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--data" (\v, c => { dataDir := v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         , Arg "--train-count" (\v, c => { trainCount := castNat v } c) ]
 
+-- Shrink a Dataset to the first `n` items (n <= size). Used by --train-count.
+-- Can't field-update `size` (the dependent `item : Fin size -> _`), so rebuild
+-- via `fromIndexed`, re-injecting the in-bounds index (Nothing unreachable).
+limitDataset : Nat -> Dataset a -> Dataset a
+limitDataset n ds = fromIndexed (min n ds.size) $ \k =>
+  case natToFin k ds.size of
+    Just fin => ds.item fin
+    Nothing  => assert_total $ idris_crash "Mnist.limitDataset: index out of range"
 
-partial
+%default partial
+
 main : IO ()
 main = do
   requireMachine {m = ChosenMachine}
@@ -251,80 +162,43 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
-  tsetInitSeed {ex = ExampleExecutor} cfg.seed
+  tsetInitSeed {ex = Ex} cfg.seed
 
   putStrLn "=== MNIST: Convolutional Neural Network ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
   putStrLn "Architecture: Conv2d(1->16,k=5) -> ReLU -> Pool(2) -> Conv2d(16->32,k=5) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(512->10)"
 
-  -- Load MNIST
-  let trainImgPath = cfg.dataDir ++ "/train-images-idx3-ubyte"
-      trainLblPath = cfg.dataDir ++ "/train-labels-idx1-ubyte"
-      testImgPath  = cfg.dataDir ++ "/t10k-images-idx3-ubyte"
-      testLblPath  = cfg.dataDir ++ "/t10k-labels-idx1-ubyte"
-  let trainDs = prim__idxLoad trainImgPath trainLblPath
-  let testDs = prim__idxLoad testImgPath testLblPath
-  let trainCount = prim__idxCount trainDs
-      testCount = prim__idxCount testDs
-  putStrLn $ "Train: " ++ show trainCount ++ " images, Test: " ++ show testCount ++ " images"
+  let trainDsFull = idxDataset {ex=Ex} {dt=F}
+        (cfg.dataDir ++ "/train-images-idx3-ubyte") (cfg.dataDir ++ "/train-labels-idx1-ubyte")
+        InputDim NumClasses
+      trainDs = case cfg.trainCount of
+                  Z => trainDsFull
+                  n => limitDataset n trainDsFull
+      testDs = idxDataset {ex=Ex} {dt=F}
+        (cfg.dataDir ++ "/t10k-images-idx3-ubyte") (cfg.dataDir ++ "/t10k-labels-idx1-ubyte")
+        InputDim NumClasses
+  putStrLn $ "Train: " ++ show trainDs.size ++ " images, Test: " ++ show testDs.size ++ " images"
 
-  -- Build  model
-  conv1Any <- conv2dLayerAny {inC=InC, outC=OutC1, h=ImgH, w=ImgW, kH=KH, kW=KW, padH=0, padW=0} "conv1"
-  conv2Any <- conv2dLayerAny {inC=OutC1, outC=OutC2, h=Pool1OutH, w=Pool1OutW, kH=KH, kW=KW, padH=0, padW=0} "conv2"
-  fcAny <- linearLayerAny {i=AfterPool2, o=NumClasses} "fc"
-
-  let model = conv1Any
-            ~~> reluLayerAny
-            ~~> maxPool2dLayer {c=OutC1, inH=Conv1OutH, inW=Conv1OutW, poolH=2, poolW=2, strH=2, strW=2}
-            ~~> conv2Any
-            ~~> reluLayerAny
-            ~~> maxPool2dLayer {c=OutC2, inH=Conv2OutH, inW=Conv2OutW, poolH=2, poolW=2, strH=2, strW=2}
-            ~~> dropoutLayerAny 0.5
-            ~~> OutputLayer fcAny
+  opt <- adam cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
+  model <- buildModel
+  trainStream <- stream (Shuffle cfg.seed) trainDs
+  let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} trainStream
   putStrLn ""
 
-  let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
+  (trained, epochsDone, finalLoss) <-
+    fitSupervised opt nllLoss bs (patienceConfig cfg.epochs cfg.patience) model
 
-  let effectiveCount : Int
-      effectiveCount = case cfg.trainCount of
-                         Z => trainCount
-                         n@(S _) => min trainCount (cast n)
-  when (cfg.trainCount > 0 && effectiveCount < trainCount) $
-    putStrLn $ "Train subset: " ++ show effectiveCount ++ " images (--train-count)"
-
-  genBatch <- mkIndexedLoader {batchSize=BatchSize} (cast effectiveCount) (mnistItem trainDs)
-
-  let batchesPerEpoch : Nat
-      batchesPerEpoch = cast {to=Nat} effectiveCount `div` BatchSize
-  putStrLn $ "Batches/epoch: " ++ show batchesPerEpoch
-           ++ " (batch_size=" ++ show BatchSize ++ ")"
-
-  when cfg.lrFind $ do
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 100 } defaultLrFindConfig
-    _ <- lrFind lrCfg
-      (\m, batch => epochVarTensorBatch opt batch tnllLoss m)
-      genBatch opt model
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  let trainCfg = mkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
-                   (mnistMetrics testDs testCount) (\_ => pure ())
-
-  (trained, epochsDone, finalLoss) <- runTrainingIO {ex=ExampleExecutor}
-    (\m, _ => trainOneFullPass opt genBatch batchesPerEpoch m)
-    (pure ()) trainCfg model
+  -- Accuracy on one EvalSize batch of (shuffled) test images.
+  putStrLn ""
+  infer <- eval trained
+  testStream <- stream (Shuffle cfg.seed) testDs
+  evalBatch <- (batched {b = EvalSize} {i = InputDim} {o = NumClasses} testStream).next
+  acc <- evalAccuracy infer evalBatch
+  putStrLn $ "Final accuracy (" ++ show EvalSize ++ " test samples): " ++ show (acc * 100.0) ++ "%"
 
   putStrLn ""
-  finalPair <- withNoGrad {ex=ExampleExecutor} (evalAccuracy trained testDs testCount 1000)
-  let finalAcc = fst finalPair
-      finalTestLoss = snd finalPair
-  putStrLn $ "Final accuracy (1000 test samples): " ++ show (finalAcc * 100.0) ++ "%"
-  putStrLn $ "Final test loss: " ++ show finalTestLoss
-
-  putStrLn ""
-  putStrLn $ formatResult [("accuracy", show finalAcc),
-                            ("epochs", show epochsDone),
-                            ("seed", show cfg.seed)]
+  putStrLn $ formatResult [("accuracy", show acc),
+                           ("epochs", show epochsDone),
+                           ("loss", show finalLoss),
+                           ("seed", show cfg.seed)]
