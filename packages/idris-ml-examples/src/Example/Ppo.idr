@@ -1,49 +1,32 @@
 module Example.Ppo
 
-import Data.IORef
 import Data.List
 import Data.Vect
+import Data.IORef
 import System
-
-import Array
-import BuildConfig
 import Compat.Random
-import Executor
+
+import ML.Simple
+import Array            -- Vector / VArray / SArray
 import Floating
 import Gym.ClassicControl.Acrobot
 import Gym.Env
 import Gym.Vector
 import Hpo.LrFinder
-import Layer.Activation
-import Layer.Core
-import Layer.Linear
 import Math
 import RL.Gae
 import Sampler
-import Tensor
 import Train
-import Util
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Architecture: separate actor and critic MLPs with discrete-action
--- (categorical) policy on Acrobot. Pendulum (continuous-action Gaussian)
--- was the original env but didn't converge at CPU-feasible rollout
--- sizes; Acrobot is the canonical "PPO clipped-surrogate demonstrates"
--- benchmark — discrete actions, sparse reward, longer horizon.
+-- (categorical) policy on Acrobot. Both register into the C registry
+-- under distinct scoped prefixes (actor./critic.), so a single Adam
+-- steps both off the combined clipped-surrogate + value + entropy loss.
 --
--- Actor:  Linear(6→64) → tanh → Linear(64→64) → tanh → Linear(64→3) = action logits
--- Critic: Linear(6→64) → tanh → Linear(64→64) → tanh → Linear(64→1) = value
---
--- Actor and critic params are scoped via constructor-time paramPrefix
--- ("actor_..." / "critic_..."), no autoNameScoped indirection.
---
--- ⚠ MLX `*>` quirk: iterating mini-batches via `traverse_` (which is
--- defined as `foldr ((*>) . f) (pure ())`) crashes on the MLX backend
--- with "invalid memory reference" the second runBatch invocation
--- onward. The Idris-side `*>` for IO unrolls into something that
--- interacts poorly with 's tape-tracked intermediates after a
--- tape_reset. Workaround: iterate via a do-block recursive helper
--- (`runBatches`), which desugars to `>>=` and works cleanly.
+-- Actor:  Linear(6→64) → tanh → Linear(64→64) → tanh → Linear(64→3)
+-- Critic: Linear(6→64) → tanh → Linear(64→64) → tanh → Linear(64→1)
 ----------------------------------------------------------------------
 
 ObsDim : Nat; ObsDim = 6
@@ -51,38 +34,33 @@ Hidden : Nat; Hidden = 64
 NumActions : Nat; NumActions = 3
 EpisodeLen : Nat; EpisodeLen = 500   -- Acrobot defaultTimeLimit
 
-||| Number of parallel envs run per ppoEpoch. Matches Idris-side
-||| `Example.A2c.NumEnvs` and PyTorch `torch_ref.models.ppo.NUM_ENVS`.
-||| Compile-time because the batched-forward shape `[NumEnvs, ObsDim]` is
-||| part of the autograd graph.
+||| Number of parallel envs run per ppoEpoch.
 NumEnvs : Nat; NumEnvs = 4
 
 ||| Per-env rollout length. Total samples per ppoEpoch is
-||| `NumEnvs * RolloutLen`. Pre-batched used `RolloutLen=1024` with one
-||| env (1024 samples); we keep the same per-update sample budget across
-||| 4 parallel envs (256 per env × 4 envs = 1024 total).
+||| `NumEnvs * RolloutLen` (256 × 4 = 1024).
 RolloutLen : Nat; RolloutLen = 256
 BatchSize : Nat; BatchSize = 64
 
 Actor : Type
-Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions ExampleExecutor ExampleDType WithGrad
+Actor = Seq ObsDim NumActions Ex F WithGrad
 
 Critic : Type
-Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleExecutor ExampleDType WithGrad
+Critic = Seq ObsDim 1 Ex F WithGrad
 
 mkActor : IO Actor
-mkActor = do
-  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden}     "actor_ll1"
-  ll2 <- linearLayerAny {i=Hidden} {o=Hidden}     "actor_ll2"
-  ll3 <- linearLayerAny {i=Hidden} {o=NumActions} "actor_ll3"
-  pure (ll1 ~~> tanhLayerAny ~~> ll2 ~~> tanhLayerAny ~~> OutputLayer ll3)
+mkActor = runInit $ scoped "actor" $ do
+  l1 <- linear {i=ObsDim} {o=Hidden}
+  l2 <- linear {i=Hidden} {o=Hidden}
+  l3 <- linear {i=Hidden} {o=NumActions}
+  pure (l1 ~~> tanhA ~~> l2 ~~> tanhA ~~> l3 ~~> Nil)
 
 mkCritic : IO Critic
-mkCritic = do
-  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden} "critic_ll1"
-  ll2 <- linearLayerAny {i=Hidden} {o=Hidden} "critic_ll2"
-  ll3 <- linearLayerAny {i=Hidden} {o=1}      "critic_ll3"
-  pure (ll1 ~~> tanhLayerAny ~~> ll2 ~~> tanhLayerAny ~~> OutputLayer ll3)
+mkCritic = runInit $ scoped "critic" $ do
+  l1 <- linear {i=ObsDim} {o=Hidden}
+  l2 <- linear {i=Hidden} {o=Hidden}
+  l3 <- linear {i=Hidden} {o=1}
+  pure (l1 ~~> tanhA ~~> l2 ~~> tanhA ~~> l3 ~~> Nil)
 
 ----------------------------------------------------------------------
 -- Observation helpers
@@ -108,81 +86,33 @@ record RollStep where
   isDone     : Bool
 
 ----------------------------------------------------------------------
--- Categorical policy helpers
+-- Single-sample critic value (via [1, ObsDim] batched forward)
 ----------------------------------------------------------------------
 
 criticValue : Critic -> Vect ObsDim Double -> IO Double
 criticValue critic obs = do
-  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
-  (_, outV) <- forwardVar critic stateV
-  pure (primItem1d {ex=ExampleExecutor} outV.tensorPtr 0)
-
-sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
-sampleActionIO actor critic obs = do
-  let stateV  = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
-  (_, logitsV) <- forwardVar actor stateV
-  let logPT   = primLogSoftmax {ex=ExampleExecutor} logitsV.tensorPtr 0
-      lp0     = primItem1d {ex=ExampleExecutor} logPT 0
-      lp1     = primItem1d {ex=ExampleExecutor} logPT 1
-      lp2     = primItem1d {ex=ExampleExecutor} logPT 2
-  v <- criticValue critic obs
-  u <- randomRIO (the Double 0.0, 1.0)
-  let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
-      lp = case a of
-             0 => lp0
-             1 => lp1
-             _ => lp2
-  pure (a, lp, v)
-
-----------------------------------------------------------------------
--- Rollout
-----------------------------------------------------------------------
-
-rollout : Actor -> Critic -> AState -> Nat -> Nat ->
-          IO (List RollStep, AState, List Double)
-rollout _ _ st _ Z = pure ([], st, [])
-rollout actor critic st stepsLeft (S k) = do
-  let obs = observeVec st
-  -- Per-step no-grad bracket: free this step's forward intermediates
-  -- immediately. The whole rollout is RolloutLen (e.g. 1024) steps; a
-  -- single outer withNoGrad would accumulate all of them past the
-  -- paravirt-Metal ceiling. The step result is plain data (Nat/Double).
-  triple <- withNoGrad {ex=ExampleExecutor} (sampleActionIO actor critic obs)
-  let a  = fst triple
-      lp = fst (snd triple)
-      v  = snd (snd triple)
-  case aStep st a of
-    (r, st', outcome, _) => do
-      let natTerm = case outcome of
-                      Terminated => True
-                      _          => False
-          truncate = stepsLeft == 1
-          isDone = natTerm || truncate
-          stepRec = MkRS obs a lp v r isDone
-          nextSt = if isDone then MkA 0.0 0.0 0.0 0.0 else st'
-          nextStepsLeft = if isDone then EpisodeLen else stepsLeft `minus` 1
-      recur <- rollout actor critic nextSt nextStepsLeft k
-      let (stepsRest, finalSt, retsRest) = recur
-          retsCarry = if isDone then 0.0 :: retsRest else retsRest
-      pure (stepRec :: stepsRest, finalSt, retsCarry)
+  let stateV = the (Tensor [1, ObsDim] Ex F WithGrad)
+                 (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)
+  outV <- forwardSeq {b=1} critic stateV
+  pure (primItem2d {ex=Ex} outV.tensorPtr 0 0)
 
 ----------------------------------------------------------------------
 -- Batched rollout (NumEnvs parallel envs, one batched forward per step)
 ----------------------------------------------------------------------
 
 -- Sample one action per env from a [n, NumActions] batched log-prob
--- tensor. Records the log-prob of the chosen action per env (PPO needs
--- this for the importance ratio later).
-sampleActionFromBatch : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType g ->
+-- tensor. Records the chosen action's log-prob per env (PPO needs it for
+-- the importance ratio later).
+sampleActionFromBatch : {n : Nat} -> Tensor [n, NumActions] Ex F g ->
                         Vect n AState -> IO (Vect n Nat, Vect n Double)
 sampleActionFromBatch logProbsB envs = go 0 envs
   where
     go : Int -> Vect k AState -> IO (Vect k Nat, Vect k Double)
     go _ [] = pure ([], [])
     go i (_ :: rest) = do
-      let lp0 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 0
-          lp1 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 1
-          lp2 = primItem2d {ex=ExampleExecutor} logProbsB.tensorPtr i 2
+      let lp0 = primItem2d {ex=Ex} logProbsB.tensorPtr i 0
+          lp1 = primItem2d {ex=Ex} logProbsB.tensorPtr i 1
+          lp2 = primItem2d {ex=Ex} logProbsB.tensorPtr i 2
       u <- randomRIO (the Double 0.0, 1.0)
       let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
           lp = case a of
@@ -193,8 +123,7 @@ sampleActionFromBatch logProbsB envs = go 0 envs
       pure (a :: acts, lp :: lpVals)
 
 -- Step every env with its action; auto-reset envs that terminate OR hit
--- the EpisodeLen truncation cap. Returns next states, rewards, done
--- flags, and updated per-env stepsLeft counters.
+-- the EpisodeLen truncation cap.
 stepAllAutoResetTrunc : Vect n AState -> Vect n Nat -> Vect n Nat ->
                         (Vect n AState, Vect n Double, Vect n Bool, Vect n Nat)
 stepAllAutoResetTrunc [] [] [] = ([], [], [], [])
@@ -211,7 +140,6 @@ stepAllAutoResetTrunc (s :: ss) (a :: as) (sl :: sls) =
       in case stepAllAutoResetTrunc ss as sls of
            (rest, rs, ds, sls') => (nextS :: rest, r :: rs, isDone :: ds, nextSl :: sls')
 
--- Build per-env RollStep records.
 mkRollSteps : Vect n (Vect ObsDim Double) -> Vect n Nat -> Vect n Double ->
               Vect n Double -> Vect n Double -> Vect n Bool ->
               Vect n RollStep
@@ -220,10 +148,8 @@ mkRollSteps (o :: os) (a :: as) (lp :: lps) (v :: vs) (r :: rs) (d :: ds) =
   MkRS o a lp v r d :: mkRollSteps os as lps vs rs ds
 
 ||| Batched per-env rollout. Each env steps RolloutLen times in lockstep;
-||| one batched (actor, critic) forward per timestep amortises Idris-side
-||| per-op overhead across NumEnvs samples. Threads per-env stepsLeft for
-||| truncation. Done envs auto-reset to `MkA 0 0 0 0` with stepsLeft
-||| restored to EpisodeLen.
+||| one batched (actor, critic) forward per timestep. Threads per-env
+||| stepsLeft for truncation. Done envs auto-reset.
 rolloutBatched : {n : Nat} -> Actor -> Critic ->
                  VecEnv n AState -> Vect n Nat -> Nat ->
                  IO (Vect n (List RollStep), VecEnv n AState, Vect n Nat)
@@ -231,7 +157,6 @@ rolloutBatched actor critic v0 sl0 rolloutLen = do
   (envs', sls', stepLists) <- go rolloutLen v0.envs sl0 (replicate n [])
   pure (map reverse stepLists, MkVecEnv envs', sls')
   where
-    -- Helper: map with index over a Vect.
     mapIdx : (Nat -> a -> b) -> Vect k a -> Vect k b
     mapIdx _ [] = []
     mapIdx f (x :: xs) = f 0 x :: mapIdx (\i, v => f (S i) v) xs
@@ -239,24 +164,20 @@ rolloutBatched actor critic v0 sl0 rolloutLen = do
     go : Nat -> Vect n AState -> Vect n Nat -> Vect n (List RollStep) ->
          IO (Vect n AState, Vect n Nat, Vect n (List RollStep))
     go Z envs sls accs = pure (envs, sls, accs)
-    go (S k) envs sls accs = withNoGrad {ex=ExampleExecutor} $ do
-      -- Per-step no-grad bracket (matches sequential rollout's hygiene):
-      -- free this step's forward intermediates immediately. With
-      -- RolloutLen=256 per env and N=4 envs, accumulating all forward
-      -- handles in one outer bracket would push past the paravirt-Metal
-      -- ceiling.
+    go (S k) envs sls accs = withNoGrad {ex=Ex} $ do
+      -- Per-step no-grad bracket: free this step's forward intermediates.
       let obsRows : Vect n (Vector ObsDim Double)
           obsRows = map (\s => obsTensor (observeVec s)) envs
-          batchPtr = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsRows
-          stateV : Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad
+          batchPtr = bulkToTensor2d {ex=Ex} {dt=F} obsRows
+          stateV : Tensor [n, ObsDim] Ex F WithGrad
           stateV = MkTensor batchPtr Nothing
-      (_, logitsV) <- forwardVarBatch actor stateV
-      let logProbsV = the (Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad)
-                        (MkTensor (primLogSoftmax2d {ex=ExampleExecutor} logitsV.tensorPtr) Nothing)
-      (_, valuesV) <- forwardVarBatch critic stateV
+      logitsV <- forwardSeq {b=n} actor stateV
+      let logProbsV = the (Tensor [n, NumActions] Ex F WithGrad)
+                        (MkTensor (primLogSoftmax2d {ex=Ex} logitsV.tensorPtr) Nothing)
+      valuesV <- forwardSeq {b=n} critic stateV
       (acts, lps) <- sampleActionFromBatch logProbsV envs
       let valueRows : Vect n Double
-          valueRows = mapIdx (\i, _ => primItem2d {ex=ExampleExecutor} valuesV.tensorPtr (cast i) 0) envs
+          valueRows = mapIdx (\i, _ => primItem2d {ex=Ex} valuesV.tensorPtr (cast i) 0) envs
           obsVects : Vect n (Vect ObsDim Double)
           obsVects = map observeVec envs
       case stepAllAutoResetTrunc envs acts sls of
@@ -301,24 +222,24 @@ normAdvs triples =
   in map renorm triples
 
 ----------------------------------------------------------------------
--- Per-step PPO loss (categorical policy,  typed-surface)
+-- Per-step PPO loss (categorical policy)
 ----------------------------------------------------------------------
 
 clipScalar : Double -> Double -> Double -> Double
 clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 
-perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad) ->
-              (valueB : Tensor [n, 1] ExampleExecutor ExampleDType WithGrad) -> (rowIdx : Int) ->
+perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] Ex F WithGrad) ->
+              (valueB : Tensor [n, 1] Ex F WithGrad) -> (rowIdx : Int) ->
               Double -> Double -> Double ->
-              (RollStep, Double, Double) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+              (RollStep, Double, Double) -> IO (Tensor [] Ex F WithGrad)
 perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) = do
   logitsRow <- trowSelect logitsB rowIdx
-  let logPT = the (Tensor [NumActions] ExampleExecutor ExampleDType WithGrad)
-                  (MkTensor (primLogSoftmax {ex=ExampleExecutor} logitsRow.tensorPtr 0) Nothing)
+  let logPT = the (Tensor [NumActions] Ex F WithGrad)
+                  (MkTensor (primLogSoftmax {ex=Ex} logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
   lpNew <- telemSelect logPT aIdx
-  let lpVal = primItem1d {ex=ExampleExecutor} logPT.tensorPtr aIdx
+  let lpVal = primItem1d {ex=Ex} logPT.tensorPtr aIdx
   valueRow <- trowSelect valueB rowIdx
   valueV   <- telemSelect valueRow 0
   oldLPT   <- tconstScalar step.oldLogProb
@@ -342,20 +263,20 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
   p0V  <- texp lp0V
   p1V  <- texp lp1V
   p2V  <- texp lp2V
-  let negEntV = the (Tensor [] ExampleExecutor ExampleDType WithGrad)
-                    (MkTensor (primAdd {ex=ExampleExecutor}
-                              (primAdd {ex=ExampleExecutor} (primMul {ex=ExampleExecutor} p0V.tensorPtr lp0V.tensorPtr)
-                                         (primMul {ex=ExampleExecutor} p1V.tensorPtr lp1V.tensorPtr))
-                              (primMul {ex=ExampleExecutor} p2V.tensorPtr lp2V.tensorPtr))
+  let negEntV = the (Tensor [] Ex F WithGrad)
+                    (MkTensor (primAdd {ex=Ex}
+                              (primAdd {ex=Ex} (primMul {ex=Ex} p0V.tensorPtr lp0V.tensorPtr)
+                                         (primMul {ex=Ex} p1V.tensorPtr lp1V.tensorPtr))
+                              (primMul {ex=Ex} p2V.tensorPtr lp2V.tensorPtr))
                             Nothing)
   entTerm <- tmulScalar negEntV entropyCoef
-  pure (MkTensor (primAdd {ex=ExampleExecutor} (primAdd {ex=ExampleExecutor} policyT.tensorPtr valueTerm.tensorPtr)
+  pure (MkTensor (primAdd {ex=Ex} (primAdd {ex=Ex} policyT.tensorPtr valueTerm.tensorPtr)
                        entTerm.tensorPtr) Nothing)
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleExecutor ExampleDType WithGrad) -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] Ex F WithGrad) -> IO (Tensor [] Ex F WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (primAdd {ex=ExampleExecutor} a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {ex=Ex} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 ----------------------------------------------------------------------
@@ -412,17 +333,8 @@ record PPOState where
   envRef   : IORef (VecEnv NumEnvs AState)
   stepsRef : IORef (Vect NumEnvs Nat)
 
-prepareRollout : Critic -> Config -> List RollStep -> AState ->
-                 IO (List (RollStep, Double, Double))
-prepareRollout critic cfg steps finalSt = do
-  bootstrap <- computeBootstrap critic steps finalSt
-  let triples   = map stepTriple steps
-      gaeOut    = gae cfg.gamma cfg.lam bootstrap triples
-      merged    = map flattenTriple (zip steps gaeOut)
-  pure (normAdvs merged)
-
 -- Per-env bootstrap: critic value at each env's final state, zeroed for
--- envs whose last step terminated (matches sequential `computeBootstrap`).
+-- envs whose last step terminated.
 computeBootstrapsBatched : Critic -> Vect n (List RollStep) -> VecEnv n AState ->
                            IO (Vect n Double)
 computeBootstrapsBatched critic stepLists v = batchOver stepLists v.envs
@@ -435,8 +347,7 @@ computeBootstrapsBatched critic stepLists v = batchOver stepLists v.envs
       pure (b :: bs)
 
 -- Batched prepareRollout: per-env GAE → concat → normalize advantages
--- across the whole flat batch (matches PyTorch SyncVectorEnv updates,
--- where advantages are normalized over T*N samples).
+-- across the whole flat batch.
 prepareRolloutBatched : Critic -> Config -> Vect n (List RollStep) ->
                         VecEnv n AState -> IO (List (RollStep, Double, Double))
 prepareRolloutBatched critic cfg stepLists finalEnvs = do
@@ -451,53 +362,47 @@ prepareRolloutBatched critic cfg stepLists finalEnvs = do
       flatMerged = concat (toList mergedPerEnv)
   pure (normAdvs flatMerged)
 
--- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
--- forward each, then build per-sample loss expressions by indexing into
--- the [B, NumActions] / [B, 1] tensors.
-runBatch : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
+-- Stack mini-batch obs into [B, ObsDim], one batched actor + critic
+-- forward each, then per-sample loss expressions indexed into the
+-- [B, NumActions] / [B, 1] tensors. One Adam steps both nets.
+runBatch : Optimizer Ex -> Actor -> Critic -> Config ->
            List (RollStep, Double, Double) -> IO ()
-runBatch opt actor critic cfg batch = withGenFree {ex=ExampleExecutor} $ do
+runBatch opt actor critic cfg batch = withGenFree {ex=Ex} $ do
   -- Per-minibatch generation bracket: free this update's grad
-  -- intermediates immediately. PPO runs K (e.g. 10) epochs × minibatches
-  -- of batched forward+loss over the whole rollout; without per-step
-  -- freeing the within-epoch handle count bursts past the paravirt-Metal
-  -- ceiling. Params update in-place via the registry (rc>1, spared).
+  -- intermediates immediately (PPO runs K epochs × minibatches).
   let batchVec = Data.Vect.fromList batch
       n = length batch
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
-      stackedT = bulkToTensor2d {ex=ExampleExecutor} {dt=ExampleDType} obsBatch
-      stackedV = the (Tensor [n, ObsDim] ExampleExecutor ExampleDType WithGrad) (MkTensor stackedT Nothing)
-  (_, logitsB) <- forwardVarBatch actor stackedV
-  (_, valueB)  <- forwardVarBatch critic stackedV
+      stackedT = bulkToTensor2d {ex=Ex} {dt=F} obsBatch
+      stackedV = the (Tensor [n, ObsDim] Ex F WithGrad) (MkTensor stackedT Nothing)
+  logitsB <- forwardSeq {b=n} actor stackedV
+  valueB  <- forwardSeq {b=n} critic stackedV
   losses <- enumeratedLosses logitsB valueB batchVec 0
   loss <- meanScalarLoss n losses
   _ <- nativeTrainStep opt loss
   pure ()
   where
-    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] ExampleExecutor ExampleDType WithGrad ->
-                       Tensor [n, 1] ExampleExecutor ExampleDType WithGrad ->
+    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] Ex F WithGrad ->
+                       Tensor [n, 1] Ex F WithGrad ->
                        Vect k (RollStep, Double, Double) -> Int ->
-                       IO (List (Tensor [] ExampleExecutor ExampleDType WithGrad))
+                       IO (List (Tensor [] Ex F WithGrad))
     enumeratedLosses _ _ [] _ = pure []
     enumeratedLosses lB vB (t :: rest) k = do
       l  <- perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
       ls <- enumeratedLosses lB vB rest (k + 1)
       pure (l :: ls)
 
--- Iterate runBatch over a list of mini-batches via do-block recursion.
--- ⚠ Do NOT use `traverse_` here: its `foldr ((*>) . f) (pure ())`
--- desugaring crashes  PPO on MLX with "invalid memory reference"
--- on the second runBatch onwards. `>>=`-style sequencing (do-block)
--- works fine. See the module-header comment.
-runBatches : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
+-- Iterate runBatch over mini-batches via do-block recursion (NOT
+-- traverse_, whose `*>` desugaring crashes mlx after a tape reset).
+runBatches : Optimizer Ex -> Actor -> Critic -> Config ->
              List (List (RollStep, Double, Double)) -> IO ()
 runBatches _ _ _ _ [] = pure ()
 runBatches opt actor critic cfg (b :: rest) = do
   runBatch opt actor critic cfg b
   runBatches opt actor critic cfg rest
 
-kEpochUpdate : NativeOptimizer ExampleExecutor -> Actor -> Critic -> Config ->
+kEpochUpdate : Optimizer Ex -> Actor -> Critic -> Config ->
                List (RollStep, Double, Double) -> Nat -> IO ()
 kEpochUpdate _ _ _ _ _ Z = pure ()
 kEpochUpdate opt actor critic cfg prepped (S k) = do
@@ -506,15 +411,10 @@ kEpochUpdate opt actor critic cfg prepped (S k) = do
   runBatches opt actor critic cfg batches
   kEpochUpdate opt actor critic cfg prepped k
 
-ppoEpoch : NativeOptimizer ExampleExecutor -> Config -> PPOState -> IO (PPOState, Double)
+ppoEpoch : Optimizer Ex -> Config -> PPOState -> IO (PPOState, Double)
 ppoEpoch opt cfg st = do
   startEnvs <- readIORef st.envRef
   startSls  <- readIORef st.stepsRef
-  -- rolloutBatched brackets each timestep's batched forward in
-  -- withNoGrad itself; gradients come from kEpochUpdate's separate
-  -- batched forward (PPO recomputes log-probs over the rollout for each
-  -- inner epoch). No outer withNoGrad here — would pin handles for the
-  -- full RolloutLen and pressure paravirt-Metal.
   rolled <- rolloutBatched st.actor st.critic startEnvs startSls RolloutLen
   let stepLists = fst rolled
       finalEnvs = fst (snd rolled)
@@ -522,12 +422,9 @@ ppoEpoch opt cfg st = do
   writeIORef st.envRef finalEnvs
   writeIORef st.stepsRef finalSls
 
-  prepped <- withNoGrad {ex=ExampleExecutor} (prepareRolloutBatched st.critic cfg stepLists finalEnvs)
+  prepped <- withNoGrad {ex=Ex} (prepareRolloutBatched st.critic cfg stepLists finalEnvs)
   kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
-  -- Episode returns: walk each env's step list separately, summing
-  -- per-completed-episode returns. Matches PyTorch SyncVectorEnv where
-  -- any env's done counts once.
   let allReturns = concat (toList (map computeEpisodeReturns stepLists))
       nEp = length allReturns
       sumEp = sum allReturns
@@ -553,11 +450,12 @@ ppoEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> IO Nat
 greedyAct actor obs = do
-  let stateV = the (TVec ObsDim ExampleExecutor ExampleDType WithGrad) (MkTensor (bulkToTensor {ex=ExampleExecutor} {dt=ExampleDType} (obsTensor obs)) Nothing)
-  (_, logits) <- forwardVar actor stateV
-  let l0 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 0
-      l1 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 1
-      l2 = primItem1d {ex=ExampleExecutor} logits.tensorPtr 2
+  let stateV = the (Tensor [1, ObsDim] Ex F WithGrad)
+                 (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor obs]) Nothing)
+  logits <- forwardSeq {b=1} actor stateV
+  let l0 = primItem2d {ex=Ex} logits.tensorPtr 0 0
+      l1 = primItem2d {ex=Ex} logits.tensorPtr 0 1
+      l2 = primItem2d {ex=Ex} logits.tensorPtr 0 2
   pure (if l0 >= l1 && l0 >= l2 then 0
         else if l1 >= l2 then 1
         else 2)
@@ -582,13 +480,15 @@ evalN actor (S k) acc = do
 -- Main
 ----------------------------------------------------------------------
 
+%default partial
+
 main : IO ()
 main = do
   requireMachine {m = ChosenMachine}
   args <- getArgs
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
-  tsetInitSeed {ex = ExampleExecutor} cfg.seed
+  tsetInitSeed {ex = Ex} cfg.seed
 
   putStrLn "=== PPO on Acrobot (separate actor + critic, categorical policy) ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
@@ -611,7 +511,8 @@ main = do
   envRef   <- newIORef initEnvs
   stepsRef <- newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs EpisodeLen))
   let st0 = MkPPO actor critic envRef stepsRef
-      opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 0.5
+  -- Single Adam over both actor + critic (all params registered).
+  opt <- adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts)
 
   putStrLn ""
 
@@ -629,17 +530,17 @@ main = do
   let trainCfg : TrainConfig PPOState
       trainCfg = mkTrainConfig cfg.epochs 10 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO {ex=ExampleExecutor}
+  (trained, epochsDone, _) <- fit {batch = ()}
     (\s, _ => do
        (s', loss) <- ppoEpoch opt cfg s
        recordReturn metrics (negate loss)
        pure (s', loss))
-    (pure ())
+    opt (generate (pure ()))
     trainCfg st0
 
   putStrLn ""
   let nEval = the Nat 20
-  evalSum <- withNoGrad {ex=ExampleExecutor} (evalN trained.actor nEval 0.0)
+  evalSum <- withNoGrad {ex=Ex} (evalN trained.actor nEval 0.0)
   let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""
