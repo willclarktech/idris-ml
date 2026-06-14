@@ -363,24 +363,6 @@
         ]
       },
       {
-        "name": "Run HfLlama oracle generator + pytest",
-        "run": "make test-e2e-transformers-oracle-llama",
-        "comment": [
-          "Oracle-generation pytest for unsloth/Llama-3.2-1B. Wired in by",
-          "the gate-coverage lint (the roundtrip regenerates the oracle",
-          "anyway, but this gate asserts the generator script's own",
-          "invariants and fails earlier + cheaper)."
-        ]
-      },
-      {
-        "name": "Run HfLlama generation oracle pytest",
-        "run": "make test-e2e-transformers-oracle-llama-generate",
-        "comment": [
-          "Greedy-decode oracle pytest paired with the llama-generate",
-          "roundtrip below. Wired in by the gate-coverage lint."
-        ]
-      },
-      {
         "name": "Run HfBert end-to-end roundtrip",
         "run": "make test-e2e-hf-bert-roundtrip",
         "comment": [
@@ -401,6 +383,26 @@
           "HfGpt2Inference binary, assert the 32-dim last-position hidden",
           "state matches within max-abs-diff 1e-3. Currently passes at",
           "~1e-6 locally on tape."
+        ]
+      }
+    ],
+    "test-e2e-hf-llama": [
+      {
+        "name": "Run HfLlama oracle generator + pytest",
+        "run": "make test-e2e-transformers-oracle-llama",
+        "comment": [
+          "Oracle-generation pytest for unsloth/Llama-3.2-1B. Wired in by",
+          "the gate-coverage lint (the roundtrip regenerates the oracle",
+          "anyway, but this gate asserts the generator script's own",
+          "invariants and fails earlier + cheaper)."
+        ]
+      },
+      {
+        "name": "Run HfLlama generation oracle pytest",
+        "run": "make test-e2e-transformers-oracle-llama-generate",
+        "comment": [
+          "Greedy-decode oracle pytest paired with the llama-generate",
+          "roundtrip below. Wired in by the gate-coverage lint."
         ]
       },
       {
