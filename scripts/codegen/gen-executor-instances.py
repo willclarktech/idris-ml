@@ -134,6 +134,17 @@ def generate_block(slice_name: str, backend: str) -> list[str]:
     return lines
 
 
+def _normalize_body(line: str) -> str:
+    """Collapse a generated body line to canonical 2-space-indent /
+    single-space form, so content can be compared independently of
+    idris-fmt's `=` alignment. This generator owns the *content* of the
+    block (which method binds to which prim); idris-fmt owns the *spacing*
+    (it aligns the `=` column repo-wide). Without this normalization the
+    two formatters fight: the generator emits `primX = …`, idris-fmt pads
+    it to `primX   = …`, and `--check` would forever report a phantom diff."""
+    return "  " + " ".join(line.split())
+
+
 def rewrite_file(path: Path, backend: str, dry_run: bool = False) -> tuple[str, str]:
     """Rewrite all marker-bounded blocks in `path` from the manifest.
 
@@ -163,9 +174,18 @@ def rewrite_file(path: Path, backend: str, dry_run: bool = False) -> tuple[str, 
                 j += 1
             if j >= n:
                 raise RuntimeError(f"{path.name}: BEGIN marker at line {i + 1} has no matching END")
-            # Inject generated lines
+            # Inject generated lines. When the committed block already has
+            # the right CONTENT (same methods → prims, modulo whitespace),
+            # preserve it verbatim so idris-fmt's `=` alignment survives —
+            # only rewrite when the content genuinely changed. This keeps
+            # `--check` green on an fmt-aligned tree and stops a bare
+            # regeneration from stripping alignment on every run.
+            existing = lines[i + 1 : j]
             generated = generate_block(current_slice, backend)
-            out.extend(generated)
+            if [_normalize_body(x) for x in existing] == [_normalize_body(x) for x in generated]:
+                out.extend(existing)
+            else:
+                out.extend(generated)
             out.append(END_MARKER)
             i = j + 1
             continue
