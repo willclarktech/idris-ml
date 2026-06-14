@@ -35,6 +35,7 @@ modules = Test.Main
         , Test.Math
         , Test.Nn.Activation
         , Test.Nn.BatchNorm
+        , Test.Nn.Conv
         , Test.Nn.Dropout
         , Test.Nn.Embedding
         , Test.Nn.Equivalence

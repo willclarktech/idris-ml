@@ -63,6 +63,7 @@ modules = Compat.Random
         , Math
         , Nn.Activation
         , Nn.BatchNorm
+        , Nn.Conv
         , Nn.Dropout
         , Nn.Embedding
         , Nn.Group

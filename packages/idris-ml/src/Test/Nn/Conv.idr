@@ -1,0 +1,47 @@
+module Test.Nn.Conv
+
+import Data.List
+import Data.Vect
+
+import Test.Harness
+import Executor
+import Tensor
+import Nn.Init
+import Nn.Module
+import Nn.Conv
+import Test.Config
+
+-- inC=1, outC=1, 3x3 input, 2x2 all-ones kernel, no pad, stride 1.
+-- ConvOutDim 3 2 0 = 2, so output is 2x2 = 4 values; each = sum of a 2x2
+-- window of ones = 4.0. Batched b=1: [1,9] -> [1,4] all 4.0.
+forwardComputes : IO Bool
+forwardComputes = do
+  ker <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 1, 2, 2]} "cv.k" (Const 1.0)
+  bia <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}          "cv.b" (Const 0.0)
+  let cv = the (Conv2D 1 1 3 3 2 2 0 0 9 4 TestExecutor TestDType) (MkConv2D ker bia)
+  x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[1, 9]} (Const 1.0)
+  out <- forward {b=1} cv x
+  let vs = [ primItem2d {ex=TestExecutor} out.tensorPtr 0 j | j <- the (List Int) [0,1,2,3] ]
+  check ("Conv2D 2x2-ones over 3x3-ones (got " ++ show vs ++ ")")
+        (vs == [4.0, 4.0, 4.0, 4.0])
+
+paramsExposed : IO Bool
+paramsExposed = do
+  ker <- param {ex=TestExecutor} {dt=TestDType} {dims=[1, 1, 2, 2]} "cp.k" (Const 1.0)
+  bia <- param {ex=TestExecutor} {dt=TestDType} {dims=[1]}          "cp.b" (Const 0.0)
+  let cv = the (Conv2D 1 1 3 3 2 2 0 0 9 4 TestExecutor TestDType) (MkConv2D ker bia)
+  check ("Params (Conv2D) = kernel,bias (got " ++ show (mapMaybe paramName (params cv)) ++ ")")
+        (mapMaybe paramName (params cv) == ["cp.k", "cp.b"])
+
+smartCtorNames : IO Bool
+smartCtorNames = do
+  _ <- runInit $ scoped "cnn"
+         (conv2d {ex=TestExecutor} {dt=TestDType} {inC=1} {outC=2} {h=4} {w=4} {kH=3} {kW=3} {padH=0} {padW=0})
+  cnt <- getParamCount {ex=TestExecutor}
+  names <- traverse (\i => getParamName {ex=TestExecutor} i) [0 .. cnt - 1]
+  check "conv2d registers cnn.conv2d_0.weight + .bias"
+        (("cnn.conv2d_0.weight" `elem` names) && ("cnn.conv2d_0.bias" `elem` names))
+
+export
+tests : List (IO Bool)
+tests = [forwardComputes, paramsExposed, smartCtorNames]
