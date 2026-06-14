@@ -55,15 +55,20 @@ bufferRoundtrip : IO Bool
 bufferRoundtrip = do
   let path = "/tmp/idris-ml-bn-buffer-roundtrip.safetensors"
   -- Trained model: run training-mode forwards so running stats diverge.
-  bn <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=2} {spatialDim=1})
-  x  <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (FromVect [3.0, 4.0])
+  -- spatialDim MUST be > 1: with a single observation per channel the batch
+  -- variance is undefined, and torch::batch_norm applies the Bessel n/(n-1)
+  -- correction to the running-var update → 0/0 = NaN (PyTorch's documented
+  -- behaviour for batchnorm on one element). spatialDim=4 gives a real,
+  -- finite per-channel variance on all three backends.
+  bn <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=2} {spatialDim=4})
+  x  <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[8]} (FromVect [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
   for_ [the Nat 1 .. 20] $ \_ => batchNormForward bn (retypeGrad x)
   let (meanP, varP) = runningStatPtrs bn
   let tMean         = primItem1d {ex=TestExecutor} meanP 0
       tVar  = primItem1d {ex=TestExecutor} varP 0
   _  <- saveAll {ex=TestExecutor} path
   -- Fresh model re-registers the same names with reset 0/1 buffers.
-  fresh <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=2} {spatialDim=1})
+  fresh <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=2} {spatialDim=4})
   _  <- loadModel {ex=TestExecutor} path
   let (fmeanP, fvarP) = runningStatPtrs fresh
   let lMean           = primItem1d {ex=TestExecutor} fmeanP 0
