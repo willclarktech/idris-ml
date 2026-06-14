@@ -98,6 +98,18 @@ The shared `config.json` plumbing (read + parse + integer-field
 extraction) lives in `Transformers.Config`; each adapter owns only its
 field set, beside its param-name catalogue.
 
+**All four architectures expose `fromPretrained`** with the same shape —
+`Transformers.Gpt2.fromPretrained` (`(cfg : Gpt2Config ** Gpt2Model cfg
+…)`), `Transformers.Llama.fromPretrained` (`LlamaModel`), and
+`Transformers.BitNet.fromPretrained` (`BitNetModel`; routes through the
+ternary-weight checkpoint loader). GPT-2 needs the same `decEq` head-split
+recipe as BERT; Llama / BitNet bake the GQA out-dims (`numHeads·headDim` /
+`numKvHeads·headDim`) into the model type, so their forwards need no
+divisibility proof. The `{g = NoGrad}` tape-free path works for any of
+them; the Llama / BitNet *examples* currently load `{g = WithGrad}`
+because their RoPE-table builder is `WithGrad`-only (a NoGrad-RoPE path is
+a filed follow-up).
+
 ## Worked example: load and run BERT-tiny
 
 The repo ships `Example/HfBertInference.idr` and a one-line make
