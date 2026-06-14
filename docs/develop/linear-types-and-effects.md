@@ -350,6 +350,75 @@ result is the subject of a do-bind (the `Activation` kind dispatch). A branch
 that is itself an op call (`ttanhL x`) needs no pin — its return type is
 already concrete `L IO τ`.
 
+## Born-linear construction (`runInitL`)
+
+A model must enter the linear world *linear* — if construction handed back an
+ω value, the single-owner discipline would only start at the first `forwardL`,
+and nothing would force the caller to thread it. So the construction seam
+confers linearity at its exit: `runInitL : Init a -> L IO {use = 1} a`, the
+`L IO` twin of `runInit`. The `Init` name-derivation monad is unchanged
+internally (still plain `IO` state-threading); `runInitL` lifts the whole
+derivation once with `liftIO1` and re-emits through `pure1`, so the result is
+born at `use = 1`. `use = 1` (not the default `Unrestricted`) is the load-bearing
+bit — it makes the bound model linear at the `<-` site, so the caller *must*
+thread it onward. (Same `{use = 1}` discipline as every `forwardL`.)
+
+## Threading the model through training (the fit loop)
+
+The fine-grained guarantee is only real if the model stays linear *through
+training*, not just at a single `forwardL`. The training stack threads it end
+to end:
+
+- **`EpochStepL m batch = (1 _ : m) -> batch -> L IO {use=1} (LPair (!* Double) m)`**
+  — a step consumes the model and returns it beside the banged loss. The
+  recursive batch pass (`runPassL`) and epoch loop (`runEpochLoopL` /
+  `epochLoopGoL`) thread the linear `m` through every recursive call; the
+  result carries the model out (`LPair (!* (Nat, Double)) m`). This compiled
+  first try — the v0.8 checker handles a linear var threaded through deep
+  recursion + `if`/`case` branches (each branch uses `m'` exactly once) just
+  as it did the `Seq` existential. The fit-threading risk gate is **passed**.
+- **Metrics never touch the model (risk #3 dissolved).** Every real metrics
+  callback ignores its model argument (`\_ => readRLMetrics …`; default
+  `const (pure [])`) — metrics read C-registry / IORef state. So the linear
+  loop uses a **model-free** `MetricsFnL = IO (List (String,String))` and never
+  has to hand the linear model to metrics (which it *couldn't*, since the engine
+  is generic in `m` with no reflect method). `TrainConfig` grows a `metricsL`
+  field beside `metrics`; the plan's feared "metrics peeking at the linear `m`"
+  was a non-problem once we checked what callers actually do.
+- **Only the model is linear; everything else is lifted.** `DataStream.next`
+  stays `IO` (data is not a single-owner resource) and is lifted with
+  `liftIO1`. The optimizer/checkpoint step fns (`nativeTrainStep`,
+  `trainStepScaled`, `applyScale`, `tick`, `postEpoch`, …) touch only the C
+  registry, never the model *value*, so they stay `IO` and are lifted at the
+  call site — no linear threading there. Their `L IO` recast (decision 1's
+  "whole library on `L IO`") buys no extra guarantee and is deferred to the
+  Phase-9 collapse.
+
+### The `Data.Linear` import perturbs `Nat`-literal defaulting (a real trap)
+
+Importing `Data.Linear` into a file with delicate `Nat` arithmetic *breaks
+previously-compiling code*:
+
+- **`Copies.Nil` shadows `[]`.** `Data.Linear` re-exports `Data.Linear.Copies`,
+  whose `Nil` makes the `[]` in scalar `Tensor []` (the loss type) ambiguous
+  (`Copies` vs `Vect` vs `List`). Fix: `%hide Data.Linear.Copies.Nil` **and**
+  ensure `import Data.Vect` is present (so `Vect.Nil` is in scope to win against
+  `List.Nil` under the expected `Vect rank Nat`).
+- **Bare numeric literals re-default to `Integer`.** With those modules in
+  scope, `if improved then 0 else stale + 1` and `accCount + 1` (plain `Nat`
+  before) start failing with *"Mismatch between Integer and Nat"* — an Idris
+  elaboration-order fragility, not a new `Num` instance (the linear modules
+  define none). Dodge it by avoiding bare literals in `Nat` arithmetic: `S n`
+  instead of `n + 1`, `Z`/`case` instead of `== 0`, `the Nat 1` where unavoidable.
+
+Because the existing `Train.Engine`/`Fit` are dense with such arithmetic, the
+linear loop and driver live in **sibling modules** (`Train.EngineL`, `FitL`)
+that import the linear stack, reusing every model-agnostic piece from their IO
+twins (early-stop machines, checkpoint resume/keep-best, `shouldLog`,
+`isDiverged`, `fmtMetrics`). The IO files stay linear-import-free and unbroken.
+This is the same additive-then-collapse shape used for the layers (`*L` beside,
+merge at Phase 9).
+
 ## Status / file map
 
 - `packages/idris-ml/src/Nn/Module.idr` — `ModuleL`, `FrozenL`, generic
@@ -381,6 +450,18 @@ none.
   unchanged beside them.
 - `packages/idris-ml/src/Nn/{Recurrent,Lstm,Gru}.idr` — `RecurrentL` bodies on
   the `L IO` ops (the small recurrent cells; `Ntm`/`Dnc` delegate instead).
+- `packages/idris-ml/src/Nn/Init.idr` — `runInitL` (born-linear construction
+  seam) beside `runInit`.
+- `packages/idris-ml/src/Train/Engine.idr` — `MetricsFnL` (model-free) added;
+  `fmtMetrics`/`forceMetrics` exported for the linear loop to reuse.
+- `packages/idris-ml/src/Train/EngineL.idr` — the `L IO` epoch loop
+  (`runEpochLoopL`/`epochLoopGoL`/`withEpochL`/`logEpochL`/`divergedL`); sibling
+  to `Train.Engine` (linear-import isolation).
+- `packages/idris-ml/src/FitL.idr` — the `L IO` fit driver
+  (`fitSupervisedL`/`fitSupervisedMixedL`/`fitL`/`fitCustomL`/`runPassL`,
+  `EpochStepL`); sibling to `Fit.idr`. Hides `Copies.Nil`; `Z`/`S` accumulators.
+- `packages/idris-ml/src/Train.idr` — `TrainConfig` gains a `metricsL` field
+  (model-free) beside `metrics`.
 
 Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface. No `forwardL`/
 `recurStepL` body still uses `liftIO1` for tensor math — the only remaining
