@@ -29,17 +29,10 @@ jobs:
       # Shallow checkout is fine: only hashFiles() needs the tree.
       - uses: actions/checkout@v5
 
-      - name: Touch Idris 2 cache
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.idris2
-          key: idris2-v0.8.0-${{ matrix.os }}-v2
-
       - name: Touch pack cache
         uses: actions/cache/restore@v5
         with:
           path: |
-            ~/.local/bin/pack
             ~/.local/state/pack
             ~/.config/pack
           key: pack-${{ matrix.os }}-${{ hashFiles('pack.toml') }}-keepalive

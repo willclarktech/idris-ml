@@ -309,6 +309,9 @@ jobs:
   # with swap, leaves downstream jobs only example-level work).
   build:
     name: build (${{ matrix.os }})
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     strategy:
       fail-fast: false
       matrix:
@@ -322,6 +325,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain comes from the repo flake; the make steps run inside it via
+      # this job's defaults.run.shell. Must precede any run step (incl. the
+      # free-disk steps) since they'd otherwise execute before nix exists.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - uses: ./.github/actions/setup-idris-ml
         id: setup
         with:
@@ -346,7 +353,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ${{ matrix.os }}
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           ttc-job: build
           save-pytorch-venv: ${{ matrix.os == 'ubuntu-latest' }}
           pytorch-venv-cache-hit: ${{ steps.setup.outputs.pytorch-venv-cache-hit }}
@@ -357,6 +363,9 @@ jobs:
   # suites, hence with-pack.
   test-unit:
     name: test-unit (${{ matrix.os }})
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     needs: build
     # needs is matrix-wide: one failed build leg skips this job on EVERY
     # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
@@ -374,6 +383,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain comes from the repo flake; the make steps run inside it via
+      # this job's defaults.run.shell. Must precede any run step (incl. the
+      # free-disk steps) since they'd otherwise execute before nix exists.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - uses: ./.github/actions/setup-idris-ml
         id: setup
         with:
@@ -532,7 +545,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ${{ matrix.os }}
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           save-pack: 'true'
           # macOS only: no other job populates a macOS hf-models cache
           # (test-e2e-hf is Ubuntu-only), so this leg saves the fixtures
@@ -562,6 +574,9 @@ jobs:
   # lints.
   test-integration:
     name: test-integration (${{ matrix.os }})
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     needs: build
     # needs is matrix-wide: one failed build leg skips this job on EVERY
     # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
@@ -579,6 +594,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain comes from the repo flake; the make steps run inside it via
+      # this job's defaults.run.shell. Must precede any run step (incl. the
+      # free-disk steps) since they'd otherwise execute before nix exists.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - uses: ./.github/actions/setup-idris-ml
         id: setup
         with:
@@ -686,7 +705,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ${{ matrix.os }}
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           save-pack: 'true'
           ttc-job: test-integration
 
@@ -694,6 +712,9 @@ jobs:
   # backend lanes at few-epoch thresholds.
   test-e2e-examples:
     name: test-e2e-examples (${{ matrix.os }})
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     needs: build
     # needs is matrix-wide: one failed build leg skips this job on EVERY
     # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
@@ -711,6 +732,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain comes from the repo flake; the make steps run inside it via
+      # this job's defaults.run.shell. Must precede any run step (incl. the
+      # free-disk steps) since they'd otherwise execute before nix exists.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - uses: ./.github/actions/setup-idris-ml
         id: setup
         with:
@@ -736,7 +761,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ${{ matrix.os }}
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           # The example matrix is the one job that fetches datasets
           # (MNIST, SST-2) — everywhere else the dataset save only
           # warns (missing path or already-reserved key).
@@ -754,6 +778,9 @@ jobs:
   # other suites). Ubuntu-only: the torch venv lane carries it.
   test-e2e-hf:
     name: test-e2e-hf
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     needs: build
     # See the test-unit comment: don't let a failed build leg on another
     # os mask this job's signal.
@@ -767,6 +794,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain comes from the repo flake; the make steps run inside it via
+      # this job's defaults.run.shell. Must precede any run step (incl. the
+      # free-disk steps) since they'd otherwise execute before nix exists.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Free runner disk (android SDK + dotnet)
         # This job carries the multi-GB HF model cache + torch venv +
         # a 16 GB swapfile on the root volume; the preinstalled android
@@ -854,7 +885,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ubuntu-latest
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           save-hf-models: 'true'
           ttc-job: test-e2e-hf
 
@@ -873,6 +903,9 @@ jobs:
   # job's multi-GB model store off the shared bert/gpt2 + fixtures key.
   test-e2e-hf-llama:
     name: test-e2e-hf-llama
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     needs: build
     # See the test-unit comment: don't let a failed build leg on another
     # os mask this job's signal.
@@ -889,6 +922,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain comes from the repo flake; the make steps run inside it via
+      # this job's defaults.run.shell. Must precede any run step (incl. the
+      # free-disk steps) since they'd otherwise execute before nix exists.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Free runner disk (android SDK + dotnet)
         # Same as test-e2e-hf: this job carries the multi-GB HF model
         # cache + torch venv + a 16 GB swapfile; reclaim the ~10 GB of
@@ -987,7 +1024,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ubuntu-latest
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           save-hf-models: 'true'
           hf-cache-suffix: 'llama-'
           ttc-job: test-e2e-hf-llama
@@ -1002,6 +1038,9 @@ jobs:
   # down.
   coverage:
     name: coverage (${{ matrix.backend }} on ${{ matrix.os }})
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
@@ -1017,6 +1056,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain comes from the repo flake; the make steps run inside it via
+      # this job's defaults.run.shell. Must precede any run step (incl. the
+      # free-disk steps) since they'd otherwise execute before nix exists.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - uses: ./.github/actions/setup-idris-ml
         id: setup
         with:
@@ -1050,7 +1093,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ${{ matrix.os }}
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           save-ttc: 'false'
 
       - name: Upload coverage HTML

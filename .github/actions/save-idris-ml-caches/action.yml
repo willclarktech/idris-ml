@@ -12,11 +12,6 @@ inputs:
   os-label:
     description: Runner label used in cache keys (must match setup).
     required: true
-  idris2-cache-hit:
-    description: >
-      setup-idris-ml's idris2-cache-hit output; the toolchain is
-      immutable per key so it's only saved after a real bootstrap.
-    default: "true"
   save-pack:
     description: Save the pack cache (jobs that ran with-pack).
     default: "false"
@@ -118,17 +113,9 @@ runs:
       uses: actions/cache/save@v5
       with:
         path: |
-          ~/.local/bin/pack
           ~/.local/state/pack
           ~/.config/pack
         key: pack-${{ inputs.os-label }}-${{ hashFiles('pack.toml') }}-${{ github.sha }}
-
-    - name: Save Idris 2 cache
-      if: inputs.idris2-cache-hit != 'true'
-      uses: actions/cache/save@v5
-      with:
-        path: ~/.idris2
-        key: idris2-v0.8.0-${{ inputs.os-label }}-v2
 
     - name: Save pytorch venv cache
       if: inputs.save-pytorch-venv == 'true' && inputs.pytorch-venv-cache-hit != 'true'
@@ -137,33 +124,3 @@ runs:
         path: packages/pytorch/.venv
         key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
-    # Paired save for setup-idris-ml's uv download-cache restore. Keyed
-    # on uv.lock (same as the venv), so it only writes when the lock
-    # changed; an unchanged lock = key exists = benign reserve warning.
-    - name: Save uv download cache
-      if: inputs.save-pytorch-venv == 'true'
-      uses: actions/cache/save@v5
-      with:
-        path: ~/.cache/uv
-        key: uv-cache-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
-
-    # Paired save for setup-idris-ml's Homebrew download-cache restore.
-    # macOS only; static key (bump in both places to refresh) so it saves
-    # once and warns benignly on reserve thereafter.
-    - name: Save Homebrew download cache (macOS)
-      if: runner.os == 'macOS'
-      uses: actions/cache/save@v5
-      with:
-        path: ~/Library/Caches/Homebrew
-        key: brew-${{ runner.os }}-v1
-
-    # Paired save for setup-idris-ml's ccache restore. Gated on save-ttc
-    # (the build-bearing jobs). Per-sha key so the cache rolls forward;
-    # the 250M CCACHE_MAXSIZE cap set in setup keeps each entry small
-    # against the shared 10 GB quota.
-    - name: Save ccache
-      if: inputs.save-ttc == 'true'
-      uses: actions/cache/save@v5
-      with:
-        path: ~/.ccache
-        key: ccache-${{ runner.os }}-${{ github.sha }}

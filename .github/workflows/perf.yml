@@ -36,6 +36,9 @@ jobs:
   bench-deep:
     name: bench-deep (tape)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     # bench-deep itself is ≤20 min warm, but a cold runner pays the
     # idris2 bootstrap + `make install` elaboration + the Axis C/D
     # example builds from scratch.
@@ -46,6 +49,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Toolchain from the repo flake; make steps run inside it via this job's
+      # defaults.run.shell.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
       # torch deps: every Python invocation in the bench path goes
       # through `uv run` inside packages/pytorch (bench-ops-py /
@@ -91,7 +97,6 @@ jobs:
         uses: ./.github/actions/save-idris-ml-caches
         with:
           os-label: ubuntu-latest
-          idris2-cache-hit: ${{ steps.setup.outputs.idris2-cache-hit }}
           ttc-job: bench-deep
 
       - name: Upload perf-log.jsonl
