@@ -94,7 +94,26 @@ All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
 7. [Hyperparameter Optimization](packages/jupyter/notebooks/tutorials/07_hpo.ipynb) — `lr_find` and tuning workflows
 8. [Precision and Devices](packages/jupyter/notebooks/tutorials/08_precision_devices.ipynb) — `Compatible (device, dtype)` admissibility, parametric dtype families, `UpcastableTo` derivation, build-mode targeting
 
-**Quick start** — requires [Idris 2](https://github.com/idris-lang/Idris2) (0.8.0+) and a C compiler:
+### Development environment
+
+The toolchain — Idris 2 (via [pack](https://github.com/stefan-hoeck/idris2-pack)), Chez Scheme, a C compiler, Criterion, cppcheck, clang-tools, and uv — is pinned in [`flake.nix`](flake.nix). This is the **same shell CI runs in**, so local builds match CI exactly. You need [Nix](https://nixos.org/download) with flakes enabled.
+
+**Recommended — [direnv](https://direnv.net) + [nix-direnv](https://github.com/nix-community/nix-direnv):** the repo ships an `.envrc` (`use flake`), so `cd` into the tree auto-loads the dev shell (cached, instant after the first eval) and `cd` out unloads it. After installing direnv + nix-direnv, one-time per checkout:
+
+```bash
+direnv allow                # in the repo root
+```
+
+**Or explicitly**, without direnv:
+
+```bash
+nix develop                                 # enter the dev shell, then run make targets
+nix develop .#default --command make test   # run a single target in the shell
+```
+
+All `make` targets expect to run inside this shell. In particular the C unit tests (`make test`, `make test-unit-c`) compile against Criterion — like any C library, it's only on the compiler's search path inside the dev shell, never from a global install (Nix exposes libraries to compilation through the build environment, not the user profile).
+
+**Quick start** — inside the dev shell above (or with a system Idris 2 0.8.0+ and a C compiler):
 
 ```bash
 make backend                # build the C tape backend (no external dependencies)

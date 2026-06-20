@@ -37,6 +37,10 @@ data/
 .claude/
 .idris2/
 
+# direnv's local cache (created by `use flake` in .envrc); the .envrc
+# itself is tracked, this generated cache dir is not.
+.direnv/
+
 # Vendored third-party deps — fetched on demand by `make vendor-deps`
 # (auto-triggered when a SHARED_OBJ target needs the source). Pinned to
 # a specific version + SHA256 in the Makefile. Excluded from VCS so
