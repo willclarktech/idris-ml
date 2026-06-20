@@ -3,6 +3,7 @@ package idris-ml
 sourcedir = "src"
 
 depends = contrib
+        , elab-util
         , linear
 
 modules = Compat.Random

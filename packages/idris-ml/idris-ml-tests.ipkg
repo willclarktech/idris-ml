@@ -8,6 +8,7 @@ package idris-ml-tests
 sourcedir = "src"
 
 depends = contrib
+        , elab-util
         , hedgehog
         , idris-ml
         , idris-test
@@ -35,6 +36,7 @@ modules = Test.Main
         , Test.Nn.BatchNorm
         , Test.Nn.BitLinear
         , Test.Nn.Conv
+        , Test.Nn.Derive
         , Test.Nn.Dnc
         , Test.Nn.Dropout
         , Test.Nn.Embedding
