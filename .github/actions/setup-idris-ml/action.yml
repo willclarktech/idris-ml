@@ -109,8 +109,15 @@ runs:
     # from the flake; this cache holds the collection's built compiler + libs
     # under ~/.local/state/pack (cold bootstrap ~15-25 min; warm restore is
     # seconds), keyed on the pinned pack.toml.
+    # Unconditional since the single-compiler refactor: pack's idris2 is THE
+    # compiler for every `make install` / `make backend` (the Makefile's
+    # `$(IDRIS2)` = `pack app-path idris2`), so every composite-using job —
+    # not just the pack-driven test-unit-idris-* ones — needs it built. The
+    # `with-pack` input is now redundant (kept on the call sites until a
+    # follow-up removes it): `pack install idris-test` below is the
+    # deterministic trigger that builds the pinned idris2, and the small
+    # collection libs it also pulls (hedgehog, …) are cheap and cached.
     - name: Restore pack cache
-      if: inputs.with-pack == 'true'
       uses: actions/cache/restore@v5
       with:
         path: |
@@ -121,8 +128,7 @@ runs:
           pack-${{ inputs.os-label }}-${{ hashFiles('pack.toml') }}-
           pack-${{ inputs.os-label }}-
 
-    - name: Bootstrap pinned pack collection
-      if: inputs.with-pack == 'true'
+    - name: Bootstrap pinned pack toolchain (idris2 compiler + test collection)
       shell: bash
       # Runs inside the flake shell so `pack` (and the chez it builds idris2
       # with) resolve. Front-loads what the pack-driven test targets would
