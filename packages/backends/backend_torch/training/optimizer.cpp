@@ -53,9 +53,9 @@ static std::vector<at::Tensor> collect_param_tensors() {
 
 /* Wrapper to track optimizer type alongside the PyTorch optimizer. */
 struct OptWrapper {
-	int type; // 0=sgd, 1=rmsprop, 2=adam, 3=adamw
-	double lr, beta1, beta2, eps, alpha, weight_decay, momentum;
-	torch::optim::Optimizer* opt;
+	int type = 0; // 0=sgd, 1=rmsprop, 2=adam, 3=adamw
+	double lr = 0, beta1 = 0, beta2 = 0, eps = 0, alpha = 0, weight_decay = 0, momentum = 0;
+	torch::optim::Optimizer* opt = nullptr;
 	std::unordered_set<std::string> owned; // empty = manages all params; else only
 	                                       // params whose exact name is in the set
 	                                       // (SAC multi-opt — no `q1_`/`q1tgt_` leak)
@@ -94,6 +94,9 @@ extern "C" OptimizerHandle optimizer_create_sgd(double lr) {
 	w->type = 0;
 	w->lr = lr;
 	w->opt = new torch::optim::SGD(params, torch::optim::SGDOptions(lr));
+	// w (owning w->opt) becomes the opaque OptimizerHandle, freed in
+	// optimizer_free; cppcheck can't track ownership across the cast.
+	// cppcheck-suppress memleak
 	return static_cast<OptimizerHandle>(w);
 }
 
@@ -112,6 +115,8 @@ extern "C" OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, dou
 	                                               .eps(eps)
 	                                               .weight_decay(weight_decay)
 	                                               .momentum(momentum));
+	// Ownership transfers to the returned handle; freed in optimizer_free.
+	// cppcheck-suppress memleak
 	return static_cast<OptimizerHandle>(w);
 }
 
@@ -126,6 +131,8 @@ extern "C" OptimizerHandle optimizer_create_adam(double lr, double beta1, double
 	w->eps = eps;
 	w->opt = new torch::optim::Adam(
 	    params, torch::optim::AdamOptions(lr).betas(std::make_tuple(beta1, beta2)).eps(eps));
+	// Ownership transfers to the returned handle; freed in optimizer_free.
+	// cppcheck-suppress memleak
 	return static_cast<OptimizerHandle>(w);
 }
 
@@ -142,6 +149,8 @@ extern "C" OptimizerHandle optimizer_create_adamw(double lr, double beta1, doubl
 	                                             .betas(std::make_tuple(beta1, beta2))
 	                                             .eps(eps)
 	                                             .weight_decay(weight_decay));
+	// Ownership transfers to the returned handle; freed in optimizer_free.
+	// cppcheck-suppress memleak
 	return static_cast<OptimizerHandle>(w);
 }
 

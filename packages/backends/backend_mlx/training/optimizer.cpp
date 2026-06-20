@@ -39,10 +39,10 @@ extern "C" int tensor_requires_grad(TensorHandle h);
 extern "C" void _dbg_dump_param_grads_if_enabled_mlx(void);
 
 struct Optimizer {
-	int type; // 0=sgd, 1=rmsprop, 2=adam, 3=adamw
-	double lr, beta1, beta2, eps;
-	double alpha, weight_decay, momentum;
-	int t;
+	int type = 0; // 0=sgd, 1=rmsprop, 2=adam, 3=adamw
+	double lr = 0, beta1 = 0, beta2 = 0, eps = 0;
+	double alpha = 0, weight_decay = 0, momentum = 0;
+	int t = 0;
 	/* Per-parameter buffers — held as mx::array so the optimizer math
 	   stays inside mlx's autograd graph. */
 	std::vector<mx::array> m_bufs, v_bufs;
