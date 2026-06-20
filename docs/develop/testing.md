@@ -73,6 +73,29 @@ parses both files. Default expect file is `test-examples.expect`.
   *making convergence claims in PR descriptions / docs*, not as a
   CI gate. If a multi-seed regression shows up in the wild, run
   the per-example target manually with several seeds.
+- **Same-seed determinism (tape)** — the ≥5-seed pass rate is only
+  meaningful if a given `--seed` reproduces run-to-run. The tape
+  backend pins Accelerate BLAS to one thread (`tape.c`
+  constructor → `VECLIB_MAXIMUM_THREADS=1`) precisely so it does:
+  multi-threaded GEMM combines partial sums in work-stealing order,
+  which drifted bit-for-bit over a run and flipped `ntm-copy`'s
+  convergence verdict across reruns (root-caused 2026-06-18). To
+  verify a same-seed run is reproducible, run the binary twice and
+  diff the result line (no CI gate — manual):
+
+  ```bash
+  SET=build/tape-mlxcpu-torchcpu-machmac-m-series-hwcpu   # your active build key
+  a=$($SET/exec/ntm-copy --seed 42 --epochs 2000 | grep '^RESULT')
+  b=$($SET/exec/ntm-copy --seed 42 --epochs 2000 | grep '^RESULT')
+  [ "$a" = "$b" ] && echo DETERMINISTIC || echo "DIVERGED: $a vs $b"
+  ```
+
+  Expect bit-identical `acc=`/`loss=`. If it diverges, that's a new
+  nondeterminism source — *don't* mask it: bisect the first
+  diverging epoch by dumping per-epoch loss (the engine's
+  `EpochStep` return), then localize. A power user who wants
+  multi-threaded BLAS over reproducibility can still override:
+  `VECLIB_MAXIMUM_THREADS=N` (the constructor uses `setenv(...,0)`).
 - **PyTorch parity per example** — `bench-deep` Axis C
   exists for the representative panel; we don't enforce parity on
   every example automatically. Drift between Idris and PyTorch is
