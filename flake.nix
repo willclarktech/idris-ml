@@ -53,6 +53,17 @@
           gnumake # CI runs `nix develop .#lint --command make lint-c …`
         ]
         ++ lib.optionals stdenv.isLinux [ openblas ];
+
+      # Full build/test shell = the shared toolchain plus git-tools, which the
+      # CI lanes need for `git restore-mtime` (the cross-commit TTC-cache mtime
+      # reconciliation in setup-idris-ml). Python is intentionally NOT here —
+      # it's provided by uv (the pytorch venv / `uv run`), never nixpkgs.
+      defaultPackages =
+        pkgs:
+        toolchainPackages pkgs
+        ++ (with pkgs; [
+          git-tools # provides git-restore-mtime
+        ]);
     in
     {
       # Reusable, system-agnostic — used by the devShells below and by advanced
@@ -70,7 +81,7 @@
       });
 
       devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell { packages = toolchainPackages pkgs; };
+        default = pkgs.mkShell { packages = defaultPackages pkgs; };
         lint = pkgs.mkShell { packages = lintPackages pkgs; };
       });
     };
