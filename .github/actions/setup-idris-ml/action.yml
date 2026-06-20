@@ -301,6 +301,18 @@ runs:
         path: packages/pytorch/.venv
         key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
+    # uv's download/build cache (~/.cache/uv). The .venv cache above
+    # covers the steady state; this only earns its keep when uv.lock
+    # changes and `uv sync` rebuilds — it then restores wheels/builds
+    # instead of re-downloading. Same uv.lock key, so a hit means no
+    # save (cache/save reserve warns benignly).
+    - name: Restore uv download cache
+      if: contains(inputs.backend-deps, 'torch')
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.cache/uv
+        key: uv-cache-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
     - name: Install torch + transformers via uv
       if: contains(inputs.backend-deps, 'torch')
       shell: bash

@@ -136,3 +136,13 @@ runs:
       with:
         path: packages/pytorch/.venv
         key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+    # Paired save for setup-idris-ml's uv download-cache restore. Keyed
+    # on uv.lock (same as the venv), so it only writes when the lock
+    # changed; an unchanged lock = key exists = benign reserve warning.
+    - name: Save uv download cache
+      if: inputs.save-pytorch-venv == 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.cache/uv
+        key: uv-cache-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
