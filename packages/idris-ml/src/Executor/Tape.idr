@@ -455,14 +455,14 @@ prim__optimizerCreateSgdTape : Double -> AnyPtr
 prim__optimizerCreateRmspropTape : Double -> Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_create_adam_tape,libidrisml"
 prim__optimizerCreateAdamTape : Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_create_adam_group_tape,libidrisml"
-prim__optimizerCreateAdamGroupTape : Double -> Double -> Double -> Double -> String -> AnyPtr
 %foreign "C:optimizer_create_adamw_tape,libidrisml"
 prim__optimizerCreateAdamWTape : Double -> Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_set_lr_tape,libidrisml"
 prim__optimizerSetLrTape : AnyPtr -> Double -> PrimIO ()
 %foreign "C:optimizer_set_param_lr_tape,libidrisml"
 prim__optimizerSetParamLrTape : AnyPtr -> String -> Double -> PrimIO ()
+%foreign "C:optimizer_own_param_tape,libidrisml"
+prim__optimizerOwnParamTape : AnyPtr -> String -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-tape)) (set-top-level-value! 'idris-ffi-native-train-step-tape (foreign-procedure \"native_train_step_tape\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-tape) a0 a1 a2 (vector-ref a3 2) a4))"
 prim__nativeTrainStepTape : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-tape)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-tape (foreign-procedure \"native_train_step_scaled_tape\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-tape) a0 a1 a2 (vector-ref a3 2) a4 a5))"
@@ -600,15 +600,15 @@ UserExecutorParamRegistry TapeExecutor where
 public export
 UserExecutorOptimizer TapeExecutor where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primNativeTrainStep          = prim__nativeTrainStepTape
-  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTape
-  primOptimizerCreateAdam      = prim__optimizerCreateAdamTape
-  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTape
-  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTape
-  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTape
-  primOptimizerCreateSgd       = prim__optimizerCreateSgdTape
-  primOptimizerSetLr           = prim__optimizerSetLrTape
-  primOptimizerSetParamLr      = prim__optimizerSetParamLrTape
+  primNativeTrainStep        = prim__nativeTrainStepTape
+  primNativeTrainStepScaled  = prim__nativeTrainStepScaledTape
+  primOptimizerCreateAdam    = prim__optimizerCreateAdamTape
+  primOptimizerCreateAdamW   = prim__optimizerCreateAdamWTape
+  primOptimizerCreateRmsprop = prim__optimizerCreateRmspropTape
+  primOptimizerCreateSgd     = prim__optimizerCreateSgdTape
+  primOptimizerOwnParam      = prim__optimizerOwnParamTape
+  primOptimizerSetLr         = prim__optimizerSetLrTape
+  primOptimizerSetParamLr    = prim__optimizerSetParamLrTape
   -- <<< END GENERATED <<<
 
 public export

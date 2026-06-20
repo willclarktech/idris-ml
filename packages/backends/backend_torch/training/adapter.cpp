@@ -183,6 +183,7 @@ static void torch_port_load_int64(void* h, const int64_t* src, int n) {
    torch joins that shared TU; the Idris surface already calls the suffixed
    symbol directly. */
 extern "C" void optimizer_set_param_lr(void* opt, const char* name, double lr);
+extern "C" void optimizer_own_param(void* opt, const char* name);
 
 const BackendPort g_active_port = {
     /* Tensor introspection + per-element access + bulk grad/data ops:
@@ -206,11 +207,11 @@ const BackendPort g_active_port = {
     .optimizer_create_sgd = nullptr,
     .optimizer_create_rmsprop = nullptr,
     .optimizer_create_adam = nullptr,
-    .optimizer_create_adam_group = nullptr,
     .optimizer_create_adamw = nullptr,
     .optimizer_free = nullptr,
     .optimizer_set_lr = nullptr,
     .optimizer_set_param_lr = optimizer_set_param_lr,
+    .optimizer_own_param = optimizer_own_param,
     .optimizer_step = nullptr,
     .optimizer_buf_count = nullptr,
     .optimizer_get_m = nullptr,

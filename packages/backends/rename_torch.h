@@ -27,7 +27,6 @@
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_torch
 #define optimizer_clip_grad_value optimizer_clip_grad_value_torch
 #define optimizer_create_adam optimizer_create_adam_torch
-#define optimizer_create_adam_group optimizer_create_adam_group_torch
 #define optimizer_create_adamw optimizer_create_adamw_torch
 #define optimizer_create_rmsprop optimizer_create_rmsprop_torch
 #define optimizer_create_sgd optimizer_create_sgd_torch
@@ -36,6 +35,7 @@
 #define optimizer_get_meta optimizer_get_meta_torch
 #define optimizer_get_v optimizer_get_v_torch
 #define optimizer_load optimizer_load_torch
+#define optimizer_own_param optimizer_own_param_torch
 #define optimizer_save optimizer_save_torch
 #define optimizer_set_lr optimizer_set_lr_torch
 #define optimizer_set_m optimizer_set_m_torch

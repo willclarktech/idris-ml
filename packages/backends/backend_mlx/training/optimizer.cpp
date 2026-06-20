@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "../../backend.h"
 #include "../tensor.h"
@@ -47,13 +48,14 @@ struct Optimizer {
 	std::vector<mx::array> m_bufs, v_bufs;
 	/* Per-param LR overrides (indexed by param registry position, -1 = use base lr). */
 	std::vector<double> param_lr;
-	std::string prefix; // empty = manages all params; else prefix filter
+	std::unordered_set<std::string> owned; // empty = manages all params; else exact owned names
 };
 
-/* Returns true if param[i]'s name starts with opt->prefix (or prefix is empty). */
+/* Empty owned-set => manages every param. Else owned iff the exact name is in
+ * the set — no prefix logic, so `q1_` can't leak into `q1tgt_`. */
 static bool opt_owns_param_mlx(Optimizer* opt, int i) {
-	if (opt->prefix.empty()) return true;
-	return std::string(param_name(i)).rfind(opt->prefix, 0) == 0;
+	if (opt->owned.empty()) return true;
+	return opt->owned.count(param_name(i)) > 0;
 }
 
 extern "C" OptimizerHandle optimizer_create_sgd(double lr) {
@@ -89,19 +91,6 @@ extern "C" OptimizerHandle optimizer_create_adam(double lr, double beta1, double
 	return (OptimizerHandle)opt;
 }
 
-extern "C" OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2,
-                                                       double eps, const char* prefix) {
-	auto opt = new Optimizer();
-	opt->type = 2;
-	opt->lr = lr;
-	opt->beta1 = beta1;
-	opt->beta2 = beta2;
-	opt->eps = eps;
-	opt->t = 0;
-	opt->prefix = prefix ? std::string(prefix) : std::string();
-	return (OptimizerHandle)opt;
-}
-
 extern "C" OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                                   double weight_decay) {
 	auto opt = new Optimizer();
@@ -134,6 +123,10 @@ extern "C" void optimizer_set_param_lr(OptimizerHandle h, const char* name, doub
 			return;
 		}
 	}
+}
+
+extern "C" void optimizer_own_param(OptimizerHandle h, const char* name) {
+	((Optimizer*)h)->owned.insert(name);
 }
 
 extern "C" void optimizer_set_lr(OptimizerHandle h, double lr) {
@@ -220,7 +213,7 @@ static void adam_step_compile(Optimizer* opt, int np) {
 	std::vector<int> active_idx;
 	active_idx.reserve(np);
 	for (int i = 0; i < np; i++) {
-		if (!opt_owns_param_mlx(opt, i)) continue;
+		if (opt && !opt_owns_param_mlx(opt, i)) continue;
 		if (param_is_buffer(i)) continue; /* non-learnable buffer — never stepped */
 		auto t = (Tensor*)param_tensor(i);
 		if (!t->has_grad) continue;
@@ -342,7 +335,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 	auto bc2_arr = mx::array(1.0 - std::pow(opt->beta2, opt->t), opt_dtype);
 
 	for (int i = 0; i < np; i++) {
-		if (!opt_owns_param_mlx(opt, i)) continue;
+		if (opt && !opt_owns_param_mlx(opt, i)) continue;
 		if (param_is_buffer(i)) continue; /* non-learnable buffer — never stepped */
 		auto t = (Tensor*)param_tensor(i);
 		if (!t->has_grad) continue;
@@ -426,13 +419,12 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 	prof_epochs_mlx++;
 }
 
-/* Internal: clip grads for params matching prefix (empty prefix = all). */
-static void clip_grad_value_filtered(const std::string& prefix, double max_val) {
+/* Internal: clip grads for params this optimizer owns (empty set = all). */
+static void clip_grad_value_filtered(Optimizer* opt, double max_val) {
 	for (int i = 0; i < param_count(); i++) {
-		std::string p_name = param_name(i);
 		auto* p_tensor = (Tensor*)param_tensor(i);
 		if (param_is_buffer(i)) continue; /* buffers contribute no grad to clip */
-		if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
+		if (opt && !opt_owns_param_mlx(opt, i)) continue;
 		if (p_tensor->has_grad) {
 			auto lo = scalar_like(-max_val, p_tensor->grad);
 			auto hi = scalar_like(max_val, p_tensor->grad);
@@ -441,16 +433,15 @@ static void clip_grad_value_filtered(const std::string& prefix, double max_val) 
 	}
 }
 
-static double clip_grad_norm_filtered(const std::string& prefix, double max_norm) {
+static double clip_grad_norm_filtered(Optimizer* opt, double max_norm) {
 	/* Compute squared-grad sum per-param in the param's own dtype, then
 	   reduce to a double on the host. Avoids mixing dtypes in a single
 	   running `total` array (param dtypes may differ across the registry). */
 	double sumsq = 0.0;
 	for (int i = 0; i < param_count(); i++) {
-		std::string p_name = param_name(i);
 		auto* p_tensor = (Tensor*)param_tensor(i);
 		if (param_is_buffer(i)) continue; /* buffers contribute no grad norm */
-		if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
+		if (opt && !opt_owns_param_mlx(opt, i)) continue;
 		if (p_tensor->has_grad) {
 			auto s = mx::sum(mx::square(p_tensor->grad));
 			mx::eval(s);
@@ -464,10 +455,9 @@ static double clip_grad_norm_filtered(const std::string& prefix, double max_norm
 	if (norm > max_norm) {
 		double scale = max_norm / norm;
 		for (int i = 0; i < param_count(); i++) {
-			std::string p_name = param_name(i);
 			auto* p_tensor = (Tensor*)param_tensor(i);
 			if (param_is_buffer(i)) continue; /* buffers contribute no grad norm */
-			if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
+			if (opt && !opt_owns_param_mlx(opt, i)) continue;
 			if (p_tensor->has_grad) {
 				p_tensor->grad = mx::multiply(p_tensor->grad, scalar_like(scale, p_tensor->grad));
 			}
@@ -477,11 +467,11 @@ static double clip_grad_norm_filtered(const std::string& prefix, double max_norm
 }
 
 extern "C" void optimizer_clip_grad_value(double max_val) {
-	clip_grad_value_filtered("", max_val);
+	clip_grad_value_filtered(nullptr, max_val); /* nullptr => all params */
 }
 
 extern "C" double optimizer_clip_grad_norm(double max_norm) {
-	return clip_grad_norm_filtered("", max_norm);
+	return clip_grad_norm_filtered(nullptr, max_norm); /* nullptr => all params */
 }
 
 /* Polyak soft update: mirror of the tape/torch implementation. */
@@ -603,9 +593,9 @@ extern "C" double native_train_step(OptimizerHandle opt, int clip_mode, double c
 	optimizer_zero_grad(opt);
 	if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
 	if (clip_mode == 1)
-		clip_grad_value_filtered(o->prefix, clip_val);
+		clip_grad_value_filtered(o, clip_val);
 	else if (clip_mode == 2)
-		clip_grad_norm_filtered(o->prefix, clip_val);
+		clip_grad_norm_filtered(o, clip_val);
 	optimizer_step(opt);
 	return loss_val;
 }
@@ -625,10 +615,9 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	double inv_scale = 1.0 / scale;
 	bool has_nonfinite = false;
 	for (int i = 0; i < param_count(); i++) {
-		std::string p_name = param_name(i);
 		auto* p_tensor = (Tensor*)param_tensor(i);
 		if (param_is_buffer(i)) continue; /* buffers carry no grad to unscale */
-		if (!o->prefix.empty() && p_name.rfind(o->prefix, 0) != 0) continue;
+		if (!opt_owns_param_mlx(o, i)) continue;
 		if (!p_tensor->has_grad) continue;
 		p_tensor->grad = mx::multiply(p_tensor->grad, scalar_like(inv_scale, p_tensor->grad));
 		auto all_fin = mx::all(mx::isfinite(p_tensor->grad));
@@ -638,9 +627,9 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	if (has_nonfinite) return std::nan("");
 
 	if (clip_mode == 1)
-		clip_grad_value_filtered(o->prefix, clip_val);
+		clip_grad_value_filtered(o, clip_val);
 	else if (clip_mode == 2)
-		clip_grad_norm_filtered(o->prefix, clip_val);
+		clip_grad_norm_filtered(o, clip_val);
 	optimizer_step(opt);
 	return loss_val * inv_scale;
 }
@@ -650,9 +639,9 @@ extern "C" int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, doub
 	(void)dummy;
 	auto* o = (Optimizer*)opt;
 	if (clip_mode == 1)
-		clip_grad_value_filtered(o->prefix, clip_val);
+		clip_grad_value_filtered(o, clip_val);
 	else if (clip_mode == 2)
-		clip_grad_norm_filtered(o->prefix, clip_val);
+		clip_grad_norm_filtered(o, clip_val);
 	optimizer_step(opt);
 	optimizer_zero_grad(opt);
 	return 0;

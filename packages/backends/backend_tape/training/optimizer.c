@@ -56,7 +56,8 @@ typedef struct {
 	int allocated;
 	double* param_lr; /* per-param LR overrides; NULL = use opt->lr */
 	int param_lr_count;
-	char prefix[128]; /* param-name prefix filter (empty = manages all) */
+	char** owned;    /* exact owned param names (empty = manages all) */
+	int owned_count; /* see optimizer_own_param / opt_owns_param */
 } TapeOptimizer;
 
 /* From training/profiling.c — tape's prof_* accumulators. */
@@ -69,9 +70,15 @@ extern double prof_op_t_prev;
 /* From training/diagnostics.c — DEBUG_LSTM_TRAJ pre-reset dump. */
 extern void _dbg_dump_lstm_traj_if_enabled(void);
 
+/* Empty owned-set => manages every registered param (single-optimizer
+ * default). Otherwise the param is owned iff its exact name is in the set
+ * — no prefix logic, so `q1_` can't leak into `q1tgt_`. */
 static int opt_owns_param(TapeOptimizer* opt, int i) {
-	if (opt->prefix[0] == '\0') return 1;
-	return strncmp(param_name(i), opt->prefix, strlen(opt->prefix)) == 0;
+	if (opt->owned_count == 0) return 1;
+	const char* nm = param_name(i);
+	for (int k = 0; k < opt->owned_count; k++)
+		if (strcmp(nm, opt->owned[k]) == 0) return 1;
+	return 0;
 }
 
 static int param_total_elements(void) {
@@ -133,16 +140,6 @@ void* tape_optimizer_create_adam(double lr, double beta1, double beta2, double e
 	return opt;
 }
 
-void* tape_optimizer_create_adam_group(double lr, double beta1, double beta2, double eps,
-                                       const char* prefix) {
-	TapeOptimizer* opt = (TapeOptimizer*)tape_optimizer_create_adam(lr, beta1, beta2, eps);
-	if (prefix) {
-		strncpy(opt->prefix, prefix, sizeof(opt->prefix) - 1);
-		opt->prefix[sizeof(opt->prefix) - 1] = '\0';
-	}
-	return opt;
-}
-
 void* tape_optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                   double weight_decay) {
 	TapeOptimizer* opt = calloc(1, sizeof(TapeOptimizer));
@@ -160,7 +157,21 @@ void tape_optimizer_free(void* h) {
 	free(opt->v);
 	free(opt->m);
 	free(opt->param_lr);
+	for (int k = 0; k < opt->owned_count; k++)
+		free(opt->owned[k]);
+	free((void*)opt->owned);
 	free(opt);
+}
+
+/* Add one exact param name to this optimizer's owned-set. The typed
+ * replacement for the prefix scope set by the deleted create_adam_group:
+ * `Train.Freeze.restrictTo` calls this once per name the optimizer owns. */
+void tape_optimizer_own_param(void* h, const char* name) {
+	TapeOptimizer* opt = (TapeOptimizer*)h;
+	char** grown =
+	    (char**)realloc((void*)opt->owned, (size_t)(opt->owned_count + 1) * sizeof(char*));
+	opt->owned = grown;
+	opt->owned[opt->owned_count++] = strdup(name);
 }
 
 void tape_optimizer_set_lr(void* h, double lr) {

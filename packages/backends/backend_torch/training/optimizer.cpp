@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <ATen/ATen.h>
 #include <torch/torch.h>
@@ -55,8 +56,9 @@ struct OptWrapper {
 	int type; // 0=sgd, 1=rmsprop, 2=adam, 3=adamw
 	double lr, beta1, beta2, eps, alpha, weight_decay, momentum;
 	torch::optim::Optimizer* opt;
-	std::string prefix; // empty = manages all params; else only params whose
-	                    // registry name starts with `prefix` (SAC multi-opt)
+	std::unordered_set<std::string> owned; // empty = manages all params; else only
+	                                       // params whose exact name is in the set
+	                                       // (SAC multi-opt — no `q1_`/`q1tgt_` leak)
 	std::unordered_map<const void*, double>
 	    param_lr;             // per-param LR overrides, keyed by the param's
 	                          // TensorImpl* (stable across re-sync). Empty in the
@@ -71,19 +73,16 @@ struct OptWrapper {
 	                          // which doesn't exist on a freshly-loaded opt.
 };
 
-static std::vector<at::Tensor> collect_param_tensors_filtered(const std::string& prefix) {
+/* Empty owned-set => every registered param; else exact name membership. */
+static std::vector<at::Tensor>
+collect_param_tensors_filtered(const std::unordered_set<std::string>& owned) {
 	std::vector<at::Tensor> params;
 	params.reserve((size_t)param_count());
 	for (int i_ = 0; i_ < param_count(); i_++) {
 		if (param_is_buffer(i_)) continue; /* buffers contribute no grad to clip */
 		auto* tensor = (at::Tensor*)param_tensor(i_);
-		if (prefix.empty()) {
+		if (owned.empty() || owned.count(param_name(i_)) > 0) {
 			params.push_back(*tensor);
-		} else {
-			std::string name(param_name(i_));
-			if (name.rfind(prefix, 0) == 0) {
-				params.push_back(*tensor);
-			}
 		}
 	}
 	return params;
@@ -125,22 +124,6 @@ extern "C" OptimizerHandle optimizer_create_adam(double lr, double beta1, double
 	w->beta1 = beta1;
 	w->beta2 = beta2;
 	w->eps = eps;
-	w->opt = new torch::optim::Adam(
-	    params, torch::optim::AdamOptions(lr).betas(std::make_tuple(beta1, beta2)).eps(eps));
-	return static_cast<OptimizerHandle>(w);
-}
-
-extern "C" OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2,
-                                                       double eps, const char* prefix) {
-	std::string pfx = prefix ? prefix : "";
-	auto params = collect_param_tensors_filtered(pfx);
-	auto* w = new OptWrapper();
-	w->type = 2;
-	w->lr = lr;
-	w->beta1 = beta1;
-	w->beta2 = beta2;
-	w->eps = eps;
-	w->prefix = pfx;
 	w->opt = new torch::optim::Adam(
 	    params, torch::optim::AdamOptions(lr).betas(std::make_tuple(beta1, beta2)).eps(eps));
 	return static_cast<OptimizerHandle>(w);
@@ -400,7 +383,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 	auto& param_groups = opt->param_groups();
 	if (!param_groups.empty()) {
 		auto& params_ref = param_groups[0].params();
-		auto current = collect_param_tensors_filtered(w->prefix);
+		auto current = collect_param_tensors_filtered(w->owned);
 		if (params_ref.size() != current.size()) {
 			params_ref.clear();
 			for (auto& t : current)
@@ -475,6 +458,10 @@ extern "C" void optimizer_set_param_lr(OptimizerHandle h, const char* name, doub
 	}
 }
 
+extern "C" void optimizer_own_param(OptimizerHandle h, const char* name) {
+	static_cast<OptWrapper*>(h)->owned.insert(name);
+}
+
 extern "C" void optimizer_set_lr(OptimizerHandle h, double lr) {
 	auto* w = static_cast<OptWrapper*>(h);
 	w->lr = lr;
@@ -497,22 +484,23 @@ extern "C" void optimizer_set_lr(OptimizerHandle h, double lr) {
 	}
 }
 
-static void clip_grad_value_filtered(const std::string& prefix, double max_val) {
-	auto params = collect_param_tensors_filtered(prefix);
+static void clip_grad_value_filtered(const std::unordered_set<std::string>& owned, double max_val) {
+	auto params = collect_param_tensors_filtered(owned);
 	torch::nn::utils::clip_grad_value_(params, max_val);
 }
 
-static double clip_grad_norm_filtered(const std::string& prefix, double max_norm) {
-	auto params = collect_param_tensors_filtered(prefix);
+static double clip_grad_norm_filtered(const std::unordered_set<std::string>& owned,
+                                      double max_norm) {
+	auto params = collect_param_tensors_filtered(owned);
 	return torch::nn::utils::clip_grad_norm_(params, max_norm);
 }
 
 extern "C" void optimizer_clip_grad_value(double max_val) {
-	clip_grad_value_filtered("", max_val);
+	clip_grad_value_filtered({}, max_val);
 }
 
 extern "C" double optimizer_clip_grad_norm(double max_norm) {
-	return clip_grad_norm_filtered("", max_norm);
+	return clip_grad_norm_filtered({}, max_norm);
 }
 
 /* Polyak soft update: mirror of the tape-backend implementation. */
@@ -715,9 +703,9 @@ extern "C" double native_train_step(OptimizerHandle opt, int clip_mode, double c
 	optimizer_zero_grad(opt);
 	if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
 	if (clip_mode == 1)
-		clip_grad_value_filtered(w->prefix, clip_val);
+		clip_grad_value_filtered(w->owned, clip_val);
 	else if (clip_mode == 2)
-		clip_grad_norm_filtered(w->prefix, clip_val);
+		clip_grad_norm_filtered(w->owned, clip_val);
 	optimizer_step(opt);
 	return loss_val;
 }
@@ -741,7 +729,7 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	optimizer_zero_grad(opt);
 	if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
 
-	auto params = collect_param_tensors_filtered(w->prefix);
+	auto params = collect_param_tensors_filtered(w->owned);
 	double inv_scale = 1.0 / scale;
 	bool has_nonfinite = false;
 	for (auto& p : params) {
@@ -753,9 +741,9 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	if (has_nonfinite) return std::nan("");
 
 	if (clip_mode == 1)
-		clip_grad_value_filtered(w->prefix, clip_val);
+		clip_grad_value_filtered(w->owned, clip_val);
 	else if (clip_mode == 2)
-		clip_grad_norm_filtered(w->prefix, clip_val);
+		clip_grad_norm_filtered(w->owned, clip_val);
 	optimizer_step(opt);
 	return loss_val * inv_scale;
 }
@@ -765,9 +753,9 @@ extern "C" int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, doub
 	(void)dummy;
 	auto* w = static_cast<OptWrapper*>(opt);
 	if (clip_mode == 1)
-		clip_grad_value_filtered(w->prefix, clip_val);
+		clip_grad_value_filtered(w->owned, clip_val);
 	else if (clip_mode == 2)
-		clip_grad_norm_filtered(w->prefix, clip_val);
+		clip_grad_norm_filtered(w->owned, clip_val);
 	optimizer_step(opt);
 	optimizer_zero_grad(opt);
 	return 0;

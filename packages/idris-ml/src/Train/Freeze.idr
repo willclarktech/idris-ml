@@ -45,36 +45,23 @@ export
 unfreezeGroup : UserExecutorTraining ex => NativeOptimizer ex -> List String -> IO ()
 unfreezeGroup opt names = setGroupLR opt names (-1.0)
 
--- Walk registry indices k-1..0, applying `act name` for every non-buffer param.
-walkNames : UserExecutorTraining ex => (String -> IO ()) -> Nat -> IO ()
-walkNames act Z     = pure ()
-walkNames act (S k) = do
-  let i = cast {to=Int} k
-  isBuf <- getParamIsBuffer {ex} i
-  name  <- getParamName {ex} i
-  when (not isBuf) (act name)
-  walkNames {ex} act k
-
-||| Scope an optimizer to exactly `keep`: every *other* registered (non-buffer)
-||| param gets LR 0, so this optimizer's steps move only `keep`. The typed
-||| replacement for `adam {scope="q1_"}` — pass `reflectNames net` (or
+||| Scope an optimizer to exactly `keep`: the names go into the optimizer's
+||| C-side owned-set, so its step + grad-clip touch ONLY those params (true
+||| skip) — every *other* registered param is left entirely untouched. The
+||| typed replacement for `adam {scope="q1_"}` — pass `reflectNames net` (or
 ||| `groupOf net`) so ownership is the net's exact param set, eliminating the
-||| substring-leak bug class. Run after the nets are registered (params added
-||| later miss the walk — the same registry-order hazard the old scope had).
+||| substring-leak bug class. Run after the nets are registered (the owned-set
+||| is matched by name at each step, so late-registered params would simply not
+||| be owned).
 |||
-||| Note on grad clipping: unlike the old C prefix-scope (which excluded
-||| non-owned params from the optimizer entirely), restrictTo keeps them in the
-||| set at LR 0, so a global `NormClip` aggregates their gradients into the norm.
-||| This is inert in the intended multi-network pattern — each net's loss is
-||| local, so the non-owned params carry exactly zero grad at this optimizer's
-||| step and contribute nothing to the norm — but a loss that feeds grad to a
-||| non-owned param would clip differently than the old scope did.
+||| Grad clipping is owned-scoped too: a `NormClip` on a restricted optimizer
+||| aggregates ONLY its owned params' gradients into the norm (the filtered clip
+||| consults the same owned-set), matching the old C prefix-scope semantics
+||| without the prefix leak. (The previous LR-0-on-complement form left
+||| non-owned params in the optimizer, folding their grads into a global norm.)
 export
 restrictTo : UserExecutorTraining ex => NativeOptimizer ex -> List String -> IO ()
-restrictTo opt keep = do
-  n <- getParamCount {ex}
-  walkNames {ex} (\name => when (not (name `elem` keep)) (setParamLR {ex} opt name 0.0))
-            (cast {to=Nat} n)
+restrictTo opt keep = traverse_ (setOwnedParam {ex} opt) keep
 
 ||| The registered (non-buffer) param names satisfying `pred`, in registry
 ||| order. The explicit escape hatch for name-pattern selection (HF prefixes,

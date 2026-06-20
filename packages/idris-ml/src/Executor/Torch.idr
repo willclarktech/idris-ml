@@ -494,14 +494,14 @@ prim__optimizerCreateSgdTorch : Double -> AnyPtr
 prim__optimizerCreateRmspropTorch : Double -> Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_create_adam_torch,libidrisml"
 prim__optimizerCreateAdamTorch : Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_create_adam_group_torch,libidrisml"
-prim__optimizerCreateAdamGroupTorch : Double -> Double -> Double -> Double -> String -> AnyPtr
 %foreign "C:optimizer_create_adamw_torch,libidrisml"
 prim__optimizerCreateAdamWTorch : Double -> Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_set_lr_torch,libidrisml"
 prim__optimizerSetLrTorch : AnyPtr -> Double -> PrimIO ()
 %foreign "C:optimizer_set_param_lr_torch,libidrisml"
 prim__optimizerSetParamLrTorch : AnyPtr -> String -> Double -> PrimIO ()
+%foreign "C:optimizer_own_param_torch,libidrisml"
+prim__optimizerOwnParamTorch : AnyPtr -> String -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-torch)) (set-top-level-value! 'idris-ffi-native-train-step-torch (foreign-procedure \"native_train_step_torch\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-torch) a0 a1 a2 (vector-ref a3 2) a4))"
 prim__nativeTrainStepTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-torch)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-torch (foreign-procedure \"native_train_step_scaled_torch\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-torch) a0 a1 a2 (vector-ref a3 2) a4 a5))"
@@ -638,15 +638,15 @@ public export
 public export
 {d : TorchHwDev} -> UserExecutorOptimizer (TorchExecutor d) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primNativeTrainStep          = prim__nativeTrainStepTorch
-  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTorch
-  primOptimizerCreateAdam      = prim__optimizerCreateAdamTorch
-  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTorch
-  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTorch
-  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTorch
-  primOptimizerCreateSgd       = prim__optimizerCreateSgdTorch
-  primOptimizerSetLr           = prim__optimizerSetLrTorch
-  primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
+  primNativeTrainStep        = prim__nativeTrainStepTorch
+  primNativeTrainStepScaled  = prim__nativeTrainStepScaledTorch
+  primOptimizerCreateAdam    = prim__optimizerCreateAdamTorch
+  primOptimizerCreateAdamW   = prim__optimizerCreateAdamWTorch
+  primOptimizerCreateRmsprop = prim__optimizerCreateRmspropTorch
+  primOptimizerCreateSgd     = prim__optimizerCreateSgdTorch
+  primOptimizerOwnParam      = prim__optimizerOwnParamTorch
+  primOptimizerSetLr         = prim__optimizerSetLrTorch
+  primOptimizerSetParamLr    = prim__optimizerSetParamLrTorch
   -- <<< END GENERATED <<<
 
 public export

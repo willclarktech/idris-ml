@@ -93,8 +93,6 @@ typedef struct BackendPort {
 	void* (*optimizer_create_rmsprop)(double lr, double alpha, double eps, double weight_decay,
 	                                  double momentum);
 	void* (*optimizer_create_adam)(double lr, double beta1, double beta2, double eps);
-	void* (*optimizer_create_adam_group)(double lr, double beta1, double beta2, double eps,
-	                                     const char* prefix);
 	void* (*optimizer_create_adamw)(double lr, double beta1, double beta2, double eps,
 	                                double weight_decay);
 
@@ -102,6 +100,8 @@ typedef struct BackendPort {
 	void (*optimizer_free)(void* opt);
 	void (*optimizer_set_lr)(void* opt, double lr);
 	void (*optimizer_set_param_lr)(void* opt, const char* name, double lr);
+	/* Add one exact name to the optimizer's owned-set (empty set = owns all). */
+	void (*optimizer_own_param)(void* opt, const char* name);
 
 	/* Per-step math. Adapter is responsible for ALL backend hygiene
 	   (intermediate cleanup, prof_* updates, tape_reset where applicable). */

@@ -210,13 +210,12 @@ extern void* tape_optimizer_create_sgd(double lr);
 extern void* tape_optimizer_create_rmsprop(double lr, double alpha, double eps, double weight_decay,
                                            double momentum);
 extern void* tape_optimizer_create_adam(double lr, double beta1, double beta2, double eps);
-extern void* tape_optimizer_create_adam_group(double lr, double beta1, double beta2, double eps,
-                                              const char* prefix);
 extern void* tape_optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                          double weight_decay);
 extern void tape_optimizer_free(void* opt);
 extern void tape_optimizer_set_lr(void* opt, double lr);
 extern void tape_optimizer_set_param_lr(void* opt, const char* name, double lr);
+extern void tape_optimizer_own_param(void* opt, const char* name);
 extern void tape_optimizer_step(void* opt);
 extern void tape_optimizer_clip_grad_value_filtered(void* opt, double max_val);
 extern double tape_optimizer_clip_grad_norm_filtered(void* opt, double max_norm);
@@ -264,11 +263,11 @@ const BackendPort g_active_port = {
     .optimizer_create_sgd = tape_optimizer_create_sgd,
     .optimizer_create_rmsprop = tape_optimizer_create_rmsprop,
     .optimizer_create_adam = tape_optimizer_create_adam,
-    .optimizer_create_adam_group = tape_optimizer_create_adam_group,
     .optimizer_create_adamw = tape_optimizer_create_adamw,
     .optimizer_free = tape_optimizer_free,
     .optimizer_set_lr = tape_optimizer_set_lr,
     .optimizer_set_param_lr = tape_optimizer_set_param_lr,
+    .optimizer_own_param = tape_optimizer_own_param,
     .optimizer_step = tape_optimizer_step,
     .optimizer_clip_grad_value_filtered = tape_optimizer_clip_grad_value_filtered,
     .optimizer_clip_grad_norm_filtered = tape_optimizer_clip_grad_norm_filtered,

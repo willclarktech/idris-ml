@@ -39,11 +39,11 @@ Test(shared_training, port_struct_populated) {
 	cr_assert_not_null(g_active_port.optimizer_create_sgd);
 	cr_assert_not_null(g_active_port.optimizer_create_rmsprop);
 	cr_assert_not_null(g_active_port.optimizer_create_adam);
-	cr_assert_not_null(g_active_port.optimizer_create_adam_group);
 	cr_assert_not_null(g_active_port.optimizer_create_adamw);
 	cr_assert_not_null(g_active_port.optimizer_free);
 	cr_assert_not_null(g_active_port.optimizer_set_lr);
 	cr_assert_not_null(g_active_port.optimizer_set_param_lr);
+	cr_assert_not_null(g_active_port.optimizer_own_param);
 	cr_assert_not_null(g_active_port.optimizer_step);
 	cr_assert_not_null(g_active_port.optimizer_clip_grad_value_filtered);
 	cr_assert_not_null(g_active_port.optimizer_clip_grad_norm_filtered);

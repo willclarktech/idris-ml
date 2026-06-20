@@ -504,14 +504,14 @@ prim__optimizerCreateSgdMlx : Double -> AnyPtr
 prim__optimizerCreateRmspropMlx : Double -> Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_create_adam_mlx,libidrisml"
 prim__optimizerCreateAdamMlx : Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_create_adam_group_mlx,libidrisml"
-prim__optimizerCreateAdamGroupMlx : Double -> Double -> Double -> Double -> String -> AnyPtr
 %foreign "C:optimizer_create_adamw_mlx,libidrisml"
 prim__optimizerCreateAdamWMlx : Double -> Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_set_lr_mlx,libidrisml"
 prim__optimizerSetLrMlx : AnyPtr -> Double -> PrimIO ()
 %foreign "C:optimizer_set_param_lr_mlx,libidrisml"
 prim__optimizerSetParamLrMlx : AnyPtr -> String -> Double -> PrimIO ()
+%foreign "C:optimizer_own_param_mlx,libidrisml"
+prim__optimizerOwnParamMlx : AnyPtr -> String -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-mlx)) (set-top-level-value! 'idris-ffi-native-train-step-mlx (foreign-procedure \"native_train_step_mlx\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-mlx) a0 a1 a2 (vector-ref a3 2) a4))"
 prim__nativeTrainStepMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-mlx)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-mlx (foreign-procedure \"native_train_step_scaled_mlx\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-mlx) a0 a1 a2 (vector-ref a3 2) a4 a5))"
@@ -646,15 +646,15 @@ public export
 public export
 {s : MlxStream} -> UserExecutorOptimizer (MlxExecutor s) where
   -- >>> GENERATED FROM ffi_manifest.py — gen-executor-instances.py >>>
-  primNativeTrainStep          = prim__nativeTrainStepMlx
-  primNativeTrainStepScaled    = prim__nativeTrainStepScaledMlx
-  primOptimizerCreateAdam      = prim__optimizerCreateAdamMlx
-  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupMlx
-  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWMlx
-  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropMlx
-  primOptimizerCreateSgd       = prim__optimizerCreateSgdMlx
-  primOptimizerSetLr           = prim__optimizerSetLrMlx
-  primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
+  primNativeTrainStep        = prim__nativeTrainStepMlx
+  primNativeTrainStepScaled  = prim__nativeTrainStepScaledMlx
+  primOptimizerCreateAdam    = prim__optimizerCreateAdamMlx
+  primOptimizerCreateAdamW   = prim__optimizerCreateAdamWMlx
+  primOptimizerCreateRmsprop = prim__optimizerCreateRmspropMlx
+  primOptimizerCreateSgd     = prim__optimizerCreateSgdMlx
+  primOptimizerOwnParam      = prim__optimizerOwnParamMlx
+  primOptimizerSetLr         = prim__optimizerSetLrMlx
+  primOptimizerSetParamLr    = prim__optimizerSetParamLrMlx
   -- <<< END GENERATED <<<
 
 public export

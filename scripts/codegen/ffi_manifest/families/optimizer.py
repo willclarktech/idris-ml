@@ -17,13 +17,6 @@ ENTRIES = {
         idris_method="primNativeTrainStep",
         mlx="direct",
     ),
-    "optimizer_create_adam_group": Entry(
-        args=("d", "d", "d", "d", "s"),
-        ret="R",
-        slice="UserExecutorOptimizer",
-        idris_method="primOptimizerCreateAdamGroup",
-        mlx="direct",
-    ),
     "optimizer_create_adam_w": Entry(
         args=("d", "d", "d", "d", "d"),
         ret="R",
@@ -65,6 +58,13 @@ ENTRIES = {
         ret="v",
         slice="UserExecutorOptimizer",
         idris_method="primOptimizerSetParamLr",
+        mlx="direct",
+    ),
+    "optimizer_own_param": Entry(
+        args=("R", "s"),
+        ret="v",
+        slice="UserExecutorOptimizer",
+        idris_method="primOptimizerOwnParam",
         mlx="direct",
     ),
 }

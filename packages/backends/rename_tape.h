@@ -27,7 +27,6 @@
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_tape
 #define optimizer_clip_grad_value optimizer_clip_grad_value_tape
 #define optimizer_create_adam optimizer_create_adam_tape
-#define optimizer_create_adam_group optimizer_create_adam_group_tape
 #define optimizer_create_adamw optimizer_create_adamw_tape
 #define optimizer_create_rmsprop optimizer_create_rmsprop_tape
 #define optimizer_create_sgd optimizer_create_sgd_tape
@@ -36,6 +35,7 @@
 #define optimizer_get_meta optimizer_get_meta_tape
 #define optimizer_get_v optimizer_get_v_tape
 #define optimizer_load optimizer_load_tape
+#define optimizer_own_param optimizer_own_param_tape
 #define optimizer_save optimizer_save_tape
 #define optimizer_set_lr optimizer_set_lr_tape
 #define optimizer_set_m optimizer_set_m_tape

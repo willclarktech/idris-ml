@@ -44,12 +44,6 @@ OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, dou
 	return (OptimizerHandle)g_active_port.optimizer_create_adam(lr, beta1, beta2, eps);
 }
 
-OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2, double eps,
-                                            const char* prefix) {
-	return (OptimizerHandle)g_active_port.optimizer_create_adam_group(lr, beta1, beta2, eps,
-	                                                                  prefix);
-}
-
 OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                        double weight_decay) {
 	return (OptimizerHandle)g_active_port.optimizer_create_adamw(lr, beta1, beta2, eps,
@@ -66,6 +60,10 @@ void optimizer_set_lr(OptimizerHandle h, double lr) {
 
 void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
 	g_active_port.optimizer_set_param_lr((void*)h, name, lr);
+}
+
+void optimizer_own_param(OptimizerHandle h, const char* name) {
+	g_active_port.optimizer_own_param((void*)h, name);
 }
 
 /* ----------------------------------------------------------------------

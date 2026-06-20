@@ -502,15 +502,16 @@ interface UserExecutorParamRegistry ex => UserExecutorOptimizer (0 ex : Executor
   ||| Create a backend-specific optimizer over this backend's
   ||| registry. The returned handle is opaque and backend-bound; it
   ||| is consumed by `primNativeTrainStep` / the LR setters below.
-  primOptimizerCreateSgd       : Double -> AnyPtr
-  primOptimizerCreateRmsprop   : Double -> Double -> Double -> Double -> Double -> AnyPtr
-  primOptimizerCreateAdam      : Double -> Double -> Double -> Double -> AnyPtr
-  primOptimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String -> AnyPtr
-  primOptimizerCreateAdamW     : Double -> Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateSgd     : Double -> AnyPtr
+  primOptimizerCreateRmsprop : Double -> Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateAdam    : Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateAdamW   : Double -> Double -> Double -> Double -> Double -> AnyPtr
   ||| Set the optimizer's base LR.
   primOptimizerSetLr      : AnyPtr -> Double -> PrimIO ()
   ||| Set a per-parameter LR override (matched by paramId).
   primOptimizerSetParamLr : AnyPtr -> String -> Double -> PrimIO ()
+  ||| Add one exact param name to the optimizer's owned-set (empty = owns all).
+  primOptimizerOwnParam   : AnyPtr -> String -> PrimIO ()
   ||| Fused step: zero_grad → backward → clip → step. Args:
   ||| (optimizer handle, clip mode, clip val, loss tensor, loss val).
   primNativeTrainStep     : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double

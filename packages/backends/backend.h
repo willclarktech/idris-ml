@@ -532,16 +532,17 @@ OptimizerHandle optimizer_create_sgd(double lr);
 OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps, double weight_decay,
                                          double momentum);
 OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps);
-/* Adam whose step() / clip_grad only touches params whose registry name starts
- * with `prefix`. Empty prefix behaves identically to optimizer_create_adam. */
-OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2, double eps,
-                                            const char* prefix);
 OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                        double weight_decay);
 void optimizer_free(OptimizerHandle opt);
 void optimizer_step(OptimizerHandle opt);
 void optimizer_zero_grad(OptimizerHandle opt);
 void optimizer_set_param_lr(OptimizerHandle opt, const char* name, double lr);
+/* Add one exact param name to the optimizer's owned-set; its step() and
+ * clip_grad then touch ONLY owned params. Empty set (default) = owns all.
+ * Replaces the deleted prefix-scoped optimizer_create_adam_group — exact
+ * names mean `q1_` can't leak into `q1tgt_`. */
+void optimizer_own_param(OptimizerHandle opt, const char* name);
 /* Set the optimizer's base (global) learning rate. Per-param overrides set
  * via optimizer_set_param_lr remain in effect; only params not overridden
  * pick up the new base lr. Used to apply LR schedules per epoch. */

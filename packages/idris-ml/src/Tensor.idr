@@ -606,6 +606,16 @@ export
 setParamLR : UserExecutorTraining ex => NativeOptimizer ex -> String -> Double -> IO ()
 setParamLR opt name lr = primIO (primOptimizerSetParamLr {ex} opt.handle name lr)
 
+||| Add one exact param name to the optimizer's owned-set. Once any name is
+||| owned, the optimizer's step + clip touch ONLY owned params (true skip) —
+||| every other registered param is left untouched. An empty owned-set (the
+||| default) manages all params. The typed, leak-free replacement for the
+||| deleted prefix scope: `Train.Freeze.restrictTo` feeds it exact names from
+||| `Nn.Group.reflectNames`, so `q1_` can't leak into `q1tgt_`.
+export
+setOwnedParam : UserExecutorTraining ex => NativeOptimizer ex -> String -> IO ()
+setOwnedParam opt name = primIO (primOptimizerOwnParam {ex} opt.handle name)
+
 ||| Update the optimizer's base (global) learning rate. Per-parameter
 ||| overrides set via `setParamLR` remain in effect; only un-overridden
 ||| params pick up the new base LR. Used to apply LR schedules per epoch.
