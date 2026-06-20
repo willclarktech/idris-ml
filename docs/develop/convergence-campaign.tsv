@@ -98,23 +98,23 @@ example-sac	1	pass	10m17s	avg_return=-372.49462337932613	epochs=24300	seed=1
 example-sac	2	pass	3h23m	avg_return=-367.211695985844	epochs=27500	seed=2
 example-sac	3	pass	3h27m	avg_return=-374.27824928532544	epochs=25700	seed=3
 example-sac	4	pass	11m38s	avg_return=-374.9960817014508	epochs=25200	seed=4
-example-ntm-associative-recall	42	pass	1m12s	epochs=10800	acc=0.9783333333333334	seed=42
-example-ntm-associative-recall	1	pass	1m57s	epochs=18600	acc=0.9966666666666667	seed=1
-example-ntm-associative-recall	2	pass	1m26s	epochs=14200	acc=0.9438888888888889	seed=2
-example-ntm-associative-recall	3	pass	58s	epochs=10000	acc=0.9305555555555556	seed=3
-example-ntm-associative-recall	4	pass	1m16s	epochs=13200	acc=0.9833333333333333	seed=4
-example-dnc-copy	42	pass	14s	epochs=3000	acc=0.9995652173913043	seed=42
-example-dnc-copy	1	pass	12s	epochs=2800	acc=0.9914510166358595	seed=1
-example-dnc-copy	2	pass	15s	epochs=4000	acc=0.9995479204339964	seed=2
-example-dnc-copy	3	pass	13s	epochs=3100	acc=0.9986933797909407	seed=3
-example-dnc-copy	4	pass	11s	epochs=2700	acc=0.9995361781076066	seed=4
-example-dnc-recall	42	pass	8m17s	epochs=14900	acc=0.7933333333333333	seed=42
-example-dnc-recall	1	pass	1h36m	epochs=15700	acc=0.7977777777777778	seed=1
-example-dnc-recall	2	pass	1m33s	epochs=16400	acc=0.8522222222222222	seed=2
-example-dnc-recall	3	pass	1m46s	epochs=18300	acc=0.8088888888888889	seed=3
-example-dnc-recall	4	pass	1m33s	epochs=15500	acc=0.7855555555555556	seed=4
-example-ntm-copy	42	pass	52s	epochs=7100	acc=1.0	seed=42
-example-ntm-copy	1	fail	1m10s	epochs=10000	acc=0.6724713740458015	seed=1
-example-ntm-copy	2	fail	1m10s	epochs=10000	acc=0.663417951042611	seed=2
-example-ntm-copy	3	fail	1m11s	epochs=10000	acc=0.6706730769230769	seed=3
-example-ntm-copy	4	fail	1m12s	epochs=10000	acc=0.6863970588235294	seed=4
+example-ntm-associative-recall	42	pass	1m17s	epochs=11500	acc=0.9938888888888889	seq_acc=0.98	seed=42
+example-ntm-associative-recall	1	fail	3m2s	epochs=30000	acc=0.7238888888888889	seq_acc=0.09	seed=1
+example-ntm-associative-recall	2	pass	1m17s	epochs=11800	acc=0.9566666666666667	seq_acc=0.91	seed=2
+example-ntm-associative-recall	3	pass	1m4s	epochs=10000	acc=0.9305555555555556	seq_acc=0.71	seed=3
+example-ntm-associative-recall	4	pass	1m22s	epochs=13200	acc=0.9833333333333333	seq_acc=0.96	seed=4
+example-dnc-copy	42	pass	20s	epochs=3000	acc=0.9995652173913043	seq_acc=0.98	seed=42
+example-dnc-copy	1	pass	19s	epochs=2800	acc=0.9914510166358595	seq_acc=0.96	seed=1
+example-dnc-copy	2	pass	17s	epochs=4000	acc=0.9977396021699819	seq_acc=0.91	seed=2
+example-dnc-copy	3	pass	15s	epochs=3100	acc=0.9986933797909407	seq_acc=0.99	seed=3
+example-dnc-copy	4	pass	13s	epochs=2700	acc=0.9995361781076066	seq_acc=0.98	seed=4
+example-dnc-recall	42	pass	1m36s	epochs=15700	acc=0.7794444444444445	seq_acc=0.23	seed=42
+example-dnc-recall	1	pass	1m35s	epochs=16100	acc=0.8511111111111112	seq_acc=0.41	seed=1
+example-dnc-recall	2	pass	1m38s	epochs=15800	acc=0.83	seq_acc=0.38	seed=2
+example-dnc-recall	3	pass	1m42s	epochs=17700	acc=0.8122222222222222	seq_acc=0.29	seed=3
+example-dnc-recall	4	pass	1m25s	epochs=15200	acc=0.7438888888888889	seq_acc=0.19	seed=4
+example-ntm-copy	42	pass	47s	epochs=6700	acc=0.9901838966202783	seq_acc=0.98	seed=42
+example-ntm-copy	1	pass	57s	epochs=7800	acc=0.9955571565802114	seq_acc=0.99	seed=1
+example-ntm-copy	2	fail	1m9s	epochs=10000	acc=0.663417951042611	seq_acc=0.07	seed=2
+example-ntm-copy	3	fail	1m10s	epochs=10000	acc=0.6843657817109144	seq_acc=0.08	seed=3
+example-ntm-copy	4	fail	1m11s	epochs=10000	acc=0.6842629482071713	seq_acc=0.14	seed=4
