@@ -93,6 +93,19 @@ runs:
         sudo apt-get update
         sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime libcriterion-dev
 
+    # Homebrew's download cache (bottles + source tarballs). The macOS
+    # lane is default-on now, so the brew install below runs every push;
+    # restoring ~/Library/Caches/Homebrew skips the re-download. Static
+    # key (formula versions aren't in a lockfile) — bump `-v1` to refresh
+    # after a formula upgrade; same save-once-per-key shape as the idris2
+    # toolchain cache.
+    - name: Restore Homebrew download cache (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/Library/Caches/Homebrew
+        key: brew-${{ runner.os }}-v1
+
     - name: Install Chez Scheme + coreutils + git-restore-mtime (macOS)
       if: runner.os == 'macOS'
       shell: bash

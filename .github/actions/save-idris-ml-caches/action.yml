@@ -146,3 +146,13 @@ runs:
       with:
         path: ~/.cache/uv
         key: uv-cache-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+    # Paired save for setup-idris-ml's Homebrew download-cache restore.
+    # macOS only; static key (bump in both places to refresh) so it saves
+    # once and warns benignly on reserve thereafter.
+    - name: Save Homebrew download cache (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache/save@v5
+      with:
+        path: ~/Library/Caches/Homebrew
+        key: brew-${{ runner.os }}-v1
