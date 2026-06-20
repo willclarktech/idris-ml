@@ -16,6 +16,11 @@ modules = Compat.Random
         , Fit
         , Executor
         , Executor.Core
+        , Executor.Core.Kind
+        , Executor.Core.Compute
+        , Executor.Core.Training
+        , Executor.Core.Transfer
+        , Executor.Core.Aggregate
         , Executor.Mlx
         , Executor.Tape
         , Executor.Torch
