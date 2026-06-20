@@ -57,6 +57,31 @@
         ]
         ++ lib.optionals stdenv.isLinux [ openblas ];
 
+      # A no-op `stdbuf` (prepended to PATH by the default devShell's
+      # shellHook on macOS — see below). pack wraps its build commands in
+      # `stdbuf -oL` for line-buffered output, but on the macOS CI runner
+      # nix coreutils' libstdbuf.so is arm64 while the chez-built idris2 is
+      # arm64e, so the runner's strict dyld aborts EVERY pack-driven idris2
+      # build (the cold bootstrap and `pack build …` alike) with
+      # "incompatible architecture … need 'arm64e'" → Abort trap: 6.
+      # Injecting nothing sidesteps it.
+      noopStdbuf =
+        pkgs:
+        pkgs.writeShellScriptBin "stdbuf" ''
+          while [ $# -gt 0 ]; do
+            case "$1" in
+              -i | -o | -e) shift 2 ;;
+              -i* | -o* | -e* | --input=* | --output=* | --error=*) shift ;;
+              --)
+                shift
+                break
+                ;;
+              *) break ;;
+            esac
+          done
+          exec "$@"
+        '';
+
       # Full build/test shell = the shared toolchain plus git-tools, which the
       # CI lanes need for `git restore-mtime` (the cross-commit TTC-cache mtime
       # reconciliation in setup-idris-ml). Python is intentionally NOT here —
@@ -84,7 +109,16 @@
       });
 
       devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell { packages = defaultPackages pkgs; };
+        default = pkgs.mkShell {
+          packages = defaultPackages pkgs;
+          # macOS only: prepend the no-op stdbuf so it wins over coreutils'
+          # in the dev shell (mkShell's PATH ignores meta.priority, so a
+          # shellHook prepend is the reliable shadow). Keeps the no-op out of
+          # the toolchain the dotfiles install system-wide.
+          shellHook = pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+            export PATH="${noopStdbuf pkgs}/bin:$PATH"
+          '';
+        };
         lint = pkgs.mkShell { packages = lintPackages pkgs; };
       });
     };

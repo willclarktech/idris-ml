@@ -78,21 +78,6 @@ outputs:
 runs:
   using: composite
   steps:
-    # The macOS runner exports DYLD_INSERT_LIBRARIES pointing at coreutils'
-    # libstdbuf.so (the `stdbuf` mechanism). It's arm64, but pack's idris2 +
-    # the chez-compiled binaries are arm64e, so dyld aborts EVERY idris2
-    # invocation with "incompatible architecture ... need arm64e" (Abort
-    # trap: 6) — the cold idris2 bootstrap, then every `make install` / typed
-    # gate. Nothing in the toolchain should inject libstdbuf into the
-    # compiler; clear it for the whole job via $GITHUB_ENV (applies to all
-    # later steps, incl. the composite's own). macOS only — Linux uses
-    # LD_PRELOAD with a matching-arch lib, no abort. (The $(STDBUF) example/
-    # test runs are handled separately by the /usr/bin/true probe in
-    # mk/config.mk.)
-    - name: Clear DYLD library injection (macOS arm64e vs arm64 stdbuf)
-      if: runner.os == 'macOS'
-      shell: bash
-      run: echo "DYLD_INSERT_LIBRARIES=" >> "$GITHUB_ENV"
 
     # Chez elaboration of a cold tree (library + a large example in one
     # cascade) peaks past the 16 GB runner RAM. Swap trades speed for
@@ -152,10 +137,6 @@ runs:
       # cache restore (see the .build-commit soundness note below).
       run: |
         nix develop "$GITHUB_WORKSPACE#default" --command bash -euo pipefail <<'NIXSH'
-        # Belt-and-suspenders to the job-level $GITHUB_ENV clear: the boot
-        # idris2 is arm64e and the runner's arm64 libstdbuf injection aborts
-        # it (see the Clear DYLD step).
-        unset DYLD_INSERT_LIBRARIES
         pack info
         # SOUNDNESS — purge STALE local packages from the pack store. The pack
         # cache is restored via prefix fallback from an earlier commit, so its
