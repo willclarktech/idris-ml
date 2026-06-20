@@ -504,6 +504,20 @@
           "shared --build-dir, so the elaboration this step needs has",
           "always just happened in-job and the check is nearly free."
         ]
+      },
+      {
+        "name": "Type-check HfBitNetInference example (torch)",
+        "run": "make BACKEND=torch test-integration-lint-hf-bitnet-inference",
+        "comment": [
+          "`idris2 --check` over Example/HfBitNetInference.idr — the bitnet",
+          "twin of the llama type-check above. Lives in this job, NOT",
+          "test-integration: cold elaboration of the ~2B-param example peaks",
+          "past the runner ceiling (same reason as llama). No HF_TOKEN guard",
+          "— bitnet is public and the type-check downloads nothing; the",
+          "bitnet roundtrip earlier in this job already warmed the",
+          "--build-dir, so the check is nearly free. BACKEND=torch to match",
+          "the roundtrip's build set (tape F64 OOMs the runner)."
+        ]
       }
     ]
   }
