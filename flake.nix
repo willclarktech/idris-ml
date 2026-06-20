@@ -54,9 +54,19 @@
         ++ lib.optionals stdenv.isLinux [ openblas ];
     in
     {
-      # Reusable, system-agnostic — imported by the dotfiles behind a per-host
-      # `idris-ml.enable` flag, and by the devShells below.
+      # Reusable, system-agnostic — used by the devShells below and by advanced
+      # consumers that want to apply it to their own pkgs.
       lib.toolchainPackages = toolchainPackages;
+
+      # Pre-applied against the flake's PINNED nixpkgs. External consumers (the
+      # dotfiles' `local.idris-ml` module) take THIS, not `lib.toolchainPackages
+      # <their pkgs>` — applying the function to a consumer's own (floating)
+      # nixpkgs would use their tool versions and reintroduce the dev↔CI skew
+      # this whole effort removes. `.toolchain` == the `default` devShell's set.
+      legacyPackages = forAllSystems (pkgs: {
+        toolchain = toolchainPackages pkgs;
+        lint = lintPackages pkgs;
+      });
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell { packages = toolchainPackages pkgs; };
