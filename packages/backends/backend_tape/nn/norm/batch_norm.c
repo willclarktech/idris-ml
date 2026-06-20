@@ -54,8 +54,13 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
 			var /= spatial;
 			double rm = tape_load_d(running_mean, c);
 			double rv = tape_load_d(running_var, c);
+			/* Bessel n/(n-1) correction on the running-var update only (matches
+			 * torch::batch_norm / PyTorch); `var` itself stays biased for the
+			 * per-batch normalization below. At spatial==1 this is var*inf=NaN,
+			 * matching PyTorch's documented batchnorm-on-one-element behaviour. */
+			double bessel = (double)spatial / (spatial - 1.0);
 			tape_store_d(running_mean, c, (1.0 - momentum) * rm + momentum * mean);
-			tape_store_d(running_var, c, (1.0 - momentum) * rv + momentum * var);
+			tape_store_d(running_var, c, (1.0 - momentum) * rv + momentum * var * bessel);
 		} else {
 			mean = tape_load_d(running_mean, c);
 			var = tape_load_d(running_var, c);

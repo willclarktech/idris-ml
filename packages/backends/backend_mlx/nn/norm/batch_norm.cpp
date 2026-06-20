@@ -31,10 +31,14 @@ extern "C" TensorHandle tensor_batch_norm_mlx_streamed(TensorHandle hinput, Tens
 	if (training) {
 		auto mom = scalar_like(momentum, rm->data);
 		auto one_m_mo = scalar_like(1.0 - momentum, rm->data);
+		/* Bessel n/(n-1) correction on the running-var update only (matches
+		 * torch::batch_norm / PyTorch); `var` stays biased for the per-batch
+		 * normalization below (line ~47). */
+		auto var_corrected = mx::multiply(var, scalar_like((double)spatial / (spatial - 1.0), var));
 		auto new_rm =
 		    mx::add(mx::multiply(one_m_mo, rm->data), mx::multiply(mom, mx::squeeze(mean)));
-		auto new_rv =
-		    mx::add(mx::multiply(one_m_mo, rv->data), mx::multiply(mom, mx::squeeze(var)));
+		auto new_rv = mx::add(mx::multiply(one_m_mo, rv->data),
+		                      mx::multiply(mom, mx::squeeze(var_corrected)));
 		rm->data = new_rm;
 		rv->data = new_rv;
 		mx::eval(rm->data);
