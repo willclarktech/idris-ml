@@ -259,11 +259,16 @@ EXAMPLE_TIMEOUT ?= 600
 
 # Line-buffer Chez output. Without this, stdout fully-buffers when piped or
 # redirected and progress logs only appear at process exit. We use stdbuf
-# unless its libstdbuf.so is incompatible with the system's dyld (e.g. brew
-# coreutils stdbuf on Apple-Silicon GH runners is arm64 but the inserted-
-# library loader requires arm64e). Test by injecting it into a no-op `true`:
-# success means libstdbuf loads, failure means we fall back to no buffering.
-STDBUF := $(shell stdbuf -oL true >/dev/null 2>&1 && echo "stdbuf -oL")
+# unless its libstdbuf.so is incompatible with the system's dyld (e.g. nix /
+# brew coreutils stdbuf on Apple-Silicon GH runners is arm64 but the
+# inserted-library loader refuses to inject it into the arm64e binaries idris2
+# produces — Abort trap: 6). Probe against /usr/bin/true, a SYSTEM arm64e
+# binary, NOT a bare `true` (which resolves to nix/brew coreutils' own arm64
+# `true`, so the inject always "succeeds" against a matching-arch target and
+# masks the incompatibility with our arm64e executables). Strict CI dyld
+# fails the inject → STDBUF empty → runs unbuffered but don't abort;
+# permissive local dyld passes → line-buffering kept.
+STDBUF := $(shell stdbuf -oL /usr/bin/true >/dev/null 2>&1 && echo "stdbuf -oL")
 
 
 # --- Package paths ---
