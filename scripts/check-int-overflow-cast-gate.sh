@@ -21,6 +21,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NEG_FILE="$REPO_ROOT/packages/idris-ml/src/Test/neg/IntOverflowToFloatRejected.idr"
 IDRIS_LOCAL="${IDRIS2_LOCAL:-$REPO_ROOT/.idris2}"
 
+# Single compiler: pack's idris2 (matches the .ttc the build installed).
+# IDRIS2 is exported by the Makefile; fall back to pack/PATH when run
+# standalone. PACK_PKG_PATH adds the collection libs (elab-util, contrib,
+# linear, ...) the local prefix alone doesn't carry.
+IDRIS2="${IDRIS2:-$(pack app-path idris2 2>/dev/null || command -v idris2)}"
+PACK_PKG_PATH="$(pack package-path 2>/dev/null || true)"
+
 if [ ! -f "$NEG_FILE" ]; then
 	echo "FAIL: negative test file missing at $NEG_FILE" >&2
 	exit 1
@@ -32,8 +39,8 @@ if [ ! -d "$IDRIS_LOCAL" ]; then
 fi
 
 cd "$(dirname "$NEG_FILE")"
-OUTPUT="$(IDRIS2_PACKAGE_PATH="$IDRIS_LOCAL/idris2-0.8.0" \
-					idris2 --check "$(basename "$NEG_FILE")" -p idris-ml 2>&1 || true)"
+OUTPUT="$(IDRIS2_PACKAGE_PATH="$IDRIS_LOCAL/idris2-0.8.0${PACK_PKG_PATH:+:$PACK_PKG_PATH}" \
+					"$IDRIS2" --check "$(basename "$NEG_FILE")" -p idris-ml 2>&1 || true)"
 
 # Success path: idris2 should have errored with the unsolvable LTE
 # proof. Match on the literal "LTE 64 25" so unrelated regressions

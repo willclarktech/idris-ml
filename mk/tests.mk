@@ -276,7 +276,7 @@ check-examples: install
 		esac; \
 		slug=$$(echo "$$mod" | tr 'A-Z' 'a-z'); \
 		echo "Building Example.$$mod..."; \
-		idris2 $(IDRIS_FLAGS) --build-dir $(BUILD) -o "check-$$slug" "$$f" || exit 1; \
+		$(IDRIS2) $(IDRIS_FLAGS) --build-dir $(BUILD) -o "check-$$slug" "$$f" || exit 1; \
 	done
 	@echo "All examples type-check."
 

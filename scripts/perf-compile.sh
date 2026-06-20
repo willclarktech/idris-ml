@@ -58,6 +58,8 @@ EXAMPLE_SRC=$( make -s print-EXAMPLE_SRC BACKEND="$BACKEND" )
 IDRIS2_LOCAL=$( make -s print-IDRIS2_LOCAL BACKEND="$BACKEND" )
 IDRIS2_PACKAGE_PATH=$( make -s print-IDRIS2_PACKAGE_PATH BACKEND="$BACKEND" )
 export IDRIS2_PACKAGE_PATH
+# Single compiler: pack's idris2 (same one the build installed against).
+IDRIS2=$( make -s print-IDRIS2 BACKEND="$BACKEND" )
 
 LOG_ARGS=()
 [ -n "${PERF_COMPILE_LOG:-}" ] && LOG_ARGS=( --log-path "$PERF_COMPILE_LOG" )
@@ -90,10 +92,10 @@ measure_one() {  # <target> <label-override>
 
 	tmp=$( mktemp -d )
 	if [ -n "$pkgdir" ]; then
-		run=( env IDRIS2_PREFIX="$IDRIS2_LOCAL" idris2 --build-dir "$tmp" --build "$ipkg" )
+		run=( env IDRIS2_PREFIX="$IDRIS2_LOCAL" "$IDRIS2" --build-dir "$tmp" --build "$ipkg" )
 		rundir="$pkgdir"
 	else
-		run=( idris2 --build-dir "$tmp" --source-dir "$EXAMPLE_SRC"
+		run=( "$IDRIS2" --build-dir "$tmp" --source-dir "$EXAMPLE_SRC"
 		      -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers
 		      -o "$name" "$target" )
 		rundir="."

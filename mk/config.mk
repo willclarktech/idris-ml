@@ -280,17 +280,33 @@ BACKENDS_DIR := packages/backends
 # linkage instances), so they cannot share a prefix.
 IDRIS2_LOCAL := $(CURDIR)/$(BUILD)/idris2-prefix
 
-# Where the system idris2 was installed — needed to find contrib/base/etc.
-# when our install rules override IDRIS2_PREFIX with $(IDRIS2_LOCAL). Returns
-# empty before idris2 is on PATH (e.g. during `make backend`); harmless then.
-# Nix-built idris2 bakes its own paths so the override is also harmless there.
-SYS_IDRIS2_PREFIX := $(shell idris2 --paths 2>/dev/null | sed -n 's/.*Installation Prefix.*"\([^"]*\)".*/\1/p')
+# Single compiler: pack's idris2 — the exact commit the pinned collection
+# (pack.toml) was built against. Using it everywhere (library install,
+# example builds, and the pack-driven test builds) means one compiler
+# produces every `.ttc`, so interface hashes always match, and the
+# collection libs the library now depends on (elab-util, linear, contrib —
+# plus hedgehog / Test.Golden for tests) all resolve. The previous setup
+# ran nixpkgs' idris2 for the library/example path while `pack build` used
+# pack's: two different commits whose `.ttc` only interoperated by luck,
+# which is why a manual `cp` of elab-util into the prefix was needed.
+#
+# Falls back to a bare PATH idris2 when pack is absent (C-only `make
+# backend`, which needs no Idris compiler at all).
+IDRIS2 := $(shell pack app-path idris2 2>/dev/null || command -v idris2)
+# Exported so child scripts (scripts/check-*-gate.sh, perf tooling) compile
+# against the SAME compiler the build installed — else they'd load pack-built
+# .ttc with a different idris2 and hit interface-hash mismatches.
+export IDRIS2
 
-ifeq ($(SYS_IDRIS2_PREFIX),)
-export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0
-else
-export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0:$(SYS_IDRIS2_PREFIX)/idris2-0.8.0
-endif
+# `pack package-path` is a colon-separated list of every collection package
+# dir — its first entry is the compiler's bundled stdlib (base/contrib/
+# linear/prelude/...), the rest are the externals (elab-util, hedgehog, ...).
+# We need it because overriding IDRIS2_PREFIX to $(IDRIS2_LOCAL) below points
+# idris2 away from its own prefix; the package path puts the stdlib + externals
+# back in view. $(IDRIS2_LOCAL) is listed FIRST so a freshly `--install`ed
+# idris-ml/idris-gym shadows any stale copy in pack's store.
+PACK_PKG_PATH := $(shell pack package-path 2>/dev/null)
+export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0$(if $(PACK_PKG_PATH),:$(PACK_PKG_PATH),)
 
 # Idris flags for example/test builds (use installed packages). `--build-dir`
 # routes ttc + exec output under `$(BUILD)` so each backend set has its own

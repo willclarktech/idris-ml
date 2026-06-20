@@ -23,6 +23,13 @@ NEG_FILE="$REPO_ROOT/packages/idris-ml/src/Test/neg/ReuseAfterFreeze.idr"
 POS_FILE="$REPO_ROOT/packages/idris-ml/src/Test/pos/SingleUseCompiles.idr"
 IDRIS_LOCAL="${IDRIS2_LOCAL:-$REPO_ROOT/.idris2}"
 
+# Single compiler: pack's idris2 (matches the .ttc the build installed).
+# IDRIS2 is exported by the Makefile; fall back to pack/PATH when run
+# standalone. PACK_PKG_PATH adds the collection libs (elab-util, contrib,
+# linear, ...) the local prefix alone doesn't carry.
+IDRIS2="${IDRIS2:-$(pack app-path idris2 2>/dev/null || command -v idris2)}"
+PACK_PKG_PATH="$(pack package-path 2>/dev/null || true)"
+
 for f in "$NEG_FILE" "$POS_FILE"; do
 	if [ ! -f "$f" ]; then
 		echo "FAIL: gate test file missing at $f" >&2
@@ -35,13 +42,13 @@ if [ ! -d "$IDRIS_LOCAL" ]; then
 	exit 1
 fi
 
-PKG_PATH="$IDRIS_LOCAL/idris2-0.8.0"
+PKG_PATH="$IDRIS_LOCAL/idris2-0.8.0${PACK_PKG_PATH:+:$PACK_PKG_PATH}"
 
 check() { # <file>  -> echoes idris2 output, returns idris2 exit code
 	local f="$1"
 	( cd "$(dirname "$f")" && \
 		IDRIS2_PACKAGE_PATH="$PKG_PATH" \
-			idris2 --check "$(basename "$f")" -p idris-ml -p linear -p contrib 2>&1 )
+			"$IDRIS2" --check "$(basename "$f")" -p idris-ml -p linear -p contrib 2>&1 )
 }
 
 # ---- NEG: must fail, with a linearity error ----

@@ -47,7 +47,6 @@ import argparse
 import json
 import os
 import random
-import re
 import shutil
 import subprocess
 import sys
@@ -68,27 +67,44 @@ from mltools.sweep_grid import (  # noqa: E402
 )
 
 
+def _idris2_bin() -> str:
+    """Single compiler: pack's idris2 (the commit the pinned collection was
+    built against), matching the .ttc the build installed. Falls back to a
+    PATH idris2 when pack is absent."""
+    try:
+        out = subprocess.run(
+            ["pack", "app-path", "idris2"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if out:
+            return out
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    return "idris2"
+
+
 def _setup_idris_paths() -> None:
     """Mirror Makefile's idris2 package-path setup so this script works
-    without `make` being involved."""
+    without `make` being involved: the local install prefix first, then
+    pack's collection store (base/contrib/linear/elab-util/...)."""
     idris2_local = os.environ.get("IDRIS2_LOCAL")
     if not idris2_local:
         idris2_local = str(ROOT / ".idris2")
     try:
-        out = subprocess.run(
-            ["idris2", "--paths"],
+        pack_pkg_path = subprocess.run(
+            ["pack", "package-path"],
             capture_output=True,
             text=True,
             check=False,
-        ).stdout
+        ).stdout.strip()
     except FileNotFoundError:
-        out = ""
-    m = re.search(r'Installation Prefix\s*=\s*"([^"]+)"', out)
-    sys_prefix = m.group(1) if m else ""
-    if sys_prefix:
-        os.environ["IDRIS2_PACKAGE_PATH"] = f"{idris2_local}/idris2-0.8.0:{sys_prefix}/idris2-0.8.0"
-    else:
-        os.environ["IDRIS2_PACKAGE_PATH"] = f"{idris2_local}/idris2-0.8.0"
+        pack_pkg_path = ""
+    pkg_path = f"{idris2_local}/idris2-0.8.0"
+    if pack_pkg_path:
+        pkg_path = f"{pkg_path}:{pack_pkg_path}"
+    os.environ["IDRIS2_PACKAGE_PATH"] = pkg_path
 
 
 def _resolve_grid_path(grid: str | None, task: str | None) -> Path:
@@ -103,7 +119,7 @@ def _build_idris(exec_name: str, src: str) -> None:
     print(f"Building {exec_name} from {src}...")
     subprocess.run(
         [
-            "idris2",
+            _idris2_bin(),
             "--source-dir",
             "packages/idris-ml-examples/src",
             "-p",

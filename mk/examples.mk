@@ -58,7 +58,7 @@ dataset-tinyshakespeare: $(TINYSHAKESPEARE_FILE)
 
 # Build and run examples (require: make install)
 example-supervised: install
-	idris2 $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
 	cp $(LIB) $(BUILD)/exec/supervised_app/
 	./$(BUILD)/exec/supervised $(SEED_FLAG) $(SUPERVISED_ARGS)
 
@@ -69,7 +69,7 @@ example-supervised: install
 # checkpoint; the real-text warm-start workflow is parked as a
 # follow-up TODO row.
 example-bert-classify-finetune: install install-transformers
-	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-finetune $(EXAMPLE_SRC)/Example/BertClassifyFinetune.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-finetune $(EXAMPLE_SRC)/Example/BertClassifyFinetune.idr
 	cp $(LIB) $(BUILD)/exec/bert-classify-finetune_app/
 	./$(BUILD)/exec/bert-classify-finetune $(SEED_FLAG) $(BERT_FINETUNE_ARGS)
 
@@ -94,7 +94,7 @@ data-sst2: $(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
 example-bert-classify-sst2-finetune: install install-transformers \
 		models/google/bert_uncased_L-2_H-128_A-2/config.json \
 		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
-	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-sst2-finetune \
+	$(IDRIS2) $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-sst2-finetune \
 		$(EXAMPLE_SRC)/Example/BertClassifySst2Finetune.idr
 	cp $(LIB) $(BUILD)/exec/bert-classify-sst2-finetune_app/
 	./$(BUILD)/exec/bert-classify-sst2-finetune $(SEED_FLAG) $(BERT_SST2_ARGS)
@@ -108,7 +108,7 @@ example-bert-classify-sst2-finetune: install install-transformers \
 example-bert-classify-sst2-lora: install install-transformers \
 		models/google/bert_uncased_L-2_H-128_A-2/config.json \
 		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
-	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-sst2-lora \
+	$(IDRIS2) $(IDRIS_FLAGS) -p idris-transformers -o bert-classify-sst2-lora \
 		$(EXAMPLE_SRC)/Example/BertClassifySst2Lora.idr
 	cp $(LIB) $(BUILD)/exec/bert-classify-sst2-lora_app/
 	./$(BUILD)/exec/bert-classify-sst2-lora $(SEED_FLAG) $(BERT_SST2_LORA_ARGS)
@@ -140,7 +140,7 @@ data-tinyshakespeare-bert-tiny: data/tinyshakespeare/input.bert-tiny.tokens
 example-gpt2-lm-finetune: install install-transformers \
 		models/distilgpt2/config.json \
 		data/tinyshakespeare/input.distilgpt2.tokens
-	idris2 $(IDRIS_FLAGS) -p idris-transformers -o gpt2-lm-finetune \
+	$(IDRIS2) $(IDRIS_FLAGS) -p idris-transformers -o gpt2-lm-finetune \
 		$(EXAMPLE_SRC)/Example/Gpt2LmFinetune.idr
 	cp $(LIB) $(BUILD)/exec/gpt2-lm-finetune_app/
 	./$(BUILD)/exec/gpt2-lm-finetune $(SEED_FLAG) $(GPT2_LM_ARGS)
@@ -154,7 +154,7 @@ ref-gpt2-lm-finetune: models/distilgpt2/config.json \
 example-bert-mlm-finetune: install install-transformers \
 		models/google/bert_uncased_L-2_H-128_A-2/config.json \
 		data/tinyshakespeare/input.bert-tiny.tokens
-	idris2 $(IDRIS_FLAGS) -p idris-transformers -o bert-mlm-finetune \
+	$(IDRIS2) $(IDRIS_FLAGS) -p idris-transformers -o bert-mlm-finetune \
 		$(EXAMPLE_SRC)/Example/BertMlmFinetune.idr
 	cp $(LIB) $(BUILD)/exec/bert-mlm-finetune_app/
 	./$(BUILD)/exec/bert-mlm-finetune $(SEED_FLAG) $(BERT_MLM_ARGS)
@@ -197,7 +197,7 @@ $(HF_MODELS_DIR)/%/config.json:
 hf-fixtures: $(TRANSFORMERS_TEST_FIXTURES)
 
 example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
-	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-bert-inference_app/
 	./$(BUILD)/exec/hf-bert-inference
 
@@ -207,7 +207,7 @@ example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-12
 test-e2e-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
-	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-bert-inference_app/
 	./$(BUILD)/exec/hf-bert-inference --dump-pooled > $(BUILD)/hf-bert-idris-out.txt
 	cd packages/pytorch && uv run python \
@@ -219,7 +219,7 @@ test-e2e-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-1
 # Build + run Example/HfGpt2Inference. Fetches distilgpt2 once via the
 # pattern rule above.
 example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
-	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
 	cp $(LIB) $(BUILD)/exec/hf-gpt2-inference_app/
 	./$(BUILD)/exec/hf-gpt2-inference
 
@@ -246,7 +246,7 @@ example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # command line if you genuinely want F64 (e.g. for numerical
 # bisection vs the F64 oracle in `save_oracle_llama.py`).
 example-hf-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
-	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
 	./$(BUILD)/exec/hf-llama-inference
 
@@ -268,7 +268,7 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config
 # gate) already elaborated in this build set, and the --check ttc
 # warms the later `-o` build in turn.
 test-integration-lint-hf-llama-inference: install
-	IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 
@@ -277,7 +277,7 @@ test-integration-lint-hf-llama-inference: install
 # this gates the typed surface (incl. the NoGrad inference path) without
 # fetching the checkpoint — the cheapest CI proof for this example.
 test-integration-lint-hf-bitnet-inference: install
-	IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
 
@@ -290,7 +290,7 @@ test-integration-lint-hf-bitnet-inference: install
 # `BACKEND=torch TORCH_DEVICE=mps make example-hf-bitnet-inference` or
 # `BACKEND=mlx MLX_DEVICE=gpu make example-hf-bitnet-inference`.
 example-hf-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
-	idris2 $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-bitnet-inference_app/
 	./$(BUILD)/exec/hf-bitnet-inference
 
@@ -307,7 +307,7 @@ example-hf-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-
 test-e2e-hf-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/save_oracle_bitnet.py
-	idris2 $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-bitnet-inference_app/
 	./$(BUILD)/exec/hf-bitnet-inference --dump-logits > $(BUILD)/hf-bitnet-idris-out.txt
 	cd packages/pytorch && uv run python \
@@ -319,7 +319,7 @@ test-e2e-hf-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B
 test-e2e-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
-	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
 	cp $(LIB) $(BUILD)/exec/hf-gpt2-inference_app/
 	./$(BUILD)/exec/hf-gpt2-inference --dump-final-hidden > $(BUILD)/hf-gpt2-idris-out.txt
 	cd packages/pytorch && uv run python \
@@ -341,7 +341,7 @@ test-e2e-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 test-e2e-hf-llama-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama.py -v
-	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
 	./$(BUILD)/exec/hf-llama-inference --dump-final-hidden > $(BUILD)/hf-llama-idris-out.txt
 	cd packages/pytorch && uv run python \
@@ -371,7 +371,7 @@ test-e2e-hf-llama-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/confi
 test-e2e-hf-llama-generate-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
-	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
 	./$(BUILD)/exec/hf-llama-inference --dump-tokens --num-tokens 8 > $(BUILD)/hf-llama-tokens-out.txt
 	cd packages/pytorch && uv run python \
@@ -388,17 +388,17 @@ test-e2e-transformers-oracle-llama-generate:
 		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
 
 example-rnn: install
-	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) $(BUILD)/exec/rnn_app/
 	./$(BUILD)/exec/rnn $(SEED_FLAG) $(RNN_ARGS)
 
 example-lstm: install
-	idris2 $(IDRIS_FLAGS) -o lstm $(EXAMPLE_SRC)/Example/Lstm.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o lstm $(EXAMPLE_SRC)/Example/Lstm.idr
 	cp $(LIB) $(BUILD)/exec/lstm_app/
 	./$(BUILD)/exec/lstm $(SEED_FLAG) $(LSTM_ARGS)
 
 example-gru: install
-	idris2 $(IDRIS_FLAGS) -o gru $(EXAMPLE_SRC)/Example/Gru.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o gru $(EXAMPLE_SRC)/Example/Gru.idr
 	cp $(LIB) $(BUILD)/exec/gru_app/
 	./$(BUILD)/exec/gru $(SEED_FLAG) $(GRU_ARGS)
 
@@ -412,37 +412,37 @@ $(BUILD)/libbyo.$(LIB_EXT): $(BACKENDS_DIR)/backend_byo.c | $(BUILD)
 	cc -O2 -shared -fPIC -o $@ $<
 
 example-bring-your-own: install $(BUILD)/libbyo.$(LIB_EXT)
-	idris2 $(IDRIS_FLAGS) -o bring-your-own $(EXAMPLE_SRC)/Example/BringYourOwn.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o bring-your-own $(EXAMPLE_SRC)/Example/BringYourOwn.idr
 	cp $(LIB) $(BUILD)/libbyo.$(LIB_EXT) $(BUILD)/exec/bring-your-own_app/
 	./$(BUILD)/exec/bring-your-own
 
 example-ntm-copy: install
-	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) $(BUILD)/exec/ntm-copy_app/
 	$(STDBUF) ./$(BUILD)/exec/ntm-copy $(SEED_FLAG) $(NTM_COPY_ARGS)
 
 example-ntm-associative-recall: install
-	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
 	cp $(LIB) $(BUILD)/exec/ntm-associative-recall_app/
 	$(STDBUF) ./$(BUILD)/exec/ntm-associative-recall $(SEED_FLAG) $(NTM_ASSOCIATIVE_RECALL_ARGS)
 
 example-dnc-copy: install
-	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
 	cp $(LIB) $(BUILD)/exec/dnc-copy_app/
 	$(STDBUF) ./$(BUILD)/exec/dnc-copy $(SEED_FLAG) $(DNC_COPY_ARGS)
 
 example-dnc-recall: install
-	idris2 $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
 	cp $(LIB) $(BUILD)/exec/dnc-recall_app/
 	$(STDBUF) ./$(BUILD)/exec/dnc-recall $(SEED_FLAG) $(DNC_RECALL_ARGS)
 
 example-transformer: install
-	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
 	cp $(LIB) $(BUILD)/exec/transformer_app/
 	./$(BUILD)/exec/transformer $(SEED_FLAG) $(TRANSFORMER_ARGS)
 
 example-tcast-demo: install
-	idris2 $(IDRIS_FLAGS) -o tcast-demo $(EXAMPLE_SRC)/Example/TCastDemo.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o tcast-demo $(EXAMPLE_SRC)/Example/TCastDemo.idr
 	cp $(LIB) $(BUILD)/exec/tcast-demo_app/
 	./$(BUILD)/exec/tcast-demo $(TCAST_DEMO_ARGS)
 
@@ -452,7 +452,7 @@ example-tcast-demo: install
 # reader (Python). Verifier is skipped if the pytorch venv is absent.
 example-dtype-serialize:
 	$(MAKE) BACKEND=torch install >/dev/null
-	idris2 $(IDRIS_FLAGS) -o dtype-serialize $(EXAMPLE_SRC)/Example/DTypeSerialize.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o dtype-serialize $(EXAMPLE_SRC)/Example/DTypeSerialize.idr
 	cp $(LIB) $(BUILD)/exec/dtype-serialize_app/
 	./$(BUILD)/exec/dtype-serialize /tmp/idrisml-dtypes.safetensors
 	@if [ -x packages/pytorch/.venv/bin/python3 ]; then \
@@ -474,7 +474,7 @@ example-dtype-serialize:
 # once the ttc cache fixes let test-integration reach this step.
 ifeq ($(BACKEND),torch)
 example-index-ops: install
-	idris2 $(IDRIS_FLAGS) -o index-ops $(EXAMPLE_SRC)/Example/IndexOps.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o index-ops $(EXAMPLE_SRC)/Example/IndexOps.idr
 	cp $(LIB) $(BUILD)/exec/index-ops_app/
 	./$(BUILD)/exec/index-ops
 else
@@ -486,7 +486,7 @@ endif
 # witnesses typecheck against the real constructor across all backends;
 # main constructs on the build-selected cell, so it runs on any BACKEND.
 example-dtype-pitch: install
-	idris2 $(IDRIS_FLAGS) -o dtype-pitch $(EXAMPLE_SRC)/Example/DTypePitch.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o dtype-pitch $(EXAMPLE_SRC)/Example/DTypePitch.idr
 	cp $(LIB) $(BUILD)/exec/dtype-pitch_app/
 	./$(BUILD)/exec/dtype-pitch
 
@@ -501,13 +501,13 @@ example-precision-checkpoint:
 	@rm -f /tmp/precision-checkpoint.safetensors
 	@echo "=== Step 1: save F32 (BACKEND=mlx MLX_DEVICE=gpu) ==="
 	$(MAKE) BACKEND=mlx MLX_DEVICE=gpu install >/dev/null
-	idris2 $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
 	cp $(LIB) $(BUILD)/exec/precision-checkpoint_app/
 	./$(BUILD)/exec/precision-checkpoint --mode save --path /tmp/precision-checkpoint.safetensors --expect pass
 	@echo ""
 	@echo "=== Step 2: load-strict into F64 (BACKEND=mlx), expect FAIL ==="
 	$(MAKE) BACKEND=mlx install >/dev/null
-	idris2 $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
 	cp $(LIB) $(BUILD)/exec/precision-checkpoint_app/
 	./$(BUILD)/exec/precision-checkpoint --mode load-strict --path /tmp/precision-checkpoint.safetensors --expect fail
 	@echo ""
@@ -521,7 +521,7 @@ example-precision-checkpoint:
 # sidecar epoch + resume log + completion. Gates the Train/Checkpoint
 # integration. See scripts/test-checkpoint-resume.sh.
 test-integration-checkpoint-resume: install
-	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) $(BUILD)/exec/gpt_app/
 	bash scripts/test-checkpoint-resume.sh ./$(BUILD)/exec/gpt
 
@@ -529,12 +529,12 @@ test-integration-checkpoint-resume: install
 # under any BACKEND list that includes mlx; references MlxCpu / MlxGpu
 # directly, so won't link under tape-only or torch-only builds.
 example-mlx-stream-demo: install
-	idris2 $(IDRIS_FLAGS) -o mlx-stream-demo $(EXAMPLE_SRC)/Example/MlxStreamDemo.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o mlx-stream-demo $(EXAMPLE_SRC)/Example/MlxStreamDemo.idr
 	cp $(LIB) $(BUILD)/exec/mlx-stream-demo_app/
 	./$(BUILD)/exec/mlx-stream-demo $(MLX_STREAM_DEMO_ARGS)
 
 example-gpt: install
-	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) $(BUILD)/exec/gpt_app/
 	$(STDBUF) ./$(BUILD)/exec/gpt $(SEED_FLAG) $(GPT_ARGS)
 
@@ -542,82 +542,82 @@ example-gpt: install
 # is a ~30s embedded-corpus demo; this target is the real char-LM
 # convergence target (matching nanoGPT/train_shakespeare_char.py).
 example-gpt-full: install $(TINYSHAKESPEARE_FILE)
-	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) $(BUILD)/exec/gpt_app/
 	$(STDBUF) ./$(BUILD)/exec/gpt $(SEED_FLAG) --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
 
 example-mnist: install $(MNIST_SENTINEL)
-	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) $(BUILD)/exec/mnist_app/
 	$(STDBUF) ./$(BUILD)/exec/mnist $(SEED_FLAG) $(MNIST_ARGS)
 
 example-seq-classify: install
-	idris2 $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
 	cp $(LIB) $(BUILD)/exec/seq-classify_app/
 	$(STDBUF) ./$(BUILD)/exec/seq-classify $(SEED_FLAG) $(SEQ_CLASSIFY_ARGS)
 
 example-reinforce: install
-	idris2 $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
 	cp $(LIB) $(BUILD)/exec/reinforce_app/
 	./$(BUILD)/exec/reinforce $(SEED_FLAG) $(REINFORCE_ARGS)
 
 example-q-learning: install
-	idris2 $(IDRIS_FLAGS) -o q-learning $(EXAMPLE_SRC)/Example/QLearning.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o q-learning $(EXAMPLE_SRC)/Example/QLearning.idr
 	cp $(LIB) $(BUILD)/exec/q-learning_app/
 	./$(BUILD)/exec/q-learning $(SEED_FLAG) $(Q_LEARNING_ARGS)
 
 example-sarsa: install
-	idris2 $(IDRIS_FLAGS) -o sarsa $(EXAMPLE_SRC)/Example/Sarsa.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o sarsa $(EXAMPLE_SRC)/Example/Sarsa.idr
 	cp $(LIB) $(BUILD)/exec/sarsa_app/
 	./$(BUILD)/exec/sarsa $(SEED_FLAG) $(SARSA_ARGS)
 
 example-monte-carlo: install
-	idris2 $(IDRIS_FLAGS) -o monte-carlo $(EXAMPLE_SRC)/Example/MonteCarlo.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o monte-carlo $(EXAMPLE_SRC)/Example/MonteCarlo.idr
 	cp $(LIB) $(BUILD)/exec/monte-carlo_app/
 	./$(BUILD)/exec/monte-carlo $(SEED_FLAG) $(MONTE_CARLO_ARGS)
 
 example-frozen-lake: install
-	idris2 $(IDRIS_FLAGS) -o frozen-lake $(EXAMPLE_SRC)/Example/FrozenLake.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o frozen-lake $(EXAMPLE_SRC)/Example/FrozenLake.idr
 	cp $(LIB) $(BUILD)/exec/frozen-lake_app/
 	./$(BUILD)/exec/frozen-lake $(SEED_FLAG) $(FROZEN_LAKE_ARGS)
 
 example-taxi: install
-	idris2 $(IDRIS_FLAGS) -o taxi $(EXAMPLE_SRC)/Example/Taxi.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o taxi $(EXAMPLE_SRC)/Example/Taxi.idr
 	cp $(LIB) $(BUILD)/exec/taxi_app/
 	./$(BUILD)/exec/taxi $(SEED_FLAG) $(TAXI_ARGS)
 
 example-dqn: install
-	idris2 $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
 	cp $(LIB) $(BUILD)/exec/dqn_app/
 	$(STDBUF) ./$(BUILD)/exec/dqn $(SEED_FLAG) $(DQN_ARGS)
 
 example-double-dqn: install
-	idris2 $(IDRIS_FLAGS) -o double-dqn $(EXAMPLE_SRC)/Example/DoubleDqn.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o double-dqn $(EXAMPLE_SRC)/Example/DoubleDqn.idr
 	cp $(LIB) $(BUILD)/exec/double-dqn_app/
 	$(STDBUF) ./$(BUILD)/exec/double-dqn $(SEED_FLAG) $(DOUBLE_DQN_ARGS)
 
 example-mountain-car: install
-	idris2 $(IDRIS_FLAGS) -o mountain-car $(EXAMPLE_SRC)/Example/MountainCar.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o mountain-car $(EXAMPLE_SRC)/Example/MountainCar.idr
 	cp $(LIB) $(BUILD)/exec/mountain-car_app/
 	$(STDBUF) ./$(BUILD)/exec/mountain-car $(SEED_FLAG) $(MOUNTAIN_CAR_ARGS)
 
 example-mountain-car-cont: install
-	idris2 $(IDRIS_FLAGS) -o mountain-car-cont $(EXAMPLE_SRC)/Example/MountainCarCont.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o mountain-car-cont $(EXAMPLE_SRC)/Example/MountainCarCont.idr
 	cp $(LIB) $(BUILD)/exec/mountain-car-cont_app/
 	$(STDBUF) ./$(BUILD)/exec/mountain-car-cont $(SEED_FLAG) $(MOUNTAIN_CAR_CONT_ARGS)
 
 example-a2c: install
-	idris2 $(IDRIS_FLAGS) -o a2c $(EXAMPLE_SRC)/Example/A2c.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o a2c $(EXAMPLE_SRC)/Example/A2c.idr
 	cp $(LIB) $(BUILD)/exec/a2c_app/
 	$(STDBUF) ./$(BUILD)/exec/a2c $(SEED_FLAG) $(A2C_ARGS)
 
 example-ppo: install
-	idris2 $(IDRIS_FLAGS) -o ppo $(EXAMPLE_SRC)/Example/Ppo.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o ppo $(EXAMPLE_SRC)/Example/Ppo.idr
 	cp $(LIB) $(BUILD)/exec/ppo_app/
 	$(STDBUF) ./$(BUILD)/exec/ppo $(SEED_FLAG) $(PPO_ARGS)
 
 example-sac: install
-	idris2 $(IDRIS_FLAGS) -o sac $(EXAMPLE_SRC)/Example/Sac.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o sac $(EXAMPLE_SRC)/Example/Sac.idr
 	cp $(LIB) $(BUILD)/exec/sac_app/
 	$(STDBUF) ./$(BUILD)/exec/sac $(SEED_FLAG) $(SAC_ARGS)
 
@@ -636,7 +636,7 @@ example-sac: install
 # significance.
 ifeq ($(HAVE_ALL_MULTI_BACKENDS),yes)
 example-transfer: install
-	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) $(BUILD)/exec/transfer_app/
 	./$(BUILD)/exec/transfer $(TRANSFER_ARGS)
 else
@@ -651,7 +651,7 @@ endif
 # precisions.
 ifeq ($(HAVE_ALL_MULTI_BACKENDS),yes)
 example-precision-demo: install
-	idris2 $(IDRIS_FLAGS) -o precision-demo $(EXAMPLE_SRC)/Example/PrecisionDemo.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o precision-demo $(EXAMPLE_SRC)/Example/PrecisionDemo.idr
 	cp $(LIB) $(BUILD)/exec/precision-demo_app/
 	./$(BUILD)/exec/precision-demo $(PRECISION_DEMO_ARGS)
 else
@@ -663,7 +663,7 @@ endif
 # content). Per-phase BACKEND= invocation; `example-checkpoint-demo`
 # drives the tape→mlx→torch on-disk round-trip via three calls.
 example-checkpoint: install
-	idris2 $(IDRIS_FLAGS) -o checkpoint $(EXAMPLE_SRC)/Example/Checkpoint.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o checkpoint $(EXAMPLE_SRC)/Example/Checkpoint.idr
 	cp $(LIB) $(BUILD)/exec/checkpoint_app/
 	./$(BUILD)/exec/checkpoint $(SEED_FLAG) $(CHECKPOINT_ARGS)
 
@@ -678,7 +678,7 @@ example-checkpoint-demo:
 	$(MAKE) BACKEND=torch example-checkpoint CHECKPOINT_ARGS="--mode infer --load /tmp/checkpoint2.safetensors"
 
 example-matmul-bench: install
-	idris2 $(IDRIS_FLAGS) -o matmul-bench $(EXAMPLE_SRC)/Example/MatmulBench.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o matmul-bench $(EXAMPLE_SRC)/Example/MatmulBench.idr
 	cp $(LIB) $(BUILD)/exec/matmul-bench_app/
 	$(STDBUF) ./$(BUILD)/exec/matmul-bench $(MATMUL_BENCH_ARGS)
 
@@ -690,12 +690,12 @@ example-matmul-bench: install
 # guardian register). Identical wrap structure across all three
 # backends — any wrap-layer overhead measured here applies symmetrically.
 example-rank-broadcast-bench: install
-	idris2 $(IDRIS_FLAGS) -o rank-broadcast-bench $(EXAMPLE_SRC)/Example/RankBroadcastBench.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o rank-broadcast-bench $(EXAMPLE_SRC)/Example/RankBroadcastBench.idr
 	cp $(LIB) $(BUILD)/exec/rank-broadcast-bench_app/
 	$(STDBUF) ./$(BUILD)/exec/rank-broadcast-bench $(RANK_BROADCAST_BENCH_ARGS)
 
 example-bench: install
-	idris2 $(IDRIS_FLAGS) -o bench $(EXAMPLE_SRC)/Example/Bench.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o bench $(EXAMPLE_SRC)/Example/Bench.idr
 	cp $(LIB) $(BUILD)/exec/bench_app/
 	@# Each benchmark runs in its own process. Sharing one process across
 	@# all six accumulates allocator state that nondeterministically trips
@@ -705,7 +705,7 @@ example-bench: install
 	done
 
 example-profile: install
-	idris2 $(IDRIS_FLAGS) -o profile $(EXAMPLE_SRC)/Example/Profile.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o profile $(EXAMPLE_SRC)/Example/Profile.idr
 	cp $(LIB) $(BUILD)/exec/profile_app/
 	./$(BUILD)/exec/profile
 

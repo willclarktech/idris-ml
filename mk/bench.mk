@@ -39,7 +39,7 @@ bench-ops-py:
 # format matches Axis A so scripts/perf-fast.sh parses both with one
 # regex; the entries get `axis="B"` tagged before emission to perf-log.
 bench-layers: install
-	idris2 $(IDRIS_FLAGS) -o layers-bench $(EXAMPLE_SRC)/Example/LayersBench.idr
+	$(IDRIS2) $(IDRIS_FLAGS) -o layers-bench $(EXAMPLE_SRC)/Example/LayersBench.idr
 	cp $(LIB) $(BUILD)/exec/layers-bench_app/
 	$(STDBUF) ./$(BUILD)/exec/layers-bench $(LAYERS_BENCH_ARGS)
 
