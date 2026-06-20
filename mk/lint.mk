@@ -200,7 +200,7 @@ typecheck-py-jupyter: packages/jupyter/.venv/bin/activate
 # inline cppcheck flags; widening lands as cleanup commits.
 #
 # Detects tool availability — if cppcheck / clang-tidy aren't on
-# PATH locally (e.g. a dev box without `brew install cppcheck llvm`)
+# PATH locally (e.g. a checkout without `brew install cppcheck llvm`)
 # the target prints a useful hint and exits 0 so it doesn't block
 # pre-commit. The CI lane unconditionally apt-installs the tools,
 # so the gate fires there.
@@ -226,7 +226,7 @@ lint-c-tape:
 	fi
 
 # Linux-lane approximation of the CI clang-tidy gate, for pre-sync
-# feedback on a macOS dev box. CI's preflight lints on Ubuntu, where
+# feedback when developing on macOS. CI's preflight lints on Ubuntu, where
 # clang-tidy analyzes the #else (non-Apple) branches of the tape
 # sources — code a macOS lint-c-tape run never parses. Observed
 # 2026-06-11: CI-only analyzer findings in conv2d_batched.c's Linux

@@ -177,7 +177,7 @@ jobs:
       - name: Install Nix (pinned toolchain for C lint)
         # The C-lint tools (clang-format / clang-tidy / cppcheck + <cblas.h>
         # via openblas) come from the repo flake's `lint` devShell, pinned by
-        # flake.lock so CI's clang-tidy is byte-identical to the dev box's
+        # flake.lock so CI's clang-tidy is byte-identical to a local checkout's
         # (21.1.x). This kills the apt-clang-tidy-18 vs local-21 finding skew
         # that made lint-c / include-cleaner failures unreproducible locally.
         # SHA-pinned third-party action — a deliberate, narrow exception to the

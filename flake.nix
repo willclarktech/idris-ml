@@ -1,9 +1,9 @@
 {
   description = "idris-ml build toolchain — pinned dev + CI shell";
 
-  # Pinned to match the dev box's nix-darwin flake (~/code/dotfiles/vm) so the
-  # dev box and CI resolve byte-identical tools. Bump deliberately, in lockstep
-  # with the dotfiles, when refreshing the toolchain.
+  # Pinned so local development and CI resolve byte-identical tools (this is
+  # what kills the clang-tidy version skew). Bump deliberately, in lockstep with
+  # any nix-darwin/home-manager config that consumes this flake's toolchain.
   inputs.nixpkgs.url = "github:nixos/nixpkgs/567a49d1913ce81ac6e9582e3553dd90a955875f";
 
   outputs =
@@ -11,7 +11,7 @@
     let
       systems = [
         "x86_64-linux" # CI (GitHub Actions ubuntu)
-        "aarch64-darwin" # dev box (Apple Silicon)
+        "aarch64-darwin" # local development (Apple Silicon)
         "aarch64-linux"
         "x86_64-darwin"
       ];
