@@ -91,7 +91,7 @@ runs:
       # composite serves every job.
       run: |
         sudo apt-get update
-        sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime libcriterion-dev
+        sudo apt-get install -y chezscheme build-essential libopenblas-dev git-restore-mtime libcriterion-dev ccache
 
     # Homebrew's download cache (bottles + source tarballs). The macOS
     # lane is default-on now, so the brew install below runs every push;
@@ -128,7 +128,33 @@ runs:
       # artifacts).
       # criterion backs the test-unit-c / coverage suites (mk/tests.mk
       # autodetects /opt/homebrew when the nix profile is absent).
-      run: brew install chezscheme coreutils git-tools criterion
+      run: brew install chezscheme coreutils git-tools criterion ccache
+
+    # ccache wraps the C/C++ compiler — the Makefile calls bare cc/c++
+    # (PATH-resolved), so prepending ccache's wrapper dir routes every
+    # backend TU through it. This is LARGELY REDUNDANT with the TTC/object
+    # cache (which already restores the built tree); it's a safety net for
+    # when restore-mtime misbehaves and a cold object recompile happens.
+    # Capped at 250M (CCACHE_MAXSIZE) so it can't churn the 10 GB repo
+    # cache quota that the TTC/idris2/pack caches share. Drop this +
+    # the paired save if the next runs show no measurable win.
+    - name: Restore ccache
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.ccache
+        key: ccache-${{ runner.os }}-${{ github.sha }}
+        restore-keys: |
+          ccache-${{ runner.os }}-
+    - name: Configure ccache (dir + cap + PATH)
+      shell: bash
+      run: |
+        echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+        echo "CCACHE_MAXSIZE=250M" >> "$GITHUB_ENV"
+        if [ "$RUNNER_OS" = "Linux" ]; then
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+        else
+          echo "$(brew --prefix)/opt/ccache/libexec" >> "$GITHUB_PATH"
+        fi
 
     # idris2 and make decide rebuilds by mtime. Checkout stamps all
     # files "now", which would make every cached TTC / object look

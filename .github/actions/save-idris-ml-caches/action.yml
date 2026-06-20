@@ -156,3 +156,14 @@ runs:
       with:
         path: ~/Library/Caches/Homebrew
         key: brew-${{ runner.os }}-v1
+
+    # Paired save for setup-idris-ml's ccache restore. Gated on save-ttc
+    # (the build-bearing jobs). Per-sha key so the cache rolls forward;
+    # the 250M CCACHE_MAXSIZE cap set in setup keeps each entry small
+    # against the shared 10 GB quota.
+    - name: Save ccache
+      if: inputs.save-ttc == 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.ccache
+        key: ccache-${{ runner.os }}-${{ github.sha }}
