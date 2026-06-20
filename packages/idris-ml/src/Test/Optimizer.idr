@@ -14,10 +14,10 @@ import Train.Freeze
 
 -- Pinned trajectory tests: driving a scalar param through loss = w*w
 -- with each typed constructor (`sgd`/`rmsprop`/`adam`/`adamW`) must
--- reproduce a fixed weight trajectory (exact ==, no tolerance). The
--- literals were captured from the tape backend (deterministic at a
--- fixed seed, single-thread BLAS) and guard against a wrong knob being
--- threaded into the underlying C prim.
+-- reproduce a fixed weight trajectory (via `trajApprox`, F32-safe — see
+-- its note). The literals were captured from the tape backend
+-- (deterministic at a fixed seed, single-thread BLAS) and guard against a
+-- wrong knob being threaded into the underlying C prim.
 --
 -- Each run uses its own param + its own freshly-constructed optimizer;
 -- the optimizers step the whole registry, but a param outside the
@@ -47,13 +47,22 @@ trajectory opt w (S k) = do
   rest <- trajectory opt w k
   pure (v :: rest)
 
+-- Element-wise tolerance compare. The reference literals were captured on
+-- the tape backend (F64); the mlx lane runs the same suite at F32, where
+-- e.g. 0.512 comes back as 0.51199996 (~4e-8 off). Exact `==` is wrong for
+-- a value crossing the real backend tensor — clear the F32 ULP floor with
+-- the same 1e-5 tolerance Test.TrainEngine uses for its hand-loop check.
+trajApprox : List Double -> List Double -> Bool
+trajApprox xs ys =
+  length xs == length ys && all (\(x, y) => abs (x - y) < 1.0e-5) (zip xs ys)
+
 sgdStepsQuadratic : IO Bool
 sgdStepsQuadratic = do
   w <- mkW "opt_sgd_w" 1.0
   opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
   traj <- trajectory opt w 3
   check ("sgd steps quadratic (" ++ show traj ++ ")")
-        (traj == [0.8, 0.64, 0.512])
+        (trajApprox traj [0.8, 0.64, 0.512])
 
 rmspropStepsQuadratic : IO Bool
 rmspropStepsQuadratic = do
@@ -62,7 +71,7 @@ rmspropStepsQuadratic = do
            ({ eps := 1.0e-7, clip := ValueClip 0.75 } defaultOpts)
   traj <- trajectory opt w 3
   check ("rmsprop steps quadratic (" ++ show traj ++ ")")
-        (traj == [0.9683772367316439, 0.9296242887279513, 0.8910383508862706])
+        (trajApprox traj [0.9683772367316439, 0.9296242887279513, 0.8910383508862706])
 
 -- PyTorch-default knobs: rmsprop's implicit alpha/momentum must equal
 -- torch.optim.RMSprop's (alpha=0.99, momentum=0). Proven by trajectory
@@ -103,7 +112,7 @@ adamStepsScaled = do
               clip := NormClip 100.0 } defaultOpts)
   traj <- scaledTrajectory opt w
   check ("adam steps scaled quadratic (" ++ show traj ++ ")")
-        (traj == [0.9900000049999975, 0.9811580691053646, 0.974027692742881])
+        (trajApprox traj [0.9900000049999975, 0.9811580691053646, 0.974027692742881])
 
 adamWStepsQuadratic : IO Bool
 adamWStepsQuadratic = do
@@ -111,7 +120,7 @@ adamWStepsQuadratic = do
   opt <- adamW {ex=TestExecutor} 0.01 0.1 ({ clip := NormClip 1.0 } defaultOpts)
   traj <- trajectory opt w 3
   check ("adamW steps quadratic (" ++ show traj ++ ")")
-        (traj == [0.9890100001116916, 0.9780315770610051, 0.9670651316195747])
+        (trajApprox traj [0.9890100001116916, 0.9780315770610051, 0.9670651316195747])
 
 -- restrictTo scopes to an EXACT name set: the leak-free guarantee a string
 -- prefix can't give. "rt_keep" is owned (steps at base LR 0.5 → 1 - 0.5*2 = 0),
