@@ -100,7 +100,7 @@ LSAN_SUPP := $(TEST_C_DIR)/lsan.supp
 TEST_RUN_ENV := $(if $(ASAN),LSAN_OPTIONS=suppressions=$(abspath $(LSAN_SUPP)))
 
 test-unit-c: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
-	$(TEST_CC) -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+	$(TEST_CC) -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) $(BACKEND_LDFLAGS) -lm
 	$(TEST_RUN_ENV) ./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
 test-unit-c-tape:
@@ -172,7 +172,14 @@ ifeq ($(UNAME),Darwin)
 COV_CC_OVERRIDES :=
 COV_LLVM := xcrun
 else
-COV_CC_OVERRIDES := tape_CC=clang torch_CC=clang++ mlx_CC=clang++ LINK_CC=clang++ TEST_CC=clang SHARED_CC=clang
+# COV_CLANG/COV_CLANGXX default to bare clang/clang++ but the nix dev shell
+# exports them as the *wrapped* clang (absolute store path) so the coverage
+# binary is built against nix glibc + the nix dynamic linker. Without that
+# it's a system-linker binary that links nix criterion, whose libanl.so.1
+# needs nix glibc 2.42 → "GLIBC_ABI_DT_X86_64_PLT not found" at runtime.
+COV_CLANG ?= clang
+COV_CLANGXX ?= clang++
+COV_CC_OVERRIDES := tape_CC=$(COV_CLANG) torch_CC=$(COV_CLANGXX) mlx_CC=$(COV_CLANGXX) LINK_CC=$(COV_CLANGXX) TEST_CC=$(COV_CLANG) SHARED_CC=$(COV_CLANG)
 COV_LLVM :=
 endif
 
@@ -204,7 +211,7 @@ test-coverage-backend:
 # (EXTRA_CFLAGS carries clang-only instrumentation flags there).
 TEST_CC := cc
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
-	$(TEST_CC) -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+	$(TEST_CC) -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) $(BACKEND_LDFLAGS) -lm
 
 $(COV_BUILD):
 	mkdir -p $@

@@ -91,7 +91,15 @@
         toolchainPackages pkgs
         ++ (with pkgs; [
           git-tools # provides git-restore-mtime
-        ]);
+        ])
+        ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+          # llvm-profdata / llvm-cov for the Linux coverage lane (the
+          # default `cc`=gcc has no source-based coverage; the lane forces
+          # clang — see COV_CLANG in flake shellHook + mk/tests.mk). Pinned
+          # to the same llvmPackages as `clang` below so the tools match the
+          # clang that emitted the profraw.
+          pkgs.llvm
+        ];
     in
     {
       # Reusable, system-agnostic — used by the devShells below and by advanced
@@ -115,9 +123,23 @@
           # in the dev shell (mkShell's PATH ignores meta.priority, so a
           # shellHook prepend is the reliable shadow). Keeps the no-op out of
           # the toolchain the dotfiles install system-wide.
-          shellHook = pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
-            export PATH="${noopStdbuf pkgs}/bin:$PATH"
-          '';
+          shellHook =
+            pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+              export PATH="${noopStdbuf pkgs}/bin:$PATH"
+            ''
+            + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+              # Linux coverage lane: a glibc-consistent *wrapped* clang,
+              # referenced by absolute path (NOT added to PATH, so it doesn't
+              # shadow the stdenv `cc`=gcc the rest of the build uses). The
+              # coverage target forces clang for -fprofile-instr-generate /
+              # -fcoverage-mapping (gcc rejects them); building it with the
+              # wrapped clang keeps the test binary on nix glibc + the nix
+              # dynamic linker, so it can load nix criterion (whose
+              # libanl.so.1 needs nix glibc 2.42) at runtime instead of
+              # aborting with "GLIBC_ABI_DT_X86_64_PLT not found".
+              export COV_CLANG="${pkgs.clang}/bin/clang"
+              export COV_CLANGXX="${pkgs.clang}/bin/clang++"
+            '';
         };
         lint = pkgs.mkShell { packages = lintPackages pkgs; };
       });
