@@ -100,7 +100,10 @@ fi
 for d in build models data packages/pytorch/data vendored; do
 	if [ -d "$d" ]; then
 		mkdir -p "$(dirname "$WORKTREE_PATH/$d")"
-		if cp -cRp "$d" "$WORKTREE_PATH/$d" 2>/dev/null; then
+		# Use the macOS BSD cp explicitly: a GNU coreutils `cp` (common via
+		# nix/Homebrew, ahead of /bin in PATH) has no `-c` clonefile flag and
+		# would silently fail the COW clone, forcing a cold rebuild.
+		if /bin/cp -cRp "$d" "$WORKTREE_PATH/$d" 2>/dev/null; then
 			echo "Cloned $d (APFS COW)" >&2
 		else
 			rm -rf "${WORKTREE_PATH:?}/$d"
