@@ -11,10 +11,12 @@
 ||| reads `<dir>/config.json` for the dims, builds the model, and fills
 ||| it via `loadHfBitnetCheckpoint` (ternary BitLinear weights from raw
 ||| packed bytes + float params via the safetensors path). The returned
-||| `(cfg ** model)` ties the model's type to the file. Built `WithGrad`
-||| (inference runs under `withNoGrad` brackets — each forward dequants
-||| the ternary weights to float, and autograd-retained dequants OOM the
-||| process over a few decode steps).
+||| `(cfg ** model)` ties the model's type to the file. Built `NoGrad`
+||| (tape-free by construction): each forward dequants the ternary weights
+||| to float, and a `WithGrad` model would have autograd retain those
+||| dequants and OOM the process over a few decode steps. The `{g=NoGrad}`
+||| type makes that impossible structurally — no tape, no retained
+||| dequants — so no runtime `withNoGrad` brackets are needed.
 |||
 ||| Two modes:
 |||
@@ -87,12 +89,12 @@ iterateBlocksDumping :
   -> {n : Nat}
   -> Vect n (BitNetBlockState (hidden cfg) (numHeads cfg * headDim cfg)
                               (numKvHeads cfg * headDim cfg) (intermediate cfg)
-                              ExampleExecutor ExampleDType WithGrad)
+                              ExampleExecutor ExampleDType NoGrad)
   -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
-  -> Tensor [2, hidden cfg] ExampleExecutor ExampleDType WithGrad
+  -> Tensor [2, hidden cfg] ExampleExecutor ExampleDType NoGrad
   -> (idx : Nat)
   -> (dumpFn : String -> AnyPtr -> Int -> IO ())
-  -> IO (Tensor [2, hidden cfg] ExampleExecutor ExampleDType WithGrad)
+  -> IO (Tensor [2, hidden cfg] ExampleExecutor ExampleDType NoGrad)
 iterateBlocksDumping _   []        _      x _   _      = pure x
 iterateBlocksDumping cfg (b :: bs) tables x idx dumpFn = do
   x' <- applyBlock {numHeads     = numHeads cfg} {numKvHeads = numKvHeads cfg}
@@ -108,38 +110,37 @@ iterateBlocksDumping cfg (b :: bs) tables x idx dumpFn = do
 ----------------------------------------------------------------------
 
 genOneStep : (cfg : BitNetConfig)
-          -> BitNetModel cfg ExampleExecutor ExampleDType WithGrad
+          -> BitNetModel cfg ExampleExecutor ExampleDType NoGrad
           -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
           -> List (Fin (vocabSize cfg))
           -> IO (Maybe (Fin (vocabSize cfg)))
 genOneStep cfg model tables toksList = do
   let idsList = map (cast {to=Double} . finToNat) toksList
   case toExistVect idsList of
-    (curLen ** idDoubles) =>
+    (curLen ** idDoubles) => do
       -- Each forward materialises a [out, in]-float dequant of the
-      -- ternary weights per BitLinear. With autograd on, libtorch holds
-      -- those for backward — a few generation steps OOM the process.
-      -- Plain withNoGrad: the step's result is a Maybe (Fin (vocabSize
-      -- cfg)), no Tensor needs to survive the bracket exit.
-      withNoGrad {ex=ExampleExecutor} $ do
-        let inputIds = mkIds idDoubles
-        logits <- hfBitnetForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
-                                    {seq          = curLen}
-                                    {vocab        = vocabSize cfg}
-                                    {hidden       = hidden cfg}
-                                    {numLayers    = numLayers cfg}
-                                    {numHeads     = numHeads cfg}
-                                    {numKvHeads   = numKvHeads cfg}
-                                    {headDim      = headDim cfg}
-                                    {intermediate = intermediate cfg}
-                                    {maxPos       = MaxPos}
-                                    (rmsNormEps cfg) model tables inputIds
-        lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
-        nextN   <- argmaxRow (vocabSize cfg) lastRow.tensorPtr
-        pure (natToFin nextN (vocabSize cfg))
+      -- ternary weights per BitLinear. The model is `NoGrad`, so those
+      -- dequants are never autograd-retained — no tape, no bracket, no
+      -- OOM over decode steps (the `withNoGrad` this used to need is now
+      -- the model's `{g=NoGrad}` type).
+      let inputIds = retypeGrad (mkIds idDoubles)
+      logits <- hfBitnetForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
+                                  {seq          = curLen}
+                                  {vocab        = vocabSize cfg}
+                                  {hidden       = hidden cfg}
+                                  {numLayers    = numLayers cfg}
+                                  {numHeads     = numHeads cfg}
+                                  {numKvHeads   = numKvHeads cfg}
+                                  {headDim      = headDim cfg}
+                                  {intermediate = intermediate cfg}
+                                  {maxPos       = MaxPos}
+                                  (rmsNormEps cfg) model tables inputIds
+      lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
+      nextN   <- argmaxRow (vocabSize cfg) lastRow.tensorPtr
+      pure (natToFin nextN (vocabSize cfg))
 
 genLoop : (cfg : BitNetConfig)
-       -> BitNetModel cfg ExampleExecutor ExampleDType WithGrad
+       -> BitNetModel cfg ExampleExecutor ExampleDType NoGrad
        -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
        -> List (Fin (vocabSize cfg))
        -> (remaining : Nat)
@@ -161,7 +162,7 @@ genLoop cfg model tables tokens (S k) = do
 
 runGenerate : (cfg : BitNetConfig)
            -> Tokenizer (vocabSize cfg)
-           -> BitNetModel cfg ExampleExecutor ExampleDType WithGrad
+           -> BitNetModel cfg ExampleExecutor ExampleDType NoGrad
            -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runGenerate cfg tok model tables prompt numTokens = do
@@ -200,7 +201,7 @@ main = do
   -- packed bytes + float params via safetensors). A partial load
   -- surfaces as ReadFailed.
   putStrLn ("[stage] fromPretrained — config.json + 542-param state + checkpoint (~1.18 GB)...")
-  Right (cfg ** model) <- fromPretrained {ex=ExampleExecutor} {dt=ExampleDType} {g=WithGrad} modelDir
+  Right (cfg ** model) <- fromPretrained {ex=ExampleExecutor} {dt=ExampleDType} {g=NoGrad} modelDir
     | Left err => do
         putStrLn ("ERR: fromPretrained " ++ modelDir ++ ": " ++ show err)
         exitFailure
@@ -239,7 +240,7 @@ main = do
       -- companion `save_oracle_bitnet_blocks.py` produces matching oracle
       -- safetensors; `compare_bitnet_blocks.py` reports per-label diff.
       _ <- system "mkdir -p models/idris-bisect"
-      let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
+      let inputIds = retypeGrad (mkIds (the (Vect 2 Double) [9906.0, 1917.0]))
       let dumpFn : String -> AnyPtr -> Int -> IO ()
           dumpFn label ptr nElems = do
             let path = "models/idris-bisect/" ++ label ++ ".txt"
@@ -265,7 +266,7 @@ main = do
       let MkEmbedding embWeight = model.embedTokens
       let vI                    = cast {to=Int} (vocabSize cfg)
           zBuf = prim__allocDoubles vI
-          zeroBias : Tensor [vocabSize cfg] ExampleExecutor ExampleDType WithGrad
+          zeroBias : Tensor [vocabSize cfg] ExampleExecutor ExampleDType NoGrad
           zeroBias = MkTensor (dtCreateState1d {ex=ExampleExecutor} {t=ExampleDType}
                                 vI zBuf (deviceStreamTag {ex=ExampleExecutor})) Nothing
       logits <- tlinear2d embWeight hFinal zeroBias
@@ -278,20 +279,19 @@ main = do
         -- CI gate path: fixed two-token prompt [9906, 1917] = "Hello world"
         -- under Llama-3 BPE. Forward once, dump all last-position logits
         -- one per line so compare_inference.py can read them back.
-        let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
+        let inputIds = retypeGrad (mkIds (the (Vect 2 Double) [9906.0, 1917.0]))
         putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
-        logits <- withNoGradKeep {ex=ExampleExecutor} $
-          hfBitnetForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
-                            {seq          = 2}
-                            {vocab        = vocabSize cfg}
-                            {hidden       = hidden cfg}
-                            {numLayers    = numLayers cfg}
-                            {numHeads     = numHeads cfg}
-                            {numKvHeads   = numKvHeads cfg}
-                            {headDim      = headDim cfg}
-                            {intermediate = intermediate cfg}
-                            {maxPos       = MaxPos}
-                            (rmsNormEps cfg) model tables inputIds
+        logits <- hfBitnetForwardLm {ex=ExampleExecutor} {dt=ExampleDType}
+                                    {seq          = 2}
+                                    {vocab        = vocabSize cfg}
+                                    {hidden       = hidden cfg}
+                                    {numLayers    = numLayers cfg}
+                                    {numHeads     = numHeads cfg}
+                                    {numKvHeads   = numKvHeads cfg}
+                                    {headDim      = headDim cfg}
+                                    {intermediate = intermediate cfg}
+                                    {maxPos       = MaxPos}
+                                    (rmsNormEps cfg) model tables inputIds
         stageStamp "hfBitnetForwardLm ok" t0
         lastRow <- trowSelect logits 1
         printRow (cast {to=Int} (vocabSize cfg)) 0 lastRow.tensorPtr
