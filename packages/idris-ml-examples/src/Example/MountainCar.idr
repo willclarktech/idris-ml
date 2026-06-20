@@ -202,6 +202,10 @@ record DqnState where
   cfgBatch     : Nat
   cfgGamma     : Double
   cfgShaping   : Double  -- multiplier on |vel| reward bonus
+  -- exact registry names of the online / target nets (from reflectNames),
+  -- paired positionally by polyakUpdatePaired — no string-prefix scoping.
+  onNames  : List String
+  tgtNames : List String
 
 ----------------------------------------------------------------------
 -- Episode rollout
@@ -256,10 +260,10 @@ pushAllTransitionsMC buf shaping (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d ::
   pushAllTransitionsMC buf shaping ss as rs ss' ds
 
 runEpisodeBatchedL : Optimizer Ex -> (1 _ : DqnState) -> L IO {use = 1} (LPair (!* Double) DqnState)
-runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping) = do
+runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping onNames tgtNames) = do
   startEnvs <- liftIO1 (readIORef envsRef)
   (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs MaxSteps 0.0
-  pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping)
+  pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping onNames tgtNames)
   where
     go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs MCState -> Nat -> Double ->
          L IO {use = 1} (LPair (!* Double) (LPair QNet QNet))
@@ -285,7 +289,7 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
               ret'  = ret + ret0
           (qNet'' # target') <- trainIfReadyL opt buffer batch gamma qNet' target
           liftIO1 (when ((stepCount + 1) `mod` syncEvery == 0) $ do
-                     _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"
+                     _ <- polyakUpdatePaired {ex=Ex} onNames tgtNames 1.0
                      pure ())
           if done0
             then do
@@ -358,7 +362,9 @@ buildStateL : Config -> L IO {use = 1} DqnState
 buildStateL cfg = do
   qNet0   <- runInitL (mkQNet "online")
   target0 <- runInitL (mkQNet "target")
-  liftIO1 (do _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"; pure ())
+  let (MkBang onNames # qNet0)    = reflectNames qNet0
+  let (MkBang tgtNames # target0) = reflectNames target0
+  liftIO1 (do _ <- polyakUpdatePaired {ex=Ex} onNames tgtNames 1.0; pure ())
   buffer  <- liftIO1 (mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap)
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs MCState
@@ -368,15 +374,15 @@ buildStateL cfg = do
   stepRef <- liftIO1 (newIORef (the Nat 0))
   pure1 (MkDqnState qNet0 target0 buffer envsRef stepRef
                     cfg.epsStart cfg.epsEnd cfg.epsDecay
-                    cfg.targetSync cfg.batchSize cfg.gamma cfg.shaping)
+                    cfg.targetSync cfg.batchSize cfg.gamma cfg.shaping onNames tgtNames)
 
 discardStateL : (1 _ : DqnState) -> L IO ()
-discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _) = do
+discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _ _) = do
   discard qNet
   discard target
 
 finalReportL : Config -> Nat -> (1 _ : DqnState) -> L IO ()
-finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _) = do
+finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _ _) = do
   let nEval = the Nat 30
   (MkBang totalReturn # qNet') <- withNoGradL {ex=Ex} (evalNL qNet nEval 0.0)
   discard qNet'

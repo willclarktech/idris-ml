@@ -42,9 +42,10 @@ QNet : Type
 QNet = Seq ObsDim NumActions Ex F WithGrad
 
 ||| Build a Q-network with all params registered under `<scope>.*`. Reuse
-||| the same architecture for online and target nets, scoped "online" /
-||| "target" so `polyakUpdate` can match online↔target params by scope.
-||| An `Init` (run with `runInitL` to be born linear).
+||| the same architecture for online and target nets; their exact param names
+||| (from `reflectNames`) are paired positionally by `polyakUpdatePaired` for
+||| the target sync — the scope string is just a registry namespace, not a
+||| matching key. An `Init` (run with `runInitL` to be born linear).
 mkQNet : (scope : String) -> Init QNet
 mkQNet scope = scoped scope $ do
   l1 <- linear {i=ObsDim} {o=Hidden}
@@ -200,6 +201,10 @@ record DqnState where
   cfgSyncEvery : Nat
   cfgBatch     : Nat
   cfgGamma     : Double
+  -- exact registry names of the online / target nets (from reflectNames),
+  -- paired positionally by polyakUpdatePaired — no string-prefix scoping.
+  onNames  : List String
+  tgtNames : List String
 
 ----------------------------------------------------------------------
 -- Episode rollout with DQN updates
@@ -253,10 +258,10 @@ pushAllTransitions buf (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d :: ds) = do
   pushAllTransitions buf ss as rs ss' ds
 
 runEpisodeBatchedL : Optimizer Ex -> (1 _ : DqnState) -> L IO {use = 1} (LPair (!* Double) DqnState)
-runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma) = do
+runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames) = do
   startEnvs <- liftIO1 (readIORef envsRef)
   (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs MaxSteps 0.0
-  pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma)
+  pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames)
   where
     -- Thread BOTH nets (nested LPair) through the lockstep rollout; the ω
     -- buffer / IORefs / config are captured from the outer match.
@@ -286,7 +291,7 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
               ret'  = ret + ret0
           (qNet'' # target') <- trainIfReadyL opt buffer batch gamma qNet' target
           liftIO1 (when ((stepCount + 1) `mod` syncEvery == 0) $ do
-                     _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"
+                     _ <- polyakUpdatePaired {ex=Ex} onNames tgtNames 1.0
                      pure ())
           if done0
             then do
@@ -360,7 +365,11 @@ buildStateL : Config -> L IO {use = 1} DqnState
 buildStateL cfg = do
   qNet0   <- runInitL (mkQNet "online")
   target0 <- runInitL (mkQNet "target")
-  liftIO1 (do _ <- polyakUpdate {ex=Ex} 1.0 "online" "target"; pure ())
+  -- Capture the nets' exact param names once (static for the run); pair them
+  -- positionally for every target sync, so no naming convention is load-bearing.
+  let (MkBang onNames # qNet0)    = reflectNames qNet0
+  let (MkBang tgtNames # target0) = reflectNames target0
+  liftIO1 (do _ <- polyakUpdatePaired {ex=Ex} onNames tgtNames 1.0; pure ())
   buffer  <- liftIO1 (mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap)
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs CPState
@@ -370,18 +379,18 @@ buildStateL cfg = do
   stepRef <- liftIO1 (newIORef (the Nat 0))
   pure1 (MkDqnState qNet0 target0 buffer envsRef stepRef
                     cfg.epsStart cfg.epsEnd cfg.epsDecay
-                    cfg.targetSync cfg.batchSize cfg.gamma)
+                    cfg.targetSync cfg.batchSize cfg.gamma onNames tgtNames)
 
 -- Discard the (linear) state: both nets are linear → discard; ω fields drop.
 discardStateL : (1 _ : DqnState) -> L IO ()
-discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _) = do
+discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _) = do
   discard qNet
   discard target
 
 -- Final greedy eval (consumes the trained linear state): eval the online net
 -- under withNoGradL, discard both nets, report.
 finalReportL : Config -> Nat -> (1 _ : DqnState) -> L IO ()
-finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _) = do
+finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _) = do
   let nEval = the Nat 30
   (MkBang totalReturn # qNet') <- withNoGradL {ex=Ex} (evalNL qNet nEval 0.0)
   discard qNet'
@@ -427,7 +436,7 @@ runLrFind cfg = Control.Linear.LIO.run $ do
 runTrain : Config -> IO ()
 runTrain cfg = Control.Linear.LIO.run $ do
   st0 <- buildStateL cfg
-  -- Adam owns the "online" params only — the target net syncs via polyakUpdate.
+  -- Adam owns the "online" params only — the target net syncs via polyakUpdatePaired.
   -- Typed ownership: zero LR on everything outside the online net's registry
   -- names (restrictTo), so the optimizer can't leak updates into the target.
   opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 10.0 } defaultOpts))

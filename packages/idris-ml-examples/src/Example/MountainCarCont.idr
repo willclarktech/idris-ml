@@ -173,6 +173,12 @@ record SACState where
   epLenRef  : IORef (Vect NumEnvs Nat)
   retRef    : IORef (Vect NumEnvs Double)
   lastEpRef : IORef Double
+  -- exact registry names of the twin Q-nets + their targets (from reflectNames),
+  -- paired positionally by polyakUpdatePaired — no string-prefix scoping.
+  q1Names    : List String
+  q1TgtNames : List String
+  q2Names    : List String
+  q2TgtNames : List String
 
 sampleActionsNetsL : {n : Nat} -> (1 _ : Nets) -> Tensor [] Ex F WithGrad ->
                      Vect n MCCState -> L IO {use = 1} (LPair (!* (Vect n Double)) Nets)
@@ -417,8 +423,11 @@ selectActionsL cfg logStdV stepCount envs nets =
 
 maybeUpdateL : Optimizer Ex -> Optimizer Ex -> Optimizer Ex -> Config ->
                Tensor [] Ex F WithGrad -> ReplayBuffer ObsDim ActDim ->
+               (q1Names : List String) -> (q1TgtNames : List String) ->
+               (q2Names : List String) -> (q2TgtNames : List String) ->
                (bufSz : Nat) -> (stepCount : Nat) -> (1 _ : Nets) -> L IO {use = 1} Nets
-maybeUpdateL q1Opt q2Opt actorOpt cfg logStdV buffer bufSz stepCount nets =
+maybeUpdateL q1Opt q2Opt actorOpt cfg logStdV buffer
+             q1Names q1TgtNames q2Names q2TgtNames bufSz stepCount nets =
   case bufSz >= cfg.batchSize of
     False => pure1 nets
     True  => case stepCount >= cfg.warmupSteps of
@@ -430,15 +439,16 @@ maybeUpdateL q1Opt q2Opt actorOpt cfg logStdV buffer bufSz stepCount nets =
           Just batch => do
             nets' <- runBatchUpdateL q1Opt q2Opt actorOpt nets logStdV cfg batch
             liftIO1 $ do
-              _ <- polyakUpdate {ex=Ex} cfg.tau "q1_" "q1tgt_"
-              _ <- polyakUpdate {ex=Ex} cfg.tau "q2_" "q2tgt_"
+              _ <- polyakUpdatePaired {ex=Ex} q1Names q1TgtNames cfg.tau
+              _ <- polyakUpdatePaired {ex=Ex} q2Names q2TgtNames cfg.tau
               pure ()
             pure1 nets'
 
 sacStepBatchedL : Optimizer Ex -> Optimizer Ex -> Optimizer Ex ->
                   Config -> (1 _ : SACState) -> L IO {use = 1} (LPair (!* Double) SACState)
 sacStepBatchedL q1Opt q2Opt actorOpt cfg
-                (MkSAC nets logStdV buffer stepRef envRef epLenRef retRef lastEpRef) = do
+                (MkSAC nets logStdV buffer stepRef envRef epLenRef retRef lastEpRef
+                       q1Names q1TgtNames q2Names q2TgtNames) = do
   stepCount <- liftIO1 (readIORef stepRef)
   envs0 <- liftIO1 (readIORef envRef)
   epLens <- liftIO1 (readIORef epLenRef)
@@ -463,10 +473,12 @@ sacStepBatchedL q1Opt q2Opt actorOpt cfg
           (e :: es) => writeIORef lastEpRef (last (e :: es))
 
       bufSz <- liftIO1 (bufferSize buffer)
-      nets2 <- maybeUpdateL q1Opt q2Opt actorOpt cfg logStdV buffer bufSz stepCount nets1
+      nets2 <- maybeUpdateL q1Opt q2Opt actorOpt cfg logStdV buffer
+                            q1Names q1TgtNames q2Names q2TgtNames bufSz stepCount nets1
       lastEp <- liftIO1 (readIORef lastEpRef)
       pure1 (MkBang (negate lastEp)
-             # MkSAC nets2 logStdV buffer stepRef envRef epLenRef retRef lastEpRef)
+             # MkSAC nets2 logStdV buffer stepRef envRef epLenRef retRef lastEpRef
+                     q1Names q1TgtNames q2Names q2TgtNames)
   where
     zipWith3 : (a -> b -> c -> d) -> Vect n a -> Vect n b -> Vect n c -> Vect n d
     zipWith3 _ [] [] []                      = []
@@ -522,10 +534,16 @@ buildStateL cfg = do
   q2    <- runInitL (mkQ "q2_")
   q1Tgt <- runInitL (mkQ "q1tgt_")
   q2Tgt <- runInitL (mkQ "q2tgt_")
+  -- Capture each net's exact param names once (static for the run); pair them
+  -- positionally for every target sync, so no naming convention is load-bearing.
+  let (MkBang q1Names # q1)       = reflectNames q1
+  let (MkBang q2Names # q2)       = reflectNames q2
+  let (MkBang q1TgtNames # q1Tgt) = reflectNames q1Tgt
+  let (MkBang q2TgtNames # q2Tgt) = reflectNames q2Tgt
   logStdV <- liftIO1 (the (IO (Tensor [] Ex F WithGrad)) (tparamScalar "actor_log_std" 0.0))
   liftIO1 $ do
-    _ <- polyakUpdate {ex=Ex} 1.0 "q1_" "q1tgt_"
-    _ <- polyakUpdate {ex=Ex} 1.0 "q2_" "q2tgt_"
+    _ <- polyakUpdatePaired {ex=Ex} q1Names q1TgtNames 1.0
+    _ <- polyakUpdatePaired {ex=Ex} q2Names q2TgtNames 1.0
     pure ()
   buffer  <- liftIO1 (mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap)
   stepRef <- liftIO1 (newIORef (the Nat 0))
@@ -537,10 +555,11 @@ buildStateL cfg = do
   epLenRef  <- liftIO1 (newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs 0)))
   retRef    <- liftIO1 (newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0)))
   lastEpRef <- liftIO1 (newIORef (the Double 0.0))
-  pure1 (MkSAC (MkNets actor q1 q2 q1Tgt q2Tgt) logStdV buffer stepRef envRef epLenRef retRef lastEpRef)
+  pure1 (MkSAC (MkNets actor q1 q2 q1Tgt q2Tgt) logStdV buffer stepRef envRef epLenRef retRef lastEpRef
+               q1Names q1TgtNames q2Names q2TgtNames)
 
 finalReportL : Config -> Nat -> (1 _ : SACState) -> L IO ()
-finalReportL cfg epochsDone (MkSAC (MkNets actor q1 q2 q1Tgt q2Tgt) _ _ _ _ _ _ _) = do
+finalReportL cfg epochsDone (MkSAC (MkNets actor q1 q2 q1Tgt q2Tgt) _ _ _ _ _ _ _ _ _ _ _) = do
   let nEval = the Nat 20
   (MkBang evalSum # actor') <- evalNL actor nEval 0.0
   discard actor'

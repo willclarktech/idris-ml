@@ -563,6 +563,27 @@ polyakUpdate : UserExecutorTraining ex =>
 polyakUpdate tau onlineScope targetScope =
   primIO (primPolyakBlend {ex} tau onlineScope targetScope)
 
+||| Polyak soft-update by exact paired param names (structural, leak-free):
+||| pairs `onlineNames[i]` with `targetNames[i]` positionally and blends each
+||| `target ← (1 − tau)·target + tau·online`. Returns the count of pairs blended.
+|||
+||| The typed replacement for `polyakUpdate tau "q1_" "q1tgt_"`: feed it
+||| `Nn.Group.reflectNames online` / `reflectNames target` so the source↔target
+||| pairing is derived from the nets' structure, not a load-bearing naming
+||| convention (a `"q1_"` prefix that also catches `"q1tgt_"` is the bug class
+||| this removes). Pairing is positional, which is correct when the two nets
+||| share a constructor — their `Params` traversal orders coincide.
+|||
+||| Passing a *full* registered name as the per-pair "scope" degenerates the
+||| underlying prefix match to an exact match (no other registered name has it
+||| as a proper prefix).
+export
+polyakUpdatePaired : UserExecutorTraining ex =>
+                     (onlineNames : List String) -> (targetNames : List String) ->
+                     (tau : Double) -> IO Int
+polyakUpdatePaired ons tgs tau =
+  sum <$> traverse (\(o, t) => polyakUpdate {ex} tau o t) (zip ons tgs)
+
 public export
 data ClipMode = NoClip | ValueClip Double | NormClip Double
 

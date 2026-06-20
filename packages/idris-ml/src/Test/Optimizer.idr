@@ -196,10 +196,41 @@ setGroupLROverrides = do
          ++ ", scaled " ++ show vs ++ ", base " ++ show vn ++ ")")
         (vf == 1.0 && vs == 0.75 && vn == 0.5)
 
+-- polyakUpdatePaired: pairs online↔target params positionally by EXACT name,
+-- not by string prefix. Hard sync (tau=1) copies each online value into its
+-- paired target; a prefix-SIBLING target name that a "q1tgt_" prefix would
+-- wrongly capture is left untouched (the leak-free guarantee). Two pairs ->
+-- count 2.
+polyakPairedHardSync : IO Bool
+polyakPairedHardSync = do
+  _   <- mkW "pk_q1_0w" 2.0
+  _   <- mkW "pk_q1_1w" 3.0
+  t1  <- mkW "pk_q1tgt_0w" 0.0
+  t2  <- mkW "pk_q1tgt_1w" 0.0
+  sib <- mkW "pk_q1tgt_0wX" 9.0
+  n <- polyakUpdatePaired {ex=TestExecutor}
+         ["pk_q1_0w", "pk_q1_1w"] ["pk_q1tgt_0w", "pk_q1tgt_1w"] 1.0
+  let (v1, v2, vs) = (tensorItem t1, tensorItem t2, tensorItem sib)
+  check ("polyakUpdatePaired hard-sync copies paired names, leaves sibling (n="
+         ++ show n ++ ", t1=" ++ show v1 ++ ", t2=" ++ show v2 ++ ", sib="
+         ++ show vs ++ ")")
+        (n == 2 && v1 == 2.0 && v2 == 3.0 && vs == 9.0)
+
+-- polyakUpdatePaired blend formula: target ← (1-tau)·target + tau·online.
+polyakPairedBlend : IO Bool
+polyakPairedBlend = do
+  _ <- mkW "pk_b_on" 1.0
+  t <- mkW "pk_b_tg" 0.0
+  n <- polyakUpdatePaired {ex=TestExecutor} ["pk_b_on"] ["pk_b_tg"] 0.25
+  check ("polyakUpdatePaired blends 0.25 (n=" ++ show n ++ ", t="
+         ++ show (tensorItem t) ++ ")")
+        (n == 1 && tensorItem t == 0.25)
+
 export
 tests : List (IO Bool)
 tests = [ sgdStepsQuadratic, rmspropStepsQuadratic, rmspropDefaultsMatchPyTorch
         , adamStepsScaled, adamWStepsQuadratic
         , restrictToExactComplement
+        , polyakPairedHardSync, polyakPairedBlend
         , scheduleFreezesAtZero, tickAppliesScheduleEpoch
         , tickWithoutScheduleIsNoOp, setGroupLROverrides ]
