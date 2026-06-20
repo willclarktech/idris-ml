@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Ratchet gate: the legacy `Layer/`/`Network`/`epoch*`/`DataPoint`/`native*`-optimizer surface must stay deleted.
+"""Ratchet gate: the legacy `Layer/`/`Network`/`epoch*`/`DataPoint`/`native*`-optimizer
+surface must stay deleted.
 
 The v1 API rework replaced the legacy training surface with the `Nn`
 models-as-records surface (`Module`/`Params`/`Seq`), the `fit` driver,
