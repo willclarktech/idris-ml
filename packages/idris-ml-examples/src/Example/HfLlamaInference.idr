@@ -8,9 +8,10 @@
 ||| params from `model.safetensors`. The returned `(cfg ** model)` ties
 ||| the model's type to the file — nothing about Llama-3.2-1B is
 ||| hardcoded; `cfg.ropeBase` / `cfg.rmsNormEps` drive the RoPE tables +
-||| RmsNorm eps below. (The model is built `WithGrad`; the RoPE tables are
-||| grad-mode-free non-learnable constants — `RoPETables` carries no `g`
-||| index — independent of the model's grad mode.)
+||| RmsNorm eps below. (The model is built `NoGrad` — pure inference, so
+||| no tape and no grad buffers; the RoPE tables are grad-mode-free
+||| non-learnable constants — `RoPETables` carries no `g` index —
+||| independent of the model's grad mode.)
 |||
 ||| Three modes (all share the cache-aware decode path —
 ||| `genLoopCached`; the no-cache `genLoop` was dropped 2026-06-04
@@ -99,7 +100,7 @@ modelDir = "models/" ++ ModelRepo
 ||| next-token id (or Nothing on out-of-range argmax).
 genStepCached :
      (cfg : LlamaConfig)
-  -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+  -> LlamaModel cfg ExampleExecutor ExampleDType NoGrad
   -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
   -> Vect (numLayers cfg) (KVCache (numKvHeads cfg * headDim cfg) ExampleExecutor ExampleDType)
   -> List (Fin (vocabSize cfg))
@@ -109,7 +110,7 @@ genStepCached cfg model tables caches toksList = do
   let idsList = map (cast {to=Double} . finToNat) toksList
   case toExistVect idsList of
     (curLen ** idDoubles) => do
-      let inputIds = mkIds idDoubles
+      let inputIds = retypeGrad (mkIds idDoubles)
       (caches', logits) <- hfLlamaForwardLmStep
                                  {ex=ExampleExecutor} {dt=ExampleDType}
                                  {seq          = curLen}
@@ -138,7 +139,7 @@ genStepCached cfg model tables caches toksList = do
 ||| if differential debugging is needed.
 genLoopCached :
      (cfg : LlamaConfig)
-  -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+  -> LlamaModel cfg ExampleExecutor ExampleDType NoGrad
   -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
   -> List (Fin (vocabSize cfg))   -- prompt
   -> (remaining : Nat)
@@ -170,12 +171,12 @@ genLoopCached cfg model tables prompt remaining =
 ----------------------------------------------------------------------
 
 runDumpHidden : (cfg : LlamaConfig)
-             -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+             -> LlamaModel cfg ExampleExecutor ExampleDType NoGrad
              -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
              -> IO ()
 runDumpHidden cfg model tables = do
   -- Fixed input: BPE("Hello") = [9906] in Llama 3 vocab.
-  let inputIds = mkIds (the (Vect 1 Double) [9906.0])
+  let inputIds = retypeGrad (mkIds (the (Vect 1 Double) [9906.0]))
   out <- hfLlamaForward {ex=ExampleExecutor} {dt=ExampleDType}
                         {seq          = 1}
                         {vocab        = vocabSize cfg}
@@ -196,7 +197,7 @@ runDumpHidden cfg model tables = do
 
 runGenerate : (cfg : LlamaConfig)
            -> Tokenizer (vocabSize cfg)
-           -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+           -> LlamaModel cfg ExampleExecutor ExampleDType NoGrad
            -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runGenerate cfg tok model tables prompt numTokens = do
@@ -226,7 +227,7 @@ runGenerate cfg tok model tables prompt numTokens = do
 ||| same prompt; the comparator asserts exact match.
 runDumpTokens : (cfg : LlamaConfig)
              -> Tokenizer (vocabSize cfg)
-             -> LlamaModel cfg ExampleExecutor ExampleDType WithGrad
+             -> LlamaModel cfg ExampleExecutor ExampleDType NoGrad
              -> RoPETables MaxPos (headDim cfg) ExampleExecutor ExampleDType
              -> (prompt : String) -> (numTokens : Nat) -> IO ()
 runDumpTokens cfg tok model tables prompt numTokens = do
@@ -256,7 +257,7 @@ main = do
   -- model.safetensors (~2.5 GB BF16, cast-on-load to F32/F64). Tape
   -- (F64-only) doesn't fit in 16 GB; the example targets F32 backends.
   putStrLn "[stage] fromPretrained — reading config.json + 146-param state (~2.5 GB BF16)..."
-  Right (cfg ** model) <- fromPretrained {ex=ExampleExecutor} {dt=ExampleDType} {g=WithGrad} modelDir
+  Right (cfg ** model) <- fromPretrained {ex=ExampleExecutor} {dt=ExampleDType} {g=NoGrad} modelDir
     | Left err => do
         putStrLn ("ERR: fromPretrained " ++ modelDir ++ ": " ++ show err)
         exitFailure
