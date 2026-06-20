@@ -31,6 +31,7 @@
           clang-tools # clang-format / clang-tidy — pinned == CI == dev (kills version skew)
           cppcheck
           criterion # C unit-test framework (make test-unit-c-*)
+          criterion.dev # headers + pkg-config (separate nixpkgs output; needed to COMPILE the C tests)
           uv
           gnumake
           coreutils
