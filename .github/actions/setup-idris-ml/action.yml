@@ -190,15 +190,19 @@ runs:
         # forces the pinned collection's compiler to build as a side effect —
         # deterministic here + lands in the pack cache.
         pack --no-prompt install idris-test
-        # Install the workspace packages' collection deps (notably `contrib`,
-        # which a cold `pack install idris-test` does NOT pull — pack's idris2
-        # install ships only prelude/base/linear/network, so without this
-        # `make install` fails with "Required contrib ... no matching version
-        # installed"). install-deps reads each ipkg's `depends` and installs
-        # them into the pack store / package-path.
-        for pkg in idris-ml idris-transformers idris-gym idris-args idris-fmt; do
-          pack --no-prompt install-deps "$pkg"
-        done
+        # Install idris-ml's COLLECTION deps — i.e. `contrib`, which a cold
+        # `pack install idris-test` does NOT pull (pack's idris2 install ships
+        # only prelude/base/linear/network), so without this `make install`
+        # fails with "Required contrib ... no matching version installed".
+        # ONLY idris-ml: its deps are pure collection libs (contrib). Do NOT
+        # install-deps idris-transformers/idris-gym — their dep set pulls the
+        # LOCAL idris-ml, which pack would try to BUILD here (`idris2 --build
+        # idris-ml.ipkg`) before the Makefile has generated HwConfig.idr →
+        # "Module HwConfig not found". The local packages are built by
+        # `make install` later, after codegen. contrib covers every
+        # workspace package's only collection dep; args/fmt need just `base`,
+        # already present.
+        pack --no-prompt install-deps idris-ml
         NIXSH
 
     # Torch lane: the uv-managed venv under packages/pytorch carries libtorch
