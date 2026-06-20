@@ -268,7 +268,7 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config
 # gate) already elaborated in this build set, and the --check ttc
 # warms the later `-o` build in turn.
 test-integration-lint-hf-llama-inference: install
-	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 
@@ -277,7 +277,7 @@ test-integration-lint-hf-llama-inference: install
 # this gates the typed surface (incl. the NoGrad inference path) without
 # fetching the checkpoint — the cheapest CI proof for this example.
 test-integration-lint-hf-bitnet-inference: install
-	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
 
