@@ -24,19 +24,31 @@
         test-unit-idris-transformers bench-gym test-unit-examples \
         test-unit-fmt
 
-# Criterion prefix autodetection: nix profile (local dev), then brew
-# (macOS CI), then /usr (Ubuntu CI's libcriterion-dev). Explicit
-# CRITERION_PREFIX= still overrides. Falls back to the nix profile when
-# nothing is found so the error stays "criterion.h not found" rather
-# than a cryptic -I/include.
+# Criterion discovery. Order: explicit CRITERION_PREFIX override, then
+# pkg-config (the nix dev shell + most distros ship criterion.pc), then a
+# prefix probe (nix profile / brew / apt). pkg-config is preferred because
+# it returns the correct include + lib + rpath even for the coverage
+# lane's raw clang, which bypasses the nix cc wrapper's NIX_CFLAGS_COMPILE
+# and so can't find buildInputs implicitly (the non-coverage build's
+# wrapped cc can). The probe's nix-profile fallback keeps the error as
+# "criterion.h not found" rather than a cryptic -I/include.
+CRITERION_PC_LIBS := $(shell pkg-config --libs criterion 2>/dev/null)
+ifdef CRITERION_PREFIX
+CRITERION_CFLAGS := -I$(CRITERION_PREFIX)/include
+CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERION_PREFIX)/lib
+else ifneq ($(strip $(CRITERION_PC_LIBS)),)
+CRITERION_CFLAGS := $(shell pkg-config --cflags criterion 2>/dev/null)
+CRITERION_LDFLAGS := $(CRITERION_PC_LIBS)
+else
 CRITERION_DETECT := $(firstword $(wildcard $(HOME)/.nix-profile/include/criterion /opt/homebrew/include/criterion /usr/include/criterion))
 ifeq ($(CRITERION_DETECT),)
-CRITERION_PREFIX ?= $(HOME)/.nix-profile
+CRITERION_PREFIX := $(HOME)/.nix-profile
 else
-CRITERION_PREFIX ?= $(patsubst %/include/criterion,%,$(CRITERION_DETECT))
+CRITERION_PREFIX := $(patsubst %/include/criterion,%,$(CRITERION_DETECT))
 endif
 CRITERION_CFLAGS := -I$(CRITERION_PREFIX)/include
 CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERION_PREFIX)/lib
+endif
 # Runtime flags forwarded to the criterion binary on the command line.
 # Examples:
 #   CRITERION_FLAGS='--filter=smoke/hello'         # run one test

@@ -18,7 +18,20 @@ tape_CC := cc
 # version); the framework flag is link-time.
 tape_CFLAGS := -DACCELERATE_NEW_LAPACK
 tape_LDFLAGS_Darwin := -framework Accelerate
+# Linux BLAS: prefer pkg-config (the nix dev shell ships openblas.pc) so
+# the include + lib paths are explicit — the coverage lane's raw clang
+# bypasses the nix cc wrapper's NIX_CFLAGS_COMPILE / NIX_LDFLAGS and so
+# can't find cblas.h or libopenblas implicitly. Fall back to -lblas for
+# plain apt environments without pkg-config/openblas.pc. Empty on macOS
+# (no openblas.pc — Darwin uses the Accelerate framework above), so
+# tape_CFLAGS is unchanged there.
+TAPE_BLAS_PC_LIBS := $(shell pkg-config --libs openblas 2>/dev/null)
+ifneq ($(strip $(TAPE_BLAS_PC_LIBS)),)
+tape_CFLAGS += $(shell pkg-config --cflags openblas 2>/dev/null)
+tape_LDFLAGS_Linux := -lm $(TAPE_BLAS_PC_LIBS)
+else
 tape_LDFLAGS_Linux := -lm -lblas
+endif
 
 # libtorch detection — only when torch is in BACKEND_LIST.
 ifneq ($(filter torch,$(BACKEND_LIST)),)

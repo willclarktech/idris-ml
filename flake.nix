@@ -36,6 +36,9 @@
           gnumake
           coreutils
           git
+          pkg-config # resolves criterion/openblas include+lib paths for the
+          # coverage lane's raw clang (which bypasses the nix cc wrapper's
+          # NIX_CFLAGS_COMPILE, so it can't see buildInputs implicitly)
         ]
         ++ lib.optionals stdenv.isLinux [
           openblas # cblas.h on Linux; macOS uses the Accelerate framework
