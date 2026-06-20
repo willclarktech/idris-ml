@@ -727,7 +727,13 @@ jobs:
       matrix:
         os: ${{ fromJSON((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.include_macos)) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # macOS runs every example serially at ~5 min each (real training, not
+    # just elaboration) on the slower runner; the first nix run is also TTC-
+    # cold, so cold elaboration stacks on top of the runs and overshoots 90.
+    # Give the macOS leg headroom to complete the cold run once and fully
+    # warm the TTC cache (subsequent runs land well under the bound). Ubuntu
+    # keeps 90.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 150 || 90 }}
     steps:
       - uses: actions/checkout@v5
         with:
