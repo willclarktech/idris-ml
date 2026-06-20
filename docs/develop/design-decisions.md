@@ -2214,6 +2214,44 @@ interface, no API change. Leaf names are supplied at construction via the `Init`
 (hierarchical path) + the hand-written instance (field labels); `groupOf` consumes `Params`
 regardless of how the instance was authored.
 
+## `%runElab` GCast deriver — the deferred deriver, landed (2026-06-19)
+
+The "expensive → hand-written" branch above held for the leaf `Params` instances (still 3 lines
+each, kept). What it did **not** scale to was the *composite* model records (`BertModelState`, …):
+flipping their grad-mode for `eval` needed field-wise `castGrad`/`params` cascades — ~20 trivial
+functions for BERT alone, ×4 architectures (see the deleted block in `Transformers.Bert`). That is
+exactly the boilerplate the deriver was deferred against, so it landed here, scoped to the
+`GCast` interface (`Nn.Derive`: `gcastGrad : f g -> f g'` + `gparams : f g -> List SomeParam`,
+generalised over the `g`-applied form so one interface fits leaves and composites).
+
+**Built on `idris2-elab-util`** (new dep, in the pinned collection) rather than raw
+`Language.Reflection`. The spike's "fiddly `WithFC`/`IClaim` codegen" verdict was right — elab-util's
+`getInfo'`/`ParamTypeInfo`/`mapArgs`/`accumArgs`/`piAll`/`TL` remove almost all of it. `gcastTLs`
+builds the three `TopLevel`s (the `gcastGrad…`/`gparams…` helpers + the `%hint` impl); `mkGCast`
+builds the interface dictionary via `singleCon "GCast"` (the base `mkDecEq` trick) so the
+compiler-generated constructor name is never spelled.
+
+**Field classification** (the crux the spike named): per constructor field, by its type's head and
+whether it mentions the record's final `GradMode g` — mentions-`g` direct (`Tensor … g`, leaf layer,
+nested derived record) → `gcastGrad`/`gparams`; `Vect`/`Maybe` of such → `map`/`concatMap·toList`/
+`foldMap`; **doesn't mention `g`** → passed through, no params. That last rule makes BitNet's
+`BitLinearHf` (ternary weight + dequant scale both hardcoded `NoGrad`, so `g` is a pure phantom)
+derive correctly with no special-casing: `gparams` returns only the float params (embedding + norms),
+which is exactly what `eval`'s `requires_grad` flip should touch.
+
+**Cross-package elaborator constraint (the load-bearing gotcha).** Two things do *not* work when the
+deriver lives in `idris-ml` and runs at a `%runElab` in another package: (1) an `Elab`-monadic action
+(`getInfo'`) called from a non-elab-util module's script leaves a stuck "script is not a data value";
+(2) an imported rule passed *by value* to elab-util's `derive` (e.g. `[GCastImpl]` where `GCastImpl`
+is imported) is likewise stuck. Both reduce fine when the entry is **current-package**. So the shipped
+shape is: `GCastImpl` is a **pure** rule (`List Name -> ParamTypeInfo -> Res (List TopLevel)`) run
+*inside* elab-util's `derive` (which does the `getInfo'` in its own module), and each call site adds a
+one-line current-package wrapper `gcast nms p = GCastImpl nms p` + `%runElab derive `{R} [gcast]`. The
+wrapper may freely call the imported pure `gcastTLs`. Net call-site cost: one `gcast` line per module
++ the elab-util dep — accepted (BERT's ~20-function cascade → 10 `derive` lines + 3 one-line
+wrappers). Verified empirically: a trivial *imported* rule fails; the same rule defined in the call
+site, or any elab-util rule, succeeds.
+
 ## models-as-records: the `Nn` surface (2026-06-14)
 
 The models-as-records row landed as `packages/idris-ml/src/Nn/` — 19 layers + a core surface,

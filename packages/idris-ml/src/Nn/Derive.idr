@@ -17,12 +17,16 @@
 |||   * `gparams   : f g -> List SomeParam` — collect every leaf param
 |||     (for the C-side `requires_grad` flip).
 |||
-||| Foundation here (interface + `Tensor` leaf + `Params` bridge); the
-||| `%runElab gcast` deriver for composites lands next (TODO: "%runElab
-||| deriver for Params / castGrad"). Until then a composite gets a
-||| hand-written `GCast` instance (3 lines, reusing `gcastGrad`/`gparams`
-||| on each field — uniform whether the field is a leaf Nn layer or a
-||| nested composite).
+||| Foundation here: the interface + the leaf instances (`Tensor`,
+||| `Linear`, `LayerNorm`, `Embedding`, `RmsNorm`) hand-written below,
+||| plus `deriveGCast`/`GCastImpl` — the `%runElab` deriver that generates
+||| a composite record's `GCast` instance from its shape (see those defs
+||| for the field-classification rules and the cross-package call-site
+||| pattern). The leaf instances stay hand-written (3 lines each, a
+||| different — leaf-`Params` — kind, not worth deriving); the deriver
+||| targets the composite model records (`BertModelState`, … — see
+||| `Transformers.*`, where the formerly hand-written ~20-function
+||| cascades are now `%runElab derive` calls).
 module Nn.Derive
 
 import Data.List
