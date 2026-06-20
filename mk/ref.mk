@@ -25,7 +25,7 @@ ref-setup:
 # ref-bert-mlm-finetune (colocated with their examples further up).
 REF_SCRIPT_NAMES := supervised bert-classify-finetune rnn lstm gru \
 	ntm-copy ntm-recall dnc-copy dnc-recall transformer gpt reinforce \
-	a2c ppo dqn mountain-car mountain-car-cont
+	a2c ppo dqn double-dqn mountain-car mountain-car-cont
 REF_SCRIPT_TARGETS := $(addprefix ref-,$(REF_SCRIPT_NAMES))
 .PHONY: $(REF_SCRIPT_TARGETS)
 $(REF_SCRIPT_TARGETS): ref-%:
