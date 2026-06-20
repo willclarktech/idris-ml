@@ -547,21 +547,20 @@ idxImage ds idx flatLen =
 -- Native Optimizer
 ----------------------------------------------------------------------
 
-||| Polyak soft update for twin-network param groups registered under
-||| `onlineScope` vs `targetScope`: for each online param, finds the
-||| matching target param (same suffix after scope prefix) and blends
+||| Polyak soft update of one EXACTLY-named param pair (`onlineName` →
+||| `targetName`):
 |||   target_data ← (1 − tau) · target_data + tau · online_data
-||| in-place. Returns the number of param pairs blended. Used by SAC to
-||| track target-Q networks.
+||| in-place. Returns 1 if blended, 0 if a name is absent or the shapes
+||| differ. The per-pair primitive `polyakUpdatePaired` folds over.
 |||
 ||| Per-backend: the registry storing the params lives in the backend
-||| TU, so dispatch via `primPolyakBlend` from the in-scope
+||| TU, so dispatch via `primPolyakBlendPair` from the in-scope
 ||| `UserExecutorTraining ex` instance.
 export
 polyakUpdate : UserExecutorTraining ex =>
-               (tau : Double) -> (onlineScope : String) -> (targetScope : String) -> IO Int
-polyakUpdate tau onlineScope targetScope =
-  primIO (primPolyakBlend {ex} tau onlineScope targetScope)
+               (tau : Double) -> (onlineName : String) -> (targetName : String) -> IO Int
+polyakUpdate tau onlineName targetName =
+  primIO (primPolyakBlendPair {ex} tau onlineName targetName)
 
 ||| Polyak soft-update by exact paired param names (structural, leak-free):
 ||| pairs `onlineNames[i]` with `targetNames[i]` positionally and blends each
@@ -574,9 +573,8 @@ polyakUpdate tau onlineScope targetScope =
 ||| this removes). Pairing is positional, which is correct when the two nets
 ||| share a constructor — their `Params` traversal orders coincide.
 |||
-||| Passing a *full* registered name as the per-pair "scope" degenerates the
-||| underlying prefix match to an exact match (no other registered name has it
-||| as a proper prefix).
+||| Each pair is blended by exact-name match (`primPolyakBlendPair`), so a
+||| name that is a proper prefix of another can't over-match.
 export
 polyakUpdatePaired : UserExecutorTraining ex =>
                      (onlineNames : List String) -> (targetNames : List String) ->

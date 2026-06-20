@@ -397,12 +397,13 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   ||| mlx perf on small models (see `docs/develop/perf-changes.md`).
   primTile2d : AnyPtr -> Int -> Int -> AnyPtr
 
-  ||| Polyak / EMA blend across the registry: for every pair of params
-  ||| whose paramIds share the (onlineScope, targetScope) pair
-  ||| (`<onlineScope><suffix>` and `<targetScope><suffix>`), set
-  ||| target ← (1 - τ)·target + τ·online. Per-backend because the
-  ||| registry is per-backend. Returns the count of pairs updated.
-  primPolyakBlend : Double -> String -> String -> PrimIO Int
+  ||| Polyak / EMA blend of one EXACTLY-named param pair: set
+  ||| target ← (1 - τ)·target + τ·online for (onlineName, targetName).
+  ||| Names are matched with strcmp (not prefix), so a name that is a
+  ||| proper prefix of another can't over-match. Per-backend because the
+  ||| registry is per-backend. Returns 1 if blended, 0 if a name is
+  ||| absent or the shapes differ.
+  primPolyakBlendPair : Double -> String -> String -> PrimIO Int
 
   -- Fused param create + in-place init. Replaces the per-element Idris-
   -- side sampler + per-element prim__setDouble FFI for model state

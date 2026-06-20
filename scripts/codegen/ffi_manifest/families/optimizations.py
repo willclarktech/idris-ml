@@ -3,11 +3,11 @@
 from .._entry import Entry
 
 ENTRIES = {
-    "polyak_blend": Entry(
+    "polyak_blend_pair": Entry(
         args=("d", "s", "s"),
         ret="i",
         slice="UserExecutorOptimizations",
-        idris_method="primPolyakBlend",
+        idris_method="primPolyakBlendPair",
         mlx="direct",
     ),
     "tensor_create_param_1d_const_streamed": Entry(

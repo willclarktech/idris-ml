@@ -516,27 +516,22 @@ extern "C" double optimizer_clip_grad_norm(double max_norm) {
 }
 
 /* Polyak soft update: mirror of the tape-backend implementation. */
-extern "C" int polyak_blend(double tau, const char* online_scope, const char* target_scope) {
-	if (!online_scope || !target_scope) return 0;
-	std::string on_s(online_scope), tg_s(target_scope);
-	int blended = 0;
+extern "C" int polyak_blend_pair(double tau, const char* online_name, const char* target_name) {
+	if (!online_name || !target_name) return 0;
 	torch::NoGradGuard no_grad;
+	at::Tensor* on_t = nullptr;
+	at::Tensor* tg_t = nullptr;
+	/* Exact-match both names — no prefix logic, so a name that is a proper
+	   prefix of another can't over-match. */
 	for (int i = 0; i < param_count(); i++) {
-		if (param_is_buffer(i)) continue; /* buffers aren't part of the EMA */
-		std::string on_name(param_name(i));
-		if (on_name.rfind(on_s, 0) != 0) continue;
-		std::string tgt_name = tg_s + on_name.substr(on_s.size());
-		for (int j = 0; j < param_count(); j++) {
-			if (std::string(param_name(j)) != tgt_name) continue;
-			at::Tensor& on_t = *(at::Tensor*)param_tensor(i);
-			at::Tensor& tg_t = *(at::Tensor*)param_tensor(j);
-			if (!on_t.sizes().equals(tg_t.sizes())) break;
-			tg_t.mul_(1.0 - tau).add_(on_t, tau);
-			blended++;
-			break;
-		}
+		std::string nm(param_name(i));
+		if (!on_t && nm == online_name) on_t = (at::Tensor*)param_tensor(i);
+		if (!tg_t && nm == target_name) tg_t = (at::Tensor*)param_tensor(i);
 	}
-	return blended;
+	if (!on_t || !tg_t) return 0;
+	if (!on_t->sizes().equals(tg_t->sizes())) return 0;
+	tg_t->mul_(1.0 - tau).add_(*on_t, tau);
+	return 1;
 }
 
 /* Optimizer buffer accessors (used by safetensors serializer). */

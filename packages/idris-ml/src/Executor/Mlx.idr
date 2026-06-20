@@ -486,8 +486,8 @@ prim__paramRegisterMlx : String -> AnyPtr -> AnyPtr
 prim__paramRegisterBufferMlx : String -> AnyPtr -> AnyPtr
 %foreign "C:param_is_buffer_mlx,libidrisml"
 prim__paramIsBufferMlx : Int -> PrimIO Int
-%foreign "C:polyak_blend_mlx,libidrisml"
-prim__polyakBlendMlx : Double -> String -> String -> PrimIO Int
+%foreign "C:polyak_blend_pair_mlx,libidrisml"
+prim__polyakBlendPairMlx : Double -> String -> String -> PrimIO Int
 %foreign "C:param_count_mlx,libidrisml"
 prim__paramCountMlx : PrimIO Int
 %foreign "C:param_name_mlx,libidrisml"
@@ -611,7 +611,7 @@ public export
   primCreateParam4dConstStreamed    = prim__createParam4dConstStreamedMlx
   primCreateParam4dNormalStreamed   = prim__createParam4dNormalStreamedMlx
   primCrossAttention a0 a1 a2 a3 a4 = prim__crossAttentionMlxStreamed a0 a1 a2 a3 a4 (streamTag s)
-  primPolyakBlend                   = prim__polyakBlendMlx
+  primPolyakBlendPair               = prim__polyakBlendPairMlx
   primRmsNorm2d                     = prim__rmsNorm2dMlx
   primSdpa2d                        = prim__sdpa2dMlx
   primSwiGlu2d                      = prim__swiGlu2dMlx

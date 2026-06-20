@@ -437,8 +437,8 @@ prim__paramRegisterTape : String -> AnyPtr -> AnyPtr
 prim__paramRegisterBufferTape : String -> AnyPtr -> AnyPtr
 %foreign "C:param_is_buffer_tape,libidrisml"
 prim__paramIsBufferTape : Int -> PrimIO Int
-%foreign "C:polyak_blend_tape,libidrisml"
-prim__polyakBlendTape : Double -> String -> String -> PrimIO Int
+%foreign "C:polyak_blend_pair_tape,libidrisml"
+prim__polyakBlendPairTape : Double -> String -> String -> PrimIO Int
 %foreign "C:param_count_tape,libidrisml"
 prim__paramCountTape : PrimIO Int
 %foreign "C:param_name_tape,libidrisml"
@@ -565,7 +565,7 @@ UserExecutorOptimizations TapeExecutor where
   primCreateParam4dConstStreamed  = prim__createParam4dConstStreamedTape
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTape
   primCrossAttention              = prim__crossAttentionTape
-  primPolyakBlend                 = prim__polyakBlendTape
+  primPolyakBlendPair             = prim__polyakBlendPairTape
   primRmsNorm2d                   = prim__rmsNorm2dTape
   primSdpa2d                      = prim__sdpa2dTape
   primSwiGlu2d                    = prim__swiGlu2dTape

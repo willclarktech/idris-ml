@@ -9,7 +9,7 @@
  *     mlx's TBD);
  *   - cross-cutting helpers that don't touch optimizer state and so
  *     stay genuinely shared: `optimizer_zero_grad` (delegates to
- *     `param_zero_all_grads`), `polyak_blend`, `optimizer_clip_*`,
+ *     `param_zero_all_grads`), `polyak_blend_pair`, `optimizer_clip_*`,
  *     and the `native_train_step` / `optimizer_step_with_clip`
  *     high-level wrappers.
  *
@@ -87,37 +87,27 @@ void optimizer_zero_grad(OptimizerHandle h) {
 	param_zero_all_grads();
 }
 
-int polyak_blend(double tau, const char* online_scope, const char* target_scope) {
-	if (!online_scope || !target_scope) return 0;
-	size_t on_len = strlen(online_scope);
-	size_t tg_len = strlen(target_scope);
-	int blended = 0;
-	double one_minus_tau = 1.0 - tau;
+int polyak_blend_pair(double tau, const char* online_name, const char* target_name) {
+	if (!online_name || !target_name) return 0;
+	void* on_t = NULL;
+	void* tg_t = NULL;
+	/* Exact-match both names in a single registry pass — no prefix logic,
+	   so a name that is a proper prefix of another can't over-match. */
 	for (int i = 0; i < param_count(); i++) {
-		if (param_is_buffer(i)) continue; /* buffers aren't part of the EMA */
-		const char* on_name = param_name(i);
-		if (strncmp(on_name, online_scope, on_len) != 0) continue;
-		char tgt_name[256];
-		size_t suffix_len = strlen(on_name + on_len);
-		if (tg_len + suffix_len + 1 > sizeof(tgt_name)) continue;
-		memcpy(tgt_name, target_scope, tg_len);
-		memcpy(tgt_name + tg_len, on_name + on_len, suffix_len + 1);
-		for (int j = 0; j < param_count(); j++) {
-			if (strcmp(param_name(j), tgt_name) != 0) continue;
-			void* on_t = param_tensor(i);
-			void* tg_t = param_tensor(j);
-			int n_on = g_active_port.tensor_numel(on_t);
-			if (n_on != g_active_port.tensor_numel(tg_t)) break;
-			for (int k = 0; k < n_on; k++) {
-				double tg = g_active_port.data_read(tg_t, k);
-				double on = g_active_port.data_read(on_t, k);
-				g_active_port.data_write(tg_t, k, one_minus_tau * tg + tau * on);
-			}
-			blended++;
-			break;
-		}
+		const char* nm = param_name(i);
+		if (!on_t && strcmp(nm, online_name) == 0) on_t = param_tensor(i);
+		if (!tg_t && strcmp(nm, target_name) == 0) tg_t = param_tensor(i);
 	}
-	return blended;
+	if (!on_t || !tg_t) return 0;
+	int n_on = g_active_port.tensor_numel(on_t);
+	if (n_on != g_active_port.tensor_numel(tg_t)) return 0;
+	double one_minus_tau = 1.0 - tau;
+	for (int k = 0; k < n_on; k++) {
+		double tg = g_active_port.data_read(tg_t, k);
+		double on = g_active_port.data_read(on_t, k);
+		g_active_port.data_write(tg_t, k, one_minus_tau * tg + tau * on);
+	}
+	return 1;
 }
 
 void optimizer_clip_grad_value(double max_val) {

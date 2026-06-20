@@ -69,7 +69,7 @@
 #define param_tensor param_tensor_tape
 #define param_zero_all_grads param_zero_all_grads_tape
 #define param_zero_all_grads_return param_zero_all_grads_return_tape
-#define polyak_blend polyak_blend_tape
+#define polyak_blend_pair polyak_blend_pair_tape
 #define safetensors_read_raw_bytes safetensors_read_raw_bytes_tape
 #define tensor_abs tensor_abs_tape
 #define tensor_absmean_per_row_2d tensor_absmean_per_row_2d_tape

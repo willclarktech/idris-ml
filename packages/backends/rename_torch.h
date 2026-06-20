@@ -69,7 +69,7 @@
 #define param_tensor param_tensor_torch
 #define param_zero_all_grads param_zero_all_grads_torch
 #define param_zero_all_grads_return param_zero_all_grads_return_torch
-#define polyak_blend polyak_blend_torch
+#define polyak_blend_pair polyak_blend_pair_torch
 #define safetensors_read_raw_bytes safetensors_read_raw_bytes_torch
 #define tensor_abs tensor_abs_torch
 #define tensor_absmean_per_row_2d tensor_absmean_per_row_2d_torch

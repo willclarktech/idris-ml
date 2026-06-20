@@ -476,8 +476,8 @@ prim__paramRegisterTorch : String -> AnyPtr -> AnyPtr
 prim__paramRegisterBufferTorch : String -> AnyPtr -> AnyPtr
 %foreign "C:param_is_buffer_torch,libidrisml"
 prim__paramIsBufferTorch : Int -> PrimIO Int
-%foreign "C:polyak_blend_torch,libidrisml"
-prim__polyakBlendTorch : Double -> String -> String -> PrimIO Int
+%foreign "C:polyak_blend_pair_torch,libidrisml"
+prim__polyakBlendPairTorch : Double -> String -> String -> PrimIO Int
 %foreign "C:param_count_torch,libidrisml"
 prim__paramCountTorch : PrimIO Int
 %foreign "C:param_name_torch,libidrisml"
@@ -603,7 +603,7 @@ public export
   primCreateParam4dConstStreamed  = prim__createParam4dConstStreamedTorch
   primCreateParam4dNormalStreamed = prim__createParam4dNormalStreamedTorch
   primCrossAttention              = prim__crossAttentionTorch
-  primPolyakBlend                 = prim__polyakBlendTorch
+  primPolyakBlendPair             = prim__polyakBlendPairTorch
   primRmsNorm2d                   = prim__rmsNorm2dTorch
   primSdpa2d                      = prim__sdpa2dTorch
   primSwiGlu2d                    = prim__swiGlu2dTorch

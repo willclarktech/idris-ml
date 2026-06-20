@@ -43,7 +43,7 @@ typedef struct BackendPort {
 	   Per-element dtype-aware read/write. F32 storage narrows/widens
 	   through these (tape's `tape_load_d`/`tape_store_d` semantics);
 	   F64 hits the raw buffer. Used by the optimizer's per-element
-	   update loop and by polyak_blend.
+	   update loop and by polyak_blend_pair.
 	   ---------------------------------------------------------------------- */
 	double (*data_read)(void* t, int i);
 	void (*data_write)(void* t, int i, double v);
@@ -82,7 +82,7 @@ typedef struct BackendPort {
 
 	   The shared file still owns the cross-cutting helpers that don't
 	   touch optimizer state: `optimizer_zero_grad` (delegates to
-	   param_zero_all_grads), `polyak_blend` and `optimizer_clip_*`
+	   param_zero_all_grads), `polyak_blend_pair` and `optimizer_clip_*`
 	   (per-element via the port's grad/data accessors),
 	   `native_train_step` / `optimizer_step_with_clip` (high-level
 	   wrappers that compose zero_grad/backward/clip/step).

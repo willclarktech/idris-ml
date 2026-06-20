@@ -552,11 +552,13 @@ void optimizer_clip_grad_value(double max_val);
 double optimizer_clip_grad_norm(double max_norm); /* returns actual norm */
 
 /* Polyak soft update for twin-network setups (SAC target Q-nets).
- * For each registered param P whose name starts with `online_scope`,
- * finds the matching target param under `target_scope` and blends:
+ * Blends one EXACTLY-named param pair (online_name → target_name):
  *   target.data ← (1 − tau) · target.data + tau · online.data (in-place).
- * Returns the number of param pairs blended. */
-int polyak_blend(double tau, const char* online_scope, const char* target_scope);
+ * Names are matched with strcmp (not prefix), so a name that is a proper
+ * prefix of another can't over-match. Returns 1 if blended, 0 if either
+ * name is absent or the shapes differ. The Idris `polyakUpdatePaired`
+ * feeds it exact names from `Nn.Group.reflectNames`, one call per pair. */
+int polyak_blend_pair(double tau, const char* online_name, const char* target_name);
 
 /* ---------- System ---------- */
 
