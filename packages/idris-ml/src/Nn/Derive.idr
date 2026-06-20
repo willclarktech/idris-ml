@@ -25,7 +25,10 @@
 ||| nested composite).
 module Nn.Derive
 
+import Data.List
 import Data.Vect
+
+import Language.Reflection.Util
 
 import Executor
 import Nn.Embedding
@@ -34,6 +37,8 @@ import Nn.Linear
 import public Nn.Module
 import Nn.RmsNorm
 import Tensor
+
+%language ElabReflection
 
 %default total
 
@@ -79,3 +84,112 @@ public export
 GCast (RmsNorm n n ex dt) where
   gcastGrad (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
   gparams (MkRmsNorm w)   = [toParam w]
+
+----------------------------------------------------------------------
+-- `%runElab` deriver
+----------------------------------------------------------------------
+
+||| Factory for a `GCast` dictionary from its two methods. The derived
+||| instances build their `%hint` via this, so we never spell the
+||| compiler-generated interface-constructor name (mirrors
+||| `Language.Reflection.Derive.mkEq` / `mkDecEq`).
+public export %inline
+mkGCast :
+     {0 f : (0 _ : GradMode) -> Type}
+  -> (cg : {0 g, g' : GradMode} -> f g -> f g')
+  -> (gp : {0 g : GradMode} -> f g -> List SomeParam)
+  -> GCast f
+mkGCast = %runElab check (var $ singleCon "GCast")
+
+||| Per-field `gcastGrad` transform: mentions-`g` direct → `gcastGrad`;
+||| `Vect`/`Maybe` of such → `map gcastGrad`; otherwise pass through.
+public export
+gcArg : (gName : Name) -> BoundArg 1 Explicit -> TTImp
+gcArg gName (BA a [x] _) =
+  if not (rec [gName] a.type) then var x
+  else case unApp a.type of
+    (IVar _ h, [_,_]) =>
+      if nameStr h == "Vect"  then `(map gcastGrad ~(var x)) else `(gcastGrad ~(var x))
+    (IVar _ h, [_])   =>
+      if nameStr h == "Maybe" then `(map gcastGrad ~(var x)) else `(gcastGrad ~(var x))
+    _ => `(gcastGrad ~(var x))
+
+||| Per-field `gparams` transform: mentions-`g` direct → `gparams`;
+||| `Vect` → `concatMap gparams . toList`; `Maybe` → `foldMap gparams`;
+||| otherwise contributes no params.
+public export
+gpArg : (gName : Name) -> BoundArg 1 Explicit -> TTImp
+gpArg gName (BA a [x] _) =
+  if not (rec [gName] a.type) then `(the (List SomeParam) Nil)
+  else case unApp a.type of
+    (IVar _ h, [_,_]) =>
+      if nameStr h == "Vect"  then `(concatMap gparams (toList ~(var x))) else `(gparams ~(var x))
+    (IVar _ h, [_])   =>
+      if nameStr h == "Maybe" then `(foldMap gparams ~(var x)) else `(gparams ~(var x))
+    _ => `(gparams ~(var x))
+
+||| Concatenate per-field param lists with `(++)`, base `[]`.
+public export
+gpRhs : SnocList TTImp -> TTImp
+gpRhs sx = foldr (\e,acc => `(~(e) ++ ~(acc))) `(the (List SomeParam) Nil) (sx <>> [])
+
+||| The three `TopLevel`s (claim + def for `gcastGrad…`, `gparams…`, and
+||| the `%hint impl…`) implementing `GCast` for a single-constructor
+||| record `ti`/`con` whose final parameter is the grad-mode `gName`,
+||| with remaining parameters `nonG`. Pure TTImp construction — safe to
+||| call across package boundaries from an elaborator script.
+public export
+gcastTLs : (ti : TypeInfo) -> Con ti.arty ti.args -> (gName : Name) -> (nonG : List Name) -> List TopLevel
+gcastTLs ti con gName nonG =
+  let g0      = UN (Basic "gcDeriveG0")
+      g1      = UN (Basic "gcDeriveG1")
+      gradTy  = var "GradMode"
+      headTy  = appNames ti.name nonG
+      ratG0   = appNames ti.name (nonG ++ [g0])
+      ratG1   = appNames ti.name (nonG ++ [g1])
+      nonGI   = map erasedImplicit nonG
+      g0bind  = MkArg M0 ImplicitArg (Just g0) gradTy
+      g1bind  = MkArg M0 ImplicitArg (Just g1) gradTy
+      gcastNm = funName ti "gcastGrad"
+      gparmNm = funName ti "gparams"
+      implNm  = implName ti "GCast"
+      gcastTy = piAll `(~(ratG0) -> ~(ratG1)) (nonGI ++ [g0bind, g1bind])
+      gparmTy = piAll `(~(ratG0) -> List SomeParam) (nonGI ++ [g0bind])
+      implTy  = piAll `(GCast ~(headTy)) nonGI
+      gcastCl = mapArgs explicit (\cx => `(~(var gcastNm) ~(cx))) (gcArg gName) con
+      gparmCl = accumArgs explicit (\cx => `(~(var gparmNm) ~(cx))) gpRhs (gpArg gName) con
+   in [ TL (simpleClaim Export gcastNm gcastTy) (def gcastNm [gcastCl])
+      , TL (simpleClaim Export gparmNm gparmTy) (def gparmNm [gparmCl])
+      , TL (implClaimVis Public implNm implTy)
+           (def implNm [patClause (var implNm) `(mkGCast ~(var gcastNm) ~(var gparmNm))])
+      ]
+
+||| The elab-util deriving rule for `GCast` — a **pure** function from
+||| the (already-introspected) `ParamTypeInfo` to the instance
+||| `TopLevel`s. It splits off the record's final grad-mode parameter and
+||| delegates to `gcastTLs`. Single-constructor records only; the final
+||| type parameter must be the `GradMode g`.
+|||
+||| Usage (note: the rule passed to elab-util's `derive` must be a
+||| *current-package* value, so wrap `GCastImpl` in a one-line local
+||| function at the call site — an imported rule passed by value leaves a
+||| stuck elaborator script. The Elab-monadic introspection runs inside
+||| elab-util's `derive`, which is why this rule itself stays pure):
+|||
+||| ```idris
+||| gcast : List Name -> ParamTypeInfo -> Res (List TopLevel)
+||| gcast nms p = GCastImpl nms p
+|||
+||| %runElab derive `{MyRecord} [gcast]
+||| ```
+|||
+||| Nested records must be derived before the composites that hold them.
+||| `GradMode`, `SomeParam`, `GCast`, `mkGCast` and the `Vect`/`List`
+||| combinators must be in scope at the call site.
+public export
+GCastImpl : List Name -> ParamTypeInfo -> Res (List TopLevel)
+GCastImpl _ p =
+  case (p.info.cons, reverse (toList p.info.argNames)) of
+    ([con], (gName :: nonGrev)) => Right (gcastTLs p.info con gName (reverse nonGrev))
+    ([_], [])                   => Left "deriveGCast: \{show p.info.name} has no type parameters"
+    _                           => Left "deriveGCast: \{show p.info.name} must be a single-constructor record"
