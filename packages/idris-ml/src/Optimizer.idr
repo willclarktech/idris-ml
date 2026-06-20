@@ -20,9 +20,6 @@
 ||| with record-update syntax:
 |||
 |||   opt <- adam 1.0e-3 ({ clip := NormClip 1.0 } defaultOpts)
-|||
-||| The `native*` constructors in Tensor.idr remain until the example
-||| migration sweep; both surfaces drive identical C prims.
 module Optimizer
 
 import Executor

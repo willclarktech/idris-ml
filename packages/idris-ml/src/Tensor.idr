@@ -580,61 +580,6 @@ record NativeOptimizer (0 ex : Executor) where
   clipMode : ClipMode
   schedule : Maybe Schedule
 
-||| Create a native SGD optimizer.
-export
-nativeSgd : UserExecutorTraining ex => Double -> NativeOptimizer ex
-nativeSgd lr = MkNativeOptimizer (primOptimizerCreateSgd {ex} lr) NoClip Nothing
-
-||| Create a native RMSprop optimizer (matches PyTorch defaults).
-export
-nativeRmsprop : UserExecutorTraining ex =>
-                (lr : Double) -> (alpha : Double) -> (eps : Double) ->
-                (clipVal : Double) -> (momentum : Double) -> NativeOptimizer ex
-nativeRmsprop lr alpha eps clipVal momentum =
-  MkNativeOptimizer
-    (primOptimizerCreateRmsprop {ex} lr alpha eps 0.0 momentum)
-    (ValueClip clipVal)
-    Nothing
-
-||| Create a native Adam optimizer with global norm clipping.
-export
-nativeAdamGlobalClip : UserExecutorTraining ex =>
-                       (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
-                       (eps : Double) -> (maxNorm : Double) -> NativeOptimizer ex
-nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
-  MkNativeOptimizer
-    (primOptimizerCreateAdam {ex} lr beta1 beta2 eps)
-    (NormClip maxNorm)
-    Nothing
-
-||| Create a native Adam optimizer that only manages params whose registry
-||| paramId starts with `scope`. Empty scope behaves like
-||| `nativeAdamGlobalClip`. Used for multi-network setups where each
-||| network (e.g. SAC actor / q1 / q2) needs its own optimizer so that
-||| gradient leakage from one network's loss doesn't update another
-||| network's weights (matches PyTorch's one-optimizer-per-net pattern).
-export
-nativeAdamGroup : UserExecutorTraining ex =>
-                  (scope : String) ->
-                  (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
-                  (eps : Double) -> (maxNorm : Double) -> NativeOptimizer ex
-nativeAdamGroup scope lr beta1 beta2 eps maxNorm =
-  MkNativeOptimizer
-    (primOptimizerCreateAdamGroup {ex} lr beta1 beta2 eps scope)
-    (NormClip maxNorm)
-    Nothing
-
-||| Create a native AdamW optimizer (decoupled weight decay) with global norm clipping.
-export
-nativeAdamW : UserExecutorTraining ex =>
-              (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
-              (eps : Double) -> (weightDecay : Double) -> (maxNorm : Double) -> NativeOptimizer ex
-nativeAdamW lr beta1 beta2 eps wd maxNorm =
-  MkNativeOptimizer
-    (primOptimizerCreateAdamW {ex} lr beta1 beta2 eps wd)
-    (NormClip maxNorm)
-    Nothing
-
 ||| Set a per-parameter learning rate override. Parameters matching the given
 ||| name will use this LR instead of the optimizer's base LR.
 ||| Use LR=0 to freeze a parameter. Set LR<0 to revert to base LR.

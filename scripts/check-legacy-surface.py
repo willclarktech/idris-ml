@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ratchet gate: the legacy `Layer/`/`Network`/`epoch*`/`DataPoint` surface must stay deleted.
+"""Ratchet gate: the legacy `Layer/`/`Network`/`epoch*`/`DataPoint`/`native*`-optimizer surface must stay deleted.
 
 The v1 API rework replaced the legacy training surface with the `Nn`
 models-as-records surface (`Module`/`Params`/`Seq`), the `fit` driver,
@@ -44,6 +44,13 @@ IDENT = re.compile(
     r"|\bTensorDataPoint\b"
     r"|\bDataPoint\b"
     r"|\bDataLoader\b"
+    # Superseded `native*` optimizer constructors — replaced by the typed
+    # `sgd`/`rmsprop`/`adam`/`adamW` (Optimizer.idr) + `Train.Freeze` scoping.
+    # `nativeAdam\w*` covers GlobalClip/Group/W; `nativeTrainStepScaled` (the
+    # mixed-precision step prim wrapper, kept) is deliberately not matched.
+    r"|\bnativeSgd\b"
+    r"|\bnativeRmsprop\b"
+    r"|\bnativeAdam\w*"
 )
 
 # Imports of the deleted modules (Layer barrel, Layer.*, Backprop, …).
@@ -87,12 +94,12 @@ def main() -> int:
         for msg in failures:
             print(f"FAIL: {msg}", file=sys.stderr)
         print(
-            f"\n{len(failures)} legacy-surface reference(s) — the Layer/epoch*/DataPoint "
-            "surface is deleted; use Nn/fit/Dataset instead.",
+            f"\n{len(failures)} legacy-surface reference(s) — the Layer/epoch*/DataPoint/native* "
+            "surface is deleted; use Nn/fit/Dataset + sgd/adam/adamW instead.",
             file=sys.stderr,
         )
         return 1
-    print("legacy-surface ratchet OK (no Layer/epoch*/DataPoint references)")
+    print("legacy-surface ratchet OK (no Layer/epoch*/DataPoint/native* references)")
     return 0
 
 
