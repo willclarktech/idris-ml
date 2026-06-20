@@ -25,10 +25,16 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
 
+import Language.Reflection
+import Language.Reflection.Util
+
 import Executor
+import Nn.Derive
 import Nn.Linear
 import Tensor
 import Transformers.Bert
+
+%language ElabReflection
 
 ----------------------------------------------------------------------
 -- Param-name catalogue
@@ -87,6 +93,31 @@ record BertForSequenceClassificationState
   constructor MkBertForSeqClassify
   base       : BertModelState vocab hidden numLayers intermediate maxPos typeVocab ex dt g
   classifier : BertClassifierHeadState hidden numClasses ex dt g
+
+----------------------------------------------------------------------
+-- Derived GCast (grad-mode retype + leaf-param traversal)
+----------------------------------------------------------------------
+
+-- The `base` field reuses `BertModelState`'s GCast (derived in
+-- Transformers.Bert, imported here). `gcast` is the call-site-local rule
+-- wrapper around the imported pure `Nn.Derive.GCastImpl`.
+gcast : List Name -> ParamTypeInfo -> Res (List TopLevel)
+gcast nms p = GCastImpl nms p
+
+%runElab derive `{BertClassifierHeadState}            [gcast]
+%runElab derive `{BertForSequenceClassificationState} [gcast]
+
+||| Inference-mode `BertForSequenceClassification`: flip every param's C
+||| `requires_grad` off and retype `WithGrad -> NoGrad`.
+export
+evalBertForSequenceClassification :
+     {0 ex : Executor} -> UserExecutorTraining ex =>
+     {0 vocab, hidden, numLayers, intermediate, maxPos, typeVocab, numClasses : Nat} -> {0 dt : DType} ->
+     BertForSequenceClassificationState vocab hidden numLayers intermediate maxPos typeVocab numClasses ex dt WithGrad ->
+     IO (BertForSequenceClassificationState vocab hidden numLayers intermediate maxPos typeVocab numClasses ex dt NoGrad)
+evalBertForSequenceClassification m = do
+  traverse_ (\p => primIO (primSetRequiresGrad {ex} p.paramPtr 0)) (gparams m)
+  pure (gcastGrad m)
 
 ----------------------------------------------------------------------
 -- Constructors

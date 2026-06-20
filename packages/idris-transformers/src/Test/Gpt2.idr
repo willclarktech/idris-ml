@@ -19,6 +19,8 @@ import Array
 import Checkpoint
 import Executor
 import Executor.Core
+import Nn.Derive
+import Nn.Module
 import Tensor
 import Test.Common
 import Test.Config
@@ -152,6 +154,31 @@ testConstructorRegistersHfNames = do
                 ", expected: " ++ show (length expected) ++ ")")
       pure False
 
+-- The derived `gparams` (from `%runElab derive` on the GPT-2 records)
+-- must visit exactly the leaf params the HF catalogue lists — proving
+-- the generated cascade is correct. `gparams` reads the model's own
+-- handles, so it's robust to the shared C registry.
+testDerivedGparamsMatchesCatalogue : IO Bool
+testDerivedGparamsMatchesCatalogue = do
+  m <- hfGpt2Model {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
+                   {vocab        = 8}
+                   {hidden       = 4}
+                   {numLayers    = 6}
+                   {numHeads     = 2}
+                   {headDim      = 2}
+                   {intermediate = 8}
+                   {maxPos       = 8}
+                   ""
+  let got      = sort (mapMaybe paramName (gparams m))
+      expected = sort (hfGpt2ParamNames distilGpt2Config "")
+  case firstMismatch got expected of
+    Nothing        => check "derived gparams visits exactly the GPT-2 catalogue" True
+    Just (i, g, e) => do
+      putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
+      putStrLn ("    got:      " ++ g)
+      putStrLn ("    expected: " ++ e)
+      pure False
+
 ----------------------------------------------------------------------
 -- readGpt2Config (config.json → Gpt2Config)
 ----------------------------------------------------------------------
@@ -194,6 +221,9 @@ suite =
      ])
   , ("HfGpt2 — FFI constructor registry",
      [ testConstructorRegistersHfNames
+     ])
+  , ("HfGpt2 — derived GCast traversal",
+     [ testDerivedGparamsMatchesCatalogue
      ])
   , ("readGpt2Config — config.json parsing",
      [ testReadGpt2Config

@@ -21,6 +21,8 @@ import Test.Harness
 
 import Executor
 import Executor.Core
+import Nn.Derive
+import Nn.Module
 import Test.Config
 import Tensor
 import Array
@@ -248,6 +250,32 @@ testForwardShapeAndFinite = do
       else check ("forward produced 3 finite logits "
                     ++ "(sample: " ++ show vals ++ ")") True
 
+-- The derived `gparams` (backbone reuses BertModelState's derived GCast;
+-- classifier head derived here) must visit exactly the combined HF
+-- catalogue.
+testDerivedGparamsMatchesCatalogue : IO Bool
+testDerivedGparamsMatchesCatalogue = do
+  let cfg = bertTinyConfig
+  m <- hfBertForSequenceClassification {ex=TestExecutor} {dt=TestDType}
+                                       {vocab        = cfg.vocabSize}
+                                       {hidden       = cfg.hidden}
+                                       {numLayers    = cfg.numLayers}
+                                       {numHeads     = cfg.numHeads}
+                                       {intermediate = cfg.intermediate}
+                                       {maxPos       = cfg.maxPosition}
+                                       {typeVocab    = cfg.typeVocabSize}
+                                       {numClasses   = 3}
+                                       "ftbert" "ftclassifier"
+  let got      = sort (mapMaybe paramName (gparams m))
+      expected = sort (bertForSequenceClassificationParamNames cfg "ftbert" "ftclassifier")
+  case firstMismatch got expected of
+    Nothing        => check "derived gparams visits exactly the BertForSeqClassify catalogue" True
+    Just (i, g, e) => do
+      putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
+      putStrLn ("    got:      " ++ g)
+      putStrLn ("    expected: " ++ e)
+      pure False
+
 ----------------------------------------------------------------------
 -- Test suite
 ----------------------------------------------------------------------
@@ -264,6 +292,9 @@ suite =
      ])
   , ("HfBertForClassification constructor registers HF-native names",
      [ testConstructorRegistersClassifierHead
+     ])
+  , ("HfBertForClassification derived GCast traversal",
+     [ testDerivedGparamsMatchesCatalogue
      ])
   , ("HfBertForClassification forward — shape + finite",
      [ testForwardShapeAndFinite

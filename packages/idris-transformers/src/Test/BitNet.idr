@@ -25,6 +25,8 @@ import System.File
 import Checkpoint
 import Executor
 import Executor.Core
+import Nn.Derive
+import Nn.Module
 import Nn.RoPE
 import Tensor
 import Test.Common
@@ -200,6 +202,33 @@ testConstructorRegistersHfNames = do
       for_ (take 10 missing) $ \name => putStrLn ("    - " ++ name)
       pure False
 
+-- The derived `gparams` skips the frozen BitLinear params (ternary
+-- weight + dequant scale are NoGrad → the deriver's "doesn't mention g"
+-- pass-through contributes no params), so it returns exactly the *float*
+-- params: embedding + every RmsNorm. That's the registered subset minus
+-- the `_scale` entries — precisely what `eval`'s requires_grad flip
+-- needs.
+testDerivedGparamsMatchesFloatSubset : IO Bool
+testDerivedGparamsMatchesFloatSubset = do
+  m <- hfBitnetModel {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
+                     {vocab        = 8}
+                     {hidden       = 4}
+                     {numLayers    = 30}
+                     {qOut         = 8}
+                     {kvOut        = 2}
+                     {intermediate = 8}
+                     "model"
+  let got      = sort (mapMaybe paramName (gparams m))
+      expected = sort (filter (\n => not (strContains "_scale" n))
+                              expectedBitnet2B4T_RegisteredParamNames)
+  case firstMismatch got expected of
+    Nothing        => check "derived gparams = BitNet float params (norms + embedding; BitLinear skipped)" True
+    Just (i, g, e) => do
+      putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
+      putStrLn ("    got:      " ++ g)
+      putStrLn ("    expected: " ++ e)
+      pure False
+
 ----------------------------------------------------------------------
 -- Suite export
 ----------------------------------------------------------------------
@@ -305,6 +334,9 @@ suite =
      ])
   , ("HfBitNet — FFI constructor registry (float subset)",
      [ testConstructorRegistersHfNames
+     ])
+  , ("HfBitNet — derived GCast traversal",
+     [ testDerivedGparamsMatchesFloatSubset
      ])
   , ("HfBitNet — forward-pass smoke",
      [ testForwardLmSmoke

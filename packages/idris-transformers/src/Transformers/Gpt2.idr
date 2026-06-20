@@ -35,18 +35,24 @@ import Data.Linear.Notation
 import Data.Vect
 import Decidable.Equality
 
+import Language.Reflection
+import Language.Reflection.Util
+
 import Backend
 import Checkpoint
 import Compat.Random
 import Executor
 import GradMode
 import Init
+import Nn.Derive
 import Nn.Embedding
 import Nn.LayerNorm
 import Sampler
 import Tensor
 import Transformers.Common
 import Transformers.Config
+
+%language ElabReflection
 
 ----------------------------------------------------------------------
 -- Config
@@ -261,6 +267,36 @@ record Gpt2ModelState
   wpe    : Embedding maxPos hidden ex dt g
   blocks : Vect numLayers (Gpt2BlockState hidden intermediate ex dt g)
   lnF    : LayerNorm hidden hidden ex dt g
+
+----------------------------------------------------------------------
+-- Derived GCast (grad-mode retype + leaf-param traversal)
+----------------------------------------------------------------------
+
+-- Call-site-local rule wrapper around the imported pure
+-- `Nn.Derive.GCastImpl` (an imported rule passed by value to `derive`
+-- leaves a stuck elaborator script). The custom `Gpt2Conv1D` linear is a
+-- plain two-Tensor record, so it derives like any other; record GCast
+-- instances recurse through their fields' instances → derive leaf-first.
+gcast : List Name -> ParamTypeInfo -> Res (List TopLevel)
+gcast nms p = GCastImpl nms p
+
+%runElab derive `{Gpt2Conv1D}        [gcast]
+%runElab derive `{Gpt2AttentionState} [gcast]
+%runElab derive `{Gpt2MlpState}       [gcast]
+%runElab derive `{Gpt2BlockState}     [gcast]
+%runElab derive `{Gpt2ModelState}     [gcast]
+
+||| Inference-mode GPT-2: flip every param's C `requires_grad` off and
+||| retype `WithGrad -> NoGrad` (the transformer-model counterpart of
+||| `Nn.eval`, which only fits the leaf `Params` kind).
+export
+evalGpt2Model : {0 ex : Executor} -> UserExecutorTraining ex =>
+                {0 vocab, hidden, numLayers, intermediate, maxPos : Nat} -> {0 dt : DType} ->
+                Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt WithGrad ->
+                IO (Gpt2ModelState vocab hidden numLayers intermediate maxPos ex dt NoGrad)
+evalGpt2Model m = do
+  traverse_ (\p => primIO (primSetRequiresGrad {ex} p.paramPtr 0)) (gparams m)
+  pure (gcastGrad m)
 
 ----------------------------------------------------------------------
 -- Smart constructors

@@ -60,12 +60,16 @@ module Transformers.BitNet
 
 import Data.Vect
 
+import Language.Reflection
+import Language.Reflection.Util
+
 import Backend
 import Checkpoint
 import Compat.Random
 import Executor
 import GradMode
 import Init
+import Nn.Derive
 import Nn.Embedding
 import Nn.RmsNorm
 import Nn.RoPE
@@ -73,6 +77,8 @@ import Sampler
 import Tensor
 import Transformers.Common
 import Transformers.Config
+
+%language ElabReflection
 
 ----------------------------------------------------------------------
 -- Config
@@ -354,6 +360,39 @@ record BitNetModelState
   finalNorm   : RmsNorm hidden hidden ex dt g
   -- No `lmHead` field — `tie_word_embeddings=True` means the embed
   -- weight is also the LM-head projection (see `hfBitnetForwardLm`).
+
+----------------------------------------------------------------------
+-- Derived GCast (grad-mode retype + leaf-param traversal)
+----------------------------------------------------------------------
+
+-- `BitLinearHf`'s stored tensors are hardcoded `NoGrad` (the ternary
+-- weight + dequant scale are frozen), so the record's `g` is a pure
+-- phantom: the deriver's "field type doesn't mention `g`" rule passes
+-- both fields through unchanged and contributes NO params. So `gparams`
+-- on a BitNet model returns only the *float* params (embedding + the
+-- RmsNorms) — exactly the set `eval`'s requires_grad flip cares about;
+-- the frozen BitLinear tensors are correctly skipped. `gcast` is the
+-- call-site-local rule wrapper around the imported pure `GCastImpl`.
+gcast : List Name -> ParamTypeInfo -> Res (List TopLevel)
+gcast nms p = GCastImpl nms p
+
+%runElab derive `{BitLinearHf}          [gcast]
+%runElab derive `{BitNetAttentionState} [gcast]
+%runElab derive `{BitNetMlpState}       [gcast]
+%runElab derive `{BitNetBlockState}     [gcast]
+%runElab derive `{BitNetModelState}     [gcast]
+
+||| Inference-mode BitNet: flip every (float) param's C `requires_grad`
+||| off and retype `WithGrad -> NoGrad`. The BitLinear ternary weights +
+||| scales are already frozen `NoGrad`, so `gparams` skips them.
+export
+evalBitnetModel : {0 ex : Executor} -> UserExecutorTraining ex =>
+                  {0 vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat} -> {0 dt : DType} ->
+                  BitNetModelState vocab hidden numLayers qOut kvOut intermediate ex dt WithGrad ->
+                  IO (BitNetModelState vocab hidden numLayers qOut kvOut intermediate ex dt NoGrad)
+evalBitnetModel m = do
+  traverse_ (\p => primIO (primSetRequiresGrad {ex} p.paramPtr 0)) (gparams m)
+  pure (gcastGrad m)
 
 ----------------------------------------------------------------------
 -- Smart constructors

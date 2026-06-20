@@ -19,6 +19,8 @@ import System.File
 import Checkpoint
 import Executor
 import Executor.Core
+import Nn.Derive
+import Nn.Module
 import Tensor
 import Test.Common
 import Test.Config
@@ -150,6 +152,28 @@ testConstructorRegistersHfNames = do
                 ", expected: " ++ show (length expected) ++ ")")
       pure False
 
+-- The derived `gparams` must visit exactly the leaf params the HF
+-- catalogue lists (Llama has no frozen params, so it's a clean match).
+testDerivedGparamsMatchesCatalogue : IO Bool
+testDerivedGparamsMatchesCatalogue = do
+  m <- hfLlamaModel {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
+                    {vocab        = 8}
+                    {hidden       = 4}
+                    {numLayers    = 16}
+                    {qOut         = 8}
+                    {kvOut        = 2}
+                    {intermediate = 8}
+                    "model"
+  let got      = sort (mapMaybe paramName (gparams m))
+      expected = sort (hfLlamaParamNames llama32_1B_Config "model")
+  case firstMismatch got expected of
+    Nothing        => check "derived gparams visits exactly the Llama catalogue" True
+    Just (i, g, e) => do
+      putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
+      putStrLn ("    got:      " ++ g)
+      putStrLn ("    expected: " ++ e)
+      pure False
+
 ----------------------------------------------------------------------
 -- Bucket 3 — readLlamaConfig (config.json → LlamaConfig)
 ----------------------------------------------------------------------
@@ -191,6 +215,9 @@ suite =
      ])
   , ("HfLlama — FFI constructor registry",
      [ testConstructorRegistersHfNames
+     ])
+  , ("HfLlama — derived GCast traversal",
+     [ testDerivedGparamsMatchesCatalogue
      ])
   , ("readLlamaConfig — config.json parsing",
      [ testReadLlamaConfig

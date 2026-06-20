@@ -52,12 +52,16 @@ module Transformers.Llama
 
 import Data.Vect
 
+import Language.Reflection
+import Language.Reflection.Util
+
 import Backend
 import Checkpoint
 import Compat.Random
 import Executor
 import GradMode
 import Init
+import Nn.Derive
 import Nn.Embedding
 import Nn.RmsNorm
 import Nn.RoPE
@@ -66,6 +70,8 @@ import Tensor
 import Transformers.Common
 import Transformers.Config
 import Transformers.KVCache
+
+%language ElabReflection
 
 ----------------------------------------------------------------------
 -- Config
@@ -286,6 +292,33 @@ record LlamaModelState
   embedTokens : Embedding vocab hidden ex dt g
   blocks      : Vect numLayers (LlamaBlockState hidden qOut kvOut intermediate ex dt g)
   finalNorm   : RmsNorm hidden hidden ex dt g
+
+----------------------------------------------------------------------
+-- Derived GCast (grad-mode retype + leaf-param traversal)
+----------------------------------------------------------------------
+
+-- Call-site-local rule wrapper around the imported pure
+-- `Nn.Derive.GCastImpl`. `LlamaLinearNoBias` is a single-Tensor record,
+-- so it derives like any leaf; record instances recurse → leaf-first.
+gcast : List Name -> ParamTypeInfo -> Res (List TopLevel)
+gcast nms p = GCastImpl nms p
+
+%runElab derive `{LlamaLinearNoBias}  [gcast]
+%runElab derive `{LlamaAttentionState} [gcast]
+%runElab derive `{LlamaMlpState}       [gcast]
+%runElab derive `{LlamaBlockState}     [gcast]
+%runElab derive `{LlamaModelState}     [gcast]
+
+||| Inference-mode Llama: flip every param's C `requires_grad` off and
+||| retype `WithGrad -> NoGrad`.
+export
+evalLlamaModel : {0 ex : Executor} -> UserExecutorTraining ex =>
+                 {0 vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat} -> {0 dt : DType} ->
+                 LlamaModelState vocab hidden numLayers qOut kvOut intermediate ex dt WithGrad ->
+                 IO (LlamaModelState vocab hidden numLayers qOut kvOut intermediate ex dt NoGrad)
+evalLlamaModel m = do
+  traverse_ (\p => primIO (primSetRequiresGrad {ex} p.paramPtr 0)) (gparams m)
+  pure (gcastGrad m)
 
 ----------------------------------------------------------------------
 -- Smart constructors
