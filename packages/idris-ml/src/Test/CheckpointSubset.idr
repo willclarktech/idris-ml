@@ -21,6 +21,7 @@ import Test.Harness
 import Test.Config
 
 import Executor
+import Optimizer
 import Tensor
 import Checkpoint
 import Train.Freeze
@@ -61,7 +62,7 @@ subsetLoadTest = do
 
 freezeGroupSmokeTest : IO Bool
 freezeGroupSmokeTest = do
-  let opt = nativeSgd {ex=TestExecutor} 0.1
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
   -- These params get registered by subsetLoadTest; if the test is run
   -- standalone we register them here too. Re-registration is a no-op
   -- on existing names.

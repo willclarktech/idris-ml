@@ -16,6 +16,7 @@ import Test.Harness
 import Test.Config
 
 import Executor
+import Optimizer
 import Tensor
 import Checkpoint
 import Train.Freeze
@@ -107,7 +108,7 @@ emptyMatchFailsTest = do
 
 freezeGroupBySuffixSmokeTest : IO Bool
 freezeGroupBySuffixSmokeTest = do
-  let opt = nativeSgd {ex=TestExecutor} 0.1
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.freeze.x.lora_A" 0.0
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.freeze.x.lora_B" 0.0
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.freeze.x.weight" 0.0

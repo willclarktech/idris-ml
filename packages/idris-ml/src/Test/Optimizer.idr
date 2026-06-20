@@ -12,10 +12,12 @@ import Test.Config
 import Test.Harness
 import Train.Freeze
 
--- Trajectory equivalence: the new `sgd` / `rmsprop` constructors wrap
--- the SAME C prims as `nativeSgd` / `nativeRmsprop`, so driving the
--- same scalar param through the same loss must produce bitwise-
--- identical weight trajectories (exact ==, no tolerance).
+-- Pinned trajectory tests: driving a scalar param through loss = w*w
+-- with each typed constructor (`sgd`/`rmsprop`/`adam`/`adamW`) must
+-- reproduce a fixed weight trajectory (exact ==, no tolerance). The
+-- literals were captured from the tape backend (deterministic at a
+-- fixed seed, single-thread BLAS) and guard against a wrong knob being
+-- threaded into the underlying C prim.
 --
 -- Each run uses its own param + its own freshly-constructed optimizer;
 -- the optimizers step the whole registry, but a param outside the
@@ -45,41 +47,37 @@ trajectory opt w (S k) = do
   rest <- trajectory opt w k
   pure (v :: rest)
 
-sgdMatchesNative : IO Bool
-sgdMatchesNative = do
-  wOld <- mkW "opt_sgd_old" 1.0
-  let optOld = nativeSgd {ex=TestExecutor} 0.1
-  trajOld <- trajectory optOld wOld 3
-  wNew <- mkW "opt_sgd_new" 1.0
-  optNew <- sgd {ex=TestExecutor} 0.1 defaultOpts
-  trajNew <- trajectory optNew wNew 3
-  check ("sgd == nativeSgd over 3 steps (" ++ show trajNew
-         ++ " vs " ++ show trajOld ++ ")") (trajNew == trajOld)
+sgdStepsQuadratic : IO Bool
+sgdStepsQuadratic = do
+  w <- mkW "opt_sgd_w" 1.0
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
+  traj <- trajectory opt w 3
+  check ("sgd steps quadratic (" ++ show traj ++ ")")
+        (traj == [0.8, 0.64, 0.512])
 
-rmspropMatchesNative : IO Bool
-rmspropMatchesNative = do
-  wOld <- mkW "opt_rms_old" 1.0
-  let optOld = nativeRmsprop {ex=TestExecutor} 0.01 0.9 1.0e-7 0.75 0.5
-  trajOld <- trajectory optOld wOld 3
-  wNew <- mkW "opt_rms_new" 1.0
-  optNew <- rmsprop {ex=TestExecutor} 0.01 {alpha=0.9} {momentum=0.5}
-              ({ eps := 1.0e-7, clip := ValueClip 0.75 } defaultOpts)
-  trajNew <- trajectory optNew wNew 3
-  check ("rmsprop == nativeRmsprop over 3 steps (" ++ show trajNew
-         ++ " vs " ++ show trajOld ++ ")") (trajNew == trajOld)
+rmspropStepsQuadratic : IO Bool
+rmspropStepsQuadratic = do
+  w <- mkW "opt_rms_w" 1.0
+  opt <- rmsprop {ex=TestExecutor} 0.01 {alpha=0.9} {momentum=0.5}
+           ({ eps := 1.0e-7, clip := ValueClip 0.75 } defaultOpts)
+  traj <- trajectory opt w 3
+  check ("rmsprop steps quadratic (" ++ show traj ++ ")")
+        (traj == [0.9683772367316439, 0.9296242887279513, 0.8910383508862706])
 
 -- PyTorch-default knobs: rmsprop's implicit alpha/momentum must equal
--- torch.optim.RMSprop's (alpha=0.99, momentum=0).
+-- torch.optim.RMSprop's (alpha=0.99, momentum=0). Proven by trajectory
+-- equality between the implicit-default construction and the explicit one
+-- — no native reference needed.
 rmspropDefaultsMatchPyTorch : IO Bool
 rmspropDefaultsMatchPyTorch = do
-  wOld <- mkW "opt_rmsd_old" 1.0
-  let optOld = nativeRmsprop {ex=TestExecutor} 0.01 0.99 1.0e-8 0.5 0.0
-  trajOld <- trajectory optOld wOld 3
-  wNew <- mkW "opt_rmsd_new" 1.0
-  optNew <- rmsprop {ex=TestExecutor} 0.01 ({ clip := ValueClip 0.5 } defaultOpts)
-  trajNew <- trajectory optNew wNew 3
-  check ("rmsprop implicit defaults = PyTorch's (" ++ show trajNew
-         ++ " vs " ++ show trajOld ++ ")") (trajNew == trajOld)
+  wImp <- mkW "opt_rmsd_imp" 1.0
+  optImp <- rmsprop {ex=TestExecutor} 0.01 defaultOpts
+  trajImp <- trajectory optImp wImp 3
+  wExp <- mkW "opt_rmsd_exp" 1.0
+  optExp <- rmsprop {ex=TestExecutor} 0.01 {alpha=0.99} {momentum=0.0} defaultOpts
+  trajExp <- trajectory optExp wExp 3
+  check ("rmsprop implicit defaults = PyTorch's alpha=0.99 momentum=0 ("
+         ++ show trajImp ++ " vs " ++ show trajExp ++ ")") (trajImp == trajExp)
 
 -- One step of loss = c * w * w; the varying scale makes the grad
 -- magnitude jump between steps, so the beta1/beta2 moment EMAs lag
@@ -97,72 +95,23 @@ scaledTrajectory : NativeOptimizer TestExecutor ->
                    Tensor [] TestExecutor TestDType WithGrad -> IO (List Double)
 scaledTrajectory opt w = traverse (stepScaled opt w) [1.0, 5.0, 0.5]
 
-adamMatchesNative : IO Bool
-adamMatchesNative = do
-  wOld <- mkW "opt_adam_old" 1.0
-  let optOld = nativeAdamGlobalClip {ex=TestExecutor} 0.01 0.8 0.95 1.0e-6 100.0
-  trajOld <- scaledTrajectory optOld wOld
-  wNew <- mkW "opt_adam_new" 1.0
-  optNew <- adam {ex=TestExecutor} 0.01
-              ({ beta1 := 0.8, beta2 := 0.95, eps := 1.0e-6,
-                 clip := NormClip 100.0 } defaultOpts)
-  trajNew <- scaledTrajectory optNew wNew
-  check ("adam == nativeAdamGlobalClip over 3 scaled steps (" ++ show trajNew
-         ++ " vs " ++ show trajOld ++ ")") (trajNew == trajOld)
+adamStepsScaled : IO Bool
+adamStepsScaled = do
+  w <- mkW "opt_adam_w" 1.0
+  opt <- adam {ex=TestExecutor} 0.01
+           ({ beta1 := 0.8, beta2 := 0.95, eps := 1.0e-6,
+              clip := NormClip 100.0 } defaultOpts)
+  traj <- scaledTrajectory opt w
+  check ("adam steps scaled quadratic (" ++ show traj ++ ")")
+        (traj == [0.9900000049999975, 0.9811580691053646, 0.974027692742881])
 
-adamWMatchesNative : IO Bool
-adamWMatchesNative = do
-  wOld <- mkW "opt_adamw_old" 1.0
-  let optOld = nativeAdamW {ex=TestExecutor} 0.01 0.9 0.999 1.0e-8 0.1 1.0
-  trajOld <- trajectory optOld wOld 3
-  wNew <- mkW "opt_adamw_new" 1.0
-  optNew <- adamW {ex=TestExecutor} 0.01 0.1 ({ clip := NormClip 1.0 } defaultOpts)
-  trajNew <- trajectory optNew wNew 3
-  check ("adamW == nativeAdamW over 3 steps (" ++ show trajNew
-         ++ " vs " ++ show trajOld ++ ")") (trajNew == trajOld)
-
--- One step of loss = w*w + b*b; returns both post-step values.
-stepPair : NativeOptimizer TestExecutor ->
-           Tensor [] TestExecutor TestDType WithGrad ->
-           Tensor [] TestExecutor TestDType WithGrad -> IO (Double, Double)
-stepPair opt w b = do
-  l1 <- tmul w w
-  l2 <- tmul b b
-  loss <- tadd l1 l2
-  _ <- trainStep opt loss
-  pure (tensorItem w, tensorItem b)
-
--- Typed ownership via restrictTo: a plain adam scoped to an exact name set
--- (LR 0 on the complement) steps only the owned param — bitwise-equal to
--- nativeAdamGroup's prefix-skip for the owned param, with the bystander frozen
--- (it carries a nonzero grad but LR 0 → no update). restrictTo is the typed
--- replacement for the removed `adam {scope=...}` constructor string.
---
--- No grad clipping here, deliberately: restrictTo leaves the non-owned params
--- in the optimizer's set (LR 0), so a *global* NormClip aggregates their grads
--- into the norm, whereas nativeAdamGroup's prefix-skip excludes them — the two
--- diverge once a non-owned param carries grad (as the bystander does in this
--- shared loss). That divergence is benign in the real multi-net pattern (each
--- net's loss is local, so non-owned grads are exactly 0 and the norms coincide)
--- but it is not bitwise, so the equivalence oracle runs clip-free. Adam updates
--- each param independently, so without clipping the owned trajectory matches.
-adamRestrictToOwnership : IO Bool
-adamRestrictToOwnership = do
-  wOld <- mkW "opt_og_w" 1.0
-  bOld <- mkW "opt_ob_w" 1.0
-  let optOld = nativeAdamGroup {ex=TestExecutor} "opt_og_" 0.01 0.9 0.999 1.0e-8 1.0e9
-  (wo1, bo1) <- stepPair optOld wOld bOld
-  (wo2, _)   <- stepPair optOld wOld bOld
-  wNew <- mkW "opt_ng_w" 1.0
-  bNew <- mkW "opt_nb_w" 1.0
-  optNew <- adam {ex=TestExecutor} 0.01 defaultOpts
-  restrictTo {ex=TestExecutor} optNew !(namesMatching {ex=TestExecutor} (isPrefixOf "opt_ng_"))
-  (wn1, bn1) <- stepPair optNew wNew bNew
-  (wn2, bn2) <- stepPair optNew wNew bNew
-  check ("adam restrictTo: matches nativeAdamGroup ([" ++ show wn1 ++ ", " ++ show wn2
-         ++ "] vs [" ++ show wo1 ++ ", " ++ show wo2
-         ++ "]), bystander frozen (" ++ show bn2 ++ ")")
-        (wn1 == wo1 && wn2 == wo2 && bo1 == 1.0 && bn1 == 1.0 && bn2 == 1.0)
+adamWStepsQuadratic : IO Bool
+adamWStepsQuadratic = do
+  w <- mkW "opt_adamw_w" 1.0
+  opt <- adamW {ex=TestExecutor} 0.01 0.1 ({ clip := NormClip 1.0 } defaultOpts)
+  traj <- trajectory opt w 3
+  check ("adamW steps quadratic (" ++ show traj ++ ")")
+        (traj == [0.9890100001116916, 0.9780315770610051, 0.9670651316195747])
 
 -- restrictTo scopes to an EXACT name set: the leak-free guarantee a string
 -- prefix can't give. "rt_keep" is owned (steps at base LR 0.5 → 1 - 0.5*2 = 0),
@@ -249,8 +198,8 @@ setGroupLROverrides = do
 
 export
 tests : List (IO Bool)
-tests = [ sgdMatchesNative, rmspropMatchesNative, rmspropDefaultsMatchPyTorch
-        , adamMatchesNative, adamWMatchesNative, adamRestrictToOwnership
+tests = [ sgdStepsQuadratic, rmspropStepsQuadratic, rmspropDefaultsMatchPyTorch
+        , adamStepsScaled, adamWStepsQuadratic
         , restrictToExactComplement
         , scheduleFreezesAtZero, tickAppliesScheduleEpoch
         , tickWithoutScheduleIsNoOp, setGroupLROverrides ]

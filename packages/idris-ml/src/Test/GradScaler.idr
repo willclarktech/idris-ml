@@ -4,6 +4,7 @@ import Data.Vect
 
 import Executor
 import GradScaler
+import Optimizer
 import Tensor
 import Test.Config
 import Test.Harness
@@ -46,7 +47,7 @@ initialScaleIsExact = do
 scaleGrowsAfterOneSuccessfulStep : IO Bool
 scaleGrowsAfterOneSuccessfulStep = do
   gs <- gradScaler {ex=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 1
-  opt <- pure $ nativeSgd {ex=TestExecutor} 0.001
+  opt <- sgd {ex=TestExecutor} 0.001 defaultOpts
   _ <- runOneStep opt gs
   s <- currentScale gs
   check ("scale grew 100 → 200 after one step (got " ++ show s ++ ")") (s == 200.0)
@@ -57,7 +58,7 @@ scaleGrowsAfterOneSuccessfulStep = do
 scaleStaysBeforeIntervalReached : IO Bool
 scaleStaysBeforeIntervalReached = do
   gs <- gradScaler {ex=TestExecutor} {dt=TestDType} 100.0 2.0 0.5 5
-  opt <- pure $ nativeSgd {ex=TestExecutor} 0.001
+  opt <- sgd {ex=TestExecutor} 0.001 defaultOpts
   _ <- runOneStep opt gs
   s <- currentScale gs
   check ("scale stays at 100 before growth interval (got " ++ show s ++ ")") (s == 100.0)

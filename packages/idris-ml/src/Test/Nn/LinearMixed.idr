@@ -88,7 +88,7 @@ masterGradFlows = do
     let diff = primSub {ex=TestExecutor} out.tensorPtr tgt.tensorPtr
         sq   = primMul {ex=TestExecutor} diff diff
     in MkTensor (primSum {ex=TestExecutor} sq) Nothing)
-  let opt = nativeSgd {ex=TestExecutor} 0.1
+  opt <- sgd {ex=TestExecutor} 0.1 defaultOpts
   _ <- trainStep opt loss
   let after = primItem2d {ex=TestExecutor} w.tensorPtr 0 0
   check ("masterGradFlows: w[0,0] moves after a step (" ++ show before ++ " -> " ++ show after ++ ")")
