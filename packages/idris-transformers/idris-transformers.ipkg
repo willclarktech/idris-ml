@@ -3,6 +3,7 @@ package idris-transformers
 sourcedir = "src"
 
 depends = contrib
+        , elab-util
         , idris-ml
 
 modules = Transformers.Bert

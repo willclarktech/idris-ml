@@ -24,6 +24,8 @@ import Array
 import Checkpoint
 import Executor
 import Executor.Core
+import Nn.Derive
+import Nn.Module
 import Tensor
 import Test.Config
 
@@ -329,6 +331,37 @@ testReadBertConfigMissing = do
     Right _              => do putStrLn "  FAIL: expected ConfigError, got Right"; pure False
 
 ----------------------------------------------------------------------
+-- Bucket — derived GCast traversal (equivalence oracle)
+----------------------------------------------------------------------
+
+-- The derived `gparams` (from `%runElab derive` on the BERT records)
+-- must visit exactly the leaf params the independently-defined HF
+-- catalogue lists — proving the generated field-wise cascade is
+-- equivalent to the (now-deleted) hand-written one. `gparams` reads the
+-- model's own handles, so this is robust to the shared C registry.
+testDerivedGparamsMatchesCatalogue : IO Bool
+testDerivedGparamsMatchesCatalogue = do
+  let cfg = bertTinyConfig
+  m <- hfBertForMaskedLm {ex = TestExecutor} {dt = TestDType} {g = WithGrad}
+                         {vocab        = cfg.vocabSize}
+                         {hidden       = cfg.hidden}
+                         {numLayers    = cfg.numLayers}
+                         {numHeads     = cfg.numHeads}
+                         {intermediate = cfg.intermediate}
+                         {maxPos       = cfg.maxPosition}
+                         {typeVocab    = cfg.typeVocabSize}
+                         "bert"
+  let got      = sort (mapMaybe paramName (gparams m))
+      expected = sort (bertForMaskedLmParamNames cfg "bert" "cls")
+  case firstMismatch got expected of
+    Nothing        => check "derived gparams visits exactly the BERT MLM catalogue" True
+    Just (i, g, e) => do
+      putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
+      putStrLn ("    got:      " ++ g)
+      putStrLn ("    expected: " ++ e)
+      pure False
+
+----------------------------------------------------------------------
 -- Test suite
 ----------------------------------------------------------------------
 
@@ -350,6 +383,9 @@ suite =
      [ testMlmParamCount
      , testMlmParamNamesMatchHfReference
      , testMaskedLmCombinedCatalogue
+     ])
+  , ("HfBert derived GCast traversal",
+     [ testDerivedGparamsMatchesCatalogue
      ])
   , ("readBertConfig — config.json parsing",
      [ testReadBertConfig
