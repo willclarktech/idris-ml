@@ -49,6 +49,7 @@
         [
           clang-tools
           cppcheck
+          gnumake # CI runs `nix develop .#lint --command make lint-c …`
         ]
         ++ lib.optionals stdenv.isLinux [ openblas ];
     in
