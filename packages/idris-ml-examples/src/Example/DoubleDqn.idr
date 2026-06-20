@@ -135,8 +135,8 @@ computeTargetValL online target gamma t = do
     the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor t.nextObs]) Nothing)))
   (MkBang qTg # target') <- forwardSeq {b=1} target evalV
   let q0 = primItem2d {ex=Ex} qTg.tensorPtr 0 0
-      q1 = primItem2d {ex=Ex} qTg.tensorPtr 0 1
-      nextQ = if aStar == 0 then q0 else q1
+      q1        = primItem2d {ex=Ex} qTg.tensorPtr 0 1
+      nextQ     = if aStar == 0 then q0 else q1
       bootstrap = if t.done then 0.0 else gamma * nextQ
   pure1 (MkBang (t.reward + bootstrap) # (online' # target'))
 
