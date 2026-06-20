@@ -339,7 +339,7 @@ main = do
                                  else do putStrLn $ "ERROR: failed to load backbone from " ++ ckptPath
                                                  ++ " — run `make data-hf-bert-tiny`."
                                          exitFailure
-                           let o = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
+                           o <- adamW {ex=ExampleExecutor} cfg.lr 0.01 ({ clip := NormClip 1.0 } defaultOpts)
                            when cfg.freezeBackbone $ do
                              putStrLn "Freezing `bert.*` — head-only training."
                              freezeGroup {ex=ExampleExecutor} o

@@ -401,7 +401,7 @@ main = do
            ++ " heads=" ++ show NumHeads ++ " headDim=" ++ show HeadDim
            ++ " blocks=" ++ show NumBlocks ++ " vocab=" ++ show VocabSize
 
-  -- Adam with global grad-clip norm 1.0 (was nativeAdamGlobalClip).
+  -- Adam with global grad-clip norm 1.0.
   opt <- adam {ex=ExampleExecutor} cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
   putStrLn ""
 

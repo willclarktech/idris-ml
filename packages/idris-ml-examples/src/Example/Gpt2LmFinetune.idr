@@ -285,7 +285,7 @@ main = do
                     if ok then putStrLn "distilgpt2 backbone warm-started."
                           else do putStrLn $ "ERROR: failed to load distilgpt2 from " ++ ckptPath
                                   exitFailure)
-        let opt = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
+        opt <- liftIO1 (adamW {ex=ExampleExecutor} cfg.lr 0.01 ({ clip := NormClip 1.0 } defaultOpts))
         let trainLoopL : Nat -> Nat -> Double -> Double -> (1 _ : Model) ->
                          L IO {use = 1} (LPair (!* Double) Model)
             trainLoopL _    Z     _       lastLoss model = pure1 (MkBang lastLoss # model)

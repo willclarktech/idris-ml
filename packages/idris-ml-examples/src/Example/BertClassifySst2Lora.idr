@@ -358,7 +358,7 @@ main = do
         opt <- liftIO1 (do putStrLn $ "LoRA adapters injected (rank=" ++ show LoraR
                                     ++ ", alpha=" ++ show cfg.loraAlpha
                                     ++ ", target_modules=[\"query\",\"value\"])"
-                           let o = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
+                           o <- adamW {ex=ExampleExecutor} cfg.lr 0.01 ({ clip := NormClip 1.0 } defaultOpts)
                            -- Canonical LoRA freeze: freeze `bert.` then unfreeze
                            -- the adapter suffixes; classifier.* stays trainable.
                            freezeGroup   {ex=ExampleExecutor} o
