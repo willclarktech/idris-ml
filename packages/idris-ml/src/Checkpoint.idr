@@ -95,15 +95,33 @@ decodeLoadError n    = LoadFailed n
 ||| `only = Just pfx` loads only the safetensors keys whose name
 ||| starts with `pfx`, leaving every other in-memory param untouched
 ||| (warm-start: backbone under "bert.", fresh head elsewhere).
+|||
+||| `remap = Just f` translates registry names to on-disk keys at load
+||| time: each registered param `nm` reads from the file key `f nm`
+||| (`f nm = Nothing` skips that param). The symmetric inverse of
+||| `saveModelMatchingRenamed`'s transform — use it to read a
+||| foreign-named checkpoint (e.g. a peft adapter whose JSON keys are
+||| `base_model.model.[...].lora_A.default.weight`) into registry params
+||| under idris-ml names, without registering params under the foreign
+||| names first. When set it takes precedence over `only` (the
+||| transform is the filter). Params whose `f nm` key is absent from
+||| the file are skipped, not errored.
 public export
 record LoadOpts where
   constructor MkLoadOpts
   allowCast : Bool
   only      : Maybe String
+  remap     : Maybe (String -> Maybe String)
 
 public export
 defaultLoadOpts : LoadOpts
-defaultLoadOpts = MkLoadOpts False Nothing
+defaultLoadOpts = MkLoadOpts False Nothing Nothing
+
+-- Forward declaration — `collectRenamedNames` is defined in the
+-- filtered-save section below; `load`'s remap path reuses the same
+-- registry walker, so its type needs to be in scope here.
+collectRenamedNames : UserExecutorTraining ex =>
+  (transform : String -> Maybe String) -> IO (String, String, Int)
 
 ||| Load parameters from a .safetensors file into the existing
 ||| registry, by name. The load mutates the C-side parameter buffers
@@ -117,9 +135,18 @@ load : UserExecutorTraining ex =>
 load path opts = do
   let castFlag : Int
       castFlag = if opts.allowCast then 1 else 0
-  rc <- case opts.only of
-          Nothing  => primIO (primParamLoadWithPolicy {ex} path castFlag)
-          Just pfx => primIO (primParamLoadWithPrefix {ex} path castFlag pfx)
+  rc <- case opts.remap of
+          Just f  => do
+            -- Walk the registry, building (registryName, onDiskKey) pairs
+            -- via the same collector the renamed-save side uses. Zero
+            -- matches = nothing to load (not an error, unlike save).
+            (regNames, diskNames, count) <- collectRenamedNames {ex} f
+            if count == 0
+              then pure 0
+              else primIO (primParamLoadRenamed {ex} path castFlag regNames diskNames count)
+          Nothing => case opts.only of
+            Nothing  => primIO (primParamLoadWithPolicy {ex} path castFlag)
+            Just pfx => primIO (primParamLoadWithPrefix {ex} path castFlag pfx)
   pure (if rc == 0 then Right () else Left (decodeLoadError rc))
 
 ||| Strict-dtype load as a bare Bool (wrapper over `load`).
@@ -222,9 +249,8 @@ saveModelSuffixes path sfxs =
 
 -- Walk the registry collecting matching name pairs (registryName, ondiskName).
 -- The transform takes a registry name and returns `Just on_disk_name` to
--- include (with rename) or `Nothing` to skip.
-collectRenamedNames : UserExecutorTraining ex =>
-  (transform : String -> Maybe String) -> IO (String, String, Int)
+-- include (with rename) or `Nothing` to skip. (Type forward-declared above
+-- the `load` definition so the remap path can reuse it.)
 collectRenamedNames transform = do
   n <- getParamCount {ex}
   go n 0 [] []

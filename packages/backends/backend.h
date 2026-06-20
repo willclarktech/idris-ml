@@ -729,6 +729,17 @@ int param_load_with_policy(const char* path, int allow_cast);
    cleanly, nonzero if any entry was skipped on its merits. */
 int param_load_with_prefix(const char* path, int allow_cast, const char* prefix);
 
+/* Renamed loader — symmetric inverse of param_save_by_name_renamed. For
+   each (registry_name, ondisk_name) pair (both newline-joined, count
+   long, in lockstep), load the tensor stored on disk under ondisk_name
+   into the registry param registry_name. A pair whose ondisk_name is
+   absent from the file is skipped (warm-start semantics). Used by
+   Idris-side Checkpoint.load with a `remap` set (e.g. peft adapter
+   keys -> idris-ml registry names). allow_cast / return codes match
+   param_load_with_prefix. */
+int param_load_renamed(const char* path, int allow_cast, const char* registry_names_nl,
+                       const char* ondisk_names_nl, int count);
+
 /* Overwrite param tensor data in-place from a double buffer (per-backend). */
 void param_load_data(int idx, const double* data, int numel);
 

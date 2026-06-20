@@ -556,6 +556,15 @@ interface UserExecutorOptimizer ex => UserExecutorSerialize (0 ex : Executor) wh
   ||| `allowCast` semantics as `primParamLoadWithPolicy`; empty prefix
   ||| matches every key (degrades to `primParamLoadWithPolicy`).
   primParamLoadWithPrefix : String -> Int -> String -> PrimIO Int
+  ||| Renamed load — symmetric inverse of `primParamSaveByNameRenamed`.
+  ||| `registryNamesNl` identifies which registry params to fill;
+  ||| `ondiskNamesNl` is the on-disk JSON key each one reads from (both
+  ||| newline-joined, `count` long, in lockstep). A pair whose on-disk
+  ||| key is absent from the file is skipped (warm-start semantics).
+  ||| Used by the peft adapter load path to read keys like
+  ||| `base_model.model.bert.[...].lora_A.default.weight` into registry
+  ||| params named `bert.[...].lora_A` — see `Checkpoint.load`'s `remap`.
+  primParamLoadRenamed : String -> Int -> String -> String -> Int -> PrimIO Int
   ||| Save optimizer state buffers to a file.
   primOptimizerSave       : AnyPtr -> String -> PrimIO Int
   ||| Load optimizer state buffers from a file.

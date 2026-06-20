@@ -478,6 +478,147 @@ int param_save_by_name_renamed(const char* path, const char* lookup_names_nl,
    Load
    ================================================================ */
 
+/* Load one file `entry`'s tensor data into registry param `pidx`.
+   `name` is the on-disk key (used only for diagnostics). Returns 1 if
+   the tensor was loaded, 0 if it was skipped or errored; first-error
+   wins via *rc (set-if-zero), so callers accumulate `loaded += ...`
+   and the loop continues past a bad entry. Shared by the by-key loop
+   (`param_load_core`) and the renamed by-pair loop
+   (`param_load_renamed`). */
+static int load_entry_into(FILE* f, cJSON* entry, long data_start, int pidx, int allow_cast,
+                           const char* name, int* rc) {
+	/* Read dtype tag — driver for the rest of the load. */
+	cJSON* dtype_node = cJSON_GetObjectItem(entry, "dtype");
+	const char* src_dtype =
+	    (dtype_node && cJSON_IsString(dtype_node)) ? dtype_node->valuestring : "F64";
+	size_t src_width = dtype_byte_width(src_dtype);
+	if (src_width == 0) {
+		fprintf(stderr, "param_load: unsupported on-disk dtype '%s' for '%s'\n", src_dtype, name);
+		if (*rc == 0) *rc = -5;
+		return 0;
+	}
+
+	TensorHandle t = param_tensor(pidx);
+	const char* dst_dtype = tensor_dtype_name(t);
+	int dtypes_match = strcmp(src_dtype, dst_dtype) == 0;
+	if (!dtypes_match && !allow_cast) {
+		fprintf(stderr,
+		        "param_load: dtype mismatch for '%s' — on disk %s, destination %s. "
+		        "Pass allow_cast=1 to convert at load time.\n",
+		        name, src_dtype, dst_dtype);
+		if (*rc == 0) *rc = -3;
+		return 0;
+	}
+
+	/* Read data_offsets */
+	cJSON* offsets = cJSON_GetObjectItem(entry, "data_offsets");
+	if (!offsets || cJSON_GetArraySize(offsets) != 2) {
+		fprintf(stderr, "param_load: bad data_offsets for '%s'\n", name);
+		if (*rc == 0) *rc = -2;
+		return 0;
+	}
+	size_t start = (size_t)cJSON_GetArrayItem(offsets, 0)->valuedouble;
+	size_t end = (size_t)cJSON_GetArrayItem(offsets, 1)->valuedouble;
+	size_t byte_len = end - start;
+	int numel = (int)(byte_len / src_width);
+
+	/* Validate element count */
+	int expected_numel = tensor_numel(t);
+	if (numel != expected_numel) {
+		fprintf(stderr, "param_load: size mismatch for '%s': file has %d, registry has %d\n", name,
+		        numel, expected_numel);
+		if (*rc == 0) *rc = -4;
+		return 0;
+	}
+
+	/* Read raw bytes, then convert to doubles (the lingua franca of
+	   param_load_data — destination dtype conversion happens C-side). */
+	void* raw_buf = malloc(byte_len);
+	if (!raw_buf) {
+		if (*rc == 0) *rc = -6;
+		return 0;
+	}
+	fseek(f, data_start + (long)start, SEEK_SET);
+	if (fread(raw_buf, 1, byte_len, f) != byte_len) {
+		fprintf(stderr, "param_load: failed to read data for '%s'\n", name);
+		free(raw_buf);
+		if (*rc == 0) *rc = -6;
+		return 0;
+	}
+
+	/* Byte-exact I64 path — bypasses the double pivot so the
+	   bits read off disk reach the destination tensor without
+	   rounding. Only valid when src==dst==I64; an allow_cast=1
+	   load that narrows I64 → some other dtype still goes
+	   through the double lingua franca below (the destination
+	   dtype can't preserve >2^53 anyway). */
+	if (dtypes_match && strcmp(src_dtype, "I64") == 0) {
+		param_load_data_int64(pidx, (const int64_t*)raw_buf, numel);
+		free(raw_buf);
+		return 1;
+	}
+
+	double* dbuf;
+	int owns_dbuf = 0;
+	if (strcmp(src_dtype, "F64") == 0) { /* already lingua franca */
+		dbuf = (double*)raw_buf;
+	} else {
+		dbuf = (double*)malloc((size_t)numel * sizeof(double));
+		if (!dbuf) {
+			free(raw_buf);
+			if (*rc == 0) *rc = -6;
+			return 0;
+		}
+		owns_dbuf = 1;
+		if (strcmp(src_dtype, "F32") == 0) {
+			const float* s = (const float*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = (double)s[i];
+		} else if (strcmp(src_dtype, "BF16") == 0) {
+			const uint16_t* s = (const uint16_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = bf16_bits_to_double(s[i]);
+		} else if (strcmp(src_dtype, "F16") == 0) {
+			const uint16_t* s = (const uint16_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = f16_bits_to_double(s[i]);
+		} else if (strcmp(src_dtype, "I8") == 0) {
+			const int8_t* s = (const int8_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = (double)s[i];
+		} else if (strcmp(src_dtype, "I16") == 0) {
+			const int16_t* s = (const int16_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = (double)s[i];
+		} else if (strcmp(src_dtype, "I32") == 0) {
+			const int32_t* s = (const int32_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = (double)s[i];
+		} else if (strcmp(src_dtype, "I64") == 0) {
+			const int64_t* s = (const int64_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = (double)s[i];
+		} else if (strcmp(src_dtype, "U8") == 0) {
+			const uint8_t* s = (const uint8_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = (double)s[i];
+		} else { /* BOOL */
+			const uint8_t* s = (const uint8_t*)raw_buf;
+			for (int i = 0; i < numel; i++)
+				dbuf[i] = (s[i] != 0) ? 1.0 : 0.0;
+		}
+	}
+
+	param_load_data(pidx, dbuf, numel);
+	if (owns_dbuf) {
+		free(raw_buf);
+		free(dbuf);
+	} else {
+		free(raw_buf);
+	}
+	return 1;
+}
+
 /* Core loader. `prefix == NULL` loads every key (legacy behaviour);
    `prefix != NULL` loads only safetensors keys whose name starts with
    `prefix` (used by Idris-side `loadModelPrefix` to warm-start a
@@ -565,138 +706,7 @@ static int param_load_core(const char* path, int allow_cast, const char* prefix)
 			continue;
 		}
 
-		/* Read dtype tag — driver for the rest of the load. */
-		cJSON* dtype_node = cJSON_GetObjectItem(entry, "dtype");
-		const char* src_dtype =
-		    (dtype_node && cJSON_IsString(dtype_node)) ? dtype_node->valuestring : "F64";
-		size_t src_width = dtype_byte_width(src_dtype);
-		if (src_width == 0) {
-			fprintf(stderr, "param_load: unsupported on-disk dtype '%s' for '%s'\n", src_dtype,
-			        name);
-			if (rc == 0) rc = -5;
-			continue;
-		}
-
-		TensorHandle t = param_tensor(pidx);
-		const char* dst_dtype = tensor_dtype_name(t);
-		int dtypes_match = strcmp(src_dtype, dst_dtype) == 0;
-		if (!dtypes_match && !allow_cast) {
-			fprintf(stderr,
-			        "param_load: dtype mismatch for '%s' — on disk %s, destination %s. "
-			        "Pass allow_cast=1 to convert at load time.\n",
-			        name, src_dtype, dst_dtype);
-			if (rc == 0) rc = -3;
-			continue;
-		}
-
-		/* Read data_offsets */
-		cJSON* offsets = cJSON_GetObjectItem(entry, "data_offsets");
-		if (!offsets || cJSON_GetArraySize(offsets) != 2) {
-			fprintf(stderr, "param_load: bad data_offsets for '%s'\n", name);
-			if (rc == 0) rc = -2;
-			continue;
-		}
-		size_t start = (size_t)cJSON_GetArrayItem(offsets, 0)->valuedouble;
-		size_t end = (size_t)cJSON_GetArrayItem(offsets, 1)->valuedouble;
-		size_t byte_len = end - start;
-		int numel = (int)(byte_len / src_width);
-
-		/* Validate element count */
-		int expected_numel = tensor_numel(t);
-		if (numel != expected_numel) {
-			fprintf(stderr, "param_load: size mismatch for '%s': file has %d, registry has %d\n",
-			        name, numel, expected_numel);
-			if (rc == 0) rc = -4;
-			continue;
-		}
-
-		/* Read raw bytes, then convert to doubles (the lingua franca of
-		   param_load_data — destination dtype conversion happens C-side). */
-		void* raw_buf = malloc(byte_len);
-		if (!raw_buf) {
-			if (rc == 0) rc = -6;
-			continue;
-		}
-		fseek(f, data_start + (long)start, SEEK_SET);
-		if (fread(raw_buf, 1, byte_len, f) != byte_len) {
-			fprintf(stderr, "param_load: failed to read data for '%s'\n", name);
-			free(raw_buf);
-			if (rc == 0) rc = -6;
-			continue;
-		}
-
-		/* Byte-exact I64 path — bypasses the double pivot so the
-		   bits read off disk reach the destination tensor without
-		   rounding. Only valid when src==dst==I64; an allow_cast=1
-		   load that narrows I64 → some other dtype still goes
-		   through the double lingua franca below (the destination
-		   dtype can't preserve >2^53 anyway). */
-		if (dtypes_match && strcmp(src_dtype, "I64") == 0) {
-			param_load_data_int64(pidx, (const int64_t*)raw_buf, numel);
-			free(raw_buf);
-			loaded++;
-			continue;
-		}
-
-		double* dbuf;
-		int owns_dbuf = 0;
-		if (strcmp(src_dtype, "F64") == 0) { /* already lingua franca */
-			dbuf = (double*)raw_buf;
-		} else {
-			dbuf = (double*)malloc((size_t)numel * sizeof(double));
-			if (!dbuf) {
-				free(raw_buf);
-				if (rc == 0) rc = -6;
-				continue;
-			}
-			owns_dbuf = 1;
-			if (strcmp(src_dtype, "F32") == 0) {
-				const float* s = (const float*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = (double)s[i];
-			} else if (strcmp(src_dtype, "BF16") == 0) {
-				const uint16_t* s = (const uint16_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = bf16_bits_to_double(s[i]);
-			} else if (strcmp(src_dtype, "F16") == 0) {
-				const uint16_t* s = (const uint16_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = f16_bits_to_double(s[i]);
-			} else if (strcmp(src_dtype, "I8") == 0) {
-				const int8_t* s = (const int8_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = (double)s[i];
-			} else if (strcmp(src_dtype, "I16") == 0) {
-				const int16_t* s = (const int16_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = (double)s[i];
-			} else if (strcmp(src_dtype, "I32") == 0) {
-				const int32_t* s = (const int32_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = (double)s[i];
-			} else if (strcmp(src_dtype, "I64") == 0) {
-				const int64_t* s = (const int64_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = (double)s[i];
-			} else if (strcmp(src_dtype, "U8") == 0) {
-				const uint8_t* s = (const uint8_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = (double)s[i];
-			} else { /* BOOL */
-				const uint8_t* s = (const uint8_t*)raw_buf;
-				for (int i = 0; i < numel; i++)
-					dbuf[i] = (s[i] != 0) ? 1.0 : 0.0;
-			}
-		}
-
-		param_load_data(pidx, dbuf, numel);
-		if (owns_dbuf) {
-			free(raw_buf);
-			free(dbuf);
-		} else {
-			free(raw_buf);
-		}
-		loaded++;
+		loaded += load_entry_into(f, entry, data_start, pidx, allow_cast, name, &rc);
 	}
 
 	cJSON_Delete(root);
@@ -722,6 +732,182 @@ int param_load_with_prefix(const char* path, int allow_cast, const char* prefix)
 
 int param_load(const char* path) {
 	return param_load_core(path, /*allow_cast=*/0, /*prefix=*/NULL);
+}
+
+/* Renamed loader — the symmetric inverse of param_save_by_name_renamed.
+   For each (registry_name, ondisk_name) pair the tensor stored on disk
+   under `ondisk_name` is loaded into the registry param `registry_name`.
+   Used by Idris-side `Checkpoint.load` with a `remap` set, e.g. to read
+   a peft-saved adapter whose JSON keys are
+   `base_model.model.[...].lora_A.default.weight` into registry params
+   named `[...].lora_A`. Both name lists are newline-joined, `count`
+   long, in lockstep (built by `Checkpoint.collectRenamedNames`).
+
+   A pair whose `ondisk_name` is absent from the file is SKIPPED (not an
+   error) — same warm-start semantics as the by-key loader's
+   registry-miss skip. Per-entry errors are first-error-wins; return
+   codes match param_load_core. */
+int param_load_renamed(const char* path, int allow_cast, const char* registry_names_nl,
+                       const char* ondisk_names_nl, int count) {
+	if (!registry_names_nl || !ondisk_names_nl || count <= 0) {
+		fprintf(stderr, "param_load_renamed: invalid arg (count=%d)\n", count);
+		return -1;
+	}
+
+	int n_reg = param_count();
+	int* indices = (int*)malloc((size_t)count * sizeof(int));
+	char** ondisks = (char**)calloc((size_t)count, sizeof(char*));
+	if (!indices || !ondisks) {
+		free(indices);
+		free(ondisks);
+		return -1;
+	}
+
+	/* Parse registry_names_nl + resolve each to a registry index. The
+	   names come from an Idris-side registry walk, so a miss is an
+	   internal inconsistency — error out rather than silently skip. */
+	const char* p = registry_names_nl;
+	int parsed = 0;
+	int rc = 0;
+	while (*p && parsed < count) {
+		const char* end = p;
+		while (*end && *end != '\n')
+			end++;
+		size_t len = (size_t)(end - p);
+
+		int found = -1;
+		for (int i = 0; i < n_reg; i++) {
+			const char* nm = param_name(i);
+			if (nm && strlen(nm) == len && memcmp(nm, p, len) == 0) {
+				found = i;
+				break;
+			}
+		}
+		if (found < 0) {
+			fprintf(stderr, "param_load_renamed: '%.*s' not in registry\n", (int)len, p);
+			free(indices);
+			for (int j = 0; j < parsed; j++)
+				free(ondisks[j]);
+			free(ondisks);
+			return -1;
+		}
+		indices[parsed++] = found;
+		p = end;
+		if (*p == '\n') p++;
+	}
+	if (parsed != count) {
+		fprintf(stderr, "param_load_renamed: expected %d registry names, got %d\n", count, parsed);
+		free(indices);
+		free(ondisks);
+		return -1;
+	}
+
+	/* Parse ondisk_names_nl into the lookup-key buffer. */
+	p = ondisk_names_nl;
+	int oi = 0;
+	while (*p && oi < count) {
+		const char* end = p;
+		while (*end && *end != '\n')
+			end++;
+		size_t len = (size_t)(end - p);
+		ondisks[oi] = (char*)malloc(len + 1);
+		if (!ondisks[oi]) {
+			free(indices);
+			for (int j = 0; j < oi; j++)
+				free(ondisks[j]);
+			free(ondisks);
+			return -1;
+		}
+		memcpy(ondisks[oi], p, len);
+		ondisks[oi][len] = '\0';
+		oi++;
+		p = end;
+		if (*p == '\n') p++;
+	}
+	if (oi != count) {
+		fprintf(stderr, "param_load_renamed: expected %d on-disk names, got %d\n", count, oi);
+		free(indices);
+		for (int j = 0; j < oi; j++)
+			free(ondisks[j]);
+		free(ondisks);
+		return -1;
+	}
+
+	/* Open + parse the safetensors header (mirrors param_load_core). */
+	FILE* f = fopen(path, "rb");
+	if (!f) {
+		fprintf(stderr, "param_load_renamed: cannot open '%s'\n", path);
+		for (int j = 0; j < count; j++)
+			free(ondisks[j]);
+		free(ondisks);
+		free(indices);
+		return -1;
+	}
+
+	uint64_t header_size;
+	if (fread(&header_size, sizeof(uint64_t), 1, f) != 1) {
+		fprintf(stderr, "param_load_renamed: failed to read header size\n");
+		fclose(f);
+		for (int j = 0; j < count; j++)
+			free(ondisks[j]);
+		free(ondisks);
+		free(indices);
+		return -2;
+	}
+	char* json_str = (char*)malloc(header_size + 1);
+	if (!json_str) {
+		fclose(f);
+		for (int j = 0; j < count; j++)
+			free(ondisks[j]);
+		free(ondisks);
+		free(indices);
+		return -6;
+	}
+	if (fread(json_str, 1, header_size, f) != header_size) {
+		fprintf(stderr, "param_load_renamed: failed to read header\n");
+		free(json_str);
+		fclose(f);
+		for (int j = 0; j < count; j++)
+			free(ondisks[j]);
+		free(ondisks);
+		free(indices);
+		return -2;
+	}
+	json_str[header_size] = '\0';
+	long data_start = 8 + (long)header_size;
+
+	cJSON* root = cJSON_Parse(json_str);
+	free(json_str);
+	if (!root) {
+		fprintf(stderr, "param_load_renamed: failed to parse JSON header\n");
+		fclose(f);
+		for (int j = 0; j < count; j++)
+			free(ondisks[j]);
+		free(ondisks);
+		free(indices);
+		return -2;
+	}
+
+	int loaded = 0;
+	for (int i = 0; i < count; i++) {
+		cJSON* entry = cJSON_GetObjectItem(root, ondisks[i]);
+		if (!entry) {
+			fprintf(stderr, "param_load_renamed: skipping '%s' (not in file)\n", ondisks[i]);
+			continue;
+		}
+		loaded += load_entry_into(f, entry, data_start, indices[i], allow_cast, ondisks[i], &rc);
+	}
+
+	cJSON_Delete(root);
+	fclose(f);
+	for (int j = 0; j < count; j++)
+		free(ondisks[j]);
+	free(ondisks);
+	free(indices);
+
+	fprintf(stderr, "param_load: loaded %d/%d (remapped) parameters from '%s'%s\n", loaded, count,
+	        path, (rc != 0) ? " (with errors — see above)" : "");
+	return rc;
 }
 
 /* Reads the raw on-disk bytes of a named tensor from a safetensors

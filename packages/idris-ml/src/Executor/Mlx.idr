@@ -528,6 +528,8 @@ prim__paramLoadMlx : String -> PrimIO Int
 prim__paramLoadWithPolicyMlx : String -> Int -> PrimIO Int
 %foreign "C:param_load_with_prefix_mlx,libidrisml"
 prim__paramLoadWithPrefixMlx : String -> Int -> String -> PrimIO Int
+%foreign "C:param_load_renamed_mlx,libidrisml"
+prim__paramLoadRenamedMlx : String -> Int -> String -> String -> Int -> PrimIO Int
 %foreign "C:optimizer_save_mlx,libidrisml"
 prim__optimizerSaveMlx : AnyPtr -> String -> PrimIO Int
 %foreign "C:optimizer_load_mlx,libidrisml"
@@ -663,6 +665,7 @@ public export
   primOptimizerLoad          = prim__optimizerLoadMlx
   primOptimizerSave          = prim__optimizerSaveMlx
   primParamLoad              = prim__paramLoadMlx
+  primParamLoadRenamed       = prim__paramLoadRenamedMlx
   primParamLoadWithPolicy    = prim__paramLoadWithPolicyMlx
   primParamLoadWithPrefix    = prim__paramLoadWithPrefixMlx
   primParamSave              = prim__paramSaveMlx

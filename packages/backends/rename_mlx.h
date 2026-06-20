@@ -55,6 +55,7 @@
 #define param_load param_load_mlx
 #define param_load_data param_load_data_mlx
 #define param_load_data_int64 param_load_data_int64_mlx
+#define param_load_renamed param_load_renamed_mlx
 #define param_load_with_policy param_load_with_policy_mlx
 #define param_load_with_prefix param_load_with_prefix_mlx
 #define param_name param_name_mlx

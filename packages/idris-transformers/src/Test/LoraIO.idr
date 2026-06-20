@@ -143,6 +143,52 @@ testNameRemap = do
                 ++ ", reject-non-peft=" ++ show okMiss)
       pure False
 
+----------------------------------------------------------------------
+-- Test #4 — load-side remap (LoadOpts.remap)
+----------------------------------------------------------------------
+--
+-- The symmetric inverse of saveModelMatchingRenamed: read a tensor
+-- stored on disk under a FOREIGN key into a registry param under the
+-- idris-ml name, without first registering the param under the foreign
+-- name. Proves the contract two ways in one test:
+--   * a plain (remap-less) load leaves the param at its sentinel,
+--     because the foreign on-disk key isn't a registry name (skip);
+--   * a remap load restores the saved value via the registry->on-disk
+--     translation.
+
+testRemapLoad : IO Bool
+testRemapLoad = do
+  let path    = "/tmp/idris-ml-l4-remap.safetensors"
+      regName = "L4rm.weightA"
+      diskKey = "FOREIGN.weightA.ondisk"
+      xform : String -> Maybe String
+      xform nm = if nm == regName then Just diskKey else Nothing
+  -- Source param = 0.5; save it under the foreign on-disk key.
+  _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} regName 0.5
+  okSave <- saveModelMatchingRenamed {ex=TestExecutor} path xform
+  if not okSave
+    then do putStrLn "  FAIL: saveModelMatchingRenamed returned False"; pure False
+    else do
+      -- Reset to a sentinel; hold the fresh handle to read back through.
+      p99 <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} regName 99.0
+      -- Plain load: foreign key not in registry -> param untouched.
+      _ <- load {ex=TestExecutor} path defaultLoadOpts
+      let vPlain = primItem1d {ex=TestExecutor} p99.tensorPtr 0
+      -- Remap load: foreign key reached via registry->on-disk translation.
+      res <- load {ex=TestExecutor} path ({ remap := Just xform } defaultLoadOpts)
+      let vRemap = primItem1d {ex=TestExecutor} p99.tensorPtr 0
+      case res of
+        Left err => do putStrLn ("  FAIL: remap load: " ++ show err); pure False
+        Right () =>
+          if vPlain == 99.0 && vRemap == 0.5
+            then check ("LoadOpts.remap restores foreign-keyed param "
+                        ++ "(plain kept " ++ show vPlain
+                        ++ ", remap loaded " ++ show vRemap ++ ")") True
+            else do
+              putStrLn ("  FAIL: plain=" ++ show vPlain ++ " (want 99.0), "
+                        ++ "remap=" ++ show vRemap ++ " (want 0.5)")
+              pure False
+
 export
 suite : List (String, List (IO Bool))
 suite =
@@ -150,5 +196,6 @@ suite =
      [ configRoundTrip
      , testPeftKeyShape
      , testNameRemap
+     , testRemapLoad
      ])
   ]

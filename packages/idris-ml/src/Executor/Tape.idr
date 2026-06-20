@@ -479,6 +479,8 @@ prim__paramLoadTape : String -> PrimIO Int
 prim__paramLoadWithPolicyTape : String -> Int -> PrimIO Int
 %foreign "C:param_load_with_prefix_tape,libidrisml"
 prim__paramLoadWithPrefixTape : String -> Int -> String -> PrimIO Int
+%foreign "C:param_load_renamed_tape,libidrisml"
+prim__paramLoadRenamedTape : String -> Int -> String -> String -> Int -> PrimIO Int
 %foreign "C:optimizer_save_tape,libidrisml"
 prim__optimizerSaveTape : AnyPtr -> String -> PrimIO Int
 %foreign "C:optimizer_load_tape,libidrisml"
@@ -617,6 +619,7 @@ UserExecutorSerialize TapeExecutor where
   primOptimizerLoad          = prim__optimizerLoadTape
   primOptimizerSave          = prim__optimizerSaveTape
   primParamLoad              = prim__paramLoadTape
+  primParamLoadRenamed       = prim__paramLoadRenamedTape
   primParamLoadWithPolicy    = prim__paramLoadWithPolicyTape
   primParamLoadWithPrefix    = prim__paramLoadWithPrefixTape
   primParamSave              = prim__paramSaveTape

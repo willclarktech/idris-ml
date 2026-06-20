@@ -38,6 +38,13 @@ ENTRIES = {
         idris_method="primParamLoad",
         mlx="direct",
     ),
+    "param_load_renamed": Entry(
+        args=("s", "i", "s", "s", "i"),
+        ret="i",
+        slice="UserExecutorSerialize",
+        idris_method="primParamLoadRenamed",
+        mlx="direct",
+    ),
     "param_save": Entry(
         args=("s",),
         ret="i",
