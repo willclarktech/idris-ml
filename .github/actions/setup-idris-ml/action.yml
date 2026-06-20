@@ -170,6 +170,15 @@ runs:
         # forces the pinned collection's compiler to build as a side effect —
         # deterministic here + lands in the pack cache.
         pack --no-prompt install idris-test
+        # Install the workspace packages' collection deps (notably `contrib`,
+        # which a cold `pack install idris-test` does NOT pull — pack's idris2
+        # install ships only prelude/base/linear/network, so without this
+        # `make install` fails with "Required contrib ... no matching version
+        # installed"). install-deps reads each ipkg's `depends` and installs
+        # them into the pack store / package-path.
+        for pkg in idris-ml idris-transformers idris-gym idris-args idris-fmt; do
+          pack --no-prompt install-deps "$pkg"
+        done
         NIXSH
 
     # Torch lane: the uv-managed venv under packages/pytorch carries libtorch
