@@ -245,10 +245,12 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           make ref-setup
 
-      - name: Install clang-tidy + BLAS headers (for the torch C++ lint)
-        # clang-tidy for the C_LINT_FULL_CLANG_TIDY lane below;
-        # libopenblas-dev so shared sources' non-Apple BLAS branch parses.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-tidy libopenblas-dev
+      - name: Install clang-tidy + cppcheck + BLAS headers (for the torch C++ lint)
+        # clang-tidy for the C_LINT_FULL_CLANG_TIDY lane below; cppcheck
+        # so the cppcheck half of lint-c-torch actually runs here instead
+        # of "not installed; skipping"; libopenblas-dev so shared sources'
+        # non-Apple BLAS branch parses.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-tidy cppcheck libopenblas-dev
 
       # >>> GENERATED (lint-full) FROM test.yml.spec.json >>>
       - name: Typecheck torch_ref (pyright)
