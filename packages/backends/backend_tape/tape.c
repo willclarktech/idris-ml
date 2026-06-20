@@ -11,6 +11,27 @@
 #include "tensor.h" /* Tensor struct (used via tape entries' result/arg fields) */
 
 /* ----------------------------------------------------------------
+ * Deterministic BLAS — pin Accelerate (vecLib) to a single thread.
+ *
+ * Multi-threaded Accelerate GEMM/GEMV combine partial sums in a
+ * work-stealing (nondeterministic) order, so two same-seed tape runs
+ * drift bit-for-bit after enough steps — turning the ">=5-seed
+ * convergence" methodology unsound (an `ntm-copy` seed flipped pass
+ * <-> fail across reruns; root-caused 2026-06-18 — VECLIB_MAXIMUM_-
+ * THREADS=1 made 8/8 runs bit-identical). Pin to 1 thread so tape —
+ * the lean CPU *reference/correctness* backend — is reproducible by
+ * construction. idris-ml's matrices are small (Apple AMX handles them
+ * single-threaded), so the perf cost is negligible.
+ *
+ * `overwrite=0`: a user who wants multi-threaded BLAS over
+ * reproducibility can still export VECLIB_MAXIMUM_THREADS=N. The
+ * constructor runs at dlopen of libidrisml — before the first BLAS
+ * call — so Accelerate reads the pinned value on its lazy init. */
+__attribute__((constructor)) static void tape_pin_blas_single_thread(void) {
+	setenv("VECLIB_MAXIMUM_THREADS", "1", 0);
+}
+
+/* ----------------------------------------------------------------
  * TypedArena<T> — fixed-element-size linked-list arena. Struct is
  * declared in tape.h so backward / profiling can read tape_size
  * via the macro without an accessor function call.
