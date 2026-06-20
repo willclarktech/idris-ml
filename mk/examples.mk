@@ -17,6 +17,7 @@
         test-e2e-hf-bert-roundtrip example-hf-gpt2-inference \
         example-hf-llama-inference \
         test-integration-lint-hf-llama-inference \
+        test-integration-lint-hf-bitnet-inference \
         example-hf-bitnet-inference test-e2e-hf-bitnet-roundtrip \
         test-e2e-hf-gpt2-roundtrip test-e2e-hf-llama-roundtrip \
         test-e2e-hf-llama-generate-roundtrip \
@@ -270,6 +271,15 @@ test-integration-lint-hf-llama-inference: install
 	IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+
+# Same fast --check feedback loop for HfBitNetInference (see the llama
+# note above). The 1.18 GB model download isn't needed to type-check, so
+# this gates the typed surface (incl. the NoGrad inference path) without
+# fetching the checkpoint — the cheapest CI proof for this example.
+test-integration-lint-hf-bitnet-inference: install
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers \
+		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
+		--check $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
 
 # Build + run Example/HfBitNetInference. Fetches microsoft/bitnet-b1.58-2B-4T
 # once via the pattern rule (1.18 GB, not gated). Default mode runs the

@@ -313,6 +313,7 @@ test-integration: \
 		test-integration-lint-non-io-side-effects \
 		test-integration-lint-paired-defaults \
 		test-integration-lint-hf-llama-inference \
+		test-integration-lint-hf-bitnet-inference \
 		test-integration-lint-ci-workflow \
 		test-integration-lint-benchmarks \
 		test-integration-lint-perf-regression \
