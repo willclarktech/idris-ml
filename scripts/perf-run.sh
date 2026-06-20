@@ -32,7 +32,7 @@ usage: $0 <example-key> <backend> [example-args...]
 
 example-keys: ntm-copy, ntm-recall, dnc-copy, dnc-recall, supervised,
 							rnn, lstm, gru, transformer, gpt, matmul-bench, mnist, seq-classify,
-							reinforce, dqn, mountain-car, mountain-car-cont, a2c,
+							reinforce, dqn, double-dqn, mountain-car, mountain-car-cont, a2c,
 							ppo, sac, hf-bert, hf-gpt2, hf-llama, hf-llama-generate, hf-bitnet,
 							bert-classify-finetune, bert-classify-sst2-finetune,
 							bert-classify-sst2-lora,
@@ -62,6 +62,7 @@ case "$EXAMPLE_KEY" in
 	seq-classify)        TGT=example-seq-classify;               AVAR=SEQ_CLASSIFY_ARGS ;;
 	reinforce)           TGT=example-reinforce;                  AVAR=REINFORCE_ARGS ;;
 	dqn)                 TGT=example-dqn;                        AVAR=DQN_ARGS ;;
+	double-dqn)          TGT=example-double-dqn;                 AVAR=DOUBLE_DQN_ARGS ;;
 	mountain-car)        TGT=example-mountain-car;               AVAR=MOUNTAIN_CAR_ARGS ;;
 	mountain-car-cont)   TGT=example-mountain-car-cont;          AVAR=MOUNTAIN_CAR_CONT_ARGS ;;
 	a2c)                 TGT=example-a2c;                        AVAR=A2C_ARGS ;;
