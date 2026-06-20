@@ -108,7 +108,7 @@ recurEpochL opt (MkModel cell head) seqs = do
   d <- liftIO1 $ do
          totalL <- sumLosses seqLs
          mean <- (1.0 / cast NumSeqs) *: totalL
-         nativeTrainStep opt mean
+         trainStep opt mean
   pure1 (MkBang d # MkModel cellFinal head)
   where
     foldSeqs : Linear 4 1 Ex F WithGrad -> (1 _ : Rnn 1 4 Ex F WithGrad) ->

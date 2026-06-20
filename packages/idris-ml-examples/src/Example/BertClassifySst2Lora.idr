@@ -4,7 +4,7 @@
 ||| fine-tuning. Same task + same dataset slice as
 ||| BertClassifySst2Finetune; the only difference is what trains:
 |||
-|||   - Backbone: frozen (per `freezeByPrefix opt "bert."`).
+|||   - Backbone: frozen (`freezeGroup opt =<< namesMatching (isPrefixOf "bert.")`).
 |||   - LoRA adapters Q + V on every attention layer: TRAIN.
 |||   - Classifier head (`classifier.*`): TRAIN.
 |||
@@ -25,6 +25,7 @@ module Example.BertClassifySst2Lora
 import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.List
+import Data.String
 import Data.Vect
 import System
 import Compat.Random
@@ -265,7 +266,7 @@ epochLoraL opt batchSize model adapters items = go adapters 0.0 0 items
                        summed <- sumScalars zero losses
                        let denom = cast {to=Double} (cast {to=Integer} (length batch))
                        meanLoss <- tmulScalar summed (1.0 / denom)
-                       nativeTrainStep opt meanLoss)
+                       trainStep opt meanLoss)
       go adapters' (accLoss + v) (S nBatches) rest
 
 predictClassL : Model -> (1 _ : Adapters) -> PaddedExample -> L IO {use = 1} (LPair (!* Nat) Adapters)
@@ -360,9 +361,12 @@ main = do
                            let o = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
                            -- Canonical LoRA freeze: freeze `bert.` then unfreeze
                            -- the adapter suffixes; classifier.* stays trainable.
-                           freezeByPrefix   {ex=ExampleExecutor} o "bert."
-                           unfreezeBySuffix {ex=ExampleExecutor} o "lora_A"
-                           unfreezeBySuffix {ex=ExampleExecutor} o "lora_B"
+                           freezeGroup   {ex=ExampleExecutor} o
+                             !(namesMatching {ex=ExampleExecutor} (isPrefixOf "bert."))
+                           unfreezeGroup {ex=ExampleExecutor} o
+                             !(namesMatching {ex=ExampleExecutor} (isSuffixOf "lora_A"))
+                           unfreezeGroup {ex=ExampleExecutor} o
+                             !(namesMatching {ex=ExampleExecutor} (isSuffixOf "lora_B"))
                            putStrLn "Backbone frozen; LoRA adapters + classifier head trainable."
                            pure o)
         let trainLoopL : (1 _ : Adapters) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Adapters)

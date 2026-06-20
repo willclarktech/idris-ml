@@ -4,6 +4,7 @@ import Control.Linear.LIO
 import Data.IORef
 import Data.Linear.Notation
 import Data.List
+import Data.String
 import Data.Vect
 import System
 
@@ -20,6 +21,7 @@ import Math
 import RL.ReplayBuffer
 import Sampler
 import Train
+import Train.Freeze
 
 -- Actor + Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 
@@ -371,13 +373,13 @@ runBatchUpdateL : Optimizer Ex -> Optimizer Ex -> Optimizer Ex ->
 runBatchUpdateL q1Opt q2Opt actorOpt nets logStdV cfg {n} batch = do
   (MkBang tvs1 # nets1) <- foldTargetValsL nets logStdV cfg.gamma cfg.alpha (toList batch) []
   (MkBang q1LossV # nets2) <- q1LossL n nets1 batch tvs1
-  _ <- liftIO1 (nativeTrainStep q1Opt q1LossV)
+  _ <- liftIO1 (trainStep q1Opt q1LossV)
   (MkBang tvs2 # nets3) <- foldTargetValsL nets2 logStdV cfg.gamma cfg.alpha (toList batch) []
   (MkBang q2LossV # nets4) <- q2LossL n nets3 batch tvs2
-  _ <- liftIO1 (nativeTrainStep q2Opt q2LossV)
+  _ <- liftIO1 (trainStep q2Opt q2LossV)
   let obsVec = the (Vect n (Vect ObsDim Double)) (map (\t => t.obs) batch)
   (MkBang aLossV # nets5) <- actorLossBatchL n nets4 logStdV cfg.alpha obsVec
-  _ <- liftIO1 (nativeTrainStep actorOpt aLossV)
+  _ <- liftIO1 (trainStep actorOpt aLossV)
   pure1 nets5
 
 -- --- Main loop ------------------------------------------------------
@@ -586,10 +588,16 @@ main = do
       putStrLn "the LR-range-test pattern. See docs/develop/hyperparameter-tuning-2026.md."
     else Control.Linear.LIO.run $ do
       st0 <- buildStateL cfg
-      -- Three Adams, each scoped to one network. The actor opt covers log_std.
-      actorOpt <- liftIO1 (adam {scope="actor_"} cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts))
-      q1Opt    <- liftIO1 (adam {scope="q1_"}    cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts))
-      q2Opt    <- liftIO1 (adam {scope="q2_"}    cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts))
+      -- Three Adams, each owning one network's params (typed ownership via
+      -- restrictTo: LR 0 outside the net's registry names, so no cross-net
+      -- update leak). The "actor_" set also covers log_std.
+      actorOpt <- liftIO1 (adam cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts))
+      q1Opt    <- liftIO1 (adam cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts))
+      q2Opt    <- liftIO1 (adam cfg.lr ({ clip := NormClip cfg.clipNorm } defaultOpts))
+      liftIO1 $ do
+        restrictTo actorOpt !(namesMatching {ex=Ex} (isPrefixOf "actor_"))
+        restrictTo q1Opt    !(namesMatching {ex=Ex} (isPrefixOf "q1_"))
+        restrictTo q2Opt    !(namesMatching {ex=Ex} (isPrefixOf "q2_"))
       metrics  <- liftIO1 (newRLMetricsState 20)
       let trainCfg : TrainConfig SACState
           trainCfg = { metricsL := readRLMetrics "recent_20" metrics }

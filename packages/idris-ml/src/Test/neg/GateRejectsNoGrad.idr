@@ -1,5 +1,5 @@
 ||| Negative compile test: confirms the GradMode gate rejects a
-||| NoGrad loss being passed to `nativeTrainStep`. This file MUST
+||| NoGrad loss being passed to `trainStep`. This file MUST
 ||| NOT type-check. Run via `make test-gradmode-gate` (or
 ||| `scripts/check-gradmode-gate.sh`), which inverts the exit code
 ||| and asserts the error mentions both `WithGrad` and `NoGrad`.
@@ -21,9 +21,9 @@ import Tensor
 fakeNoGradLoss : Tensor (the (Vect 0 Nat) []) TapeExecutor dt NoGrad
 fakeNoGradLoss = believe_me ()
 
--- ^^^ EXPECTED COMPILE ERROR: nativeTrainStep requires its loss
+-- ^^^ EXPECTED COMPILE ERROR: trainStep requires its loss
 -- argument to be `Tensor [] TapeExecutor dt WithGrad`; we passed
 -- `Tensor [] TapeExecutor dt NoGrad`. Error should mention both `WithGrad`
 -- and `NoGrad` (a "Mismatch between: ..." line in Idris 2 v0.8.0).
 brokenStep : NativeOptimizer -> Double
-brokenStep opt = nativeTrainStep opt fakeNoGradLoss
+brokenStep opt = trainStep opt fakeNoGradLoss

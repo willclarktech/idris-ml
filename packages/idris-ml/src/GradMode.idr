@@ -3,7 +3,7 @@
 -- | The runtime `withNoGrad` (Tensor.idr) gates tape construction via
 -- | a C-side depth counter. `GradMode` is the static cousin: it lifts
 -- | "this tensor is not being tracked for backward" into the type, so
--- | `runBackward` / `nativeTrainStep` can statically reject NoGrad
+-- | `runBackward` / `trainStep` can statically reject NoGrad
 -- | inputs instead of silently no-opping.
 -- |
 -- | See `docs/grad-mode-and-device-typing.md` for the full design.

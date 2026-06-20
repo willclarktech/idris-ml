@@ -19,7 +19,7 @@
 |||   * `IsFloating (0 t : DType)` / `IsIntegral (0 t : DType)` — op-level
 |||     dtype-kind gates. Restriction at the *operation*, not just the
 |||     backend: a loss / gradient / softmax is real-valued, so the loss
-|||     fns and `runBackward`/`nativeTrainStep` carry `IsFloating dt =>`.
+|||     fns and `runBackward`/`trainStep` carry `IsFloating dt =>`.
 |||     `Bool` is neither floating nor integral. Build-independent.
 |||
 ||| Real tensor constructors carry BOTH `Compatible ex dt =>` and
@@ -112,7 +112,7 @@ okIntU8     : () ; okIntU8  = integralOK {dt = U8}
 -- Uncomment any: "Can't find an implementation for IsFloating/IsIntegral …".
 -- This is the same rejection the gated ops enforce — the loss fns
 -- (`tnllLoss`/`tbceLoss`/`tmseLoss`) and the gradient surface
--- (`runBackward`/`nativeTrainStep`) carry `IsFloating dt =>`, so a loss
+-- (`runBackward`/`trainStep`) carry `IsFloating dt =>`, so a loss
 -- on, or backprop through, a `Bool`/`Int` tensor is a compile error.
 -- badFloatI32  : () ; badFloatI32  = floatingOK {dt = I32}   -- no IsFloating (IntN 32)
 -- badFloatBool : () ; badFloatBool = floatingOK {dt = Bool}  -- no IsFloating Bool

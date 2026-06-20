@@ -92,7 +92,7 @@ void param_clear(void) {
 /* Remove every registry entry whose name starts with `prefix`, releasing
    its retain. Used by the activation-dump path in `forwardVarTraced`
    (TRACE level) so transient `__act/<label>/<i>` entries don't survive
-   the forward and pollute the optimizer's `nativeTrainStep` walk. */
+   the forward and pollute the optimizer's `trainStep` walk. */
 void param_erase_by_prefix(const char* prefix) {
 	if (!prefix || !*prefix) return;
 	size_t pl = strlen(prefix);

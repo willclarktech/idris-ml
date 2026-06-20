@@ -66,7 +66,7 @@ mkW name v = do
   pure (MkTensor wptr (Just name))
 
 -- A hand-rolled 3-epoch loop composing the EXPORTED engine pieces
--- (`withEpoch` per-epoch bracket) with `nativeTrainStep` — the shape a
+-- (`withEpoch` per-epoch bracket) with `trainStep` — the shape a
 -- custom/RL loop reuses instead of reimplementing. loss = w*w from
 -- w=1.0 at lr=0.1: each step w *= 0.8, so after 3 epochs w = 0.512.
 handLoopConverges : IO Bool
@@ -76,7 +76,7 @@ handLoopConverges = do
   let oneEpoch : IO Double
       oneEpoch = withEpoch {ex=TestExecutor} $ do
         loss <- tmul w w
-        nativeTrainStep {ex=TestExecutor} {dt=TestDType} opt loss
+        trainStep {ex=TestExecutor} {dt=TestDType} opt loss
   _ <- oneEpoch
   _ <- oneEpoch
   _ <- oneEpoch
@@ -84,7 +84,7 @@ handLoopConverges = do
   -- tolerance is F32-safe: mlx (F32) yields 0.51199996, ~3.5e-8 off the
   -- F64-exact 0.512. This runs through the real backend tensor (unlike the
   -- pure-Double oracle checks above), so it must clear the F32 ULP floor.
-  check ("withEpoch+nativeTrainStep hand loop converges (w=" ++ show v
+  check ("withEpoch+trainStep hand loop converges (w=" ++ show v
          ++ ", expect 0.512)") (abs (v - 0.512) < 1.0e-5)
 
 isDivergedDetectsNaN : IO Bool
@@ -117,7 +117,7 @@ showFixRounds =
 -- RL-reuse: the exported engine pieces compose into a hand-rolled
 -- threaded loop WITHOUT fit — the migration path for state-threading RL
 -- (DQN's DqnState etc.). runEpochLoop threads the model (here a Nat
--- "episode count"); the perEpoch does its own nativeTrainStep; a custom
+-- "episode count"); the perEpoch does its own trainStep; a custom
 -- EarlyStopStep halts after 3 epochs. No example touched.
 ----------------------------------------------------------------------
 
@@ -130,7 +130,7 @@ rlReuseComposesEngine = do
   let perEpoch : Nat -> Nat -> IO (Nat, Double)
       perEpoch episodes _ = do
         loss <- tmul w w
-        d <- nativeTrainStep opt loss
+        d <- trainStep opt loss
         pure (S episodes, d)            -- thread state: DqnState-style
   let esStep : EarlyStopStep Nat
       esStep _ _ _ n = pure (if n >= 2 then EsHalt else EsKeep (S n))

@@ -14,6 +14,7 @@
 ||| tests + the FT3 worked example.
 module Test.CheckpointSubset
 
+import Data.String
 import Data.Vect
 
 import Test.Harness
@@ -58,20 +59,20 @@ subsetLoadTest = do
   r4 <- check ("subset-load: bb.1 untouched at 99.0 (got " ++ show bb1v ++ ")") (bb1v == 99.0)
   pure (r0 && r1 && r2 && r3 && r4)
 
-freezeByPrefixSmokeTest : IO Bool
-freezeByPrefixSmokeTest = do
+freezeGroupSmokeTest : IO Bool
+freezeGroupSmokeTest = do
   let opt = nativeSgd {ex=TestExecutor} 0.1
   -- These params get registered by subsetLoadTest; if the test is run
   -- standalone we register them here too. Re-registration is a no-op
   -- on existing names.
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.aa.0" 1.0
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.bb.0" 3.0
-  freezeByPrefix {ex=TestExecutor} opt "ft1.aa."
-  check "freezeByPrefix: completed without error" True
+  freezeGroup {ex=TestExecutor} opt !(namesMatching {ex=TestExecutor} (isPrefixOf "ft1.aa."))
+  check "freezeGroup: completed without error" True
 
 export
 tests : List (IO Bool)
 tests =
   [ subsetLoadTest
-  , freezeByPrefixSmokeTest
+  , freezeGroupSmokeTest
   ]

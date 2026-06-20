@@ -418,7 +418,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 				/* Common case: one LR for every param — single fused pass. */
 				dispatch_step_foreach(w, params_ref, w->lr);
 			} else {
-				/* Per-param LR overrides active (groups / freezeByPrefix /
+				/* Per-param LR overrides active (restrictTo / freezeGroup /
 				   setParamLR). libtorch has no per-param LR within a param
 				   group, so bucket params by effective LR and run one fused
 				   pass per bucket. Each param appears in exactly one bucket,

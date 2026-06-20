@@ -233,7 +233,7 @@ trainStepL opt model (inputTok, targetTok) = do
                      {headDim=HeadDim} {intermediate=Intermediate}
                      {maxPos=MaxPos}
                      model inputT posT
-  d <- liftIO1 (do loss <- gpt2LmLoss logits targetT; nativeTrainStep opt loss)
+  d <- liftIO1 (do loss <- gpt2LmLoss logits targetT; trainStep opt loss)
   pure1 (MkBang d # model')
 
 -- Discard the (linear) model: its fields are ω registered-param records.

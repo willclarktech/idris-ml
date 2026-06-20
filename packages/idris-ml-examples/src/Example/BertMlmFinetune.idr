@@ -303,7 +303,7 @@ trainStepL opt model (inputIds, targetIds, maskFlags) = do
                       model inputT posT typT Nothing
   d <- liftIO1 (do let numMasked = sum (toList maskFlags)
                    loss <- bertMlmLoss logits targetT numMasked
-                   nativeTrainStep opt loss)
+                   trainStep opt loss)
   pure1 (MkBang d # model')
 
 -- Discard the (linear) model: its fields are ω registered-param records.

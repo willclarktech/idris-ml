@@ -107,7 +107,7 @@ trainStepL : Optimizer Ex -> (1 _ : Linear 2 3 Ex F WithGrad) ->
              L IO {use = 1} (LPair (!* Double) (Linear 2 3 Ex F WithGrad))
 trainStepL opt model batch = do
   (MkBang loss # model') <- nllLossL model batch
-  d <- liftIO1 (nativeTrainStep opt loss)
+  d <- liftIO1 (trainStep opt loss)
   pure1 (MkBang d # model')
 
 ----------------------------------------------------------------------

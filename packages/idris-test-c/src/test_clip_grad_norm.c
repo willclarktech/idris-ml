@@ -9,7 +9,7 @@
  *     value is clamped to [-max_val, max_val].
  *
  * These are widely-used in RNN/transformer training (NormClip pattern
- * in nativeTrainStep). Was on the W3b/W7 follow-up list as a high-value
+ * in trainStep). Was on the W3b/W7 follow-up list as a high-value
  * gap — the probe reported both as 0 hits.
  */
 

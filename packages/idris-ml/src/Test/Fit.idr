@@ -53,7 +53,7 @@ recStep w opt () () = do
   l1 <- liftIO1 (tmul w w)
   l2 <- liftIO1 (tmul w w)
   summed <- liftIO1 (tadd l1 l2)
-  d <- liftIO1 (nativeTrainStep opt summed)
+  d <- liftIO1 (trainStep opt summed)
   pure1 (MkBang d # ())
 
 recurrentFoldConverges : IO Bool
@@ -102,7 +102,7 @@ fitFullPassMultiStep = do
 
 -- fitCustom: the optimizer-free driver for non-gradient training
 -- (tabular RL). A pure Double "model" halved each epoch by the
--- EpochStep — no registered params, no optimizer, no nativeTrainStep.
+-- EpochStep — no registered params, no optimizer, no trainStep.
 -- Proves the model threads through epochs and the loop runs the
 -- requested count: 2.0 * 0.5^5 = 0.0625 over 5 epochs.
 fitCustomThreadsModel : IO Bool
@@ -141,7 +141,7 @@ fromVectIOMultiEpochSafe = do
   l1 <- the (IO (Tensor [] TestExecutor TestDType WithGrad))
             (tnllLossMean {b=2} {n=2} (retypeGrad xb1) (retypeGrad yb1))
   let v1 = tensorItem l1
-  _ <- nativeTrainStep opt l1
+  _ <- trainStep opt l1
   -- epoch 2: the stream wraps and re-materialises FRESH tensors from the
   -- retained host rows (a `fromVect` cache would be freed memory here).
   (xb2, yb2) <- bs.next

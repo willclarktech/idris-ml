@@ -2083,7 +2083,7 @@ tnllLossMean {b} {n} p t = ioRerun (\_ =>
 ||| grad-mode matches the predictions / targets, so a no-grad eval
 ||| `tbceLoss` (e.g. inside `withNoGrad`) returns a `NoGrad` scalar
 ||| that the type system will reject if accidentally fed to
-||| `nativeTrainStep`.
+||| `trainStep`.
 export
 tbceLoss : {0 ex : Executor} -> UserExecutorNN ex => IsFloating dt => {n : Nat} ->
            Tensor [n] ex dt g -> Tensor [n] ex dt g -> IO (Tensor [] ex dt g)
@@ -2094,11 +2094,11 @@ tbceLoss p t = ioRerun (\_ =>
 
 ||| Fused native train step on a Tensor loss: zero_grad → backward →
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
-||| scalar is not stale. Mirrors `nativeTrainStep`.
+||| scalar is not stale. Mirrors `trainStep`.
 export
-nativeTrainStep : {0 ex : Executor} -> UserExecutorTraining ex => IsFloating dt =>
+trainStep : {0 ex : Executor} -> UserExecutorTraining ex => IsFloating dt =>
                   NativeOptimizer ex -> Tensor [] ex dt WithGrad -> IO Double
-nativeTrainStep opt loss = ioRerun (\_ =>
+trainStep opt loss = ioRerun (\_ =>
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
       clipVal  : Double

@@ -93,7 +93,7 @@ benchLinear = do
                  discard m'
                  pure o)
         l   <- tnllLossMean {b=LinearBatch} {n=LinearO} out (retypeGrad tgt)
-        d   <- nativeTrainStep opt l
+        d   <- trainStep opt l
         pure (m, d)
   (warmModel, _) <- repeatEpoch LinearWarmup step model 0.0
   t0 <- clockTime Monotonic
@@ -129,7 +129,7 @@ lstmStep opt m = do
   d          <- liftIO1 $ do
                   tgt <- retypeGrad <$> tensor {dims=[LstmO]} (Const 0.1)
                   l   <- tmseLoss h tgt
-                  nativeTrainStep opt l
+                  trainStep opt l
   pure1 (MkBang d # m')
 
 repeatLstm : Optimizer Ex -> Nat -> (1 _ : Lstm LstmI LstmO Ex F WithGrad) ->
@@ -207,7 +207,7 @@ benchConv2dBlock = do
                  discard m'
                  pure o)
         l   <- tnllLossMean {b=ConvBatch} {n=ConvOutputDim} out (retypeGrad tgt)
-        d   <- nativeTrainStep opt l
+        d   <- trainStep opt l
         pure (m, d)
   (warmModel, _) <- repeatEpoch ConvWarmup step model 0.0
   t0 <- clockTime Monotonic
@@ -266,7 +266,7 @@ ntmTwoPhaseStep opt encIns targs model = do
             liftIO1 $ do
               s <- sumLosses ls
               (1.0 / cast (length targs)) *: s
-  d <- nativeTrainStep opt mean
+  d <- trainStep opt mean
   pure (model, d)
   where
     encodeAll : (1 _ : Ntm NtmN NtmM NtmH NtmInputW NtmOutputW Ex F WithGrad) ->
@@ -349,7 +349,7 @@ benchTransformerBlock = do
                  discard m'
                  pure o)
         l   <- tnllLossMean {b=TxBatch} {n=TxDModel} out (retypeGrad tgt)
-        d   <- nativeTrainStep opt l
+        d   <- trainStep opt l
         pure (m, d)
   (warmModel, _) <- repeatEpoch TxWarmup step model 0.0
   t0 <- clockTime Monotonic

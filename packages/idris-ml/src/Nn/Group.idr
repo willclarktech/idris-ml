@@ -7,6 +7,7 @@
 ||| its `Params` traversal.
 module Nn.Group
 
+import Data.Linear
 import Data.List
 
 import Executor
@@ -21,3 +22,15 @@ groupOf : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : N
           {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
           Params l => l i o ex dt g -> List String
 groupOf m = mapMaybe paramName (params m)
+
+||| The linear twin of `groupOf`: take a single-owner (linear) model, return its
+||| exact registry names beside the model threaded back, so it can be used at a
+||| site where the model is a `1`-quantity resource (inside `Control.Linear.LIO`).
+||| Built on the linear `reflect`, so it consumes-and-rebuilds rather than
+||| ω-projecting. The leak-free source for optimizer ownership: pair with
+||| `Train.Freeze.restrictTo` to scope an optimizer to one net's exact params.
+export
+reflectNames : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+               {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
+               Params l => (1 _ : l i o ex dt g) -> LPair (!* (List String)) (l i o ex dt g)
+reflectNames m = let (MkBang ps # m') = reflect m in MkBang (mapMaybe paramName ps) # m'

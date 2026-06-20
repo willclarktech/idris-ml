@@ -242,7 +242,7 @@ stepL : Optimizer ExampleExecutor -> (1 _ : Model) -> Vect BatchSize TfmSample -
         L IO {use = 1} (LPair (!* Double) Model)
 stepL opt m b = do
   (MkBang loss # m') <- batchLossL m b
-  d <- liftIO1 (nativeTrainStep opt loss)
+  d <- liftIO1 (trainStep opt loss)
   pure1 (MkBang d # m')
 
 ----------------------------------------------------------------------

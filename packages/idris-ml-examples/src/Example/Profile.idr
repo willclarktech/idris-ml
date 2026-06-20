@@ -148,7 +148,7 @@ recurEpoch opt model batch = do
   ls   <- traverse (twoPhaseLoss model) batch
   s    <- sumLosses ls
   mean <- (1.0 / cast (length batch)) *: s
-  d    <- nativeTrainStep opt mean
+  d    <- trainStep opt mean
   pure (model, d)
 
 ----------------------------------------------------------------------

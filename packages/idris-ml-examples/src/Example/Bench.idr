@@ -106,7 +106,7 @@ ntmEpoch opt batch model = do
   ls   <- traverse (twoPhaseLoss model) batch
   s    <- sumLosses ls
   mean <- (1.0 / cast (length batch)) *: s
-  d    <- nativeTrainStep opt mean
+  d    <- trainStep opt mean
   pure (model, d)
 
 -- Copy-style two-phase sequence: input rows = data ++ [0] then a delimiter
@@ -140,7 +140,7 @@ supStep opt model = do
            discard m'
            pure o)
   l   <- tnllLossMean {b=5} {n=3} out (retypeGrad tgt)
-  d   <- nativeTrainStep opt l
+  d   <- trainStep opt l
   pure (model, d)
 
 benchSupervised : IO ()
@@ -195,7 +195,7 @@ rnnEpoch opt model = do
   ls   <- traverse (rnnSeqLoss model) (toList rnnSeqs)
   s    <- sumLosses ls
   mean <- (1.0 / cast (the Nat 8)) *: s
-  d    <- nativeTrainStep opt mean
+  d    <- trainStep opt mean
   pure (model, d)
 
 benchRnn : IO ()

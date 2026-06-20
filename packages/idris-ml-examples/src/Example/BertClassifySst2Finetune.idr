@@ -24,6 +24,7 @@ module Example.BertClassifySst2Finetune
 import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.List
+import Data.String
 import Data.Vect
 import System
 import Compat.Random
@@ -252,7 +253,7 @@ epochSst2L opt batchSize model items = go model 0.0 0 items
                        summed <- sumScalars zero losses
                        let denom = cast {to=Double} (cast {to=Integer} (length batch))
                        meanLoss <- tmulScalar summed (1.0 / denom)
-                       nativeTrainStep opt meanLoss)
+                       trainStep opt meanLoss)
       go model' (accLoss + v) (S nBatches) rest
 
 -- Greedy-argmax classification on a single padded example, threading the model.
@@ -341,7 +342,8 @@ main = do
                            let o = nativeAdamW {ex=ExampleExecutor} cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
                            when cfg.freezeBackbone $ do
                              putStrLn "Freezing `bert.*` — head-only training."
-                             freezeByPrefix {ex=ExampleExecutor} o "bert."
+                             freezeGroup {ex=ExampleExecutor} o
+                               !(namesMatching {ex=ExampleExecutor} (isPrefixOf "bert."))
                            pure o)
         let trainLoopL : (1 _ : Model) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Model)
             trainLoopL model Z     lastLoss = pure1 (MkBang lastLoss # model)

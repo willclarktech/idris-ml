@@ -361,7 +361,7 @@ a2cEpochL opt cfg (MkA2C actor critic envRef retRef) = do
     withNoGradL {ex=Ex} (computeBootstrapsBatchedL critic' stepLists finalEnvs)
   (MkBang loss # (actor'' # critic''')) <-
     buildLossBatchedL actor' critic'' cfg.gamma cfg.lam cfg.entropyCoef cfg.valueCoef stepLists bootstraps
-  _ <- liftIO1 (nativeTrainStep opt loss)
+  _ <- liftIO1 (trainStep opt loss)
   -- Per-env running returns (ω bookkeeping).
   reported <- liftIO1 $ do
     oldRunRets <- readIORef retRef

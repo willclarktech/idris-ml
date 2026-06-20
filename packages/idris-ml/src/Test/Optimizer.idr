@@ -1,6 +1,7 @@
 module Test.Optimizer
 
 import Data.List
+import Data.String
 import Data.Vect
 
 import Executor
@@ -9,6 +10,7 @@ import Schedule
 import Tensor
 import Test.Config
 import Test.Harness
+import Train.Freeze
 
 -- Trajectory equivalence: the new `sgd` / `rmsprop` constructors wrap
 -- the SAME C prims as `nativeSgd` / `nativeRmsprop`, so driving the
@@ -32,7 +34,7 @@ stepQuadratic : NativeOptimizer TestExecutor ->
                 Tensor [] TestExecutor TestDType WithGrad -> IO Double
 stepQuadratic opt w = do
   loss <- tmul w w
-  _ <- nativeTrainStep opt loss
+  _ <- trainStep opt loss
   pure (tensorItem w)
 
 trajectory : NativeOptimizer TestExecutor ->
@@ -88,7 +90,7 @@ stepScaled : NativeOptimizer TestExecutor ->
 stepScaled opt w c = do
   l <- tmul w w
   loss <- tmulScalar l c
-  _ <- nativeTrainStep opt loss
+  _ <- trainStep opt loss
   pure (tensorItem w)
 
 scaledTrajectory : NativeOptimizer TestExecutor ->
@@ -127,30 +129,62 @@ stepPair opt w b = do
   l1 <- tmul w w
   l2 <- tmul b b
   loss <- tadd l1 l2
-  _ <- nativeTrainStep opt loss
+  _ <- trainStep opt loss
   pure (tensorItem w, tensorItem b)
 
--- Scope must route to the Group prim: the scoped optimizer steps only
--- params under the prefix (the bystander keeps its initial value even
--- though it carries a nonzero grad), and the scoped param's trajectory
--- is bitwise-equal to nativeAdamGroup's.
-adamScopeRouting : IO Bool
-adamScopeRouting = do
+-- Typed ownership via restrictTo: a plain adam scoped to an exact name set
+-- (LR 0 on the complement) steps only the owned param — bitwise-equal to
+-- nativeAdamGroup's prefix-skip for the owned param, with the bystander frozen
+-- (it carries a nonzero grad but LR 0 → no update). restrictTo is the typed
+-- replacement for the removed `adam {scope=...}` constructor string.
+--
+-- No grad clipping here, deliberately: restrictTo leaves the non-owned params
+-- in the optimizer's set (LR 0), so a *global* NormClip aggregates their grads
+-- into the norm, whereas nativeAdamGroup's prefix-skip excludes them — the two
+-- diverge once a non-owned param carries grad (as the bystander does in this
+-- shared loss). That divergence is benign in the real multi-net pattern (each
+-- net's loss is local, so non-owned grads are exactly 0 and the norms coincide)
+-- but it is not bitwise, so the equivalence oracle runs clip-free. Adam updates
+-- each param independently, so without clipping the owned trajectory matches.
+adamRestrictToOwnership : IO Bool
+adamRestrictToOwnership = do
   wOld <- mkW "opt_og_w" 1.0
   bOld <- mkW "opt_ob_w" 1.0
-  let optOld = nativeAdamGroup {ex=TestExecutor} "opt_og_" 0.01 0.9 0.999 1.0e-8 1.0
+  let optOld = nativeAdamGroup {ex=TestExecutor} "opt_og_" 0.01 0.9 0.999 1.0e-8 1.0e9
   (wo1, bo1) <- stepPair optOld wOld bOld
   (wo2, _)   <- stepPair optOld wOld bOld
   wNew <- mkW "opt_ng_w" 1.0
   bNew <- mkW "opt_nb_w" 1.0
-  optNew <- adam {ex=TestExecutor} {scope="opt_ng_"} 0.01
-              ({ clip := NormClip 1.0 } defaultOpts)
+  optNew <- adam {ex=TestExecutor} 0.01 defaultOpts
+  restrictTo {ex=TestExecutor} optNew !(namesMatching {ex=TestExecutor} (isPrefixOf "opt_ng_"))
   (wn1, bn1) <- stepPair optNew wNew bNew
   (wn2, bn2) <- stepPair optNew wNew bNew
-  check ("adam scope: matches nativeAdamGroup ([" ++ show wn1 ++ ", " ++ show wn2
+  check ("adam restrictTo: matches nativeAdamGroup ([" ++ show wn1 ++ ", " ++ show wn2
          ++ "] vs [" ++ show wo1 ++ ", " ++ show wo2
          ++ "]), bystander frozen (" ++ show bn2 ++ ")")
         (wn1 == wo1 && wn2 == wo2 && bo1 == 1.0 && bn1 == 1.0 && bn2 == 1.0)
+
+-- restrictTo scopes to an EXACT name set: the leak-free guarantee a string
+-- prefix can't give. "rt_keep" is owned (steps at base LR 0.5 → 1 - 0.5*2 = 0),
+-- while the prefix-SIBLING "rt_keepX" — which `isPrefixOf "rt_keep"` would
+-- wrongly capture — is frozen because it isn't in the exact keep set.
+restrictToExactComplement : IO Bool
+restrictToExactComplement = do
+  wk <- mkW "rt_keep" 1.0
+  ws <- mkW "rt_keepX" 1.0
+  wd <- mkW "rt_drop" 1.0
+  opt <- sgd {ex=TestExecutor} 0.5 defaultOpts
+  restrictTo {ex=TestExecutor} opt ["rt_keep"]
+  l1 <- tmul wk wk
+  l2 <- tmul ws ws
+  l3 <- tmul wd wd
+  l12 <- tadd l1 l2
+  loss <- tadd l12 l3
+  _ <- trainStep opt loss
+  let (vk, vs, vd) = (tensorItem wk, tensorItem ws, tensorItem wd)
+  check ("restrictTo keeps exact set (kept " ++ show vk ++ ", prefix-sibling "
+         ++ show vs ++ ", other " ++ show vd ++ ")")
+        (vk == 0.0 && vs == 1.0 && vd == 1.0)
 
 -- withSchedule + tick: tick pushes schedule(epoch) into the C
 -- optimizer's base LR. Schedule values below are exact binary
@@ -188,33 +222,35 @@ tickWithoutScheduleIsNoOp = do
   check ("tick without a schedule is a no-op (" ++ show traj
          ++ " vs " ++ show trajRef ++ ")") (traj == trajRef)
 
--- groups: per-prefix LR overrides applied by walking the param
--- registry at construction. One step at base lr 0.25 on three params:
--- the frozen group stays put, the scaled group steps at lr 0.125,
--- the bystander steps at base. All values exact binary fractions.
--- Applies uniformly across tape / mlx / torch (torch via per-param LR
--- buckets in optimizer_step — see backend_torch/training/optimizer.cpp).
-groupsOverrideByPrefix : IO Bool
-groupsOverrideByPrefix = do
+-- setGroupLR: per-group LR overrides set after construction over the exact
+-- names from a registry filter. One step at base lr 0.25 on three params: the
+-- frozen group (LR 0) stays put, the scaled group steps at lr 0.125, the
+-- bystander steps at base. All values exact binary fractions. Applies uniformly
+-- across tape / mlx / torch (torch via per-param LR buckets in optimizer_step —
+-- see backend_torch/training/optimizer.cpp).
+setGroupLROverrides : IO Bool
+setGroupLROverrides = do
   wf <- mkW "opt_g4f_w" 1.0
   ws <- mkW "opt_g4s_w" 1.0
   wn <- mkW "opt_g4n_w" 1.0
-  opt <- sgd {ex=TestExecutor} 0.25
-           ({ groups := [("opt_g4f_", 0.0), ("opt_g4s_", 0.125)] } defaultOpts)
+  opt <- sgd {ex=TestExecutor} 0.25 defaultOpts
+  setGroupLR {ex=TestExecutor} opt !(namesMatching {ex=TestExecutor} (isPrefixOf "opt_g4f_")) 0.0
+  setGroupLR {ex=TestExecutor} opt !(namesMatching {ex=TestExecutor} (isPrefixOf "opt_g4s_")) 0.125
   l1 <- tmul wf wf
   l2 <- tmul ws ws
   l3 <- tmul wn wn
   l12 <- tadd l1 l2
   loss <- tadd l12 l3
-  _ <- nativeTrainStep opt loss
+  _ <- trainStep opt loss
   let (vf, vs, vn) = (tensorItem wf, tensorItem ws, tensorItem wn)
-  check ("groups freeze/scale by prefix (frozen " ++ show vf
+  check ("setGroupLR freeze/scale by group (frozen " ++ show vf
          ++ ", scaled " ++ show vs ++ ", base " ++ show vn ++ ")")
         (vf == 1.0 && vs == 0.75 && vn == 0.5)
 
 export
 tests : List (IO Bool)
 tests = [ sgdMatchesNative, rmspropMatchesNative, rmspropDefaultsMatchPyTorch
-        , adamMatchesNative, adamWMatchesNative, adamScopeRouting
+        , adamMatchesNative, adamWMatchesNative, adamRestrictToOwnership
+        , restrictToExactComplement
         , scheduleFreezesAtZero, tickAppliesScheduleEpoch
-        , tickWithoutScheduleIsNoOp, groupsOverrideByPrefix ]
+        , tickWithoutScheduleIsNoOp, setGroupLROverrides ]

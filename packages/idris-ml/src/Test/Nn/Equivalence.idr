@@ -55,7 +55,7 @@ stepSeq opt net = do
   tgt  <- liftIO1 (constG {dims=[2,2]} 0.5)
   (MkBang out # net') <- forwardSeq {b=2} net x
   loss <- liftIO1 (mse2d out tgt)
-  d    <- liftIO1 (nativeTrainStep opt loss)
+  d    <- liftIO1 (trainStep opt loss)
   pure1 (MkBang d # net')
 
 -- Thread the linear net through `n` steps, accumulating losses (reversed).
@@ -78,7 +78,7 @@ stepRef opt w1 b1 w2 b2 = do
   h1   <- trelu h0
   out  <- tlinear2d w2 h1 b2
   loss <- mse2d out tgt
-  nativeTrainStep opt loss
+  trainStep opt loss
 
 loopN : Nat -> (Int -> IO Double) -> IO (List Double)
 loopN n f = traverse f [0 .. cast {to=Int} n - 1]

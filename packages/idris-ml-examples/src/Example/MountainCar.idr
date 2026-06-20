@@ -5,6 +5,7 @@ import Data.Fin
 import Data.IORef
 import Data.Linear.Notation
 import Data.List
+import Data.String
 import Data.Vect
 import System
 
@@ -19,6 +20,7 @@ import Hpo.LrFinder
 import ML.Simple
 import RL.ReplayBuffer
 import Train
+import Train.Freeze
 
 -- The Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 
@@ -223,7 +225,7 @@ trainIfReadyL opt buffer cfgBatch gamma online target = do
       case mBatch of
         Just batchVec => withGenFreeL {ex=Ex} $ do
           (MkBang loss # (online' # target')) <- batchLossBatchedL cfgBatch online target gamma batchVec
-          _ <- liftIO1 (nativeTrainStep opt loss)
+          _ <- liftIO1 (trainStep opt loss)
           pure1 (online' # target')
         Nothing => pure1 (online # target)
 
@@ -410,7 +412,9 @@ finishLrFind (MkBang _ # st') = do
 runLrFind : Config -> IO ()
 runLrFind cfg = Control.Linear.LIO.run $ do
   st0 <- buildStateL cfg
-  opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+  opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+  online <- liftIO1 (namesMatching {ex=Ex} (isPrefixOf "online"))
+  liftIO1 (restrictTo opt online)
   (LIO.(>>=))
     (lrFind {ex = Ex} {model = DqnState} {dp = ()} lrFindCfg
        (\st, _ => do
@@ -422,7 +426,9 @@ runLrFind cfg = Control.Linear.LIO.run $ do
 runTrain : Config -> IO ()
 runTrain cfg = Control.Linear.LIO.run $ do
   st0 <- buildStateL cfg
-  opt <- liftIO1 (adam {scope="online"} cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+  opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 10.0 } defaultOpts))
+  online <- liftIO1 (namesMatching {ex=Ex} (isPrefixOf "online"))
+  liftIO1 (restrictTo opt online)
   metrics <- liftIO1 (newRLMetricsState 50)
   let trainCfg : TrainConfig DqnState
       trainCfg = { metricsL := readRLMetrics "recent_50" metrics }

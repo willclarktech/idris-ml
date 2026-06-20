@@ -17,8 +17,8 @@
 |||
 ||| Designed for the warm-start fine-tune workflow:
 |||   loadModelPrefix "bert/model.safetensors" "bert."   -- backbone only
-|||   -- (optional) freezeByPrefix opt "bert."
-|||   -- train: backward through tnllLoss, nativeTrainStep
+|||   -- (optional) freezeGroup opt =<< namesMatching (isPrefixOf "bert.")
+|||   -- train: backward through tnllLoss, trainStep
 module Transformers.BertForClassification
 
 import Control.Linear.LIO

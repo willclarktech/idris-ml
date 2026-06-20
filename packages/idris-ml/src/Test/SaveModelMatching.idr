@@ -9,6 +9,7 @@
 ||| `readFile`-on-binary-safetensors path.
 module Test.SaveModelMatching
 
+import Data.String
 import Data.Vect
 
 import Test.Harness
@@ -104,17 +105,17 @@ emptyMatchFailsTest = do
 -- worked example.
 -- ---------------------------------------------------------------
 
-freezeBySuffixSmokeTest : IO Bool
-freezeBySuffixSmokeTest = do
+freezeGroupBySuffixSmokeTest : IO Bool
+freezeGroupBySuffixSmokeTest = do
   let opt = nativeSgd {ex=TestExecutor} 0.1
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.freeze.x.lora_A" 0.0
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.freeze.x.lora_B" 0.0
   _ <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.freeze.x.weight" 0.0
-  freezeBySuffix   {ex=TestExecutor} opt "lora_A"
-  freezeBySuffix   {ex=TestExecutor} opt "lora_B"
-  unfreezeBySuffix {ex=TestExecutor} opt "lora_A"
-  unfreezeBySuffix {ex=TestExecutor} opt "lora_B"
-  check "freezeBySuffix / unfreezeBySuffix run without error" True
+  freezeGroup   {ex=TestExecutor} opt !(namesMatching {ex=TestExecutor} (isSuffixOf "lora_A"))
+  freezeGroup   {ex=TestExecutor} opt !(namesMatching {ex=TestExecutor} (isSuffixOf "lora_B"))
+  unfreezeGroup {ex=TestExecutor} opt !(namesMatching {ex=TestExecutor} (isSuffixOf "lora_A"))
+  unfreezeGroup {ex=TestExecutor} opt !(namesMatching {ex=TestExecutor} (isSuffixOf "lora_B"))
+  check "freezeGroup / unfreezeGroup by suffix run without error" True
 
 export
 tests : List (IO Bool)
@@ -122,5 +123,5 @@ tests =
   [ saveMatchingExactNameTest
   , saveBySuffixesPicksAdaptersTest
   , emptyMatchFailsTest
-  , freezeBySuffixSmokeTest
+  , freezeGroupBySuffixSmokeTest
   ]

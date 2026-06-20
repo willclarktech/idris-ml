@@ -54,6 +54,18 @@ groupsDontLeak = do
   check "groupOf actor excludes actorX's param (no substring leak)"
         (not ("actorX.linear_0.weight" `elem` ga) && all (\n => not (n `elem` ga)) gb)
 
+-- The linear twin: reflectNames consumes a single-owner (linear) model and
+-- returns its exact registry names beside the threaded-back model — the source
+-- that feeds `restrictTo` for optimizer ownership where the model is a `1`
+-- resource. Same exact-set guarantee as groupOf, on the linear path.
+reflectNamesIsExact : IO Bool
+reflectNamesIsExact = Control.Linear.LIO.run $ do
+  a <- runInitL (scoped "rn" (lin {ex=TestExecutor} {dt=TestDType} "linear"))
+  let (MkBang names # a') = reflectNames a
+  discard a'
+  liftIO1 (check ("reflectNames returns the model's exact names (got " ++ show names ++ ")")
+                 (names == ["rn.linear_0.weight"]))
+
 export
 tests : List (IO Bool)
-tests = [groupsAreExact, groupsDontLeak]
+tests = [groupsAreExact, groupsDontLeak, reflectNamesIsExact]

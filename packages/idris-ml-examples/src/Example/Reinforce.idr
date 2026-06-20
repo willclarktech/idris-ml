@@ -338,7 +338,7 @@ runLrFind cfg opt = Control.Linear.LIO.run $ do
     (lrFind {ex = Ex} {model = Policy} {dp = List (List Double)} lrFindCfg
        (\m, d => do
           (MkBang (loss, _) # m') <- computeLossL cfg.gamma m d
-          dd <- liftIO1 (nativeTrainStep opt loss)
+          dd <- liftIO1 (trainStep opt loss)
           pure1 (MkBang dd # m'))
        (genBatch cfg.batchSz) opt model)
     finishLrFind
@@ -351,7 +351,7 @@ runTrainBatched cfg opt metrics n = Control.Linear.LIO.run $ do
     fit {batch = Vect n (List Double)}
          (\m, d => do
             (MkBang (loss, avgRet) # m') <- computeLossBatchedL cfg.gamma m d
-            dd <- liftIO1 (do x <- nativeTrainStep opt loss; recordReturn metrics avgRet; pure x)
+            dd <- liftIO1 (do x <- trainStep opt loss; recordReturn metrics avgRet; pure x)
             pure1 (MkBang dd # m'))
          opt (generate (genBatchV n))
          ({ metricsL := readRLMetrics "recent_100" metrics }
@@ -367,7 +367,7 @@ runTrainSeq cfg opt metrics = Control.Linear.LIO.run $ do
     fit {batch = List (List Double)}
          (\m, d => do
             (MkBang (loss, avgRet) # m') <- computeLossL cfg.gamma m d
-            dd <- liftIO1 (do x <- nativeTrainStep opt loss; recordReturn metrics avgRet; pure x)
+            dd <- liftIO1 (do x <- trainStep opt loss; recordReturn metrics avgRet; pure x)
             pure1 (MkBang dd # m'))
          opt (generate (genBatch cfg.batchSz))
          ({ metricsL := readRLMetrics "recent_100" metrics }

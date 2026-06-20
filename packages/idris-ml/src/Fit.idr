@@ -6,7 +6,7 @@
 ||| threading; `fit` owns the epoch loop, schedule tick, early stop,
 ||| checkpointing, NaN handling, and mlx generation hygiene (via
 ||| `Train.EngineL.runEpochLoop`). Supervised 90% use `fitSupervised` /
-||| `fitSupervisedMixed` and never touch `nativeTrainStep`; RL/custom loops pass
+||| `fitSupervisedMixed` and never touch `trainStep`; RL/custom loops pass
 ||| their own `EpochStep`.
 |||
 ||| Imports `Data.Linear.Notation` (for `MkBang`/`!*`), **not** full
@@ -17,7 +17,7 @@
 |||
 ||| Data stays plain `IO` (`DataStream.next` lifted via `liftIO1`) — data is
 ||| not a linear resource; model linearity is orthogonal to it. The optimizer
-||| step functions (`nativeTrainStep`/`trainStepScaled`/`applyScale`/`tick`)
+||| step functions (`trainStep`/`trainStepScaled`/`applyScale`/`tick`)
 ||| touch only the C registry, never the model value, so they stay `IO` and
 ||| are lifted at the call site.
 module Fit
@@ -118,7 +118,7 @@ fit {nanHalts} step opt s cfg m0 =
 
 ||| Supervised convenience for the linear loop: give a linear loss function
 ||| (consume the model, run `forwardL`, return the scalar loss + the model),
-||| never call `nativeTrainStep`. Builds an `EpochStep` doing one fused step
+||| never call `trainStep`. Builds an `EpochStep` doing one fused step
 ||| per batch (zero-grad → backward → clip → step) and threads the model. The
 ||| `L IO` analogue of `Fit.fitSupervised`.
 export
@@ -131,7 +131,7 @@ fitSupervised : {0 ex : Executor} -> Backend ex dt => UserExecutorTransfer ex =>
 fitSupervised opt lossFn s cfg m0 =
   fit (\mm, b => do
           (MkBang loss # m') <- lossFn mm b
-          d <- liftIO1 (nativeTrainStep opt loss)
+          d <- liftIO1 (trainStep opt loss)
           pure1 (MkBang d # m'))
        opt s cfg m0
 

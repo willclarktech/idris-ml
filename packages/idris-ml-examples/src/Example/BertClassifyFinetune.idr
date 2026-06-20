@@ -14,7 +14,7 @@
 |||
 ||| Demonstrates the new API surface:
 |||   - `hfBertForSequenceClassification` (backbone + fresh head)
-|||   - optional `--freeze-backbone` calling `freezeByPrefix`
+|||   - optional `--freeze-backbone` via `freezeGroup` + `namesMatching`
 |||
 ||| The synthetic config is small enough that from-scratch training
 ||| converges in seconds. Pre-trained warm-start via `loadModelPrefix`
@@ -27,6 +27,7 @@ module Example.BertClassifyFinetune
 import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.List
+import Data.String
 import Data.Vect
 import System
 import Compat.Random
@@ -330,7 +331,8 @@ main = do
     opt <- liftIO1 (adamW {ex=ExampleExecutor} cfg.lr 0.01 ({ clip := NormClip 1.0 } defaultOpts))
     liftIO1 (when cfg.freezeBackbone $ do
                putStrLn "Freezing backbone (`bert.*`); only classifier head trains."
-               freezeByPrefix {ex=ExampleExecutor} opt "bert.")
+               freezeGroup {ex=ExampleExecutor} opt
+                 !(namesMatching {ex=ExampleExecutor} (isPrefixOf "bert.")))
     let trainCfg = patienceConfig cfg.epochs cfg.patience
         stream   = generate (genBatch BatchSize)
     (MkBang (epochsDone, finalLoss) # trained) <-

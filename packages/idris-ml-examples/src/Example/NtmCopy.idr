@@ -133,7 +133,7 @@ recurEpochL opt cell0 batch = do
   d <- liftIO1 $ do
          s    <- sumLosses ls
          mean <- (1.0 / cast (length batch)) *: s
-         nativeTrainStep opt mean
+         trainStep opt mean
   pure1 (MkBang d # cellFinal)
   where
     foldBatch : (1 _ : Model) -> List Seq -> List (Tensor [] Ex F WithGrad) ->

@@ -20,7 +20,7 @@ static double* heap_copy(const double* src, int n) {
 }
 
 /* Fused entry point: zero_grad + backward + clip + step in one call —
-   the path Idris's nativeTrainStep drives. The unfused sequence above
+   the path Idris's trainStep drives. The unfused sequence above
    (scalar_quadratic_convergence) passed on every backend while the
    Idris suite segfaulted inside this entry on torch, so the fused
    path needs its own coverage. loss = w*w from w=1 at lr=0.1: one

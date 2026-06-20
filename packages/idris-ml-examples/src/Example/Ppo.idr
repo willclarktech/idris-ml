@@ -387,7 +387,7 @@ runBatchL opt actor critic cfg batch = withGenFreeL {ex=Ex} $ do
   loss <- liftIO1 $ do
             losses <- enumeratedLosses logitsB valueB batchVec 0
             meanScalarLoss n losses
-  _ <- liftIO1 (nativeTrainStep opt loss)
+  _ <- liftIO1 (trainStep opt loss)
   pure1 (actor' # critic')
   where
     enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] Ex F WithGrad ->
