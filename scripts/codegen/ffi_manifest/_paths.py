@@ -5,15 +5,31 @@ sources from, and how they recognise `%foreign` declarations in them.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 # Files in the wrap-handle FFI set — the linter and converter both
-# operate on these.
-WRAP_HANDLE_FILES = [
-    "packages/idris-ml/src/Tensor.idr",
-    "packages/idris-ml/src/Executor/Mlx.idr",
-    "packages/idris-ml/src/Executor/Tape.idr",
-    "packages/idris-ml/src/Executor/Torch.idr",
-]
+# operate on these. Globbed (not hardcoded) so the per-module splits of
+# Tensor.idr (Tensor/*.idr) and the per-slice Executor backend modules
+# (Executor/<Backend>/*.idr) are picked up automatically, and future
+# slices need no edit here. Paths are repo-root-relative POSIX strings.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_SRC = _REPO_ROOT / "packages" / "idris-ml" / "src"
+
+
+def _glob(*patterns: str) -> list[str]:
+    out: set[str] = set()
+    for pat in patterns:
+        for p in _SRC.glob(pat):
+            out.add(p.relative_to(_REPO_ROOT).as_posix())
+    return sorted(out)
+
+
+WRAP_HANDLE_FILES = _glob(
+    "Tensor.idr",
+    "Tensor/*.idr",
+    "Executor/*.idr",
+    "Executor/*/*.idr",
+)
 
 
 # Matches a `%foreign "C:cname,libidrisml"` declaration + its

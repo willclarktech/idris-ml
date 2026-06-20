@@ -81,3 +81,11 @@ modules = Compat.Random
         , Util.Log
         , Tensor
         , Tensor.Internal
+        , Tensor.Handle
+        , Tensor.Core
+        , Tensor.Ops
+        , Tensor.Construct
+        , Tensor.Quant
+        , Tensor.Index
+        , Tensor.Optimizer
+        , Tensor.Linear
