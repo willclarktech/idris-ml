@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.recall_task import generate_recall_batch
+from torch_ref.metrics import bit_and_sequence_accuracy
 from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
@@ -61,10 +62,13 @@ def _train_ntm_epoch(
     return avg_loss.item()
 
 
-def _bit_accuracy(model: NtmModel, batch: list[tuple[torch.Tensor, torch.Tensor]]) -> float:
-    correct = 0
-    total = 0
+def _accuracies(
+    model: NtmModel, batch: list[tuple[torch.Tensor, torch.Tensor]]
+) -> tuple[float, float]:
+    """(per-bit, per-sequence) accuracy over a batch."""
     device = get_device()
+    preds: list[torch.Tensor] = []
+    targets: list[torch.Tensor] = []
     with torch.no_grad():
         for input_seq, target_seq in batch:
             model.reset_state()
@@ -75,11 +79,9 @@ def _bit_accuracy(model: NtmModel, batch: list[tuple[torch.Tensor, torch.Tensor]
             for _ in range(target_seq.shape[0]):
                 out = model(zero_input)
                 outputs.append(out)
-            pred = torch.stack(outputs)
-            pred_bits = (torch.sigmoid(pred) >= 0.5).float()
-            correct += (pred_bits == target_seq).sum().item()
-            total += target_seq.numel()
-    return correct / total if total > 0 else 0.0
+            preds.append((torch.sigmoid(torch.stack(outputs)) >= 0.5).float())
+            targets.append(target_seq)
+    return bit_and_sequence_accuracy(preds, targets)
 
 
 def main() -> None:
@@ -138,7 +140,7 @@ def main() -> None:
 
     def metrics_fn() -> list[tuple[str, str]]:
         eval_batch = generate_recall_batch(10, args.min_items, args.max_items, SEQ_LEN, W)
-        acc = _bit_accuracy(model, eval_batch)
+        acc, _ = _accuracies(model, eval_batch)
         return [
             ("acc", f"{acc * 100:.1f}%"),
         ]
@@ -159,15 +161,15 @@ def main() -> None:
     k2_batch = generate_recall_batch(test_size, 2, 2, SEQ_LEN, W)
     k4_batch = generate_recall_batch(test_size, 4, 4, SEQ_LEN, W)
     k6_batch = generate_recall_batch(test_size, 6, 6, SEQ_LEN, W)
-    k2_acc = _bit_accuracy(model, k2_batch)
-    k4_acc = _bit_accuracy(model, k4_batch)
-    k6_acc = _bit_accuracy(model, k6_batch)
+    k2_acc, k2_seq = _accuracies(model, k2_batch)
+    k4_acc, k4_seq = _accuracies(model, k4_batch)
+    k6_acc, k6_seq = _accuracies(model, k6_batch)
 
     print()
     print("Eval:")
-    print(f"  K=2 items: {k2_acc * 100:.1f}% bit accuracy")
-    print(f"  K=4 items: {k4_acc * 100:.1f}% bit accuracy")
-    print(f"  K=6 items: {k6_acc * 100:.1f}% bit accuracy")
+    print(f"  K=2 items: {k2_acc * 100:.1f}% bit, {k2_seq * 100:.1f}% seq")
+    print(f"  K=4 items: {k4_acc * 100:.1f}% bit, {k4_seq * 100:.1f}% seq")
+    print(f"  K=6 items: {k6_acc * 100:.1f}% bit, {k6_seq * 100:.1f}% seq")
     print()
     print(
         format_result(
@@ -176,6 +178,9 @@ def main() -> None:
                 ("acc_k2", f"{k2_acc}"),
                 ("acc_k4", f"{k4_acc}"),
                 ("acc_k6", f"{k6_acc}"),
+                ("seq_acc_k2", f"{k2_seq}"),
+                ("seq_acc_k4", f"{k4_seq}"),
+                ("seq_acc_k6", f"{k6_seq}"),
                 ("seed", str(args.seed)),
             ]
         )

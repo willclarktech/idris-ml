@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.copy_task import generate_copy_batch
+from torch_ref.metrics import bit_and_sequence_accuracy
 from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
@@ -60,10 +61,13 @@ def _train_ntm_epoch(
     return avg_loss.item()
 
 
-def _bit_accuracy(model: NtmModel, batch: list[tuple[torch.Tensor, torch.Tensor]]) -> float:
-    correct = 0
-    total = 0
+def _accuracies(
+    model: NtmModel, batch: list[tuple[torch.Tensor, torch.Tensor]]
+) -> tuple[float, float]:
+    """(per-bit, per-sequence) accuracy over a batch."""
     device = get_device()
+    preds: list[torch.Tensor] = []
+    targets: list[torch.Tensor] = []
     with torch.no_grad():
         for input_seq, target_seq in batch:
             model.reset_state()
@@ -74,11 +78,9 @@ def _bit_accuracy(model: NtmModel, batch: list[tuple[torch.Tensor, torch.Tensor]
             for _ in range(target_seq.shape[0]):
                 out = model(zero_input)
                 outputs.append(out)
-            pred = torch.stack(outputs)
-            pred_bits = (torch.sigmoid(pred) >= 0.5).float()
-            correct += (pred_bits == target_seq).sum().item()
-            total += target_seq.numel()
-    return correct / total if total > 0 else 0.0
+            preds.append((torch.sigmoid(torch.stack(outputs)) >= 0.5).float())
+            targets.append(target_seq)
+    return bit_and_sequence_accuracy(preds, targets)
 
 
 def show_binary_vec(t: torch.Tensor) -> str:
@@ -140,7 +142,7 @@ def main() -> None:
 
     def metrics_fn() -> list[tuple[str, str]]:
         eval_batch = generate_copy_batch(10, 1, 20, seq_width=W)
-        acc = _bit_accuracy(model, eval_batch)
+        acc, _ = _accuracies(model, eval_batch)
         return [
             ("acc", f"{acc * 100:.1f}%"),
         ]
@@ -184,11 +186,11 @@ def main() -> None:
     test_size = 100
     short_batch = generate_copy_batch(test_size, 1, 5, seq_width=W)
     full_batch = generate_copy_batch(test_size, 1, 20, seq_width=W)
-    short_acc = _bit_accuracy(model, short_batch)
-    full_acc = _bit_accuracy(model, full_batch)
+    short_acc, short_seq = _accuracies(model, short_batch)
+    full_acc, full_seq = _accuracies(model, full_batch)
 
-    print(f"  Short (len 1-5):  {short_acc * 100:.1f}% bit accuracy")
-    print(f"  Full  (len 1-20): {full_acc * 100:.1f}% bit accuracy")
+    print(f"  Short (len 1-5):  {short_acc * 100:.1f}% bit, {short_seq * 100:.1f}% seq")
+    print(f"  Full  (len 1-20): {full_acc * 100:.1f}% bit, {full_seq * 100:.1f}% seq")
     print()
     print(
         format_result(
@@ -196,6 +198,8 @@ def main() -> None:
                 ("epochs", str(epochs_done)),
                 ("acc_short", f"{short_acc}"),
                 ("acc_full", f"{full_acc}"),
+                ("seq_acc_short", f"{short_seq}"),
+                ("seq_acc_full", f"{full_seq}"),
                 ("seed", str(args.seed)),
             ]
         )

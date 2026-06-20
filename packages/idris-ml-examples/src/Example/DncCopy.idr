@@ -142,31 +142,37 @@ recurEpochL opt cell0 batch = do
 -- Eval: bit accuracy over a fresh test batch (no grad)
 ----------------------------------------------------------------------
 
-scoreSeqL : (1 _ : Model) -> Seq -> L IO {use = 1} (LPair (!* (Nat, Nat)) Model)
+-- Score one sequence: (matching bits, total bits, whole-sequence-correct).
+scoreSeqL : (1 _ : Model) -> Seq -> L IO {use = 1} (LPair (!* (Nat, Nat, Bool)) Model)
 scoreSeqL cell0 (encIns, targs) = withNoGradL {ex = Ex} $ do
   enc <- encodeAllL (recurReset cell0) encIns
-  go enc targs 0 0
+  go enc targs 0 0 True
   where
-    go : (1 _ : Model) -> List (Vect OutputW Double) -> Nat -> Nat ->
-         L IO {use = 1} (LPair (!* (Nat, Nat)) Model)
-    go cell []            correct tot  = pure1 (MkBang (correct, tot) # cell)
-    go cell (trow :: rest) correct tot = do
+    go : (1 _ : Model) -> List (Vect OutputW Double) -> Nat -> Nat -> Bool ->
+         L IO {use = 1} (LPair (!* (Nat, Nat, Bool)) Model)
+    go cell []            correct tot allOk  = pure1 (MkBang (correct, tot, allOk) # cell)
+    go cell (trow :: rest) correct tot allOk = do
       z <- liftIO1 zeroIn
       (MkBang out # cell') <- recurStep cell z
       let logits  = [ primItem1d {ex = Ex} out.tensorPtr (cast j) | j <- [the Nat 0 .. OutputW `minus` 1] ]
           matches = length [ () | (lg, tv) <- zip logits (toList trow), (lg >= 0.0) == (tv >= 0.5) ]
-      go cell' rest (correct + matches) (tot + OutputW)
+      go cell' rest (correct + matches) (tot + OutputW) (allOk && matches == OutputW)
 
-bitAccuracyL : (1 _ : Model) -> List Seq -> L IO {use = 1} (LPair (!* Double) Model)
+-- (per-bit accuracy, per-sequence accuracy). Per-bit is the headline; per-sequence
+-- (a sequence counts only if every bit matches) is the stricter signal.
+bitAccuracyL : (1 _ : Model) -> List Seq -> L IO {use = 1} (LPair (!* (Double, Double)) Model)
 bitAccuracyL cell0 batch = do
   (MkBang scores # cellFinal) <- foldScore cell0 batch []
-  let (corrects, totals) = unzip scores
-      correct = sum corrects
-      tot     = sum totals
-  pure1 (MkBang (if tot == 0 then 0.0 else cast correct / cast tot) # cellFinal)
+  let correct = sum [ c | (c, _, _) <- scores ]
+      tot    = sum [ t | (_, t, _) <- scores ]
+      seqOk  = length (filter (\(_, _, ok) => ok) scores)
+      nSeqs  = length scores
+      bitAcc = if tot == 0 then 0.0 else cast correct / cast tot
+      seqAcc = if nSeqs == 0 then 0.0 else cast seqOk / cast nSeqs
+  pure1 (MkBang (bitAcc, seqAcc) # cellFinal)
   where
-    foldScore : (1 _ : Model) -> List Seq -> List (Nat, Nat) ->
-                L IO {use = 1} (LPair (!* (List (Nat, Nat))) Model)
+    foldScore : (1 _ : Model) -> List Seq -> List (Nat, Nat, Bool) ->
+                L IO {use = 1} (LPair (!* (List (Nat, Nat, Bool))) Model)
     foldScore cell []          acc = pure1 (MkBang (reverse acc) # cell)
     foldScore cell (s :: rest) acc = do
       (MkBang sc # cell') <- scoreSeqL cell s
@@ -240,10 +246,12 @@ main = do
            model
     liftIO1 (putStrLn "" >> putStrLn "Eval:")
     testBatch <- liftIO1 (genBatch 100 1 10)
-    (MkBang acc # trained') <- bitAccuracyL trained testBatch
+    (MkBang (acc, seqAcc) # trained') <- bitAccuracyL trained testBatch
     discard trained'
     liftIO1 $ do
       putStrLn $ "  Bit accuracy (len 1-10): " ++ show (acc * 100.0) ++ "%"
+      putStrLn $ "  Seq accuracy (len 1-10): " ++ show (seqAcc * 100.0) ++ "%"
       putStrLn ""
       putStrLn $ formatResult [("epochs", show epochsDone),
-                               ("acc", show acc), ("seed", show cfg.seed)]
+                               ("acc", show acc), ("seq_acc", show seqAcc),
+                               ("seed", show cfg.seed)]
