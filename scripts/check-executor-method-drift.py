@@ -28,10 +28,13 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+_EXEC = ROOT / "packages/idris-ml/src/Executor"
+# Each backend's instances now live across per-slice modules under
+# Executor/<Backend>/ plus the umbrella Executor/<Backend>.idr; glob and
+# merge so the drift scan sees the full method set per backend.
 EXECUTOR_FILES = {
-    "tape": ROOT / "packages/idris-ml/src/Executor/Tape.idr",
-    "torch": ROOT / "packages/idris-ml/src/Executor/Torch.idr",
-    "mlx": ROOT / "packages/idris-ml/src/Executor/Mlx.idr",
+    b: sorted((_EXEC / b.capitalize()).glob("*.idr")) + [_EXEC / f"{b.capitalize()}.idr"]
+    for b in ("tape", "torch", "mlx")
 }
 
 # Methods that are legitimately allowed to differ. Empty for now; populate
@@ -109,12 +112,15 @@ def parse_methods(text: str) -> dict[str, set[str]]:
 
 def main() -> int:
     parsed: dict[str, dict[str, set[str]]] = {}
-    for backend, path in EXECUTOR_FILES.items():
-        if not path.exists():
-            print(f"error: missing {path}", file=sys.stderr)
-            return 2
-        text = path.read_text()
-        parsed[backend] = parse_methods(text)
+    for backend, paths in EXECUTOR_FILES.items():
+        merged: dict[str, set[str]] = defaultdict(set)
+        for path in paths:
+            if not path.exists():
+                print(f"error: missing {path}", file=sys.stderr)
+                return 2
+            for slice_name, methods in parse_methods(path.read_text()).items():
+                merged[slice_name] |= methods
+        parsed[backend] = dict(merged)
 
     # Union of all (slice, method) pairs across the three backends.
     all_keys: set[tuple[str, str]] = set()

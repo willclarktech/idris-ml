@@ -22,8 +22,23 @@ modules = Compat.Random
         , Executor.Core.Transfer
         , Executor.Core.Aggregate
         , Executor.Mlx
+        , Executor.Mlx.Core
+        , Executor.Mlx.Linear
+        , Executor.Mlx.Nn
+        , Executor.Mlx.Training
+        , Executor.Mlx.Transfer
         , Executor.Tape
+        , Executor.Tape.Core
+        , Executor.Tape.Linear
+        , Executor.Tape.Nn
+        , Executor.Tape.Training
+        , Executor.Tape.Transfer
         , Executor.Torch
+        , Executor.Torch.Core
+        , Executor.Torch.Linear
+        , Executor.Torch.Nn
+        , Executor.Torch.Training
+        , Executor.Torch.Transfer
         , DType.Core
         , DType.Test
         , Floating

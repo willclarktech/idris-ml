@@ -34,11 +34,19 @@ sys.path.insert(0, str(REPO_ROOT / "scripts" / "codegen"))
 from ffi_manifest import MANIFEST, Entry  # noqa: E402
 
 EXEC_DIR = REPO_ROOT / "packages" / "idris-ml" / "src" / "Executor"
-FILES = {
-    "tape": EXEC_DIR / "Tape.idr",
-    "torch": EXEC_DIR / "Torch.idr",
-    "mlx": EXEC_DIR / "Mlx.idr",
-}
+
+
+def _backend_files(b: str) -> list[Path]:
+    """Per-backend instance files: the per-slice modules under
+    Executor/<Backend>/ plus the umbrella Executor/<Backend>.idr (which
+    carries the empty Training-aggregate block). Globbed so future slices
+    auto-include. The generator finds marker blocks by the preceding
+    `instance ... where` header regardless of which file they live in."""
+    cap = b.capitalize()
+    return sorted((EXEC_DIR / cap).glob("*.idr")) + [EXEC_DIR / f"{cap}.idr"]
+
+
+FILES = {b: _backend_files(b) for b in ("tape", "torch", "mlx")}
 
 BACKEND_SUFFIX = {"tape": "Tape", "torch": "Torch", "mlx": "Mlx"}
 
@@ -209,10 +217,11 @@ def main() -> None:
     args = ap.parse_args()
 
     diffs: list[tuple[str, Path]] = []
-    for backend, path in FILES.items():
-        src, new_src = rewrite_file(path, backend, dry_run=args.check)
-        if src != new_src:
-            diffs.append((backend, path))
+    for backend, paths in FILES.items():
+        for path in paths:
+            src, new_src = rewrite_file(path, backend, dry_run=args.check)
+            if src != new_src:
+                diffs.append((backend, path))
 
     if args.check:
         if diffs:
