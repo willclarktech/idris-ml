@@ -174,20 +174,20 @@ jobs:
         # uv dev venv (pytest dev dep) synced for lint-py/typecheck-py above.
         # Wired in by the gate-coverage lint (these were previously orphaned).
         run: make test-integration-py-scripts
-      - name: Install C-lint tools (clang-format + cppcheck + clang-tidy)
-        # apt-installs clang-format + cppcheck + clang-tidy on the
-        # Ubuntu runner. ~10s on a warm cache. Local devs install via
-        # `brew install clang-format cppcheck llvm` or the equivalent
-        # nix derivation. The Make target gracefully skips each tool
-        # that isn't on PATH so it doesn't block pre-commit runs
-        # locally. libopenblas-dev provides <cblas.h>, which clang-tidy
-        # needs to parse the tape sources' non-Apple BLAS branch.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format cppcheck clang-tidy libopenblas-dev
+      - name: Install Nix (pinned toolchain for C lint)
+        # The C-lint tools (clang-format / clang-tidy / cppcheck + <cblas.h>
+        # via openblas) come from the repo flake's `lint` devShell, pinned by
+        # flake.lock so CI's clang-tidy is byte-identical to the dev box's
+        # (21.1.x). This kills the apt-clang-tidy-18 vs local-21 finding skew
+        # that made lint-c / include-cleaner failures unreproducible locally.
+        # SHA-pinned third-party action — a deliberate, narrow exception to the
+        # repo's zero-third-party-actions posture (see flake.nix header).
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Check C / C++ formatting (clang-format --dry-run)
         # Runs `make check-fmt-c` — the format half of the fmt family
         # (mk/fmt.mk), clang-format over all 3 backends + shared at once.
-        # Separate from lint-c so format != lint.
-        run: make check-fmt-c
+        # Separate from lint-c so format != lint. Pinned clang-format via nix.
+        run: nix develop .#lint --command make check-fmt-c
       - name: Lint C / C++ backend surface (cppcheck + clang-tidy)
         # Runs `make lint-c`: cppcheck on all 3 backends + clang-tidy on
         # tape (tape uses only libc + BLAS headers; no libtorch / mlx
@@ -195,7 +195,7 @@ jobs:
         # runs in the lint-full job, which carries libtorch via the uv
         # venv. cppcheck flags inline; clang-tidy check set in
         # `.clang-tidy`. clang-format is the check-fmt-c step above.
-        run: make lint-c
+        run: nix develop .#lint --command make lint-c
       - name: Lint C misc-include-cleaner gate (rename-free)
         # Runs `make lint-c-include-cleaner` — clang-tidy with ONLY
         # misc-include-cleaner enabled and WITHOUT `-include
@@ -204,7 +204,7 @@ jobs:
         # tracker (~250 architectural FPs). Cannot enable the check
         # in the default `.clang-tidy` for that reason; this is the
         # canonical gate for include hygiene on backend_tape.
-        run: make lint-c-include-cleaner
+        run: nix develop .#lint --command make lint-c-include-cleaner
 
       - name: Save lint venv cache
         # Key changes only with uv.lock; a same-key re-save can only
