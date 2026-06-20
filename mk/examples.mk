@@ -30,7 +30,7 @@
         example-mlx-stream-demo example-gpt example-gpt-full \
         example-mnist example-seq-classify example-reinforce \
         example-q-learning example-sarsa example-monte-carlo \
-        example-frozen-lake example-taxi example-dqn \
+        example-frozen-lake example-taxi example-dqn example-double-dqn \
         example-mountain-car example-mountain-car-cont example-a2c \
         example-ppo example-sac example-transfer example-precision-demo \
         example-checkpoint example-checkpoint-demo example-matmul-bench \
@@ -590,6 +590,11 @@ example-dqn: install
 	idris2 $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
 	cp $(LIB) $(BUILD)/exec/dqn_app/
 	$(STDBUF) ./$(BUILD)/exec/dqn $(SEED_FLAG) $(DQN_ARGS)
+
+example-double-dqn: install
+	idris2 $(IDRIS_FLAGS) -o double-dqn $(EXAMPLE_SRC)/Example/DoubleDqn.idr
+	cp $(LIB) $(BUILD)/exec/double-dqn_app/
+	$(STDBUF) ./$(BUILD)/exec/double-dqn $(SEED_FLAG) $(DOUBLE_DQN_ARGS)
 
 example-mountain-car: install
 	idris2 $(IDRIS_FLAGS) -o mountain-car $(EXAMPLE_SRC)/Example/MountainCar.idr

@@ -68,6 +68,7 @@ example-taxi                     avg_return   >=  5
 # left over from before the example came off the harness skip list.
 example-reinforce                avg_return   >=  -100
 example-dqn                      avg_return   >=  -300
+example-double-dqn               avg_return   >=  -300
 example-mountain-car             avg_return   >=  -201
 example-mountain-car-cont        avg_return   >=  -120
 example-a2c                      avg_return   >=  -100

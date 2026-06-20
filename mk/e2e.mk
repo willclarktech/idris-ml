@@ -7,7 +7,7 @@
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
 .PHONY: test-e2e-examples all-backends test-convergence test-convergence-campaign
 
-EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-matmul-bench example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-checkpoint
+EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-matmul-bench example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-double-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-checkpoint
 # 5-lane matrix. `mlx-gpu` (BACKEND=mlx MLX_DEVICE=gpu) and `torch-mps`
 # (BACKEND=torch TORCH_DEVICE=mps) are virtual lanes that exercise the
 # F32 code paths (per BuildConfig.idr); tape / mlx / torch build at F64.
@@ -82,7 +82,7 @@ CONVERGENCE_CAMPAIGN_EXAMPLES := example-supervised example-rnn example-lstm \
 	example-gru example-transformer example-seq-classify \
 	example-gpt example-q-learning example-sarsa example-monte-carlo \
 	example-frozen-lake example-taxi example-mnist example-reinforce \
-	example-dqn example-mountain-car example-mountain-car-cont example-a2c \
+	example-dqn example-double-dqn example-mountain-car example-mountain-car-cont example-a2c \
 	example-ppo example-sac example-ntm-copy example-ntm-associative-recall \
 	example-dnc-copy example-dnc-recall
 
