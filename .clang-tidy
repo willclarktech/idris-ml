@@ -89,6 +89,14 @@
 #       use `static` and is exempt by language). Firing only on the
 #       torch/mlx C++ backends, it carries no bug-class signal — same
 #       rationale as the modernize-*/cppcoreguidelines-* family disables.
+#   misc-use-internal-linkage (clang-tidy 19+) — FALSE POSITIVE here:
+#       suggests `static`/anon-namespace for symbols it sees no caller for
+#       within the TU, but the flagged ones (from_tensor / from_tensor_
+#       persistent declared in tensor.h and called from every per-op .cpp;
+#       g_torch_target_device declared extern + read by dtype_dispatch.cpp)
+#       are genuinely cross-TU — making them internal would break the link.
+#       The check can't see header decls / external refs. Same family +
+#       rationale as misc-use-anonymous-namespace above.
 #
 # Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 
@@ -119,6 +127,7 @@ Checks: >
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -misc-include-cleaner,
   -misc-use-anonymous-namespace,
+  -misc-use-internal-linkage,
   -readability-braces-around-statements,
   -readability-function-cognitive-complexity,
   -readability-identifier-length,

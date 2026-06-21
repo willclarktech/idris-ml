@@ -523,14 +523,15 @@ extern "C" double optimizer_clip_grad_norm(double max_norm) {
 extern "C" int polyak_blend_pair(double tau, const char* online_name, const char* target_name) {
 	if (online_name == nullptr || target_name == nullptr) return 0;
 	const torch::NoGradGuard no_grad;
-	at::Tensor* on_t = nullptr;
-	at::Tensor* tg_t = nullptr;
+	const at::Tensor* on_t = nullptr;
+	const at::Tensor* tg_t = nullptr;
 	/* Exact-match both names — no prefix logic, so a name that is a proper
-	   prefix of another can't over-match. */
+	   prefix of another can't over-match. mul_/add_ below are const-qualified
+	   in-place ops, so const pointees still drive the blend. */
 	for (int i = 0; i < param_count(); i++) {
 		const std::string nm(param_name(i));
-		if (on_t == nullptr && nm == online_name) on_t = (at::Tensor*)param_tensor(i);
-		if (tg_t == nullptr && nm == target_name) tg_t = (at::Tensor*)param_tensor(i);
+		if (on_t == nullptr && nm == online_name) on_t = (const at::Tensor*)param_tensor(i);
+		if (tg_t == nullptr && nm == target_name) tg_t = (const at::Tensor*)param_tensor(i);
 	}
 	if (on_t == nullptr || tg_t == nullptr) return 0;
 	if (!on_t->sizes().equals(tg_t->sizes())) return 0;
@@ -749,7 +750,7 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	const double inv_scale = 1.0 / scale;
 	bool has_nonfinite = false;
 	for (auto& p : params) {
-		auto g = p.grad();
+		const auto& g = p.grad();
 		if (!g.defined()) continue;
 		g.mul_(inv_scale);
 		if (!at::isfinite(g).all().item<bool>()) has_nonfinite = true;

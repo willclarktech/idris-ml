@@ -8,6 +8,7 @@
  * Mirrors the tape diagnostic for cross-backend comparison.
  *
  * Both are no-ops unless the corresponding env var is set. */
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -25,6 +26,7 @@ extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
 	int every = 100;
 	const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
 	if (every_s != nullptr) every = static_cast<int>(strtol(every_s, nullptr, 10));
+	every = std::max(every, 1); // env-supplied; guard the modulo below against % 0
 	_dbg_traj_step_torch++;
 	if (_dbg_traj_step_torch % every != 0 && _dbg_traj_step_torch != 1) return;
 	for (int i = 0; i < param_count(); i++) {
@@ -39,8 +41,8 @@ extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
 			for (int j = 0; j < numel; j++) {
 				const double v = d[j];
 				l2 += v * v;
-				if (v < mn) mn = v;
-				if (v > mx) mx = v;
+				mn = std::min(mn, v);
+				mx = std::max(mx, v);
 			}
 			l2 = std::sqrt(l2);
 			fprintf(

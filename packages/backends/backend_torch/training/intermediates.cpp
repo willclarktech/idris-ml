@@ -11,6 +11,7 @@
  * today (see backend_torch/core/lifecycle/free.cpp) so the set isn't
  * read externally, but keeping it here keeps the contract local to
  * the cleanup path. */
+#include <algorithm>
 #include <unordered_set>
 #include "intermediates.h"
 #include "profiling.h"
@@ -64,8 +65,8 @@ TensorHandle from_tensor(at::Tensor t) {
 	auto* p = new at::Tensor(std::move(t));
 	if (tracking_enabled_torch) {
 		intermediates_torch.push_back(p);
-		if ((long)intermediates_torch.size() > g_torch_peak_live_intermediates)
-			g_torch_peak_live_intermediates = (long)intermediates_torch.size();
+		g_torch_peak_live_intermediates =
+		    std::max(g_torch_peak_live_intermediates, (long)intermediates_torch.size());
 	}
 	/* TODO #393 op-submission counter — count graph nodes per forward
 	 * by counting at::Tensor wraps. Read via tensor_perf_op_count and
