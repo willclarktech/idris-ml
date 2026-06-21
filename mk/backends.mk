@@ -298,10 +298,18 @@ $(BUILD)/backend_mlx/%.o: $(BACKENDS_DIR)/backend_mlx/%.cpp $(BACKEND_MLX_HEADER
 # regardless of which TUs each backend actually compiles); BACKEND_OBJS
 # only links the specific (backend, TU) pairs each SHARED_BACKENDS_<tu>
 # list selects.
+#
+# Compiled with $(SHARED_CC) (a C compiler), NOT the backend's $(b)_CC:
+# these are pure C TUs (libc + port.h + the extern-"C" backend.h, no
+# BLAS/mlx/torch headers), and the per-backend split is only for the
+# rename header. Routing them through the mlx/torch C++ compiler made
+# `clang++` warn "treating 'c' input as 'c++' ... deprecated" per TU.
+# $(SHARED_CC) still honours the coverage lane's command-line override
+# (COV_CC_OVERRIDES sets SHARED_CC=$(COV_CLANG)).
 define shared_training_compile_rule
 $(BUILD)/shared_training_$(1)/%.o: $(BACKENDS_DIR)/shared/training/%.c $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	@mkdir -p $$(dir $$@)
-	$($(1)_CC) -O2 -fPIC $$(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
+	$$(SHARED_CC) -O2 -fPIC $$(EXTRA_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
 $(foreach b,$(BACKEND_LIST),$(eval $(call shared_training_compile_rule,$(b))))
