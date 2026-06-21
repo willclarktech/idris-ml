@@ -404,10 +404,11 @@ jobs:
         # Enforcing (no continue-on-error): all 151 findings the first
         # correct-header runs surfaced were triaged and fixed (145 in the
         # initial sweep + 6 residual; commits 362f85f5 / 2f4e8f66), and a
-        # subsequent run came back with 0 displayed findings. Can't be
-        # linted locally on macOS (nix clang-tidy's libc++ is built for a
-        # different Apple SDK than the host's, breaking <math.h>);
-        # replication is this Linux CI lane.
+        # subsequent run came back with 0 displayed findings. Runnable
+        # locally too (incl. macOS) under the nix default devShell, which
+        # points clang-tidy at nix's apple-sdk (IDRISML_MACOS_SDKROOT) so
+        # its libc++ stops skewing against the host sdk; this Linux lane is
+        # the canonical CI check. Gated on the `ccpp` change-filter.
         if: ${{ needs.changes.outputs.ccpp == 'true' && !cancelled() }}
         run: make BACKEND=torch C_LINT_FULL_CLANG_TIDY=1 lint-c-torch
       # <<< END GENERATED (lint-full) <<<
@@ -527,13 +528,11 @@ jobs:
           ttc-job: test-unit
           swap: 'true'
 
-      - name: Install clang-tidy (macOS, for the advisory mlx lint)
-        # brew llvm is keg-only; expose its bin dir for the
-        # C_LINT_FULL_CLANG_TIDY mlx step in the generated block.
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install llvm
-          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+      # The mlx clang-tidy (C_LINT_FULL_CLANG_TIDY mlx step in the generated
+      # block) uses nix's clang-tidy 21 under the default devShell, parsing
+      # against nix's apple-sdk (IDRISML_MACOS_SDKROOT, see flake.nix +
+      # mk/config.mk). No brew llvm needed — that was the old workaround for
+      # nix clang-tidy's host-sdk skew, now fixed by using nix's own sdk.
 
       # >>> GENERATED (test-unit) FROM test.yml.spec.json >>>
       - name: Run Criterion suite (tape)
@@ -1202,18 +1201,11 @@ jobs:
           restore-ttc: 'false'
           swap: 'true'
 
-      - name: Install LLVM (Ubuntu)
-        # llvm ships the unversioned llvm-profdata/llvm-cov the make
-        # recipe calls; clang (usually preinstalled, kept explicit) is
-        # the only compiler that accepts -fprofile-instr-generate —
-        # mk/tests.mk forces it via COV_CC_OVERRIDES on Linux.
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y llvm clang
-
-      - name: Install LLVM (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install llvm
-
+      # LLVM tooling comes from nix: the default devShell exports
+      # COV_CLANG=${pkgs.clang}/bin/clang (the -fprofile-instr-generate
+      # compiler mk/tests.mk forces via COV_CC_OVERRIDES) and provides
+      # pkgs.llvm (unversioned llvm-profdata/llvm-cov) on Linux; macOS
+      # coverage runs them through xcrun (COV_LLVM=xcrun). No apt/brew.
       - name: Run coverage build
         # `make test-coverage-backend` recompiles the dylib + test
         # binaries with -fprofile-instr-generate -fcoverage-mapping,

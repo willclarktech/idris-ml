@@ -260,7 +260,7 @@ lint-c-torch:
 	else \
 		echo "lint-c-torch: cppcheck not installed; skipping"; \
 	fi
-	@echo "lint-c-torch: clang-tidy on libtorch C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch' (Linux). macOS+nix is blocked: Apple SDK <sys/resource.h> uint8_t/uint64_t fail to resolve against nix clang-tidy's libc++ pre-include chain — not fixable cheaply."
+	@echo "lint-c-torch: clang-tidy on libtorch C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch'. Runs on Linux and (under the nix default devShell) macOS — mk/config.mk points -isysroot at nix's apple-sdk (IDRISML_MACOS_SDKROOT) so nix clang-tidy's libc++ stops skewing against the host SDK."
 	@# libtorch include roots go in as -isystem (subst -I) so their
 	@# diagnostics are SUPPRESSED FROM DISPLAY — there were 430k+ shown
 	@# before (run 27879495722), drowning the real findings. This does NOT
@@ -275,8 +275,8 @@ lint-c-torch:
 	@# hung), and propagates clang-tidy's exit via PIPESTATUS so the enforcing
 	@# gate still fails on any real (displayed) finding. Per-file parallel
 	@# fan-out (GNU xargs -P) because one serial clang-tidy over ~100 TUs blew
-	@# the CI job's 30m timeout. Runs only on the ubuntu lint-full lane
-	@# (macOS SDK-blocked).
+	@# the CI job's 30m timeout. CI runs this on the ubuntu lint-full lane;
+	@# it also runs locally on macOS now (nix apple-sdk -isysroot, see above).
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
 		printf '%s\n' $(BACKEND_TORCH_SRCS) | xargs -P "$$(nproc 2>/dev/null || echo 4)" -I{} \
 			bash -c 'echo ">> $$1"; clang-tidy --quiet "$$1" -- $(CLANG_TIDY_EXTRA_CFLAGS) $(subst -I,-isystem ,$(torch_CFLAGS)) -include $(BACKENDS_DIR)/rename_torch.h 2>&1 | grep -v "warnings generated\.$$"; exit $${PIPESTATUS[0]}' _ {} || exit 1; \
@@ -288,7 +288,7 @@ lint-c-mlx:
 	else \
 		echo "lint-c-mlx: cppcheck not installed; skipping"; \
 	fi
-	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx' (Linux). Same macOS+nix block as torch — Apple SDK headers reject nix clang-tidy."
+	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx'. mlx is macOS-only, so this runs on macOS under the nix default devShell (nix apple-sdk -isysroot, see mk/config.mk) — nix clang-tidy now parses against nix's own SDK instead of the host's."
 	@# bash -c wrapper streams clang-tidy through `grep -v` to drop the noisy
 	@# "N warnings generated." per-TU summary (counted pre-display-suppression
 	@# over mlx's headers), prints a `>> <file>` progress marker, and

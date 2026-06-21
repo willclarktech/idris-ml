@@ -247,8 +247,19 @@ endif
 # headers but no system C SDK. Pass -isysroot at lint time so
 # clang-tidy resolves <stdio.h> etc.; harmless on Linux (variable
 # resolves to empty there).
+#
+# Prefer nix's apple-sdk (IDRISML_MACOS_SDKROOT, exported by the default
+# devShell) over the host CLT sdk: nix clang-tidy's libc++ skews against
+# the host sdk for C++ (host <sys/resource.h> uint8_t / <math.h> FP_*
+# fail to resolve), which blocked the torch/mlx C++ lint on macOS. nix
+# sdk + nix libc++ are self-consistent → C++ parses. Falls back to xcrun
+# for a bare-macOS checkout (Apple clang-tidy, which wants the host sdk).
 ifeq ($(UNAME), Darwin)
-  CLANG_TIDY_EXTRA_CFLAGS := -isysroot $(shell xcrun --show-sdk-path 2>/dev/null)
+  ifdef IDRISML_MACOS_SDKROOT
+    CLANG_TIDY_EXTRA_CFLAGS := -isysroot $(IDRISML_MACOS_SDKROOT)
+  else
+    CLANG_TIDY_EXTRA_CFLAGS := -isysroot $(shell xcrun --show-sdk-path 2>/dev/null)
+  endif
 else
   CLANG_TIDY_EXTRA_CFLAGS :=
 endif

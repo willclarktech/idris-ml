@@ -99,6 +99,17 @@
           # to the same llvmPackages as `clang` below so the tools match the
           # clang that emitted the profraw.
           pkgs.llvm
+        ]
+        ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+          # The macOS SDK paired with clang-tools' libc++. The full C++
+          # clang-tidy (torch/mlx) must parse against THIS sdk, not the host
+          # Command Line Tools sdk: nix's libc++ and the host CLT sdk skew
+          # (host <sys/resource.h> uint8_t / <math.h> FP_* fail to resolve
+          # against nix's `using_if_exists` cstdint). Exported as
+          # IDRISML_MACOS_SDKROOT in the shellHook; mk/config.mk feeds it to
+          # clang-tidy as -isysroot. clang-tidy only PARSES, so the lint sdk
+          # need not match the runner OS (the build still uses Apple clang).
+          pkgs.apple-sdk
         ];
     in
     {
@@ -126,6 +137,11 @@
           shellHook =
             pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
               export PATH="${noopStdbuf pkgs}/bin:$PATH"
+              # SDK root for the full C++ clang-tidy (see apple-sdk above +
+              # mk/config.mk CLANG_TIDY_EXTRA_CFLAGS). Referenced by absolute
+              # path, NOT added to the build's sysroot — the actual compile
+              # still uses Apple clang against the host CLT sdk.
+              export IDRISML_MACOS_SDKROOT="${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
             ''
             + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
               # Linux coverage lane: a glibc-consistent *wrapped* clang,
