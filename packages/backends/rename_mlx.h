@@ -99,12 +99,8 @@
 #define tensor_concat_2d_axis1 tensor_concat_2d_axis1_mlx
 #define tensor_conv1d tensor_conv1d_mlx
 #define tensor_conv1d_circular tensor_conv1d_circular_mlx
-#define tensor_conv1d_grouped tensor_conv1d_grouped_mlx
 #define tensor_conv2d tensor_conv2d_mlx
 #define tensor_conv2d_batched tensor_conv2d_batched_mlx
-#define tensor_conv2d_grouped tensor_conv2d_grouped_mlx
-#define tensor_conv_transpose1d tensor_conv_transpose1d_mlx
-#define tensor_conv_transpose2d tensor_conv_transpose2d_mlx
 #define tensor_cosine_similarity tensor_cosine_similarity_mlx
 #define tensor_create tensor_create_mlx
 #define tensor_create_1d_f32 tensor_create_1d_f32_mlx

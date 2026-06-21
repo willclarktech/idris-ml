@@ -99,12 +99,8 @@
 #define tensor_concat_2d_axis1 tensor_concat_2d_axis1_tape
 #define tensor_conv1d tensor_conv1d_tape
 #define tensor_conv1d_circular tensor_conv1d_circular_tape
-#define tensor_conv1d_grouped tensor_conv1d_grouped_tape
 #define tensor_conv2d tensor_conv2d_tape
 #define tensor_conv2d_batched tensor_conv2d_batched_tape
-#define tensor_conv2d_grouped tensor_conv2d_grouped_tape
-#define tensor_conv_transpose1d tensor_conv_transpose1d_tape
-#define tensor_conv_transpose2d tensor_conv_transpose2d_tape
 #define tensor_cosine_similarity tensor_cosine_similarity_tape
 #define tensor_create tensor_create_tape
 #define tensor_create_1d_f32 tensor_create_1d_f32_tape

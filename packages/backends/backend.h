@@ -152,9 +152,6 @@ TensorHandle tensor_dropout(TensorHandle input, double p, int training, unsigned
    Returns [outC, oL] where oL = (L + 2*pad - kL) / stride + 1. */
 TensorHandle tensor_conv1d(TensorHandle input, TensorHandle kernel, TensorHandle bias, int pad,
                            int stride);
-/* Grouped Conv1D: same as conv1d but with groups parameter. */
-TensorHandle tensor_conv1d_grouped(TensorHandle input, TensorHandle kernel, TensorHandle bias,
-                                   int pad, int stride, int groups);
 
 /* MaxPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_max_pool1d(TensorHandle input, int kL, int stride);
@@ -172,20 +169,6 @@ TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel, TensorHandle
    batched op vs B per-sample ones, single libtorch / mlx native batched call. */
 TensorHandle tensor_conv2d_batched(TensorHandle input, TensorHandle kernel, TensorHandle bias,
                                    int padH, int padW, int strideH, int strideW);
-/* Grouped Conv2D: same as conv2d but with groups parameter.
-   kernel shape: [outC, inC/groups, kH, kW]. groups=inC for depthwise. */
-TensorHandle tensor_conv2d_grouped(TensorHandle input, TensorHandle kernel, TensorHandle bias,
-                                   int padH, int padW, int strideH, int strideW, int groups);
-
-/* ConvTranspose1D: input [inC, L], kernel [inC, outC, kL], bias [outC] or NULL.
-   Returns [outC, oL] where oL = (L-1)*stride - 2*pad + kL. */
-TensorHandle tensor_conv_transpose1d(TensorHandle input, TensorHandle kernel, TensorHandle bias,
-                                     int pad, int stride);
-
-/* ConvTranspose2D: input [inC, H, W], kernel [inC, outC, kH, kW], bias [outC] or NULL.
-   Returns [outC, oH, oW]. */
-TensorHandle tensor_conv_transpose2d(TensorHandle input, TensorHandle kernel, TensorHandle bias,
-                                     int padH, int padW, int strideH, int strideW);
 
 /* AvgPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_avg_pool1d(TensorHandle input, int kL, int stride);
