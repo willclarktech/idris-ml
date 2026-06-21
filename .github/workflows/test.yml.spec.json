@@ -334,7 +334,7 @@
         ]
       }
     ],
-    "test-e2e-hf": [
+    "test-e2e-transformers": [
       {
         "name": "Prefetch tokenizer-test fixtures",
         "run": "make hf-fixtures",
@@ -410,7 +410,7 @@
         ]
       }
     ],
-    "test-e2e-hf-llama": [
+    "test-e2e-transformers-llama": [
       {
         "name": "Run HfLlama oracle generator + pytest",
         "run": "make test-e2e-transformers-oracle-llama",

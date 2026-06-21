@@ -389,7 +389,7 @@ is what stays; the row closes without code change.
 CI jobs mirror the taxonomy one-to-one (the 2026-06-11 detector
 restructure): `.github/workflows/test.yml` has jobs named `lint`,
 `lint-full`, `build`, `test-unit`, `test-integration`,
-`test-e2e-examples`, `test-e2e-hf`, and `coverage`;
+`test-e2e-examples`, `test-e2e-transformers`, and `coverage`;
 `.github/workflows/perf.yml` runs `bench-deep`. Each test job's
 make-invocation block is generated from
 `.github/workflows/test.yml.spec.json` by
