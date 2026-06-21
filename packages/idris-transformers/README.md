@@ -12,11 +12,24 @@ itself is the adapter, expressed as type-checked Idris.
 
 ## Status
 
-| Module | HF checkpoint target | Status |
+| Module | HF checkpoint target | Correctness gate |
 | --- | --- | --- |
-| `Transformers.Bert` | `google/bert_uncased_L-2_H-128_A-2` (~17 MB) | ready |
-| `Transformers.Gpt2` | `hf-internal-testing/tiny-random-gpt2` (~150 KB) | ready |
-| `Transformers.Llama` | `unsloth/Llama-3.2-1B` (~2.5 GB BF16, public Meta mirror) | ready (forward pass; KV cache follow-up — see `TODO.md`) |
+| `Transformers.Bert` | `google/bert_uncased_L-2_H-128_A-2` (~17 MB) | matches HF forward to **4e-4** (`make test-e2e-bert-roundtrip`) |
+| `Transformers.Gpt2` | `distilgpt2` (~350 MB) | matches to 1e-3 (`make test-e2e-gpt2-roundtrip`) |
+| `Transformers.Llama` | `unsloth/Llama-3.2-1B` (~2.5 GB BF16, public Meta mirror) | macro forward / RoPE / param-load (`make test-e2e-llama-roundtrip`) |
+| `Transformers.BitNet` | `microsoft/bitnet-b1.58-2B-4T` | argmax-match + macro tolerance (`make test-e2e-bitnet-roundtrip`) |
+
+Each gate regenerates a PyTorch oracle and compares per element in CI, so "matches PyTorch" is
+verified on every publication push, not asserted.
+
+## Fine-tuning
+
+`Transformers.BertForClassification` adds a classification head (`classifier.weight`/`.bias`)
+over the backbone; `Transformers.BertLora` / `Transformers.LoraIO` provide peft-compatible LoRA
+adapters. Combine with `Checkpoint.load {only := Just pfx}` (subset warm-start) and
+`Train.Freeze.freezeByPrefix` (prefix-freeze a backbone). Worked examples:
+`make example-bert-classify-finetune` and `make example-bert-classify-sst2-lora` (see
+[idris-ml-examples](../idris-ml-examples/)).
 
 ## Conventions
 
