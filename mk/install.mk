@@ -26,9 +26,26 @@ install-gym: $(BUILD)/.library-cache-stamp
 	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) --build-dir $(CURDIR)/$(BUILD)/ttc-idris-gym --install idris-gym.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-gym-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-gym-install.log; exit 1; }
 
 # Install idris-transformers (HF-aligned model library) to local prefix.
-# Depends on install-core because every Hf* module imports from idris-ml.
+# Depends on install-core because every Transformers.* module imports from
+# idris-ml.
 install-transformers: install-core
 	@cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) --build-dir $(CURDIR)/$(BUILD)/ttc-idris-transformers --install idris-transformers.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-transformers-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-transformers-install.log; exit 1; }
+	@# Vendor elab-util into the local prefix. Transformers' state records
+	@# derive `gcast` via `%runElab derive` (Language.Reflection.Util), so the
+	@# transformers .ttc transitively import elab-util — an EXTERNAL pack-
+	@# collection package, NOT compiler-bundled like contrib/linear. Example
+	@# builds override IDRIS2_PACKAGE_PATH (config.mk) and can't rely on pack's
+	@# store being on it — it's absent inside the `nix develop` CI shell, where
+	@# `pack package-path` returns nothing, collapsing the path to the local
+	@# prefix alone. So the prefix must carry every non-bundled dep the examples
+	@# load transitively (same reason idris-ml/idris-gym/idris-transformers are
+	@# installed here). Without this, `make example-bert-inference` and the
+	@# *-roundtrip e2e gates fail with "Module Language.Reflection.Util not
+	@# found". Idempotent; no-op if pack/elab-util can't be located.
+	@elabsrc=$$(pack package-path 2>/dev/null | tr ':' '\n' | grep '/elab-util/' | head -1); \
+	  if [ -n "$$elabsrc" ] && [ -d "$$elabsrc" ]; then \
+	    cp -R "$$elabsrc"/elab-util-* $(IDRIS2_LOCAL)/idris2-0.8.0/ 2>/dev/null || true; \
+	  fi
 
 # Install notebook prelude to local prefix
 install-notebook: install-core
