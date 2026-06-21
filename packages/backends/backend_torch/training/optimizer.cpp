@@ -384,7 +384,8 @@ static void dispatch_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& 
 		adamw_step_foreach(w, params, lr);
 		break;
 	default:
-		w->opt->step();
+		w->opt
+		    ->step(); // GCOVR_EXCL_LINE — unreachable: w->type is always 0..3 (set at construction)
 	}
 }
 
@@ -434,13 +435,18 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 					dispatch_step_foreach(w, kv.second, kv.first);
 			}
 		} else {
+			// GCOVR_EXCL_START — TORCH_FOREACH=0 perf-A/B fallback; CI runs the default fused path
 			opt->step();
+			// GCOVR_EXCL_STOP
 		}
 		prof_optimizer_math_ms_torch += _wall_ms_torch() - tm0;
 	} else {
+		// GCOVR_EXCL_START — unreachable: libtorch always creates param_groups[0], so the
+		// optimizer is never group-empty here even with zero registered params
 		const double tm0 = _wall_ms_torch();
 		opt->step();
 		prof_optimizer_math_ms_torch += _wall_ms_torch() - tm0;
+		// GCOVR_EXCL_STOP
 	}
 	_dbg_dump_lstm_traj_if_enabled_torch();
 	free_intermediates();
@@ -495,7 +501,7 @@ extern "C" void optimizer_set_lr(OptimizerHandle h, double lr) {
 			static_cast<torch::optim::AdamWOptions&>(g.options()).lr(lr);
 			break;
 		default:
-			break;
+			break; // GCOVR_EXCL_LINE — unreachable: w->type is always 0..3
 		}
 	}
 }

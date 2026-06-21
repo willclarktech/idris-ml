@@ -130,6 +130,9 @@ extern "C" TensorHandle tensor_cast_dtype_f16_mlx_streamed(TensorHandle h, int s
 extern "C" TensorHandle tensor_cast_dtype_i32_mlx_streamed(TensorHandle h, int stream_tag);
 
 [[noreturn]] static TensorHandle mlx_dtype_unsupported(const char* sym, int dtag) {
+	// GCOVR_EXCL_START — unconditional abort helper for the unreachable dtype
+	// dispatch defaults (Idris Compatible gate forbids out-of-set dtags reaching
+	// mlx); abort() skips the gcov flush so the body can't register as covered.
 	fprintf(stderr,
 	        "[mlx backend] %s called with dtag=%d. mlx storage supports "
 	        "f16 (dtag=13), f32 (dtag=14), f64 (dtag=15), bf16 (dtag=17), "
@@ -138,6 +141,7 @@ extern "C" TensorHandle tensor_cast_dtype_i32_mlx_streamed(TensorHandle h, int s
 	        "wider dtype surface.\n",
 	        sym, dtag);
 	abort();
+	// GCOVR_EXCL_STOP
 }
 
 extern "C" TensorHandle tensor_create_scalar_streamed(double value, int requires_grad,

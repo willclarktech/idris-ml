@@ -75,6 +75,8 @@ extern "C" const char* tensor_dtype_name(TensorHandle h) {
 	case torch::kBool:
 		return "BOOL";
 	default:
+		// GCOVR_EXCL_LINE — every torch scalar type the public FFI can create is cased
+		// above; the default is unreachable (no FFI produces complex/quantized dtypes)
 		return "F64";
 	}
 }

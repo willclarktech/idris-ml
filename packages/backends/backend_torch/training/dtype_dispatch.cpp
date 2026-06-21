@@ -52,7 +52,7 @@ extern c10::Device g_torch_target_device;
 /* Non-static so dtype_init.cpp can reuse the same fallback policy. */
 c10::Device torch_effective_device(torch::ScalarType dt) {
 	if (g_torch_target_device.type() == c10::DeviceType::MPS && dt == torch::kFloat64) {
-		return at::kCPU;
+		return at::kCPU; // GCOVR_EXCL_LINE — MPS-F64 fallback; CPU CI lane never has an MPS target
 	}
 	return g_torch_target_device;
 }
@@ -304,11 +304,15 @@ torch::ScalarType st_for_dtag(int dtag) {
 	case 17:
 		return torch::kBFloat16; /* BF16 */
 	default:
+		// GCOVR_EXCL_START — switch-default for an invalid dtag; the Idris Compatible
+		// gate forbids out-of-set dtags reaching the C dispatcher. abort() skips the
+		// gcov flush; not same-line-guardable (switch default, not an if-guard).
 		std::fprintf(stderr,
 		             "invalid dtag %d: expected one of {1=Bool, 4=U8, 8-11=I8/I16/I32/I64, "
 		             "13-15=F16/F32/F64, 17=BF16}\n",
 		             dtag);
 		std::abort();
+		// GCOVR_EXCL_STOP
 	}
 }
 
