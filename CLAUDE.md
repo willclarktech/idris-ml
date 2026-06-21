@@ -195,7 +195,7 @@ Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/
 
 **Long eval loops on mlx need per-sequence `withNoGrad`**: a single outer bracket around `traverse evalOne batch` lets mlx Metal MTLBuffer count blow past the Tart/GHA VM ceiling before exit-drain fires. Push the bracket inside: `evalOne dp = withNoGrad $ do { ... }` (NTM-style) or `withNoGrad (evalEp …)` inside `evalN`'s recursion (RL-style). Tape/torch don't need this; the per-sequence pattern is cheap on both.
 
-### Training — `fit` driver (v1, Fit.idr)
+### Training — `fit` driver (Fit.idr)
 
 ```idris
 (trained, epochs, loss) <- fitSupervised opt lossFn (batched dataStream) (simpleConfig 1000) model
@@ -204,36 +204,21 @@ Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/
 One driver for everything. `EpochStep m batch = m -> batch -> IO (m, Double)`: the step owns
 control-flow + the optimizer step + (optional) model-state threading; `fit` owns the epoch loop,
 schedule `tick`, early stop, checkpointing, NaN handling, and mlx generation hygiene (all via
-`Train.Engine.runEpochLoop`, the shared engine `runTrainingIO` also uses). `fit` reuses `TrainConfig`.
+`Train.Engine.runEpochLoop`). `fit` reuses `TrainConfig`.
 
 - **Supervised (90%)**: `fitSupervised opt lossFn stream cfg model` — pass a loss fn, never call
-  `nativeTrainStep`. `fitSupervisedMixed opt gradScaler lossFn …` for mixed precision.
+  `trainStep` yourself. `fitSupervisedMixed opt gradScaler lossFn …` for mixed precision.
 - **Recurrent / two-phase**: a `Step` that folds over timesteps into one loss — no driver variant.
-- **RL / custom**: pass your own `EpochStep` to `fit` (rollout + your own `nativeTrainStep`s + state
+- **RL / custom**: pass your own `EpochStep` to `fit` (rollout + your own `trainStep`s + state
   threading), or compose the exported engine pieces (`runEpochLoop`, `withEpoch`, `postEpoch`,
   `earlyStopMachine`) directly for multi-step loops fit can't express (DQN replay, PPO K-epoch).
 
-This refines api-critique §N6 (which had `fit` own the step) — see design-decisions.md
-"`fit` driver". Data: `Dataset { size : Nat; item : Fin size -> IO sample }` (`fromVect`/
-`fromIndexed`/`idxDataset`) + `DataStream` (`stream shuffleSpec ds` / `generate ioAction` /
-`batched` collating `(Tensor [i], Tensor [o])` pairs into `([b,i],[b,o])` C-side). See **Data
-redesign** below.
+See design-decisions.md "`fit` driver". Data: `Dataset { size : Nat; item : Fin size -> IO sample }`
+(`fromVect`/`fromIndexed`/`idxDataset`) + `DataStream` (`stream shuffleSpec ds` / `generate ioAction`
+/ `batched` collating `(Tensor [i], Tensor [o])` pairs into `([b,i],[b,o])` C-side). See **Data**
+below.
 
-### Training modes — legacy (pre-migration; deleted at the example sweep)
-
-`runTraining`/`runTrainingIO` + the `epoch*` family still exist (examples use them until the sweep);
-`runTrainingIO`'s internals now route through `Train.Engine.runEpochLoop` (behaviour-identical, see
-the equivalence oracle). New library code uses `fit`.
-
-| Mode | Epoch function | Data type | Use case |
-|------|---------------|-----------|----------|
-| Supervised | `epochVar` | `DataPoint i o ty` | Feedforward nets |
-| Supervised (batched) | `epochVarTensorBatch` | `Vect n (TensorDataPoint i o)` | MNIST/Transformer/GPT |
-| Recurrent | `epochRecurrentVar` | `RecurrentDataPoint i o ty` | RNN/LSTM/GRU |
-| TwoPhase | `epochTwoPhaseVar` | `TwoPhaseDataPoint i o ty` | NTM/DNC copy/recall |
-| RL | custom (uses `runTrainingIO`) | varies | REINFORCE / DQN / A2C / PPO / SAC / tabular |
-
-### Data redesign (v1: Dataset.idr / DataStream.idr)
+### Data (Dataset.idr / DataStream.idr)
 
 PyTorch's three orthogonal joints: `Dataset` (indexed access) / `ShuffleSpec` (order) / `DataStream`
 (batching+collation). `Dataset { size : Nat; item : Fin size -> IO sample }` — `Fin` makes
@@ -244,20 +229,19 @@ out-of-bounds unrepresentable; `fromVect` (in-memory), `fromIndexed size cb` (fi
 `(Tensor [i], Tensor [o])` pairs into `([b,i],[b,o])` C-side (catAllTensors + reshape, no readback;
 `batched1` for the single-tensor shape). **Named `DataStream` not `Data.Stream`** — the `Data.*`
 namespace collides with `data/` (gitignore × case-insensitive APFS), base `Data.Stream`, and
-`Prelude.Stream.Stream`. Legacy `DataPoint`/`TensorDataPoint`/`RecurrentDataPoint`/`TwoPhaseDataPoint`
-+ `DataLoader` coexist until the example sweep.
+`Prelude.Stream.Stream`.
 
 ### Optimizer
 
-`Optimizer.idr`: four IO constructors `sgd` / `rmsprop` / `adam` / `adamW` × `OptimOpts` (beta1/beta2/eps/clip/groups, `defaultOpts` = PyTorch defaults, record-update to override). Algorithm-specific knobs sit on the constructor that owns them — `rmsprop {alpha} {momentum}`, `adamW lr weightDecay opts`, `adam {scope="actor_"} lr opts` for per-network optimizers (scope routes to the AdamGroup prim). `groups := [("bert.", 0.0)]` sets per-prefix LR overrides at construction (0 freezes; params registered after construction miss the walk — construct optimizers after the networks). Schedules: `withSchedule sched opt` + `tick opt epoch` (interim driver spelling `{ beforeEpoch := tick opt }`). Single `nativeTrainStep opt loss` runs zero_grad → backward → clip → step; use `NormClip` for recurrent models. The `native*` constructors and `applySchedule` still exist for current examples and die at the migration sweep.
+`Optimizer.idr`: four IO constructors `sgd` / `rmsprop` / `adam` / `adamW` × `OptimOpts` (beta1/beta2/eps/clip/groups, `defaultOpts` = PyTorch defaults, record-update to override). Algorithm-specific knobs sit on the constructor that owns them — `rmsprop {alpha} {momentum}`, `adamW lr weightDecay opts`. Per-network optimizers are scoped after construction via `Train.Freeze`, not a constructor field. `groups := [("bert.", 0.0)]` sets per-prefix LR overrides at construction (0 freezes; params registered after construction miss the walk — construct optimizers after the networks). Schedules: `withSchedule sched opt` + `tick opt epoch`. Single `trainStep opt loss` runs zero_grad → backward → clip → step; use `NormClip` for recurrent models.
 
 ### Model serialization
 
-Backend-agnostic SafeTensors (`.safetensors`) via `Checkpoint` module: `saveAll` + `load path opts : IO (Either LoadError ())` with `LoadOpts {allowCast = False, only : Maybe String}` (`only` = prefix-filtered warm-start; registry-miss is a skip, not an error); `saveOptimizer` / `loadOptimizer` for optimizer state. The Bool-returning `loadModel*` wrappers persist for current examples until the migration sweep. Python interop: PyTorch loads via `safetensors.torch.load_file()`, MLX via `mx.load()`.
+Backend-agnostic SafeTensors (`.safetensors`) via `Checkpoint` module: `saveAll` + `load path opts : IO (Either LoadError ())` with `LoadOpts {allowCast = False, only : Maybe String}` (`only` = prefix-filtered warm-start; registry-miss is a skip, not an error); `saveOptimizer` / `loadOptimizer` for optimizer state. Python interop: PyTorch loads via `safetensors.torch.load_file()`, MLX via `mx.load()`.
 
-Training-loop integration: attach a `CheckpointPolicy` (built by `fileCheckpoint dir everyN keepBest opt`) to a `TrainConfig` via `withCheckpoint`. `runTrainingIO` then auto-saves every N epochs to `<dir>/last`, keeps the best to `<dir>/best`, resumes from `<dir>/last` if present, and reloads best at the end (return-best). Resume scalars (epoch, best metric) live in a `trainer_state.json` sidecar; safetensors stays the only on-disk format. Examples expose `--checkpoint-dir` / `--resume` / `--checkpoint-every` (gpt, transformer, ntm-copy, dnc-copy). See design-decisions.md "Training-loop checkpointing".
+Training-loop integration: attach a `CheckpointPolicy` (built by `fileCheckpoint dir everyN keepBest opt`) to a `TrainConfig` via `withCheckpoint`. `fit` then auto-saves every N epochs to `<dir>/last`, keeps the best to `<dir>/best`, resumes from `<dir>/last` if present, and reloads best at the end (return-best). Resume scalars (epoch, best metric) live in a `trainer_state.json` sidecar; safetensors stays the only on-disk format. Examples expose `--checkpoint-dir` / `--resume` / `--checkpoint-every` (gpt, transformer, ntm-copy, dnc-copy). See design-decisions.md "Training-loop checkpointing".
 
-Foreign HuggingFace checkpoints — where param names + storage shapes diverge from idris-ml's conventions — are handled by `packages/idris-transformers/`. That package contains one Idris module per HF architecture (`HfBert.idr`, etc.) whose params and shapes match HF on-disk, so loading is plain `loadModel "model.safetensors"` with no remap or shape-split machinery in core. The module IS the adapter, expressed as type-checked code. User guide at `docs/users/idris-transformers.md`; design rules at `packages/idris-transformers/CONVENTIONS.md`. The worked example `Example/HfBertInference.idr` loads `google/bert_uncased_L-2_H-128_A-2` and matches HF transformers' Python forward output to within 4e-4 (gated by `make test-hf-bert-roundtrip`).
+Foreign HuggingFace checkpoints — where param names + storage shapes diverge from idris-ml's conventions — are handled by `packages/idris-transformers/`. That package contains one Idris module per HF architecture (`Transformers.Bert`, etc.) whose params and shapes match HF on-disk, so loading is plain (`fromPretrained` / `loadModel "model.safetensors"`) with no remap or shape-split machinery in core. The module IS the adapter, expressed as type-checked code. User guide at `docs/users/idris-transformers.md`; design rules at `packages/idris-transformers/CONVENTIONS.md`. The worked example `Example/HfBertInference.idr` loads `google/bert_uncased_L-2_H-128_A-2` and matches HF transformers' Python forward output to within 4e-4 (gated by `make test-hf-bert-roundtrip`).
 
 Fine-tuning HF-loaded models is supported as of the 2026-06-07 closure. Three primitives: (a) `loadModelPrefix path pfx` in `Checkpoint.idr` — load only safetensors keys whose name starts with `pfx` (warm-start a backbone while keeping a fresh head at its init). (b) `freezeByPrefix opt pfx` in `Train/Freeze.idr` — bulk-freeze every registered param whose name starts with `pfx` by zeroing its per-param LR override on the optimizer (composes with a single optimizer; no two-optimizer plumbing). (c) `BertForSequenceClassification` head module in `HfBertForClassification.idr` — registers `classifier.weight` / `classifier.bias` alongside the backbone, forward composes `hfBertForward`'s pooled `[CLS]` with a 1-D `tlinear`. The worked example `Example/BertClassifyFinetune.idr` trains a tiny BERT from scratch on a synthetic 3-class task to 100% in seconds across tape / torch / mlx-cpu; the real-text path (tokenizer + attention mask) and LoRA / PEFT are parked as TODO follow-ups. See `docs/users/idris-transformers.md` "Fine-tuning HF-loaded models".
 
