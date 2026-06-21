@@ -24,8 +24,11 @@ static double* hcopy(const double* s, int n) {
 /* Back-compat aliases live in lifecycle_ext.c but are not part of the public
    backend.h surface (no live caller). Declared here so this colocated suite
    can exercise them — the symbols are present in the linked backend object. */
+/* tape-only back-compat aliases (not in backend.h; torch/mlx don't link them). */
+#ifdef BACKEND_TAPE
 extern TensorHandle tensor_mul_elementwise(TensorHandle a, TensorHandle b);
 extern TensorHandle tensor_sum_all(TensorHandle h);
+#endif
 
 Test(core_lifecycle, create_scalar_then_item) {
 	TensorHandle s = tensor_create_scalar(6.0, 0);
@@ -130,6 +133,7 @@ Test(core_lifecycle, reshape_1d_collapses_rank) {
 		cr_assert_float_eq(out[i], data[i], 1e-12, "reshape_1d cell %d", i);
 }
 
+#ifdef BACKEND_TAPE
 Test(core_lifecycle, one_hot_encodes_tokens) {
 	/* tensor_one_hot: tokens [n] -> flat [n * vocab]. The fn FREES the
 	   tokens array it is handed, so it must be heap-allocated. One in-range
@@ -150,7 +154,9 @@ Test(core_lifecycle, one_hot_encodes_tokens) {
 	for (int i = 0; i < 12; i++)
 		cr_assert_float_eq(out[i], expect[i], 1e-12, "one_hot cell %d", i);
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 Test(core_lifecycle, one_hot_ignores_out_of_range_token) {
 	/* The `tok >= 0 && tok < vocab_size` guard: an out-of-range token leaves
 	   its row all-zero (no write), exercising the false branch. */
@@ -165,6 +171,7 @@ Test(core_lifecycle, one_hot_ignores_out_of_range_token) {
 	for (int i = 0; i < 6; i++)
 		cr_assert_float_eq(out[i], 0.0, 1e-12, "out-of-range one_hot cell %d", i);
 }
+#endif /* BACKEND_TAPE */
 
 Test(core_lifecycle, subtract_scalar_inplace_mutates_f64) {
 	/* tensor_subtract_scalar_inplace: F64 branch subtracts val from every
@@ -181,6 +188,7 @@ Test(core_lifecycle, subtract_scalar_inplace_mutates_f64) {
 	cr_assert_float_eq(out[2], 25.0, 1e-12);
 }
 
+#ifdef BACKEND_TAPE /* tape-only back-compat aliases */
 Test(core_lifecycle, mul_elementwise_alias) {
 	/* Back-compat alias for tensor_mul (Hadamard product). */
 	double a[] = {1.0, 2.0, 3.0};
@@ -205,7 +213,9 @@ Test(core_lifecycle, sum_all_alias) {
 	cr_assert_eq(tensor_dim(s), 0);
 	cr_assert_float_eq(tensor_item(s), 10.0, 1e-12, "sum_all should total all elements");
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 Test(core_lifecycle, batch_empty_returns_rank1_zero) {
 	/* count == 0: early-out returns a [0] tensor, no input handles read. */
 	TensorHandle batched = tensor_batch(NULL, 0);
@@ -213,6 +223,7 @@ Test(core_lifecycle, batch_empty_returns_rank1_zero) {
 	cr_assert_eq(tensor_size(batched, 0), 0);
 	cr_assert_eq(tensor_numel(batched), 0);
 }
+#endif /* BACKEND_TAPE */
 
 Test(core_lifecycle, batch_stacks_via_ptr_array) {
 	/* The single-FFI collation path Idris DataStream.collate wires:
@@ -309,6 +320,7 @@ Test(core_lifecycle, batch_stacks_f32) {
 		cr_assert_float_eq(out[i], expect[i], 1e-5, "F32 tensor_batch cell %d", i);
 }
 
+#ifdef BACKEND_TAPE
 Test(core_lifecycle, batch_mixed_dtype_aborts, .signal = SIGABRT) {
 	/* lifecycle_ext.c line 104: a second input whose dtype_tag differs from
 	   the first triggers tape_abort_mixed_dtype -> abort(). Stack an F64 and
@@ -323,3 +335,4 @@ Test(core_lifecycle, batch_mixed_dtype_aborts, .signal = SIGABRT) {
 	tensor_ptr_array_set_return(arr, 1, b);
 	tensor_batch(arr, 2); /* expected: SIGABRT */
 }
+#endif /* BACKEND_TAPE */

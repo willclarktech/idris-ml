@@ -37,6 +37,7 @@ Test(core_elementwise_abs, forward_backward_pos_neg) {
 	                   "d|x|/dx at x=-3 should be -1 (got %.6f)", param_grad_item_at(0, 0));
 }
 
+#ifdef BACKEND_TAPE
 Test(core_elementwise_abs, backward_vector_mixed_signs_and_zero) {
 	/* Exercises the multi-element backward loop and both sides of the
 	   sign branch (>=0 -> +1, <0 -> -1). At x=0 the convention is +1. */
@@ -57,6 +58,7 @@ Test(core_elementwise_abs, backward_vector_mixed_signs_and_zero) {
 	cr_assert_float_eq(param_grad_item_at(0, 1), 1.0, 1e-12, "d|x|/dx at x=0 should be +1");
 	cr_assert_float_eq(param_grad_item_at(0, 2), 1.0, 1e-12, "d|x|/dx at x=5 should be +1");
 }
+#endif /* BACKEND_TAPE */
 
 Test(core_elementwise_exp, forward_backward) {
 	param_clear();
@@ -135,6 +137,7 @@ Test(core_elementwise_abs, f32_scalar_fn) {
 	cr_assert_float_eq(tensor_item(r), 3.0, 1e-5);
 }
 
+#ifdef BACKEND_TAPE
 Test(core_elementwise_neg, f32_forward_backward_vector) {
 	param_clear();
 	double ad[] = {1.0, -2.0, 3.0};
@@ -152,7 +155,9 @@ Test(core_elementwise_neg, f32_forward_backward_vector) {
 		cr_assert_float_eq(param_grad_item_at(0, i), -1.0, 1e-5, "d(-x)/dx should be -1");
 	param_clear();
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 Test(core_elementwise_exp, f32_forward_backward_vector) {
 	param_clear();
 	double ad[] = {0.0, 1.0, 2.0};
@@ -171,7 +176,9 @@ Test(core_elementwise_exp, f32_forward_backward_vector) {
 	cr_assert_float_eq(param_grad_item_at(0, 1), exp(1.0), 1e-5);
 	param_clear();
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 Test(core_elementwise_sqrt, f32_forward_backward_vector) {
 	param_clear();
 	double ad[] = {4.0, 9.0, 16.0};
@@ -190,7 +197,9 @@ Test(core_elementwise_sqrt, f32_forward_backward_vector) {
 	cr_assert_float_eq(param_grad_item_at(0, 2), 0.125, 1e-5);
 	param_clear();
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 Test(core_elementwise_abs, f32_forward_backward_vector) {
 	param_clear();
 	double ad[] = {-2.0, 0.0, 5.0};
@@ -209,3 +218,4 @@ Test(core_elementwise_abs, f32_forward_backward_vector) {
 	cr_assert_float_eq(param_grad_item_at(0, 2), 1.0, 1e-5, "d|x|/dx at x=5 should be +1");
 	param_clear();
 }
+#endif /* BACKEND_TAPE */

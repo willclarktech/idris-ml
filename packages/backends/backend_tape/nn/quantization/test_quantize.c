@@ -402,6 +402,7 @@ Test(nn_quantization_decode, invalid_code_aborts, .signal = SIGABRT) {
 	tensor_bitlinear_fwd(W, scale, x, NULL); /* decode 0x2 -> abort */
 }
 
+#ifdef BACKEND_TAPE
 /* Mixed-dtype inputs (one F32, one F64) -> abort. scale F32, x F64 hits
    the `any_f32 && !all_f32` guard. EXCL'd in source. */
 Test(nn_quantization_fwd, mixed_dtype_aborts, .signal = SIGABRT) {
@@ -414,6 +415,7 @@ Test(nn_quantization_fwd, mixed_dtype_aborts, .signal = SIGABRT) {
 	TensorHandle x = tensor_create(x_data, x_shape, 1, 0);                             /* F64 */
 	tensor_bitlinear_fwd(W, scale, x, NULL); /* mixed -> abort */
 }
+#endif /* BACKEND_TAPE */
 
 /* construction guard (death test)                                    */
 /* Byte-count mismatch in the packed constructor -> abort. */

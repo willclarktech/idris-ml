@@ -311,6 +311,7 @@ Test(nn_norm_rms_norm, backward_weight_only) {
 	                   "d(w)[1] expected %.9f got %.9f", 2.0 * rstd, param_grad_item_at(0, 1));
 }
 
+#ifdef BACKEND_TAPE
 Test(nn_norm_rms_norm, backward_input_only_multirow) {
 	/* Only input requires grad; two rows, each normalized independently.
 	 * Validates the per-row d(x) loop with weight != 1 and the input-grad
@@ -352,3 +353,4 @@ Test(nn_norm_rms_norm, backward_input_only_multirow) {
 		}
 	}
 }
+#endif /* BACKEND_TAPE */

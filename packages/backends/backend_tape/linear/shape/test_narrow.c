@@ -197,6 +197,7 @@ Test(linear_shape_narrow, axis2_copy_rank3) {
 		                   expected[i], out[i]);
 }
 
+#ifdef BACKEND_TAPE
 /* Unsupported (rank, dim) combination aborts. The fprintf+abort lines in
  * narrow.c (forward) are GCOVR_EXCL'd (abort() skips the gcov flush in the
  * forked child); this death test asserts the forward guard fires. */
@@ -206,7 +207,9 @@ Test(linear_shape_narrow, unsupported_combo_aborts, .signal = SIGABRT) {
 	TensorHandle v = tensor_create(d, s, 2, 0);
 	tensor_narrow(v, 5, 0, 1); /* rank=2, dim=5 -> unsupported -> abort */
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 /* A rank-3 narrow that requires grad records an OP_NARROW tape entry, but the
  * backward only recognises rank-1 / rank-2 parents — so backward hits the
  * unrecognised-shape abort. Those lines in narrow.c are GCOVR_EXCL'd; this
@@ -222,3 +225,4 @@ Test(linear_shape_narrow, backward_unrecognised_shape_aborts, .signal = SIGABRT)
 	TensorHandle loss = tensor_sum(tensor_narrow(v, 0, 1, 2)); /* rank-3 narrow */
 	tensor_backward(loss);                                     /* backward aborts */
 }
+#endif /* BACKEND_TAPE */

@@ -60,6 +60,7 @@ Test(linear_sort_argsort, already_sorted_ascending) {
 /* ---- F32 coverage (argsort.c lines 24-33: F32 comparators, 44-46: F32
    qsort dispatch, 53-57: F32 arena index output) ---- */
 
+#ifdef BACKEND_TAPE
 Test(linear_sort_argsort, f32_ascending) {
 	/* F32 values [3, 1, 2] -> ascending index order [1, 2, 0].
 	   Drives argsort_cmp_asc_f32 + the F32 qsort + F32 arena output. The
@@ -76,6 +77,7 @@ Test(linear_sort_argsort, f32_ascending) {
 	cr_assert_float_eq(out[1], 2.0, 1e-5, "f32 asc[1] should be index 2 (got %.1f)", out[1]);
 	cr_assert_float_eq(out[2], 0.0, 1e-5, "f32 asc[2] should be index 0 (got %.1f)", out[2]);
 }
+#endif /* BACKEND_TAPE */
 
 Test(linear_sort_argsort, f32_descending) {
 	/* F32 values [3, 1, 2] -> descending index order [0, 2, 1].

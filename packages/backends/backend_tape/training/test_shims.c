@@ -49,6 +49,7 @@ Test(tape_shims, reset_for_eval_reregisters_params) {
 	param_clear();
 }
 
+#ifdef BACKEND_TAPE
 /* Three-phase teardown (shims.c:60-72): frees every registered param, clears
    the registry, and frees the arena. Runs in a forked child, so the arena
    free can't strand sibling tests. */
@@ -64,6 +65,7 @@ Test(tape_shims, release_all_persistent_clears_registry) {
 
 	cr_assert_eq(param_count(), 0);
 }
+#endif /* BACKEND_TAPE */
 
 /* release_all_persistent skips NULL param slots without crashing (the
    `if (!t) continue;` guard at shims.c:65). An empty registry drives the loop
@@ -87,9 +89,11 @@ Test(tape_shims, live_count_probes) {
 	param_clear();
 }
 
+#ifdef BACKEND_TAPE
 Test(tape_shims, backend_name_is_tape) {
 	cr_assert_str_eq(backend_name(), "tape"); /* shims.c:84 */
 }
+#endif /* BACKEND_TAPE */
 
 /* mlx_compile accessors are tape no-ops (shims.c:90,93,95): disabled, zero
    invocations, reset is a no-op. */

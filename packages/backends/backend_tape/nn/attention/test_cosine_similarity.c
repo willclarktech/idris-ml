@@ -116,6 +116,7 @@ Test(nn_attention_cosine_similarity, forward_f32_known_value) {
 	                   "F32 cos([3,4],[1,0]) should be 0.6 (got %.9f)", tensor_item_1d(r, 0));
 }
 
+#ifdef BACKEND_TAPE
 Test(nn_attention_cosine_similarity, non_rank2_returns_scalar_zero) {
 	/* The op only handles the rank-2 x rank-2 case; any other rank
 	 * combination falls through to `return make_scalar(0, 0)` (the final
@@ -133,3 +134,4 @@ Test(nn_attention_cosine_similarity, non_rank2_returns_scalar_zero) {
 	cr_assert_float_eq(tensor_item(r), 0.0, COSINE_TOL,
 	                   "fallback result should be scalar 0 (got %.9f)", tensor_item(r));
 }
+#endif /* BACKEND_TAPE */

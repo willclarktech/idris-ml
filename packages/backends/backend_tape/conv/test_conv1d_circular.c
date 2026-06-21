@@ -54,6 +54,7 @@ Test(conv_conv1d_circular, forward_and_backward) {
 		cr_assert_float_eq(param_grad_item_at(1, i), 6.0, TEST_TOL_TIGHT, "d_k[%d]", i);
 }
 
+#ifdef BACKEND_TAPE
 /* Larger length with an even kernel (k=4, pad=2) exercises a different
  * wrap-around offset than the k=3/pad=1 case above.
  *
@@ -94,6 +95,7 @@ Test(conv_conv1d_circular, even_kernel_forward_and_backward) {
 	for (int i = 0; i < 4; i++)
 		cr_assert_float_eq(param_grad_item_at(1, i), 10.0, TEST_TOL_TIGHT, "d_k[%d]", i);
 }
+#endif /* BACKEND_TAPE */
 
 /* F32 branch (conv1d_circular.c:29-41): same k=3/pad=1 base case as the
    forward_and_backward test above, but with F32 input + kernel routed

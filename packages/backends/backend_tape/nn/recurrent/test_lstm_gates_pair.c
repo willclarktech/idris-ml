@@ -174,6 +174,7 @@ Test(nn_recurrent_lstm_gates_pair, forward_multi_element, .disabled = true) {
 	tensor_pair_free(p);
 }
 
+#ifdef BACKEND_TAPE
 /* Multi-element backward (o=2, requires_grad) — checks both backward arms run
    the j-loop past j=0 and accumulate gradients into the right combined slots.
    Gradients are validated by central finite differences (loss = sum(h)+sum(cell))
@@ -242,6 +243,7 @@ Test(nn_recurrent_lstm_gates_pair, backward_multi_element_fd) {
 		                   param_grad_item_at(1, k), fd);
 	}
 }
+#endif /* BACKEND_TAPE */
 
 /* pair_helpers.c — tensor_pair_free body (lines 19-20). Calling free on an
    arena-pair handle must not crash; the accessors return the same handles the

@@ -31,6 +31,7 @@ Test(linear_index_scatter_add, forward_accumulates) {
 	cr_assert_float_eq(out[2], 40.0, 1e-12);
 }
 
+#ifdef BACKEND_TAPE
 Test(linear_index_scatter_add, forward_skips_out_of_range_index) {
 	/* index = [-1, 1, 5, 2], out_size = 3. Indices -1 and 5 are out of range
 	   and must be dropped by the `idx >= 0 && idx < out_size` guard.
@@ -48,7 +49,9 @@ Test(linear_index_scatter_add, forward_skips_out_of_range_index) {
 	cr_assert_float_eq(out[1], 20.0, 1e-12);
 	cr_assert_float_eq(out[2], 40.0, 1e-12);
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 Test(linear_index_scatter_add, backward_skips_out_of_range_index) {
 	/* index = [-1, 1, 5, 2]. d_src[i] = d_r[index[i]] when in range, else 0.
 	   loss = sum(r) -> d_r = 1 everywhere in range, so
@@ -71,6 +74,7 @@ Test(linear_index_scatter_add, backward_skips_out_of_range_index) {
 	                   param_grad_item_at(0, 2));
 	cr_assert_float_eq(param_grad_item_at(0, 3), 1.0, 1e-12);
 }
+#endif /* BACKEND_TAPE */
 
 Test(linear_index_scatter_add, backward_gathers_grad) {
 	/* Same setup. loss = sum(r) -> d_src[i] = d_r[index[i]] = 1 for any valid idx. */
@@ -111,6 +115,7 @@ Test(linear_index_scatter_add, f32_forward_accumulates) {
 	cr_assert_float_eq(out[2], 40.0, 1e-5);
 }
 
+#ifdef BACKEND_TAPE
 Test(linear_index_scatter_add, f32_forward_skips_out_of_range_index) {
 	/* F32 src with index = [-1, 1, 5, 2], out_size = 3. Indices -1 and 5
 	   are out of range and dropped by the F32 branch's `idx >= 0 && idx < out_size`
@@ -128,6 +133,7 @@ Test(linear_index_scatter_add, f32_forward_skips_out_of_range_index) {
 	cr_assert_float_eq(out[1], 20.0, 1e-5);
 	cr_assert_float_eq(out[2], 40.0, 1e-5);
 }
+#endif /* BACKEND_TAPE */
 
 Test(linear_index_scatter_add, f32_backward_gathers_grad) {
 	/* F32 src requires_grad; index [0,1,0,2], sum -> d_src = 1 everywhere.

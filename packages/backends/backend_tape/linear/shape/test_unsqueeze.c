@@ -42,6 +42,7 @@ Test(linear_shape_unsqueeze, backward_passthrough) {
 		                   param_grad_item_at(0, i));
 }
 
+#ifdef BACKEND_TAPE
 /* Out-of-range dim aborts (dim > old_rank). The guard's fprintf+abort lines
    are GCOVR_EXCL'd in unsqueeze.c (abort() skips the gcov flush, so the forked
    child can't register them); this death test is what asserts the guard fires. */
@@ -51,3 +52,4 @@ Test(linear_shape_unsqueeze, out_of_range_dim_aborts, .signal = SIGABRT) {
 	TensorHandle v = tensor_create(d, s, 1, 0);
 	tensor_unsqueeze(v, 5); /* dim=5 > rank=1 -> abort */
 }
+#endif /* BACKEND_TAPE */

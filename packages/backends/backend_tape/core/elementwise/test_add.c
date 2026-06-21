@@ -184,6 +184,7 @@ Test(core_elementwise_add, f32_backward_vector_same_shape) {
 	param_clear();
 }
 
+#ifdef BACKEND_TAPE
 /* Death test for the mixed-dtype guard: add.c line 33 calls
    tape_abort_mixed_dtype (_dispatch.c lines 125-131) when one operand is
    F32 and the other F64. The guard aborts (SIGABRT). */
@@ -193,6 +194,7 @@ Test(core_elementwise_add, mixed_dtype_aborts, .signal = SIGABRT) {
 	TensorHandle b = tensor_create_scalar(bv, 0);     /* F64 */
 	(void)tensor_add(a, b);                           /* must abort */
 }
+#endif /* BACKEND_TAPE */
 
 /* DISABLED: tape general-broadcast elementwise crashes (heap corruption) — see
    TODO.md "tape general-broadcast elementwise crash". Re-enable when fixed. */

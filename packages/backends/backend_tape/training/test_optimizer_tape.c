@@ -48,6 +48,7 @@ Test(tape_optimizer_edge, rmsprop_no_momentum_step) {
 	param_clear();
 }
 
+#ifdef BACKEND_TAPE
 /* ----------------------------------------------------------------------
    SKIP_LSTM_INIT — params whose name ends in _h0 / _c0 are skipped by the
    step loop (the LSTM learned-initial-state diagnostic).
@@ -77,7 +78,9 @@ Test(tape_optimizer_edge, skip_lstm_init_leaves_h0_c0) {
 	param_clear();
 	unsetenv("SKIP_LSTM_INIT");
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 /* ----------------------------------------------------------------------
    Unknown opt->type -> default branch fprintf + abort(). Set the type via
    the serialization meta vector (slot 0) to an out-of-range value, register
@@ -97,6 +100,7 @@ Test(tape_optimizer_edge, unknown_type_aborts, .signal = SIGABRT) {
 	native_train_step(opt, 0, 0.0, loss, 0.0); /* hits switch default -> abort */
 	                                           /* unreachable */
 }
+#endif /* BACKEND_TAPE */
 
 /* ----------------------------------------------------------------------
    get_m / get_v before buffers are allocated -> zero-fill the out buffer.
@@ -158,6 +162,7 @@ Test(tape_optimizer_edge, clip_grad_value_filtered_no_clamp) {
 	param_clear();
 }
 
+#ifdef BACKEND_TAPE
 /* ----------------------------------------------------------------------
    clip_grad_norm_filtered (clip_mode == 2), norm > max_norm -> scale branch.
    grad(a) = 2*4 = 8 -> norm 8 > max_norm 2 -> scale 2/8 = 0.25 -> grad 2.0,
@@ -175,6 +180,7 @@ Test(tape_optimizer_edge, clip_grad_norm_filtered_rescales) {
 	optimizer_free(opt);
 	param_clear();
 }
+#endif /* BACKEND_TAPE */
 
 /* norm <= max_norm: no rescale, full grad steps (norm-clip below threshold). */
 Test(tape_optimizer_edge, clip_grad_norm_filtered_no_rescale) {

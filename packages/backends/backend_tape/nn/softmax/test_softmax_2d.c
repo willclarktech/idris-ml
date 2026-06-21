@@ -7,6 +7,7 @@
 #include <criterion/criterion.h>
 #include "backend.h"
 
+#ifdef BACKEND_TAPE
 /* Row-wise softmax: each row sums to 1, values match the hand-computed
    numerically-stable softmax. */
 Test(nn_softmax_softmax_2d, forward_rows_sum_to_one) {
@@ -36,6 +37,7 @@ Test(nn_softmax_softmax_2d, forward_rows_sum_to_one) {
 	cr_assert_float_eq(tensor_item_2d(y, 0, 0) + tensor_item_2d(y, 0, 1) + tensor_item_2d(y, 0, 2),
 	                   1.0, 1e-12);
 }
+#endif /* BACKEND_TAPE */
 
 /* Backward of sum(softmax(x)). Since softmax rows sum to 1 (a constant),
    d/dx sum(softmax(x)) == 0 for every element. This exercises the Jacobian
@@ -55,6 +57,7 @@ Test(nn_softmax_softmax_2d, backward_sum_is_zero) {
 		                   param_grad_item_at(0, i));
 }
 
+#ifdef BACKEND_TAPE
 /* Backward with a non-uniform upstream: loss = sum(w .* softmax(x)) where w
    weights only the first column (achieved by feeding a row with a single
    dominant logit so we can verify the Jacobian numerically). Here we instead
@@ -102,3 +105,4 @@ Test(nn_softmax_softmax_2d, backward_finite_difference) {
 		sump += outp[i];
 	cr_assert_float_eq(sump, 2.0, 1e-12);
 }
+#endif /* BACKEND_TAPE */

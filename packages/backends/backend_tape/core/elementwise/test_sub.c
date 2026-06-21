@@ -159,6 +159,7 @@ Test(core_elementwise_sub, f32_backward_vector_same_shape) {
 	param_clear();
 }
 
+#ifdef BACKEND_TAPE
 /* Death test for sub.c line 25's mixed-dtype guard call. */
 Test(core_elementwise_sub, mixed_dtype_aborts, .signal = SIGABRT) {
 	double av = 1.0, bv = 2.0;
@@ -166,6 +167,7 @@ Test(core_elementwise_sub, mixed_dtype_aborts, .signal = SIGABRT) {
 	TensorHandle b = tensor_create_scalar(bv, 0);                 /* F64 */
 	(void)tensor_sub(a, b);                                       /* must abort */
 }
+#endif /* BACKEND_TAPE */
 
 /* DISABLED: tape general-broadcast elementwise crash — see TODO.md. */
 Test(core_elementwise_sub, forward_general_broadcast_row, .disabled = true) {

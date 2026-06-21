@@ -60,6 +60,7 @@ Test(linear_shape_select, backward_matrix_row_scatters) {
 		                   param_grad_item_at(0, i));
 }
 
+#ifdef BACKEND_TAPE
 Test(linear_shape_select, high_rank_fallback_scalar) {
 	/* rank-3 select hits the high-rank fallback path: returns a fresh scalar
 	 * at the flat `index` via tape_load_d. [2, 2, 2] = 0..7; index 5 -> 5.0. */
@@ -70,7 +71,9 @@ Test(linear_shape_select, high_rank_fallback_scalar) {
 	cr_assert_float_eq(tensor_item(picked), 5.0, 1e-12, "fallback scalar should be 5.0 (got %.6f)",
 	                   tensor_item(picked));
 }
+#endif /* BACKEND_TAPE */
 
+#ifdef BACKEND_TAPE
 Test(linear_shape_select, scalar_identity) {
 	/* select on a rank-0 scalar is identity (returns the same handle). */
 	double d[] = {42.0};
@@ -79,3 +82,4 @@ Test(linear_shape_select, scalar_identity) {
 	TensorHandle picked = tensor_select(scalar, 0, 0);
 	cr_assert_float_eq(tensor_item(picked), 42.0, 1e-12);
 }
+#endif /* BACKEND_TAPE */

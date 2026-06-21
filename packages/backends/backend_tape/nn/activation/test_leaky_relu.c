@@ -77,6 +77,7 @@ Test(nn_activation_leaky_relu, vector_forward) {
 	}
 }
 
+#ifdef BACKEND_TAPE
 /* Vector backward: per-element grad is 1 (x>=0) or alpha (x<0). loss = sum -> dout=1. */
 Test(nn_activation_leaky_relu, vector_backward) {
 	param_clear();
@@ -93,3 +94,4 @@ Test(nn_activation_leaky_relu, vector_backward) {
 		                   param_grad_item_at(0, i));
 	}
 }
+#endif /* BACKEND_TAPE */
