@@ -26,6 +26,28 @@ Test(linear_linalg_dot, forward_backward) {
 	}
 }
 
+Test(linear_linalg_dot, single_element_backward) {
+	/* Single-element vectors hit the `else if (a && b)` scalar branches of
+	   tape_backward_dot (numel == 1, not the numel>1 loops): for a=[x], b=[y],
+	   r = x*y, d/da[0] = y, d/db[0] = x. Covers dot.c lines 37-38 + 45-46. */
+	param_clear();
+	double ad[] = {3.0};
+	double bd[] = {5.0};
+	int s[] = {1};
+	TensorHandle a = tensor_create(ad, s, 1, 1);
+	TensorHandle b = tensor_create(bd, s, 1, 1);
+	param_register("a", a);
+	param_register("b", b);
+	TensorHandle r = tensor_dot(a, b);
+	cr_assert_float_eq(tensor_item(r), 15.0, 1e-12, "dot([3],[5]) should be 15 (got %.6f)",
+	                   tensor_item(r));
+	tensor_backward(r);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 5.0, 1e-12, "d_a[0] should be b[0]=5 (got %.6f)",
+	                   param_grad_item_at(0, 0));
+	cr_assert_float_eq(param_grad_item_at(1, 0), 3.0, 1e-12, "d_b[0] should be a[0]=3 (got %.6f)",
+	                   param_grad_item_at(1, 0));
+}
+
 Test(linear_linalg_outer, forward_backward) {
 	/* outer([1, 2], [3, 4, 5]) = [[3, 4, 5], [6, 8, 10]]
 	   loss = sum -> d_a[i] = sum_j b[j]; d_b[j] = sum_i a[i] */

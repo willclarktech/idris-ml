@@ -41,12 +41,15 @@ TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_bytes, int pa
                                              int o, int i, int requires_grad) {
 	int expected_bytes = ((i + 3) / 4) * o;
 	if (packed_byte_count != expected_bytes) {
+		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
+		// nn_quantization_ternary_packed/byte_count_mismatch_aborts
 		fprintf(stderr,
 		        "[tape] tensor_create_ternary_packed_2d: byte-count "
 		        "mismatch (got %d, expected %d for shape [%d, %d])\n",
 		        packed_byte_count, expected_bytes, o, i);
 		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 	Tensor* t = arena_alloc(sizeof(Tensor));
 	memset(t, 0, sizeof(Tensor));
@@ -137,11 +140,14 @@ TensorHandle tensor_bitlinear_fwd(TensorHandle hW, TensorHandle hscale, TensorHa
 	Tensor* bias = hbias ? (Tensor*)hbias : NULL;
 
 	if (W->dtype_tag != DT_TERNARY) {
+		// GCOVR_EXCL_START — tape-only invalid-input guard (torch/mlx don't
+		// abort here, so no cross-backend death test); abort() skips gcov flush
 		fprintf(stderr,
 		        "[tape] tensor_bitlinear_fwd: weight is not Ternary "
 		        "(dtype_tag=%d). Construct via tensor_create_ternary_packed_2d.\n",
 		        W->dtype_tag);
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 	/* F32 dispatch: if any of scale/x/bias is F32, require all three. */
 	int any_f32 =
@@ -220,11 +226,14 @@ TensorHandle tensor_bitlinear_fwd(TensorHandle hW, TensorHandle hscale, TensorHa
 TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
 	Tensor* w = (Tensor*)hw;
 	if (w->rank != 2) {
+		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
+		// nn_quantization_absmean/rank1_aborts
 		fprintf(stderr,
 		        "[tape] tensor_absmean_per_row_2d: expected 2D input, "
 		        "got rank=%d\n",
 		        w->rank);
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 	int o = w->shape[0];
 	int i_dim = w->shape[1];
@@ -340,18 +349,24 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hs
 	Tensor* w = (Tensor*)hw;
 	Tensor* scale = (Tensor*)hscale;
 	if (w->rank != 2) {
+		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
+		// nn_quantization_ternary_quant/rank1_weight_aborts
 		fprintf(stderr,
 		        "[tape] tensor_ternary_quant_with_scale_2d: expected "
 		        "2D weight, got rank=%d\n",
 		        w->rank);
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 	if (scale->rank != 1 || scale->shape[0] != w->shape[0]) {
+		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
+		// nn_quantization_ternary_quant/scale_shape_mismatch_aborts
 		fprintf(stderr,
 		        "[tape] tensor_ternary_quant_with_scale_2d: scale shape "
 		        "mismatch (expected [%d], got rank=%d shape0=%d)\n",
 		        w->shape[0], scale->rank, scale->rank > 0 ? scale->shape[0] : -1);
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 	if (w->dtype_tag != scale->dtype_tag) {
 		fprintf(stderr,

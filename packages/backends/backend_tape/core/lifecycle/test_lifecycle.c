@@ -6,9 +6,16 @@
  * (ABI parity stubs); a separate smoke probe verifies they don't crash.
  */
 
+#include <stdlib.h>
 #include <criterion/criterion.h>
 #include "backend.h"
 #include "shared_utils.h" /* tensor_ptr_array_alloc / _set_return / _free */
+
+/* Back-compat aliases live in lifecycle_ext.c but are not part of the public
+   backend.h surface (no live caller). Declared here so this colocated suite
+   can exercise them — the symbols are present in the linked backend object. */
+extern TensorHandle tensor_mul_elementwise(TensorHandle a, TensorHandle b);
+extern TensorHandle tensor_sum_all(TensorHandle h);
 
 Test(core_lifecycle, create_scalar_then_item) {
 	TensorHandle s = tensor_create_scalar(6.0, 0);
@@ -96,6 +103,105 @@ Test(core_lifecycle, retain_release_handle_noop) {
 	tensor_release_handle(s);
 	/* Verify value still readable after retain/release dance. */
 	cr_assert_float_eq(tensor_item(s), 42.0, 1e-12);
+}
+
+Test(core_lifecycle, reshape_1d_collapses_rank) {
+	/* tensor_reshape_1d: [2,3] -> [6], storage shared, values preserved. */
+	double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	int shape[] = {2, 3};
+	TensorHandle m = tensor_create(data, shape, 2, 0);
+	TensorHandle v = tensor_reshape_1d(m, 6);
+	cr_assert_eq(tensor_dim(v), 1);
+	cr_assert_eq(tensor_size(v, 0), 6);
+	cr_assert_eq(tensor_numel(v), 6);
+	double out[6];
+	tensor_to_doubles(v, out);
+	for (int i = 0; i < 6; i++)
+		cr_assert_float_eq(out[i], data[i], 1e-12, "reshape_1d cell %d", i);
+}
+
+Test(core_lifecycle, one_hot_encodes_tokens) {
+	/* tensor_one_hot: tokens [n] -> flat [n * vocab]. The fn FREES the
+	   tokens array it is handed, so it must be heap-allocated. One in-range
+	   token sets a single 1.0 per row; the rest of the row stays 0. */
+	int n_tokens = 3, vocab = 4;
+	int* tokens = malloc(n_tokens * sizeof(int));
+	tokens[0] = 0;
+	tokens[1] = 2;
+	tokens[2] = 3;
+	TensorHandle oh = tensor_one_hot(tokens, n_tokens, vocab, 0 /* dtag no-op */);
+	cr_assert_eq(tensor_dim(oh), 1);
+	cr_assert_eq(tensor_numel(oh), n_tokens * vocab);
+	double out[12];
+	tensor_to_doubles(oh, out);
+	double expect[12] = {1, 0, 0, 0, /* tok 0 */
+	                     0, 0, 1, 0, /* tok 2 */
+	                     0, 0, 0, 1 /* tok 3 */};
+	for (int i = 0; i < 12; i++)
+		cr_assert_float_eq(out[i], expect[i], 1e-12, "one_hot cell %d", i);
+}
+
+Test(core_lifecycle, one_hot_ignores_out_of_range_token) {
+	/* The `tok >= 0 && tok < vocab_size` guard: an out-of-range token leaves
+	   its row all-zero (no write), exercising the false branch. */
+	int n_tokens = 2, vocab = 3;
+	int* tokens = malloc(n_tokens * sizeof(int));
+	tokens[0] = 5;  /* >= vocab -> skipped */
+	tokens[1] = -1; /* < 0      -> skipped */
+	TensorHandle oh = tensor_one_hot(tokens, n_tokens, vocab, 0);
+	cr_assert_eq(tensor_numel(oh), n_tokens * vocab);
+	double out[6];
+	tensor_to_doubles(oh, out);
+	for (int i = 0; i < 6; i++)
+		cr_assert_float_eq(out[i], 0.0, 1e-12, "out-of-range one_hot cell %d", i);
+}
+
+Test(core_lifecycle, subtract_scalar_inplace_mutates_f64) {
+	/* tensor_subtract_scalar_inplace: F64 branch subtracts val from every
+	   element in place and returns the same handle. */
+	double data[] = {10.0, 20.0, 30.0};
+	int shape[] = {3};
+	TensorHandle v = tensor_create(data, shape, 1, 0);
+	TensorHandle r = tensor_subtract_scalar_inplace(v, 5.0);
+	cr_assert_eq((void*)r, (void*)v, "in-place op returns the same handle");
+	double out[3];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 5.0, 1e-12);
+	cr_assert_float_eq(out[1], 15.0, 1e-12);
+	cr_assert_float_eq(out[2], 25.0, 1e-12);
+}
+
+Test(core_lifecycle, mul_elementwise_alias) {
+	/* Back-compat alias for tensor_mul (Hadamard product). */
+	double a[] = {1.0, 2.0, 3.0};
+	double b[] = {4.0, 5.0, 6.0};
+	int shape[] = {3};
+	TensorHandle ha = tensor_create(a, shape, 1, 0);
+	TensorHandle hb = tensor_create(b, shape, 1, 0);
+	TensorHandle prod = tensor_mul_elementwise(ha, hb);
+	double out[3];
+	tensor_to_doubles(prod, out);
+	cr_assert_float_eq(out[0], 4.0, 1e-12);
+	cr_assert_float_eq(out[1], 10.0, 1e-12);
+	cr_assert_float_eq(out[2], 18.0, 1e-12);
+}
+
+Test(core_lifecycle, sum_all_alias) {
+	/* Back-compat alias for tensor_sum (full reduction to a scalar). */
+	double a[] = {1.0, 2.0, 3.0, 4.0};
+	int shape[] = {4};
+	TensorHandle ha = tensor_create(a, shape, 1, 0);
+	TensorHandle s = tensor_sum_all(ha);
+	cr_assert_eq(tensor_dim(s), 0);
+	cr_assert_float_eq(tensor_item(s), 10.0, 1e-12, "sum_all should total all elements");
+}
+
+Test(core_lifecycle, batch_empty_returns_rank1_zero) {
+	/* count == 0: early-out returns a [0] tensor, no input handles read. */
+	TensorHandle batched = tensor_batch(NULL, 0);
+	cr_assert_eq(tensor_dim(batched), 1);
+	cr_assert_eq(tensor_size(batched, 0), 0);
+	cr_assert_eq(tensor_numel(batched), 0);
 }
 
 Test(core_lifecycle, batch_stacks_via_ptr_array) {

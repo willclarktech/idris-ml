@@ -102,12 +102,16 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
 		r->rank = 3;
 		r->numel = a * b * len;
 	} else {
+		// GCOVR_EXCL_START — unsupported (rank,dim) guard; abort() skips the gcov
+		// flush so the forked child can't register these lines. Asserted by
+		// test_narrow.c::unsupported_combo_aborts (a .signal=SIGABRT death test).
 		fprintf(stderr,
 		        "tape tensor_narrow: unsupported (rank=%d, dim=%d). "
 		        "Supported: rank=1+dim=0, rank=2+dim=0/1, rank=3+dim=0/2.\n",
 		        t->rank, dim);
 		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 
 	if (r->requires_grad) tape_append(OP_NARROW, r, t, NULL, (double)start);
@@ -146,12 +150,17 @@ static void tape_backward_narrow(TapeEntry* e) {
 				tape_grad_add_d(a, row * parent_cols + start + col,
 				                tape_grad_load_d(r, row * slice_cols + col));
 	} else {
+		// GCOVR_EXCL_START — unrecognised-shape backward guard; abort() skips the
+		// gcov flush so the forked child can't register these lines. Asserted by
+		// test_narrow.c::backward_unrecognised_shape_aborts (.signal=SIGABRT).
 		fprintf(stderr,
 		        "tape narrow backward: unrecognised shape pair "
 		        "(a rank=%d shape=[%d,%d], r rank=%d shape=[%d,%d]).\n",
 		        a->rank, a->rank > 0 ? a->shape[0] : 0, a->rank > 1 ? a->shape[1] : 0, r->rank,
 		        r->rank > 0 ? r->shape[0] : 0, r->rank > 1 ? r->shape[1] : 0);
+		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 }
 

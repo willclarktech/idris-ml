@@ -28,6 +28,27 @@ Test(core_elementwise_abs, forward_backward_pos_neg) {
 	                   "d|x|/dx at x=-3 should be -1 (got %.6f)", param_grad_item_at(0, 0));
 }
 
+Test(core_elementwise_abs, backward_vector_mixed_signs_and_zero) {
+	/* Exercises the multi-element backward loop and both sides of the
+	   sign branch (>=0 -> +1, <0 -> -1). At x=0 the convention is +1. */
+	param_clear();
+	double ad[] = {-2.0, 0.0, 5.0};
+	int s[] = {3};
+	TensorHandle a = tensor_create(ad, s, 1, 1);
+	param_register("a", a);
+	TensorHandle r = tensor_abs(a);
+	double out[3];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 2.0, 1e-12);
+	cr_assert_float_eq(out[1], 0.0, 1e-12);
+	cr_assert_float_eq(out[2], 5.0, 1e-12);
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), -1.0, 1e-12, "d|x|/dx at x=-2 should be -1");
+	cr_assert_float_eq(param_grad_item_at(0, 1), 1.0, 1e-12, "d|x|/dx at x=0 should be +1");
+	cr_assert_float_eq(param_grad_item_at(0, 2), 1.0, 1e-12, "d|x|/dx at x=5 should be +1");
+}
+
 Test(core_elementwise_exp, forward_backward) {
 	param_clear();
 	TensorHandle a = tensor_create_scalar(1.0, 1);

@@ -128,3 +128,116 @@ Test(nn_norm_rms_norm, forward_matches_decomposed_chain) {
 		}
 	}
 }
+
+/* ---------------------------------------------------------------------- */
+/* Backward (OP_RMS_NORM_2D). Covers the rg=1 tape-append branch and the  */
+/* tape_backward_rms_norm_2d body: both the weight-grad and input-grad    */
+/* accumulation paths.                                                    */
+/* ---------------------------------------------------------------------- */
+
+Test(nn_norm_rms_norm, backward_input_and_weight_grads) {
+	/* Single row [[3, 4]], weight = [1, 1], eps -> 0; loss = sum(out).
+	 *   mean_sq = 12.5, rstd = 1/sqrt(12.5), x_hat = [3*rstd, 4*rstd]
+	 *   dout = [1, 1] (sum reduction)
+	 *
+	 * d(weight)[j] = sum_i dout[i,j] * x_hat[i,j] = x_hat[j]
+	 *   -> [3*rstd, 4*rstd]
+	 *
+	 * d(x)[j] = rstd * (dout_w[j] - x_hat[j] * (1/n) * sum_k dout_w[k]*x_hat[k])
+	 *   dout_w = weight = [1, 1]
+	 *   sum_k dout_w*x_hat = 7*rstd ; mean = 3.5*rstd
+	 *   d(x)[0] = rstd * (1 - 3*rstd * 3.5*rstd) = rstd * (1 - 10.5*rstd^2)
+	 *   d(x)[1] = rstd * (1 - 4*rstd * 3.5*rstd) = rstd * (1 - 14.0*rstd^2)
+	 *   with rstd^2 = 1/12.5: d(x)[0] = rstd*0.16, d(x)[1] = rstd*(-0.12)
+	 */
+	param_clear();
+	double in_d[] = {3.0, 4.0};
+	double w_d[] = {1.0, 1.0};
+	TensorHandle input = tensor_create_2d_f64(1, 2, heap_copy(in_d, 2), 1);
+	TensorHandle weight = tensor_create_1d_f64(2, heap_copy(w_d, 2), 1);
+	param_register("input", input);   /* param_idx 0 */
+	param_register("weight", weight); /* param_idx 1 */
+	double eps = 1e-9;
+	TensorHandle loss = tensor_sum(tensor_rms_norm_2d(input, weight, eps));
+	tensor_backward(loss);
+
+	double rstd = 1.0 / sqrt(12.5 + eps);
+	double r2 = rstd * rstd;
+	double dx0 = rstd * (1.0 - 10.5 * r2);
+	double dx1 = rstd * (1.0 - 14.0 * r2);
+	cr_assert_float_eq(param_grad_item_at(0, 0), dx0, TEST_TOL_RELAXED,
+	                   "d(x)[0] expected %.9f got %.9f", dx0, param_grad_item_at(0, 0));
+	cr_assert_float_eq(param_grad_item_at(0, 1), dx1, TEST_TOL_RELAXED,
+	                   "d(x)[1] expected %.9f got %.9f", dx1, param_grad_item_at(0, 1));
+	cr_assert_float_eq(param_grad_item_at(1, 0), 3.0 * rstd, TEST_TOL_RELAXED,
+	                   "d(w)[0] expected %.9f got %.9f", 3.0 * rstd, param_grad_item_at(1, 0));
+	cr_assert_float_eq(param_grad_item_at(1, 1), 4.0 * rstd, TEST_TOL_RELAXED,
+	                   "d(w)[1] expected %.9f got %.9f", 4.0 * rstd, param_grad_item_at(1, 1));
+}
+
+Test(nn_norm_rms_norm, backward_weight_only) {
+	/* Only weight requires grad; input does not. Exercises the
+	 * weight-grad branch while the input-grad branch is skipped
+	 * (a->requires_grad == 0).
+	 *   Input [[1, 2]], mean_sq = 2.5, rstd = 1/sqrt(2.5)
+	 *   x_hat = [1*rstd, 2*rstd]; dout = [1, 1]
+	 *   d(weight)[j] = x_hat[j].
+	 */
+	param_clear();
+	double in_d[] = {1.0, 2.0};
+	double w_d[] = {1.0, 1.0};
+	TensorHandle input = tensor_create_2d_f64(1, 2, heap_copy(in_d, 2), 0);
+	TensorHandle weight = tensor_create_1d_f64(2, heap_copy(w_d, 2), 1);
+	param_register("weight", weight); /* param_idx 0 */
+	double eps = 1e-9;
+	TensorHandle loss = tensor_sum(tensor_rms_norm_2d(input, weight, eps));
+	tensor_backward(loss);
+
+	double rstd = 1.0 / sqrt(2.5 + eps);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 1.0 * rstd, TEST_TOL_RELAXED,
+	                   "d(w)[0] expected %.9f got %.9f", 1.0 * rstd, param_grad_item_at(0, 0));
+	cr_assert_float_eq(param_grad_item_at(0, 1), 2.0 * rstd, TEST_TOL_RELAXED,
+	                   "d(w)[1] expected %.9f got %.9f", 2.0 * rstd, param_grad_item_at(0, 1));
+}
+
+Test(nn_norm_rms_norm, backward_input_only_multirow) {
+	/* Only input requires grad; two rows, each normalized independently.
+	 * Validates the per-row d(x) loop with weight != 1 and the input-grad
+	 * branch while the weight-grad branch is skipped.
+	 *   weight = [2, 3]; eps -> 0; loss = sum(out); dout = ones.
+	 * Per row, with dout_w = weight:
+	 *   sum_k dout_w[k]*x_hat[k] ; mean = sum/n
+	 *   d(x)[i,j] = rstd_i * (weight[j] - x_hat[i,j] * mean_i)
+	 *
+	 * Computed host-side and compared against the fused backward.
+	 */
+	param_clear();
+	double in_d[] = {1.0, 2.0, 3.0, 4.0}; /* rows: [1,2], [3,4] */
+	double w_d[] = {2.0, 3.0};
+	TensorHandle input = tensor_create_2d_f64(2, 2, heap_copy(in_d, 4), 1);
+	TensorHandle weight = tensor_create_1d_f64(2, heap_copy(w_d, 2), 0);
+	param_register("input", input); /* param_idx 0 */
+	double eps = 1e-9;
+	TensorHandle loss = tensor_sum(tensor_rms_norm_2d(input, weight, eps));
+	tensor_backward(loss);
+
+	for (int i = 0; i < 2; i++) {
+		double s = 0;
+		for (int j = 0; j < 2; j++)
+			s += in_d[i * 2 + j] * in_d[i * 2 + j];
+		double rstd = 1.0 / sqrt(s / 2.0 + eps);
+		double xhat[2];
+		double mean = 0;
+		for (int j = 0; j < 2; j++) {
+			xhat[j] = in_d[i * 2 + j] * rstd;
+			mean += w_d[j] * xhat[j];
+		}
+		mean /= 2.0;
+		for (int j = 0; j < 2; j++) {
+			double expect = rstd * (w_d[j] - xhat[j] * mean);
+			cr_assert_float_eq(param_grad_item_at(0, i * 2 + j), expect, TEST_TOL_RELAXED,
+			                   "d(x)[%d,%d] expected %.9f got %.9f", i, j, expect,
+			                   param_grad_item_at(0, i * 2 + j));
+		}
+	}
+}

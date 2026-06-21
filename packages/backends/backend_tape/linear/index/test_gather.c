@@ -19,6 +19,32 @@ Test(linear_index_gather, forward_with_index) {
 	cr_assert_float_eq(out[2], 10.0, 1e-12);
 }
 
+Test(linear_index_gather, backward_accumulates_duplicate_index) {
+	/* index = [1, 1, 0] picks position 1 twice; backward scatter-adds, so
+	   d_input[1] accumulates 2 and d_input[0] = 1, d_input[2,3] = 0. */
+	param_clear();
+	double id[] = {10.0, 20.0, 30.0, 40.0};
+	double ixd[] = {1.0, 1.0, 0.0};
+	int s_in[] = {4};
+	int s_ix[] = {3};
+	TensorHandle input = tensor_create(id, s_in, 1, 1);
+	TensorHandle index = tensor_create(ixd, s_ix, 1, 0);
+	param_register("input", input);
+	TensorHandle r = tensor_gather(input, index, 3);
+	double out[3];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 20.0, 1e-12);
+	cr_assert_float_eq(out[1], 20.0, 1e-12);
+	cr_assert_float_eq(out[2], 10.0, 1e-12);
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 1.0, 1e-12);
+	cr_assert_float_eq(param_grad_item_at(0, 1), 2.0, 1e-12, "input grad[1] should be 2 (got %.6f)",
+	                   param_grad_item_at(0, 1));
+	cr_assert_float_eq(param_grad_item_at(0, 2), 0.0, 1e-12);
+	cr_assert_float_eq(param_grad_item_at(0, 3), 0.0, 1e-12);
+}
+
 Test(linear_index_gather, backward_scatters_grad) {
 	/* gather with index [3, 1, 0]; sum -> d_input scattered to [3,1,0]. */
 	param_clear();

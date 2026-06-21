@@ -25,6 +25,21 @@ static double silu_ref(double x) {
 	return x / (1.0 + exp(-x));
 }
 
+static double sigmoid_ref(double x) {
+	return 1.0 / (1.0 + exp(-x));
+}
+
+/* dL/d(gate) for loss = sum(silu(gate)*up), dout=1. */
+static double swiglu_dgate_ref(double gate, double up) {
+	double s = sigmoid_ref(gate);
+	return up * s * (1.0 + gate * (1.0 - s));
+}
+
+/* dL/d(up) for loss = sum(silu(gate)*up), dout=1. */
+static double swiglu_dup_ref(double gate, double up) {
+	return gate * sigmoid_ref(gate);
+}
+
 Test(nn_activation_swiglu, forward_zero_gate) {
 	/* silu(0) = 0 * 0.5 = 0, so out should be 0 regardless of up. */
 	param_clear();
@@ -101,5 +116,63 @@ Test(nn_activation_swiglu, forward_matches_decomposed_chain) {
 		double expect = silu_ref(g_d[k]) * u_d[k];
 		cr_assert_float_eq(got[k], expect, TEST_TOL_RELAXED, "swiglu[%d] expected %.9f got %.9f", k,
 		                   expect, got[k]);
+	}
+}
+
+/* Backward through OP_SWIGLU_2D with both inputs requiring grad. gate is
+ * param 0, up is param 1. loss = sum(out) so dout = 1 everywhere. Covers the
+ * F64 tape-append branch and tape_backward_swiglu_2d (both grad paths). */
+Test(nn_activation_swiglu, backward_both_inputs) {
+	param_clear();
+	double g_d[] = {1.0, -1.0, 0.5, 2.0};
+	double u_d[] = {2.0, 3.0, -1.0, 0.5};
+	TensorHandle gate = tensor_create_2d_f64(2, 2, heap_copy(g_d, 4), 1);
+	TensorHandle up = tensor_create_2d_f64(2, 2, heap_copy(u_d, 4), 1);
+	param_register("gate", gate);
+	param_register("up", up);
+	TensorHandle loss = tensor_sum(tensor_swiglu_2d(gate, up));
+	tensor_backward(loss);
+	for (int k = 0; k < 4; k++) {
+		double dg = swiglu_dgate_ref(g_d[k], u_d[k]);
+		double du = swiglu_dup_ref(g_d[k], u_d[k]);
+		cr_assert_float_eq(param_grad_item_at(0, k), dg, TEST_TOL_RELAXED,
+		                   "d/d gate[%d] expected %.9f got %.9f", k, dg, param_grad_item_at(0, k));
+		cr_assert_float_eq(param_grad_item_at(1, k), du, TEST_TOL_RELAXED,
+		                   "d/d up[%d] expected %.9f got %.9f", k, du, param_grad_item_at(1, k));
+	}
+}
+
+/* Only gate requires grad: exercises the gNeedsGrad-but-not-uNeedsGrad branch
+ * in tape_backward_swiglu_2d. up still participates in the forward (rg = OR). */
+Test(nn_activation_swiglu, backward_gate_only) {
+	param_clear();
+	double g_d[] = {0.5, -0.5, 1.5, -1.5};
+	double u_d[] = {1.0, 2.0, -2.0, 0.5};
+	TensorHandle gate = tensor_create_2d_f64(2, 2, heap_copy(g_d, 4), 1);
+	TensorHandle up = tensor_create_2d_f64(2, 2, heap_copy(u_d, 4), 0);
+	param_register("gate", gate);
+	TensorHandle loss = tensor_sum(tensor_swiglu_2d(gate, up));
+	tensor_backward(loss);
+	for (int k = 0; k < 4; k++) {
+		double dg = swiglu_dgate_ref(g_d[k], u_d[k]);
+		cr_assert_float_eq(param_grad_item_at(0, k), dg, TEST_TOL_RELAXED,
+		                   "d/d gate[%d] expected %.9f got %.9f", k, dg, param_grad_item_at(0, k));
+	}
+}
+
+/* Only up requires grad: exercises the uNeedsGrad-but-not-gNeedsGrad branch. */
+Test(nn_activation_swiglu, backward_up_only) {
+	param_clear();
+	double g_d[] = {0.3, -0.8, 1.2, 2.0};
+	double u_d[] = {1.5, -1.0, 0.5, 2.0};
+	TensorHandle gate = tensor_create_2d_f64(2, 2, heap_copy(g_d, 4), 0);
+	TensorHandle up = tensor_create_2d_f64(2, 2, heap_copy(u_d, 4), 1);
+	param_register("up", up);
+	TensorHandle loss = tensor_sum(tensor_swiglu_2d(gate, up));
+	tensor_backward(loss);
+	for (int k = 0; k < 4; k++) {
+		double du = swiglu_dup_ref(g_d[k], u_d[k]);
+		cr_assert_float_eq(param_grad_item_at(0, k), du, TEST_TOL_RELAXED,
+		                   "d/d up[%d] expected %.9f got %.9f", k, du, param_grad_item_at(0, k));
 	}
 }

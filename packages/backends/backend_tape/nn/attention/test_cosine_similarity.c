@@ -78,3 +78,21 @@ Test(nn_attention_cosine_similarity, forward_backward_a_grad) {
 	cr_assert_float_eq(param_grad_item_at(0, 1), -0.096, COSINE_TOL,
 	                   "grad a[1] should be -0.096 (got %.9f)", param_grad_item_at(0, 1));
 }
+
+Test(nn_attention_cosine_similarity, non_rank2_returns_scalar_zero) {
+	/* The op only handles the rank-2 x rank-2 case; any other rank
+	 * combination falls through to `return make_scalar(0, 0)` (the final
+	 * line of the function). Feed a rank-1 `a` so `a->rank == 2` is false
+	 * and assert the degenerate scalar-zero result. Covers the fallback
+	 * branch (cosine_similarity.c final return). */
+	param_clear();
+	double ad[] = {1.0, 0.0};
+	double bd[] = {1.0, 0.0};
+	TensorHandle a = tensor_create_1d_f64(2, heap_copy(ad, 2), 0); /* rank 1 */
+	TensorHandle b = tensor_create_param_2d_f64(1, 2, heap_copy(bd, 2));
+	TensorHandle r = tensor_cosine_similarity(a, b, 1);
+	cr_assert_eq(tensor_dim(r), 0, "fallback result should be a rank-0 scalar, got %d",
+	             tensor_dim(r));
+	cr_assert_float_eq(tensor_item(r), 0.0, COSINE_TOL,
+	                   "fallback result should be scalar 0 (got %.9f)", tensor_item(r));
+}
