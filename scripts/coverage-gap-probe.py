@@ -72,6 +72,14 @@ TEST_ROOTS = [
     ROOT / "packages" / "idris-test-c" / "src",
 ]
 
+# Restrict coverage searches to `test_*.c` files only. The backend trees in
+# TEST_ROOTS hold BOTH the implementation `.c` files AND the colocated tests,
+# so the default `*.c` glob made every symbol self-match its own definition —
+# any implemented symbol was counted "covered" whether or not a test ever
+# exercised it (e.g. tensor_sdpa_2d / OP_BCE_WITH_LOGITS reported "present"
+# with 0% real line coverage). Counting only test_*.c is the honest measure.
+TEST_FILE_GLOB = ("test_*.c",)
+
 # Documented FFI exclusion list (lifted verbatim from
 # coverage-gap-probe.sh; see docs/develop/coverage-policy.md
 # "Exclusions" for the rationale per category).
@@ -133,7 +141,7 @@ def build_ops_rows() -> list[dict[str, str]]:
                 symbols = sorted(extract_ffi_symbols_from_source(source.read_text()))
             test_path: Path | None = None
             for sym in symbols:
-                hits = grep_word_in_dirs(sym, TEST_ROOTS)
+                hits = grep_word_in_dirs(sym, TEST_ROOTS, suffixes=TEST_FILE_GLOB)
                 if hits:
                     test_path = hits[0]
                     break
@@ -162,7 +170,7 @@ def build_symbols_rows() -> list[dict[str, str]]:
     for sym in syms:
         if sym in FFI_EXCLUSIONS:
             continue
-        hits = grep_word_in_dirs(sym, TEST_ROOTS)
+        hits = grep_word_in_dirs(sym, TEST_ROOTS, suffixes=TEST_FILE_GLOB)
         rows.append({"symbol": sym, "test_hits": str(len(hits))})
     return rows
 
