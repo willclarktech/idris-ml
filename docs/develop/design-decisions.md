@@ -749,6 +749,32 @@ The `backend.h` C API abstracts all tensor operations behind ~80 function declar
 
 All three compile to `libidrisml.dylib` — same name, same API. The Idris code is identical across backends. `Makefile` selects: `make backend BACKEND=tape|torch|mlx`.
 
+#### Why torch + mlx come from uv wheels, not nixpkgs
+
+The pinned flake provides everything *around* idris2, but the torch and
+mlx native libraries are deliberately sourced from the uv-managed venv
+(`packages/pytorch/.venv`), never nixpkgs — because the nix builds lack
+the GPU paths that are the entire point of these two backends:
+
+- **mlx**: nixpkgs `python3Packages.mlx` hardcodes `MLX_BUILD_METAL=false`
+  (Apple's `metal` shader compiler is closed-source and needs sandbox
+  escapes nixpkgs won't take), so the nix build is CPU-only —
+  `MLX_DEVICE=gpu` aborts with `Cannot set gpu device without gpu
+  backend` and `mx::is_available(gpu) == 0`. The Metal-linked
+  `libmlx.dylib` only ships in the pip/uv `mlx` wheel (which pulls the
+  ~150 MB precompiled `mlx-metal` / `mlx.metallib`). Full operational
+  detail in the `project_mlx_gpu_environment` memory.
+- **torch**: the CUDA/MPS-enabled libtorch builds are distributed as
+  pip/uv wheels (pytorch.org); we link the wheel's `libtorch` so the
+  dylib carries the same CUDA/MPS kernels a user deploys. `make backend`
+  resolves the wheel via the venv's site-packages (`MLX_SITE` /
+  libtorch path), matching `BACKEND=torch TORCH_DEVICE=mps|cuda`.
+
+This is why `flake.nix`'s `defaultPackages` keeps Python out (its
+comment: "provided by uv … never nixpkgs") and the Linux CI torch lane
+links the manylinux wheel rather than a nix libtorch. The tape backend,
+by contrast, has zero external deps and needs no wheel at all.
+
 ### Build-time backend selection
 
 The `backend_supports_tensor_params()` C function returns 1 (all current backends: tape, MLX, torch) to let Idris code adapt. When 1: layer `nameLayer` creates consolidated weight tensors (`[o,i]` for Linear, `[4*o,i]` for LSTM) with scalar views sharing storage. The tensor-level forward path (`tensor_mv`) operates on consolidated tensors directly. When 0: layer `nameLayer` creates per-scalar named Variables (legacy scalar fallback).
