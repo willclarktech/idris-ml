@@ -1,6 +1,6 @@
 ||| Gpt2LmFinetune — continued pretraining of distilgpt2 on Tiny
 ||| Shakespeare. Demonstrates the HF causal-LM fine-tune path:
-||| backbone warm-start via `loadModelAllowCast`, sliding-window
+||| backbone warm-start via `load … {allowCast := True}`, sliding-window
 ||| batches over a pre-tokenized corpus, per-position cross-entropy
 ||| against shifted-by-1 next-token targets.
 |||

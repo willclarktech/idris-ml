@@ -774,7 +774,7 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
 -- BitNet's safetensors checkpoint is a mix of two on-disk shapes:
 --   1. Float-typed params (embed_tokens, all RmsNorm weights, every
 --      BitLinear's weight_scale) — go through the standard
---      `loadModelAllowCast` path. They're already in the C-side param
+--      `load … {allowCast := True}` path. They're already in the C-side param
 --      registry under their HF names from `makeBitNetEmbedding` /
 --      `makeBitNetRmsNorm` / `makeBitLinearHf`.
 --   2. Ternary BitLinear weights — stored as uint8 axis-0 packed
@@ -882,7 +882,7 @@ loadBlocksTernary path pfx offset (b :: bs) = do
 |||      `tCreateTernaryFromHfPacked2d`).
 |||   2. Loads all float-typed params (embed_tokens, all RmsNorms,
 |||      every BitLinear `weight_scale`) in place via
-|||      `loadModelAllowCast`. The LM head is tied to `embed_tokens`,
+|||      `load … {allowCast := True}`. The LM head is tied to `embed_tokens`,
 |||      so no separate weight is loaded.
 |||
 ||| Returns `(newModel, summary)` where `summary` is a triple of

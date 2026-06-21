@@ -16,7 +16,7 @@
 ||| `[numClasses]` logits to `tnllLoss` against a one-hot target.
 |||
 ||| Designed for the warm-start fine-tune workflow:
-|||   loadModelPrefix "bert/model.safetensors" "bert."   -- backbone only
+|||   load "bert/model.safetensors" ({only := Just "bert."} defaultLoadOpts)  -- backbone only
 |||   -- (optional) freezeGroup opt =<< namesMatching (isPrefixOf "bert.")
 |||   -- train: backward through tnllLoss, trainStep
 module Transformers.BertForClassification
@@ -149,11 +149,11 @@ makeClassifierHead pfx = do
 |||
 ||| Typical use:
 |||   ` model <- hfBertForSequenceClassification {numClasses=3} "bert" "classifier"`
-|||   ` _ <- loadModelPrefix "<path>/model.safetensors" "bert."`
+|||   ` _ <- load "<path>/model.safetensors" ({only := Just "bert."} defaultLoadOpts)`
 |||
 ||| After construction, the registry contains `bertParamNames cfg
 ||| "bert"` (backbone) followed by `["classifier.weight",
-||| "classifier.bias"]`. `loadModelPrefix _ "bert."` warm-starts the
+||| "classifier.bias"]`. `load _ ({only := Just "bert."} …)` warm-starts the
 ||| former; the latter stays at its fresh-init (Normal(0,0.02) /
 ||| zero) — exactly what `BertForSequenceClassification.from_pretrained`
 ||| does on the Python side.

@@ -200,7 +200,7 @@ saveLoraAdapter outputDir cfg = do
 ||| registry. The reverse of `saveLoraAdapter`: reads
 ||| adapter_config.json into a `LoraAdapterConfig`, then loads the
 ||| safetensors by stripping peft's wrapping at the key level (the
-||| existing `loadModelPrefix` machinery handles the actual tensor
+||| existing `load … {only := Just pfx}` machinery handles the actual tensor
 ||| read — we just need to ensure the on-disk keys match the
 ||| in-memory paramIds after the strip).
 |||

@@ -61,7 +61,7 @@ validate-lora-adapter: models/google/bert_uncased_L-2_H-128_A-2/config.json
 # PyTorch reference inference for the HF-aligned models. Each invokes the
 # canonical HF transformers forward pass for the same model the matching
 # Idris example runs, so users can eyeball PyTorch's output (or wall
-# time) for direct comparison with `make example-hf-{bert,gpt2,llama}-inference`.
+# time) for direct comparison with `make example-{bert,gpt2,llama}-inference`.
 #
 # bert + gpt2 reuse the oracle scripts (load via HF, run forward, save
 # the comparison-target tensor) — re-running them refreshes the oracle
