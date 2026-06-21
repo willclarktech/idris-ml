@@ -199,14 +199,14 @@ TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarT
 extern "C" TensorHandle tensor_create_1d_f64(int n, double* d, int rg) {
 	auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
 	free(d);
-	t = torch_migrate_to_target(std::move(t));
+	t = torch_migrate_to_target(t);
 	if (rg != 0) t.requires_grad_(true);
 	return from_tensor(std::move(t));
 }
 extern "C" TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg) {
 	auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
 	free(d);
-	t = torch_migrate_to_target(std::move(t));
+	t = torch_migrate_to_target(t);
 	if (rg != 0) t.requires_grad_(true);
 	return from_tensor(std::move(t));
 }
@@ -226,11 +226,11 @@ extern "C" TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d
 }
 extern "C" TensorHandle tensor_create_state_1d_f64(int n, double* d) {
 	auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
-	return from_tensor_persistent(torch_migrate_to_target(std::move(t)));
+	return from_tensor_persistent(torch_migrate_to_target(t));
 }
 extern "C" TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* d) {
 	auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-	return from_tensor_persistent(torch_migrate_to_target(std::move(t)));
+	return from_tensor_persistent(torch_migrate_to_target(t));
 }
 
 /* ---- F32 explicit-suffix wrappers ----
