@@ -26,6 +26,7 @@ packages/idris-ml/src/ML/Config.idr
 
 build/
 build-cov/
+build-cov-*/
 data/
 # HF model checkpoints (and derived oracles) downloaded by
 # `bash packages/idris-transformers/scripts/hf-download.sh <repo>` —

@@ -33,6 +33,7 @@ include mk/e2e.mk
 clean:
 	rm -rf build/
 	rm -rf build-cov/
+	rm -rf build-cov-*/
 	rm -rf .idris2/
 	rm -rf packages/*/build/
 

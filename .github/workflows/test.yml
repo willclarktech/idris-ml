@@ -1279,7 +1279,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: coverage-html-${{ matrix.backend }}
-          path: build-cov/html-${{ matrix.backend }}/
+          path: build-cov-${{ matrix.backend }}/html/
           if-no-files-found: warn
 
       # Upload the per-backend Cobertura XML to Codecov under its flag. The
@@ -1291,7 +1291,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v5
         with:
-          files: build-cov/cov-${{ matrix.backend }}.xml
+          files: build-cov-${{ matrix.backend }}/cov.xml
           flags: ${{ matrix.backend }}
           name: ${{ matrix.backend }}-coverage
           token: ${{ secrets.CODECOV_TOKEN }}

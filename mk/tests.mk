@@ -153,7 +153,13 @@ test-unit-c-asan: test-unit-c-asan-tape
 # untestable lines can carry an INLINE `// GCOVR_EXCL_LINE — <reason>` marker
 # (see gcovr.cfg + docs/develop/coverage-policy.md). Codecov is the CI gate
 # (codecov.yml: per-backend flags + patch/project status checks).
-COV_BUILD := build-cov
+#
+# COV_BUILD is per-backend (build-cov-tape / -torch / -mlx): gcov keys .gcno to
+# the exact compiled object, so a shared tree reused across backends would mix
+# one backend's .gcno with another's freshly-written .gcda → "mismatched number
+# of counters" corruption. Per-backend trees also let each keep a warm
+# instrumented build (like the main BUILD_KEY trees).
+COV_BUILD := build-cov-$(PRIMARY)
 # Keep -O0 here: tried -O1, but libtorch's template-heavy headers blew up
 # compile time on the torch coverage lane (8:58 → 21:58 cold). -O0 stays as the
 # cheaper option. The big win is -j$(NPROC) on the recursive make below.
@@ -211,18 +217,25 @@ test-coverage-backend:
 	@command -v gcovr >/dev/null 2>&1 || { echo "gcovr not found — run inside 'nix develop'"; exit 1; }
 	@# Clear stale per-run counters (.gcda); .gcno persist from the compile.
 	find $(COV_BUILD) -name '*.gcda' -delete
-	./$(COV_BUILD)/test_criterion_smoke --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml > /dev/null
-	@rm -rf $(COV_BUILD)/html-$(PRIMARY) && mkdir -p $(COV_BUILD)/html-$(PRIMARY)
+	@# -j1 serializes Criterion's per-test forks. The LLVM gcov writer still
+	@# emits noisy "profiling: ... cannot merge" lines for two heavily-forked
+	@# TEST files (test_activations, test_dtype_scaffolding) — both excluded from
+	@# the report, so product-code counts are unaffected; we filter the spam.
+	@# This is a measurement run, not the test gate (that's test-unit-c), so a
+	@# failing test doesn't abort it (|| true).
+	./$(COV_BUILD)/test_criterion_smoke -j1 --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml 2>&1 \
+	  | grep -v '^profiling:' || true
+	@rm -rf $(COV_BUILD)/html && mkdir -p $(COV_BUILD)/html
 	@echo ""
 	@echo "=== Coverage report ($(PRIMARY)) ==="
 	$(GCOVR) --root $(PWD) --gcov-executable '$(GCOV_TOOL)' \
-	  --cobertura $(COV_BUILD)/cov-$(PRIMARY).xml --cobertura-pretty \
-	  --html-details $(COV_BUILD)/html-$(PRIMARY)/index.html \
+	  --cobertura $(COV_BUILD)/cov.xml --cobertura-pretty \
+	  --html-details $(COV_BUILD)/html/index.html \
 	  --txt --print-summary \
 	  $(COV_BUILD)
 	@echo ""
-	@echo "Coverage HTML:      file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
-	@echo "Coverage Cobertura: $(COV_BUILD)/cov-$(PRIMARY).xml (uploaded to Codecov in CI)"
+	@echo "Coverage HTML:      file://$(PWD)/$(COV_BUILD)/html/index.html"
+	@echo "Coverage Cobertura: $(COV_BUILD)/cov.xml (uploaded to Codecov in CI)"
 
 # Build-only the criterion suite with coverage flags so the
 # test-coverage-backend recipe can run it (writing .gcda) before gcovr reads.
