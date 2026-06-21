@@ -24,7 +24,7 @@ fourth is **additive** (confidence, not coverage *per se*):
    symbol coverage + W3b's custom-logic-path tests.
 3. **F32 paired oracle** — every op routed through the F32 storage
    path has a paired F32-vs-F64 gradcheck rung in the tape T29 ladder
-   (`packages/idris-test-c/src/test_legacy_backend.c`). This axis is
+   (`packages/backends/test/tape/test_dtype_scaffolding.c`). This axis is
    tape-specific (mlx and torch's F32 paths live in their respective
    frameworks).
 4. **Property-based confidence (additive, not gating).** When a
@@ -165,8 +165,8 @@ When introducing a new `OP_FOO` to either tape or mlx:
    new `OP_FOO` as MISSING.
 6. **F32 routing**: if `OP_FOO` is routed through tape's F32
    storage path, also add a rung in the T29 ladder
-   (`test_legacy_backend.c`). Skip-flag commit shape per the
-   plan-doc's W5 section.
+   (`packages/backends/test/tape/test_dtype_scaffolding.c`). Skip-flag
+   commit shape per the plan-doc's W5 section.
 7. **Property-based test consideration**: ask whether `OP_FOO`
    has an invariant worth property-testing — round-trip,
    sum-to-one, norm-bounded, F32-vs-F64 oracle parity, idempotence,

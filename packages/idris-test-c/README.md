@@ -11,7 +11,14 @@ Pure C; no Idris source.
 | File | Kind | What it covers |
 |---|---|---|
 | `src/test_criterion_smoke.c` | Criterion smoke | Framework smoke (verifies Criterion links + per-test process isolation). |
-| `src/test_legacy_backend.c` | Criterion (~364 ASSERT_NEAR) | T29 F32 paired oracle + the original backend correctness ladder. |
+| `src/test_autograd.c` | Criterion | Autograd + native SGD/RMSprop step semantics. |
+| `src/test_linalg.c` | Criterion | Linear-algebra + structural tensor ops. |
+| `src/test_nn_layers.c` | Criterion | Linear / norm / conv / pool / dropout / embedding layers. |
+| `src/test_activations.c` | Criterion | softmax / leaky-relu / silu / softplus. |
+| `src/test_losses.c` | Criterion | MSE / cross-entropy backward. |
+| `src/test_lstm.c` | Criterion | LSTM cell + gradient-chain. |
+| `src/test_tensor_misc.c` | Criterion | Miscellaneous tensor (safetensors roundtrip). |
+| `src/test_dtype_scaffolding.c` | Criterion | Cross-backend dtype dispatch / runtime tag layout. |
 | `src/test_param_registry.c` | Criterion | Shared param registry (cross-backend infra). |
 | `src/test_clip_grad_norm.c` | Criterion | Optimizer clip-grad-norm path. |
 | `src/test_optimizers.c` | Criterion | SGD / RMSprop / Adam / AdamW step semantics. |
@@ -20,6 +27,7 @@ Pure C; no Idris source.
 | `src/test_ntm_timestep.c` | Criterion (single Test()) | NTM single timestep (LSTM + FC + addressing + output). |
 | `src/test_mlx_compile.c` | Criterion | mlx::compile integration (MLX-only, `#ifdef BACKEND_MLX`). |
 | `include/test_helpers.h` | Header | Backend-aware tolerance + readout helpers. |
+| `include/port_assert.h` | Header | `ASSERT_NEAR` / `ASSERT_TRUE` shims + FD/VAL tolerances + `heap_copy` for the split per-area suites. |
 
 ## What does NOT live here
 

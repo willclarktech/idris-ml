@@ -5,7 +5,7 @@
  * param_register'd and need to survive optimizer_step's arena_reset; if they
  * lived in the arena, a post-reset arena_alloc could reissue the tensor's
  * own struct or data-buffer address, leading to the chained-view corruption
- * exercised by `legacy_backend::tensor_view`.
+ * exercised by `linalg::tensor_view`.
  *
  * When requires_grad=0, keeps the lighter arena allocation — non-grad user
  * tensors are typically per-epoch inputs (MNIST batches etc.) and don't
