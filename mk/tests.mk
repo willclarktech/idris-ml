@@ -159,6 +159,19 @@ COV_BUILD := build-cov
 COV_CFLAGS := -fprofile-instr-generate -fcoverage-mapping -O0 -g
 COV_LDFLAGS := -fprofile-instr-generate
 
+# Files dropped from the coverage report + HTML (one var, used by both
+# llvm-cov invocations below so they can't drift apart — they did: cJSON
+# moved to vendored/ but the regex still named the dead packages/backends/
+# path, so 1922 cJSON regions leaked back into the report). Two classes,
+# matching the FFI gap probe's principled-exclusion philosophy (see
+# coverage-policy.md "Principled exclusions"):
+#   - vendored/    third-party code we don't author or test (cJSON)
+#   - the diagnostic / file-format-I/O infra: safetensors + shared_utils
+#     (format I/O), mnist + idx (dataset readers, covered by example-mnist),
+#     log + probes (logging / diagnostics, no correctness impact)
+# Real kernel + training C (backend_*/**, shared/training/**) stays IN.
+COV_IGNORE_REGEX := (vendored/)|($(BACKENDS_DIR)/(safetensors|shared_utils|mnist|idx|log|probes))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)
+
 # llvm source-based coverage is clang-only. On macOS the system cc IS
 # clang and the llvm tools live behind xcrun. On Linux the default cc
 # is gcc, which rejects -fprofile-instr-generate/-fcoverage-mapping
@@ -203,9 +216,9 @@ test-coverage-backend:
 	$(COV_LLVM) llvm-profdata merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
 	@echo ""
 	@echo "=== Coverage report ($(PRIMARY)) ==="
-	$(COV_LLVM) llvm-cov report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
+	$(COV_LLVM) llvm-cov report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='$(COV_IGNORE_REGEX)'
 	@rm -rf $(COV_BUILD)/html-$(PRIMARY)
-	$(COV_LLVM) llvm-cov show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
+	$(COV_LLVM) llvm-cov show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='$(COV_IGNORE_REGEX)'
 	@echo ""
 	@echo "Coverage HTML: file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
 
