@@ -13,6 +13,13 @@ name: test
 # (scripts/check-ci-gate-coverage.py) enforces that mapping against
 # the Makefile aggregators.
 #
+# The one relaxation of "run everything": a cheap `changes` job (below)
+# lets a lane skip when the push provably can't affect it — heavy lanes
+# skip a docs-only push, the C/C++ lanes skip when no C/C++/lint config
+# changed. `lint` always runs as the catch-all. A manual
+# `workflow_dispatch` with `only:` scopes a run to a single lane for a
+# fast iteration loop (auto push-runs stay full).
+#
 # The make-invocation step lists are generated from
 # test.yml.spec.json by scripts/gen-ci-workflow.py (one marker-bounded
 # region per job); only the scaffolding here is hand-written.
@@ -34,12 +41,106 @@ on:
         description: 'Include macos-latest in the matrix'
         type: boolean
         default: false
+      only:
+        description: 'Run only this lane (fast single-lane loop)'
+        type: choice
+        default: all
+        options: [all, lint, lint-full, coverage, build, unit, integration, e2e]
 
 concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Cheap change detector. The one place the "run everything" default is
+  # relaxed — and only for provably-irrelevant inputs: heavy lanes skip a
+  # docs-only push, the C/C++ lanes skip when no C/C++/lint config changed.
+  # The `code` allowlist covers every build/test-affecting root (anything
+  # outside it is docs/meta); `.github/**` is in `code` so CI edits still
+  # exercise the lanes. workflow_dispatch forces everything on (manual =
+  # run all). `lint` stays ungated as the always-on catch-all.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # One per-lane boolean per gated job, so every job `if` is a trivial
+    # `needs.changes.outputs.<lane> == 'true'`. All the policy (path globs +
+    # the manual `only` selector) lives in the single `decide` step below,
+    # which is far easier to audit than a long boolean per job header.
+    outputs:
+      lint: ${{ steps.decide.outputs.lint }}
+      lintfull: ${{ steps.decide.outputs.lintfull }}
+      coverage: ${{ steps.decide.outputs.coverage }}
+      build: ${{ steps.decide.outputs.build }}
+      unit: ${{ steps.decide.outputs.unit }}
+      integration: ${{ steps.decide.outputs.integration }}
+      e2e: ${{ steps.decide.outputs.e2e }}
+      ccpp: ${{ steps.decide.outputs.ccpp }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Detect changed paths
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        with:
+          filters: |
+            code:
+              - 'packages/**'
+              - 'mk/**'
+              - 'scripts/**'
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'Makefile'
+              - 'pack.toml'
+              - '.github/**'
+            ccpp:
+              - 'packages/backends/**'
+              - 'mk/backends.mk'
+              - 'mk/lint.mk'
+              - '.clang-tidy'
+              - 'scripts/codegen/**'
+              - 'flake.nix'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test.yml.spec.json'
+              - '.github/actions/**'
+      - name: Decide which lanes run
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ONLY: ${{ inputs.only }}
+          CODE: ${{ steps.filter.outputs.code }}
+          CCPP: ${{ steps.filter.outputs.ccpp }}
+        run: |
+          set -euo pipefail
+          lint=false; lintfull=false; coverage=false
+          build=false; unit=false; integration=false; e2e=false; ccpp=false
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            # Manual run: honour the `only` selector (default 'all'). Lanes that
+            # need `build` pull it in. `ccpp` (the lint-full clang-tidy step
+            # gate) is on whenever lint-full runs.
+            case "${ONLY:-all}" in
+              all)         lint=true; lintfull=true; coverage=true; build=true; unit=true; integration=true; e2e=true; ccpp=true ;;
+              lint)        lint=true ;;
+              lint-full)   lintfull=true; ccpp=true ;;
+              coverage)    coverage=true ;;
+              build)       build=true ;;
+              unit)        build=true; unit=true ;;
+              integration) build=true; integration=true ;;
+              e2e)         build=true; e2e=true ;;
+              *) echo "unknown only=${ONLY} (use all|lint|lint-full|coverage|build|unit|integration|e2e)" >&2; exit 1 ;;
+            esac
+          else
+            # push / pull_request: gate on what changed. `lint` is the cheap
+            # always-on catch-all. paths-filter returns true on an ambiguous
+            # base (first push / force-push), so this fails safe = run.
+            lint=true
+            if [ "$CODE" = "true" ]; then build=true; unit=true; integration=true; e2e=true; lintfull=true; fi
+            if [ "$CCPP" = "true" ]; then ccpp=true; coverage=true; fi
+          fi
+          for k in lint lintfull coverage build unit integration e2e ccpp; do
+            echo "$k=${!k}" >> "$GITHUB_OUTPUT"
+          done
+
   # Static gates that need no Idris/backend build: drift checks,
   # Python + C lint, the dep-light pyright surfaces, and the
   # CI-vs-spec / CI-vs-Makefile sync lints. Runs in parallel with
@@ -47,6 +148,10 @@ jobs:
   # week's worth of matrix information).
   lint:
     name: lint
+    needs: changes
+    # Always-on catch-all for push/PR (the `changes` job sets lint=true for
+    # every non-dispatch event); on manual dispatch it honours `only`.
+    if: ${{ needs.changes.outputs.lint == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -228,7 +333,12 @@ jobs:
   lint-full:
     name: lint-full
     runs-on: ubuntu-latest
-    # 60m: the advisory torch clang-tidy fans out per-file over ~100 TUs
+    needs: changes
+    # Skip the whole job on a docs-only push; the clang-tidy step itself is
+    # further gated on `ccpp` (see test.yml.spec.json) so a Python/Idris-only
+    # change runs the fast pyright steps but not the ~40m torch clang-tidy.
+    if: ${{ needs.changes.outputs.lintfull == 'true' }}
+    # 60m: the (enforcing) torch clang-tidy fans out per-file over ~100 TUs
     # (mk/lint.mk). Serial it blew the old 30m cap (run 27879495722); the
     # parallel run lands well under, but libtorch-header parse time is
     # high-variance so keep generous headroom.
@@ -298,7 +408,7 @@ jobs:
         # linted locally on macOS (nix clang-tidy's libc++ is built for a
         # different Apple SDK than the host's, breaking <math.h>);
         # replication is this Linux CI lane.
-        if: ${{ !cancelled() }}
+        if: ${{ needs.changes.outputs.ccpp == 'true' && !cancelled() }}
         run: make BACKEND=torch C_LINT_FULL_CLANG_TIDY=1 lint-c-torch
       # <<< END GENERATED (lint-full) <<<
 
@@ -318,6 +428,8 @@ jobs:
   # with swap, leaves downstream jobs only example-level work).
   build:
     name: build (${{ matrix.os }})
+    needs: changes
+    if: ${{ needs.changes.outputs.build == 'true' }}
     defaults:
       run:
         shell: "nix develop .#default --command bash -e {0}"
@@ -375,13 +487,13 @@ jobs:
     defaults:
       run:
         shell: "nix develop .#default --command bash -e {0}"
-    needs: build
+    needs: [build, changes]
     # needs is matrix-wide: one failed build leg skips this job on EVERY
     # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
     # masked all ubuntu test signal). !cancelled() keeps the job running
     # on legs whose build succeeded; a leg whose build failed runs
     # cold-or-red, which is attributable noise, not masking.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.unit == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -586,13 +698,13 @@ jobs:
     defaults:
       run:
         shell: "nix develop .#default --command bash -e {0}"
-    needs: build
+    needs: [build, changes]
     # needs is matrix-wide: one failed build leg skips this job on EVERY
     # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
     # masked all ubuntu test signal). !cancelled() keeps the job running
     # on legs whose build succeeded; a leg whose build failed runs
     # cold-or-red, which is attributable noise, not masking.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.integration == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -716,13 +828,13 @@ jobs:
     defaults:
       run:
         shell: "nix develop .#default --command bash -e {0}"
-    needs: build
+    needs: [build, changes]
     # needs is matrix-wide: one failed build leg skips this job on EVERY
     # os (observed 2026-06-11, run 27370628186 — the macOS setup failure
     # masked all ubuntu test signal). !cancelled() keeps the job running
     # on legs whose build succeeded; a leg whose build failed runs
     # cold-or-red, which is attributable noise, not masking.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.e2e == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -788,10 +900,10 @@ jobs:
     defaults:
       run:
         shell: "nix develop .#default --command bash -e {0}"
-    needs: build
+    needs: [build, changes]
     # See the test-unit comment: don't let a failed build leg on another
     # os mask this job's signal.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.e2e == 'true' }}
     runs-on: ubuntu-latest
     # 90 was hit (91m32s, cancelled) on a cold ttc cache. Bumped to 120
     # for headroom; with the llama/bitnet roundtrips split out, warm
@@ -913,10 +1025,10 @@ jobs:
     defaults:
       run:
         shell: "nix develop .#default --command bash -e {0}"
-    needs: build
+    needs: [build, changes]
     # See the test-unit comment: don't let a failed build leg on another
     # os mask this job's signal.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # unsloth/Llama-3.2-1B is download-gated on the public mirror; the
@@ -1057,10 +1169,13 @@ jobs:
   # down.
   coverage:
     name: coverage (${{ matrix.backend }} on ${{ matrix.os }})
+    needs: changes
     defaults:
       run:
         shell: "nix develop .#default --command bash -e {0}"
-    if: github.event_name != 'pull_request'
+    # Coverage is source-based over the C backend; skip when no C/C++/lint
+    # config changed (numbers can't move). Still skipped for external PRs.
+    if: ${{ github.event_name != 'pull_request' && needs.changes.outputs.coverage == 'true' }}
     strategy:
       fail-fast: false
       matrix:

@@ -52,8 +52,8 @@ jobs:
             packages/idris-ml/src/HwExecutors.idr
             packages/idris-ml/src/Test/Config.idr
             packages/idris-transformers/src/Test/Config.idr
-          key: ttc-${{ matrix.os }}-v2-keepalive
-          restore-keys: ttc-${{ matrix.os }}-v2-
+          key: ttc-${{ matrix.os }}-v4-keepalive
+          restore-keys: ttc-${{ matrix.os }}-v4-
 
       - name: Touch dataset cache
         uses: actions/cache/restore@v5

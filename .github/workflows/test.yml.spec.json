@@ -41,6 +41,7 @@
       {
         "name": "Full clang-tidy over torch C++ backend",
         "run": "make BACKEND=torch C_LINT_FULL_CLANG_TIDY=1 lint-c-torch",
+        "if": "needs.changes.outputs.ccpp == 'true'",
         "comment": [
           "The default `lint-c` runs clang-tidy on tape only; the torch",
           "C++ sources need libtorch headers, which this job carries for",
