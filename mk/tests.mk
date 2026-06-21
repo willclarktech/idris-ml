@@ -169,8 +169,13 @@ COV_LDFLAGS := -fprofile-instr-generate
 #   - the diagnostic / file-format-I/O infra: safetensors + shared_utils
 #     (format I/O), mnist + idx (dataset readers, covered by example-mnist),
 #     log + probes (logging / diagnostics, no correctness impact)
-# Real kernel + training C (backend_*/**, shared/training/**) stays IN.
-COV_IGNORE_REGEX := (vendored/)|($(BACKENDS_DIR)/(safetensors|shared_utils|mnist|idx|log|probes))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)
+#   - the diagnostic / dispatch-init basenames anywhere in the tree
+#     (diagnostics + profiling = telemetry, no correctness path; dtype_init =
+#     pure dispatch-table init, same class as the already-excluded op_dispatch
+#     init). These live nested under backend_*/training/, so they need a
+#     basename-anchored alternation, not the top-level $(BACKENDS_DIR)/ one.
+# Real kernel + training C (backend_*/**, shared/training/**) otherwise stays IN.
+COV_IGNORE_REGEX := (vendored/)|($(BACKENDS_DIR)/(safetensors|shared_utils|mnist|idx|log|probes))|(/(diagnostics|profiling|dtype_init)\.(c|cpp))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)
 
 # llvm source-based coverage is clang-only. On macOS the system cc IS
 # clang and the llvm tools live behind xcrun. On Linux the default cc
