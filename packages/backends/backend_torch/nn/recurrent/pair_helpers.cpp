@@ -13,6 +13,3 @@ extern "C" TensorHandle tensor_pair_first(TensorPair* p) {
 extern "C" TensorHandle tensor_pair_second(TensorPair* p) {
 	return p->second;
 }
-extern "C" void tensor_pair_free(TensorPair* p) {
-	delete p;
-}

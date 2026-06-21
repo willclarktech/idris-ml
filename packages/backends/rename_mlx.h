@@ -207,7 +207,6 @@
 #define tensor_one_hot tensor_one_hot_mlx
 #define tensor_outer tensor_outer_mlx
 #define tensor_pair_first tensor_pair_first_mlx
-#define tensor_pair_free tensor_pair_free_mlx
 #define tensor_pair_second tensor_pair_second_mlx
 #define tensor_peak_live_count tensor_peak_live_count_mlx
 #define tensor_perf_op_count tensor_perf_op_count_mlx

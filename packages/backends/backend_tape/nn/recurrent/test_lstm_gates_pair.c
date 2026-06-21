@@ -96,7 +96,7 @@ Test(nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
    1e-5 (F32 readback tolerance). Single element avoids the multi-element
    crash filed in TODO.md. F32 storage on tape is reachable only via the
    _streamed entry point with dtag=14 (the bare _f32 creator aborts).
-   NOTE: does NOT call tensor_pair_free (P1 crash). */
+   (Pairs are arena-owned; freed at tape reset.) */
 Test(nn_recurrent_lstm_gates_pair, f32_backward_grads_both_arms) {
 	param_clear();
 	int o = 1;
@@ -145,8 +145,7 @@ Test(nn_recurrent_lstm_gates_pair, f32_backward_grads_both_arms) {
 /* Multi-element forward (o=2) with distinct, non-zero gate raws — exercises the
    F64 loop body over j>0 and hand-checks the cell/hidden equations per element.
    No requires_grad so this is a pure forward-value check (no tape entries). */
-/* DISABLED: crashes — see TODO.md "tape lstm_gates_pair multi-element crash". */
-Test(nn_recurrent_lstm_gates_pair, forward_multi_element, .disabled = true) {
+Test(nn_recurrent_lstm_gates_pair, forward_multi_element) {
 	param_clear();
 	int o = 2;
 	/* combined layout per gate-block of width o: [i0 i1 | f0 f1 | g0 g1 | o0 o1] */
@@ -171,7 +170,6 @@ Test(nn_recurrent_lstm_gates_pair, forward_multi_element, .disabled = true) {
 		cr_assert_float_eq(tensor_item_1d(cell, j), cell_v, TEST_TOL_TIGHT, "cell[%d]", j);
 		cr_assert_float_eq(tensor_item_1d(h, j), hidden_v, TEST_TOL_TIGHT, "h[%d]", j);
 	}
-	tensor_pair_free(p);
 }
 
 #ifdef BACKEND_TAPE
@@ -244,27 +242,3 @@ Test(nn_recurrent_lstm_gates_pair, backward_multi_element_fd) {
 	}
 }
 #endif /* BACKEND_TAPE */
-
-/* pair_helpers.c — tensor_pair_free body (lines 19-20). Calling free on an
-   arena-pair handle must not crash; the accessors return the same handles the
-   forward produced before the free. */
-/* DISABLED: tensor_pair_free path crashes — see TODO.md. */
-Test(nn_recurrent_pair_helpers, pair_free_releases, .disabled = true) {
-	param_clear();
-	int o = 1;
-	double comb_data[4] = {0.0, 0.0, 0.0, 0.0};
-	double prev_data[1] = {1.0};
-	int sh4[1] = {4 * o};
-	int sh1[1] = {o};
-	TensorHandle combined = tensor_create(comb_data, sh4, 1, 0);
-	TensorHandle prev_cell = tensor_create(prev_data, sh1, 1, 0);
-
-	TensorPair* p = tensor_lstm_gates_pair(combined, prev_cell, o);
-	TensorHandle h = tensor_pair_first(p);
-	TensorHandle cell = tensor_pair_second(p);
-	cr_assert_not_null(h, "pair first must be non-null");
-	cr_assert_not_null(cell, "pair second must be non-null");
-	/* tensor_pair_free frees the TensorPair struct itself (the tensors are
-	   arena-owned, not freed here). Exercises pair_helpers.c:19-20. */
-	tensor_pair_free(p);
-}

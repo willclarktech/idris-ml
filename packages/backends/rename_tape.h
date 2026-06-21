@@ -207,7 +207,6 @@
 #define tensor_one_hot tensor_one_hot_tape
 #define tensor_outer tensor_outer_tape
 #define tensor_pair_first tensor_pair_first_tape
-#define tensor_pair_free tensor_pair_free_tape
 #define tensor_pair_second tensor_pair_second_tape
 #define tensor_peak_live_count tensor_peak_live_count_tape
 #define tensor_perf_op_count tensor_perf_op_count_tape

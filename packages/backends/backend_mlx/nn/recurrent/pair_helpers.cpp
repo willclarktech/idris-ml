@@ -30,7 +30,3 @@ extern "C" TensorHandle tensor_pair_second_mlx_streamed(TensorPair* p, int strea
 extern "C" TensorHandle tensor_pair_second(TensorPair* p) {
 	return tensor_pair_second_mlx_streamed(p, default_stream_tag());
 }
-
-extern "C" void tensor_pair_free(TensorPair* p) {
-	if (p != nullptr) free(p);
-}

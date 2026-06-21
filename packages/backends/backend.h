@@ -279,7 +279,6 @@ void tensor_lstm_gates(TensorHandle combined, TensorHandle prev_cell, int o, Ten
 TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell, int o);
 TensorHandle tensor_pair_first(TensorPair* p);
 TensorHandle tensor_pair_second(TensorPair* p);
-void tensor_pair_free(TensorPair* p);
 
 /* ---------- Quantization (BitNet b1.58 — #411) ---------- */
 
