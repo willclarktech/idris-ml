@@ -310,6 +310,7 @@ tests are the gate.
 
 ## Cross-references
 
+- [`coverage-remaining.md`](coverage-remaining.md) — current per-backend gaps + the plan to close them (bug-blocked / excluded / deferred buckets)
 - `scripts/coverage-gap-probe.py` — the probe itself
 - `feedback_tdd_default` (in MEMORY.md) — TDD commit shapes
 - `feedback_test_gates_must_run_in_ci` — CI must run the gates we
