@@ -76,93 +76,102 @@ parameter values on a single page? If yes, phantom enum. If no
 The current tensor type is
 
 ```idris
-Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode)
+Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
 ```
 
 - `dims` is genuinely dependent — `Nat`-valued, arithmetic happens
   during type checking. This is where `matmul`-shape-safety and
   conv-output-dim safety come from.
-- `0 d : Device` is the device tag. `Device` is a 0-quantity alias
-  for `Type`, so any type with a `UserDeviceCore` instance can be
-  used. The built-ins `CPU`, `CUDA n`, `MPS` are types whose
-  instances forward to the active C backend; users can declare
-  their own device type and instance (see "Custom devices" below).
+- `0 ex : Executor` is the executor (backend) tag. `Executor` is a
+  0-quantity alias for `Type`, so any type with a `UserExecutorCore`
+  instance can be used. The built-ins `TapeExecutor`,
+  `TorchExecutor d` (`d : TorchHwDev = TCpu | TMps | TCuda Nat`), and
+  `MlxExecutor s` (`s : MlxStream = MCpu | MGpu`) forward to the
+  linked C backends; users can declare their own (see "Custom
+  backends" below).
+- `0 dt : DType` is the dtype tag — also an open kind. `Float n`,
+  `BFloat n`, `IntN n`, `UInt n`, `Bool` have built-in instances
+  (`F32 = Float 32`, etc.). This is what makes the lossless-cast
+  partial order and the `Compatible (ex, dt)` admissibility table
+  possible.
 - `0 g : GradMode` with `GradMode = WithGrad | NoGrad` is a real
   closed enum — the compiler rejects `backward` on tensors that
   weren't tracked.
 
-The device parameter started life as a closed sum
+The executor parameter started life as a closed sum
 (`Device = CPU | CUDA Nat | MPS`) and got opened up to admit
-user-supplied backends — see "Custom devices" below. A precision
-parameter `p : Precision` with `Precision = F32 | F64 | BF16 | F16`
-is a natural next extension in the same style; it's a phantom-type
-enum that reuses the existing parameter machinery.
+user-supplied backends — see "Custom backends" below. The precision
+parameter `dt` landed the same way: an open kind that reuses the
+existing parameter machinery and additionally carries first-class
+type-level arithmetic (bit-widths) for the lossless-upcast order.
 
-## Custom devices: user-supplied backends
+## Custom backends: user-supplied executors
 
-`Device` is an open kind — any type with a `UserDeviceCore` instance
-can sit in `Tensor`'s `d` slot.
+`Executor` is an open kind — any type with a `UserExecutorCore`
+instance can sit in `Tensor`'s `ex` slot.
 
 A worked example ships in the repo: `packages/backends/backend_byo.c`
-is a ~100-line stub backend that exports `byo_tensor_add`,
+is a small stub backend that exports `byo_tensor_add`,
 `byo_tensor_item`, etc. and logs each call to stderr;
 `packages/idris-ml-examples/src/Example/BringYourOwn.idr` is the
 Idris-side recipe that wraps it. Run it with `make
 example-bring-your-own` — you'll see the stderr `[byo] ...` lines
 fire as ops dispatch through your instance, alongside the same
-expression evaluated on the built-in `CPU` instance for contrast.
+expression evaluated on the build's primary `ExampleExecutor` for
+contrast.
 
-A complete custom backend looks like:
+A complete custom backend looks like (trimmed from that example):
 
 ```idris
-module MyBackend
-
-import Device.Core
+import Executor
+import Executor.Core
 
 -- 1. Declare a type to tag tensors that live on this backend.
 public export
-data MyDev : Type where MD : MyDev
+data BYO : Type where MkBYO : BYO
 
 -- 2. Bind your dylib's C symbols via %foreign.
-%foreign "C:my_tensor_add,libmybackend"
-prim__addMine : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:byo_tensor_add,libbyo"
+prim__addBYO : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:my_tensor_create_scalar,libmybackend"
-prim__scalarMine : Double -> Int -> AnyPtr
+%foreign "C:byo_tensor_create_scalar,libbyo"
+prim__createScalarBYO : Double -> Int -> AnyPtr
 
-%foreign "C:my_tensor_item,libmybackend"
-prim__itemMine : AnyPtr -> Double
--- ... 17 more for the full lifecycle + arithmetic slice
+%foreign "C:byo_tensor_item,libbyo"
+prim__itemBYO : AnyPtr -> Double
+-- ... the rest of the lifecycle + arithmetic slice
 
--- 3. Implement the UserDeviceCore instance.
+-- 3. Implement the UserExecutorCore instance.
 public export
-UserDeviceCore MyDev where
-  deviceName       = "mybackend"
-  primCreateScalar = prim__scalarMine
-  primAdd          = prim__addMine
-  primItem         = prim__itemMine
-  -- ... all UserDeviceCore methods
+UserExecutorCore BYO where
+  deviceName       = "byo"
+  primCreateScalar = prim__createScalarBYO
+  primAdd          = prim__addBYO
+  primItem         = prim__itemBYO
+  -- ... all UserExecutorCore methods
 ```
 
-Now `Tensor [4] MyDev` is a valid type, every op (`tadd`, `tmul`,
-`forwardVar` …) dispatches to your `MyDev` instance, and you can
-transfer between built-in and user-supplied devices via `toDevice`.
+Now `Tensor [4] BYO dt g` is a valid type, every op (`tadd`, `tmul`,
+…) dispatches to your `BYO` instance, and you can transfer between
+built-in and user-supplied backends via `toExecutor`.
 
-### Parameterized devices
+### Parameterized backends
 
-Your device type can carry type parameters. CUDA's device index is
-the canonical example:
+Your executor type can carry type parameters. CUDA's device index is
+the canonical example — the built-in is `TorchExecutor (TCuda n)`; a
+standalone illustration looks like:
 
 ```idris
 data CUDA : Nat -> Type where MkCUDA : (n : Nat) -> CUDA n
 ```
 
-`Tensor [4] (CUDA 0)` and `Tensor [4] (CUDA 1)` are different types;
-the compiler will reject mixing them. To declare the instance, bind
-the `Nat` parameter at the head of the instance declaration:
+`Tensor [4] (CUDA 0) dt g` and `Tensor [4] (CUDA 1) dt g` are
+different types; the compiler will reject mixing them. To declare the
+instance, bind the `Nat` parameter at the head of the instance
+declaration:
 
 ```idris
-{n : Nat} -> UserDeviceCore (CUDA n) where
+{n : Nat} -> UserExecutorCore (CUDA n) where
   deviceName       = "cuda:" ++ show n
   primAdd          = prim__addCuda
   ...
@@ -176,19 +185,19 @@ inside the method bodies.
 
 ### When you need runtime access to a parameter from the wrong context
 
-There's one tripwire. `UserDeviceCore`'s `d` parameter is declared
-0-quantity (`interface UserDeviceCore (0 d : Device)`), and that
+There's one tripwire. `UserExecutorCore`'s `ex` parameter is declared
+0-quantity (`interface UserExecutorCore (0 ex : Executor)`), and that
 0-quantity propagates: a *caller* of `deviceName` working with
-`d = CUDA n` has `n` only at the type level. The instance body has
+`ex = CUDA n` has `n` only at the type level. The instance body has
 `n` at runtime (because the instance head binds it non-erased), but
-generic library code that only sees `UserDeviceCore d` doesn't.
+generic library code that only sees `UserExecutorCore ex` doesn't.
 
 If you need a separate operation that recovers the parameter, add a
 helper interface:
 
 ```idris
 public export
-interface HasDeviceIndex (d : Device) where
+interface HasDeviceIndex (ex : Executor) where
   deviceIndex : Nat
 
 public export
@@ -196,11 +205,9 @@ public export
   deviceIndex = n
 ```
 
-`HasDeviceIndex`'s `d` parameter is *unrestricted* (no `0`), so its
-methods may observe the parameter. The built-in `CUDA n` ships
-with this instance, and `deviceName` for `CUDA n` uses
-`show n` directly (the instance head binds `n` non-erased, the same
-trick).
+`HasDeviceIndex`'s `ex` parameter is *unrestricted* (no `0`), so its
+methods may observe the parameter, the same trick the built-in
+`TorchExecutor (TCuda n)` uses to render its `deviceName`.
 
 Type-only parameters (a phantom precision tag, a shape annotation
 that's only there to keep types apart) need no such workaround —
@@ -325,50 +332,31 @@ proofs for `reshape`.
 idris-ml ships two mechanisms that work together — one runtime, one
 type-level:
 
-**`withNoGrad : IO a -> IO a`** — runtime block-scoped tape gating.
-Inside, tensor ops skip tape construction (saves memory and
-allocation) and libtorch's `NoGradGuard` is active. This is the
-direct analogue of PyTorch's `with torch.no_grad():` and is what you
-want around inference / RL rollout / eval forward passes for perf.
-The types of tensors created inside the block don't change.
+**`withNoGrad : UserExecutorTraining ex => IO a -> IO a`** — runtime
+block-scoped tape gating. Inside, tensor ops skip tape construction
+(saves memory and allocation) and libtorch's `NoGradGuard` is active.
+This is the direct analogue of PyTorch's `with torch.no_grad():` and
+is what you want around inference / RL rollout / eval forward passes
+for perf. The types of tensors created inside the block don't change.
 
-**`weakenGrad : (1 _ : Tensor dims d g) -> IO (Tensor dims ex NoGrad)`** —
-type-level cast that also flips the C-side `requires_grad` flag.
-After this, the tensor's *type* says `NoGrad`; passing it to
-`runBackward` or `nativeTrainStep` is a compile error. The mechanism
-is per-tensor (not block-scoped), so it survives across `IO`
-boundaries. The `(1 _ : ...)` quantity means the input is consumed
-linearly — the original WithGrad-typed reference can't be used
-after the call (the runtime flag has changed under it, so reuse
-would be a type lie).
+**`weakenGrad : UserExecutorTraining ex => (1 _ : Tensor dims ex dt g) -> IO (Tensor dims ex dt NoGrad)`** —
+a per-tensor type-level cast that also flips the C-side
+`requires_grad` flag. After this, the tensor's *type* says `NoGrad`;
+passing it to `trainStep` is a compile error. The `(1 _ : ...)`
+quantity means the input is consumed linearly — the original
+WithGrad-typed reference can't be used after the call (the runtime
+flag has changed under it, so reuse would be a type lie).
 
-The two are independent: `withNoGrad` is the perf knob,
-`weakenGrad` is the static safety knob. Use both for the strongest
-guarantee, or either alone where one fits the situation:
-
-```idris
--- Inference: combine for runtime perf + static promise.
-result <- withNoGrad $ do
-  let (_, pred) = forwardVar net input
-  predNG <- weakenGrad pred              -- predNG : Tensor [o] ex NoGrad
-  let probs = tsoftmax1d predNG          -- still NoGrad
-  pure (tensorItem (telemSelect probs 0))
-
--- nativeTrainStep optimizer predNG       -- ❌ COMPILE ERROR
-
--- Eval that only reads scalars: runtime gating is enough. The
--- forward output stays WithGrad-typed but never flows to backward.
-acc <- withNoGrad (pure (computeAccuracy trained testBatch))
-```
-
-The user-visible compile failure when you accidentally feed a
-`NoGrad` loss back into training:
+The two are independent: `withNoGrad` is the perf knob, `weakenGrad`
+is the static safety knob. The user-visible compile failure when you
+accidentally feed a `NoGrad` loss back into training (from the
+CI fixture `Test/neg/GateRejectsNoGrad.idr`):
 
 ```
-Mismatch between: NoGrad and WithGrad.
+Mismatch between: WithGrad and NoGrad.
 
-  brokenStep opt = nativeTrainStep opt fakeNoGradLoss
-                                       ^^^^^^^^^^^^^^^
+  brokenStep opt = trainStep opt fakeNoGradLoss
+                                 ^^^^^^^^^^^^^^^
 ```
 
 PyTorch's equivalent of this mistake — computing a loss inside
@@ -377,59 +365,57 @@ at runtime with `RuntimeError: element 0 of tensors does not require
 grad and does not have a grad_fn`. Idris-ml fails at compile time
 instead.
 
-## Freezing networks for transfer learning
+## Models as linear resources: eval, freeze, transfer learning
 
-For the "load pretrained backbone, train only the new head" workflow,
-idris-ml provides two more linear operations on Networks:
+Grad-mode at the *model* level uses linear types. A model is a
+**single-owner linear resource** threaded through `Control.Linear.LIO.L IO`;
+`forward`, `eval`, `freeze` all *consume* the handle `(1 _ : …)` and
+hand back a fresh one. This is what makes the PyTorch "freeze, then
+keep training via the stale handle (silent no-op)" footgun a
+compile-time error.
 
-**`freezeNetwork : (1 _ : Network i hs o d g) -> IO (Network i hs o ex NoGrad)`** —
-walks every parameter in the network, flips its C-side
-`requires_grad` to false, and retypes the result as `NoGrad`. Frozen
-params don't get updated by `optimizer.step()` (their gradient
-buffers stay at zero) and the type system prevents accidentally
-training the network end-to-end.
-
-**`unfreezeNetwork : (1 _ : Network i hs o ex NoGrad) -> IO (Network i hs o ex WithGrad)`** —
-the inverse. Used for *progressive fine-tuning*: train head first
-with backbone frozen, then unfreeze the backbone for joint
-fine-tuning at a lower learning rate.
+The grad-mode operations on models:
 
 ```idris
--- Transfer learning sketch:
-backbone <- buildPretrained ...                          -- WithGrad
-backboneFrozen <- freezeNetwork backbone                 -- NoGrad
-head     <- buildHead ...                                -- WithGrad
--- ... compose backboneFrozen and head into a combined network,
--- train only head's params (optimizer skips frozen ones)
-...
+-- take the whole model out of training (genuinely tape-free inference):
+eval      : (1 _ : l i o ex dt WithGrad) -> L IO {use=1} (l i o ex dt NoGrad)
+trainable : (1 _ : l i o ex dt NoGrad)   -> L IO {use=1} (l i o ex dt WithGrad)  -- inverse
 
--- Later: unfreeze for joint fine-tuning.
-backbone'    <- unfreezeNetwork backboneFrozen           -- WithGrad
--- backboneFrozen is consumed; you can only use `backbone'` now.
+-- freeze a backbone INSIDE a trainable graph (grads still flow THROUGH
+-- for downstream trainable layers — the fine-tune-backbone pattern):
+freeze    : (1 _ : l i o ex dt g)            -> L IO {use=1} (Frozen (l i o ex dt g))
+unfreeze  : (1 _ : Frozen (l i o ex dt g))   -> L IO {use=1} (l i o ex dt g)
 ```
 
-Both ops are linear in their input. After calling `freezeNetwork
-backbone`, the name `backbone` is consumed and any further use is
-a compile error. This closes the aliasing footgun ("freeze the
-network, then accidentally train via the original variable, which
-silently no-ops because the C-side flags are flipped") that PyTorch
-users have to remember to avoid.
+`eval` flips every param's C-side `requires_grad` off and retypes the
+model `WithGrad → NoGrad`. The optimizer can't accept the result (it
+needs a `WithGrad` loss, which a `NoGrad` model can't produce), so
+"eval a model then accidentally train it" doesn't typecheck. `freeze`
+keeps the same grad-mode but wraps the model in `Frozen` (its field is
+itself linear); the optimizer skips frozen params while gradients
+still flow through to trainable layers downstream.
 
-### `forwardVar` works on frozen networks
-
-The forward functions are polymorphic in the grad-mode parameter,
-so a frozen network is fully usable for inference:
+`forward` is grad-mode polymorphic, so an `eval`'d or frozen model is
+fully usable for inference and the `NoGrad` propagates through the
+output tensor automatically:
 
 ```idris
-let (_, pred) = forwardVar backboneFrozen input
---                          ^^^^^^^^^^^^^^^
---                          Network ... NoGrad
--- pred : Tensor [o] ex NoGrad — type-tracked through the forward
+infer <- eval trained                           -- infer : Model … NoGrad
+(MkBang pred # infer') <- forward infer batch   -- pred : Tensor [b,o] … NoGrad
+discard infer'
+-- trainStep opt (lossFrom pred)                -- ❌ COMPILE ERROR (NoGrad loss)
 ```
 
-The `NoGrad` propagates naturally through the result, and `pred`
-can't be fed to `nativeTrainStep` (Phase 4 gate). No need to
-`weakenGrad` after the call.
+The linearity discipline is the part PyTorch (and Haskell today) can't
+match. Reusing a consumed model handle is a compile error — from the
+CI fixture `Test/neg/ReuseAfterFreeze.idr`:
+
+```idris
+badReuse m = do
+  m1 <- eval m
+  m2 <- eval m        -- ^ There are 2 uses of linear name m
+  ...
+```
 
 ### How this compares to PyTorch
 
@@ -438,16 +424,17 @@ False`. The capability is the same; the safety guarantees differ:
 
 | | PyTorch | idris-ml |
 |---|---|---|
-| Whole-model freeze | `for p in ...: p.requires_grad = False` | `freezeNetwork` |
-| Unfreeze | same with `True` | `unfreezeNetwork` |
-| Compile-time rejection of "trained via the original ref after freeze" | no | yes (linear types) |
-| Compile-time rejection of `NoGrad` loss in training | no | yes (Phase 4 gate) |
-| Per-parameter freeze (mixed trainable/frozen within one module) | yes | not yet — whole-network only |
+| Take model out of training | `requires_grad = False` loop | `eval` (retypes to `NoGrad`) |
+| Freeze backbone, grads flow through | same loop on a subset | `freeze` → `Frozen`, or optimizer LR-0 group |
+| Unfreeze / re-train | same with `True` | `unfreeze` / `trainable` |
+| Compile-time rejection of "trained via the stale handle after freeze/eval" | no | **yes (linear types)** |
+| Compile-time rejection of `NoGrad` loss in training | no | **yes** |
 
-idris-ml matches PyTorch's freeze/unfreeze ergonomics and adds two
-compile-time safety nets PyTorch users live without. Per-parameter
-freezing (for fancier fine-tuning strategies) is filed as future
-work.
+Tensors stay *unrestricted* (reverse-mode AD shares them freely) — the
+linear discipline applies only at model granularity, exactly where the
+aliasing footgun lives. Per-parameter / per-prefix freezing for
+fancier fine-tuning (`freezeGroup`, optimizer LR-0 groups) composes on
+top.
 
 ## Big picture
 

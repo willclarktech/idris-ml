@@ -2,6 +2,10 @@
 
 How idris-ml combines the safety of static computation graphs with the flexibility of dynamic ones.
 
+> This is the deep dive on the **shape** guarantee and the static/dynamic narrative. For
+> the full five-guarantee comparison (shape, device, multi-backend, grad-mode, dtype)
+> against PyTorch, TF1/JAX, and Haskell, start at [**Why idris-ml**](why-idris-ml.md).
+
 ## The two eras of deep learning frameworks
 
 ### Static graphs (TensorFlow 1.x, Theano)
@@ -109,44 +113,55 @@ Idris 2 is a dependently typed language: types can contain *values*. A vector's 
 
 ### Shapes in the type
 
-The `Tensor` type is indexed by its shape:
+The `Tensor` type is indexed by its shape (a `Vect rank Nat`), alongside its executor,
+dtype, and grad-mode:
 
 ```idris
-data Tensor : Vect rank Nat -> Type -> Type where
-  STensor : ty -> Tensor [] ty
-  VTensor : Vect dim (Tensor dims ty) -> Tensor (dim :: dims) ty
+record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
+  constructor MkTensor
+  tensorPtr : AnyPtr        -- backend handle (carries the autograd tape)
+  paramId   : Maybe String
 ```
 
-A `Vector 784 Double` and a `Vector 256 Double` are different types. You cannot pass one where the other is expected:
+(The pure-Idris `Array` type *is* the Vect-of-Vect; `Tensor` is the autograd handle whose
+type *carries* the shape while the data lives in a backend buffer.) A `Tensor [784] ex dt g`
+and a `Tensor [256] ex dt g` are different types — you can't pass one where the other is
+expected. The matrix-vector op makes the constraint explicit:
 
 ```idris
-matrixVectorMultiply : Matrix m n ty -> Vector n ty -> Vector m ty
+tmv : Tensor [m, n] ex dt g -> Tensor [n] ex dt g -> IO (Tensor [m] ex dt g)
 ```
 
-If the matrix is `Matrix 10 784` and you pass a `Vector 256`, the compiler rejects it: `n` can't unify `784` with `256`. No runtime check needed.
+If the matrix is `Tensor [10, 784]` and you pass a `Tensor [256]`, the compiler rejects
+it: `n` can't unify `784` with `256`. No runtime check needed.
 
-### Networks enforce dimension threading
+### Models enforce dimension threading
 
-The `Network` type chains layers with compile-time dimension threading:
+Models are records of `Nn` layers. A `Seq` chains `Module`s with compile-time dimension
+threading; its type pins only the endpoints, and the hidden dimensions are existential:
 
 ```idris
-data Network : (inputDims : Nat) -> (hiddenDims : List Nat) -> (outputDims : Nat) -> Type -> Type where
-  OutputLayer : AnyLayer i o ty -> Network i [] o ty
-  (~>) : AnyLayer i h ty -> Network h hs o ty -> Network i (h :: hs) o ty
+data Seq : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  Nil  : Seq i i ex dt g
+  (::) : Module l => {h : Nat} ->
+         (1 _ : l i h ex dt g) -> (1 _ : Seq h o ex dt g) -> Seq i o ex dt g
+
+(~~>) : ...   -- right-associative alias for (::)
 ```
 
-The `(~>)` constructor requires the first layer's output dimension `h` to equal the next layer's input dimension. This is not a runtime assertion — it's a type constraint. A dimension mismatch is a compile error:
+The `(::)` / `~~>` constructor requires the first layer's output dimension `h` to equal
+the next layer's input dimension. This is not a runtime assertion — it's a type
+constraint. A dimension mismatch is a compile error:
 
 ```idris
--- This compiles: Linear(2→10) feeds into Softmax(10→10)
-ll <- linearLayer {i=2, o=10}
-let model = ll ~> OutputLayer softmaxLayer
+mkModel : Init (Seq 2 3 ex dt WithGrad)
+mkModel = do
+  l1 <- linear {i=2} {o=10}
+  l2 <- linear {i=10} {o=3}
+  pure (l1 ~~> reluA ~~> l2 ~~> Nil)   -- compiles: 10 (l1 out) unifies with 10 (l2 in)
 
--- This would NOT compile: Linear(2→10) can't feed into Linear(5→3)
--- because 10 ≠ 5
-ll1 <- linearLayer {i=2, o=10}
-ll2 <- linearLayer {i=5, o=3}
-let model = ll1 ~> OutputLayer ll2  -- Error: Can't unify 10 with 5
+-- Swap l2 for `linear {i=5} {o=3}` and the chain won't elaborate:
+--   Mismatch between: 10 and 5
 ```
 
 ### NTM dimensions are computed at the type level
@@ -161,15 +176,18 @@ WriteParamWidth : Nat -> Nat
 WriteParamWidth m = ReadParamWidth m + m
 ```
 
-The NTM state record encodes every dimension dependency in its type:
+The NTM cell record encodes every dimension dependency in its type:
 
 ```idris
-record NtmState (n : Nat) (m : Nat) (h : Nat) (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  lstm     : LstmState (m + inputSize) h ty          -- controller input = read output + data input
-  readFc   : LinearState h (ReadParamWidth m) ty      -- hidden → addressing params
-  writeFc  : LinearState h (WriteParamWidth m) ty     -- hidden → addressing + add vector
-  outputFc : LinearState (h + m) outputSize ty        -- hidden + read output → data output
-  memory   : Matrix n m ty                            -- n slots × m width
+record Ntm (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat)
+           (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
+  constructor MkNtm
+  controller : Lstm (m + i) h ex dt g              -- controller input = read output + data input
+  readFc     : Linear h (ReadParamWidth m) ex dt g  -- hidden → addressing params
+  writeFc    : Linear h (WriteParamWidth m) ex dt g  -- hidden → addressing + add vector
+  outputFc   : Linear (h + m) o ex dt g             -- hidden + read output → data output
+  memInitT   : TVec (m * n) ex dt g                 -- learned memory initialisation
+  -- ... per-sequence state (memT, read/write addresses, last read-out)
 ```
 
 If you change `m` from 20 to 32, the compiler propagates the change through every dependent dimension. If any sub-layer constructor doesn't match, you get a compile error — not a crash 10,000 epochs into training.
@@ -184,38 +202,37 @@ x = torch.tensor([1.0, 2.0], dtype=torch.float64).to("mps")
 # MPS framework doesn't support float64. Please use float32 instead.
 ```
 
-Same problem class as the shape error: a hardware/library limitation discovered when a particular code path runs. idris-ml lifts it to the type system via a `Compatible (0 d : Device) (0 t : DType)` empty marker interface — the instance head IS the proof:
+Same problem class as the shape error: a hardware/library limitation discovered when a particular code path runs. idris-ml lifts it to the type system via a `Compatible (0 ex : Executor) (0 t : DType)` empty marker interface — the instance head IS the proof:
 
 ```idris
-public export Compatible (MlxDev MCpu) F64 where  -- ✓ mlx CPU supports f64
-public export Compatible (MlxDev MCpu) F32 where  -- ✓ mlx CPU supports f32
-public export Compatible (MlxDev MGpu) F32 where  -- ✓ Metal GPU supports f32
--- DELIBERATELY NO `Compatible (MlxDev MGpu) F64` instance
+public export Compatible (MlxExecutor MCpu) F64 where  -- ✓ mlx CPU supports f64
+public export Compatible (MlxExecutor MCpu) F32 where  -- ✓ mlx CPU supports f32
+public export Compatible (MlxExecutor MGpu) F32 where  -- ✓ Metal GPU supports f32
+-- DELIBERATELY NO `Compatible (MlxExecutor MGpu) F64` instance
 ```
 
-The `Tensor` record has a 0-quantity dtype slot, and every tensor-construction smart constructor carries `Compatible ex t =>`. So:
+The `Tensor` record has a 0-quantity dtype slot, and every tensor-construction smart constructor carries `Compatible ex dt =>`. So (from the runnable demo `Example/DTypePitch.idr`):
 
 ```idris
-gpuF32 : IO (Tensor [4] (MlxDev MGpu) F32 WithGrad)
-gpuF32 = tparam2d {dt=F32} "gpuW" buf          -- ✓ Compatible instance exists
+okMlxGpuF32 : ()
+okMlxGpuF32 = compatOK {ex=MlxExecutor MGpu} {dt = F32}   -- ✓ Compatible instance exists
 
-gpuF64 : IO (Tensor [4] (MlxDev MGpu) F64 WithGrad)
-gpuF64 = tparam2d {dt=F64} "gpuW" buf
--- ✗ Can't find an implementation for Compatible (MlxDev MGpu) F64
+-- Uncommenting this is a compile error:
+-- badMlxGpuF64 = compatOK {ex=MlxExecutor MGpu} {dt = F64}
+-- ✗ Can't find an implementation for Compatible (MlxExecutor MGpu) F64
 ```
 
-The error fires at the construction site, with a name the user wrote (`MlxGpu`, `F64`) and a concept the user can act on (`Compatible`).
+The error fires at the construction site, with a name the user wrote (`MlxExecutor MGpu`, `F64`) and a concept the user can act on (`Compatible`).
 
 A *derived* partial order extends the same machinery to lossless casts. Each parametric dtype family (`Float n`, `BFloat n`, `IntN n`, `UInt n`) declares a `Precision` instance with `precisionRank = n`, and an `UpcastableTo from to` instance per family that requires `LTE m n` on the bit-widths. Idris's auto-search synthesises the `LTE` proof from `Nat` constructors at the call site:
 
 ```idris
-demoUpcast : UpcastableTo from to => IO ()
+demoUpcast : UpcastableTo from to => ()
 
-okF32ToF64 : IO ()
-okF32ToF64 = demoUpcast {from=F32} {to=F64}    -- ✓ LTE 32 64 is provable
+okF32ToF64 : ()
+okF32ToF64 = demoUpcast {from = F32} {to = F64}    -- ✓ LTE 32 64 is provable
 
-failF64ToF32 : IO ()
-failF64ToF32 = demoUpcast {from=F64} {to=F32}  -- ✗ LTE 64 32 is not provable
+-- failF64ToF32 = demoUpcast {from = F64} {to = F32}  -- ✗ LTE 64 32 is not provable
 ```
 
 Cross-family conversions (`UInt 8 → F16`, `BF16 → F32`) have no instance and require an explicit `tcastUnsafe` — even when the bit-pattern fits, the compiler can't decide whether that's what the user wanted.
@@ -224,13 +241,17 @@ This is exactly the kind of guarantee a dynamic graph can't give you. PyTorch's 
 
 ### What you get
 
-The `forward` function's type signature guarantees dimension correctness through the entire network:
+The `forwardSeq` function's type signature guarantees dimension correctness through the
+entire model (batched-first; the model is a linear resource, consumed and threaded back):
 
 ```idris
-forward : Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
+forwardSeq : (1 _ : Seq i o ex dt g) -> Tensor [b, i] ex dt g
+          -> L IO {use=1} (LPair (!* (Tensor [b, o] ex dt g)) (Seq i o ex dt g))
 ```
 
-Input must be `Vector i`. Output is guaranteed `Vector o`. Every intermediate dimension is checked at compile time by the `(~>)` chain. The `LayerLike` interface enforces that each layer implementation respects its declared dimensions.
+Input must be `Tensor [b, i]`. Output is guaranteed `Tensor [b, o]`. Every intermediate
+dimension is checked at compile time by the `(~~>)` chain. The `Module` interface enforces
+that each layer implementation respects its declared dimensions.
 
 This gives you:
 
