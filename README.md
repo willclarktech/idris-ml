@@ -57,25 +57,45 @@ PyTorch's forward pass to **4e-4**.
 
 ## Getting started
 
-The toolchain (Idris 2 via [pack](https://github.com/stefan-hoeck/idris2-pack), Chez Scheme, a C
-compiler, Criterion, clang-tools, uv) is pinned in [`flake.nix`](flake.nix) — the **same shell CI
-runs in**, so local builds match CI. You need [Nix](https://nixos.org/download) with flakes.
+The recommended path is **[Nix](https://nixos.org/download) (with flakes) + [direnv](https://direnv.net)** —
+it's how CI runs, so local builds match CI byte-for-byte. But **Nix is a convenience, not a
+requirement**: any system with the toolchain below works.
 
-**Recommended — [direnv](https://direnv.net) + [nix-direnv](https://github.com/nix-community/nix-direnv):**
-the repo ships an `.envrc` (`use flake`), so `cd` into the tree auto-loads the dev shell:
+### With Nix + direnv (recommended)
+
+The repo ships an `.envrc` (`use flake`), so `cd` into the tree auto-loads the dev shell pinned in
+[`flake.nix`](flake.nix) (the single source of truth for the toolchain):
 
 ```bash
 direnv allow                # one-time, in the repo root
 ```
 
-**Or explicitly:**
+Or enter the shell explicitly:
 
 ```bash
 nix develop                                 # enter the dev shell, then run make targets
 nix develop .#default --command make test   # run a single target in the shell
 ```
 
-All `make` targets expect to run inside this shell. Quick start:
+### Without Nix — toolchain requirements
+
+Install these yourself (matching the versions in `flake.nix` avoids skew). Only the **Core** row is
+needed to build the default backend and run examples; the rest are per-feature:
+
+| For | Needs |
+| --- | --- |
+| **Core** — build the tape backend, run examples, `make test` | Idris 2 0.8.0 (via [pack](https://github.com/stefan-hoeck/idris2-pack)), Chez Scheme, a C compiler, `make` |
+| C unit tests (`make test-unit-c-*`) | [Criterion](https://github.com/Snaipe/Criterion) + dev headers, pkg-config |
+| C lint (`make lint-c`) | cppcheck, clang-tools (clang-format / clang-tidy) |
+| Python surfaces — PyTorch oracle, Jupyter | Python 3 + [uv](https://docs.astral.sh/uv/) |
+| Linux only | OpenBLAS (`cblas.h`); macOS uses the Accelerate framework |
+| Optional `torch` backend | libtorch |
+| Optional `mlx` backend (Apple Silicon) | MLX |
+
+The default tape backend has **no external dependencies** beyond the Core row — `make backend`
+builds it with just a C compiler.
+
+### Quick start
 
 ```bash
 make backend                # build the C tape backend (no external dependencies)
