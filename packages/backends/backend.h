@@ -502,8 +502,6 @@ TensorHandle tensor_create_param_1d_f64(int n, double* data);
  * legacy default. */
 TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* data);
 TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* data);
-TensorHandle tensor_create_param_1d_f32(int n, double* data);
-TensorHandle tensor_create_param_1d_f64(int n, double* data);
 /* Create state tensors WITHOUT requires_grad. Covers both init-time
  * permanent state (NTM mask, BatchNorm running stats, transformer PE,
  * DNC mask) and per-sequence transient state (Ntm/Dnc zeroState). mlx:

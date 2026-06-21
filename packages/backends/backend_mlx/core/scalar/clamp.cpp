@@ -7,9 +7,9 @@
 extern "C" TensorHandle tensor_clamp_mlx_streamed(TensorHandle h, double lo, double hi,
                                                   int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	auto r = new Tensor(mx::clip(t->data, scalar_like(lo, t->data), scalar_like(hi, t->data)),
-	                    /*requires_grad=*/false);
+	auto* t = (Tensor*)h;
+	auto* r = new Tensor(mx::clip(t->data, scalar_like(lo, t->data), scalar_like(hi, t->data)),
+	                     /*requires_grad=*/false);
 	return (TensorHandle)r;
 }
 

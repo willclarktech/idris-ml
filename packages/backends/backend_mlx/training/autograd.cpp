@@ -30,7 +30,7 @@
 int no_grad_depth_mlx = 0;
 
 TensorHandle tensor_grad(TensorHandle h) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	if (!t->has_grad) return nullptr;
 	/* mx::vjp may return non-contiguous grads (broadcast strides). Force
 	   a contiguous copy so the returned tensor has the expected layout. */
@@ -40,7 +40,7 @@ TensorHandle tensor_grad(TensorHandle h) {
 }
 
 void tensor_zero_grad(TensorHandle h) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	if (t->has_grad) {
 		t->grad = mx::zeros(t->data.shape(), t->data.dtype());
 	}
@@ -54,7 +54,7 @@ extern "C" TensorHandle tensor_detach_mlx_streamed(TensorHandle h, int stream_ta
 	WITH_STREAM(stream_tag);
 	/* Detach: clone data, requires_grad=false, no tape entry. The result is
 	   a leaf with no autograd linkage to the source tensor. */
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	return (TensorHandle) new Tensor(mx::array(t->data), false);
 }
 TensorHandle tensor_detach(TensorHandle h) {
@@ -67,8 +67,8 @@ extern "C" TensorHandle tensor_with_grad_mlx_streamed(TensorHandle h, int stream
 	   record an OP_CONST tape entry so the constant pool picks up its data
 	   during backward replay. Note: for the result's gradient to actually be
 	   computed, the caller still needs to register it via param_register. */
-	auto t = (Tensor*)h;
-	auto r = new Tensor(mx::array(t->data), true);
+	auto* t = (Tensor*)h;
+	auto* r = new Tensor(mx::array(t->data), true);
 	tape_append(OP_CONST, r, nullptr, nullptr, 0);
 	return (TensorHandle)r;
 }
@@ -105,7 +105,9 @@ static void mlx_sweep_generation(long block_start) {
 	if (!to_eval.empty()) {
 		try {
 			mx::eval(to_eval);
-		} catch (...) { /* best-effort */
+			// best-effort: a failed eval during teardown must not propagate.
+			// NOLINTNEXTLINE(bugprone-empty-catch)
+		} catch (...) {
 		}
 	}
 	std::vector<Tensor*> survivors;
@@ -150,7 +152,9 @@ static void mlx_sweep_generation(long block_start) {
 	all_tensors = std::move(survivors);
 	try {
 		mx::clear_cache();
-	} catch (...) { /* best-effort */
+		// best-effort: a failed clear_cache during teardown must not propagate.
+		// NOLINTNEXTLINE(bugprone-empty-catch)
+	} catch (...) {
 	}
 }
 
@@ -175,7 +179,7 @@ void tensor_epoch_begin(void) {
 }
 void tensor_epoch_end(void) {
 	if (g_gen_stack.empty()) return;
-	long start = g_gen_stack.back();
+	long const start = g_gen_stack.back();
 	g_gen_stack.pop_back();
 	mlx_sweep_generation(start);
 }

@@ -14,22 +14,22 @@
 extern "C" TensorHandle tensor_conv1d_circular_mlx_streamed(TensorHandle hinput,
                                                             TensorHandle hkernel, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto inp = (Tensor*)hinput;
-	auto kern = (Tensor*)hkernel;
-	int n = (int)inp->data.size();
-	int k = (int)kern->data.size();
+	auto* inp = (Tensor*)hinput;
+	auto* kern = (Tensor*)hkernel;
+	int const n = (int)inp->data.size();
+	int const k = (int)kern->data.size();
 
 	mx::array result = mx::zeros({n}, inp->data.dtype());
-	int half_k = k / 2;
+	int const half_k = k / 2;
 	for (int j = 0; j < k; j++) {
-		int shift = half_k - j;
+		int const shift = half_k - j;
 		auto shifted = mx::roll(inp->data, shift);
 		auto kern_j = mx::take(kern->data, mx::array(k - 1 - j));
 		result = mx::add(result, mx::multiply(shifted, kern_j));
 	}
 
-	bool rg = inp->requires_grad || kern->requires_grad;
-	auto r = new Tensor(result, rg);
+	bool const rg = inp->requires_grad || kern->requires_grad;
+	auto* r = new Tensor(result, rg);
 	if (rg) tape_append(OP_CONV1D_CIRC, r, inp, kern, 0);
 	return (TensorHandle)r;
 }
@@ -39,13 +39,13 @@ extern "C" TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle
 }
 
 static void mlx_replay_conv1d_circ(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	// Inline circular convolution forward (kernel reversed — see
 	// backend_mlx/conv/conv1d_circular.cpp for the index derivation)
 	int n = (int)a.size(), k = (int)b.size();
-	int half_k = k / 2;
+	int const half_k = k / 2;
 	auto result = mx::zeros({n}, a.dtype());
 	for (int j = 0; j < k; j++) {
 		auto shifted = mx::roll(a, half_k - j);

@@ -9,17 +9,18 @@
 #include "../tensor.h"
 #include "../stream.h"
 #include "../precision.h"
+#include <cstddef>
 #include <cstdlib>
 #include <vector>
 
 extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
                                                 TensorHandle hbias, int pad, int stride) {
-	auto inp = (Tensor*)hinput;
-	auto ker = (Tensor*)hkernel;
-	Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+	auto* inp = (Tensor*)hinput;
+	auto* ker = (Tensor*)hkernel;
+	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 	int inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
 	int outC = (int)ker->data.shape(1), kL = (int)ker->data.shape(2);
-	int oL = (L - 1) * stride - 2 * pad + kL;
+	int const oL = (L - 1) * stride - 2 * pad + kL;
 
 	mx::eval(inp->data);
 	mx::eval(ker->data);
@@ -30,7 +31,7 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 	const double* inpD = inpD_buf.data();
 	const double* kerD = kerD_buf.data();
 	double* out = (double*)calloc((size_t)outC * oL, sizeof(double));
-	if (bias) {
+	if (bias != nullptr) {
 		mx::eval(bias->data);
 		std::vector<double> biasD_buf((size_t)outC);
 		mx_to_doubles(bias->data, biasD_buf.data());
@@ -43,10 +44,11 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 		for (int il = 0; il < L; il++)
 			for (int oc = 0; oc < outC; oc++)
 				for (int kl = 0; kl < kL; kl++) {
-					int ol = il * stride - pad + kl;
+					int const ol = il * stride - pad + kl;
 					if (ol >= 0 && ol < oL)
 						out[(size_t)oc * oL + ol] +=
-						    inpD[(size_t)ic * L + il] * kerD[(size_t)ic * outC * kL + oc * kL + kl];
+						    inpD[(size_t)ic * L + il] *
+						    kerD[(size_t)ic * outC * kL + static_cast<size_t>(oc * kL) + kl];
 				}
 	auto result = mx_array_from_doubles(out, {outC, oL}, inp->data.dtype());
 	free(out);
@@ -56,13 +58,13 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 extern "C" TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
                                                 TensorHandle hbias, int padH, int padW, int strideH,
                                                 int strideW) {
-	auto inp = (Tensor*)hinput;
-	auto ker = (Tensor*)hkernel;
-	Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+	auto* inp = (Tensor*)hinput;
+	auto* ker = (Tensor*)hkernel;
+	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 	int inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
 	int outC = (int)ker->data.shape(1), kH = (int)ker->data.shape(2), kW = (int)ker->data.shape(3);
-	int oH = (H - 1) * strideH - 2 * padH + kH;
-	int oW = (W - 1) * strideW - 2 * padW + kW;
+	int const oH = (H - 1) * strideH - 2 * padH + kH;
+	int const oW = (W - 1) * strideW - 2 * padW + kW;
 	mx::eval(inp->data);
 	mx::eval(ker->data);
 	std::vector<double> inpD_buf((size_t)inC * H * W);
@@ -72,7 +74,7 @@ extern "C" TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandl
 	const double* inpD = inpD_buf.data();
 	const double* kerD = kerD_buf.data();
 	double* out = (double*)calloc((size_t)outC * oH * oW, sizeof(double));
-	if (bias) {
+	if (bias != nullptr) {
 		mx::eval(bias->data);
 		std::vector<double> biasD_buf((size_t)outC);
 		mx_to_doubles(bias->data, biasD_buf.data());
@@ -88,8 +90,8 @@ extern "C" TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandl
 				for (int oc = 0; oc < outC; oc++)
 					for (int kh = 0; kh < kH; kh++)
 						for (int kw = 0; kw < kW; kw++) {
-							int oh = ih * strideH - padH + kh;
-							int ow = iw * strideW - padW + kw;
+							int const oh = ih * strideH - padH + kh;
+							int const ow = iw * strideW - padW + kw;
 							if (oh >= 0 && oh < oH && ow >= 0 && ow < oW)
 								out[(size_t)oc * oH * oW + (size_t)oh * oW + ow] +=
 								    inpD[(size_t)ic * H * W + (size_t)ih * W + iw] *

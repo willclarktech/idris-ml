@@ -13,11 +13,11 @@ extern "C" TensorHandle tensor_cosine_similarity_mlx_streamed(TensorHandle hmemo
                                                               int stream_tag) {
 	WITH_STREAM(stream_tag);
 	(void)dim;
-	auto mem = (Tensor*)hmemory;
-	auto key = (Tensor*)hkey;
+	auto* mem = (Tensor*)hmemory;
+	auto* key = (Tensor*)hkey;
 	auto eps = scalar_like(1.0e-8, mem->data);
-	int n = (int)mem->data.shape(0);
-	int m = (int)mem->data.shape(1);
+	int const n = (int)mem->data.shape(0);
+	int const m = (int)mem->data.shape(1);
 
 	auto key_2d = mx::reshape(key->data, {1, m});
 	auto dots = mx::sum(mx::multiply(mem->data, key_2d), std::vector<int>{1});
@@ -25,8 +25,8 @@ extern "C" TensorHandle tensor_cosine_similarity_mlx_streamed(TensorHandle hmemo
 	auto key_norm = mx::sqrt(mx::add(mx::sum(mx::square(key->data)), eps));
 	auto result = mx::divide(dots, mx::multiply(row_norms, key_norm));
 
-	bool rg = mem->requires_grad || key->requires_grad;
-	auto r = new Tensor(result, rg);
+	bool const rg = mem->requires_grad || key->requires_grad;
+	auto* r = new Tensor(result, rg);
 	if (rg) tape_append(OP_COSINE_SIM, r, mem, key, 0);
 	(void)n;
 	return (TensorHandle)r;
@@ -37,9 +37,9 @@ extern "C" TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHan
 }
 
 static void mlx_replay_cosine_sim(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	// Inline cosine similarity forward
 	int n = (int)a.shape(0), m = (int)a.shape(1);
 	auto key_2d = mx::reshape(b, {1, m});

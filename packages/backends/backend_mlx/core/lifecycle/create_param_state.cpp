@@ -29,9 +29,9 @@
 
 static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad,
                                        mx::Dtype dt) {
-	mx::Shape sh(shape, shape + rank);
-	auto t = new Tensor(mx_array_from_doubles(data, sh, dt), requires_grad != 0);
-	if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+	mx::Shape const sh(shape, shape + rank);
+	auto* t = new Tensor(mx_array_from_doubles(data, sh, dt), requires_grad != 0);
+	if (requires_grad != 0) tape_append(OP_CONST, t, nullptr, nullptr, 0);
 	return (TensorHandle)t;
 }
 
@@ -40,7 +40,7 @@ static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int r
 // Internal: dtype-parameterized 1d/2d creators.
 static TensorHandle tensor_create_1d_impl(int n, double* data, int requires_grad, mx::Dtype dt) {
 	int shape[] = {n};
-	auto t = tensor_create_impl(data, shape, 1, requires_grad, dt);
+	auto* t = tensor_create_impl(data, shape, 1, requires_grad, dt);
 	free(data);
 	return t;
 }
@@ -48,7 +48,7 @@ static TensorHandle tensor_create_1d_impl(int n, double* data, int requires_grad
 static TensorHandle tensor_create_2d_impl(int rows, int cols, double* data, int requires_grad,
                                           mx::Dtype dt) {
 	int shape[] = {rows, cols};
-	auto t = tensor_create_impl(data, shape, 2, requires_grad, dt);
+	auto* t = tensor_create_impl(data, shape, 2, requires_grad, dt);
 	free(data);
 	return t;
 }
@@ -124,7 +124,7 @@ extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int r
 static TensorHandle tensor_create_param_3d_impl(int d0, int d1, int d2, double* data,
                                                 mx::Dtype dt) {
 	int shape[] = {d0, d1, d2};
-	auto t = tensor_create_impl(data, shape, 3, 1, dt);
+	auto* t = tensor_create_impl(data, shape, 3, 1, dt);
 	free(data);
 	return t;
 }
@@ -164,20 +164,20 @@ extern "C" TensorHandle tensor_create_param_3d_i32_mlx_streamed(int d0, int d1, 
 
 static TensorHandle tensor_create_param_1d_impl(int n, double* data, mx::Dtype dt) {
 	int shape[] = {n};
-	auto t = tensor_create_impl(data, shape, 1, 1, dt);
+	auto* t = tensor_create_impl(data, shape, 1, 1, dt);
 	free(data);
 	return t;
 }
 static TensorHandle tensor_create_param_2d_impl(int rows, int cols, double* data, mx::Dtype dt) {
 	int shape[] = {rows, cols};
-	auto t = tensor_create_impl(data, shape, 2, 1, dt);
+	auto* t = tensor_create_impl(data, shape, 2, 1, dt);
 	free(data);
 	return t;
 }
 static TensorHandle tensor_create_param_4d_impl(int d0, int d1, int d2, int d3, double* data,
                                                 mx::Dtype dt) {
 	int shape[] = {d0, d1, d2, d3};
-	auto t = tensor_create_impl(data, shape, 4, 1, dt);
+	auto* t = tensor_create_impl(data, shape, 4, 1, dt);
 	free(data);
 	return t;
 }
@@ -280,13 +280,13 @@ extern "C" TensorHandle tensor_create_param_4d_i32_mlx_streamed(int d0, int d1, 
 
 static TensorHandle tensor_create_state_1d_impl(int n, double* data, mx::Dtype dt) {
 	int shape[] = {n};
-	auto t = tensor_create_impl(data, shape, 1, 0, dt);
+	auto* t = tensor_create_impl(data, shape, 1, 0, dt);
 	free(data);
 	return t;
 }
 static TensorHandle tensor_create_state_2d_impl(int rows, int cols, double* data, mx::Dtype dt) {
 	int shape[] = {rows, cols};
-	auto t = tensor_create_impl(data, shape, 2, 0, dt);
+	auto* t = tensor_create_impl(data, shape, 2, 0, dt);
 	free(data);
 	return t;
 }

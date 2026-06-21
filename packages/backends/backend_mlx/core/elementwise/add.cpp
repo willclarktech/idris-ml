@@ -11,10 +11,10 @@
 
 extern "C" TensorHandle tensor_add_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto a = (Tensor*)ha;
-	auto b = (Tensor*)hb;
-	bool rg = a->requires_grad || b->requires_grad;
-	auto r = new Tensor(mx::add(a->data, b->data), rg);
+	auto* a = (Tensor*)ha;
+	auto* b = (Tensor*)hb;
+	bool const rg = a->requires_grad || b->requires_grad;
+	auto* r = new Tensor(mx::add(a->data, b->data), rg);
 	if (rg) tape_append(OP_ADD, r, a, b, 0);
 	return (TensorHandle)r;
 }
@@ -24,9 +24,9 @@ extern "C" TensorHandle tensor_add(TensorHandle ha, TensorHandle hb) {
 }
 
 static void mlx_replay_add(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	pool[out] = mx::add(a, b);
 }
 MLX_REGISTER_REPLAY(OP_ADD, mlx_replay_add)

@@ -24,6 +24,7 @@
 #include "../precision.h"
 #include "autograd/op_dispatch.h"
 #include "profiling.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -41,8 +42,8 @@ extern "C" const char* param_name(int i);
 extern int g_compile_invocations;
 
 void tensor_backward(TensorHandle h) {
-	double t0_bwd = _wall_ms_mlx();
-	Tensor* loss = (Tensor*)h;
+	double const t0_bwd = _wall_ms_mlx();
+	Tensor const* loss = (Tensor*)h;
 	if (loss->tape_idx < 0) {
 		prof_backward_ms_mlx += _wall_ms_mlx() - t0_bwd;
 		return;
@@ -67,7 +68,7 @@ void tensor_backward(TensorHandle h) {
 	for (auto& idx : param_pool_indices)
 		seen.insert(idx);
 	auto add_const = [&](Tensor* t) {
-		if (t && !seen.count(t->pool_idx)) {
+		if (t && !seen.contains(t->pool_idx)) {
 			seen.insert(t->pool_idx);
 			constants.emplace_back(t->pool_idx, t->data);
 		}
@@ -85,7 +86,7 @@ void tensor_backward(TensorHandle h) {
 	// Capture tape state for the closure
 	int loss_pool_idx = loss->pool_idx;
 	int loss_tape_idx = loss->tape_idx;
-	auto tape_ref = &tape;
+	auto* tape_ref = &tape;
 
 	// Job 3 Phase B — explicit-inputs forward. The closure takes
 	// [params..., constants...] so that mx::compile (if enabled) does
@@ -161,31 +162,31 @@ void tensor_backward(TensorHandle h) {
 	{
 		static int reported = 0;
 		const char* env = getenv("DEBUG_NAN_TRAP");
-		if (env && env[0] == '1' && !reported) {
+		if ((env != nullptr) && env[0] == '1' && (reported == 0)) {
 			int any_nan = 0;
 			for (int i = 0; i < param_count(); i++) {
 				const char* p_name = param_name(i);
 				auto* p_tensor = (Tensor*)param_tensor(i);
 				auto contig = mx::contiguous(p_tensor->grad);
 				mx::eval(contig);
-				long n = (long)contig.size();
+				long const n = (long)contig.size();
 				std::vector<double> buf((size_t)n);
 				mx_to_doubles(contig, buf.data());
 				const double* gp = buf.data();
 				int nan_count = 0, inf_count = 0;
 				double maxabs = 0.0;
 				for (long j = 0; j < n; j++) {
-					double v = gp[j];
+					double const v = gp[j];
 					if (v != v)
 						nan_count++;
 					else if (v > 1e30 || v < -1e30)
 						inf_count++;
 					else {
-						double a = v < 0 ? -v : v;
-						if (a > maxabs) maxabs = a;
+						double const a = v < 0 ? -v : v;
+						maxabs = std::max(a, maxabs);
 					}
 				}
-				if (nan_count || inf_count) {
+				if ((nan_count != 0) || (inf_count != 0)) {
 					fprintf(stderr, "[NAN_TRAP] param[%d]=%s NaN=%d Inf=%d maxabs=%.3e (n=%ld)\n",
 					        i, p_name, nan_count, inf_count, maxabs, n);
 					any_nan = 1;
@@ -194,8 +195,8 @@ void tensor_backward(TensorHandle h) {
 			// If any param grad is bad, walk the forward tape and find the
 			// first NaN-producing op. result->data already holds the actual
 			// forward value, so we just check those in tape order.
-			if (any_nan) {
-				static const char* OP_NAMES[] = {
+			if (any_nan != 0) {
+				static const char const* OP_NAMES[] = {
 				    "CONST",
 				    "ADD",
 				    "SUB",
@@ -255,40 +256,42 @@ void tensor_backward(TensorHandle h) {
 				    "CONCAT_2D_AXIS1",
 				    "SOFTPLUS",
 				};
-				int n_names = sizeof(OP_NAMES) / sizeof(OP_NAMES[0]);
+				int const n_names = sizeof(OP_NAMES) / sizeof(OP_NAMES[0]);
 				fprintf(stderr, "[NAN_TRAP] scanning forward tape (size=%d) for first NaN op...\n",
 				        (int)tape.size());
 				for (int i = 0; i < (int)tape.size(); i++) {
 					auto& e = tape[i];
-					if (!e.result) continue;
+					if (e.result == nullptr) continue;
 					auto contig = mx::contiguous(e.result->data);
 					mx::eval(contig);
-					long n = (long)contig.size();
+					long const n = (long)contig.size();
 					if (n == 0) continue;
 					std::vector<double> r_buf((size_t)n);
 					mx_to_doubles(contig, r_buf.data());
 					const double* dp = r_buf.data();
 					int nan_count = 0;
 					for (long j = 0; j < n; j++) {
-						double v = dp[j];
+						double const v = dp[j];
 						if (v != v) {
 							nan_count++;
 						}
 					}
-					if (nan_count) {
+					if (nan_count != 0) {
 						const char* opn =
 						    (e.op >= 0 && e.op < n_names) ? OP_NAMES[e.op] : "UNKNOWN";
 						fprintf(stderr,
 						        "[NAN_TRAP] first NaN at tape[%d] op=%s (id=%d) result.size=%ld "
 						        "nan_count=%d arg1.op=%d arg2.op=%d\n",
 						        i, opn, e.op, n, nan_count,
-						        (e.arg1 && e.arg1->tape_idx >= 0) ? (int)tape[e.arg1->tape_idx].op
-						                                          : -1,
-						        (e.arg2 && e.arg2->tape_idx >= 0) ? (int)tape[e.arg2->tape_idx].op
-						                                          : -1);
+						        ((e.arg1 != nullptr) && e.arg1->tape_idx >= 0)
+						            ? (int)tape[e.arg1->tape_idx].op
+						            : -1,
+						        ((e.arg2 != nullptr) && e.arg2->tape_idx >= 0)
+						            ? (int)tape[e.arg2->tape_idx].op
+						            : -1);
 						// Sample arg1/arg2 values to spot inputs that are
 						// already large/small.
-						if (e.arg1) {
+						if (e.arg1 != nullptr) {
 							auto a = mx::contiguous(e.arg1->data);
 							mx::eval(a);
 							std::vector<double> a_buf((size_t)a.size());
@@ -297,19 +300,19 @@ void tensor_backward(TensorHandle h) {
 							double amin = ap[0], amax = ap[0];
 							int anan = 0;
 							for (long j = 0; j < (long)a.size(); j++) {
-								double v = ap[j];
+								double const v = ap[j];
 								if (v != v)
 									anan++;
 								else {
-									if (v < amin) amin = v;
-									if (v > amax) amax = v;
+									amin = std::min(v, amin);
+									amax = std::max(v, amax);
 								}
 							}
 							fprintf(stderr,
 							        "[NAN_TRAP]   arg1 size=%ld nan=%d range=[%.3e, %.3e]\n",
 							        (long)a.size(), anan, amin, amax);
 						}
-						if (e.arg2) {
+						if (e.arg2 != nullptr) {
 							auto b = mx::contiguous(e.arg2->data);
 							mx::eval(b);
 							std::vector<double> b_buf((size_t)b.size());
@@ -318,12 +321,12 @@ void tensor_backward(TensorHandle h) {
 							double bmin = bp[0], bmax = bp[0];
 							int bnan = 0;
 							for (long j = 0; j < (long)b.size(); j++) {
-								double v = bp[j];
+								double const v = bp[j];
 								if (v != v)
 									bnan++;
 								else {
-									if (v < bmin) bmin = v;
-									if (v > bmax) bmax = v;
+									bmin = std::min(v, bmin);
+									bmax = std::max(v, bmax);
 								}
 							}
 							fprintf(stderr,
@@ -335,7 +338,7 @@ void tensor_backward(TensorHandle h) {
 					}
 				}
 			}
-			if (reported) fflush(stderr);
+			if (reported != 0) fflush(stderr);
 		}
 	}
 

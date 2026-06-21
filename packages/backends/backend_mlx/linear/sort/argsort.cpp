@@ -7,10 +7,10 @@
 extern "C" TensorHandle tensor_argsort_mlx_streamed(TensorHandle ht, int dim, int descending,
                                                     int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)ht;
+	auto* t = (Tensor*)ht;
 	auto indices = mx::argsort(t->data, dim);
-	if (descending) {
-		int n = (int)t->data.size();
+	if (descending != 0) {
+		int const n = (int)t->data.size();
 		auto rev_idx = mx::subtract(mx::array(n - 1), mx::arange(n));
 		indices = mx::take(indices, rev_idx);
 	}

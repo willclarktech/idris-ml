@@ -39,16 +39,16 @@ extern "C" TensorHandle tensor_sdpa_2d_mlx_streamed(TensorHandle hq, TensorHandl
                                                     TensorHandle hv, int numHeads, int numKvHeads,
                                                     int headDim, int isCausal, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto q = (Tensor*)hq;
-	auto k = (Tensor*)hk;
-	auto v = (Tensor*)hv;
-	int q_seq = (int)q->data.shape(0);
-	int kv_seq = (int)k->data.shape(0);
+	auto* q = (Tensor*)hq;
+	auto* k = (Tensor*)hk;
+	auto* v = (Tensor*)hv;
+	int const q_seq = (int)q->data.shape(0);
+	int const kv_seq = (int)k->data.shape(0);
 	// [seq, h*hd] -> [1, seq, h, hd] -> [1, h, seq, hd]
 	auto q3 = mx::transpose(mx::reshape(q->data, {1, q_seq, numHeads, headDim}), {0, 2, 1, 3});
 	auto k3 = mx::transpose(mx::reshape(k->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
 	auto v3 = mx::transpose(mx::reshape(v->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
-	float scale = 1.0f / std::sqrt((float)headDim);
+	float const scale = 1.0f / std::sqrt((float)headDim);
 	// mlx::fast::scaled_dot_product_attention in the pinned mlx
 	// version (see packages/pytorch/.venv/.../mlx/include/mlx/fast.h)
 	// only accepts a string `mask_mode`, not an explicit array mask.
@@ -59,13 +59,13 @@ extern "C" TensorHandle tensor_sdpa_2d_mlx_streamed(TensorHandle hq, TensorHandl
 	// torch-cpu math-impl did 2026-06-04, the fix is either an mlx
 	// version bump or a hand-rolled `mm(softmax(scale*mm(Q, K^T) +
 	// mask), V)` path here. Until then, trust the docs.
-	std::string mask_mode = isCausal ? "causal" : "";
+	std::string const mask_mode = (isCausal != 0) ? "causal" : "";
 	auto out3 = mx::fast::scaled_dot_product_attention(q3, k3, v3, scale, mask_mode);
 	// [1, h, q_seq, hd] -> [1, q_seq, h, hd] -> [q_seq, h*hd]
 	auto out2 = mx::reshape(mx::transpose(out3, {0, 2, 1, 3}), {q_seq, numHeads * headDim});
 
-	bool rg = q->requires_grad || k->requires_grad || v->requires_grad;
-	auto r = new Tensor(out2, rg);
+	bool const rg = q->requires_grad || k->requires_grad || v->requires_grad;
+	auto* r = new Tensor(out2, rg);
 	/* No backward yet — inference only (per #399 plan "Out of scope:
 	 * Training-side autograd integration of fused ops"). Caller is in
 	 * `withNoGrad` so requires_grad propagates to false anyway; the

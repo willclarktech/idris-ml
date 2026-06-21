@@ -11,10 +11,10 @@
 extern "C" TensorHandle tensor_leaky_relu_mlx_streamed(TensorHandle h, double alpha,
                                                        int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	auto alpha_arr = scalar_like(alpha, t->data);
 	auto result = mx::maximum(mx::multiply(alpha_arr, t->data), t->data);
-	auto r = new Tensor(result, t->requires_grad);
+	auto* r = new Tensor(result, t->requires_grad);
 	if (t->requires_grad) tape_append(OP_LEAKY_RELU, r, t, nullptr, alpha);
 	return (TensorHandle)r;
 }
@@ -24,9 +24,9 @@ extern "C" TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
 }
 
 static void mlx_replay_leaky_relu(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto alpha = scalar_like(e.scalar_arg, a);
 	pool[out] = mx::maximum(mx::multiply(alpha, a), a);
 }

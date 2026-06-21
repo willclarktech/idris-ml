@@ -13,13 +13,13 @@ static TensorHandle stack_impl(TensorHandle* tensors, int count, int dim) {
 	std::vector<mx::array> arrs;
 	bool rg = false;
 	for (int i = 0; i < count; i++) {
-		auto t = (Tensor*)tensors[i];
+		auto* t = (Tensor*)tensors[i];
 		arrs.push_back(t->data);
 		if (t->requires_grad) rg = true;
 	}
-	auto r = new Tensor(mx::stack(arrs, dim), rg);
+	auto* r = new Tensor(mx::stack(arrs, dim), rg);
 	if (rg) {
-		int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)dim);
+		int const idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)dim);
 		if (idx >= 0) {
 			auto* indices = new std::vector<int>();
 			for (int i = 0; i < count; i++)
@@ -41,19 +41,19 @@ extern "C" TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) 
 }
 
 extern "C" TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
-	auto r = stack_impl(arr, count, dim);
-	free(arr);
+	auto* r = stack_impl(arr, count, dim);
+	free(reinterpret_cast<void*>(arr));
 	return r;
 }
 
 static void mlx_replay_stack(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* indices = (std::vector<int>*)e.meta;
-	if (indices) {
+	if (indices != nullptr) {
 		std::vector<mx::array> arrs;
-		for (int idx : *indices)
+		for (int const idx : *indices)
 			arrs.push_back(pool[idx]);
 		pool[out] = mx::stack(arrs, (int)e.scalar_arg);
 	}

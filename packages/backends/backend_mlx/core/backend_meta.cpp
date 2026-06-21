@@ -53,14 +53,14 @@ extern "C" void backend_reset_for_eval(void) {
 }
 
 extern "C" void tensor_print(TensorHandle h) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	mx::eval(t->data);
-	std::cout << t->data << std::endl;
+	std::cout << t->data << '\n';
 }
 
 extern "C" int tensor_mlx_compile_enabled(void) {
 	const char* v = std::getenv("MLX_COMPILE");
-	if (!v) return 0;
+	if (v == nullptr) return 0;
 	if (v[0] == '1' && v[1] == '\0') return 1;
 	if (std::strcmp(v, "true") == 0) return 1;
 	if (std::strcmp(v, "yes") == 0) return 1;

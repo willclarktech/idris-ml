@@ -7,8 +7,8 @@
 
 extern "C" TensorHandle tensor_mean_mlx_streamed(TensorHandle h, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	auto r = new Tensor(mx::mean(t->data), t->requires_grad);
+	auto* t = (Tensor*)h;
+	auto* r = new Tensor(mx::mean(t->data), t->requires_grad);
 	if (t->requires_grad) tape_append(OP_MEAN, r, t, nullptr, 0);
 	return (TensorHandle)r;
 }
@@ -18,9 +18,9 @@ extern "C" TensorHandle tensor_mean(TensorHandle h) {
 }
 
 static void mlx_replay_mean(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	pool[out] = mx::mean(a);
 }
 MLX_REGISTER_REPLAY(OP_MEAN, mlx_replay_mean)

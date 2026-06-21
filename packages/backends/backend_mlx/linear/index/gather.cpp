@@ -11,11 +11,11 @@ extern "C" TensorHandle tensor_gather_mlx_streamed(TensorHandle hinput, TensorHa
                                                    int stream_tag) {
 	WITH_STREAM(stream_tag);
 	(void)n;
-	auto inp = (Tensor*)hinput;
-	auto idx = (Tensor*)hindex;
+	auto* inp = (Tensor*)hinput;
+	auto* idx = (Tensor*)hindex;
 	auto idx_int = mx::astype(idx->data, mx::int32);
 	auto result = mx::take(inp->data, idx_int, 0);
-	auto r = new Tensor(result, inp->requires_grad);
+	auto* r = new Tensor(result, inp->requires_grad);
 	if (inp->requires_grad) tape_append(OP_GATHER, r, inp, idx, 0);
 	return (TensorHandle)r;
 }
@@ -25,9 +25,9 @@ extern "C" TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, 
 }
 
 static void mlx_replay_gather(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	// Indices are discrete and non-differentiable — read directly
 	// from the tape entry's tensor (closure-captured, not via
 	// pool). The constants-collection above intentionally

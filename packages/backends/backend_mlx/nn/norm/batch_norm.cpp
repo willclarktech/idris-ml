@@ -18,17 +18,17 @@ extern "C" TensorHandle tensor_batch_norm_mlx_streamed(TensorHandle hinput, Tens
                                                        int spatial, int training, double momentum,
                                                        double eps, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto inp = (Tensor*)hinput;
-	auto gamma = (Tensor*)hgamma;
-	auto beta = (Tensor*)hbeta;
-	auto rm = (Tensor*)hrunning_mean;
-	auto rv = (Tensor*)hrunning_var;
+	auto* inp = (Tensor*)hinput;
+	auto* gamma = (Tensor*)hgamma;
+	auto* beta = (Tensor*)hbeta;
+	auto* rm = (Tensor*)hrunning_mean;
+	auto* rv = (Tensor*)hrunning_var;
 
 	auto x = mx::reshape(inp->data, {C, spatial});
 	auto mean = mx::mean(x, std::vector<int>{1}, true);
 	auto var = mx::var(x, std::vector<int>{1}, true);
 
-	if (training) {
+	if (training != 0) {
 		auto mom = scalar_like(momentum, rm->data);
 		auto one_m_mo = scalar_like(1.0 - momentum, rm->data);
 		/* Bessel n/(n-1) correction on the running-var update only (matches
@@ -54,10 +54,10 @@ extern "C" TensorHandle tensor_batch_norm_mlx_streamed(TensorHandle hinput, Tens
 	auto b = mx::reshape(beta->data, {C, 1});
 	auto result = mx::flatten(mx::add(mx::multiply(g, x_hat), b));
 
-	bool rg = inp->requires_grad || gamma->requires_grad || beta->requires_grad;
-	auto r = new Tensor(result, rg);
+	bool const rg = inp->requires_grad || gamma->requires_grad || beta->requires_grad;
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_BATCH_NORM, r, inp, nullptr, 0);
+		int const idx = tape_append(OP_BATCH_NORM, r, inp, nullptr, 0);
 		if (idx >= 0) {
 			auto* meta = new BatchNormReplayMeta();
 			meta->gamma_pool_idx = gamma->pool_idx;
@@ -80,9 +80,9 @@ extern "C" TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgam
 }
 
 static void mlx_replay_batch_norm(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* bm = (BatchNormReplayMeta*)e.meta;
 	auto x = mx::reshape(a, {bm->C, bm->spatial});
 	auto mean = mx::mean(x, std::vector<int>{1}, true);

@@ -8,7 +8,7 @@
 #include "../precision.h"
 
 extern "C" TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	t->data = mx::subtract(t->data, scalar_like(val, t->data));
 	return h;
 }

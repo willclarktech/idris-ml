@@ -18,7 +18,7 @@ int prof_epochs_mlx = 0;
 double _wall_ms_mlx(void) {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+	return static_cast<double>(tv.tv_sec) * 1000.0 + static_cast<double>(tv.tv_usec) / 1000.0;
 }
 
 extern "C" int param_count(void);
@@ -55,7 +55,7 @@ extern "C" void backend_profile_report(void) {
 	        prof_epochs_mlx > 0 ? prof_optimizer_ms_mlx / prof_epochs_mlx : 0);
 	fprintf(stderr, "    of which math: %.1fms total (%.1fms/epoch)\n", prof_optimizer_math_ms_mlx,
 	        prof_epochs_mlx > 0 ? prof_optimizer_math_ms_mlx / prof_epochs_mlx : 0);
-	double total = prof_backward_ms_mlx + prof_optimizer_ms_mlx;
+	double const total = prof_backward_ms_mlx + prof_optimizer_ms_mlx;
 	fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n", total,
 	        prof_epochs_mlx > 0 ? total / prof_epochs_mlx : 0);
 	fprintf(stderr, "  Forward tape_appends (grad-tracked ops): %ld total (%.0f/epoch)\n",

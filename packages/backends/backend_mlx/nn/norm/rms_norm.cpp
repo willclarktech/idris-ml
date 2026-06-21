@@ -22,17 +22,17 @@
 extern "C" TensorHandle tensor_rms_norm_2d_mlx_streamed(TensorHandle h, TensorHandle hweight,
                                                         double eps, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	auto weight = (Tensor*)hweight;
+	auto* t = (Tensor*)h;
+	auto* weight = (Tensor*)hweight;
 
 	auto result = mx::fast::rms_norm(t->data, weight->data, (float)eps);
 
-	bool rg = t->requires_grad || weight->requires_grad;
-	auto r = new Tensor(result, rg);
+	bool const rg = t->requires_grad || weight->requires_grad;
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_RMS_NORM_2D, r, t, nullptr, eps);
+		int const idx = tape_append(OP_RMS_NORM_2D, r, t, nullptr, eps);
 		if (idx >= 0) {
-			auto meta = new RmsNormReplayMeta();
+			auto* meta = new RmsNormReplayMeta();
 			meta->weight_pool_idx = weight->pool_idx;
 			meta->eps = eps;
 			tape[idx].meta = meta;
@@ -46,9 +46,9 @@ extern "C" TensorHandle tensor_rms_norm_2d(TensorHandle h, TensorHandle hweight,
 }
 
 static void mlx_replay_rms_norm_2d(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	auto meta = (RmsNormReplayMeta*)e.meta;
+	int const out = e.result->pool_idx;
+	auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	auto* meta = (RmsNormReplayMeta*)e.meta;
 	auto weight = pool[meta->weight_pool_idx];
 	pool[out] = mx::fast::rms_norm(a, weight, (float)meta->eps);
 }

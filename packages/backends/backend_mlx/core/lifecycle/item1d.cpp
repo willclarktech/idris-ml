@@ -7,7 +7,7 @@
 
 extern "C" double tensor_item_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)vec;
+	auto* t = (Tensor*)vec;
 	mx::eval(t->data);
 	return mx_read_double(t->data, idx);
 }

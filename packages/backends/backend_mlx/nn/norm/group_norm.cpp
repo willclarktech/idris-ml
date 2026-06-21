@@ -16,12 +16,12 @@
 extern "C" TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma,
                                           TensorHandle hbeta, int numGroups, int channels,
                                           int spatial, double eps) {
-	auto inp = (Tensor*)hinput;
-	auto gamma = (Tensor*)hgamma;
-	auto beta = (Tensor*)hbeta;
-	int n = channels * spatial;
-	int chPerGroup = channels / numGroups;
-	int groupSize = chPerGroup * spatial;
+	auto* inp = (Tensor*)hinput;
+	auto* gamma = (Tensor*)hgamma;
+	auto* beta = (Tensor*)hbeta;
+	int const n = channels * spatial;
+	int const chPerGroup = channels / numGroups;
+	int const groupSize = chPerGroup * spatial;
 	mx::eval(inp->data);
 	mx::eval(gamma->data);
 	mx::eval(beta->data);
@@ -37,22 +37,22 @@ extern "C" TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgam
 	double* out = (double*)calloc(n, sizeof(double));
 	for (int g = 0; g < numGroups; g++) {
 		double mean = 0;
-		int base = g * groupSize;
+		int const base = g * groupSize;
 		for (int j = 0; j < groupSize; j++)
 			mean += inpD[base + j];
 		mean /= groupSize;
 		double var = 0;
 		for (int j = 0; j < groupSize; j++) {
-			double d = inpD[base + j] - mean;
+			double const d = inpD[base + j] - mean;
 			var += d * d;
 		}
 		var /= groupSize;
-		double rstd = 1.0 / sqrt(var + eps);
+		double const rstd = 1.0 / sqrt(var + eps);
 		for (int c = 0; c < chPerGroup; c++) {
-			int absC = g * chPerGroup + c;
+			int const absC = g * chPerGroup + c;
 			for (int s = 0; s < spatial; s++) {
-				int idx = absC * spatial + s;
-				double x_hat = (inpD[idx] - mean) * rstd;
+				int const idx = absC * spatial + s;
+				double const x_hat = (inpD[idx] - mean) * rstd;
 				out[idx] = gammaD[absC] * x_hat + betaD[absC];
 			}
 		}

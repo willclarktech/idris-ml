@@ -12,6 +12,8 @@
  *   - tensor_retain_handle / tensor_release_handle (C-exported variants
  *     for the Idris-side guardian + Scheme drain).
  */
+#include <algorithm>
+
 #include "../../tensor.h"
 
 std::vector<Tensor*> all_tensors;
@@ -25,15 +27,15 @@ Tensor::Tensor(mx::array d, bool rg)
       pool_idx(next_pool_idx++), refcount(0) {
 	create_id = g_mlx_create_calls_global++;
 	all_tensors.push_back(this);
-	if ((long)all_tensors.size() > g_mlx_peak_live) g_mlx_peak_live = (long)all_tensors.size();
+	g_mlx_peak_live = std::max((long)all_tensors.size(), g_mlx_peak_live);
 }
 
 void tensor_retain_internal(Tensor* t) {
-	if (t) t->refcount++;
+	if (t != nullptr) t->refcount++;
 }
 
 void tensor_release_internal(Tensor* t) {
-	if (t && t->refcount > 0) t->refcount--;
+	if ((t != nullptr) && t->refcount > 0) t->refcount--;
 }
 
 // C-exported retain/release for FFI consumers (Idris-side managed handles,

@@ -13,9 +13,9 @@ extern "C" TensorHandle tensor_layer_norm_2d_mlx_streamed(TensorHandle h, Tensor
                                                           TensorHandle hbias, double eps,
                                                           int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	auto gamma = (Tensor*)hgamma;
-	auto bias = (Tensor*)hbias;
+	auto* t = (Tensor*)h;
+	auto* gamma = (Tensor*)hgamma;
+	auto* bias = (Tensor*)hbias;
 
 	auto mean = mx::mean(t->data, -1, true);
 	auto centered = mx::subtract(t->data, mean);
@@ -24,12 +24,12 @@ extern "C" TensorHandle tensor_layer_norm_2d_mlx_streamed(TensorHandle h, Tensor
 	auto x_hat = mx::multiply(centered, rstd);
 	auto result = mx::add(mx::multiply(gamma->data, x_hat), bias->data);
 
-	bool rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
-	auto r = new Tensor(result, rg);
+	bool const rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_LAYER_NORM_2D, r, t, nullptr, eps);
+		int const idx = tape_append(OP_LAYER_NORM_2D, r, t, nullptr, eps);
 		if (idx >= 0) {
-			auto meta = new LayerNormReplayMeta();
+			auto* meta = new LayerNormReplayMeta();
 			meta->gamma_pool_idx = gamma->pool_idx;
 			meta->bias_pool_idx = bias->pool_idx;
 			meta->eps = eps;
@@ -45,10 +45,10 @@ extern "C" TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma
 }
 
 static void mlx_replay_layer_norm_2d(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
-	auto meta = (LayerNormReplayMeta*)e.meta;
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	auto* meta = (LayerNormReplayMeta*)e.meta;
 	auto gamma = pool[meta->gamma_pool_idx];
 	auto bias = pool[meta->bias_pool_idx];
 	auto mean = mx::mean(a, -1, true);

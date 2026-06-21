@@ -18,8 +18,8 @@
 
 extern "C" void tensor_free_mlx_streamed(TensorHandle h, int stream_tag) {
 	(void)stream_tag; /* no kernel — pure C-side bookkeeping */
-	if (!h) return;
-	auto t = (Tensor*)h;
+	if (h == nullptr) return;
+	auto* t = (Tensor*)h;
 	for (int i_ = 0; i_ < param_count(); i_++) {
 		if ((Tensor*)param_tensor(i_) == t) return;
 	}

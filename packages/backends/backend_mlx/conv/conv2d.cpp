@@ -14,9 +14,9 @@ extern "C" TensorHandle tensor_conv2d_mlx_streamed(TensorHandle hinput, TensorHa
                                                    TensorHandle hbias, int padH, int padW,
                                                    int strideH, int strideW, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto inp = (Tensor*)hinput;
-	auto ker = (Tensor*)hkernel;
-	Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+	auto* inp = (Tensor*)hinput;
+	auto* ker = (Tensor*)hkernel;
+	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 
 	int inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
 
@@ -27,12 +27,13 @@ extern "C" TensorHandle tensor_conv2d_mlx_streamed(TensorHandle hinput, TensorHa
 	auto out = mx::conv2d(inp_nhwc, ker_mlx, {strideH, strideW}, {padH, padW});
 	auto out_sq = mx::squeeze(out, 0);
 	auto result = mx::transpose(out_sq, {2, 0, 1});
-	if (bias) result = mx::add(result, mx::reshape(bias->data, {-1, 1, 1}));
+	if (bias != nullptr) result = mx::add(result, mx::reshape(bias->data, {-1, 1, 1}));
 
-	bool rg = inp->requires_grad || ker->requires_grad || (bias && bias->requires_grad);
-	auto r = new Tensor(result, rg);
+	bool const rg =
+	    inp->requires_grad || ker->requires_grad || ((bias != nullptr) && bias->requires_grad);
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_CONV2D, r, inp, ker, 0);
+		int const idx = tape_append(OP_CONV2D, r, inp, ker, 0);
 		if (idx >= 0) {
 			auto* meta = new Conv2DReplayMeta();
 			meta->padH = padH;
@@ -42,7 +43,7 @@ extern "C" TensorHandle tensor_conv2d_mlx_streamed(TensorHandle hinput, TensorHa
 			meta->inC = inC;
 			meta->H = H;
 			meta->W = W;
-			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			meta->bias_pool_idx = (bias != nullptr) ? bias->pool_idx : -1;
 			tape[idx].meta = meta;
 		}
 	}
@@ -60,9 +61,9 @@ extern "C" TensorHandle tensor_conv2d_batched_mlx_streamed(TensorHandle hinput,
                                                            int padH, int padW, int strideH,
                                                            int strideW, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto inp = (Tensor*)hinput;
-	auto ker = (Tensor*)hkernel;
-	Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+	auto* inp = (Tensor*)hinput;
+	auto* ker = (Tensor*)hkernel;
+	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 
 	int B = (int)inp->data.shape(0), inC = (int)inp->data.shape(1);
 	int H = (int)inp->data.shape(2), W = (int)inp->data.shape(3);
@@ -72,12 +73,13 @@ extern "C" TensorHandle tensor_conv2d_batched_mlx_streamed(TensorHandle hinput,
 
 	auto out = mx::conv2d(inp_nhwc, ker_mlx, {strideH, strideW}, {padH, padW});
 	auto result = mx::transpose(out, {0, 3, 1, 2});
-	if (bias) result = mx::add(result, mx::reshape(bias->data, {1, -1, 1, 1}));
+	if (bias != nullptr) result = mx::add(result, mx::reshape(bias->data, {1, -1, 1, 1}));
 
-	bool rg = inp->requires_grad || ker->requires_grad || (bias && bias->requires_grad);
-	auto r = new Tensor(result, rg);
+	bool const rg =
+	    inp->requires_grad || ker->requires_grad || ((bias != nullptr) && bias->requires_grad);
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_CONV2D_BATCHED, r, inp, ker, 0);
+		int const idx = tape_append(OP_CONV2D_BATCHED, r, inp, ker, 0);
 		if (idx >= 0) {
 			auto* meta = new Conv2DBatchedReplayMeta();
 			meta->padH = padH;
@@ -88,7 +90,7 @@ extern "C" TensorHandle tensor_conv2d_batched_mlx_streamed(TensorHandle hinput,
 			meta->inC = inC;
 			meta->H = H;
 			meta->W = W;
-			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			meta->bias_pool_idx = (bias != nullptr) ? bias->pool_idx : -1;
 			tape[idx].meta = meta;
 		}
 	}
@@ -103,9 +105,9 @@ extern "C" TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle 
 }
 
 static void mlx_replay_conv2d(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* cm = (Conv2DReplayMeta*)e.meta;
 	int inC = cm->inC, HH = cm->H, WW = cm->W;
 	auto inp_hwc = mx::transpose(a, {1, 2, 0});
@@ -122,9 +124,9 @@ static void mlx_replay_conv2d(std::vector<mx::array>& pool, TapeEntry& e) {
 MLX_REGISTER_REPLAY(OP_CONV2D, mlx_replay_conv2d)
 
 static void mlx_replay_conv2d_batched(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* cm = (Conv2DBatchedReplayMeta*)e.meta;
 	int B = cm->B, inC = cm->inC, HH = cm->H, WW = cm->W;
 	(void)inC;

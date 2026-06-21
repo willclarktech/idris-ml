@@ -9,9 +9,9 @@
 extern "C" TensorHandle tensor_max_pool1d_mlx_streamed(TensorHandle hinput, int kL, int stride,
                                                        int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto inp = (Tensor*)hinput;
+	auto* inp = (Tensor*)hinput;
 	int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
-	int oL = (L - kL) / stride + 1;
+	int const oL = (L - kL) / stride + 1;
 
 	mx::array result = mx::full({C, oL}, -1e30, inp->data.dtype());
 	for (int kl = 0; kl < kL; kl++) {
@@ -19,9 +19,9 @@ extern "C" TensorHandle tensor_max_pool1d_mlx_streamed(TensorHandle hinput, int 
 		result = mx::maximum(result, sliced);
 	}
 
-	auto r = new Tensor(result, inp->requires_grad);
+	auto* r = new Tensor(result, inp->requires_grad);
 	if (inp->requires_grad) {
-		int idx = tape_append(OP_MAX_POOL1D, r, inp, nullptr, 0);
+		int const idx = tape_append(OP_MAX_POOL1D, r, inp, nullptr, 0);
 		if (idx >= 0) {
 			auto* meta = new MaxPool1DReplayMeta();
 			meta->C = C;
@@ -40,9 +40,9 @@ extern "C" TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int strid
 }
 
 static void mlx_replay_max_pool1d(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* pm = (MaxPool1DReplayMeta*)e.meta;
 	mx::array res = mx::full({pm->C, pm->oL}, -1e30, a.dtype());
 	for (int kl = 0; kl < pm->kL; kl++) {

@@ -11,8 +11,8 @@
 
 extern "C" TensorHandle tensor_sum_mlx_streamed(TensorHandle h, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	auto r = new Tensor(mx::sum(t->data), t->requires_grad);
+	auto* t = (Tensor*)h;
+	auto* r = new Tensor(mx::sum(t->data), t->requires_grad);
 	if (t->requires_grad) tape_append(OP_SUM, r, t, nullptr, 0);
 	return (TensorHandle)r;
 }
@@ -24,15 +24,15 @@ extern "C" TensorHandle tensor_sum(TensorHandle h) {
 extern "C" TensorHandle tensor_sum_dim_mlx_streamed(TensorHandle h, int dim, int keepdim,
                                                     int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	int rank = (int)t->data.ndim();
-	int normalized = dim < 0 ? dim + rank : dim;
-	auto r =
+	auto* t = (Tensor*)h;
+	int const rank = (int)t->data.ndim();
+	int const normalized = dim < 0 ? dim + rank : dim;
+	auto* r =
 	    new Tensor(mx::sum(t->data, std::vector<int>{normalized}, keepdim != 0), t->requires_grad);
 	if (t->requires_grad) {
-		int idx = tape_append(OP_SUM_DIM, r, t, nullptr, 0);
+		int const idx = tape_append(OP_SUM_DIM, r, t, nullptr, 0);
 		if (idx >= 0) {
-			auto meta = new SumDimReplayMeta{normalized, keepdim != 0 ? 1 : 0};
+			auto* meta = new SumDimReplayMeta{normalized, keepdim != 0 ? 1 : 0};
 			tape[idx].meta = meta;
 		}
 	}
@@ -44,17 +44,17 @@ extern "C" TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
 }
 
 static void mlx_replay_sum(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	pool[out] = mx::sum(a);
 }
 MLX_REGISTER_REPLAY(OP_SUM, mlx_replay_sum)
 
 static void mlx_replay_sum_dim(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* sm = (SumDimReplayMeta*)e.meta;
 	pool[out] = mx::sum(a, std::vector<int>{sm->dim}, sm->keepdim != 0);
 }

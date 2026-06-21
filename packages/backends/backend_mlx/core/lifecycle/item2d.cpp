@@ -5,9 +5,9 @@
 #include "../../precision.h"
 
 extern "C" double tensor_item_2d(TensorHandle mat, int row, int col) {
-	auto t = (Tensor*)mat;
+	auto* t = (Tensor*)mat;
 	auto flat = mx::flatten(t->data, mx::StreamOrDevice{});
 	mx::eval(flat);
-	int cols = t->data.shape(1);
+	int const cols = t->data.shape(1);
 	return mx_read_double(flat, (long)row * cols + col);
 }

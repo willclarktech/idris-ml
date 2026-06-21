@@ -22,7 +22,8 @@ extern "C" TensorHandle tensor_cross_attention_mlx_streamed(TensorHandle hQ, Ten
 	TensorHandle KT = tensor_transpose_last2_mlx_streamed(hK, stream_tag);
 	TensorHandle scores = tensor_mul_scalar_mlx_streamed(
 	    tensor_bmm_3x3_mlx_streamed(hQ, KT, stream_tag), scale, stream_tag);
-	if (hmask) scores = tensor_masked_fill_mlx_streamed(scores, hmask, -1.0e20, stream_tag);
+	if (hmask != nullptr)
+		scores = tensor_masked_fill_mlx_streamed(scores, hmask, -1.0e20, stream_tag);
 	TensorHandle attn = tensor_softmax_3d_mlx_streamed(scores, stream_tag);
 	return tensor_bmm_3x3_mlx_streamed(attn, hV, stream_tag);
 }

@@ -15,7 +15,6 @@
 
 /* all_pairs lives in the monolith and is referenced here while the
    intermediates plumbing waits on Phase 6e. */
-extern std::vector<TensorPair*> all_pairs;
 
 extern "C" TensorHandle tensor_narrow_mlx_streamed(TensorHandle h, int dim, int start, int len,
                                                    int stream_tag);
@@ -45,7 +44,7 @@ extern "C" TensorPair* tensor_lstm_gates_pair_mlx_streamed(TensorHandle hcombine
 	TensorHandle tanh_cell = tensor_tanh_mlx_streamed(new_cell, stream_tag);
 	TensorHandle new_hidden = tensor_mul_mlx_streamed(og, tanh_cell, stream_tag);
 
-	auto pair = (TensorPair*)malloc(sizeof(TensorPair));
+	auto* pair = (TensorPair*)malloc(sizeof(TensorPair));
 	pair->first = new_hidden;
 	pair->second = new_cell;
 	all_pairs.push_back(pair);

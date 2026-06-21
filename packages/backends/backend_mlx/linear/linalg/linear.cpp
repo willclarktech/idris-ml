@@ -22,7 +22,7 @@ extern "C" TensorHandle tensor_linear_mlx_streamed(TensorHandle hW, TensorHandle
                                                    TensorHandle hbias, int stream_tag) {
 	WITH_STREAM(stream_tag);
 	TensorHandle mv_h = tensor_mv_mlx_streamed(hW, hx, stream_tag);
-	if (!hbias) return mv_h;
+	if (hbias == nullptr) return mv_h;
 	return tensor_add_mlx_streamed(mv_h, hbias, stream_tag);
 }
 
@@ -33,19 +33,20 @@ extern "C" TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHa
 extern "C" TensorHandle tensor_linear_2d_mlx_streamed(TensorHandle hW, TensorHandle hX,
                                                       TensorHandle hbias, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto W = (Tensor*)hW;
-	auto X = (Tensor*)hX;
-	auto bias = (Tensor*)hbias;
+	auto* W = (Tensor*)hW;
+	auto* X = (Tensor*)hX;
+	auto* bias = (Tensor*)hbias;
 	auto WT = mx::transpose(W->data, {1, 0});
 	auto result = mx::matmul(X->data, WT);
-	if (bias) result = mx::add(result, bias->data);
-	bool rg = W->requires_grad || X->requires_grad || (bias && bias->requires_grad);
-	auto r = new Tensor(result, rg);
+	if (bias != nullptr) result = mx::add(result, bias->data);
+	bool const rg =
+	    W->requires_grad || X->requires_grad || ((bias != nullptr) && bias->requires_grad);
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_LINEAR_2D, r, X, W, 0);
+		int const idx = tape_append(OP_LINEAR_2D, r, X, W, 0);
 		if (idx >= 0) {
-			auto meta = new LinearReplayMeta();
-			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			auto* meta = new LinearReplayMeta();
+			meta->bias_pool_idx = (bias != nullptr) ? bias->pool_idx : -1;
 			tape[idx].meta = meta;
 		}
 	}
@@ -57,14 +58,14 @@ extern "C" TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, Tenso
 }
 
 static void mlx_replay_linear_2d(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	/* a = X [B,i], b = W [o,i]. Y = X @ W^T + bias */
-	auto meta = (LinearReplayMeta*)e.meta;
+	auto* meta = (LinearReplayMeta*)e.meta;
 	auto WT = mx::transpose(b, {1, 0});
 	auto y = mx::matmul(a, WT);
-	if (meta && meta->bias_pool_idx >= 0) y = mx::add(y, pool[meta->bias_pool_idx]);
+	if ((meta != nullptr) && meta->bias_pool_idx >= 0) y = mx::add(y, pool[meta->bias_pool_idx]);
 	pool[out] = y;
 }
 MLX_REGISTER_REPLAY(OP_LINEAR_2D, mlx_replay_linear_2d)

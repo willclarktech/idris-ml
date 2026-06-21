@@ -12,9 +12,9 @@ extern "C" TensorHandle tensor_max_rows_mlx_streamed(TensorHandle hinput, int b,
 	WITH_STREAM(stream_tag);
 	(void)b;
 	(void)n;
-	auto inp = (Tensor*)hinput;
-	auto result = mx::max(inp->data, {1});
-	auto r = new Tensor(result, inp->requires_grad);
+	auto* inp = (Tensor*)hinput;
+	auto result = mx::max(inp->data, 1);
+	auto* r = new Tensor(result, inp->requires_grad);
 	if (inp->requires_grad) tape_append(OP_MAX_ROWS, r, inp, nullptr, 0);
 	return (TensorHandle)r;
 }
@@ -24,8 +24,8 @@ extern "C" TensorHandle tensor_max_rows(TensorHandle hinput, int b, int n) {
 }
 
 static void mlx_replay_max_rows(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	pool[out] = mx::max(a, {1});
+	int const out = e.result->pool_idx;
+	auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	pool[out] = mx::max(a, 1);
 }
 MLX_REGISTER_REPLAY(OP_MAX_ROWS, mlx_replay_max_rows)

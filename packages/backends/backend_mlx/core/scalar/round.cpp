@@ -5,8 +5,8 @@
 
 extern "C" TensorHandle tensor_round_mlx_streamed(TensorHandle h, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	auto r = new Tensor(mx::round(t->data), /*requires_grad=*/false);
+	auto* t = (Tensor*)h;
+	auto* r = new Tensor(mx::round(t->data), /*requires_grad=*/false);
 	return (TensorHandle)r;
 }
 

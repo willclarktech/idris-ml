@@ -26,8 +26,6 @@
 #include "tape.h"
 #include <vector>
 
-extern "C" void free(void*);
-
 /* Tape state — externed via tape.h. */
 std::vector<TapeEntry> tape;
 long prof_tape_appends_mlx = 0;
@@ -43,13 +41,13 @@ long prof_tape_appends_mlx = 0;
  * run 27373449876. Gated by the mlx_no_grad_meta criterion suite. */
 int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
 	if (no_grad_depth_mlx > 0) {
-		if (result) {
+		if (result != nullptr) {
 			result->requires_grad = false;
 			result->tape_idx = -1;
 		}
 		return -1;
 	}
-	int idx = (int)tape.size();
+	int const idx = (int)tape.size();
 	tape.push_back({op, result, arg1, arg2, scalar_arg, nullptr});
 	result->tape_idx = idx;
 	// The tape holds args until tape_reset; retain them while it does.
@@ -89,67 +87,67 @@ void tape_reset() {
 	}
 	// Free op metadata
 	for (auto& e : tape) {
-		if (e.op == OP_LAYER_NORM_2D && e.meta) {
+		if (e.op == OP_LAYER_NORM_2D && (e.meta != nullptr)) {
 			delete (LayerNormReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_RMS_NORM_2D && e.meta) {
+		if (e.op == OP_RMS_NORM_2D && (e.meta != nullptr)) {
 			delete (RmsNormReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_GRU_CELL && e.meta) {
+		if (e.op == OP_GRU_CELL && (e.meta != nullptr)) {
 			delete (GruCellReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_STACK && e.meta) {
+		if (e.op == OP_STACK && (e.meta != nullptr)) {
 			delete (std::vector<int>*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_CAT_MULTI && e.meta) {
+		if (e.op == OP_CAT_MULTI && (e.meta != nullptr)) {
 			delete (std::vector<int>*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_TILE_2D && e.meta) {
+		if (e.op == OP_TILE_2D && (e.meta != nullptr)) {
 			std::free(e.meta);
 			e.meta = nullptr;
 		}
-		if (e.op == OP_BATCH_NORM && e.meta) {
+		if (e.op == OP_BATCH_NORM && (e.meta != nullptr)) {
 			delete (BatchNormReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_CONV1D && e.meta) {
+		if (e.op == OP_CONV1D && (e.meta != nullptr)) {
 			delete (Conv1DReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_MAX_POOL1D && e.meta) {
+		if (e.op == OP_MAX_POOL1D && (e.meta != nullptr)) {
 			delete (MaxPool1DReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_CONV2D && e.meta) {
+		if (e.op == OP_CONV2D && (e.meta != nullptr)) {
 			delete (Conv2DReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_CONV2D_BATCHED && e.meta) {
+		if (e.op == OP_CONV2D_BATCHED && (e.meta != nullptr)) {
 			delete (Conv2DBatchedReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_MAX_POOL2D && e.meta) {
+		if (e.op == OP_MAX_POOL2D && (e.meta != nullptr)) {
 			delete (MaxPool2DReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_AVG_POOL2D && e.meta) {
+		if (e.op == OP_AVG_POOL2D && (e.meta != nullptr)) {
 			delete (AvgPool2DReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_MAX_POOL2D_BATCHED && e.meta) {
+		if (e.op == OP_MAX_POOL2D_BATCHED && (e.meta != nullptr)) {
 			delete (MaxPool2DBatchedReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_SUM_DIM && e.meta) {
+		if (e.op == OP_SUM_DIM && (e.meta != nullptr)) {
 			delete (SumDimReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}
-		if (e.op == OP_LINEAR_2D && e.meta) {
+		if (e.op == OP_LINEAR_2D && (e.meta != nullptr)) {
 			delete (LinearReplayMeta*)e.meta;
 			e.meta = nullptr;
 		}

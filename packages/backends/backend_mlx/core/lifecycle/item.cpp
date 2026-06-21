@@ -18,7 +18,7 @@
 
 extern "C" double tensor_item_mlx_streamed(TensorHandle h, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	mx::eval(t->data);
 	if (t->data.dtype() == mx::float64) return t->data.item<double>();
 	if (t->data.dtype() == mx::bfloat16) return (double)(float)t->data.item<mx::bfloat16_t>();

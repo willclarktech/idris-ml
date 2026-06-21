@@ -13,9 +13,9 @@
 extern "C" TensorHandle tensor_gru_cell_mlx_streamed(TensorHandle hih, TensorHandle hhh,
                                                      TensorHandle hprev, int o, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto ih = (Tensor*)hih;
-	auto hh = (Tensor*)hhh;
-	auto prev = (Tensor*)hprev;
+	auto* ih = (Tensor*)hih;
+	auto* hh = (Tensor*)hhh;
+	auto* prev = (Tensor*)hprev;
 	auto ih_z = mx::slice(ih->data, {0}, {o});
 	auto ih_r = mx::slice(ih->data, {o}, {2 * o});
 	auto ih_n = mx::slice(ih->data, {2 * o}, {3 * o});
@@ -28,12 +28,12 @@ extern "C" TensorHandle tensor_gru_cell_mlx_streamed(TensorHandle hih, TensorHan
 	auto result =
 	    mx::add(mx::multiply(mx::subtract(one_like(z), z), n), mx::multiply(z, prev->data));
 
-	bool rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
-	auto r = new Tensor(result, rg);
+	bool const rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_GRU_CELL, r, ih, hh, 0);
+		int const idx = tape_append(OP_GRU_CELL, r, ih, hh, 0);
 		if (idx >= 0) {
-			auto meta = new GruCellReplayMeta();
+			auto* meta = new GruCellReplayMeta();
 			meta->o = o;
 			meta->prev_pool_idx = prev->pool_idx;
 			tape[idx].meta = meta;
@@ -48,15 +48,15 @@ extern "C" TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, Tens
 }
 
 static void mlx_replay_gru_cell(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	/* nn.GRU: a=ih, b=hh, prev via meta->prev_pool_idx.
 	                     z = sigmoid(ih_z + hh_z), r = sigmoid(ih_r + hh_r)
 	                     n = tanh(ih_n + r * hh_n)
 	                     h' = (1-z)*n + z*prev                                 */
-	auto meta = (GruCellReplayMeta*)e.meta;
-	int oo = meta->o;
+	auto* meta = (GruCellReplayMeta*)e.meta;
+	int const oo = meta->o;
 	auto prev = pool[meta->prev_pool_idx];
 	auto ih_z = mx::slice(a, {0}, {oo});
 	auto ih_r = mx::slice(a, {oo}, {2 * oo});

@@ -14,11 +14,11 @@ extern "C" TensorHandle tensor_gather_rows_mlx_streamed(TensorHandle hinput, Ten
 	WITH_STREAM(stream_tag);
 	(void)b;
 	(void)n;
-	auto inp = (Tensor*)hinput;
-	auto idx = (Tensor*)hindex;
+	auto* inp = (Tensor*)hinput;
+	auto* idx = (Tensor*)hindex;
 	auto idx_int = mx::expand_dims(mx::astype(idx->data, mx::int32), 1);
 	auto result = mx::squeeze(mx::take_along_axis(inp->data, idx_int, 1), 1);
-	auto r = new Tensor(result, inp->requires_grad);
+	auto* r = new Tensor(result, inp->requires_grad);
 	if (inp->requires_grad) tape_append(OP_GATHER_ROWS, r, inp, idx, 0);
 	return (TensorHandle)r;
 }
@@ -28,8 +28,8 @@ extern "C" TensorHandle tensor_gather_rows(TensorHandle hinput, TensorHandle hin
 }
 
 static void mlx_replay_gather_rows(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	// Indices are discrete and non-differentiable — read directly from
 	// the tape entry's tensor (closure-captured, not via pool); the
 	// constants collection excludes arg2 for this op (arg2_is_index).

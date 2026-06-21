@@ -9,10 +9,10 @@
 
 extern "C" TensorHandle tensor_mm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto a = (Tensor*)ha;
-	auto b = (Tensor*)hb;
-	bool rg = a->requires_grad || b->requires_grad;
-	auto r = new Tensor(mx::matmul(a->data, b->data), rg);
+	auto* a = (Tensor*)ha;
+	auto* b = (Tensor*)hb;
+	bool const rg = a->requires_grad || b->requires_grad;
+	auto* r = new Tensor(mx::matmul(a->data, b->data), rg);
 	if (rg) tape_append(OP_MM, r, a, b, 0);
 	return (TensorHandle)r;
 }
@@ -23,10 +23,10 @@ extern "C" TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
 
 extern "C" TensorHandle tensor_bmm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto a = (Tensor*)ha;
-	auto b = (Tensor*)hb;
-	bool rg = a->requires_grad || b->requires_grad;
-	auto r = new Tensor(mx::matmul(a->data, b->data), rg);
+	auto* a = (Tensor*)ha;
+	auto* b = (Tensor*)hb;
+	bool const rg = a->requires_grad || b->requires_grad;
+	auto* r = new Tensor(mx::matmul(a->data, b->data), rg);
 	if (rg) tape_append(OP_BMM, r, a, b, 0);
 	return (TensorHandle)r;
 }
@@ -38,10 +38,10 @@ extern "C" TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 extern "C" TensorHandle tensor_bmm_3x3_mlx_streamed(TensorHandle ha, TensorHandle hb,
                                                     int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto a = (Tensor*)ha;
-	auto b = (Tensor*)hb;
-	bool rg = a->requires_grad || b->requires_grad;
-	auto r = new Tensor(mx::matmul(a->data, b->data), rg);
+	auto* a = (Tensor*)ha;
+	auto* b = (Tensor*)hb;
+	bool const rg = a->requires_grad || b->requires_grad;
+	auto* r = new Tensor(mx::matmul(a->data, b->data), rg);
 	if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
 	return (TensorHandle)r;
 }

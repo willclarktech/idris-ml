@@ -11,8 +11,8 @@
 #include "../../stream.h"
 
 static TensorHandle tensor_create_scalar_impl(double value, int requires_grad, mx::Dtype dt) {
-	auto t = new Tensor(mx::array(value, dt), requires_grad != 0);
-	if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+	auto* t = new Tensor(mx::array(value, dt), requires_grad != 0);
+	if (requires_grad != 0) tape_append(OP_CONST, t, nullptr, nullptr, 0);
 	return (TensorHandle)t;
 }
 

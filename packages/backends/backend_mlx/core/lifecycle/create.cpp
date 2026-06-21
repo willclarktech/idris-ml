@@ -11,9 +11,9 @@
 
 static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad,
                                        mx::Dtype dt) {
-	mx::Shape sh(shape, shape + rank);
-	auto t = new Tensor(mx_array_from_doubles(data, sh, dt), requires_grad != 0);
-	if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+	mx::Shape const sh(shape, shape + rank);
+	auto* t = new Tensor(mx_array_from_doubles(data, sh, dt), requires_grad != 0);
+	if (requires_grad != 0) tape_append(OP_CONST, t, nullptr, nullptr, 0);
 	return (TensorHandle)t;
 }
 

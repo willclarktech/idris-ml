@@ -25,8 +25,8 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d_mlx_streamed(const uint8
                                                                      int i, int requires_grad,
                                                                      int stream_tag) {
 	WITH_STREAM(stream_tag);
-	int bytes_per_row = (i + 3) / 4;
-	int expected_bytes = bytes_per_row * o;
+	int const bytes_per_row = (i + 3) / 4;
+	int const expected_bytes = bytes_per_row * o;
 	if (packed_byte_count != expected_bytes) {
 		std::fprintf(stderr,
 		             "[mlx] tensor_create_ternary_packed_2d: byte-count "
@@ -34,7 +34,7 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d_mlx_streamed(const uint8
 		             packed_byte_count, expected_bytes, o, i);
 		std::abort();
 	}
-	if (requires_grad) {
+	if (requires_grad != 0) {
 		std::fprintf(stderr, "[mlx] tensor_create_ternary_packed_2d: "
 		                     "requires_grad=1 not supported on int8/ternary storage; "
 		                     "Ternary weights must be NoGrad.\n");
@@ -44,9 +44,9 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d_mlx_streamed(const uint8
 	for (int j = 0; j < o; j++) {
 		const uint8_t* row = packed_bytes + (size_t)j * (size_t)bytes_per_row;
 		for (int k = 0; k < i; k++) {
-			int byte_idx = k >> 2;
-			int slot = k & 0x3;
-			uint8_t code = (uint8_t)((row[byte_idx] >> (slot * 2)) & 0x3u);
+			int const byte_idx = k >> 2;
+			int const slot = k & 0x3;
+			uint8_t const code = (uint8_t)((row[byte_idx] >> (slot * 2)) & 0x3u);
 			int8_t v;
 			switch (code) {
 			case 0x0:
@@ -68,9 +68,9 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d_mlx_streamed(const uint8
 			unpacked[(size_t)j * (size_t)i + (size_t)k] = v;
 		}
 	}
-	mx::Shape sh = {o, i};
+	mx::Shape const sh = {o, i};
 	auto arr = mx::array(unpacked.data(), sh, mx::int8);
-	auto t = new Tensor(arr, /*requires_grad=*/false);
+	auto* t = new Tensor(arr, /*requires_grad=*/false);
 	return (TensorHandle)t;
 }
 
@@ -85,21 +85,22 @@ extern "C" TensorHandle tensor_bitlinear_fwd_mlx_streamed(TensorHandle hW, Tenso
                                                           TensorHandle hx, TensorHandle hbias,
                                                           int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto W = (Tensor*)hW;
-	auto scale = (Tensor*)hscale;
-	auto x = (Tensor*)hx;
-	auto bias = hbias ? (Tensor*)hbias : nullptr;
+	auto* W = (Tensor*)hW;
+	auto* scale = (Tensor*)hscale;
+	auto* x = (Tensor*)hx;
+	auto* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 	/* Dequant: int8 → compute dtype, then row-wise scale via broadcast,
 	   then matmul with x. mx::matmul handles 1D x by treating it as a
 	   column vector; result is [o]. */
 	auto W_dequant =
 	    mx::multiply(mx::astype(W->data, scale->data.dtype()), mx::expand_dims(scale->data, 1));
 	auto y = mx::matmul(W_dequant, x->data);
-	if (bias) {
+	if (bias != nullptr) {
 		y = mx::add(y, bias->data);
 	}
-	bool rg = scale->requires_grad || x->requires_grad || (bias && bias->requires_grad);
-	auto r = new Tensor(y, rg);
+	bool const rg =
+	    scale->requires_grad || x->requires_grad || ((bias != nullptr) && bias->requires_grad);
+	auto* r = new Tensor(y, rg);
 	/* No tape entry recorded: per-op decomposition above already records
 	   each sub-op (mx_astype, multiply, expand_dims, matmul, add) on
 	   mlx's lazy graph. Backward flows through that chain naturally
@@ -121,13 +122,13 @@ tensor_bitlinear_fwd_hf_quant_mlx_streamed(TensorHandle hW, double w_scale, Tens
                                            TensorHandle hbias, int use_rms_norm,
                                            TensorHandle hrms_w, double rms_eps, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto W = (Tensor*)hW;
-	auto x_t = (Tensor*)hx;
-	auto bias = hbias ? (Tensor*)hbias : nullptr;
+	auto* W = (Tensor*)hW;
+	auto* x_t = (Tensor*)hx;
+	auto* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 	auto dtype = x_t->data.dtype();
 	auto x = x_t->data;
 	/* Optional RMSNorm */
-	if (use_rms_norm && hrms_w) {
+	if ((use_rms_norm != 0) && (hrms_w != nullptr)) {
 		auto rms_w = ((Tensor*)hrms_w)->data;
 		auto var = mx::mean(mx::multiply(x, x));
 		auto eps = mx::astype(mx::array((float)rms_eps), dtype);
@@ -148,10 +149,10 @@ tensor_bitlinear_fwd_hf_quant_mlx_streamed(TensorHandle hW, double w_scale, Tens
 	auto y_q = mx::matmul(W_dequant, x_q); /* [o] */
 	auto w_scale_t = mx::astype(mx::array((float)w_scale), dtype);
 	auto y = mx::divide(mx::multiply(y_q, w_scale_t), in_scale);
-	if (bias) {
+	if (bias != nullptr) {
 		y = mx::add(y, bias->data);
 	}
-	auto r = new Tensor(y, /*requires_grad=*/false);
+	auto* r = new Tensor(y, /*requires_grad=*/false);
 	return (TensorHandle)r;
 }
 
@@ -174,15 +175,16 @@ extern "C" TensorHandle
 tensor_create_ternary_from_hf_packed_2d_mlx_streamed(const uint8_t* hf_packed_bytes, int o,
                                                      int i_dim, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	int hf_row_dim = (o + 3) / 4;
+	int const hf_row_dim = (o + 3) / 4;
 	std::vector<int8_t> unpacked((size_t)o * (size_t)i_dim);
 	for (int j = 0; j < o; j++) {
-		int hf_chunk = j / hf_row_dim;
-		int hf_byte_row = j % hf_row_dim;
+		int const hf_chunk = j / hf_row_dim;
+		int const hf_byte_row = j % hf_row_dim;
 		for (int k = 0; k < i_dim; k++) {
-			uint8_t hf_byte = hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
-			int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
-			int v = hf_code - 1;
+			uint8_t const hf_byte =
+			    hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
+			int const hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
+			int const v = hf_code - 1;
 			if (v < -1 || v > 1) {
 				std::fprintf(stderr,
 				             "[mlx] tensor_create_ternary_from_hf_packed_2d: "
@@ -193,9 +195,9 @@ tensor_create_ternary_from_hf_packed_2d_mlx_streamed(const uint8_t* hf_packed_by
 			unpacked[(size_t)j * (size_t)i_dim + (size_t)k] = (int8_t)v;
 		}
 	}
-	mx::Shape sh = {o, i_dim};
+	mx::Shape const sh = {o, i_dim};
 	auto arr = mx::array(unpacked.data(), sh, mx::int8);
-	auto t = new Tensor(arr, /*requires_grad=*/false);
+	auto* t = new Tensor(arr, /*requires_grad=*/false);
 	return (TensorHandle)t;
 }
 
@@ -211,7 +213,7 @@ extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* h
 
 extern "C" TensorHandle tensor_absmean_per_row_2d_mlx_streamed(TensorHandle hw, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto w = (Tensor*)hw;
+	auto* w = (Tensor*)hw;
 	if (w->data.ndim() != 2) {
 		std::fprintf(stderr,
 		             "[mlx] tensor_absmean_per_row_2d: expected 2D, "
@@ -222,7 +224,7 @@ extern "C" TensorHandle tensor_absmean_per_row_2d_mlx_streamed(TensorHandle hw, 
 	/* mean(abs(w), axis=1, keepdims=false) → [o] in w's dtype.
 	   NoGrad — this is a one-shot frozen-quant computation. */
 	auto scale = mx::mean(mx::abs(w->data), 1, /*keepdims=*/false);
-	auto t = new Tensor(scale, /*requires_grad=*/false);
+	auto* t = new Tensor(scale, /*requires_grad=*/false);
 	return (TensorHandle)t;
 }
 
@@ -234,8 +236,8 @@ extern "C" TensorHandle tensor_ternary_quant_with_scale_2d_mlx_streamed(TensorHa
                                                                         TensorHandle hscale,
                                                                         int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto w = (Tensor*)hw;
-	auto scale = (Tensor*)hscale;
+	auto* w = (Tensor*)hw;
+	auto* scale = (Tensor*)hscale;
 	if (w->data.ndim() != 2) {
 		std::fprintf(stderr,
 		             "[mlx] tensor_ternary_quant_with_scale_2d: expected "
@@ -267,7 +269,7 @@ extern "C" TensorHandle tensor_ternary_quant_with_scale_2d_mlx_streamed(TensorHa
 	auto mask = mx::expand_dims(mx::astype(active, w->data.dtype()), 1);
 	auto t_float = mx::multiply(clamped, mask);
 	auto t_int8 = mx::astype(t_float, mx::int8); /* [o, i] int8 */
-	auto out = new Tensor(t_int8, /*requires_grad=*/false);
+	auto* out = new Tensor(t_int8, /*requires_grad=*/false);
 	return (TensorHandle)out;
 }
 

@@ -15,11 +15,11 @@
 
 extern "C" TensorHandle tensor_softplus_mlx_streamed(TensorHandle h, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	auto result =
 	    mx::add(mx::maximum(t->data, zero_like(t->data)),
 	            mx::log(mx::add(one_like(t->data), mx::exp(mx::negative(mx::abs(t->data))))));
-	auto r = new Tensor(result, t->requires_grad);
+	auto* r = new Tensor(result, t->requires_grad);
 	if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
 	return (TensorHandle)r;
 }
@@ -29,9 +29,9 @@ extern "C" TensorHandle tensor_softplus(TensorHandle h) {
 }
 
 static void mlx_replay_softplus(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	// Smooth form log(1 + exp(a)) — differentiable everywhere
 	// (d/dx = sigmoid(a)). The numerically-stable composite
 	// max(0,a) + log(1+exp(-|a|)) used in the forward kernel

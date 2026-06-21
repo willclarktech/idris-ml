@@ -89,6 +89,15 @@
 #       use `static` and is exempt by language). Firing only on the
 #       torch/mlx C++ backends, it carries no bug-class signal — same
 #       rationale as the modernize-*/cppcoreguidelines-* family disables.
+#   misc-non-private-member-variables-in-classes — the backend tensor
+#       handle (`struct Tensor` in backend_mlx/tensor.h, and the analogous
+#       plain-data holders in the other backends) is a C-style aggregate:
+#       all members public by design, mutated directly by the per-op .cpp
+#       files and the lifecycle/tape machinery. It is a data record, not an
+#       encapsulated class — privatising every field behind accessors would
+#       add boilerplate and indirection with zero bug-class signal. Same
+#       "stylistic, primarily-C codebase" rationale as the misc-use-anonymous
+#       -namespace / misc-use-internal-linkage disables below.
 #   misc-use-internal-linkage (clang-tidy 19+) — FALSE POSITIVE here:
 #       suggests `static`/anon-namespace for symbols it sees no caller for
 #       within the TU, but the flagged ones (from_tensor / from_tensor_
@@ -126,6 +135,7 @@ Checks: >
   -cert-err33-c,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
   -misc-use-anonymous-namespace,
   -misc-use-internal-linkage,
   -readability-braces-around-statements,

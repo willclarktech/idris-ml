@@ -9,13 +9,13 @@ static TensorHandle cat_impl(TensorHandle* tensors, int count, int dim) {
 	std::vector<mx::array> arrs;
 	bool rg = false;
 	for (int i = 0; i < count; i++) {
-		auto t = (Tensor*)tensors[i];
+		auto* t = (Tensor*)tensors[i];
 		arrs.push_back(t->data);
 		if (t->requires_grad) rg = true;
 	}
-	auto r = new Tensor(mx::concatenate(arrs, dim), rg);
+	auto* r = new Tensor(mx::concatenate(arrs, dim), rg);
 	if (rg) {
-		int idx = tape_append(OP_CAT_MULTI, r, nullptr, nullptr, (double)dim);
+		int const idx = tape_append(OP_CAT_MULTI, r, nullptr, nullptr, (double)dim);
 		if (idx >= 0) {
 			auto* indices = new std::vector<int>();
 			for (int i = 0; i < count; i++)
@@ -37,8 +37,8 @@ extern "C" TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
 }
 
 extern "C" TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
-	auto r = cat_impl(arr, count, dim);
-	free(arr);
+	auto* r = cat_impl(arr, count, dim);
+	free(reinterpret_cast<void*>(arr));
 	return r;
 }
 
@@ -47,10 +47,10 @@ extern "C" TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int 
  * inputs are flattened). Stored in scalar_arg for replay. */
 extern "C" TensorHandle tensor_cat2_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto a = (Tensor*)ha;
-	auto b = (Tensor*)hb;
-	bool rg = a->requires_grad || b->requires_grad;
-	auto r = new Tensor(mx::concatenate({a->data, b->data}, 0), rg);
+	auto* a = (Tensor*)ha;
+	auto* b = (Tensor*)hb;
+	bool const rg = a->requires_grad || b->requires_grad;
+	auto* r = new Tensor(mx::concatenate({a->data, b->data}, 0), rg);
 	if (rg) tape_append(OP_CAT, r, a, b, (double)a->data.size());
 	return (TensorHandle)r;
 }
@@ -60,21 +60,21 @@ extern "C" TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
 }
 
 static void mlx_replay_cat(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	pool[out] = mx::concatenate({a, b}, 0);
 }
 MLX_REGISTER_REPLAY(OP_CAT, mlx_replay_cat)
 
 static void mlx_replay_cat_multi(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* indices = (std::vector<int>*)e.meta;
-	if (indices) {
+	if (indices != nullptr) {
 		std::vector<mx::array> arrs;
-		for (int idx : *indices)
+		for (int const idx : *indices)
 			arrs.push_back(pool[idx]);
 		pool[out] = mx::concatenate(arrs, (int)e.scalar_arg);
 	}

@@ -22,20 +22,20 @@ extern "C" void _dbg_dump_param_grads_if_enabled_mlx(void) {
 	static int max_dumps = -1;
 	if (max_dumps < 0) {
 		const char* mx_env = getenv("DEBUG_PARAM_GRADS_MAX");
-		max_dumps = mx_env ? atoi(mx_env) : 1;
+		max_dumps = (mx_env != nullptr) ? atoi(mx_env) : 1;
 	}
 	const char* env = getenv("DEBUG_PARAM_GRADS");
-	if (!env || env[0] != '1') return;
+	if ((env == nullptr) || env[0] != '1') return;
 	if (dumped >= max_dumps) return;
 	dumped++;
 	fprintf(stderr, "[DEBUG_PARAM_GRADS_MLX] dump #%d (np=%d):\n", dumped, param_count());
 	for (int i = 0; i < param_count(); i++) {
 		const char* p_name = param_name(i);
-		auto t = (Tensor*)param_tensor(i);
-		long n = (long)t->data.size();
+		auto* t = (Tensor*)param_tensor(i);
+		long const n = (long)t->data.size();
 		double l2 = 0.0;
-		int has_grad = t->has_grad ? 1 : 0;
-		int rg = t->requires_grad ? 1 : 0;
+		int const has_grad = t->has_grad ? 1 : 0;
+		int const rg = t->requires_grad ? 1 : 0;
 		if (t->has_grad) {
 			mx::eval(t->grad);
 			auto contig = mx::contiguous(t->grad);

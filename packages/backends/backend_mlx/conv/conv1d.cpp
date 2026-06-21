@@ -14,9 +14,9 @@ extern "C" TensorHandle tensor_conv1d_mlx_streamed(TensorHandle hinput, TensorHa
                                                    TensorHandle hbias, int pad, int stride,
                                                    int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto inp = (Tensor*)hinput;
-	auto ker = (Tensor*)hkernel;
-	Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+	auto* inp = (Tensor*)hinput;
+	auto* ker = (Tensor*)hkernel;
+	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 	int inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
 
 	auto inp_lc = mx::transpose(inp->data, {1, 0}); /* [L, inC]      */
@@ -25,19 +25,20 @@ extern "C" TensorHandle tensor_conv1d_mlx_streamed(TensorHandle hinput, TensorHa
 	auto out = mx::conv1d(inp_nlc, ker_mlx, stride, pad);
 	auto out_sq = mx::squeeze(out, 0);           /* [oL, outC]     */
 	auto result = mx::transpose(out_sq, {1, 0}); /* [outC, oL]     */
-	if (bias) result = mx::add(result, mx::reshape(bias->data, {-1, 1}));
+	if (bias != nullptr) result = mx::add(result, mx::reshape(bias->data, {-1, 1}));
 
-	bool rg = inp->requires_grad || ker->requires_grad || (bias && bias->requires_grad);
-	auto r = new Tensor(result, rg);
+	bool const rg =
+	    inp->requires_grad || ker->requires_grad || ((bias != nullptr) && bias->requires_grad);
+	auto* r = new Tensor(result, rg);
 	if (rg) {
-		int idx = tape_append(OP_CONV1D, r, inp, ker, 0);
+		int const idx = tape_append(OP_CONV1D, r, inp, ker, 0);
 		if (idx >= 0) {
 			auto* meta = new Conv1DReplayMeta();
 			meta->pad = pad;
 			meta->stride = stride;
 			meta->inC = inC;
 			meta->L = L;
-			meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+			meta->bias_pool_idx = (bias != nullptr) ? bias->pool_idx : -1;
 			tape[idx].meta = meta;
 		}
 	}
@@ -50,9 +51,9 @@ extern "C" TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
 }
 
 static void mlx_replay_conv1d(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* cm = (Conv1DReplayMeta*)e.meta;
 	int inC = cm->inC, LL = cm->L;
 	auto inp_lc = mx::transpose(a, {1, 0});

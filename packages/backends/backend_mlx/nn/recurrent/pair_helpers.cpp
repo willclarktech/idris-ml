@@ -32,5 +32,5 @@ extern "C" TensorHandle tensor_pair_second(TensorPair* p) {
 }
 
 extern "C" void tensor_pair_free(TensorPair* p) {
-	if (p) free(p);
+	if (p != nullptr) free(p);
 }

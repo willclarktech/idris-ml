@@ -41,6 +41,8 @@
 namespace {
 
 mx::Dtype dt_for_dtag(const char* sym, int dtag) {
+	// Each case returns a distinct mx::Dtype; clang-tidy branch-clone FP.
+	// NOLINTNEXTLINE(bugprone-branch-clone)
 	switch (dtag) {
 	case 13:
 		return mx::float16;

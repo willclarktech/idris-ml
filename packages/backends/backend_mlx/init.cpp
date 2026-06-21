@@ -46,13 +46,15 @@ static void mlx_terminate_handler(void) {
 		// crash we can't fix without a libmlx-upstream change. Exit 0.
 		_exit(0);
 	}
-	if (g_prev_terminate_handler) g_prev_terminate_handler();
+	if (g_prev_terminate_handler != nullptr) g_prev_terminate_handler();
 	std::abort();
 }
 
 __attribute__((constructor)) static void mlx_backend_init(void) {
 	const char* env = std::getenv("MLX_DEVICE");
-	if (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
+	// Branches are distinct (gpu vs cpu device); clang-tidy branch-clone FP.
+	// NOLINTNEXTLINE(bugprone-branch-clone)
+	if ((env != nullptr) && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
 		mx::set_default_device(mx::Device(mx::Device::gpu));
 	} else {
 		mx::set_default_device(mx::Device(mx::Device::cpu));
@@ -77,19 +79,29 @@ __attribute__((constructor)) static void mlx_backend_init(void) {
 	// reference" — installing ours after the constructor leaves Chez's
 	// later sigaction call to overwrite us, so we re-install on the
 	// first FFI entry too. For diagnosis only.
-	if (std::getenv("MLX_CRASH_TRACE")) {
+	if (std::getenv("MLX_CRASH_TRACE") != nullptr) {
 		struct sigaction sa;
 		std::memset(&sa, 0, sizeof(sa));
 		sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
 		sa.sa_sigaction = [](int signo, siginfo_t* info, void*) {
-			const char* sname = signo == SIGSEGV  ? "SIGSEGV"
-			                    : signo == SIGILL ? "SIGILL"
-			                    : signo == SIGBUS ? "SIGBUS"
-			                                      : "SIG?";
+			const char* sname = "SIG?";
+			switch (signo) {
+			case SIGSEGV:
+				sname = "SIGSEGV";
+				break;
+			case SIGILL:
+				sname = "SIGILL";
+				break;
+			case SIGBUS:
+				sname = "SIGBUS";
+				break;
+			default:
+				break;
+			}
 			std::fprintf(stderr, "\n=== mlx crash-trace: %s at addr=%p ===\n", sname,
 			             info ? info->si_addr : nullptr);
 			void* frames[64];
-			int n = backtrace(frames, 64);
+			int const n = backtrace(frames, 64);
 			backtrace_symbols_fd(frames, n, 2);
 			std::fflush(stderr);
 			// Re-raise (SA_RESETHAND restored default disposition)

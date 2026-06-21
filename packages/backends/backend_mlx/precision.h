@@ -56,7 +56,7 @@ inline const mx::array& kF32_HALF() {
    widen via the mlx scalar conversion. Future dtypes (int*) plug in
    here. */
 inline void mx_to_doubles(const mx::array& a, double* out) {
-	int n = (int)a.size();
+	int const n = (int)a.size();
 	if (a.dtype() == mx::float64) {
 		const double* src = a.data<double>();
 		for (int i = 0; i < n; i++)

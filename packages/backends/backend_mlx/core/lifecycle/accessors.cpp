@@ -32,7 +32,7 @@ extern "C" int tensor_size(TensorHandle h, int dim) {
 }
 
 extern "C" void tensor_to_doubles(TensorHandle h, double* out) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	/* Force contiguous storage first — mlx ops like transpose return
 	 * strided views over the original buffer; reading via data<T>()
 	 * would walk storage order, not logical order. mx::contiguous
@@ -54,13 +54,13 @@ extern "C" void tensor_to_doubles(TensorHandle h, double* out) {
 // already typed I64, which mlx can't construct (Compatible MlxExecutor I64
 // is closed). Implemented for symbol completeness.
 extern "C" void tensor_to_int64(TensorHandle h, int64_t* out) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	/* See tensor_to_doubles re: mx::contiguous. Same requirement here. */
 	auto contig = mx::contiguous(t->data);
 	mx::eval(contig);
-	int n = (int)contig.size();
+	int const n = (int)contig.size();
 	double* tmp = (double*)malloc((size_t)n * sizeof(double));
-	if (!tmp) return;
+	if (tmp == nullptr) return;
 	mx_to_doubles(contig, tmp);
 	for (int i = 0; i < n; i++)
 		out[i] = (int64_t)tmp[i];
@@ -68,11 +68,11 @@ extern "C" void tensor_to_int64(TensorHandle h, int64_t* out) {
 }
 
 extern "C" void tensor_to_floats(TensorHandle h, float* out) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	/* See tensor_to_doubles re: mx::contiguous. Same requirement here. */
 	auto contig = mx::contiguous(t->data);
 	mx::eval(contig);
-	int n = (int)contig.size();
+	int const n = (int)contig.size();
 	if (contig.dtype() == mx::float32) {
 		const float* src = contig.data<float>();
 		for (int i = 0; i < n; i++)
@@ -93,7 +93,7 @@ extern "C" void tensor_to_floats(TensorHandle h, float* out) {
 }
 
 extern "C" const char* tensor_dtype_name(TensorHandle h) {
-	auto t = (Tensor*)h;
+	auto* t = (Tensor*)h;
 	auto dt = t->data.dtype();
 	if (dt == mx::float32) return "F32";
 	if (dt == mx::bfloat16) return "BF16";

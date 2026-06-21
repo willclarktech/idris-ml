@@ -12,8 +12,8 @@
 extern "C" TensorHandle tensor_select_mlx_streamed(TensorHandle h, int dim, int index,
                                                    int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	auto r = new Tensor(mx::take(t->data, mx::array(index), dim), t->requires_grad);
+	auto* t = (Tensor*)h;
+	auto* r = new Tensor(mx::take(t->data, mx::array(index), dim), t->requires_grad);
 	if (t->requires_grad) tape_append(OP_SELECT, r, t, nullptr, (double)index);
 	return (TensorHandle)r;
 }
@@ -23,9 +23,9 @@ extern "C" TensorHandle tensor_select(TensorHandle h, int dim, int index) {
 }
 
 static void mlx_replay_select(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	pool[out] = mx::take(a, mx::array((int)e.scalar_arg), 0);
 }
 MLX_REGISTER_REPLAY(OP_SELECT, mlx_replay_select)

@@ -17,6 +17,7 @@
  *   - Optimizer-state scalars (beta1/beta2/eps/bc1/bc2 etc.) are hoisted
  *     out of the per-param loop so they don't graph-build per param. */
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -56,11 +57,11 @@ struct Optimizer {
  * the set — no prefix logic, so `q1_` can't leak into `q1tgt_`. */
 static bool opt_owns_param_mlx(Optimizer* opt, int i) {
 	if (opt->owned.empty()) return true;
-	return opt->owned.count(param_name(i)) > 0;
+	return opt->owned.contains(param_name(i));
 }
 
 extern "C" OptimizerHandle optimizer_create_sgd(double lr) {
-	auto opt = new Optimizer();
+	auto* opt = new Optimizer();
 	opt->type = 0;
 	opt->lr = lr;
 	opt->t = 0;
@@ -69,7 +70,7 @@ extern "C" OptimizerHandle optimizer_create_sgd(double lr) {
 
 extern "C" OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
                                                     double weight_decay, double momentum) {
-	auto opt = new Optimizer();
+	auto* opt = new Optimizer();
 	opt->type = 1;
 	opt->lr = lr;
 	opt->alpha = alpha;
@@ -82,7 +83,7 @@ extern "C" OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, dou
 
 extern "C" OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2,
                                                  double eps) {
-	auto opt = new Optimizer();
+	auto* opt = new Optimizer();
 	opt->type = 2;
 	opt->lr = lr;
 	opt->beta1 = beta1;
@@ -94,7 +95,7 @@ extern "C" OptimizerHandle optimizer_create_adam(double lr, double beta1, double
 
 extern "C" OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                                   double weight_decay) {
-	auto opt = new Optimizer();
+	auto* opt = new Optimizer();
 	opt->type = 3;
 	opt->lr = lr;
 	opt->beta1 = beta1;
@@ -114,8 +115,8 @@ extern "C" void optimizer_zero_grad(OptimizerHandle h) {
 }
 
 extern "C" void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
-	auto opt = (Optimizer*)h;
-	int np = param_count();
+	auto* opt = (Optimizer*)h;
+	int const np = param_count();
 	if ((int)opt->param_lr.size() < np) opt->param_lr.resize(np, -1.0);
 	for (int i = 0; i < np; i++) {
 		if (param_is_buffer(i)) continue; /* buffers have no LR — never stepped */
@@ -131,7 +132,7 @@ extern "C" void optimizer_own_param(OptimizerHandle h, const char* name) {
 }
 
 extern "C" void optimizer_set_lr(OptimizerHandle h, double lr) {
-	auto opt = (Optimizer*)h;
+	auto* opt = (Optimizer*)h;
 	opt->lr = lr;
 }
 
@@ -139,7 +140,7 @@ static bool mlx_opt_compile_enabled(void) {
 	static int cached = -1;
 	if (cached < 0) {
 		const char* e = std::getenv("MLX_OPT_COMPILE");
-		cached = (e && e[0] == '1') ? 1 : 0;
+		cached = ((e != nullptr) && e[0] == '1') ? 1 : 0;
 	}
 	return cached == 1;
 }
@@ -196,7 +197,7 @@ get_adam_compiled(int n) {
 			new_v.push_back(v_n);
 		}
 		std::vector<mx::array> outs;
-		outs.reserve(3 * n);
+		outs.reserve(static_cast<std::size_t>(n) * 3);
 		for (auto& a : new_p)
 			outs.push_back(a);
 		for (auto& a : new_m)
@@ -214,26 +215,26 @@ static void adam_step_compile(Optimizer* opt, int np) {
 	std::vector<int> active_idx;
 	active_idx.reserve(np);
 	for (int i = 0; i < np; i++) {
-		if (opt && !opt_owns_param_mlx(opt, i)) continue;
+		if ((opt != nullptr) && !opt_owns_param_mlx(opt, i)) continue;
 		if (param_is_buffer(i)) continue; /* non-learnable buffer — never stepped */
-		auto t = (Tensor*)param_tensor(i);
+		auto* t = (Tensor*)param_tensor(i);
 		if (!t->has_grad) continue;
 		active_idx.push_back(i);
 	}
-	int n = (int)active_idx.size();
+	int const n = (int)active_idx.size();
 	if (n == 0) return;
 
 	/* Build the input vector: params, grads, m, v, lrs, hparams. */
-	auto t0 = (Tensor*)param_tensor(active_idx[0]);
-	mx::Dtype dt = t0->data.dtype();
+	auto* t0 = (Tensor*)param_tensor(active_idx[0]);
+	mx::Dtype const dt = t0->data.dtype();
 	std::vector<mx::array> ins;
 	ins.reserve(5 * n + 7);
 	for (int j = 0; j < n; j++) {
-		auto t = (Tensor*)param_tensor(active_idx[j]);
+		auto* t = (Tensor*)param_tensor(active_idx[j]);
 		ins.push_back(t->data);
 	}
 	for (int j = 0; j < n; j++) {
-		auto t = (Tensor*)param_tensor(active_idx[j]);
+		auto* t = (Tensor*)param_tensor(active_idx[j]);
 		ins.push_back(t->grad);
 	}
 	for (int j = 0; j < n; j++)
@@ -241,7 +242,7 @@ static void adam_step_compile(Optimizer* opt, int np) {
 	for (int j = 0; j < n; j++)
 		ins.push_back(opt->v_bufs[active_idx[j]]);
 	for (int j = 0; j < n; j++) {
-		int i = active_idx[j];
+		int const i = active_idx[j];
 		double lr = opt->lr;
 		if (i < (int)opt->param_lr.size() && opt->param_lr[i] >= 0) lr = opt->param_lr[i];
 		ins.push_back(mx::array(lr, dt));
@@ -261,8 +262,8 @@ static void adam_step_compile(Optimizer* opt, int np) {
 
 	/* Scatter outputs back into params / m / v. */
 	for (int j = 0; j < n; j++) {
-		int i = active_idx[j];
-		auto t = (Tensor*)param_tensor(i);
+		int const i = active_idx[j];
+		auto* t = (Tensor*)param_tensor(i);
 		t->data = outs[j];
 		opt->m_bufs[i] = outs[n + j];
 		opt->v_bufs[i] = outs[2 * n + j];
@@ -270,10 +271,10 @@ static void adam_step_compile(Optimizer* opt, int np) {
 }
 
 extern "C" void optimizer_step(OptimizerHandle h) {
-	double t0_opt = _wall_ms_mlx();
-	auto opt = (Optimizer*)h;
+	double const t0_opt = _wall_ms_mlx();
+	auto* opt = (Optimizer*)h;
 	opt->t++;
-	int np = param_count();
+	int const np = param_count();
 	_dbg_dump_param_grads_if_enabled_mlx();
 
 	// Ensure optimizer buffers
@@ -289,10 +290,11 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 
 	/* Adam-only compile path: gate via MLX_OPT_COMPILE=1. */
 	if (opt->type == 2 && mlx_opt_compile_enabled()) {
-		double tm0 = _wall_ms_mlx();
+		double const tm0 = _wall_ms_mlx();
 		adam_step_compile(opt, np);
 		prof_optimizer_math_ms_mlx += _wall_ms_mlx() - tm0;
 		std::vector<mx::array> to_eval;
+		to_eval.reserve(param_count());
 		for (int i_ = 0; i_ < param_count(); i_++) {
 			to_eval.push_back(((Tensor*)param_tensor(i_))->data);
 		}
@@ -309,7 +311,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 		return;
 	}
 
-	double tm0 = _wall_ms_mlx();
+	double const tm0 = _wall_ms_mlx();
 
 	/* Hoist optimizer-state scalars out of the per-param loop. Build them in
 	   the dtype of the first eligible param so they don't force a runtime
@@ -336,9 +338,9 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 	auto bc2_arr = mx::array(1.0 - std::pow(opt->beta2, opt->t), opt_dtype);
 
 	for (int i = 0; i < np; i++) {
-		if (opt && !opt_owns_param_mlx(opt, i)) continue;
+		if ((opt != nullptr) && !opt_owns_param_mlx(opt, i)) continue;
 		if (param_is_buffer(i)) continue; /* non-learnable buffer — never stepped */
-		auto t = (Tensor*)param_tensor(i);
+		auto* t = (Tensor*)param_tensor(i);
 		if (!t->has_grad) continue;
 
 		/* Don't eval(t->grad) here — that's a per-param sync. The ops below
@@ -362,6 +364,9 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 			opt->v_bufs[i] = mx::add(mx::multiply(alpha_arr, opt->v_bufs[i]),
 			                         mx::multiply(one_m_alpha, mx::square(g)));
 			auto avg = mx::add(mx::sqrt(opt->v_bufs[i]), eps_arr);
+			// Branches differ (then updates m_bufs then t->data; else
+			// updates t->data directly); clang-tidy branch-clone FP.
+			// NOLINTNEXTLINE(bugprone-branch-clone)
 			if (opt->momentum > 0) {
 				opt->m_bufs[i] =
 				    mx::add(mx::multiply(momentum_a, opt->m_bufs[i]), mx::divide(g, avg));
@@ -405,6 +410,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 
 	// Eval all updated params
 	std::vector<mx::array> to_eval;
+	to_eval.reserve(param_count());
 	for (int i_ = 0; i_ < param_count(); i_++) {
 		to_eval.push_back(((Tensor*)param_tensor(i_))->data);
 	}
@@ -427,7 +433,7 @@ static void clip_grad_value_filtered(Optimizer* opt, double max_val) {
 	for (int i = 0; i < param_count(); i++) {
 		auto* p_tensor = (Tensor*)param_tensor(i);
 		if (param_is_buffer(i)) continue; /* buffers contribute no grad to clip */
-		if (opt && !opt_owns_param_mlx(opt, i)) continue;
+		if ((opt != nullptr) && !opt_owns_param_mlx(opt, i)) continue;
 		if (p_tensor->has_grad) {
 			auto lo = scalar_like(-max_val, p_tensor->grad);
 			auto hi = scalar_like(max_val, p_tensor->grad);
@@ -444,7 +450,7 @@ static double clip_grad_norm_filtered(Optimizer* opt, double max_norm) {
 	for (int i = 0; i < param_count(); i++) {
 		auto* p_tensor = (Tensor*)param_tensor(i);
 		if (param_is_buffer(i)) continue; /* buffers contribute no grad norm */
-		if (opt && !opt_owns_param_mlx(opt, i)) continue;
+		if ((opt != nullptr) && !opt_owns_param_mlx(opt, i)) continue;
 		if (p_tensor->has_grad) {
 			auto s = mx::sum(mx::square(p_tensor->grad));
 			mx::eval(s);
@@ -454,13 +460,13 @@ static double clip_grad_norm_filtered(Optimizer* opt, double max_norm) {
 				sumsq += (double)s.item<float>();
 		}
 	}
-	double norm = std::sqrt(sumsq);
+	double const norm = std::sqrt(sumsq);
 	if (norm > max_norm) {
-		double scale = max_norm / norm;
+		double const scale = max_norm / norm;
 		for (int i = 0; i < param_count(); i++) {
 			auto* p_tensor = (Tensor*)param_tensor(i);
 			if (param_is_buffer(i)) continue; /* buffers contribute no grad norm */
-			if (opt && !opt_owns_param_mlx(opt, i)) continue;
+			if ((opt != nullptr) && !opt_owns_param_mlx(opt, i)) continue;
 			if (p_tensor->has_grad) {
 				p_tensor->grad = mx::multiply(p_tensor->grad, scalar_like(scale, p_tensor->grad));
 			}
@@ -479,17 +485,17 @@ extern "C" double optimizer_clip_grad_norm(double max_norm) {
 
 /* Polyak soft update: mirror of the tape/torch implementation. */
 extern "C" int polyak_blend_pair(double tau, const char* online_name, const char* target_name) {
-	if (!online_name || !target_name) return 0;
-	Tensor* on_t = nullptr;
+	if ((online_name == nullptr) || (target_name == nullptr)) return 0;
+	Tensor const* on_t = nullptr;
 	Tensor* tg_t = nullptr;
 	/* Exact-match both names — no prefix logic, so a name that is a proper
 	   prefix of another can't over-match. */
 	for (int i = 0; i < param_count(); i++) {
-		std::string nm(param_name(i));
-		if (!on_t && nm == online_name) on_t = (Tensor*)param_tensor(i);
-		if (!tg_t && nm == target_name) tg_t = (Tensor*)param_tensor(i);
+		std::string const nm(param_name(i));
+		if ((on_t == nullptr) && nm == online_name) on_t = (Tensor*)param_tensor(i);
+		if ((tg_t == nullptr) && nm == target_name) tg_t = (Tensor*)param_tensor(i);
 	}
-	if (!on_t || !tg_t) return 0;
+	if ((on_t == nullptr) || (tg_t == nullptr)) return 0;
 	if (on_t->data.shape() != tg_t->data.shape()) return 0;
 	auto tau_arr = scalar_like(tau, tg_t->data);
 	auto one_minus_tau = scalar_like(1.0 - tau, tg_t->data);
@@ -507,9 +513,9 @@ extern "C" int optimizer_buf_count(OptimizerHandle h) {
 }
 
 extern "C" void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
-	auto opt = (Optimizer*)h;
+	auto* opt = (Optimizer*)h;
 	if (idx >= (int)opt->m_bufs.size()) {
-		int n = ((Tensor*)param_tensor(idx))->data.size();
+		int const n = ((Tensor*)param_tensor(idx))->data.size();
 		memset(out, 0, n * sizeof(double));
 		return;
 	}
@@ -519,9 +525,9 @@ extern "C" void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
 }
 
 extern "C" void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
-	auto opt = (Optimizer*)h;
+	auto* opt = (Optimizer*)h;
 	if (idx >= (int)opt->v_bufs.size()) {
-		int n = ((Tensor*)param_tensor(idx))->data.size();
+		int const n = ((Tensor*)param_tensor(idx))->data.size();
 		memset(out, 0, n * sizeof(double));
 		return;
 	}
@@ -531,8 +537,8 @@ extern "C" void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
 }
 
 extern "C" void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
-	auto opt = (Optimizer*)h;
-	int np = param_count();
+	auto* opt = (Optimizer*)h;
+	int const np = param_count();
 	if ((int)opt->m_bufs.size() != np) {
 		opt->m_bufs.clear();
 		opt->v_bufs.clear();
@@ -542,13 +548,13 @@ extern "C" void optimizer_set_m(OptimizerHandle h, int idx, const double* data) 
 			opt->v_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
 		}
 	}
-	auto t = (Tensor*)param_tensor(idx);
+	auto* t = (Tensor*)param_tensor(idx);
 	opt->m_bufs[idx] = mx_array_from_doubles(data, t->data.shape(), t->data.dtype());
 }
 
 extern "C" void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
-	auto opt = (Optimizer*)h;
-	int np = param_count();
+	auto* opt = (Optimizer*)h;
+	int const np = param_count();
 	if ((int)opt->v_bufs.size() != np) {
 		opt->m_bufs.clear();
 		opt->v_bufs.clear();
@@ -558,12 +564,12 @@ extern "C" void optimizer_set_v(OptimizerHandle h, int idx, const double* data) 
 			opt->v_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
 		}
 	}
-	auto t = (Tensor*)param_tensor(idx);
+	auto* t = (Tensor*)param_tensor(idx);
 	opt->v_bufs[idx] = mx_array_from_doubles(data, t->data.shape(), t->data.dtype());
 }
 
 extern "C" void optimizer_get_meta(OptimizerHandle h, double* out9) {
-	auto opt = (Optimizer*)h;
+	auto* opt = (Optimizer*)h;
 	out9[0] = (double)opt->type;
 	out9[1] = opt->lr;
 	out9[2] = opt->beta1;
@@ -576,7 +582,7 @@ extern "C" void optimizer_get_meta(OptimizerHandle h, double* out9) {
 }
 
 extern "C" void optimizer_set_meta(OptimizerHandle h, const double* in9) {
-	auto opt = (Optimizer*)h;
+	auto* opt = (Optimizer*)h;
 	opt->type = (int)in9[0];
 	opt->lr = in9[1];
 	opt->beta1 = in9[2];
@@ -615,7 +621,7 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	optimizer_zero_grad(opt);
 	if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
 
-	double inv_scale = 1.0 / scale;
+	double const inv_scale = 1.0 / scale;
 	bool has_nonfinite = false;
 	for (int i = 0; i < param_count(); i++) {
 		auto* p_tensor = (Tensor*)param_tensor(i);

@@ -51,7 +51,7 @@ static void mlx_port_grad_write(void* h, int i, double v) {
 	   params), so per-call allocate is acceptable. */
 	auto contig = mx::contiguous(t->grad);
 	mx::eval(contig);
-	int n = (int)contig.size();
+	int const n = (int)contig.size();
 	double* buf = (double*)malloc((size_t)n * sizeof(double));
 	for (int k = 0; k < n; k++)
 		buf[k] = mx_read_double(contig, k);
@@ -78,7 +78,7 @@ static void mlx_port_data_write(void* h, int i, double v) {
 	auto* t = (Tensor*)h;
 	auto contig = mx::contiguous(t->data);
 	mx::eval(contig);
-	int n = (int)contig.size();
+	int const n = (int)contig.size();
 	double* buf = (double*)malloc((size_t)n * sizeof(double));
 	for (int k = 0; k < n; k++)
 		buf[k] = mx_read_double(contig, k);

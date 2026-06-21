@@ -20,11 +20,11 @@ extern "C" {
 TensorHandle tensor_view_2d_mlx_streamed(TensorHandle mat, int row, int col, int stream_tag) {
 	WITH_STREAM(stream_tag);
 
-	auto t = (Tensor*)mat;
+	auto* t = (Tensor*)mat;
 	// Return a scalar tensor sharing the value
-	int cols = t->data.shape(1);
+	int const cols = t->data.shape(1);
 	auto val = mx::take(mx::flatten(t->data), mx::array(row * cols + col));
-	auto r = new Tensor(val, t->requires_grad);
+	auto* r = new Tensor(val, t->requires_grad);
 	return (TensorHandle)r;
 }
 TensorHandle tensor_view_2d(TensorHandle mat, int row, int col) {
@@ -34,9 +34,9 @@ TensorHandle tensor_view_2d(TensorHandle mat, int row, int col) {
 TensorHandle tensor_view_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag) {
 	WITH_STREAM(stream_tag);
 
-	auto t = (Tensor*)vec;
+	auto* t = (Tensor*)vec;
 	auto val = mx::take(t->data, mx::array(idx));
-	auto r = new Tensor(val, t->requires_grad);
+	auto* r = new Tensor(val, t->requires_grad);
 	return (TensorHandle)r;
 }
 TensorHandle tensor_view_1d(TensorHandle vec, int idx) {

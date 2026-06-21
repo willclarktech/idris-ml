@@ -16,7 +16,7 @@ extern "C" void tensor_lstm_gates(TensorHandle combined, TensorHandle prev_cell,
 	   The pair struct itself is tracked in all_pairs and cleaned up at
 	   tape_reset. The caller doesn't own it; the outputs are the standalone
 	   Tensor handles inside. */
-	TensorPair* p = tensor_lstm_gates_pair(combined, prev_cell, o);
+	TensorPair const* p = tensor_lstm_gates_pair(combined, prev_cell, o);
 	*out_h = p->first;
 	*out_c = p->second;
 }
@@ -24,7 +24,7 @@ extern "C" void tensor_lstm_gates(TensorHandle combined, TensorHandle prev_cell,
 extern "C" void tensor_lstm_cell(TensorHandle input, TensorHandle hx, TensorHandle cx,
                                  TensorHandle w_ih, TensorHandle w_hh, TensorHandle b_ih,
                                  TensorHandle b_hh, TensorHandle* out_h, TensorHandle* out_c) {
-	int hidden = (int)((Tensor*)cx)->data.size();
+	int const hidden = (int)((Tensor*)cx)->data.size();
 	TensorHandle gi = tensor_mv(w_ih, input);
 	TensorHandle gi_b = tensor_add(gi, b_ih);
 	TensorHandle gh = tensor_mv(w_hh, hx);

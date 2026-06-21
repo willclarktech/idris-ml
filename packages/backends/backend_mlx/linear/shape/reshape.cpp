@@ -12,9 +12,9 @@
 extern "C" TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank,
                                                     int stream_tag) {
 	WITH_STREAM(stream_tag);
-	auto t = (Tensor*)h;
-	mx::Shape sh(shape, shape + rank);
-	auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
+	auto* t = (Tensor*)h;
+	mx::Shape const sh(shape, shape + rank);
+	auto* r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
 	if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
 	return (TensorHandle)r;
 }
@@ -63,9 +63,9 @@ extern "C" TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2
 }
 
 static void mlx_replay_reshape(std::vector<mx::array>& pool, TapeEntry& e) {
-	int out = e.result->pool_idx;
-	[[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
-	[[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+	int const out = e.result->pool_idx;
+	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
+	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	pool[out] = mx::reshape(a, e.result->data.shape());
 }
 MLX_REGISTER_REPLAY(OP_RESHAPE, mlx_replay_reshape)
