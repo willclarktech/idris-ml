@@ -1,6 +1,6 @@
 # idris-ml
 
-A dependently-typed deep-learning ecosystem in Idris 2: dynamic-graph ergonomics (define-by-run
+A dependently-typed deep-learning framework in Idris 2: dynamic-graph ergonomics (define-by-run
 autograd, ordinary `if`/`for`/`while`, normal debugging) with safety guarantees stronger than any
 static graph ever offered — shapes, devices, dtypes, and grad-mode are checked at compile time
 and erased at runtime. This is a **monorepo** of a core library plus RL environments, an
@@ -30,7 +30,7 @@ bug / outright impossibility elsewhere:
 4. **Lossy dtype casts** — narrowing must be code-visible; `F32 → BF16` won't resolve without an
    explicit cast.
 5. **Multi-backend in one program** — `tape`, `torch`, and `mlx` tensors coexist in one
-   type-checked program with explicit, checked transfers. No mainstream framework offers this.
+   type-checked program with explicit, checked transfers.
 
 → [**Why idris-ml**](docs/why-idris-ml.md) makes the full case, side by side against PyTorch,
 TensorFlow 1.x / JAX, and Haskell (Grenade / hasktorch), with the **literal error each one
@@ -43,17 +43,17 @@ PyTorch's forward pass to **4e-4**.
 | Package | What it is |
 | --- | --- |
 | [`idris-ml`](packages/idris-ml/) | **Core library** — autograd `Tensor`, `Nn` models, optimizers, `fit`, data, checkpoints, pluggable backends |
-| [`idris-ml-examples`](packages/idris-ml-examples/) | Runnable example programs (supervised, recurrent, transformers, RL) + microbenchmarks |
 | [`idris-transformers`](packages/idris-transformers/) | HF-aligned model library — load BERT / GPT-2 / Llama / BitNet via `fromPretrained`; LoRA + fine-tuning |
 | [`idris-gym`](packages/idris-gym/) | Pure-Idris RL environments with a Gymnasium-parity API (CartPole, FrozenLake, Taxi, …) |
+| [`jupyter`](packages/jupyter/) | Jupyter kernel (Python) wrapping the Idris 2 REPL with FFI support |
+| [`idris-ml-notebook`](packages/idris-ml-notebook/) | `Notebook.Prelude` re-export shim auto-loaded by the Jupyter kernel |
+| [`idris-ml-examples`](packages/idris-ml-examples/) | Runnable example programs (supervised, recurrent, transformers, RL) + microbenchmarks |
 | [`idris-args`](packages/idris-args/) | Typed CLI flag parsing (zero deps beyond base) |
 | [`idris-fmt`](packages/idris-fmt/) | Compiler-native Idris formatter, gated by a round-trip safety oracle |
-| [`idris-ml-notebook`](packages/idris-ml-notebook/) | `Notebook.Prelude` re-export shim auto-loaded by the Jupyter kernel |
-| [`jupyter`](packages/jupyter/) | Jupyter kernel (Python) wrapping the Idris 2 REPL with FFI support |
 | [`backends`](packages/backends/) | C/C++ backends (tape, libtorch, MLX) + the shared training port |
 | [`idris-test`](packages/idris-test/) | Shared Idris test harness (assertions, suites, property testing) |
 | [`idris-test-c`](packages/idris-test-c/) | Cross-cutting C test infrastructure for the backend layer |
-| [`pytorch`](packages/pytorch/) | PyTorch reference implementations — the correctness oracle (not shipped code) |
+| [`pytorch`](packages/pytorch/) | PyTorch reference implementations (used as a correctness oracle) |
 
 ## Getting started
 
