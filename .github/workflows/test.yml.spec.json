@@ -179,18 +179,21 @@
       },
       {
         "name": "Full clang-tidy over mlx C++ backend (macOS, advisory)",
-        "run": "make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx",
+        "run": "make BACKEND=mlx C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx",
         "os": "macos",
         "continue-on-error": true,
         "comment": [
           "The default `lint-c` runs clang-tidy on tape only; the mlx C++",
-          "sources need the MLX headers, which only this macOS lane stages",
-          "(MLX_SITE from the composite). brew's clang-tidy is installed by",
-          "the scaffolding step above. Advisory: the mlx tree has never",
-          "been clang-tidy'd, and the Apple-SDK-vs-llvm pre-include skew",
-          "that blocks nix clang-tidy locally may produce FPs here too —",
-          "promote by dropping continue-on-error once a run comes back",
-          "clean."
+          "sources need the MLX headers. BACKEND=mlx is REQUIRED: the",
+          "MLX_SITE include-path detection in mk/backends.mk is gated on mlx",
+          "being in BACKEND_LIST (same as the torch lane's BACKEND=torch), so",
+          "without it mlx_CFLAGS gets empty -I paths, clang-tidy can't find",
+          "mlx/mlx.h, and every TU parses with a broken AST that emits",
+          "unreliable findings (the omission silently produced ~177 garbage",
+          "findings while the step was advisory). Runs under the nix default",
+          "devShell (clang-tidy 21 + nix apple-sdk -isysroot, see",
+          "mk/config.mk). Advisory for one run to confirm 0 under a correct",
+          "parse before dropping continue-on-error to enforce."
         ]
       },
       {
