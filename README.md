@@ -33,7 +33,7 @@ bug / outright impossibility elsewhere:
    type-checked program with explicit, checked transfers.
 
 → [**Why idris-ml**](docs/why-idris-ml.md) makes the full case, side by side against PyTorch,
-TensorFlow 1.x / JAX, and Haskell (Grenade / hasktorch), with the **literal error each one
+TensorFlow 1.x, and Haskell (Grenade / hasktorch), with the **literal error each one
 produces**. It also shows this isn't a toy: [`idris-transformers`](packages/idris-transformers/)
 loads real HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches
 PyTorch's forward pass to **4e-4**.
@@ -110,7 +110,7 @@ The optional libtorch / MLX backends and the full per-backend build matrix are d
 
 ## Documentation
 
-- [**Why idris-ml**](docs/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1+JAX / Haskell, with literal errors.
+- [**Why idris-ml**](docs/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1 / Haskell, with literal errors.
 - [docs/](docs/README.md) — full user documentation index (getting-started, PyTorch mapping, deep dives, benchmarks).
 - [CLAUDE.md](CLAUDE.md) — architecture, module dependency order, and the contributor guide.
 

@@ -26,11 +26,11 @@ system stopped rejecting these, CI goes red.
 
 ## The five guarantees at a glance
 
-| Guarantee | PyTorch (dynamic) | TF 1.x / JAX (static) | Haskell (Grenade / hasktorch) | idris-ml |
+| Guarantee | PyTorch (dynamic) | TF 1.x (static) | Haskell (Grenade / hasktorch) | idris-ml |
 |---|:---:|:---:|:---:|:---:|
-| **Shape** mismatch | runtime error | TF1 graph-build / JAX trace-time | **compile** (plugins + singletons) | **compile** (native) |
+| **Shape** mismatch | runtime error | graph-build | **compile** (plugins + singletons) | **compile** (native) |
 | **Device** mismatch | runtime error | runtime | **compile** (phantom, hasktorch) | **compile** |
-| **Grad-mode / model ownership** | runtime / silent no-op | n/a (TF1) / functional (JAX) | partial (`LinearTypes` incomplete) | **compile** (linear types) |
+| **Grad-mode / model ownership** | runtime / silent no-op | n/a (static graph) | partial (`LinearTypes` incomplete) | **compile** (linear types) |
 | **Lossy dtype cast** | silent | silent | silent (no lossless order) | **compile** (must opt in) |
 | **Multi-backend in one program** | none (one runtime) | none | none (libtorch-only) | **compile-tracked + explicit bridge** |
 
@@ -60,10 +60,9 @@ fc2(fc1(torch.randn(64, 784)))
 RuntimeError: mat1 and mat2 shapes cannot be multiplied (64x256 and 128x10)
 ```
 
-**TensorFlow 1.x — graph-build (a point in its favour); JAX — trace-time.** TF1 catches
-*statically-known* dim mismatches at graph construction; but the batch dim is usually `None`, so
-anything depending on it slips to session-run, and untaken branches are never built. JAX raises
-when the jitted function is traced (first call), not at definition.
+**TensorFlow 1.x — graph-build (a point in its favour).** TF1 catches *statically-known* dim
+mismatches at graph construction; but the batch dim is usually `None`, so anything depending on it
+slips to session-run, and untaken branches are never built.
 
 ```python
 # TF 1.x
@@ -73,15 +72,6 @@ y = tf.matmul(h, tf.Variable(tf.zeros([128, 10])))    # bug: 128 ≠ 256
 ```text
 ValueError: Dimensions must be equal, but are 256 and 128 for 'MatMul_1'
   (op: 'MatMul') with input shapes: [?,256], [128,10].          †
-```
-```python
-# JAX
-@jax.jit
-def f(x): return jnp.dot(jnp.dot(x, W1), W2)            # W2:[128,10], h:[...,256]
-f(x)
-```
-```text
-TypeError: dot_general requires contracting dimensions to have the same shape, got (256,) and (128,).
 ```
 
 **Haskell — compile error, with plugins + singletons (Grenade / hasktorch).** GHC *does* type
@@ -156,12 +146,10 @@ a + b
 RuntimeError: Expected all tensors to be on the same device, but found at least two devices, mps:0 and cpu!
 ```
 
-**TensorFlow 1.x / JAX — runtime.** TF1 placement resolves at session-run; JAX arrays carry a
-*committed* device and mixing two raises at execution:
+**TensorFlow 1.x — runtime.** Device placement resolves at session-run, not graph construction:
 
 ```text
 # TF 1.x:  InvalidArgumentError: Cannot assign a device for operation … (at session.run)   †
-# JAX:     ValueError: Received incompatible devices for jitted computation …              †
 ```
 
 **Haskell — compile error (hasktorch Torch.Typed).** Device is a type parameter `'(DeviceType,
@@ -240,16 +228,10 @@ for p in model.parameters(): p.requires_grad = False
 optimizer.step()               # references the same params — silent no-op, no traceback
 ```
 
-**TensorFlow 1.x / JAX — n/a or functional, but no ownership types.** TF1's static graph has no
-in-place-mutation footgun, but no notion of a spent handle either. JAX is purely functional —
-params are explicit arguments, so no mutation footgun — but equally no compile-time tracking that
-you used the *current* params:
-
-```python
-grads  = jax.grad(loss)(params, batch)
-params = sgd_step(params, grads)
-grads2 = jax.grad(loss)(params_OLD, batch)   # stale pytree — no error, no warning
-```
+**TensorFlow 1.x — n/a, but no ownership types.** TF1's static graph has no in-place-mutation
+footgun (params are graph variables updated by ops, not Python handles you can stale out), but no
+notion of a spent handle either — nothing tracks at compile time that an optimizer step references
+the *current* parameters rather than a discarded copy.
 
 **Haskell — partial.** GHC 9 has the linear arrow `%1 ->`, but linear `do`-notation isn't in
 `base` (you reach for experimental `linear-base`), multiplicity polymorphism is incomplete, and
@@ -300,15 +282,10 @@ print(y.dtype)
 torch.float16          # no error; ~13 bits of mantissa silently gone
 ```
 
-**TensorFlow 1.x / JAX — silent.** `tf.cast` narrows freely; JAX's weak typing even demotes
-float64 → float32 unless `jax_enable_x64` is set — captured here:
+**TensorFlow 1.x — silent.** `tf.cast` narrows in either direction with no error or warning:
 
 ```python
-jnp.array([1.0], dtype=jnp.float64).astype(jnp.bfloat16)
-```
-```text
-UserWarning: Explicitly requested dtype float64 … is not available, and will be truncated
-to dtype float32. …                                            # then silently → bfloat16
+tf.cast(tf.constant([1.0], dtype=tf.float64), tf.float16)   # → float16, ~13 bits gone, silently  †
 ```
 
 **Haskell — silent (no lossless order).** hasktorch carries dtype as a type parameter, but
@@ -377,9 +354,9 @@ torchVec : Tensor [4] (TorchExecutor TMps) F32 g  -- libtorch on Metal
 -- tapeVec and torchVec cannot be added: the executors don't unify.
 ```
 
-**PyTorch / TF1 / JAX / Haskell — none.** Each is a single runtime. The closest in PyTorch is a
-manual, untyped host copy to another array library — nothing tracks which backend a value lives
-on, and there's no error to show because there's no check:
+**PyTorch / TF1 / Haskell — none.** Each is a single runtime. The closest in PyTorch is a manual,
+untyped host copy to another array library — nothing tracks which backend a value lives on, and
+there's no error to show because there's no check:
 
 ```python
 import torch, mlx.core as mx
@@ -388,8 +365,7 @@ a = mx.array(t.numpy())         # manual host round-trip; no type says "this is 
 # t + a goes through numpy or errors at runtime — the type system is blind either way
 ```
 
-JAX can't hold a torch tensor in a typed computation; hasktorch is libtorch-only with no open
-device kind to add a second backend.
+hasktorch is libtorch-only, with no open device kind to add a second backend.
 
 **idris-ml — compile-tracked, with an explicit checked bridge.** From the CI fixture
 `Test/Transfer.idr`, the NTM's data moving tape → torch → mlx → tape, value preserved at every
@@ -477,7 +453,7 @@ verified on every publication push, not asserted. Fine-tuning is supported too:
 
 ---
 
-[^prov]: PyTorch, JAX, and idris-ml errors are captured verbatim in this repo's environment —
-    torch 2.11, jax 0.10, Idris 2 0.8. Lines marked **†** are the frameworks' documented output
+[^prov]: PyTorch and idris-ml errors are captured verbatim in this repo's environment —
+    torch 2.11, Idris 2 0.8. Lines marked **†** are the frameworks' documented output
     (TF 1.x and Haskell toolchains aren't reproducible here), shown to illustrate the shape of the
     error rather than as captured evidence.
