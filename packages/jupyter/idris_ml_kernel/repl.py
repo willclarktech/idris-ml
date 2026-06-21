@@ -5,10 +5,31 @@ from __future__ import annotations
 import contextlib
 import platform
 import shutil
+import subprocess
 import termios
 from pathlib import Path
 
 import pexpect
+
+
+def _idris2_bin() -> str:
+    """Resolve the idris2 executable.
+
+    Prefer one on PATH; otherwise fall back to pack's installed app
+    (`pack app-path idris2`). In this repo's nix dev shell idris2 is a
+    pack app, not on PATH, so the bare-name spawn the kernel used would
+    fail (and with it `make test-e2e-notebooks` in CI).
+    """
+    found = shutil.which("idris2")
+    if found:
+        return found
+    with contextlib.suppress(Exception):
+        out = subprocess.run(
+            ["pack", "app-path", "idris2"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        if out:
+            return out
+    return "idris2"
 
 
 class Idris2REPL:
@@ -92,7 +113,7 @@ class Idris2REPL:
         # Declared spawn[str]: the stubs can't infer the str specialization
         # from encoding="utf-8" (the constructor isn't overloaded on it).
         self.child: pexpect.spawn[str] = pexpect.spawn(
-            "idris2",
+            _idris2_bin(),
             [
                 "-p",
                 "contrib",

@@ -124,7 +124,7 @@ test-all:
 
 # Type-check notebook prelude package
 check-notebook: install-core
-	cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --build idris-ml-notebook.ipkg
+	cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --build idris-ml-notebook.ipkg
 
 # Build backend + type-check all packages + build every example
 # executable. The exhaustive "everything compiles" gate; dominated by
