@@ -1256,17 +1256,15 @@ jobs:
           restore-ttc: 'false'
           swap: 'true'
 
-      # LLVM tooling comes from nix: the default devShell exports
-      # COV_CLANG=${pkgs.clang}/bin/clang (the -fprofile-instr-generate
-      # compiler mk/tests.mk forces via COV_CC_OVERRIDES) and provides
-      # pkgs.llvm (unversioned llvm-profdata/llvm-cov) on Linux; macOS
-      # coverage runs them through xcrun (COV_LLVM=xcrun). No apt/brew.
+      # Coverage tooling comes from nix: gcovr + llvm (its `llvm-cov gcov`
+      # reads clang's gcov data) are in the default devShell; on Linux it also
+      # exports COV_CLANG=${pkgs.clang}/bin/clang (the --coverage compiler
+      # mk/tests.mk forces via COV_CC_OVERRIDES). No apt/brew.
       - name: Run coverage build
-        # `make test-coverage-backend` recompiles the dylib + test
-        # binaries with -fprofile-instr-generate -fcoverage-mapping,
-        # executes them under LLVM_PROFILE_FILE, merges via
-        # llvm-profdata, and emits the HTML report under
-        # build-cov/html-<b>/.
+        # `make test-coverage-backend` recompiles the dylib + test binaries
+        # with --coverage (gcov), runs the Criterion suite (writing .gcda),
+        # then reads them with gcovr → build-cov/cov-<b>.xml (Cobertura, for
+        # Codecov) + the HTML report under build-cov/html-<b>/.
         run: make BACKEND=${{ matrix.backend }} test-coverage-backend
 
       - name: Save caches
@@ -1283,3 +1281,19 @@ jobs:
           name: coverage-html-${{ matrix.backend }}
           path: build-cov/html-${{ matrix.backend }}/
           if-no-files-found: warn
+
+      # Upload the per-backend Cobertura XML to Codecov under its flag. The
+      # gate is Codecov's status checks (codecov.yml: per-flag project +
+      # patch), not this step — fail_ci_if_error stays false so an upload
+      # hiccup never masks the matrix (detector-CI convention). Requires the
+      # CODECOV_TOKEN repo secret on the public mirror.
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: build-cov/cov-${{ matrix.backend }}.xml
+          flags: ${{ matrix.backend }}
+          name: ${{ matrix.backend }}-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+          disable_search: true
+          fail_ci_if_error: false

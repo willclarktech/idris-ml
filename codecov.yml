@@ -1,0 +1,83 @@
+# Codecov configuration — the CI gate for C/C++ line coverage across the three
+# backends. Coverage is produced by gcov + gcovr (see gcovr.cfg + mk/tests.mk)
+# and uploaded per backend as a flag (tape / torch / mlx) from the `coverage`
+# job in .github/workflows/test.yml.
+#
+# Policy, the triage decision tree, and the exclusion bar live in
+# docs/develop/coverage-policy.md. The four-axis gap probe
+# (scripts/coverage-gap-probe.py) is a separate, complementary gate.
+
+codecov:
+  require_ci_to_pass: true
+  notify:
+    # tape + torch + mlx each upload once; wait for all three before finalizing
+    # the combined (default) status. Per-flag statuses post as each arrives.
+    after_n_builds: 3
+
+coverage:
+  precision: 1
+  round: down
+  range: "70...100"
+  status:
+    project:
+      # Combined floor over all three flags. `auto` compares to the parent
+      # commit; the threshold absorbs gcov line-mapping jitter at -O0 so a
+      # benign refactor doesn't trip, while a real drop does.
+      default:
+        target: auto
+        threshold: 1%
+      tape:
+        target: auto
+        threshold: 1%
+        flags: [tape]
+      torch:
+        target: auto
+        threshold: 1%
+        flags: [torch]
+      mlx:
+        target: auto
+        threshold: 1%
+        flags: [mlx]
+    patch:
+      # New / changed product C must be fully covered — the lever that drives
+      # the push. Inline GCOVR_EXCL_* lines are dropped from the report before
+      # upload, so legitimately-excluded code never counts against patch.
+      default:
+        target: 100%
+        threshold: 0%
+
+flags:
+  tape:
+    paths:
+      - packages/backends/backend_tape/
+      - packages/backends/shared/
+    carryforward: true
+  torch:
+    paths:
+      - packages/backends/backend_torch/
+      - packages/backends/shared/
+    carryforward: true
+  mlx:
+    paths:
+      - packages/backends/backend_mlx/
+      - packages/backends/shared/
+    carryforward: true
+
+comment:
+  layout: "header, diff, flags, files"
+  require_changes: false
+
+# Whole-file / whole-dir exclusions. gcovr.cfg already strips vendored code,
+# test_*.c, and diagnostics/profiling/dtype_init from the uploaded XML; these
+# mirror that on the Codecov side and are the home for per-subsystem torch/mlx
+# PURE-PASSTHROUGH excludes added during the torch/mlx batches (a passthrough is
+# a one-line `return from_tensor(framework_call(...))` with no custom logic —
+# kernel correctness is libtorch's / mlx's, covered by symbol coverage via the
+# common Criterion suite). See coverage-policy.md "torch/mlx passthrough line".
+ignore:
+  - "vendored/**/*"
+  - "**/test_*.c"
+  - "**/test_*.cpp"
+  - "packages/pytorch/**/*"
+  - "**/*.idr"
+  - "**/*.py"
