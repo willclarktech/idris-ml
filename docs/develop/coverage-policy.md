@@ -47,11 +47,22 @@ fourth is **additive** (confidence, not coverage *per se*):
    `Test/Properties/`. If not, the fixed-shape T29 oracle remains
    sufficient.
 
-C-line coverage (`llvm-cov report` %) is a **secondary** metric —
-recorded in HTML artifacts via `make coverage-backend-<b>`, but not
-chased as a number. Chasing line % tempts tests that lift coverage
-without lifting confidence (the dispatch-table init being the
-canonical example — trivially "covered" by any forward call).
+**Line / region coverage is now a primary, gated metric** (this
+reverses the older "secondary, not chased" stance). It is measured by
+`gcov` + `gcovr` (`make coverage-backend-<b>` → `build-cov/cov-<b>.xml`)
+and gated by **Codecov** (`codecov.yml`): a per-flag + combined
+**project** status with a 1% threshold blocks regressions, and a
+**patch** status at 100% requires new/changed product C to be covered.
+The target is as close to 100% as *honestly* possible across all three
+backends.
+
+The old caveat still governs *how* we get there: chasing the number
+with tests that lift coverage without lifting confidence is the failure
+mode. The discipline that prevents it is the **triage rubric** below —
+prefer a real test (or a death test for a guard) over an exclusion, and
+hold every exclusion to a documented, reviewable justification. Code
+that a test can't meaningfully cover is *excluded*, not papered over
+with a confidence-free test.
 
 ## Principled exclusions
 
@@ -70,7 +81,7 @@ coverage; including them would dilute the signal.
 | `tensor_mlx_compile_enabled`, `tensor_mlx_compile_invocations` | mlx-only diagnostic counters | None |
 | Torch `at::*` / `torch::F::*` direct passthroughs (~80 of 93 `.cpp` files) | Coverage of `tensor_add` calling `torch::add` verifies plumbing, not kernel correctness; the kernel is libtorch's | Symbol coverage via the common Criterion suite (W3 tests run on torch too); custom-logic paths get W3b |
 | Tape/mlx dispatch-table init (`backend_tape/training/autograd/op_dispatch.c`, `backend_mlx/training/autograd/op_dispatch.cpp`) | Pure initialization; trivially covered by any forward+backward | `test_op_dispatch.c` probes that `tape_dispatch_get(op) != NULL` for every OP_* |
-| `diagnostics.{c,cpp}`, `profiling.{c,cpp}`, `dtype_init.{c,cpp}` (any backend) | Telemetry / pure dispatch-table init — no correctness path (same class as `op_dispatch` init above) | Excluded from the `llvm-cov` report via `COV_IGNORE_REGEX` (`mk/tests.mk`); not counted toward line% |
+| `diagnostics.{c,cpp}`, `profiling.{c,cpp}`, `dtype_init.{c,cpp}` (any backend) | Telemetry / pure dispatch-table init — no correctness path (same class as `op_dispatch` init above) | Excluded from the gcovr report via `gcovr.cfg` `exclude =` (mirrored in `codecov.yml` `ignore:`); not counted toward line% |
 | `Compatible` negative paths (F64-on-MPS, I64-on-MPS rejection) | Gated by type system at construction; cannot deterministically test "Metal rejects F64" without Metal hardware on every runner | Type-system enforcement + `check-rename-headers` CI gate |
 | Multi-link unified-dispatch symbol forwarding | Tested implicitly by `example-transfer-demo` (multi-backend build) and the rename-headers CI gate | Existing example + CI gate |
 | Dropout RNG output values | Inherently non-deterministic; no value oracle exists | Statistical mean test (already in suite) + example smoke. Per-element assertions are NOT allowed |
@@ -113,18 +124,84 @@ OP_* gap is 0 on both backends) the script will be flipped to gating
 in CI — adding a new OP_* tag without a corresponding test will fail
 the build. See `.github/workflows/test.yml`.
 
-## Coverage HTML reports (advisory, not a gate)
+## Line/region coverage: the gcov + gcovr + Codecov stack
 
 ```bash
-make coverage-backend-tape    # writes HTML to build-cov/html-tape/
-make coverage-backend-torch   # ditto
-make coverage-backend-mlx     # ditto
+make coverage-backend-tape    # build-cov/cov-tape.xml + html-tape/
+make coverage-backend-torch   # build-cov/cov-torch.xml + html-torch/
+make coverage-backend-mlx     # build-cov/cov-mlx.xml  + html-mlx/
 ```
 
-The HTML report is the place to spot per-line dead code or unreachable
-branches. It is not used as a CI gate (the % can shift on benign
-refactors that move code between files). Use it for one-shot
-investigations, not regression tracking.
+The C coverage stack is **gcov-based** (not llvm source-based): the
+build compiles with `--coverage`, the Criterion suite writes `.gcda`
+counters, and `gcovr` reads them via `llvm-cov gcov` into a Cobertura
+XML + an HTML report. This choice is deliberate — gcovr supports
+**inline exclusion markers** (`// GCOVR_EXCL_LINE`,
+`GCOVR_EXCL_START/STOP`), which llvm-cov lacks, and they are the
+mechanism for the high-bar exclusions below.
+
+- **HTML** (`build-cov/html-<b>/index.html`) — read this to find the
+  exact uncovered lines/branches when working a subsystem.
+- **Cobertura** (`build-cov/cov-<b>.xml`) — uploaded to Codecov in CI,
+  one flag per backend (see `codecov.yml`). Codecov is the **gate**:
+  project status (threshold-tolerant, blocks regressions) + patch
+  status (100%, new code must be covered).
+- **File/path exclusions** live in `gcovr.cfg` (auto-loaded from the
+  repo root) — the gcov-native successor to the retired `llvm-cov`
+  `COV_IGNORE_REGEX`. Whole-dir passthrough excludes additionally live
+  in `codecov.yml` `ignore:`.
+
+### Triage rubric — test, death-test, or exclude
+
+For each uncovered line, walk top-to-bottom; first match wins. The
+order makes exclusion a high bar: a real test or a death test is tried
+before any exclusion.
+
+1. **Reachable via the public FFI with valid input, and covering it
+   asserts a correctness property** (value / shape / gradient /
+   invariant) → **write a test**. Colocated `test_<op>.c`, forward value
+   + `tensor_backward` gradient vs a hand/finite-diff oracle, at
+   `TEST_TOL_TIGHT` (tape/torch F64) or `TEST_TOL_RELAXED` (mlx F32).
+2. **A defensive guard that aborts/traps on invalid input**
+   (`tape_abort_mixed_dtype`, a shape-mismatch assert, a zero-dim BLAS
+   guard) → first check the *shape* of the guard:
+   - A **same-line** guard `if (cond) abort_helper(...);` is already
+     counted as covered at line granularity by any normal test that runs
+     the function (the line executes; the never-taken call doesn't make
+     it uncovered). **No action needed** — most of the ~60
+     `tape_abort_mixed_dtype` call sites are this form.
+   - An **own-line** `abort();` (or the helper's own `abort()` line) is
+     not coverable: `abort()` skips the gcov flush, so even a Criterion
+     death test (`Test(..., .signal = SIGABRT)`) in the forked child
+     leaves no `.gcda`. Mark the line `// GCOVR_EXCL_LINE — <reason>`.
+     A death test is still worth adding to assert the guard *fires*
+     (behavioral coverage), but it is not what covers the line.
+3. **Pure framework passthrough** (torch `at::`/`torch::F::`, mlx `mx::`)
+   — a one-line `return from_tensor(framework_call(...))` with no
+   branching/dtype/grad logic → **exclude the file** via `codecov.yml`
+   `ignore:`. Kernel correctness is the framework's; plumbing is covered
+   by symbol coverage through the common Criterion suite.
+4. **Structurally unreachable / non-deterministic / platform-gated on
+   the CI runner** (malloc-fail with no interposer, dropout RNG
+   *values*, `#ifdef __APPLE__` BLAS on the non-Apple lane,
+   `Compatible`-negative paths the type system forbids, paravirt-GPU
+   panic, OS-RSS readback) → **inline `GCOVR_EXCL_*` with a mandatory
+   reason comment** naming why no CI input reaches it.
+5. **Diagnostic / telemetry / pure init** → already excluded at file
+   level in `gcovr.cfg` / `codecov.yml`.
+6. **Otherwise** (oracle expensive/unclear, large kernel needing a
+   multi-input oracle not finishable now) → **defer**: add a row to the
+   known-holes list with a TODO. Not counted as excluded; the number
+   simply doesn't reach 100% there yet.
+
+### The exclusion bar
+
+Every inline `GCOVR_EXCL_*` marker **must carry a trailing reason
+comment** (the `— <reason>` after the marker). Exclusion is legitimate
+only when *no CI input reaches the line* (own-line abort, malloc-fail,
+platform-gated, type-system-forbidden). A passthrough file is excluded
+whole-file in `codecov.yml`, not line-by-line. When in doubt, write the
+test.
 
 ## Contributor checklist — when you add a new OP_*
 
