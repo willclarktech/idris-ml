@@ -11,12 +11,16 @@ uncovered, why, and how to close it. Re-measure with `make test-coverage-all`
 
 | backend | lines | branches | suite |
 |---------|-------|----------|-------|
-| tape    | 96.5% | 77.4%    | 501/501 |
-| mlx     | 98.2% | 53.6%    | 555/555 |
-| torch   | 90.9% | 50.0%    | 470/470 |
+| tape    | 96.7% | —        | 518     |
+| mlx     | 98.3% | —        | 577     |
+| torch   | 94.7% | —        | 497     |
 
-(mlx lifted 94.1% → 98.2% by the Task-1 exclusions below — NAN_TRAP + MLX_OPT_COMPILE
-marked `GCOVR_EXCL`, no behaviour change.)
+(2026-06-26 progress: Task-1 exclusions lifted mlx 94.1% → 98.3% — NAN_TRAP +
+MLX_OPT_COMPILE marked `GCOVR_EXCL`, no behaviour change. Task-2 optimizer tests
+lifted torch 90.9% → 94.7% — new `test_optimizer_torch.c` + common shared-trampoline
+tests in `test_optimizer_tape.c`. The optimizer files on all three backends —
+`optimizer.cpp` (torch/mlx), `optimizer.c` (tape) and `shared/training/optimizer.c`
+— are now fully covered or `GCOVR_EXCL`.)
 
 (Up from baselines tape 79.2% / mlx 78.8% / torch 73.7%.) Branch% is intentionally
 lower — gcov counts many compiler-generated/defensive branches; line% is the
@@ -40,7 +44,7 @@ variants — common to all three backends.
 
 | Lines | File | Backend | Category |
 |---|---|---|---|
-| 109 | `backend_torch/training/optimizer.cpp` | torch | C — RMSprop/SGD/AdamW step, wd, clip, per-group, state save/load |
+| ~~109~~ → 38 | `backend_torch/training/optimizer.cpp` | torch | **C (done) — new `test_optimizer_torch.c`: adam/adamw/rmsprop foreach, clip-norm rescale, set_param_lr, m/v + meta round-trip, step_with_clip, scaled** |
 | ~~103~~ → 4 | `backend_mlx/training/optimizer.cpp` | mlx | **B (done) — MLX_OPT_COMPILE compile path now `GCOVR_EXCL`; eager paths already covered** |
 | ~~69~~ → 3 | `backend_mlx/training/backward.cpp` | mlx | **B (done) — `DEBUG_NAN_TRAP=1` diagnostic now `GCOVR_EXCL`** |
 | 42 | `backend_tape/nn/quantization/bitlinear.c` | tape | mixed — F32 absmean/quant arms (C) + `abort()` guards (B) |
