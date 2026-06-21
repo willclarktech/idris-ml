@@ -4,15 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 /* Streamed creators are callee-owns: they FREE their data argument. Route every
    data pointer through a fresh heap copy so stack arrays / shared buffers stay
    valid. (dtag 14 = F32; stream_tag 0.) */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(linear_index_scatter_add, forward_accumulates) {
 	/* index = [0, 1, 0, 2], src = [10, 20, 30, 40], out_size = 3

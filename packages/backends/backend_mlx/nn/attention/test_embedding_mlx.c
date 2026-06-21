@@ -26,12 +26,6 @@
 
 #ifdef BACKEND_MLX
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(buf, src, (size_t)n * sizeof(double));
-	return buf;
-}
-
 /* 2D variant backward: covers embedding.cpp lines 48-51 (requires_grad
  * tape_append in tensor_embedding_2d) + lines 71-78 (mlx_replay_embedding_2d).
  *
@@ -44,9 +38,9 @@ Test(mlx_nn_attention_embedding, backward_2d_grad_is_row_counts) {
 	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
 	};
 	double idx_d[3] = {2.0, 0.0, 2.0};
-	TensorHandle w = tensor_create_param_2d_f64(4, 3, heap_copy(w_d, 12));
+	TensorHandle w = tensor_create_param_2d_f64(4, 3, hcopy(w_d, 12));
 	param_register("emb.weight", w);
-	TensorHandle idx = tensor_create_1d_f64(3, heap_copy(idx_d, 3), 0);
+	TensorHandle idx = tensor_create_1d_f64(3, hcopy(idx_d, 3), 0);
 
 	TensorHandle r = tensor_embedding_2d(w, idx, 3, 3);
 	cr_assert_eq(tensor_dim(r), 2, "embedding_2d output should be rank 2");
@@ -77,9 +71,9 @@ Test(mlx_nn_attention_embedding, backward_flat_grad_is_row_counts) {
 	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
 	};
 	double idx_d[3] = {2.0, 0.0, 2.0};
-	TensorHandle w = tensor_create_param_2d_f64(4, 3, heap_copy(w_d, 12));
+	TensorHandle w = tensor_create_param_2d_f64(4, 3, hcopy(w_d, 12));
 	param_register("emb.weight", w);
-	TensorHandle idx = tensor_create_1d_f64(3, heap_copy(idx_d, 3), 0);
+	TensorHandle idx = tensor_create_1d_f64(3, hcopy(idx_d, 3), 0);
 
 	TensorHandle r = tensor_embedding(w, idx, 3, 3);
 	cr_assert_eq(tensor_dim(r), 1, "flat embedding output should be rank 1");

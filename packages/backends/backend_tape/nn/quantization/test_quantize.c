@@ -25,11 +25,6 @@
 /* Streamed creators FREE their data argument (callee-owns). Route every
    streamed data pointer through a fresh heap copy so the caller's buffer
    (often a stack array) is never freed and never double-freed. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 /* ------------------------------------------------------------------ */
 /* tensor_absmean_per_row_2d                                          */

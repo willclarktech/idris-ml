@@ -22,12 +22,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_norm_batch_norm, running_var_bessel_corrected) {
 	/* C=1, spatial=4, input = [1, 2, 3, 4], momentum=0.1.
 	 * mean = 2.5, biased batch var = 1.25.
@@ -41,11 +35,11 @@ Test(nn_norm_batch_norm, running_var_bessel_corrected) {
 	double b_d[] = {0.0};
 	double rm_d[] = {0.0};
 	double rv_d[] = {1.0};
-	TensorHandle input = tensor_create_2d_f64(1, 4, heap_copy(in_d, 4), 0);
-	TensorHandle gamma = tensor_create_1d_f64(1, heap_copy(g_d, 1), 0);
-	TensorHandle beta = tensor_create_1d_f64(1, heap_copy(b_d, 1), 0);
-	TensorHandle running_mean = tensor_create_1d_f64(1, heap_copy(rm_d, 1), 0);
-	TensorHandle running_var = tensor_create_1d_f64(1, heap_copy(rv_d, 1), 0);
+	TensorHandle input = tensor_create_2d_f64(1, 4, hcopy(in_d, 4), 0);
+	TensorHandle gamma = tensor_create_1d_f64(1, hcopy(g_d, 1), 0);
+	TensorHandle beta = tensor_create_1d_f64(1, hcopy(b_d, 1), 0);
+	TensorHandle running_mean = tensor_create_1d_f64(1, hcopy(rm_d, 1), 0);
+	TensorHandle running_var = tensor_create_1d_f64(1, hcopy(rv_d, 1), 0);
 	double momentum = 0.1;
 	double eps = 1e-5;
 	tensor_batch_norm(input, gamma, beta, running_mean, running_var, 1, 4, 1, momentum, eps);

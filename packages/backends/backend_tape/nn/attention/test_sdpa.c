@@ -20,11 +20,6 @@
 
 /* Heap-copy a double buffer: the *_streamed creators (the only tape F32
  * construction path) take ownership of and free their input pointer. */
-static double* sdpa_heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 /* Host reference: single-head SDPA, no mask. q,k,v are [seq, hd] row-major. */
 static void sdpa_ref(const double* q, const double* k, const double* v, int qs, int ks, int hd,
@@ -103,9 +98,9 @@ Test(nn_attention_sdpa, causal_f32_mask_row0_attends_only_to_key0) {
 	/* tape F32 storage is reachable only via *_streamed with dtag=14; the
 	 * mask dtype follows Q's storage, so an F32 Q drives build_causal_mask's
 	 * F32 arm. */
-	TensorHandle q = tensor_create_2d_streamed(2, 2, sdpa_heap_copy(qd, 4), 0, 0, 14);
-	TensorHandle k = tensor_create_2d_streamed(2, 2, sdpa_heap_copy(kd, 4), 0, 0, 14);
-	TensorHandle v = tensor_create_2d_streamed(2, 2, sdpa_heap_copy(vd, 4), 0, 0, 14);
+	TensorHandle q = tensor_create_2d_streamed(2, 2, hcopy(qd, 4), 0, 0, 14);
+	TensorHandle k = tensor_create_2d_streamed(2, 2, hcopy(kd, 4), 0, 0, 14);
+	TensorHandle v = tensor_create_2d_streamed(2, 2, hcopy(vd, 4), 0, 0, 14);
 	TensorHandle r = tensor_sdpa_2d(q, k, v, 1, 1, 2, /*isCausal=*/1);
 	double out[4];
 	tensor_to_doubles(r, out);

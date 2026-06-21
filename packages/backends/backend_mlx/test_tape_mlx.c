@@ -38,19 +38,14 @@
 #ifdef BACKEND_MLX
 
 /* Non-param creators own (free) their host buffer — feed a heap copy. */
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 /* A grad-requiring 1d leaf (param-like) so meta-bearing ops attach meta. */
 static TensorHandle grad_vec(const double* src, int n) {
-	return tensor_create_1d_f32(n, heap_copy(src, n), /*requires_grad=*/1);
+	return tensor_create_1d_f32(n, hcopy(src, n), /*requires_grad=*/1);
 }
 
 static TensorHandle grad_mat(int r, int c, const double* src) {
-	return tensor_create_2d_f32(r, c, heap_copy(src, r * c), /*requires_grad=*/1);
+	return tensor_create_2d_f32(r, c, hcopy(src, r * c), /*requires_grad=*/1);
 }
 
 /* ----------------------------------------------------------------------
@@ -134,7 +129,7 @@ Test(mlx_tape_meta, gru_cell_reset_frees_meta) {
 	int const o = 2;
 	double ihd[] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6}; /* [3*o] */
 	double hhd[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}; /* [3*o] */
-	double pd[] = {0.0, 0.0};                       /* prev hidden [o] */
+	double pd[] = {0.0, 0.0};                      /* prev hidden [o] */
 	TensorHandle ih = grad_vec(ihd, 3 * o);
 	TensorHandle hh = grad_vec(hhd, 3 * o);
 	TensorHandle prev = grad_vec(pd, o);
@@ -209,7 +204,7 @@ Test(mlx_tape_meta, conv1d_reset_frees_meta, .disabled = true) {
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	double kd[] = {1.0, 1.0};
 	TensorHandle x = grad_mat(1, 4, xd);
-	TensorHandle k = tensor_create_2d_f32(1, 2, heap_copy(kd, 2), /*requires_grad=*/1);
+	TensorHandle k = tensor_create_2d_f32(1, 2, hcopy(kd, 2), /*requires_grad=*/1);
 	TensorHandle y = tensor_conv1d(x, k, /*bias=*/NULL, /*pad=*/0, /*stride=*/1); /* [1,3] */
 	cr_assert_eq(tensor_numel(y), 3, "conv1d L=4 k=2 stride=1 -> oL=3");
 	cr_assert_float_eq(tensor_item_1d(y, 0), 3.0, 1e-2, "conv1d[0] = 1+2");
@@ -236,8 +231,8 @@ Test(mlx_tape_meta, conv2d_reset_frees_meta) {
 	double kd[] = {1.0, 0.0, 0.0, 0.0};
 	int xs[] = {1, 3, 3};
 	int ks[] = {1, 1, 2, 2};
-	TensorHandle x = tensor_create(heap_copy(xd, 9), xs, 3, /*requires_grad=*/1);
-	TensorHandle k = tensor_create(heap_copy(kd, 4), ks, 4, /*requires_grad=*/1);
+	TensorHandle x = tensor_create(hcopy(xd, 9), xs, 3, /*requires_grad=*/1);
+	TensorHandle k = tensor_create(hcopy(kd, 4), ks, 4, /*requires_grad=*/1);
 	TensorHandle y = tensor_conv2d(x, k, /*bias=*/NULL, 0, 0, 1, 1); /* [1,2,2] */
 	cr_assert_eq(tensor_numel(y), 4, "conv2d 3x3 k2x2 stride1 -> 2x2");
 	backend_reset_for_eval(); /* frees Conv2DReplayMeta */
@@ -249,7 +244,7 @@ Test(mlx_tape_meta, max_pool2d_reset_frees_meta) {
 	/* input [C=1, H=2, W=2]. */
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	int xs[] = {1, 2, 2};
-	TensorHandle x = tensor_create(heap_copy(xd, 4), xs, 3, /*requires_grad=*/1);
+	TensorHandle x = tensor_create(hcopy(xd, 4), xs, 3, /*requires_grad=*/1);
 	TensorHandle y = tensor_max_pool2d(x, /*kH=*/2, /*kW=*/2, /*sH=*/2, /*sW=*/2); /* [1,1,1] */
 	cr_assert_eq(tensor_numel(y), 1, "maxpool2d 2x2 k2x2 -> 1x1");
 	cr_assert_float_eq(tensor_item(y), 4.0, TEST_TOL_RELAXED, "maxpool2d = max(1,2,3,4)");
@@ -261,7 +256,7 @@ Test(mlx_tape_meta, max_pool2d_reset_frees_meta) {
 Test(mlx_tape_meta, avg_pool2d_reset_frees_meta) {
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	int xs[] = {1, 2, 2};
-	TensorHandle x = tensor_create(heap_copy(xd, 4), xs, 3, /*requires_grad=*/1);
+	TensorHandle x = tensor_create(hcopy(xd, 4), xs, 3, /*requires_grad=*/1);
 	TensorHandle y = tensor_avg_pool2d(x, 2, 2, 2, 2); /* [1,1,1] */
 	cr_assert_eq(tensor_numel(y), 1, "avgpool2d 2x2 k2x2 -> 1x1");
 	cr_assert_float_eq(tensor_item(y), 2.5, TEST_TOL_RELAXED, "avgpool2d = mean(1,2,3,4)");

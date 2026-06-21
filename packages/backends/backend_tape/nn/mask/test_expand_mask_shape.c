@@ -15,16 +15,10 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_mask_expand_mask, output_shape_is_B_m_n) {
 	/* [2,3] mask expanded to B=4 -> rank-3 [4,2,3], numel 24. */
 	double md[] = {1.0, 0.0, 1.0, 0.0, 1.0, 0.0};
-	TensorHandle mask = tensor_create_2d_f64(2, 3, heap_copy(md, 6), 0);
+	TensorHandle mask = tensor_create_2d_f64(2, 3, hcopy(md, 6), 0);
 	TensorHandle r = tensor_expand_mask(mask, 4);
 	cr_assert_eq(tensor_dim(r), 3, "expand_mask result should be rank-3 (got %d)", tensor_dim(r));
 	cr_assert_eq(tensor_size(r, 0), 4, "axis 0 should be B=4 (got %d)", tensor_size(r, 0));
@@ -36,7 +30,7 @@ Test(nn_mask_expand_mask, output_shape_is_B_m_n) {
 Test(nn_mask_expand_mask, larger_batch_replicates_each_slice) {
 	/* [1,2] mask -> B=5 yields 5 identical [1,2] slices flattened. */
 	double md[] = {3.0, -2.0};
-	TensorHandle mask = tensor_create_2d_f64(1, 2, heap_copy(md, 2), 0);
+	TensorHandle mask = tensor_create_2d_f64(1, 2, hcopy(md, 2), 0);
 	TensorHandle r = tensor_expand_mask(mask, 5);
 	double buf[10];
 	tensor_to_doubles(r, buf);
@@ -55,7 +49,7 @@ Test(nn_mask_expand_mask, larger_batch_replicates_each_slice) {
    the _streamed entry point with dtag=14 (the bare _f32 creator aborts). */
 Test(nn_mask_expand_mask, f32_branch_shape_and_values) {
 	double md[] = {1.5, 0.0, -2.25, 3.0, 0.5, -1.0};
-	TensorHandle mask = tensor_create_2d_streamed(2, 3, heap_copy(md, 6), 0, 0, 14);
+	TensorHandle mask = tensor_create_2d_streamed(2, 3, hcopy(md, 6), 0, 0, 14);
 	TensorHandle r = tensor_expand_mask(mask, 4);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32",
 	                 "expand_mask F32 input should yield F32 result (got %s)",

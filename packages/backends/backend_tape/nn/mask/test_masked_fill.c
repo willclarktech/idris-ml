@@ -12,19 +12,13 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_mask_masked_fill, forward_partial_mask) {
 	/* t = [[1, 2, 3]], mask = [[0, 1, 0]], value = -1 -> [[1, -1, 3]]. */
 	param_clear();
 	double td[] = {1.0, 2.0, 3.0};
 	double md[] = {0.0, 1.0, 0.0};
-	TensorHandle t = tensor_create_param_2d_f64(1, 3, heap_copy(td, 3));
-	TensorHandle mask = tensor_create_2d_f64(1, 3, heap_copy(md, 3), 0);
+	TensorHandle t = tensor_create_param_2d_f64(1, 3, hcopy(td, 3));
+	TensorHandle mask = tensor_create_2d_f64(1, 3, hcopy(md, 3), 0);
 	param_register("t", t);
 	TensorHandle r = tensor_masked_fill(t, mask, -1.0);
 	cr_assert_float_eq(tensor_item_2d(r, 0, 0), 1.0, TEST_TOL_RELAXED,
@@ -46,8 +40,8 @@ Test(nn_mask_masked_fill, backward_pass_through_unmasked) {
 	param_clear();
 	double td[] = {1.0, 2.0, 3.0};
 	double md[] = {0.0, 1.0, 0.0};
-	TensorHandle t = tensor_create_param_2d_f64(1, 3, heap_copy(td, 3));
-	TensorHandle mask = tensor_create_2d_f64(1, 3, heap_copy(md, 3), 0);
+	TensorHandle t = tensor_create_param_2d_f64(1, 3, hcopy(td, 3));
+	TensorHandle mask = tensor_create_2d_f64(1, 3, hcopy(md, 3), 0);
 	param_register("t", t);
 	TensorHandle r = tensor_masked_fill(t, mask, -1.0);
 	TensorHandle loss = tensor_sum(r);
@@ -69,8 +63,8 @@ Test(nn_mask_masked_fill, all_masked_forward_and_backward) {
 	param_clear();
 	double td[] = {1.0, 2.0, 3.0, 4.0};
 	double md[] = {1.0, 1.0, 1.0, 1.0};
-	TensorHandle t = tensor_create_param_2d_f64(2, 2, heap_copy(td, 4));
-	TensorHandle mask = tensor_create_2d_f64(2, 2, heap_copy(md, 4), 0);
+	TensorHandle t = tensor_create_param_2d_f64(2, 2, hcopy(td, 4));
+	TensorHandle mask = tensor_create_2d_f64(2, 2, hcopy(md, 4), 0);
 	param_register("t", t);
 	TensorHandle r = tensor_masked_fill(t, mask, 7.0);
 	double buf[4];
@@ -94,8 +88,8 @@ Test(nn_mask_masked_fill, no_masked_is_identity_with_full_grad) {
 	param_clear();
 	double td[] = {5.0, 6.0, 7.0};
 	double md[] = {0.0, 0.0, 0.0};
-	TensorHandle t = tensor_create_param_2d_f64(1, 3, heap_copy(td, 3));
-	TensorHandle mask = tensor_create_2d_f64(1, 3, heap_copy(md, 3), 0);
+	TensorHandle t = tensor_create_param_2d_f64(1, 3, hcopy(td, 3));
+	TensorHandle mask = tensor_create_2d_f64(1, 3, hcopy(md, 3), 0);
 	param_register("t", t);
 	TensorHandle r = tensor_masked_fill(t, mask, -99.0);
 	for (int i = 0; i < 3; i++)
@@ -121,8 +115,8 @@ Test(nn_mask_masked_fill, f32_forward_and_backward) {
 	param_clear();
 	double td[] = {1.5, 2.25, -3.0};
 	double md[] = {0.0, 1.0, 0.0};
-	TensorHandle t = tensor_create_param_2d_streamed(1, 3, heap_copy(td, 3), 0, 14);
-	TensorHandle mask = tensor_create_2d_streamed(1, 3, heap_copy(md, 3), 0, 0, 14);
+	TensorHandle t = tensor_create_param_2d_streamed(1, 3, hcopy(td, 3), 0, 14);
+	TensorHandle mask = tensor_create_2d_streamed(1, 3, hcopy(md, 3), 0, 0, 14);
 	param_register("t", t);
 	TensorHandle r = tensor_masked_fill(t, mask, -1.5);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32",
@@ -150,8 +144,8 @@ Test(nn_mask_masked_fill, no_grad_input_skips_tape) {
 	param_clear();
 	double td[] = {1.0, 2.0, 3.0};
 	double md[] = {0.0, 1.0, 1.0};
-	TensorHandle t = tensor_create_2d_f64(1, 3, heap_copy(td, 3), 0);
-	TensorHandle mask = tensor_create_2d_f64(1, 3, heap_copy(md, 3), 0);
+	TensorHandle t = tensor_create_2d_f64(1, 3, hcopy(td, 3), 0);
+	TensorHandle mask = tensor_create_2d_f64(1, 3, hcopy(md, 3), 0);
 	TensorHandle r = tensor_masked_fill(t, mask, 0.0);
 	cr_assert_float_eq(tensor_item_2d(r, 0, 0), 1.0, TEST_TOL_RELAXED,
 	                   "no-grad fill unmasked (got %.9f)", tensor_item_2d(r, 0, 0));

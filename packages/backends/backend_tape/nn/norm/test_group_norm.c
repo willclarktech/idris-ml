@@ -17,12 +17,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_norm_group_norm, forward_one_group_unit_scale) {
 	/* numGroups=1, channels=1, spatial=4 -> one group of 4 values.
 	 * input = [[[1, 2, 3, 4]]] (B=1, C=1, S=4)
@@ -38,11 +32,11 @@ Test(nn_norm_group_norm, forward_one_group_unit_scale) {
 	/* Construct flat 4-element tensor; group_norm doesn't care about
 	 * the rank label since channels*spatial = numel and the shape is
 	 * just used internally. tape's impl reads numel as channels*spatial. */
-	TensorHandle input = tensor_create_2d_f64(1, 4, heap_copy(in_d, 4), 0);
+	TensorHandle input = tensor_create_2d_f64(1, 4, hcopy(in_d, 4), 0);
 	/* gamma/beta MUST be 1D length=channels per libtorch's group_norm
 	 * contract; tape's impl accepts any rank as flat. Use 1D for both. */
-	TensorHandle gamma = tensor_create_1d_f64(1, heap_copy(g_d, 1), 0);
-	TensorHandle beta = tensor_create_1d_f64(1, heap_copy(b_d, 1), 0);
+	TensorHandle gamma = tensor_create_1d_f64(1, hcopy(g_d, 1), 0);
+	TensorHandle beta = tensor_create_1d_f64(1, hcopy(b_d, 1), 0);
 	double eps = 1e-5;
 	TensorHandle r = tensor_group_norm(input, gamma, beta, 1, 1, 4, eps);
 	double buf[4];
@@ -63,11 +57,11 @@ Test(nn_norm_group_norm, output_zero_mean_within_group) {
 	double in_d[] = {5.0, -3.0, 7.0, -9.0, 1.0, 6.0};
 	double g_d[] = {1.0};
 	double b_d[] = {0.0};
-	TensorHandle input = tensor_create_2d_f64(1, 6, heap_copy(in_d, 6), 0);
+	TensorHandle input = tensor_create_2d_f64(1, 6, hcopy(in_d, 6), 0);
 	/* gamma/beta MUST be 1D length=channels per libtorch's group_norm
 	 * contract; tape's impl accepts any rank as flat. Use 1D for both. */
-	TensorHandle gamma = tensor_create_1d_f64(1, heap_copy(g_d, 1), 0);
-	TensorHandle beta = tensor_create_1d_f64(1, heap_copy(b_d, 1), 0);
+	TensorHandle gamma = tensor_create_1d_f64(1, hcopy(g_d, 1), 0);
+	TensorHandle beta = tensor_create_1d_f64(1, hcopy(b_d, 1), 0);
 	TensorHandle r = tensor_group_norm(input, gamma, beta, 1, 1, 6, 1e-5);
 	double buf[6];
 	tensor_to_doubles(r, buf);

@@ -20,11 +20,6 @@
 
 /* The streamed constructors consume a heap buffer (mirrors the dtype
  * scaffolding suite's convention); copy stack literals before passing. */
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 static double gelu_ref(double x) {
 	double c = 0.7978845608028654;
@@ -87,7 +82,7 @@ Test(nn_activation_gelu, forward_negative_input) {
 Test(nn_activation_gelu, f32_forward_vector) {
 	param_clear();
 	double in[] = {-2.0, -1.0, 0.0, 0.5, 1.0, 2.0};
-	TensorHandle a = tensor_create_1d_streamed(6, heap_copy(in, 6), 0, 0, 14);
+	TensorHandle a = tensor_create_1d_streamed(6, hcopy(in, 6), 0, 0, 14);
 	cr_assert_str_eq(tensor_dtype_name(a), "F32", "input should be F32-tagged");
 	TensorHandle r = tensor_gelu(a);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "gelu F32 output should propagate F32 tag");

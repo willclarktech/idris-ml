@@ -15,12 +15,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(linear_linalg_tile_2d, forward_tile) {
 	/* t = [[1, 2]] tile(2, 3) -> [2, 6]:
 	 *   [[1, 2, 1, 2, 1, 2],
@@ -28,7 +22,7 @@ Test(linear_linalg_tile_2d, forward_tile) {
 	 */
 	param_clear();
 	double td[] = {1.0, 2.0};
-	TensorHandle t = tensor_create_param_2d_f64(1, 2, heap_copy(td, 2));
+	TensorHandle t = tensor_create_param_2d_f64(1, 2, hcopy(td, 2));
 	param_register("t", t);
 	TensorHandle r = tensor_tile_2d(t, 2, 3);
 	/* Check a few representative cells. */
@@ -51,7 +45,7 @@ Test(linear_linalg_tile_2d, forward_f32) {
 	 * 1e-5 tolerance (NOT TEST_TOL_RELAXED's tighter F64 bound). */
 	param_clear();
 	double td[] = {1.0, 2.0};
-	TensorHandle t = tensor_create_param_2d_streamed(1, 2, heap_copy(td, 2), 0, 14);
+	TensorHandle t = tensor_create_param_2d_streamed(1, 2, hcopy(td, 2), 0, 14);
 	param_register("t", t);
 	TensorHandle r = tensor_tile_2d(t, 2, 3);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "tile_2d should propagate F32 tag (got %s)",
@@ -77,7 +71,7 @@ Test(linear_linalg_tile_2d, backward_grad_accumulates) {
 	 *   d loss / d t[0,1] = 6  */
 	param_clear();
 	double td[] = {1.0, 2.0};
-	TensorHandle t = tensor_create_param_2d_f64(1, 2, heap_copy(td, 2));
+	TensorHandle t = tensor_create_param_2d_f64(1, 2, hcopy(td, 2));
 	param_register("t", t);
 	TensorHandle r = tensor_tile_2d(t, 2, 3);
 	TensorHandle loss = tensor_sum(r);
@@ -94,7 +88,7 @@ Test(linear_linalg_tile_2d, identity_tile) {
 	/* tile(1, 1) should be the identity. */
 	param_clear();
 	double td[] = {7.0, 8.0, 9.0, 10.0};
-	TensorHandle t = tensor_create_param_2d_f64(2, 2, heap_copy(td, 4));
+	TensorHandle t = tensor_create_param_2d_f64(2, 2, hcopy(td, 4));
 	param_register("t", t);
 	TensorHandle r = tensor_tile_2d(t, 1, 1);
 	cr_assert_float_eq(tensor_item_2d(r, 0, 0), 7.0, TEST_TOL_RELAXED);

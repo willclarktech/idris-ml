@@ -25,11 +25,6 @@
 
 /* The _streamed F32 path copies its data buffer into the arena, so feed
    it a heap copy (mirrors the dtype-scaffolding suite's convention). */
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(buf, src, (size_t)n * sizeof(double));
-	return buf;
-}
 
 Test(conv_conv1d_circular, forward_and_backward) {
 	param_clear();
@@ -108,8 +103,8 @@ Test(conv_conv1d_circular, f32_forward_and_backward) {
 	param_clear();
 	double in_data[3] = {1.0, 2.0, 3.0};
 	double k_data[3] = {0.1, 0.2, 0.3};
-	TensorHandle in = tensor_create_1d_streamed(3, heap_copy(in_data, 3), 1, 0, 14);
-	TensorHandle k = tensor_create_1d_streamed(3, heap_copy(k_data, 3), 1, 0, 14);
+	TensorHandle in = tensor_create_1d_streamed(3, hcopy(in_data, 3), 1, 0, 14);
+	TensorHandle k = tensor_create_1d_streamed(3, hcopy(k_data, 3), 1, 0, 14);
 	param_register("in", in);
 	param_register("k", k);
 

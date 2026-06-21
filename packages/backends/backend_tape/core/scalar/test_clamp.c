@@ -18,11 +18,6 @@
 
 /* Streamed creators FREE their data argument (callee-owns); hand each one a
    fresh heap copy so callers' stack buffers stay valid. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(core_scalar_clamp, two_sided) {
 	double td[] = {-2.0, -0.5, 0.0, 0.5, 3.0};

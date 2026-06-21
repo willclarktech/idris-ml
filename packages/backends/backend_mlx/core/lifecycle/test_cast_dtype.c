@@ -22,19 +22,13 @@
 
 #ifdef BACKEND_MLX
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(mlx_core_lifecycle_cast_dtype, f64_to_f32_round_trip) {
 	/* Default mlx tensor is F32 (per project_mlx_gpu_environment.md);
 	 * cast to F64 then back to F32 should preserve values within F32
 	 * precision (since the original was already F32-representable). */
 	param_clear();
 	double xd[] = {1.0, 2.5, -3.75, 0.125};
-	TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_2d_f64(2, 2, hcopy(xd, 4), 0);
 	/* x defaults to F32 storage on mlx; cast to F64 then back. */
 	TensorHandle as_f64 = tensor_cast_dtype_f64(x);
 	cr_assert_str_eq(tensor_dtype_name(as_f64), "F64",
@@ -57,7 +51,7 @@ Test(mlx_core_lifecycle_cast_dtype, backward_passes_gradient) {
 	/* Forward: y = cast_dtype_f64(x); loss = sum(y); dL/dx = 1 elementwise. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0};
-	TensorHandle x = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
+	TensorHandle x = tensor_create_param_2d_f64(1, 3, hcopy(xd, 3));
 	param_register("x", x);
 	TensorHandle y = tensor_cast_dtype_f64(x);
 	TensorHandle loss = tensor_sum(y);
@@ -76,7 +70,7 @@ Test(mlx_core_lifecycle_cast_dtype, f32_to_f16_forward) {
 	   (dtag=13). f16 has 11 mantissa bits; powers of two are exact. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0, -8.0};
-	TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_2d_f64(2, 2, hcopy(xd, 4), 0);
 	TensorHandle as_f16 = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/13);
 	cr_assert_str_eq(tensor_dtype_name(as_f16), "F16",
 	                 "after cast_dtype f16, dtype should be F16 (got %s)",
@@ -95,7 +89,7 @@ Test(mlx_core_lifecycle_cast_dtype, f32_to_i32_forward) {
 	   inputs are exact. */
 	param_clear();
 	double xd[] = {1.0, -2.0, 7.0, -42.0};
-	TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_2d_f64(2, 2, hcopy(xd, 4), 0);
 	TensorHandle as_i32 = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/10);
 	cr_assert_str_eq(tensor_dtype_name(as_i32), "I32",
 	                 "after cast_dtype i32, dtype should be I32 (got %s)",
@@ -113,7 +107,7 @@ Test(mlx_core_lifecycle_cast_dtype, backward_replay_bf16) {
 	   Exercises the OP_CAST_DTYPE replay case 2 (bf16, lines 73-74). */
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0};
-	TensorHandle x = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
+	TensorHandle x = tensor_create_param_2d_f64(1, 3, hcopy(xd, 3));
 	param_register("x", x);
 	TensorHandle y = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/17);
 	cr_assert_str_eq(tensor_dtype_name(y), "BF16", "cast target should be BF16 (got %s)",
@@ -132,7 +126,7 @@ Test(mlx_core_lifecycle_cast_dtype, backward_replay_f16) {
 	   Exercises the OP_CAST_DTYPE replay case 3 (f16, lines 76-77). */
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0};
-	TensorHandle x = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
+	TensorHandle x = tensor_create_param_2d_f64(1, 3, hcopy(xd, 3));
 	param_register("x", x);
 	TensorHandle y = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/13);
 	cr_assert_str_eq(tensor_dtype_name(y), "F16", "cast target should be F16 (got %s)",

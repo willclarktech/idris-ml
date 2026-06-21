@@ -22,11 +22,6 @@
 
 /* The non-param 2d creator owns (frees) its host buffer, so feed it a
    heap copy rather than a stack array. */
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 /* tensor_to_device on mlx is identity: same handle back, value intact. */
 Test(mlx_device_to_device, identity_preserves_handle_and_value) {
@@ -66,7 +61,7 @@ Test(mlx_device_query, returns_gpu_placeholder) {
 /* The device string is independent of the tensor handle (arg ignored). */
 Test(mlx_device_query, gpu_for_multidim_tensor) {
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
-	TensorHandle x = tensor_create_2d_f32(2, 2, heap_copy(xd, 4), /*requires_grad=*/0);
+	TensorHandle x = tensor_create_2d_f32(2, 2, hcopy(xd, 4), /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_device(x), "gpu",
 	                 "device string should be 'gpu' for a 2x2 tensor as well");
 }

@@ -18,12 +18,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_attention_embedding_2d, shape_is_rank_2) {
 	/* The whole point: rank should be 2, not 1. The pre-fusion
 	 * tensor_embedding returns rank 1 ([n * embedDim]); this is what
@@ -33,8 +27,8 @@ Test(nn_attention_embedding_2d, shape_is_rank_2) {
 	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
 	};
 	double idx_d[] = {0.0, 2.0};
-	TensorHandle w = tensor_create_2d_f64(4, 3, heap_copy(w_d, 12), 0);
-	TensorHandle idx = tensor_create_1d_f64(2, heap_copy(idx_d, 2), 0);
+	TensorHandle w = tensor_create_2d_f64(4, 3, hcopy(w_d, 12), 0);
+	TensorHandle idx = tensor_create_1d_f64(2, hcopy(idx_d, 2), 0);
 	TensorHandle r = tensor_embedding_2d(w, idx, 2, 3);
 	cr_assert_eq(tensor_dim(r), 2, "tensor_embedding_2d output should be rank 2, got %d",
 	             tensor_dim(r));
@@ -50,8 +44,8 @@ Test(nn_attention_embedding_2d, gathers_correct_rows) {
 	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
 	};
 	double idx_d[] = {2.0, 0.0, 3.0};
-	TensorHandle w = tensor_create_2d_f64(4, 3, heap_copy(w_d, 12), 0);
-	TensorHandle idx = tensor_create_1d_f64(3, heap_copy(idx_d, 3), 0);
+	TensorHandle w = tensor_create_2d_f64(4, 3, hcopy(w_d, 12), 0);
+	TensorHandle idx = tensor_create_1d_f64(3, hcopy(idx_d, 3), 0);
 	TensorHandle r = tensor_embedding_2d(w, idx, 3, 3);
 	double got[9];
 	tensor_to_doubles(r, got);
@@ -71,8 +65,8 @@ Test(nn_attention_embedding_2d, single_row_lookup) {
 	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
 	};
 	double idx_d[] = {1.0};
-	TensorHandle w = tensor_create_2d_f64(2, 4, heap_copy(w_d, 8), 0);
-	TensorHandle idx = tensor_create_1d_f64(1, heap_copy(idx_d, 1), 0);
+	TensorHandle w = tensor_create_2d_f64(2, 4, hcopy(w_d, 8), 0);
+	TensorHandle idx = tensor_create_1d_f64(1, hcopy(idx_d, 1), 0);
 	TensorHandle r = tensor_embedding_2d(w, idx, 1, 4);
 	cr_assert_eq(tensor_dim(r), 2, "single-row output should still be rank 2, got %d",
 	             tensor_dim(r));
@@ -99,8 +93,8 @@ Test(nn_attention_embedding_2d, f32_gathers_correct_rows) {
 	/* tape F32 storage is reachable only via *_streamed with dtag=14; the
 	 * F32 branch of embedding_impl keys on weight->dtype_tag == DT_F32.
 	 * Indices are read through tape_load_d so they may stay F64. */
-	TensorHandle w = tensor_create_2d_streamed(4, 3, heap_copy(w_d, 12), 0, 0, 14);
-	TensorHandle idx = tensor_create_1d_f64(3, heap_copy(idx_d, 3), 0);
+	TensorHandle w = tensor_create_2d_streamed(4, 3, hcopy(w_d, 12), 0, 0, 14);
+	TensorHandle idx = tensor_create_1d_f64(3, hcopy(idx_d, 3), 0);
 	TensorHandle r = tensor_embedding_2d(w, idx, 3, 3);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 embedding output should stay F32 (got %s)",
 	                 tensor_dtype_name(r));
@@ -125,8 +119,8 @@ Test(nn_attention_embedding_2d, f32_flat_variant) {
 	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
 	};
 	double idx_d[] = {1.0, 0.0};
-	TensorHandle w = tensor_create_2d_streamed(2, 4, heap_copy(w_d, 8), 0, 0, 14);
-	TensorHandle idx = tensor_create_1d_f64(2, heap_copy(idx_d, 2), 0);
+	TensorHandle w = tensor_create_2d_streamed(2, 4, hcopy(w_d, 8), 0, 0, 14);
+	TensorHandle idx = tensor_create_1d_f64(2, hcopy(idx_d, 2), 0);
 	TensorHandle r = tensor_embedding(w, idx, 2, 4);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 flat embedding output should stay F32");
 	double got[8];
@@ -146,10 +140,10 @@ Test(nn_attention_embedding_2d, matches_decomposed_chain) {
 	for (int i = 0; i < 24; i++)
 		w_d[i] = (i * 0.13) - 1.5;
 	double idx_d[] = {5.0, 0.0, 3.0, 7.0, 1.0};
-	TensorHandle w1 = tensor_create_2d_f64(8, 3, heap_copy(w_d, 24), 0);
-	TensorHandle w2 = tensor_create_2d_f64(8, 3, heap_copy(w_d, 24), 0);
-	TensorHandle idx1 = tensor_create_1d_f64(5, heap_copy(idx_d, 5), 0);
-	TensorHandle idx2 = tensor_create_1d_f64(5, heap_copy(idx_d, 5), 0);
+	TensorHandle w1 = tensor_create_2d_f64(8, 3, hcopy(w_d, 24), 0);
+	TensorHandle w2 = tensor_create_2d_f64(8, 3, hcopy(w_d, 24), 0);
+	TensorHandle idx1 = tensor_create_1d_f64(5, hcopy(idx_d, 5), 0);
+	TensorHandle idx2 = tensor_create_1d_f64(5, hcopy(idx_d, 5), 0);
 	TensorHandle flat = tensor_embedding(w1, idx1, 5, 3);
 	TensorHandle twoD = tensor_embedding_2d(w2, idx2, 5, 3);
 	double flat_buf[15];

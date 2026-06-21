@@ -15,12 +15,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(linear_linalg_transpose_last2, forward_single_batch) {
 	/* x = [[[1, 2, 3], [4, 5, 6]]] shape [1, 2, 3]
 	 * -> [[[1, 4], [2, 5], [3, 6]]] shape [1, 3, 2]
@@ -28,7 +22,7 @@ Test(linear_linalg_transpose_last2, forward_single_batch) {
 	 * Flat output order: 1,4,2,5,3,6. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle flat = tensor_create_param_2d_f64(2, 3, heap_copy(xd, 6));
+	TensorHandle flat = tensor_create_param_2d_f64(2, 3, hcopy(xd, 6));
 	param_register("x_flat", flat);
 	TensorHandle x = tensor_reshape_3d(flat, 1, 2, 3);
 	TensorHandle y = tensor_transpose_last2(x);
@@ -46,7 +40,7 @@ Test(linear_linalg_transpose_last2, double_transpose_is_identity) {
 	/* transpose_last2(transpose_last2(x)) == x. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle flat = tensor_create_param_2d_f64(2, 3, heap_copy(xd, 6));
+	TensorHandle flat = tensor_create_param_2d_f64(2, 3, hcopy(xd, 6));
 	param_register("x_flat", flat);
 	TensorHandle x = tensor_reshape_3d(flat, 1, 2, 3);
 	TensorHandle y = tensor_transpose_last2(tensor_transpose_last2(x));
@@ -65,7 +59,7 @@ Test(linear_linalg_transpose_last2, forward_f32) {
 	 * ~1e-6 error, so assert at an explicit 1e-5 tolerance. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle flat = tensor_create_param_2d_streamed(2, 3, heap_copy(xd, 6), 0, 14);
+	TensorHandle flat = tensor_create_param_2d_streamed(2, 3, hcopy(xd, 6), 0, 14);
 	param_register("x_flat", flat);
 	TensorHandle x = tensor_reshape_3d(flat, 1, 2, 3);
 	TensorHandle y = tensor_transpose_last2(x);
@@ -86,7 +80,7 @@ Test(linear_linalg_transpose_last2, backward_passes_through) {
 	 * elements), d loss / d x[i] = 1 for all i. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle flat = tensor_create_param_2d_f64(2, 3, heap_copy(xd, 6));
+	TensorHandle flat = tensor_create_param_2d_f64(2, 3, hcopy(xd, 6));
 	param_register("x_flat", flat);
 	TensorHandle x = tensor_reshape_3d(flat, 1, 2, 3);
 	TensorHandle y = tensor_transpose_last2(x);

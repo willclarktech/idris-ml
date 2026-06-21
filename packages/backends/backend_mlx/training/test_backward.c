@@ -28,11 +28,6 @@
 #ifdef BACKEND_MLX
 
 /* Heap-copy a stack array — streamed creators take ownership and free it. */
-static double* hcopy(const double* s, int n) {
-	double* b = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 /* ---- early return: backward on a tensor with no tape entry (tape_idx<0) ---- */
 

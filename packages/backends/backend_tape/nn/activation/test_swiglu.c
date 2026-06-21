@@ -15,12 +15,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 static double silu_ref(double x) {
 	return x / (1.0 + exp(-x));
 }
@@ -45,8 +39,8 @@ Test(nn_activation_swiglu, forward_zero_gate) {
 	param_clear();
 	double g_d[] = {0.0, 0.0, 0.0, 0.0};
 	double u_d[] = {1.0, 2.0, 3.0, 4.0};
-	TensorHandle gate = tensor_create_2d_f64(1, 4, heap_copy(g_d, 4), 0);
-	TensorHandle up = tensor_create_2d_f64(1, 4, heap_copy(u_d, 4), 0);
+	TensorHandle gate = tensor_create_2d_f64(1, 4, hcopy(g_d, 4), 0);
+	TensorHandle up = tensor_create_2d_f64(1, 4, hcopy(u_d, 4), 0);
 	TensorHandle r = tensor_swiglu_2d(gate, up);
 	double buf[4];
 	tensor_to_doubles(r, buf);
@@ -61,8 +55,8 @@ Test(nn_activation_swiglu, forward_unit_up) {
 	param_clear();
 	double g_d[] = {1.0, -1.0, 2.0, -2.0};
 	double u_d[] = {1.0, 1.0, 1.0, 1.0};
-	TensorHandle gate = tensor_create_2d_f64(1, 4, heap_copy(g_d, 4), 0);
-	TensorHandle up = tensor_create_2d_f64(1, 4, heap_copy(u_d, 4), 0);
+	TensorHandle gate = tensor_create_2d_f64(1, 4, hcopy(g_d, 4), 0);
+	TensorHandle up = tensor_create_2d_f64(1, 4, hcopy(u_d, 4), 0);
 	TensorHandle r = tensor_swiglu_2d(gate, up);
 	double buf[4];
 	tensor_to_doubles(r, buf);
@@ -82,8 +76,8 @@ Test(nn_activation_swiglu, forward_per_row_independent) {
 	param_clear();
 	double g_d[] = {1.0, -1.0, 0.5, 0.5};
 	double u_d[] = {2.0, 2.0, 1.0, -1.0};
-	TensorHandle gate = tensor_create_2d_f64(2, 2, heap_copy(g_d, 4), 0);
-	TensorHandle up = tensor_create_2d_f64(2, 2, heap_copy(u_d, 4), 0);
+	TensorHandle gate = tensor_create_2d_f64(2, 2, hcopy(g_d, 4), 0);
+	TensorHandle up = tensor_create_2d_f64(2, 2, hcopy(u_d, 4), 0);
 	TensorHandle r = tensor_swiglu_2d(gate, up);
 	double buf[4];
 	tensor_to_doubles(r, buf);
@@ -107,8 +101,8 @@ Test(nn_activation_swiglu, forward_matches_decomposed_chain) {
 		g_d[i] = (i % 5 == 0) ? -0.7 : 0.3 + (i * 0.11);
 		u_d[i] = 0.5 - (i * 0.07);
 	}
-	TensorHandle gate = tensor_create_2d_f64(4, 8, heap_copy(g_d, 32), 0);
-	TensorHandle up = tensor_create_2d_f64(4, 8, heap_copy(u_d, 32), 0);
+	TensorHandle gate = tensor_create_2d_f64(4, 8, hcopy(g_d, 32), 0);
+	TensorHandle up = tensor_create_2d_f64(4, 8, hcopy(u_d, 32), 0);
 	TensorHandle r = tensor_swiglu_2d(gate, up);
 	double got[32];
 	tensor_to_doubles(r, got);
@@ -126,8 +120,8 @@ Test(nn_activation_swiglu, backward_both_inputs) {
 	param_clear();
 	double g_d[] = {1.0, -1.0, 0.5, 2.0};
 	double u_d[] = {2.0, 3.0, -1.0, 0.5};
-	TensorHandle gate = tensor_create_2d_f64(2, 2, heap_copy(g_d, 4), 1);
-	TensorHandle up = tensor_create_2d_f64(2, 2, heap_copy(u_d, 4), 1);
+	TensorHandle gate = tensor_create_2d_f64(2, 2, hcopy(g_d, 4), 1);
+	TensorHandle up = tensor_create_2d_f64(2, 2, hcopy(u_d, 4), 1);
 	param_register("gate", gate);
 	param_register("up", up);
 	TensorHandle loss = tensor_sum(tensor_swiglu_2d(gate, up));
@@ -148,8 +142,8 @@ Test(nn_activation_swiglu, backward_gate_only) {
 	param_clear();
 	double g_d[] = {0.5, -0.5, 1.5, -1.5};
 	double u_d[] = {1.0, 2.0, -2.0, 0.5};
-	TensorHandle gate = tensor_create_2d_f64(2, 2, heap_copy(g_d, 4), 1);
-	TensorHandle up = tensor_create_2d_f64(2, 2, heap_copy(u_d, 4), 0);
+	TensorHandle gate = tensor_create_2d_f64(2, 2, hcopy(g_d, 4), 1);
+	TensorHandle up = tensor_create_2d_f64(2, 2, hcopy(u_d, 4), 0);
 	param_register("gate", gate);
 	TensorHandle loss = tensor_sum(tensor_swiglu_2d(gate, up));
 	tensor_backward(loss);
@@ -165,8 +159,8 @@ Test(nn_activation_swiglu, backward_up_only) {
 	param_clear();
 	double g_d[] = {0.3, -0.8, 1.2, 2.0};
 	double u_d[] = {1.5, -1.0, 0.5, 2.0};
-	TensorHandle gate = tensor_create_2d_f64(2, 2, heap_copy(g_d, 4), 0);
-	TensorHandle up = tensor_create_2d_f64(2, 2, heap_copy(u_d, 4), 1);
+	TensorHandle gate = tensor_create_2d_f64(2, 2, hcopy(g_d, 4), 0);
+	TensorHandle up = tensor_create_2d_f64(2, 2, hcopy(u_d, 4), 1);
 	param_register("up", up);
 	TensorHandle loss = tensor_sum(tensor_swiglu_2d(gate, up));
 	tensor_backward(loss);
@@ -186,8 +180,8 @@ Test(nn_activation_swiglu, f32_forward_no_grad) {
 	param_clear();
 	double g_d[] = {1.0, -1.0, 0.5, 2.0, -2.0, 0.0};
 	double u_d[] = {2.0, 3.0, -1.0, 0.5, 1.0, 4.0};
-	TensorHandle gate = tensor_create_2d_streamed(2, 3, heap_copy(g_d, 6), 0, 0, 14);
-	TensorHandle up = tensor_create_2d_streamed(2, 3, heap_copy(u_d, 6), 0, 0, 14);
+	TensorHandle gate = tensor_create_2d_streamed(2, 3, hcopy(g_d, 6), 0, 0, 14);
+	TensorHandle up = tensor_create_2d_streamed(2, 3, hcopy(u_d, 6), 0, 0, 14);
 	cr_assert_str_eq(tensor_dtype_name(gate), "F32", "gate should be F32-tagged");
 	TensorHandle r = tensor_swiglu_2d(gate, up);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "swiglu F32 output should propagate F32 tag");
@@ -208,8 +202,8 @@ Test(nn_activation_swiglu, f32_backward_both_inputs) {
 	param_clear();
 	double g_d[] = {1.0, -1.0, 0.5, 2.0};
 	double u_d[] = {2.0, 3.0, -1.0, 0.5};
-	TensorHandle gate = tensor_create_param_2d_streamed(2, 2, heap_copy(g_d, 4), 0, 14);
-	TensorHandle up = tensor_create_param_2d_streamed(2, 2, heap_copy(u_d, 4), 0, 14);
+	TensorHandle gate = tensor_create_param_2d_streamed(2, 2, hcopy(g_d, 4), 0, 14);
+	TensorHandle up = tensor_create_param_2d_streamed(2, 2, hcopy(u_d, 4), 0, 14);
 	param_register("gate", gate);
 	param_register("up", up);
 	cr_assert_str_eq(tensor_dtype_name(gate), "F32", "gate param should be F32-tagged");

@@ -20,18 +20,12 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_softmax_log_softmax_2d, forward_two_class) {
 	/* x = [[1, 2]] -> y = [[-log(1+e), 1-log(1+e)]]
 	 * = [[-log(1+e), 1-log(1+e)]] */
 	param_clear();
 	double xd[] = {1.0, 2.0};
-	TensorHandle x = tensor_create_param_2d_f64(1, 2, heap_copy(xd, 2));
+	TensorHandle x = tensor_create_param_2d_f64(1, 2, hcopy(xd, 2));
 	param_register("x", x);
 	TensorHandle y = tensor_log_softmax_2d(x);
 	double l = log(1.0 + exp(1.0)); /* log(e^0 + e^1) shifted so x[0] - max(x) */
@@ -52,7 +46,7 @@ Test(nn_softmax_log_softmax_2d, rows_independent) {
 	 * Row 1: log_softmax_2d = [-log(2), -log(2)] (symmetric two-way) */
 	param_clear();
 	double xd[] = {1.0, 2.0, 5.0, 5.0};
-	TensorHandle x = tensor_create_param_2d_f64(2, 2, heap_copy(xd, 4));
+	TensorHandle x = tensor_create_param_2d_f64(2, 2, hcopy(xd, 4));
 	param_register("x", x);
 	TensorHandle y = tensor_log_softmax_2d(x);
 	cr_assert_float_eq(tensor_item_2d(y, 1, 0), -log(2.0), TEST_TOL_RELAXED,
@@ -71,7 +65,7 @@ Test(nn_softmax_log_softmax_2d, backward_runs) {
 	 * d loss / d x[0, 1] = 0 - e/(1+e) = -e/(1+e) */
 	param_clear();
 	double xd[] = {1.0, 2.0};
-	TensorHandle x = tensor_create_param_2d_f64(1, 2, heap_copy(xd, 2));
+	TensorHandle x = tensor_create_param_2d_f64(1, 2, hcopy(xd, 2));
 	param_register("x", x);
 	TensorHandle y = tensor_log_softmax_2d(x);
 	/* Build loss = y[0,0] by narrowing to a [1,1] slice and summing. */

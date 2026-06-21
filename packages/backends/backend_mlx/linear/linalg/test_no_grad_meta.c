@@ -26,21 +26,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 #ifdef BACKEND_MLX
-
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 Test(mlx_no_grad_meta, linear_2d_under_no_grad_with_param) {
 	/* W: [2,2] param (requires_grad survives no-grad), X: [1,2]. */
 	double wd[] = {1.0, 2.0, 3.0, 4.0};
 	double xd[] = {10.0, 100.0};
-	TensorHandle W = tensor_create_2d(2, 2, heap_copy(wd, 4), /*requires_grad=*/1);
-	TensorHandle X = tensor_create_2d(1, 2, heap_copy(xd, 2), /*requires_grad=*/0);
+	TensorHandle W = mk2d(2, 2, wd, /*requires_grad=*/1);
+	TensorHandle X = mk2d(1, 2, xd, /*requires_grad=*/0);
 
 	tensor_no_grad_begin();
 	TensorHandle Y = tensor_linear_2d(W, X, NULL); /* Y = X @ W^T */
@@ -55,7 +50,7 @@ Test(mlx_no_grad_meta, linear_2d_under_no_grad_with_param) {
 
 Test(mlx_no_grad_meta, sum_dim_under_no_grad_with_param) {
 	double td[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle t = tensor_create_2d(2, 3, heap_copy(td, 6), /*requires_grad=*/1);
+	TensorHandle t = mk2d(2, 3, td, /*requires_grad=*/1);
 
 	tensor_no_grad_begin();
 	TensorHandle s = tensor_sum_dim(t, /*dim=*/1, /*keepdim=*/0);
@@ -71,8 +66,8 @@ Test(mlx_no_grad_meta, sum_dim_under_no_grad_with_param) {
 Test(mlx_no_grad_meta, stack_under_no_grad_with_param) {
 	double ad[] = {1.0, 2.0};
 	double bd[] = {3.0, 4.0};
-	TensorHandle a = tensor_create_1d_f64(2, heap_copy(ad, 2), /*requires_grad=*/1);
-	TensorHandle b = tensor_create_1d_f64(2, heap_copy(bd, 2), /*requires_grad=*/0);
+	TensorHandle a = tensor_create_1d_f64(2, hcopy(ad, 2), /*requires_grad=*/1);
+	TensorHandle b = tensor_create_1d_f64(2, hcopy(bd, 2), /*requires_grad=*/0);
 	TensorHandle parts[2] = {a, b};
 
 	tensor_no_grad_begin();

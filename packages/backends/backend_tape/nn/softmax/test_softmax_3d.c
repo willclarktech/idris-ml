@@ -20,17 +20,11 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_softmax_softmax_3d, forward_two_class) {
 	/* x = [[[1, 2]]] shape [1,1,2] -> y = [[[1/(1+e), e/(1+e)]]]. */
 	param_clear();
 	double xd[] = {1.0, 2.0};
-	TensorHandle flat = tensor_create_param_2d_f64(1, 2, heap_copy(xd, 2));
+	TensorHandle flat = tensor_create_param_2d_f64(1, 2, hcopy(xd, 2));
 	param_register("x_flat", flat);
 	TensorHandle x = tensor_reshape_3d(flat, 1, 1, 2);
 	TensorHandle y = tensor_softmax_3d(x);
@@ -47,7 +41,7 @@ Test(nn_softmax_softmax_3d, rows_sum_to_one) {
 	/* x = [[[2.0, 3.0, 4.0]]] -> row should sum to 1. */
 	param_clear();
 	double xd[] = {2.0, 3.0, 4.0};
-	TensorHandle flat = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
+	TensorHandle flat = tensor_create_param_2d_f64(1, 3, hcopy(xd, 3));
 	param_register("x_flat", flat);
 	TensorHandle x = tensor_reshape_3d(flat, 1, 1, 3);
 	TensorHandle y = tensor_softmax_3d(x);
@@ -65,7 +59,7 @@ Test(nn_softmax_softmax_3d, backward_runs) {
 	 * This is a trivial backward but exercises the OP_SOFTMAX_3D dispatch. */
 	param_clear();
 	double xd[] = {1.0, 2.0};
-	TensorHandle flat = tensor_create_param_2d_f64(1, 2, heap_copy(xd, 2));
+	TensorHandle flat = tensor_create_param_2d_f64(1, 2, hcopy(xd, 2));
 	param_register("x_flat", flat);
 	TensorHandle x = tensor_reshape_3d(flat, 1, 1, 2);
 	TensorHandle y = tensor_softmax_3d(x);

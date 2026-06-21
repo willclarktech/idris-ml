@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 #include "shared/training/port.h"
 
 #ifdef BACKEND_TAPE
@@ -38,11 +39,6 @@
 #define DTAG_F64 15
 
 /* Build a heap double buffer the callee-frees creators can consume. */
-static double* heap_doubles(const double* src, int n) {
-	double* buf = malloc((size_t)n * sizeof(double));
-	memcpy(buf, src, (size_t)n * sizeof(double));
-	return buf;
-}
 
 /* ----------------------------------------------------------------------
    adapter.c — port trampolines.
@@ -53,7 +49,7 @@ static double* heap_doubles(const double* src, int n) {
 Test(training_misc, adapter_load_int64) {
 	param_clear();
 	double zeros[] = {0.0, 0.0, 0.0};
-	TensorHandle t = tensor_create_param_1d_f64(3, heap_doubles(zeros, 3));
+	TensorHandle t = tensor_create_param_1d_f64(3, hcopy(zeros, 3));
 	param_register("p", t);
 	int64_t src[] = {7, -3, 42};
 	param_load_data_int64(0, src, 3);
@@ -79,8 +75,7 @@ Test(training_misc, adapter_create_param_4d) {
 	double vals[16];
 	for (int i = 0; i < 16; i++)
 		vals[i] = (double)i;
-	TensorHandle t =
-	    tensor_create_param_4d_streamed(2, 2, 2, 2, heap_doubles(vals, 16), 0, DTAG_F64);
+	TensorHandle t = tensor_create_param_4d_streamed(2, 2, 2, 2, hcopy(vals, 16), 0, DTAG_F64);
 	cr_assert_eq(tensor_numel(t), 16);
 	cr_assert_eq(tensor_dim(t), 4);
 	cr_assert_eq(tensor_size(t, 3), 2);
@@ -94,7 +89,7 @@ Test(training_misc, adapter_create_param_4d) {
    State tensors are persistent, requires_grad=0. */
 Test(training_misc, adapter_create_state_2d) {
 	double vals[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle t = tensor_create_state_2d_streamed(2, 3, heap_doubles(vals, 6), 0, DTAG_F64);
+	TensorHandle t = tensor_create_state_2d_streamed(2, 3, hcopy(vals, 6), 0, DTAG_F64);
 	cr_assert_eq(tensor_numel(t), 6);
 	cr_assert_eq(tensor_requires_grad(t), 0, "state tensor must not require grad");
 	double out[6];
@@ -180,7 +175,7 @@ Test(training_misc, host_io_to_int64) {
 /* tensor_to_floats — F32 memcpy fast path (host_io.c 51-52). */
 Test(training_misc, host_io_to_floats_f32) {
 	double vals[] = {1.5, -2.25, 3.0};
-	TensorHandle t = tensor_create_1d_streamed(3, heap_doubles(vals, 3), 0, 0, DTAG_F32);
+	TensorHandle t = tensor_create_1d_streamed(3, hcopy(vals, 3), 0, 0, DTAG_F32);
 	cr_assert_str_eq(tensor_dtype_name(t), "F32");
 	float out[3];
 	tensor_to_floats(t, out);
@@ -209,7 +204,7 @@ Test(training_misc, host_io_to_floats_f64) {
 /* Direct F64 2d state creator: persistent, requires_grad=0, no tape entry. */
 Test(training_misc, param_create_state_2d_f64) {
 	double vals[] = {10.0, 20.0, 30.0, 40.0, 50.0, 60.0};
-	TensorHandle t = tensor_create_state_2d_f64(3, 2, heap_doubles(vals, 6));
+	TensorHandle t = tensor_create_state_2d_f64(3, 2, hcopy(vals, 6));
 	cr_assert_eq(tensor_numel(t), 6);
 	cr_assert_eq(tensor_dim(t), 2);
 	cr_assert_eq(tensor_size(t, 0), 3);
@@ -230,7 +225,7 @@ Test(training_misc, param_create_state_2d_f64) {
 Test(training_misc, helpers_zero_grad) {
 	param_clear();
 	double zeros[] = {0.0, 0.0, 0.0};
-	TensorHandle a = tensor_create_param_1d_f64(3, heap_doubles(zeros, 3));
+	TensorHandle a = tensor_create_param_1d_f64(3, hcopy(zeros, 3));
 	param_register("a", a);
 	TensorHandle loss = tensor_sum(a);
 	tensor_backward(loss);

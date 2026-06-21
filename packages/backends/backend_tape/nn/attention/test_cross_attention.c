@@ -21,12 +21,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_attention_cross_attention, forward_no_mask) {
 	/* Q = [[[1, 0]]]                    shape [1, 1, 2]
 	 * K = [[[1, 0], [0, 1]]]            shape [1, 2, 2]
@@ -43,9 +37,9 @@ Test(nn_attention_cross_attention, forward_no_mask) {
 	double Qd[] = {1.0, 0.0};
 	double Kd[] = {1.0, 0.0, 0.0, 1.0};
 	double Vd[] = {10.0, 20.0, 30.0, 40.0};
-	TensorHandle Qflat = tensor_create_2d_f64(1, 2, heap_copy(Qd, 2), 0);
-	TensorHandle Kflat = tensor_create_2d_f64(2, 2, heap_copy(Kd, 4), 0);
-	TensorHandle Vflat = tensor_create_2d_f64(2, 2, heap_copy(Vd, 4), 0);
+	TensorHandle Qflat = tensor_create_2d_f64(1, 2, hcopy(Qd, 2), 0);
+	TensorHandle Kflat = tensor_create_2d_f64(2, 2, hcopy(Kd, 4), 0);
+	TensorHandle Vflat = tensor_create_2d_f64(2, 2, hcopy(Vd, 4), 0);
 	TensorHandle Q = tensor_reshape_3d(Qflat, 1, 1, 2);
 	TensorHandle K = tensor_reshape_3d(Kflat, 1, 2, 2);
 	TensorHandle V = tensor_reshape_3d(Vflat, 1, 2, 2);
@@ -76,10 +70,10 @@ Test(nn_attention_cross_attention, forward_with_mask) {
 	double Kd[] = {1.0, 0.0, 0.0, 1.0};
 	double Vd[] = {10.0, 20.0, 30.0, 40.0};
 	double Md[] = {0.0, 1.0};
-	TensorHandle Qflat = tensor_create_2d_f64(1, 2, heap_copy(Qd, 2), 0);
-	TensorHandle Kflat = tensor_create_2d_f64(2, 2, heap_copy(Kd, 4), 0);
-	TensorHandle Vflat = tensor_create_2d_f64(2, 2, heap_copy(Vd, 4), 0);
-	TensorHandle Mflat = tensor_create_2d_f64(1, 2, heap_copy(Md, 2), 0);
+	TensorHandle Qflat = tensor_create_2d_f64(1, 2, hcopy(Qd, 2), 0);
+	TensorHandle Kflat = tensor_create_2d_f64(2, 2, hcopy(Kd, 4), 0);
+	TensorHandle Vflat = tensor_create_2d_f64(2, 2, hcopy(Vd, 4), 0);
+	TensorHandle Mflat = tensor_create_2d_f64(1, 2, hcopy(Md, 2), 0);
 	TensorHandle Q = tensor_reshape_3d(Qflat, 1, 1, 2);
 	TensorHandle K = tensor_reshape_3d(Kflat, 1, 2, 2);
 	TensorHandle V = tensor_reshape_3d(Vflat, 1, 2, 2);

@@ -24,12 +24,6 @@
 #define DTAG_F64 15
 #define DTAG_BF16 17
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 static int* heap_tokens(const int* src, int n) {
 	int* buf = (int*)malloc(n * sizeof(int));
 	memcpy(buf, src, n * sizeof(int));
@@ -111,9 +105,9 @@ Test(mlx_core_lifecycle_batch, batch_unbatch_round_trip) {
 	double c[] = {5.0, 6.0};
 	int shp[] = {2};
 	TensorHandle hs[3];
-	hs[0] = tensor_create_f64(heap_copy(a, 2), shp, 1, 0);
-	hs[1] = tensor_create_f64(heap_copy(b, 2), shp, 1, 0);
-	hs[2] = tensor_create_f64(heap_copy(c, 2), shp, 1, 0);
+	hs[0] = tensor_create_f64(hcopy(a, 2), shp, 1, 0);
+	hs[1] = tensor_create_f64(hcopy(b, 2), shp, 1, 0);
+	hs[2] = tensor_create_f64(hcopy(c, 2), shp, 1, 0);
 	TensorHandle batched = tensor_batch(hs, 3);
 	cr_assert_eq(tensor_dim(batched), 2, "batched rank should be 2");
 	cr_assert_eq(tensor_size(batched, 0), 3, "batched leading dim should be 3");

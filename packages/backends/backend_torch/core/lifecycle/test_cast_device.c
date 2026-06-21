@@ -19,17 +19,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 #ifdef BACKEND_TORCH
 
 /* Streamed-creator data args are callee-owned (freed inside), so every
    buffer handed to a creator is a fresh heap copy. The non-streamed
    _f32/_f64 creators copy too; heap-copy uniformly for safety. */
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(buf, src, (size_t)n * sizeof(double));
-	return buf;
-}
 
 /* ---------------------------------------------------------------------
    cast.cpp — tensor_cast_dtype_f32 / _f64

@@ -18,13 +18,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 /* Heap-copy a stack array — the streamed creators take ownership and free it. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(core_elementwise_add, forward_scalar_scalar) {
 	TensorHandle a = tensor_create_scalar(3.0, 1);

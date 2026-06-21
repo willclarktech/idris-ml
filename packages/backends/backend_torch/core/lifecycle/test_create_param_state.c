@@ -14,19 +14,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 #ifdef BACKEND_TORCH
-
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 Test(torch_core_lifecycle_create_param_state, create_2d_f64_readback) {
 	/* tensor_create_2d: F64 from a host buffer, no grad. */
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle x = tensor_create_2d(2, 3, hcopy(xd, 6), /*requires_grad=*/0);
+	TensorHandle x = mk2d(2, 3, xd, /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "tensor_create_2d should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_numel(x), 6, "numel should be 6");
@@ -46,7 +41,7 @@ Test(torch_core_lifecycle_create_param_state, create_2d_f64_requires_grad) {
 	   elementwise grad of 1 across all 6 elements. */
 	param_clear();
 	double xd[] = {2.0, 4.0, 6.0, 8.0, 10.0, 12.0};
-	TensorHandle x = tensor_create_2d(2, 3, hcopy(xd, 6), /*requires_grad=*/1);
+	TensorHandle x = mk2d(2, 3, xd, /*requires_grad=*/1);
 	param_register("x", x);
 	TensorHandle loss = tensor_sum(x);
 	cr_assert_float_eq(tensor_item(loss), 42.0, 1e-12, "sum should be 42 (got %.6f)",

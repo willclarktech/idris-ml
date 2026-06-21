@@ -22,12 +22,6 @@
  * roundoff on mlx without admitting genuine numerical bugs. */
 #define COSINE_TOL 1e-6
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_attention_cosine_similarity, forward_parallel_rows) {
 	/* a = [[1, 0], [0, 1]], b = [[1, 0]] -> cos = [1, 0].
 	 * With the 1e-8 bias on both norms the "parallel" case lands within
@@ -35,8 +29,8 @@ Test(nn_attention_cosine_similarity, forward_parallel_rows) {
 	param_clear();
 	double ad[] = {1.0, 0.0, 0.0, 1.0};
 	double bd[] = {1.0, 0.0};
-	TensorHandle a = tensor_create_param_2d_f64(2, 2, heap_copy(ad, 4));
-	TensorHandle b = tensor_create_param_2d_f64(1, 2, heap_copy(bd, 2));
+	TensorHandle a = tensor_create_param_2d_f64(2, 2, hcopy(ad, 4));
+	TensorHandle b = tensor_create_param_2d_f64(1, 2, hcopy(bd, 2));
 	param_register("a", a);
 	param_register("b", b);
 	TensorHandle r = tensor_cosine_similarity(a, b, 1);
@@ -59,8 +53,8 @@ Test(nn_attention_cosine_similarity, forward_backward_a_grad) {
 	param_clear();
 	double ad[] = {3.0, 4.0};
 	double bd[] = {1.0, 0.0};
-	TensorHandle a = tensor_create_param_2d_f64(1, 2, heap_copy(ad, 2));
-	TensorHandle b = tensor_create_param_2d_f64(1, 2, heap_copy(bd, 2));
+	TensorHandle a = tensor_create_param_2d_f64(1, 2, hcopy(ad, 2));
+	TensorHandle b = tensor_create_param_2d_f64(1, 2, hcopy(bd, 2));
 	param_register("a", a);
 	param_register("b", b);
 
@@ -90,8 +84,8 @@ Test(nn_attention_cosine_similarity, forward_f32_parallel_rows) {
 	double bd[] = {1.0, 0.0};
 	/* tape F32 storage is reachable only via the *_streamed creators with
 	 * dtag=14 (F32); the bare _f32 creators are abort stubs on tape. */
-	TensorHandle a = tensor_create_2d_streamed(2, 2, heap_copy(ad, 4), 0, 0, 14);
-	TensorHandle b = tensor_create_2d_streamed(1, 2, heap_copy(bd, 2), 0, 0, 14);
+	TensorHandle a = tensor_create_2d_streamed(2, 2, hcopy(ad, 4), 0, 0, 14);
+	TensorHandle b = tensor_create_2d_streamed(1, 2, hcopy(bd, 2), 0, 0, 14);
 	TensorHandle r = tensor_cosine_similarity(a, b, 1);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 cosine output should stay F32 (got %s)",
 	                 tensor_dtype_name(r));
@@ -108,8 +102,8 @@ Test(nn_attention_cosine_similarity, forward_f32_known_value) {
 	param_clear();
 	double ad[] = {3.0, 4.0};
 	double bd[] = {1.0, 0.0};
-	TensorHandle a = tensor_create_2d_streamed(1, 2, heap_copy(ad, 2), 0, 0, 14);
-	TensorHandle b = tensor_create_2d_streamed(1, 2, heap_copy(bd, 2), 0, 0, 14);
+	TensorHandle a = tensor_create_2d_streamed(1, 2, hcopy(ad, 2), 0, 0, 14);
+	TensorHandle b = tensor_create_2d_streamed(1, 2, hcopy(bd, 2), 0, 0, 14);
 	TensorHandle r = tensor_cosine_similarity(a, b, 1);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 cosine output should stay F32");
 	cr_assert_float_eq(tensor_item_1d(r, 0), 0.6, 1e-5,
@@ -126,8 +120,8 @@ Test(nn_attention_cosine_similarity, non_rank2_returns_scalar_zero) {
 	param_clear();
 	double ad[] = {1.0, 0.0};
 	double bd[] = {1.0, 0.0};
-	TensorHandle a = tensor_create_1d_f64(2, heap_copy(ad, 2), 0); /* rank 1 */
-	TensorHandle b = tensor_create_param_2d_f64(1, 2, heap_copy(bd, 2));
+	TensorHandle a = tensor_create_1d_f64(2, hcopy(ad, 2), 0); /* rank 1 */
+	TensorHandle b = tensor_create_param_2d_f64(1, 2, hcopy(bd, 2));
 	TensorHandle r = tensor_cosine_similarity(a, b, 1);
 	cr_assert_eq(tensor_dim(r), 0, "fallback result should be a rank-0 scalar, got %d",
 	             tensor_dim(r));

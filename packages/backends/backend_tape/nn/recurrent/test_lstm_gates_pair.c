@@ -25,11 +25,6 @@
 
 /* The _streamed F32 path copies its data buffer into the arena, so feed
    it a heap copy (mirrors the dtype-scaffolding suite's convention). */
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(buf, src, (size_t)n * sizeof(double));
-	return buf;
-}
 
 Test(nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
 	param_clear();
@@ -102,9 +97,8 @@ Test(nn_recurrent_lstm_gates_pair, f32_backward_grads_both_arms) {
 	int o = 1;
 	double comb_data[4] = {0.0, 0.0, 0.0, 0.0};
 	double prev_data[1] = {1.0};
-	TensorHandle combined =
-	    tensor_create_param_1d_streamed(4 * o, heap_copy(comb_data, 4 * o), 0, 14);
-	TensorHandle prev_cell = tensor_create_param_1d_streamed(o, heap_copy(prev_data, o), 0, 14);
+	TensorHandle combined = tensor_create_param_1d_streamed(4 * o, hcopy(comb_data, 4 * o), 0, 14);
+	TensorHandle prev_cell = tensor_create_param_1d_streamed(o, hcopy(prev_data, o), 0, 14);
 	param_register("combined", combined);
 	param_register("prev_cell", prev_cell);
 

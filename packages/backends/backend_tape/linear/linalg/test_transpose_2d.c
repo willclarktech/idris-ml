@@ -13,19 +13,13 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(linear_linalg_transpose_2d, forward) {
 	/* a = [[1, 2, 3], [4, 5, 6]] shape [2, 3]
 	 * a^T = [[1, 4], [2, 5], [3, 6]] shape [3, 2]
 	 * Flat output order: 1, 4, 2, 5, 3, 6. */
 	param_clear();
 	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle a = tensor_create_param_2d_f64(2, 3, heap_copy(ad, 6));
+	TensorHandle a = tensor_create_param_2d_f64(2, 3, hcopy(ad, 6));
 	param_register("a", a);
 	TensorHandle r = tensor_transpose_2d(a);
 	cr_assert_eq(tensor_dim(r), 2);
@@ -44,7 +38,7 @@ Test(linear_linalg_transpose_2d, double_transpose_is_identity) {
 	/* (a^T)^T == a. */
 	param_clear();
 	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle a = tensor_create_param_2d_f64(2, 3, heap_copy(ad, 6));
+	TensorHandle a = tensor_create_param_2d_f64(2, 3, hcopy(ad, 6));
 	param_register("a", a);
 	TensorHandle r = tensor_transpose_2d(tensor_transpose_2d(a));
 	cr_assert_eq(tensor_size(r, 0), 2);
@@ -63,7 +57,7 @@ Test(linear_linalg_transpose_2d, forward_f32) {
 	 * so assert at an explicit 1e-5 tolerance (NOT TEST_TOL_TIGHT). */
 	param_clear();
 	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle a = tensor_create_param_2d_streamed(2, 3, heap_copy(ad, 6), 0, 14);
+	TensorHandle a = tensor_create_param_2d_streamed(2, 3, hcopy(ad, 6), 0, 14);
 	param_register("a", a);
 	TensorHandle r = tensor_transpose_2d(a);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "transpose_2d should propagate F32 tag (got %s)",
@@ -85,7 +79,7 @@ Test(linear_linalg_transpose_2d, backward_transposes_grad) {
 	 * Exercises tape_backward_transpose_2d (transpose the grad back). */
 	param_clear();
 	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle a = tensor_create_param_2d_f64(2, 3, heap_copy(ad, 6));
+	TensorHandle a = tensor_create_param_2d_f64(2, 3, hcopy(ad, 6));
 	param_register("a", a);
 	TensorHandle r = tensor_transpose_2d(a);
 	TensorHandle loss = tensor_sum(r);

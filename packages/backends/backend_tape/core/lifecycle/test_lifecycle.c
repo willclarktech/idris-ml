@@ -11,15 +11,11 @@
 #include <signal.h>
 #include <criterion/criterion.h>
 #include "backend.h"
+#include "test_helpers.h"
 #include "shared_utils.h" /* tensor_ptr_array_alloc / _set_return / _free */
 
 /* Streamed creators are callee-owns (they FREE their data argument), so every
    streamed data pointer is routed through a fresh heap copy. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 /* Back-compat aliases live in lifecycle_ext.c but are not part of the public
    backend.h surface (no live caller). Declared here so this colocated suite

@@ -4,14 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 /* Streamed creators free their data argument (callee-owns); hand each a fresh
    heap copy so a stack array is never passed directly or shared across calls. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(linear_sort_cumprod, forward) {
 	double d[] = {2.0, 3.0, 4.0};

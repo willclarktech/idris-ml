@@ -32,12 +32,6 @@
 
 #ifdef BACKEND_TORCH
 
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 /* 2-bit pack one row of i values (each in {-1,0,+1}) into bytes.
    code: 0 -> 0x0, +1 -> 0x1, -1 -> 0x3; 4 values per byte, slot*2 shift. */
 static void pack_row(const int* vals, int i, uint8_t* dst) {
@@ -187,7 +181,7 @@ Test(torch_nn_quantization_bitlinear, hf_packed_load_then_forward) {
    row1 = [0.5,-0.5,1.5,-1.5] -> absmean 1.0. */
 Test(torch_nn_quantization_bitlinear, absmean_per_row) {
 	double wd[] = {1.0, -2.0, 3.0, -4.0, 0.5, -0.5, 1.5, -1.5};
-	TensorHandle w = tensor_create_2d(2, 4, hcopy(wd, 8), /*rg=*/0);
+	TensorHandle w = mk2d(2, 4, wd, /*rg=*/0);
 	TensorHandle s = tensor_absmean_per_row_2d(w);
 	cr_assert_eq(tensor_numel(s), 2, "absmean should yield one scalar per row");
 	double buf[2];
@@ -204,7 +198,7 @@ Test(torch_nn_quantization_bitlinear, ternary_quant_with_scale_via_forward) {
 	   row0: round([1.0, -0.75]) = [1, -1] (clamp no-op).
 	   row1: scale 0 -> active mask zeroes the row -> [0, 0]. */
 	double wd[] = {2.0, -1.5, 0.4, -0.4};
-	TensorHandle w = tensor_create_2d(2, 2, hcopy(wd, 4), /*rg=*/0);
+	TensorHandle w = mk2d(2, 2, wd, /*rg=*/0);
 	double sd[] = {2.0, 0.0};
 	TensorHandle scale = tensor_create_1d_f32(2, hcopy(sd, 2), 0);
 	TensorHandle Wt = tensor_ternary_quant_with_scale_2d(w, scale);
@@ -272,8 +266,8 @@ Test(torch_nn_quantization_bitlinear, ternary_quant_rank1_weight_aborts, .signal
 /* tensor_ternary_quant_with_scale_2d scale-shape mismatch (lines 214-215,218-220). */
 Test(torch_nn_quantization_bitlinear, ternary_quant_scale_mismatch_aborts, .signal = SIGABRT) {
 	double wd[] = {1.0, 2.0, 3.0, 4.0};
-	TensorHandle w = tensor_create_2d(2, 2, hcopy(wd, 4), 0); /* o=2 */
-	double sd[] = {1.0, 1.0, 1.0};                            /* scale size 3 != 2 */
+	TensorHandle w = mk2d(2, 2, wd, 0); /* o=2 */
+	double sd[] = {1.0, 1.0, 1.0};      /* scale size 3 != 2 */
 	TensorHandle scale = tensor_create_1d_f32(3, hcopy(sd, 3), 0);
 	tensor_ternary_quant_with_scale_2d(w, scale);
 }

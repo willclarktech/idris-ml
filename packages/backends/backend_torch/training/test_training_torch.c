@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 #ifdef BACKEND_TORCH
 
@@ -37,11 +38,6 @@
 #define TOL_RELAXED 1e-2
 
 /* Streamed creators are callee-owns on the data arg → hand them a heap copy. */
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 /* ----------------------------------------------------------------------
    adapter.cpp — dtag-streamed param / state creators (torch_port_create_*).

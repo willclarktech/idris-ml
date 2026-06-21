@@ -35,18 +35,12 @@
 #define DTAG_F64 15
 #define DTAG_BF16 17
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 /* ---------- Public unsuffixed F32 / F64 convenience creators ---------- */
 
 Test(mlx_core_lifecycle_param_state, create_1d_f32_public) {
 	/* tensor_create_1d_f32 -> _mlx_streamed(default_stream) -> impl(float32). */
 	double xd[] = {1.5, -2.25, 3.75};
-	TensorHandle x = tensor_create_1d_f32(3, heap_copy(xd, 3), /*requires_grad=*/0);
+	TensorHandle x = tensor_create_1d_f32(3, hcopy(xd, 3), /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "tensor_create_1d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_numel(x), 3, "numel should be 3");
@@ -62,7 +56,7 @@ Test(mlx_core_lifecycle_param_state, create_1d_f32_public) {
 Test(mlx_core_lifecycle_param_state, create_1d_f64_public) {
 	/* tensor_create_1d_f64 -> _mlx_streamed(default_stream) -> impl(float64). */
 	double xd[] = {10.0, -20.0, 30.5, 0.0};
-	TensorHandle x = tensor_create_1d_f64(4, heap_copy(xd, 4), /*requires_grad=*/0);
+	TensorHandle x = tensor_create_1d_f64(4, hcopy(xd, 4), /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "tensor_create_1d_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -76,7 +70,7 @@ Test(mlx_core_lifecycle_param_state, create_1d_f64_public) {
 Test(mlx_core_lifecycle_param_state, create_2d_f32_public) {
 	/* tensor_create_2d_f32 -> _mlx_streamed -> tensor_create_2d_impl(float32). */
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle x = tensor_create_2d_f32(2, 3, heap_copy(xd, 6), /*requires_grad=*/0);
+	TensorHandle x = tensor_create_2d_f32(2, 3, hcopy(xd, 6), /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "tensor_create_2d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 2, "rank should be 2");
@@ -93,7 +87,7 @@ Test(mlx_core_lifecycle_param_state, create_2d_f32_public) {
 Test(mlx_core_lifecycle_param_state, create_2d_f64_default_public) {
 	/* tensor_create_2d (unsuffixed) -> tensor_create_2d_f64 -> impl(float64). */
 	double xd[] = {-1.5, 2.5, -3.5, 4.5};
-	TensorHandle x = tensor_create_2d(2, 2, heap_copy(xd, 4), /*requires_grad=*/0);
+	TensorHandle x = mk2d(2, 2, xd, /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "tensor_create_2d should default to F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -111,7 +105,7 @@ Test(mlx_core_lifecycle_param_state, param_1d_f32_grad) {
 	   elementwise grad of 1, proving the OP_CONST leaf is on the tape. */
 	param_clear();
 	double xd[] = {2.0, 4.0, 6.0};
-	TensorHandle x = tensor_create_param_1d_f32(3, heap_copy(xd, 3));
+	TensorHandle x = tensor_create_param_1d_f32(3, hcopy(xd, 3));
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param_1d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	param_register("x", x);
@@ -128,7 +122,7 @@ Test(mlx_core_lifecycle_param_state, param_1d_f32_grad) {
 Test(mlx_core_lifecycle_param_state, param_1d_f64_grad) {
 	param_clear();
 	double xd[] = {1.0, 1.0, 1.0, 1.0};
-	TensorHandle x = tensor_create_param_1d_f64(4, heap_copy(xd, 4));
+	TensorHandle x = tensor_create_param_1d_f64(4, hcopy(xd, 4));
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param_1d_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	param_register("x", x);
@@ -144,7 +138,7 @@ Test(mlx_core_lifecycle_param_state, param_1d_f64_grad) {
 
 Test(mlx_core_lifecycle_param_state, param_2d_f32_public) {
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
-	TensorHandle x = tensor_create_param_2d_f32(2, 2, heap_copy(xd, 4));
+	TensorHandle x = tensor_create_param_2d_f32(2, 2, hcopy(xd, 4));
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param_2d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 2, "rank should be 2");
@@ -158,7 +152,7 @@ Test(mlx_core_lifecycle_param_state, param_2d_f32_public) {
 
 Test(mlx_core_lifecycle_param_state, param_2d_f64_public) {
 	double xd[] = {-1.0, -2.0, -3.0, -4.0, -5.0, -6.0};
-	TensorHandle x = tensor_create_param_2d_f64(3, 2, heap_copy(xd, 6));
+	TensorHandle x = tensor_create_param_2d_f64(3, 2, hcopy(xd, 6));
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param_2d_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_size(x, 0), 3, "dim 0 should be 3");
@@ -176,7 +170,7 @@ Test(mlx_core_lifecycle_param_state, param_2d_f64_public) {
 Test(mlx_core_lifecycle_param_state, param_3d_f32_public) {
 	/* 2x2x2 = 8 elements; tensor_create_param_3d_f32 -> impl(float32). */
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
-	TensorHandle x = tensor_create_param_3d_f32(2, 2, 2, heap_copy(xd, 8));
+	TensorHandle x = tensor_create_param_3d_f32(2, 2, 2, hcopy(xd, 8));
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param_3d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 3, "rank should be 3");
@@ -191,7 +185,7 @@ Test(mlx_core_lifecycle_param_state, param_3d_f32_public) {
 
 Test(mlx_core_lifecycle_param_state, param_3d_f64_public) {
 	double xd[] = {0.5, 1.5, 2.5, 3.5, 4.5, 5.5};
-	TensorHandle x = tensor_create_param_3d_f64(1, 2, 3, heap_copy(xd, 6));
+	TensorHandle x = tensor_create_param_3d_f64(1, 2, 3, hcopy(xd, 6));
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param_3d_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_size(x, 1), 2, "dim 1 should be 2");
@@ -207,7 +201,7 @@ Test(mlx_core_lifecycle_param_state, param_3d_f64_public) {
 Test(mlx_core_lifecycle_param_state, param_4d_f32_public) {
 	/* 1x1x2x2 = 4 elements; tensor_create_param_4d_f32 -> impl(float32). */
 	double xd[] = {9.0, -8.0, 7.0, -6.0};
-	TensorHandle x = tensor_create_param_4d_f32(1, 1, 2, 2, heap_copy(xd, 4));
+	TensorHandle x = tensor_create_param_4d_f32(1, 1, 2, 2, hcopy(xd, 4));
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param_4d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 4, "rank should be 4");
@@ -221,7 +215,7 @@ Test(mlx_core_lifecycle_param_state, param_4d_f32_public) {
 
 Test(mlx_core_lifecycle_param_state, param_4d_f64_public) {
 	double xd[] = {1.25, 2.25, 3.25, 4.25, 5.25, 6.25, 7.25, 8.25};
-	TensorHandle x = tensor_create_param_4d_f64(2, 1, 2, 2, heap_copy(xd, 8));
+	TensorHandle x = tensor_create_param_4d_f64(2, 1, 2, 2, hcopy(xd, 8));
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param_4d_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_numel(x), 8, "numel should be 8");
@@ -239,7 +233,7 @@ Test(mlx_core_lifecycle_param_state, state_1d_f32_no_grad) {
 	/* state creators force requires_grad=0: no tape leaf, but value/shape
 	   readback must still be correct. */
 	double xd[] = {3.0, 6.0, 9.0};
-	TensorHandle x = tensor_create_state_1d_f32(3, heap_copy(xd, 3));
+	TensorHandle x = tensor_create_state_1d_f32(3, hcopy(xd, 3));
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "state_1d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -252,7 +246,7 @@ Test(mlx_core_lifecycle_param_state, state_1d_f32_no_grad) {
 
 Test(mlx_core_lifecycle_param_state, state_1d_f64_no_grad) {
 	double xd[] = {-1.0, 0.0, 1.0, 2.0};
-	TensorHandle x = tensor_create_state_1d_f64(4, heap_copy(xd, 4));
+	TensorHandle x = tensor_create_state_1d_f64(4, hcopy(xd, 4));
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "state_1d_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -265,7 +259,7 @@ Test(mlx_core_lifecycle_param_state, state_1d_f64_no_grad) {
 
 Test(mlx_core_lifecycle_param_state, state_2d_f32_no_grad) {
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle x = tensor_create_state_2d_f32(3, 2, heap_copy(xd, 6));
+	TensorHandle x = tensor_create_state_2d_f32(3, 2, hcopy(xd, 6));
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "state_2d_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 2, "rank should be 2");
@@ -279,7 +273,7 @@ Test(mlx_core_lifecycle_param_state, state_2d_f32_no_grad) {
 
 Test(mlx_core_lifecycle_param_state, state_2d_f64_no_grad) {
 	double xd[] = {0.0, -1.5, 2.5, -3.5};
-	TensorHandle x = tensor_create_state_2d_f64(2, 2, heap_copy(xd, 4));
+	TensorHandle x = tensor_create_state_2d_f64(2, 2, hcopy(xd, 4));
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "state_2d_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -296,8 +290,7 @@ Test(mlx_core_lifecycle_param_state, param_1d_streamed_bf16) {
 	/* tensor_create_param_1d_streamed dtag=17 -> _bf16_mlx_streamed. Powers of
 	   two are exact in bf16. */
 	double xd[] = {1.0, 2.0, 4.0, 8.0};
-	TensorHandle x =
-	    tensor_create_param_1d_streamed(4, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_BF16);
+	TensorHandle x = tensor_create_param_1d_streamed(4, hcopy(xd, 4), /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "param_1d dtag=17 should yield BF16 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -310,8 +303,7 @@ Test(mlx_core_lifecycle_param_state, param_1d_streamed_bf16) {
 
 Test(mlx_core_lifecycle_param_state, param_1d_streamed_f16) {
 	double xd[] = {3.0, -5.0, 16.0};
-	TensorHandle x =
-	    tensor_create_param_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_F16);
+	TensorHandle x = tensor_create_param_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "param_1d dtag=13 should yield F16 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -325,7 +317,7 @@ Test(mlx_core_lifecycle_param_state, param_1d_streamed_f16) {
 Test(mlx_core_lifecycle_param_state, param_2d_streamed_i32) {
 	double xd[] = {7.0, -8.0, 9.0, -10.0};
 	TensorHandle x =
-	    tensor_create_param_2d_streamed(2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_param_2d_streamed(2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "param_2d dtag=10 should yield I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -339,7 +331,7 @@ Test(mlx_core_lifecycle_param_state, param_2d_streamed_i32) {
 Test(mlx_core_lifecycle_param_state, param_2d_streamed_bf16) {
 	double xd[] = {2.0, 4.0, 8.0, 16.0, 32.0, 64.0};
 	TensorHandle x =
-	    tensor_create_param_2d_streamed(2, 3, heap_copy(xd, 6), /*stream_tag=*/0, DTAG_BF16);
+	    tensor_create_param_2d_streamed(2, 3, hcopy(xd, 6), /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "param_2d dtag=17 should yield BF16 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[6];
@@ -353,7 +345,7 @@ Test(mlx_core_lifecycle_param_state, param_2d_streamed_bf16) {
 Test(mlx_core_lifecycle_param_state, param_3d_streamed_f16) {
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
 	TensorHandle x =
-	    tensor_create_param_3d_streamed(2, 2, 2, heap_copy(xd, 8), /*stream_tag=*/0, DTAG_F16);
+	    tensor_create_param_3d_streamed(2, 2, 2, hcopy(xd, 8), /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "param_3d dtag=13 should yield F16 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 3, "rank should be 3");
@@ -368,7 +360,7 @@ Test(mlx_core_lifecycle_param_state, param_3d_streamed_f16) {
 Test(mlx_core_lifecycle_param_state, param_3d_streamed_i32) {
 	double xd[] = {10.0, -20.0, 30.0, -40.0, 50.0, -60.0};
 	TensorHandle x =
-	    tensor_create_param_3d_streamed(1, 2, 3, heap_copy(xd, 6), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_param_3d_streamed(1, 2, 3, hcopy(xd, 6), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "param_3d dtag=10 should yield I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[6];
@@ -382,7 +374,7 @@ Test(mlx_core_lifecycle_param_state, param_3d_streamed_i32) {
 Test(mlx_core_lifecycle_param_state, param_4d_streamed_bf16) {
 	double xd[] = {1.0, 2.0, 4.0, 8.0};
 	TensorHandle x =
-	    tensor_create_param_4d_streamed(1, 1, 2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_BF16);
+	    tensor_create_param_4d_streamed(1, 1, 2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "param_4d dtag=17 should yield BF16 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 4, "rank should be 4");
@@ -397,7 +389,7 @@ Test(mlx_core_lifecycle_param_state, param_4d_streamed_bf16) {
 Test(mlx_core_lifecycle_param_state, param_4d_streamed_i32) {
 	double xd[] = {3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0, -10.0};
 	TensorHandle x =
-	    tensor_create_param_4d_streamed(2, 1, 2, 2, heap_copy(xd, 8), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_param_4d_streamed(2, 1, 2, 2, hcopy(xd, 8), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "param_4d dtag=10 should yield I32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_numel(x), 8, "numel should be 8");
@@ -413,7 +405,7 @@ Test(mlx_core_lifecycle_param_state, param_4d_streamed_f32) {
 	/* dtag=14 routes to _f32_mlx_streamed even via the streamed dispatcher. */
 	double xd[] = {0.5, 1.5, 2.5, 3.5};
 	TensorHandle x =
-	    tensor_create_param_4d_streamed(1, 1, 1, 4, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_F32);
+	    tensor_create_param_4d_streamed(1, 1, 1, 4, hcopy(xd, 4), /*stream_tag=*/0, DTAG_F32);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param_4d dtag=14 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -428,8 +420,7 @@ Test(mlx_core_lifecycle_param_state, param_4d_streamed_f32) {
 
 Test(mlx_core_lifecycle_param_state, state_1d_streamed_bf16) {
 	double xd[] = {1.0, 2.0, 4.0};
-	TensorHandle x =
-	    tensor_create_state_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_BF16);
+	TensorHandle x = tensor_create_state_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "state_1d dtag=17 should yield BF16 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -442,8 +433,7 @@ Test(mlx_core_lifecycle_param_state, state_1d_streamed_bf16) {
 
 Test(mlx_core_lifecycle_param_state, state_1d_streamed_i32) {
 	double xd[] = {11.0, -12.0, 13.0, -14.0};
-	TensorHandle x =
-	    tensor_create_state_1d_streamed(4, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_I32);
+	TensorHandle x = tensor_create_state_1d_streamed(4, hcopy(xd, 4), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "state_1d dtag=10 should yield I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -457,7 +447,7 @@ Test(mlx_core_lifecycle_param_state, state_1d_streamed_i32) {
 Test(mlx_core_lifecycle_param_state, state_2d_streamed_f16) {
 	double xd[] = {2.0, 4.0, 6.0, 8.0};
 	TensorHandle x =
-	    tensor_create_state_2d_streamed(2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_F16);
+	    tensor_create_state_2d_streamed(2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "state_2d dtag=13 should yield F16 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -471,7 +461,7 @@ Test(mlx_core_lifecycle_param_state, state_2d_streamed_f16) {
 Test(mlx_core_lifecycle_param_state, state_2d_streamed_i32) {
 	double xd[] = {1.0, -2.0, 3.0, -4.0, 5.0, -6.0};
 	TensorHandle x =
-	    tensor_create_state_2d_streamed(3, 2, heap_copy(xd, 6), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_state_2d_streamed(3, 2, hcopy(xd, 6), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "state_2d dtag=10 should yield I32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_size(x, 0), 3, "dim 0 should be 3");

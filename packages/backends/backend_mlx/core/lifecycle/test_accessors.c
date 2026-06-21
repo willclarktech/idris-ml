@@ -26,16 +26,10 @@
 
 #ifdef BACKEND_MLX
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(mlx_core_lifecycle_accessors, shape_introspection) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle x = tensor_create_2d_f64(2, 3, heap_copy(xd, 6), 0);
+	TensorHandle x = tensor_create_2d_f64(2, 3, hcopy(xd, 6), 0);
 	cr_assert_eq(tensor_numel(x), 6, "numel of 2x3 should be 6 (got %d)", tensor_numel(x));
 	cr_assert_eq(tensor_dim(x), 2, "rank of 2x3 should be 2 (got %d)", tensor_dim(x));
 	cr_assert_eq(tensor_size(x, 0), 2, "size(0) should be 2 (got %d)", tensor_size(x, 0));
@@ -47,7 +41,7 @@ Test(mlx_core_lifecycle_accessors, to_int64_whole_numbers) {
 	   so positive/negative/zero whole values truncate exactly. */
 	param_clear();
 	double xd[] = {1.0, -2.0, 1000.0, -42.0, 0.0};
-	TensorHandle x = tensor_create_1d_f64(5, heap_copy(xd, 5), 0);
+	TensorHandle x = tensor_create_1d_f64(5, hcopy(xd, 5), 0);
 	int64_t buf[5];
 	tensor_to_int64(x, buf);
 	int64_t expected[] = {1, -2, 1000, -42, 0};
@@ -61,7 +55,7 @@ Test(mlx_core_lifecycle_accessors, to_floats_f32_fastpath) {
 	/* Default mlx storage is F32 -> hits the memcpy-style fast path. */
 	param_clear();
 	double xd[] = {0.5, -1.25, 3.75, 100.0};
-	TensorHandle x = tensor_create_1d_f64(4, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_1d_f64(4, hcopy(xd, 4), 0);
 	float buf[4];
 	tensor_to_floats(x, buf);
 	for (int i = 0; i < 4; i++) {
@@ -75,7 +69,7 @@ Test(mlx_core_lifecycle_accessors, to_floats_f64_branch) {
 	   double-source else branch (lines 88-91). */
 	param_clear();
 	double xd[] = {0.5, -1.25, 3.75, 100.0};
-	TensorHandle x = tensor_create_1d_f64(4, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_1d_f64(4, hcopy(xd, 4), 0);
 	TensorHandle xf64 = tensor_cast_dtype_f64(x);
 	cr_assert_str_eq(tensor_dtype_name(xf64), "F64", "cast target should be F64 (got %s)",
 	                 tensor_dtype_name(xf64));
@@ -94,7 +88,7 @@ Test(mlx_core_lifecycle_accessors, to_floats_bf16_branch) {
 	   are bf16-exact (powers of two and small integers) and assert loose. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0, -8.0};
-	TensorHandle x = tensor_create_1d_f64(4, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_1d_f64(4, hcopy(xd, 4), 0);
 	TensorHandle xbf = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/17);
 	cr_assert_str_eq(tensor_dtype_name(xbf), "BF16", "cast target should be BF16 (got %s)",
 	                 tensor_dtype_name(xbf));
@@ -112,7 +106,7 @@ Test(mlx_core_lifecycle_accessors, to_floats_f16_branch) {
 	   (lines 84-87). f16 has 11 mantissa bits; small exact values. */
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0, -8.0};
-	TensorHandle x = tensor_create_1d_f64(4, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_1d_f64(4, hcopy(xd, 4), 0);
 	TensorHandle xf16 = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/13);
 	cr_assert_str_eq(tensor_dtype_name(xf16), "F16", "cast target should be F16 (got %s)",
 	                 tensor_dtype_name(xf16));

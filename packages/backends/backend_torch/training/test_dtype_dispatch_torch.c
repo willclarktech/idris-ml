@@ -43,11 +43,6 @@
 
 /* Streamed creators are callee-owns on the data arg (they free it), so
    every host buffer handed in must be a fresh heap copy. */
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 /* ---- streamed create (multi-rank, F32 + inference dtags) ---- */
 

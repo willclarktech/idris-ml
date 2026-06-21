@@ -12,17 +12,11 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(linear_shape_expand_mask, replicates_correctly) {
 	/* m = [[1, 0]] shape [1, 2], B = 3 -> [[[1, 0]], [[1, 0]], [[1, 0]]]
 	 * Flat output: 1, 0, 1, 0, 1, 0. */
 	double md[] = {1.0, 0.0};
-	TensorHandle mask = tensor_create_2d_f64(1, 2, heap_copy(md, 2), 0);
+	TensorHandle mask = tensor_create_2d_f64(1, 2, hcopy(md, 2), 0);
 	TensorHandle r = tensor_expand_mask(mask, 3);
 	double buf[6];
 	tensor_to_doubles(r, buf);
@@ -36,7 +30,7 @@ Test(linear_shape_expand_mask, replicates_correctly) {
 Test(linear_shape_expand_mask, b_equals_one_is_identity) {
 	/* Edge case: B=1 just adds a leading dim without changing values. */
 	double md[] = {5.0, 7.0, 9.0, 11.0};
-	TensorHandle mask = tensor_create_2d_f64(2, 2, heap_copy(md, 4), 0);
+	TensorHandle mask = tensor_create_2d_f64(2, 2, hcopy(md, 4), 0);
 	TensorHandle r = tensor_expand_mask(mask, 1);
 	double buf[4];
 	tensor_to_doubles(r, buf);

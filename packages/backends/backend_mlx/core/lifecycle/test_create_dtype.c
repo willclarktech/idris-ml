@@ -27,17 +27,11 @@
 #define DTAG_F16 13
 #define DTAG_BF16 17
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(mlx_core_lifecycle_create_dtype, f32_public_roundtrip) {
 	/* tensor_create_f32: public unsuffixed F32 multi-rank creator. */
 	double xd[] = {1.5, -2.25, 3.75, 0.0};
 	int shape[] = {2, 2};
-	TensorHandle x = tensor_create_f32(heap_copy(xd, 4), shape, 2, /*requires_grad=*/0);
+	TensorHandle x = tensor_create_f32(hcopy(xd, 4), shape, 2, /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "tensor_create_f32 should yield F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_numel(x), 4, "numel should be 4");
@@ -55,7 +49,7 @@ Test(mlx_core_lifecycle_create_dtype, f64_public_roundtrip) {
 	/* tensor_create_f64: public unsuffixed F64 multi-rank creator. */
 	double xd[] = {10.0, -20.0, 30.0};
 	int shape[] = {3};
-	TensorHandle x = tensor_create_f64(heap_copy(xd, 3), shape, 1, /*requires_grad=*/0);
+	TensorHandle x = tensor_create_f64(hcopy(xd, 3), shape, 1, /*requires_grad=*/0);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "tensor_create_f64 should yield F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -72,7 +66,7 @@ Test(mlx_core_lifecycle_create_dtype, f32_requires_grad_appends_const) {
 	param_clear();
 	double xd[] = {2.0, 4.0, 6.0};
 	int shape[] = {3};
-	TensorHandle x = tensor_create_f32(heap_copy(xd, 3), shape, 1, /*requires_grad=*/1);
+	TensorHandle x = tensor_create_f32(hcopy(xd, 3), shape, 1, /*requires_grad=*/1);
 	param_register("x", x);
 	TensorHandle loss = tensor_sum(x);
 	cr_assert_float_eq(tensor_item(loss), 12.0, 1e-5, "sum should be 12 (got %.6f)",
@@ -88,7 +82,7 @@ Test(mlx_core_lifecycle_create_dtype, streamed_bf16_dtag) {
 	/* tensor_create_streamed dtag=17 -> tensor_create_bf16_mlx_streamed. */
 	double xd[] = {1.0, 2.0, 4.0, 8.0};
 	int shape[] = {4};
-	TensorHandle x = tensor_create_streamed(heap_copy(xd, 4), shape, 1, /*requires_grad=*/0,
+	TensorHandle x = tensor_create_streamed(hcopy(xd, 4), shape, 1, /*requires_grad=*/0,
 	                                        /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "dtag=17 should yield BF16 storage (got %s)",
 	                 tensor_dtype_name(x));
@@ -105,7 +99,7 @@ Test(mlx_core_lifecycle_create_dtype, streamed_f16_dtag) {
 	/* tensor_create_streamed dtag=13 -> tensor_create_f16_mlx_streamed. */
 	double xd[] = {3.0, -5.0, 16.0};
 	int shape[] = {3};
-	TensorHandle x = tensor_create_streamed(heap_copy(xd, 3), shape, 1, /*requires_grad=*/0,
+	TensorHandle x = tensor_create_streamed(hcopy(xd, 3), shape, 1, /*requires_grad=*/0,
 	                                        /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "dtag=13 should yield F16 storage (got %s)",
 	                 tensor_dtype_name(x));
@@ -122,7 +116,7 @@ Test(mlx_core_lifecycle_create_dtype, streamed_i32_dtag) {
 	/* tensor_create_streamed dtag=10 -> tensor_create_i32_mlx_streamed. */
 	double xd[] = {7.0, -8.0, 100.0, 0.0};
 	int shape[] = {2, 2};
-	TensorHandle x = tensor_create_streamed(heap_copy(xd, 4), shape, 2, /*requires_grad=*/0,
+	TensorHandle x = tensor_create_streamed(hcopy(xd, 4), shape, 2, /*requires_grad=*/0,
 	                                        /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "dtag=10 should yield I32 storage (got %s)",
 	                 tensor_dtype_name(x));

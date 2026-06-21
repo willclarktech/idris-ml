@@ -42,11 +42,6 @@
 
 /* Heap-copy a stack array — the streamed creators take ownership and
    free it after building the mx::array. */
-static double* hcopy(const double* s, int n) {
-	double* b = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 /* ---- load_doubles + tensor_numel: param_load_data overwrite ---- */
 

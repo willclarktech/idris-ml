@@ -22,12 +22,6 @@
 
 #ifdef BACKEND_TORCH
 
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 /* Decode: q_seq=1, kv_seq=3, 1 head, headDim=2, causal. Drives the
    asymmetric-causal branch (lines 69-79): offset = kv_seq - q_seq = 2,
    the single query (absolute position 2) sees all 3 KV positions. So
@@ -40,9 +34,9 @@ Test(torch_nn_attention_sdpa, decode_causal_asymmetric_sees_all_kv) {
 	double kd[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 	/* V [3, 1*2] distinct rows; uniform attention -> column means. */
 	double vd[] = {1.0, 10.0, 2.0, 20.0, 3.0, 30.0};
-	TensorHandle q = tensor_create_2d(1, 2, hcopy(qd, 2), /*rg=*/0);
-	TensorHandle k = tensor_create_2d(3, 2, hcopy(kd, 6), /*rg=*/0);
-	TensorHandle v = tensor_create_2d(3, 2, hcopy(vd, 6), /*rg=*/0);
+	TensorHandle q = mk2d(1, 2, qd, /*rg=*/0);
+	TensorHandle k = mk2d(3, 2, kd, /*rg=*/0);
+	TensorHandle v = mk2d(3, 2, vd, /*rg=*/0);
 	TensorHandle out =
 	    tensor_sdpa_2d(q, k, v, /*numHeads=*/1, /*numKvHeads=*/1, /*headDim=*/2, /*isCausal=*/1);
 	cr_assert_eq(tensor_dim(out), 2, "out rank should be 2");
@@ -63,9 +57,9 @@ Test(torch_nn_attention_sdpa, prefill_causal_symmetric_first_row_is_v0) {
 	double qd[] = {0.0, 0.0, 0.0, 0.0};
 	double kd[] = {0.0, 0.0, 0.0, 0.0};
 	double vd[] = {5.0, 50.0, 7.0, 70.0};
-	TensorHandle q = tensor_create_2d(2, 2, hcopy(qd, 4), /*rg=*/0);
-	TensorHandle k = tensor_create_2d(2, 2, hcopy(kd, 4), /*rg=*/0);
-	TensorHandle v = tensor_create_2d(2, 2, hcopy(vd, 4), /*rg=*/0);
+	TensorHandle q = mk2d(2, 2, qd, /*rg=*/0);
+	TensorHandle k = mk2d(2, 2, kd, /*rg=*/0);
+	TensorHandle v = mk2d(2, 2, vd, /*rg=*/0);
 	TensorHandle out =
 	    tensor_sdpa_2d(q, k, v, /*numHeads=*/1, /*numKvHeads=*/1, /*headDim=*/2, /*isCausal=*/1);
 	cr_assert_eq(tensor_size(out, 0), 2, "out q_seq should be 2");
@@ -85,9 +79,9 @@ Test(torch_nn_attention_sdpa, non_causal_full_attention) {
 	double qd[] = {0.0, 0.0, 0.0, 0.0};
 	double kd[] = {0.0, 0.0, 0.0, 0.0};
 	double vd[] = {2.0, 4.0, 8.0, 16.0};
-	TensorHandle q = tensor_create_2d(2, 2, hcopy(qd, 4), /*rg=*/0);
-	TensorHandle k = tensor_create_2d(2, 2, hcopy(kd, 4), /*rg=*/0);
-	TensorHandle v = tensor_create_2d(2, 2, hcopy(vd, 4), /*rg=*/0);
+	TensorHandle q = mk2d(2, 2, qd, /*rg=*/0);
+	TensorHandle k = mk2d(2, 2, kd, /*rg=*/0);
+	TensorHandle v = mk2d(2, 2, vd, /*rg=*/0);
 	TensorHandle out =
 	    tensor_sdpa_2d(q, k, v, /*numHeads=*/1, /*numKvHeads=*/1, /*headDim=*/2, /*isCausal=*/0);
 	double buf[4];
@@ -107,9 +101,9 @@ Test(torch_nn_attention_sdpa, gqa_broadcast_single_kv_head) {
 	double qd[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}; /* [2, 4] */
 	double kd[] = {0.0, 0.0, 0.0, 0.0};                     /* [2, 2] */
 	double vd[] = {1.0, 100.0, 3.0, 300.0};                 /* [2, 2] */
-	TensorHandle q = tensor_create_2d(2, 4, hcopy(qd, 8), /*rg=*/0);
-	TensorHandle k = tensor_create_2d(2, 2, hcopy(kd, 4), /*rg=*/0);
-	TensorHandle v = tensor_create_2d(2, 2, hcopy(vd, 4), /*rg=*/0);
+	TensorHandle q = mk2d(2, 4, qd, /*rg=*/0);
+	TensorHandle k = mk2d(2, 2, kd, /*rg=*/0);
+	TensorHandle v = mk2d(2, 2, vd, /*rg=*/0);
 	TensorHandle out =
 	    tensor_sdpa_2d(q, k, v, /*numHeads=*/2, /*numKvHeads=*/1, /*headDim=*/2, /*isCausal=*/0);
 	cr_assert_eq(tensor_size(out, 1), 4, "out feature dim should be 2*2=4");

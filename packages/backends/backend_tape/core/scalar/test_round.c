@@ -15,11 +15,6 @@
 
 /* The streamed creators FREE their `data` argument (callee-owns), so route
    every streamed data pointer through a fresh heap copy. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(core_scalar_round, half_to_even) {
 	double td[] = {0.5, 1.5, 2.5, 3.5, -0.5, -1.5, -2.5};

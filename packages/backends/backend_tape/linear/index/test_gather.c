@@ -4,14 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 /* Streamed creators FREE their data argument (callee-owns) — hand each one a
    fresh heap copy so the caller's stack buffer is never freed or aliased. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(linear_index_gather, forward_with_index) {
 	/* input = [10, 20, 30, 40], index = [3, 1, 0] -> [40, 20, 10] */

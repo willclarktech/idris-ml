@@ -7,14 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 /* Streamed creators free their data argument (callee-owns), so every streamed
    call gets a fresh heap copy of its input buffer. */
-static double* hcopy(const double* s, int n) {
-	double* b = malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(linear_sort_argsort, ascending) {
 	/* values [3, 1, 2] -> ascending index order [1, 2, 0]. */

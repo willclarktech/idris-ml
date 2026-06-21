@@ -26,17 +26,39 @@
 #ifndef BACKENDS_TEST_HELPERS_H
 #define BACKENDS_TEST_HELPERS_H
 
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
+
+/* Heap-copy `n` doubles. The shaped tensor creators — tensor_create_{1,2}d_*,
+   tensor_create_param_*, tensor_create_state_*, tensor_create_*_streamed — OWN
+   and free() their `data` argument (they own the marshalling buffer; see
+   Handle.idr:462 / lifecycle_ext.c:25). Only the base `tensor_create` copies.
+   So route every shaped-creator call's data through hcopy (a fresh heap copy);
+   passing a STACK array frees stack memory -> heap corruption (ASan: bad-free).
+   For the common 2D case, prefer mk2d() below, which hides the copy entirely. */
+static inline double* hcopy(const double* src, int n) {
+	double* b = (double*)malloc((size_t)n * sizeof(double));
+	memcpy(b, src, (size_t)n * sizeof(double));
+	return b;
+}
+
+/* Stack-safe 2D constructor: heap-copies `src` then hands ownership to
+   tensor_create_2d (which frees it). Use instead of
+   tensor_create_2d(rows, cols, <stack array>, rg). */
+static inline TensorHandle mk2d(int rows, int cols, const double* src, int rg) {
+	return tensor_create_2d(rows, cols, hcopy(src, rows * cols), rg);
+}
 
 #if defined(BACKEND_MLX)
 /* mlx defaults to F32 storage; tolerance bar set to where summed
    single-precision error reliably lives. Tightened later if a test
    truly is F32-tight (e.g. trivial roundtrips). */
-#define TEST_TOL_TIGHT   1e-5
+#define TEST_TOL_TIGHT 1e-5
 #define TEST_TOL_RELAXED 1e-4
 #else
 /* tape + torch CPU keep F64 storage. */
-#define TEST_TOL_TIGHT   1e-12
+#define TEST_TOL_TIGHT 1e-12
 #define TEST_TOL_RELAXED 1e-10
 #endif
 

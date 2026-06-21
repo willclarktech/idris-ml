@@ -17,12 +17,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(nn_norm_rms_norm, forward_unit_weight) {
 	/* Input: [[1, 2, 3, 4]], weight = [1, 1, 1, 1], eps = 1e-6.
 	 * mean_sq = (1 + 4 + 9 + 16) / 4 = 7.5
@@ -32,8 +26,8 @@ Test(nn_norm_rms_norm, forward_unit_weight) {
 	param_clear();
 	double in_d[] = {1.0, 2.0, 3.0, 4.0};
 	double w_d[] = {1.0, 1.0, 1.0, 1.0};
-	TensorHandle input = tensor_create_2d_f64(1, 4, heap_copy(in_d, 4), 0);
-	TensorHandle weight = tensor_create_1d_f64(4, heap_copy(w_d, 4), 0);
+	TensorHandle input = tensor_create_2d_f64(1, 4, hcopy(in_d, 4), 0);
+	TensorHandle weight = tensor_create_1d_f64(4, hcopy(w_d, 4), 0);
 	double eps = 1e-6;
 	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
 	double buf[4];
@@ -57,8 +51,8 @@ Test(nn_norm_rms_norm, forward_per_row_independent) {
 	param_clear();
 	double in_d[] = {1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0};
 	double w_d[] = {1.0, 1.0, 1.0, 1.0};
-	TensorHandle input = tensor_create_2d_f64(2, 4, heap_copy(in_d, 8), 0);
-	TensorHandle weight = tensor_create_1d_f64(4, heap_copy(w_d, 4), 0);
+	TensorHandle input = tensor_create_2d_f64(2, 4, hcopy(in_d, 8), 0);
+	TensorHandle weight = tensor_create_1d_f64(4, hcopy(w_d, 4), 0);
 	double eps = 1e-6;
 	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
 	double buf[8];
@@ -83,8 +77,8 @@ Test(nn_norm_rms_norm, forward_weight_scaling) {
 	param_clear();
 	double in_d[] = {3.0, 4.0};
 	double w_d[] = {2.0, 3.0};
-	TensorHandle input = tensor_create_2d_f64(1, 2, heap_copy(in_d, 2), 0);
-	TensorHandle weight = tensor_create_1d_f64(2, heap_copy(w_d, 2), 0);
+	TensorHandle input = tensor_create_2d_f64(1, 2, hcopy(in_d, 2), 0);
+	TensorHandle weight = tensor_create_1d_f64(2, hcopy(w_d, 2), 0);
 	double eps = 1e-6;
 	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
 	double buf[2];
@@ -109,8 +103,8 @@ Test(nn_norm_rms_norm, forward_matches_decomposed_chain) {
 		in_d[i] = (i % 5 == 0) ? -0.7 : 0.3 + (i * 0.11);
 	for (int j = 0; j < 8; j++)
 		w_d[j] = 0.5 + j * 0.1;
-	TensorHandle input = tensor_create_2d_f64(4, 8, heap_copy(in_d, 32), 0);
-	TensorHandle weight = tensor_create_1d_f64(8, heap_copy(w_d, 8), 0);
+	TensorHandle input = tensor_create_2d_f64(4, 8, hcopy(in_d, 32), 0);
+	TensorHandle weight = tensor_create_1d_f64(8, hcopy(w_d, 8), 0);
 	double eps = 1e-5;
 	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
 	double got[32];
@@ -147,8 +141,8 @@ Test(nn_norm_rms_norm, forward_f32_weight_scaling) {
 	param_clear();
 	double in_d[] = {3.0, 4.0};
 	double w_d[] = {2.0, 3.0};
-	TensorHandle input = tensor_create_2d_streamed(1, 2, heap_copy(in_d, 2), 0, 0, 14);
-	TensorHandle weight = tensor_create_1d_streamed(2, heap_copy(w_d, 2), 0, 0, 14);
+	TensorHandle input = tensor_create_2d_streamed(1, 2, hcopy(in_d, 2), 0, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(2, hcopy(w_d, 2), 0, 0, 14);
 	double eps = 1e-6;
 	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
 	cr_assert_str_eq(tensor_dtype_name(r), "F32", "result dtype should be F32 (got %s)",
@@ -171,8 +165,8 @@ Test(nn_norm_rms_norm, forward_f32_per_row_independent) {
 	param_clear();
 	double in_d[] = {1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0};
 	double w_d[] = {1.0, 1.0, 1.0, 1.0};
-	TensorHandle input = tensor_create_2d_streamed(2, 4, heap_copy(in_d, 8), 0, 0, 14);
-	TensorHandle weight = tensor_create_1d_streamed(4, heap_copy(w_d, 4), 0, 0, 14);
+	TensorHandle input = tensor_create_2d_streamed(2, 4, hcopy(in_d, 8), 0, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(4, hcopy(w_d, 4), 0, 0, 14);
 	double eps = 1e-6;
 	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
 	double buf[8];
@@ -198,8 +192,8 @@ Test(nn_norm_rms_norm, backward_f32_input_and_weight_grads) {
 	param_clear();
 	double in_d[] = {3.0, 4.0};
 	double w_d[] = {1.0, 1.0};
-	TensorHandle input = tensor_create_2d_streamed(1, 2, heap_copy(in_d, 2), 1, 0, 14);
-	TensorHandle weight = tensor_create_1d_streamed(2, heap_copy(w_d, 2), 1, 0, 14);
+	TensorHandle input = tensor_create_2d_streamed(1, 2, hcopy(in_d, 2), 1, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(2, hcopy(w_d, 2), 1, 0, 14);
 	param_register("input", input);   /* param_idx 0 */
 	param_register("weight", weight); /* param_idx 1 */
 	double eps = 1e-9;
@@ -228,8 +222,8 @@ Test(nn_norm_rms_norm, forward_f32_no_grad_frees_meta) {
 	param_clear();
 	double in_d[] = {1.0, 2.0, 3.0, 4.0};
 	double w_d[] = {1.0, 1.0, 1.0, 1.0};
-	TensorHandle input = tensor_create_2d_streamed(1, 4, heap_copy(in_d, 4), 0, 0, 14);
-	TensorHandle weight = tensor_create_1d_streamed(4, heap_copy(w_d, 4), 0, 0, 14);
+	TensorHandle input = tensor_create_2d_streamed(1, 4, hcopy(in_d, 4), 0, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(4, hcopy(w_d, 4), 0, 0, 14);
 	double eps = 1e-6;
 	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
 	double buf[4];
@@ -264,8 +258,8 @@ Test(nn_norm_rms_norm, backward_input_and_weight_grads) {
 	param_clear();
 	double in_d[] = {3.0, 4.0};
 	double w_d[] = {1.0, 1.0};
-	TensorHandle input = tensor_create_2d_f64(1, 2, heap_copy(in_d, 2), 1);
-	TensorHandle weight = tensor_create_1d_f64(2, heap_copy(w_d, 2), 1);
+	TensorHandle input = tensor_create_2d_f64(1, 2, hcopy(in_d, 2), 1);
+	TensorHandle weight = tensor_create_1d_f64(2, hcopy(w_d, 2), 1);
 	param_register("input", input);   /* param_idx 0 */
 	param_register("weight", weight); /* param_idx 1 */
 	double eps = 1e-9;
@@ -297,8 +291,8 @@ Test(nn_norm_rms_norm, backward_weight_only) {
 	param_clear();
 	double in_d[] = {1.0, 2.0};
 	double w_d[] = {1.0, 1.0};
-	TensorHandle input = tensor_create_2d_f64(1, 2, heap_copy(in_d, 2), 0);
-	TensorHandle weight = tensor_create_1d_f64(2, heap_copy(w_d, 2), 1);
+	TensorHandle input = tensor_create_2d_f64(1, 2, hcopy(in_d, 2), 0);
+	TensorHandle weight = tensor_create_1d_f64(2, hcopy(w_d, 2), 1);
 	param_register("weight", weight); /* param_idx 0 */
 	double eps = 1e-9;
 	TensorHandle loss = tensor_sum(tensor_rms_norm_2d(input, weight, eps));
@@ -326,8 +320,8 @@ Test(nn_norm_rms_norm, backward_input_only_multirow) {
 	param_clear();
 	double in_d[] = {1.0, 2.0, 3.0, 4.0}; /* rows: [1,2], [3,4] */
 	double w_d[] = {2.0, 3.0};
-	TensorHandle input = tensor_create_2d_f64(2, 2, heap_copy(in_d, 4), 1);
-	TensorHandle weight = tensor_create_1d_f64(2, heap_copy(w_d, 2), 0);
+	TensorHandle input = tensor_create_2d_f64(2, 2, hcopy(in_d, 4), 1);
+	TensorHandle weight = tensor_create_1d_f64(2, hcopy(w_d, 2), 0);
 	param_register("input", input); /* param_idx 0 */
 	double eps = 1e-9;
 	TensorHandle loss = tensor_sum(tensor_rms_norm_2d(input, weight, eps));

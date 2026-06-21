@@ -23,6 +23,7 @@
 #include <string.h>
 #include <criterion/criterion.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 /* Tape-specific: the _f32 bare aliases abort ONLY on tape (torch/mlx have a
    real fp32 path), and the lingua-franca dtag retag is a tape behaviour. The
@@ -31,11 +32,6 @@
 #ifdef BACKEND_TAPE
 
 /* Heap-copy a stack array — the dtag creators take ownership and free it. */
-static double* hcopy(const double* src, int n) {
-	double* d = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(d, src, (size_t)n * sizeof(double));
-	return d;
-}
 
 /* ----------------------------------------------------------------------
    dtype_dispatch.c — F64 / F32 / lingua-franca branches of every creator.

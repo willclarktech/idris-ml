@@ -33,12 +33,6 @@
 #define DTAG_F64 15
 #define DTAG_BF16 17
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(buf, src, (size_t)n * sizeof(double));
-	return buf;
-}
-
 /* ---------------------------------------------------------------------
  * tensor_create_scalar_streamed — f32 / f64 / i32 / f16
  * ------------------------------------------------------------------- */
@@ -89,7 +83,7 @@ Test(mlx_training_dtype_dispatch, rankn_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
 	int shape[] = {2, 3};
-	TensorHandle x = tensor_create_streamed(heap_copy(xd, 6), shape, /*rank=*/2,
+	TensorHandle x = tensor_create_streamed(hcopy(xd, 6), shape, /*rank=*/2,
 	                                        /*requires_grad=*/0, /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "rankN dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
@@ -105,7 +99,7 @@ Test(mlx_training_dtype_dispatch, rankn_bf16) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0, 8.0};
 	int shape[] = {2, 2};
-	TensorHandle x = tensor_create_streamed(heap_copy(xd, 4), shape, /*rank=*/2,
+	TensorHandle x = tensor_create_streamed(hcopy(xd, 4), shape, /*rank=*/2,
 	                                        /*requires_grad=*/0, /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "rankN dtag=17 should be BF16 (got %s)",
 	                 tensor_dtype_name(x));
@@ -120,7 +114,7 @@ Test(mlx_training_dtype_dispatch, rankn_f16) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0, 8.0};
 	int shape[] = {4};
-	TensorHandle x = tensor_create_streamed(heap_copy(xd, 4), shape, /*rank=*/1,
+	TensorHandle x = tensor_create_streamed(hcopy(xd, 4), shape, /*rank=*/1,
 	                                        /*requires_grad=*/0, /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "rankN dtag=13 should be F16 (got %s)",
 	                 tensor_dtype_name(x));
@@ -138,7 +132,7 @@ Test(mlx_training_dtype_dispatch, rankn_f16) {
 Test(mlx_training_dtype_dispatch, vec1d_f64) {
 	param_clear();
 	double xd[] = {1.5, -2.5, 3.5};
-	TensorHandle x = tensor_create_1d_streamed(3, heap_copy(xd, 3), /*requires_grad=*/0,
+	TensorHandle x = tensor_create_1d_streamed(3, hcopy(xd, 3), /*requires_grad=*/0,
 	                                           /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "1d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
@@ -151,7 +145,7 @@ Test(mlx_training_dtype_dispatch, vec1d_f64) {
 Test(mlx_training_dtype_dispatch, vec1d_f16) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0};
-	TensorHandle x = tensor_create_1d_streamed(3, heap_copy(xd, 3), /*requires_grad=*/0,
+	TensorHandle x = tensor_create_1d_streamed(3, hcopy(xd, 3), /*requires_grad=*/0,
 	                                           /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "1d dtag=13 should be F16 (got %s)",
 	                 tensor_dtype_name(x));
@@ -168,7 +162,7 @@ Test(mlx_training_dtype_dispatch, vec1d_f16) {
 Test(mlx_training_dtype_dispatch, mat2d_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
-	TensorHandle x = tensor_create_2d_streamed(2, 2, heap_copy(xd, 4), /*requires_grad=*/0,
+	TensorHandle x = tensor_create_2d_streamed(2, 2, hcopy(xd, 4), /*requires_grad=*/0,
 	                                           /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "2d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
@@ -182,7 +176,7 @@ Test(mlx_training_dtype_dispatch, mat2d_f64) {
 Test(mlx_training_dtype_dispatch, mat2d_bf16) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0, 8.0};
-	TensorHandle x = tensor_create_2d_streamed(2, 2, heap_copy(xd, 4), /*requires_grad=*/0,
+	TensorHandle x = tensor_create_2d_streamed(2, 2, hcopy(xd, 4), /*requires_grad=*/0,
 	                                           /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "2d dtag=17 should be BF16 (got %s)",
 	                 tensor_dtype_name(x));
@@ -196,7 +190,7 @@ Test(mlx_training_dtype_dispatch, mat2d_bf16) {
 Test(mlx_training_dtype_dispatch, mat2d_f16) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0, 8.0};
-	TensorHandle x = tensor_create_2d_streamed(2, 2, heap_copy(xd, 4), /*requires_grad=*/0,
+	TensorHandle x = tensor_create_2d_streamed(2, 2, hcopy(xd, 4), /*requires_grad=*/0,
 	                                           /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "2d dtag=13 should be F16 (got %s)",
 	                 tensor_dtype_name(x));
@@ -214,8 +208,7 @@ Test(mlx_training_dtype_dispatch, mat2d_f16) {
 Test(mlx_training_dtype_dispatch, param1d_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0};
-	TensorHandle x =
-	    tensor_create_param_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_F64);
+	TensorHandle x = tensor_create_param_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param1d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -229,8 +222,7 @@ Test(mlx_training_dtype_dispatch, param1d_f64) {
 Test(mlx_training_dtype_dispatch, param1d_bf16) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0};
-	TensorHandle x =
-	    tensor_create_param_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_BF16);
+	TensorHandle x = tensor_create_param_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_BF16);
 	cr_assert_str_eq(tensor_dtype_name(x), "BF16", "param1d dtag=17 should be BF16 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -243,8 +235,7 @@ Test(mlx_training_dtype_dispatch, param1d_bf16) {
 Test(mlx_training_dtype_dispatch, param1d_f16) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 4.0};
-	TensorHandle x =
-	    tensor_create_param_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_F16);
+	TensorHandle x = tensor_create_param_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_F16);
 	cr_assert_str_eq(tensor_dtype_name(x), "F16", "param1d dtag=13 should be F16 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -262,7 +253,7 @@ Test(mlx_training_dtype_dispatch, param2d_f32) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
 	TensorHandle x =
-	    tensor_create_param_2d_streamed(2, 3, heap_copy(xd, 6), /*stream_tag=*/0, DTAG_F32);
+	    tensor_create_param_2d_streamed(2, 3, hcopy(xd, 6), /*stream_tag=*/0, DTAG_F32);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param2d dtag=14 should be F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_numel(x), 6, "param2d f32 numel should be 6 (got %d)", tensor_numel(x));
@@ -277,7 +268,7 @@ Test(mlx_training_dtype_dispatch, param2d_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	TensorHandle x =
-	    tensor_create_param_2d_streamed(2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_F64);
+	    tensor_create_param_2d_streamed(2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param2d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -292,7 +283,7 @@ Test(mlx_training_dtype_dispatch, param2d_i32) {
 	param_clear();
 	double xd[] = {1.0, -2.0, 3.0, -4.0};
 	TensorHandle x =
-	    tensor_create_param_2d_streamed(2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_param_2d_streamed(2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "param2d dtag=10 should be I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -310,7 +301,7 @@ Test(mlx_training_dtype_dispatch, param3d_f32) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
 	TensorHandle x =
-	    tensor_create_param_3d_streamed(2, 2, 2, heap_copy(xd, 8), /*stream_tag=*/0, DTAG_F32);
+	    tensor_create_param_3d_streamed(2, 2, 2, hcopy(xd, 8), /*stream_tag=*/0, DTAG_F32);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param3d dtag=14 should be F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 3, "param3d should be rank-3 (got %d)", tensor_dim(x));
@@ -326,7 +317,7 @@ Test(mlx_training_dtype_dispatch, param3d_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	TensorHandle x =
-	    tensor_create_param_3d_streamed(1, 2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_F64);
+	    tensor_create_param_3d_streamed(1, 2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param3d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -341,7 +332,7 @@ Test(mlx_training_dtype_dispatch, param3d_i32) {
 	param_clear();
 	double xd[] = {5.0, -6.0, 7.0, -8.0};
 	TensorHandle x =
-	    tensor_create_param_3d_streamed(1, 2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_param_3d_streamed(1, 2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "param3d dtag=10 should be I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -359,7 +350,7 @@ Test(mlx_training_dtype_dispatch, param4d_f32) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
 	TensorHandle x =
-	    tensor_create_param_4d_streamed(1, 2, 2, 2, heap_copy(xd, 8), /*stream_tag=*/0, DTAG_F32);
+	    tensor_create_param_4d_streamed(1, 2, 2, 2, hcopy(xd, 8), /*stream_tag=*/0, DTAG_F32);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "param4d dtag=14 should be F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_dim(x), 4, "param4d should be rank-4 (got %d)", tensor_dim(x));
@@ -375,7 +366,7 @@ Test(mlx_training_dtype_dispatch, param4d_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	TensorHandle x =
-	    tensor_create_param_4d_streamed(1, 1, 2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_F64);
+	    tensor_create_param_4d_streamed(1, 1, 2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "param4d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -390,7 +381,7 @@ Test(mlx_training_dtype_dispatch, param4d_i32) {
 	param_clear();
 	double xd[] = {9.0, -10.0, 11.0, -12.0};
 	TensorHandle x =
-	    tensor_create_param_4d_streamed(1, 1, 2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_param_4d_streamed(1, 1, 2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "param4d dtag=10 should be I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -407,8 +398,7 @@ Test(mlx_training_dtype_dispatch, param4d_i32) {
 Test(mlx_training_dtype_dispatch, state1d_f32) {
 	param_clear();
 	double xd[] = {1.5, 2.5, 3.5};
-	TensorHandle x =
-	    tensor_create_state_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_F32);
+	TensorHandle x = tensor_create_state_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_F32);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "state1d dtag=14 should be F32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -421,8 +411,7 @@ Test(mlx_training_dtype_dispatch, state1d_f32) {
 Test(mlx_training_dtype_dispatch, state1d_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0};
-	TensorHandle x =
-	    tensor_create_state_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_F64);
+	TensorHandle x = tensor_create_state_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "state1d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -436,8 +425,7 @@ Test(mlx_training_dtype_dispatch, state1d_f64) {
 Test(mlx_training_dtype_dispatch, state1d_i32) {
 	param_clear();
 	double xd[] = {13.0, -14.0, 15.0};
-	TensorHandle x =
-	    tensor_create_state_1d_streamed(3, heap_copy(xd, 3), /*stream_tag=*/0, DTAG_I32);
+	TensorHandle x = tensor_create_state_1d_streamed(3, hcopy(xd, 3), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "state1d dtag=10 should be I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[3];
@@ -455,7 +443,7 @@ Test(mlx_training_dtype_dispatch, state2d_f32) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	TensorHandle x =
-	    tensor_create_state_2d_streamed(2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_F32);
+	    tensor_create_state_2d_streamed(2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_F32);
 	cr_assert_str_eq(tensor_dtype_name(x), "F32", "state2d dtag=14 should be F32 (got %s)",
 	                 tensor_dtype_name(x));
 	cr_assert_eq(tensor_numel(x), 4, "state2d f32 numel should be 4 (got %d)", tensor_numel(x));
@@ -470,7 +458,7 @@ Test(mlx_training_dtype_dispatch, state2d_f64) {
 	param_clear();
 	double xd[] = {1.0, 2.0, 3.0, 4.0};
 	TensorHandle x =
-	    tensor_create_state_2d_streamed(2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_F64);
+	    tensor_create_state_2d_streamed(2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(x), "F64", "state2d dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -485,7 +473,7 @@ Test(mlx_training_dtype_dispatch, state2d_i32) {
 	param_clear();
 	double xd[] = {16.0, -17.0, 18.0, -19.0};
 	TensorHandle x =
-	    tensor_create_state_2d_streamed(2, 2, heap_copy(xd, 4), /*stream_tag=*/0, DTAG_I32);
+	    tensor_create_state_2d_streamed(2, 2, hcopy(xd, 4), /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32", "state2d dtag=10 should be I32 (got %s)",
 	                 tensor_dtype_name(x));
 	double buf[4];
@@ -504,7 +492,7 @@ Test(mlx_training_dtype_dispatch, state2d_i32) {
 Test(mlx_training_dtype_dispatch, cast_to_f64_then_f32) {
 	param_clear();
 	double xd[] = {1.0, 2.5, -3.75, 0.5};
-	TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
+	TensorHandle x = tensor_create_2d_f64(2, 2, hcopy(xd, 4), 0);
 	TensorHandle as_f64 = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, DTAG_F64);
 	cr_assert_str_eq(tensor_dtype_name(as_f64), "F64", "cast dtag=15 should be F64 (got %s)",
 	                 tensor_dtype_name(as_f64));

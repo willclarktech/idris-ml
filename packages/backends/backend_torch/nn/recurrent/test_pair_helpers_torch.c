@@ -18,12 +18,6 @@
 
 #ifdef BACKEND_TORCH
 
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(torch_nn_recurrent_pair_helpers, lstm_pair_accessors) {
 	const int o = 1;
 	/* combined [4*o] = [i, f, g, o] pre-activations, all 0:

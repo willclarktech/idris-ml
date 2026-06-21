@@ -23,17 +23,11 @@
 /* Idris-side dtag values mirroring DType.Core ("8/9/10/11=I8/I16/I32/I64"). */
 #define DTAG_I32 10
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 Test(mlx_core_lifecycle_create_i32, dispatch_1d_roundtrip) {
 	/* Whole-number values cover positives, negatives, and zero so the
 	   int32 cast (truncation) is exact. */
 	double xd[] = {1.0, -2.0, 1000.0, -42.0, 0.0};
-	TensorHandle x = tensor_create_1d_streamed(5, heap_copy(xd, 5),
+	TensorHandle x = tensor_create_1d_streamed(5, hcopy(xd, 5),
 	                                           /*requires_grad=*/0,
 	                                           /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32",
@@ -47,7 +41,7 @@ Test(mlx_core_lifecycle_create_i32, dispatch_1d_roundtrip) {
 
 Test(mlx_core_lifecycle_create_i32, dispatch_2d_roundtrip_via_to_doubles) {
 	double xd[] = {7.0, -8.0, 9.0, -10.0, 11.0, -12.0};
-	TensorHandle x = tensor_create_2d_streamed(2, 3, heap_copy(xd, 6),
+	TensorHandle x = tensor_create_2d_streamed(2, 3, hcopy(xd, 6),
 	                                           /*requires_grad=*/0,
 	                                           /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32",
@@ -62,7 +56,7 @@ Test(mlx_core_lifecycle_create_i32, dispatch_2d_roundtrip_via_to_doubles) {
 
 Test(mlx_core_lifecycle_create_i32, dispatch_param_1d_roundtrip) {
 	double xd[] = {3.0, -4.0, 5.0};
-	TensorHandle x = tensor_create_param_1d_streamed(3, heap_copy(xd, 3),
+	TensorHandle x = tensor_create_param_1d_streamed(3, hcopy(xd, 3),
 	                                                 /*stream_tag=*/0, DTAG_I32);
 	cr_assert_str_eq(tensor_dtype_name(x), "I32",
 	                 "after I32 param dispatch, dtype should be I32 (got %s)",

@@ -17,14 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 #ifdef BACKEND_TORCH
-
-static double* hcopy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
 
 Test(torch_core_backend_meta, backend_name_is_torch) {
 	cr_assert_str_eq(backend_name(), "torch", "backend_name should be \"torch\" (got %s)",

@@ -9,11 +9,6 @@
 #include "test_helpers.h"
 
 /* Heap-copy a stack array — the streamed creators take ownership and free it. */
-static double* hcopy(const double* s, int n) {
-	double* b = (double*)malloc((size_t)n * sizeof(double));
-	memcpy(b, s, (size_t)n * sizeof(double));
-	return b;
-}
 
 Test(core_elementwise_neg, forward_backward) {
 	param_clear();

@@ -14,12 +14,6 @@
 #include "backend.h"
 #include "test_helpers.h"
 
-static double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
-
 /* Scalar (numel==1) forward, positive input passes through unchanged. */
 Test(nn_activation_leaky_relu, scalar_positive_forward) {
 	param_clear();
@@ -66,7 +60,7 @@ Test(nn_activation_leaky_relu, vector_forward) {
 	param_clear();
 	double d[] = {1.0, -1.0, 0.0, -2.5, 3.0};
 	double alpha = 0.05;
-	TensorHandle a = tensor_create_1d_f64(5, heap_copy(d, 5), 0);
+	TensorHandle a = tensor_create_1d_f64(5, hcopy(d, 5), 0);
 	TensorHandle r = tensor_leaky_relu(a, alpha);
 	double buf[5];
 	tensor_to_doubles(r, buf);
@@ -83,7 +77,7 @@ Test(nn_activation_leaky_relu, vector_backward) {
 	param_clear();
 	double d[] = {1.0, -1.0, 0.0, -2.5, 3.0};
 	double alpha = 0.05;
-	TensorHandle a = tensor_create_1d_f64(5, heap_copy(d, 5), 1);
+	TensorHandle a = tensor_create_1d_f64(5, hcopy(d, 5), 1);
 	param_register("a", a);
 	TensorHandle loss = tensor_sum(tensor_leaky_relu(a, alpha));
 	tensor_backward(loss);
