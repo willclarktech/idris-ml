@@ -37,10 +37,10 @@ via `Notebook.Prelude` — no manual imports needed.
 ### REPL commands (same as `idris2` REPL)
 
 ```
-:t Var                    -- type query
-:doc linearLayer          -- documentation
-:browse Variable          -- list module exports
-:module Layer.Core        -- import a module (persists across cells)
+:t reluA                  -- type query
+:doc linear               -- documentation
+:browse Tensor            -- list module exports
+:module Nn                -- import a module (persists across cells)
 :exec putStrLn "hello"    -- execute an IO expression
 ```
 
@@ -59,32 +59,21 @@ Then use them in later cells:
 :exec putStrLn (show (myDouble 21.0))
 ```
 
-### FFI tensor operations
+### Tensor operations
+
+Construct and operate on tensors through the typed surface. Pin the executor + dtype at
+the use site (`TapeExecutor` here; name your build's executor on a torch/mlx build):
 
 ```
-:exec (let t = prim__createScalar 3.14 0 in putStrLn (show (prim__item t)))
-```
-
-```
-:exec (let a = prim__createScalar 2.0 1 in
-  let b = prim__createScalar 3.0 0 in
-  let c = prim__mul a b in
-  putStrLn ("2*3=" ++ show (prim__item c)))
+:exec do { a <- tconstScalar {ex=TapeExecutor} {dt=F64} 2.0;
+  b <- tconstScalar {ex=TapeExecutor} {dt=F64} 3.0;
+  c <- tmul a b;
+  putStrLn ("2 * 3 = " ++ show (tensorItem c)) }
 ```
 
 ### Multi-line `do` blocks
 
-Idris 2's braced `do { }` syntax does not support bare `let` — use `<- pure` instead:
-
-```
-:exec do { ll <- linearLayer {i=2, o=3};
-  model <- pure (autoName (OutputLayer ll));
-  buf <- pure (prim__setDouble (prim__setDouble (prim__allocDoubles 2) 0 1.0) 1 2.0);
-  inT <- pure (prim__createState1d 2 buf);
-  pair <- pure (forwardVarTensor model inT);
-  putStrLn ("output sum = " ++ show (prim__item (prim__sum (snd pair)))) }
-```
-
+Idris 2's braced `do { }` syntax does not support bare `let` — use `<- pure` instead.
 Multi-line cells are automatically joined — write naturally across lines.
 
 ### Shift-Tab inspection
@@ -111,15 +100,14 @@ Place cursor on a name and press Shift-Tab to see its type and documentation.
 
 Two categories in `notebooks/`:
 
-- **`tutorials/`** — Concept-oriented (01-06): tensors & types, building models, data & loss, training, sequences, device safety
+- **`tutorials/`** — Concept-oriented (01-08): tensors & types, building models, data & loss, training, sequences, device safety, hyperparameter optimization, precision & devices
 - **`models/`** — Architecture-oriented (9 notebooks): supervised, rnn_lstm, transformer, gpt, ntm, dnc, cnn, reinforce, seq_classify. Each walks through model construction, type queries, and training (interactive where feasible, CLI instructions for heavy models)
 
 ## Tests
 
 ```bash
-make test-jupyter-unit   # cell parser only (no backend needed)
-make test-jupyter        # full suite: parser + REPL integration + FFI + recovery
-make test-notebooks      # run all notebooks headless (catches API breakage)
+make test-e2e-jupyter    # kernel suite: parser + REPL integration + FFI + recovery
+make test-e2e-notebooks  # run all notebooks headless (catches API breakage)
 ```
 
 ## Switching backends

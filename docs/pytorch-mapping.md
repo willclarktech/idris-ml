@@ -1,147 +1,151 @@
 # PyTorch to idris-ml
 
-A concept mapping for PyTorch users. This covers the mental model — for API details, use `:t`, `:doc`, and `:browse` in the REPL or Jupyter notebooks.
+A concept mapping for PyTorch users. This covers the mental model — for API details, use
+`:t`, `:doc`, and `:browse` in the REPL or Jupyter notebooks. For the *why*, start at
+[Why idris-ml](why-idris-ml.md).
 
 ## The big difference
 
-PyTorch mutates models in-place. idris-ml is purely functional — `forward` returns `(updatedModel, output)`:
+PyTorch mutates models in-place. In idris-ml a **model is a single-owner linear
+resource**: `forward` *consumes* the model handle and threads back a fresh one (plus the
+output, riding a `(!*)` bang), all inside `Control.Linear.LIO.L IO`. Parameters live in a
+C-side registry; the optimizer updates them via a fused train step.
 
 ```python
 # PyTorch
-output = model(input)           # model mutated in-place (hidden state, batch norm stats)
+output = model(input)           # model mutated in-place
 loss = criterion(output, target)
+optimizer.zero_grad()
 loss.backward()                 # gradients accumulated in-place
 optimizer.step()                # weights updated in-place
-optimizer.zero_grad()
 ```
 
 ```idris
--- idris-ml
-let (model', output) = forward model input    -- new model returned (state updated functionally)
--- backward + optimizer step fused in epochNative (C-level, all-at-once)
-let (model'', loss) = epochNative opt data lossFn model
+-- idris-ml: thread the linear model; fit owns zero_grad + backward + clip + step
+(trained, epochs, loss) <- fitSupervised opt lossFn (batched stream) (simpleConfig 1000) model
 ```
 
-No mutation, no `zero_grad`, no manual backward/step separation. The epoch function handles the full train step.
+No mutation, no manual `zero_grad` / backward / step. The `fit` driver runs the full train
+step; if you need a custom loop, you consume-and-thread the model yourself through
+`forward` and `trainStep`.
 
 ## Tensors
 
 | PyTorch | idris-ml | Notes |
 |---------|----------|-------|
-| `torch.tensor([1,2,3])` | `VTensor [STensor 1, STensor 2, STensor 3]` | Shape in the type: `Vector 3 Double` |
-| `torch.zeros(3,4)` | `the (Matrix 3 4 Double) (pure 0)` | `pure` fills with a value |
-| `x.shape` | No runtime query — shape is in the type | `Vector 3 Double` means shape is `[3]`, always |
-| `x + y` | `x + y` | Elementwise, same as PyTorch |
-| `x * y` | `x * y` | **Elementwise** — not matmul |
-| `x @ y` | `x <> y` | Infix matmul, dimension-checked at compile time |
-| `x.reshape(3,4)` | `reshapeToMatrix v` | Requires `auto` proof that product of dims matches |
-| Runtime `RuntimeError: shape mismatch` | Compile error: `Can't unify 8 with 5` | The point of the library |
+| `torch.tensor([1,2,3])` | `tensor {dims=[3]} (FromVect [1,2,3])` | Shape in the type: `Tensor [3] ex dt g` |
+| `torch.zeros(3,4)` | `tensor {dims=[3,4]} Zeros` | `InitSpec`: `Zeros`/`Const x`/`Normal μ σ`/`Uniform`/`FromVect` |
+| a learnable parameter | `param "w" (Normal 0.0 0.02)` | registers in the optimizer registry |
+| `x.shape` | no runtime query — shape is in the type | `Tensor [3] …` *is* shape `[3]`, always |
+| `x + y` | `x + y` (or `tadd x y`) | elementwise, same as PyTorch |
+| `x * y` | `x * y` (or `tmul x y`) | **elementwise** — not matmul |
+| `x @ y` | `x <> y` | matmul, dimension-checked at compile time |
+| `x.reshape(...)` | `Tensor.splitAt` / shape-proof reshape | needs a proof the element counts match |
+| Runtime `RuntimeError: shape mismatch` | Compile error: `Mismatch between: 8 and 5` | the point of the library |
+
+Smart constructors are `IO`-typed (`tadd`, `tmul`, `ttanh`, …); elementwise infix aliases
+`(+.)`, `(-.)`, `(*.)` and scalar-left `(*:)` work on already-evaluated tensors with bang
+notation.
 
 ## Models
 
 | PyTorch | idris-ml | Notes |
 |---------|----------|-------|
-| `nn.Module` | `LayerLike` interface | Defines `forward`, `show`, parameter access, etc. |
-| `nn.Linear(4, 8)` | `linearLayer {i=4, o=8}` | Returns `IO (AnyLayer 4 8 ty)` — IO because init is random |
-| `nn.Sequential(l1, l2, l3)` | `l1 ~> l2 ~> OutputLayer l3` | Type-checks that output dims match input dims |
-| `model.parameters()` | `networkParamIds model` | Returns `List String` (parameter names) |
-| `model(x)` | `forward model x` | Returns `(updatedModel, output)` — not just output |
-| `model.train()` | `setNetworkTraining True model` | Returns new model (no mutation) |
-| `model.eval()` | `setNetworkTraining False model` | Affects dropout, batch norm |
+| `nn.Module` | `Nn.Module` interface | batched-first linear `forward` |
+| `nn.Linear(4, 8)` | `linear {i=4} {o=8}` | returns `Init (Linear 4 8 ex dt g)` |
+| `nn.Sequential(l1, l2, l3)` | `l1 ~~> l2 ~~> l3 ~~> Nil` | a `Seq`; checks output dims match input dims |
+| `model.parameters()` | the C param registry (`Nn.Init`) | `Nn.Group.groupOf submodel` for per-network scoping |
+| `model(x)` | `forward model x` / `forwardSeq model x` | linear: consumes model, returns `(!* out) `LPair` model` |
+| `model.eval()` | `eval model` | linear; retypes the model `WithGrad → NoGrad` |
+| `model.train()` | `trainable model` | inverse of `eval` |
 
 ### Layer mapping
 
-| PyTorch | idris-ml | Constructor |
-|---------|----------|-------------|
-| `nn.Linear` | `linearLayer` | `IO (AnyLayer i o ty)` |
-| `nn.RNN` | `rnnLayer` | `IO (AnyLayer i o ty)` |
-| `nn.LSTM` | `lstmLayer` | `IO (AnyLayer i o ty)` |
-| `nn.GRU` | `gruLayer` | `IO (AnyLayer i o ty)` |
-| `nn.Conv1d` | `conv1dLayer` | `IO (AnyLayer (inC*len) (outC*ConvOutDim len k pad) ty)` |
-| `nn.Conv2d` | `conv2dLayer` | `IO (AnyLayer (inC*(h*w)) (outC*(ConvOutDim h kH padH * ConvOutDim w kW padW)) ty)` |
-| `nn.MaxPool1d` | `maxPool1dLayer` | `AnyLayer (c*len) (c*PoolOutDim len k s) ty` |
-| `nn.MaxPool2d` | `maxPool2dLayer` | Similar, 2D |
-| `nn.Dropout` | `dropoutLayer` | `IO (AnyLayer n n ty)` |
-| `nn.BatchNorm1d` | `batchNormLayer` | `IO (AnyLayer n n ty)` |
-| `nn.LayerNorm` | `layerNormLayer` | `IO (AnyLayer n n ty)` |
-| `nn.Embedding` | `embeddingLayer` | `IO (AnyLayer vocabSize embedDim ty)` |
-| `nn.ReLU` | `reluLayer` | `AnyLayer n n ty` (no IO — no parameters) |
-| `nn.Tanh` | `tanhLayer` | `AnyLayer n n ty` |
-| `nn.Sigmoid` | `sigmoidLayer` | `AnyLayer n n ty` |
-| `nn.Softmax` | `softmaxLayer` | `AnyLayer n n ty` |
-| `nn.LogSoftmax` | `logSoftmaxLayer` | `AnyLayer n n ty` |
+Every layer with learnable parameters is built in the `Init` monad (it allocates +
+registers params); `runInit` / `runInitL` populates the registry, deriving names from the
+scope path. Stateless activations are plain values.
 
-Note: layers with learnable parameters return `IO` (random initialization). Stateless layers are pure values.
+| PyTorch | idris-ml | Builds to |
+|---------|----------|-----------|
+| `nn.Linear` | `linear {i} {o}` | `Init (Linear i o ex dt g)` |
+| `nn.RNN` / `nn.LSTM` / `nn.GRU` | `rnn` / `lstm` / `gru` | recurrent (`Nn.Recurrent`) |
+| `nn.Conv1d` / `nn.Conv2d` | `conv1d` / `conv2d` | output dim via `ConvOutDim` (type-level) |
+| `nn.MaxPool1d` / `nn.MaxPool2d` | `maxPool1d` / `maxPool2d` | output dim via `PoolOutDim` |
+| `nn.Dropout` | `dropout p` | `Init (Dropout n ex dt g)` |
+| `nn.BatchNorm1d` | `batchNorm` | |
+| `nn.LayerNorm` | `layerNorm` | |
+| `nn.Embedding` | `embedding` | |
+| `nn.ReLU` / `nn.Tanh` / `nn.Sigmoid` / `nn.GELU` | `reluA` / `tanhA` / `sigmoidA` / `geluA` | stateless |
+| Custom NTM (Graves 2014) | `ntm` | LSTM controller + external memory (`Nn.Recurrent`) |
+| Custom DNC (Graves 2016) | `dnc` | temporal links, allocation, multi-head read |
 
-**Memory-augmented architectures:**
-
-| PyTorch | idris-ml | Notes |
-|---------|----------|-------|
-| Custom NTM (Graves 2014) | `ntmLayer` | `IO (AnyLayer i o ty)`, LSTM controller + memory |
-| Custom DNC (Graves 2016) | `dncLayer` | `IO (AnyLayer i o ty)`, extends NTM with temporal links, allocation, multi-head read |
+> Don't put a `softmax` layer in the chain. Apply `tlogSoftmax1d` to raw logits and feed
+> `tnllLoss` — a softmax layer creates `1/p` intermediates that blow up. (See gotchas.)
 
 ### Model composition
 
 ```python
 # PyTorch
-model = nn.Sequential(
-    nn.Linear(2, 8),
-    nn.ReLU(),
-    nn.Linear(8, 3),
-    nn.Softmax(dim=-1)
-)
+model = nn.Sequential(nn.Linear(2, 8), nn.ReLU(), nn.Linear(8, 3))
 ```
 
 ```idris
 -- idris-ml
-l1 <- linearLayer {i=2, o=8}
-l2 <- linearLayer {i=8, o=3}
-let model = autoName (l1 ~> reluLayer ~> l2 ~> OutputLayer softmaxLayer)
+Model : Type
+Model = Seq 2 3 Ex F WithGrad
+
+mkModel : Init Model
+mkModel = do
+  l1 <- linear {i=2} {o=8}
+  l2 <- linear {i=8} {o=3}
+  pure (l1 ~~> reluA ~~> l2 ~~> Nil)
+
+trained <- runInitL mkModel    -- populates the C param registry
 ```
 
-The compiler checks that each layer's output dimension matches the next layer's input. Changing `o=8` to `o=10` without updating `i=8` is a compile error.
-
-`autoName` assigns parameter names (`l1_weight0`, `l1_bias0`, ...). Without it, parameters are invisible to the gradient system and training silently does nothing.
+The compiler checks each layer's output dimension matches the next layer's input —
+changing `o=8` to `o=10` without updating `i=8` is a compile error. There is **no
+`autoName`**: `runInit` / `runInitL` derive parameter names from the scope path (the
+PyTorch `state_dict` convention), and parameters reach the optimizer only through that
+registry.
 
 ## Training data
 
+PyTorch's three orthogonal joints map directly: `Dataset` (indexed access), `ShuffleSpec`
+(order), `DataStream` (batching + collation).
+
 | PyTorch | idris-ml | Notes |
 |---------|----------|-------|
-| `(input_tensor, target_tensor)` | `DataPoint i o ty` | Dimensions `i`, `o` are in the type |
-| `[(x1,y1), (x2,y2), ...]` | `Vect n (DataPoint i o ty)` | Length `n` is also in the type |
-| Sequence data | `RecurrentDataPoint i o ty` | `.xs : List (Vector i ty)`, `.ys : List (Vector o ty)` |
-| `DataLoader` | `mkIndexedLoader` / `mkGeneratorLoader` | Batched, with shuffle/repeat |
-
-```idris
--- A data point for a 2-input, 3-class classifier
-MkDataPoint (VTensor [STensor 1.5, STensor (-2.7)])   -- input: Vector 2 Double
-            (VTensor [STensor 0, STensor 1, STensor 0]) -- target: Vector 3 Double (one-hot)
-```
-
-The compiler ensures `DataPoint 2 3 Double` can only be used with a model whose input is 2 and output is 3.
+| `Dataset.__getitem__` | `Dataset { size : Nat; item : Fin size -> IO sample }` | `Fin` ⇒ out-of-bounds unrepresentable |
+| in-memory dataset | `fromVect` / `fromVectIO` | hold host values, materialise fresh tensors per access |
+| file / IO dataset | `fromIndexed size cb` | MNIST-family via `idxDataset` |
+| `DataLoader` | `stream spec ds` + `batched` | shuffle via Fisher-Yates C engine; collation C-side |
+| a sample | `(Tensor [i] …, Tensor [o] …)` | `batched` collates into `([b,i], [b,o])` |
 
 ## Loss functions
 
 | PyTorch | idris-ml | Notes |
 |---------|----------|-------|
-| `nn.CrossEntropyLoss()` | `crossEntropy` | Combines log-softmax + NLL |
-| `nn.NLLLoss()` | `nllLoss` | Expects log-probabilities |
-| `nn.MSELoss()` | `meanSquaredError` | |
-| `nn.BCELoss()` | `binaryCrossEntropy` | Expects probabilities |
-| `nn.BCEWithLogitsLoss()` | `binaryCrossEntropyWithLogits` | Numerically stable |
-
-All loss functions have type `LossFunction ty = {n : Nat} -> Vector n ty -> Vector n ty -> ty` — prediction and target must have the same dimension.
+| `nn.CrossEntropyLoss()` | `tlogSoftmax1d` then `tnllLoss` | apply to raw logits |
+| `nn.NLLLoss()` | `tnllLoss` | expects log-probabilities |
+| `nn.MSELoss()` | `tmseLoss` | **sum** reduction — scale by `1/n` for PyTorch's mean |
+| `nn.BCELoss()` | `tbceLoss` | expects probabilities |
 
 ## Optimizers
 
-| PyTorch | idris-ml | Notes |
-|---------|----------|-------|
-| `optim.SGD(lr=0.01)` | `nativeSgd 0.01` | |
-| `optim.Adam(lr, betas, eps)` | `nativeAdamGlobalClip lr beta1 beta2 eps maxNorm` | Includes gradient clipping |
-| `optim.AdamW(lr, betas, eps, wd)` | `nativeAdamW lr beta1 beta2 eps weightDecay maxNorm` | Decoupled weight decay |
-| `optim.RMSprop(lr, alpha, eps)` | `nativeRmsprop lr alpha eps clipVal momentum` | |
+Four IO constructors over `OptimOpts` (`defaultOpts` = PyTorch defaults; record-update to
+override `beta1`/`beta2`/`eps`/`clip`/`groups`):
 
-These are C-level native optimizers. The backward pass, gradient clipping, and parameter update happen in one fused step inside the epoch function.
+| PyTorch | idris-ml |
+|---------|----------|
+| `optim.SGD(lr)` | `sgd lr defaultOpts` |
+| `optim.Adam(lr, betas, eps)` | `adam lr defaultOpts` |
+| `optim.AdamW(lr, …, wd)` | `adamW lr weightDecay defaultOpts` |
+| `optim.RMSprop(lr, alpha, momentum)` | `rmsprop lr {alpha} {momentum} defaultOpts` |
+
+Per-network LR scoping (`actor`/`critic`) is done after construction via `Train.Freeze`
+(`groups := [("bert.", 0.0)]` freezes a prefix). Schedules: `withSchedule sched opt` +
+`tick opt epoch`.
 
 ## Training loop
 
@@ -150,37 +154,26 @@ These are C-level native optimizers. The backward pass, gradient clipping, and p
 for epoch in range(1000):
     output = model(input)
     loss = criterion(output, target)
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+    optimizer.zero_grad(); loss.backward(); optimizer.step()
 ```
 
 ```idris
--- idris-ml — declarative
-(trained, epochs, finalLoss) <- runTraining
-  (\m, d => epochNative opt d lossFn m)  -- epoch function
-  (pure trainingData)                     -- data source (IO)
-  (simpleConfig 1000)                     -- config (epochs, early stopping)
-  model                                   -- initial model
+-- idris-ml — one driver for everything
+(trained, epochs, finalLoss) <-
+  fitSupervised opt lossFn (batched stream) (simpleConfig 1000) model
 ```
 
-`runTraining` handles: epoch loop, loss logging, NaN detection, early stopping, timing.
+`fit` owns the epoch loop, schedule `tick`, early stopping, checkpointing, NaN handling.
+For RL / custom control flow, pass your own `EpochStep` to `fit`, or compose the engine
+pieces (`runEpochLoop`, `withEpoch`, `postEpoch`, `earlyStopMachine`) — and inside the
+loss body consume-and-thread the model through `forward` + a single `trainStep opt loss`.
 
 ### Early stopping
 
 | PyTorch | idris-ml |
 |---------|----------|
-| Manual patience counter | `patienceConfig totalEpochs patience` |
-| Manual loss windowing | `MkTrainConfig epochs logEvery (WindowedAvg threshold window patience) noMetrics` |
-| No early stopping | `simpleConfig totalEpochs` |
-
-### Training modes
-
-| Scenario | Epoch function | Data type |
-|----------|---------------|-----------|
-| Feedforward (classification, regression) | `epochNativeTensorPre` | `Vect n (TensorDataPoint i o)` |
-| Recurrent (RNN, LSTM, GRU) | `epochRecurrentNativeTensor` | `Vect n (RecurrentDataPoint i o Double)` |
-| Two-phase (NTM encode/decode) | `epochTwoPhaseBceNative` | `Vect n (TwoPhaseDataPoint i o Variable)` |
+| no early stopping | `simpleConfig totalEpochs` |
+| patience counter | `patienceConfig totalEpochs patience` |
 
 ## Saving and loading
 
@@ -191,13 +184,15 @@ model.load_state_dict(torch.load("model.pt"))
 ```
 
 ```idris
--- idris-ml (SafeTensors format — interoperable with PyTorch and MLX)
-ok <- saveModel "model.safetensors"
-ok <- loadModel "model.safetensors"
-let model' = emap refreshValue model  -- refresh cached values after load
+-- idris-ml — backend-agnostic SafeTensors
+saveAll "model.safetensors"
+res <- load "model.safetensors" defaultLoadOpts   -- Either LoadError ()
 ```
 
-SafeTensors files can be loaded in Python: `safetensors.torch.load_file("model.safetensors")`.
+`.safetensors` is the only on-disk format; `allowCast = False` (the default) rejects any
+dtype mismatch, `only := Just pfx` does a prefix-filtered warm-start. Python interop:
+`safetensors.torch.load_file(...)` / MLX `mx.load(...)`. Loading real HuggingFace
+checkpoints is `fromPretrained` in [`idris-transformers`](users/idris-transformers.md).
 
 ## Evaluation
 
@@ -209,22 +204,30 @@ with torch.no_grad():
 ```
 
 ```idris
--- idris-ml
-let evalModel = setNetworkTraining False trained
-let dblModel = toDoubleNetwork (emap refreshValue evalModel)
-let (_, output) = forward dblModel testInput
+-- idris-ml: eval retypes the model to NoGrad (linear); withNoGrad is the perf knob
+infer <- eval trained                            -- infer : Model … NoGrad
+(MkBang out # infer') <- forward infer testInput -- out : Tensor [b,o] … NoGrad
+discard infer'
 ```
 
-`toDoubleNetwork` converts from `Variable` (autograd-tracked) to `Double` (pure evaluation). No autograd overhead.
+`eval` flips every param's `requires_grad` off and retypes `WithGrad → NoGrad`, so the
+output can't be fed to `trainStep` (compile error). Wrap inference in `withNoGrad` for the
+tape-free perf path. On mlx, push `withNoGrad` *inside* long eval loops (per-sequence).
 
 ## Key differences to internalize
 
-1. **`forward` returns the model**: `(model', output) = forward model input`. The returned model has updated state (RNN hidden state, batch norm running stats). Always use the returned model for the next call.
+1. **`forward` consumes the model**: it's a linear resource. Use the returned handle for
+   the next call — the old name is consumed (reusing it is a compile error). This kills
+   the "freeze/eval then accidentally train via the stale handle (silent no-op)" footgun.
 
-2. **`autoName` is required**: without it, parameters have no names, the optimizer can't find them, and training silently does nothing. Always call `autoName` after composing a model.
+2. **No `autoName`**: parameters are named by `runInit` from the scope path and reach the
+   optimizer through the C registry. There's no separate paramId to pass.
 
-3. **No separate backward/step**: the epoch function (`epochNative`, etc.) fuses forward, backward, and optimizer step. You don't manually call backward or step.
+3. **No separate backward/step**: `fit` (or a single `trainStep`) fuses forward, backward,
+   clip, and optimizer step.
 
-4. **Shapes are types, not values**: `Vector 3 Double` is a different type from `Vector 4 Double`. You can't write code that accidentally mixes them — it won't compile.
+4. **Shapes (and device, dtype, grad-mode) are types, not values**: `Tensor [3] …` is a
+   different type from `Tensor [4] …`; mixing them won't compile.
 
-5. **IO for initialization, pure for computation**: layer constructors return `IO` because they use random number generators. Once built, `forward` is pure.
+5. **`Init` for construction, `L IO` for the model lifecycle**: layer builders run in
+   `Init` (they allocate + register); model forward/eval/freeze run in the linear `L IO`.
