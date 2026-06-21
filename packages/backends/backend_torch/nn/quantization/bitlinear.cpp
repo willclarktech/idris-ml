@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "../../tensor.h"
+#include "../../../cxx_abort.h"
 
 extern c10::Device g_torch_target_device;
 
@@ -39,13 +40,10 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_by
                                                         int requires_grad) {
 	const int bytes_per_row = (i + 3) / 4;
 	const int expected_bytes = bytes_per_row * o;
-	if (packed_byte_count != expected_bytes) {
-		fprintf(stderr,
-		        "[torch] tensor_create_ternary_packed_2d: byte-count "
-		        "mismatch (got %d, expected %d for shape [%d, %d])\n",
-		        packed_byte_count, expected_bytes, o, i);
-		std::abort();
-	}
+	CXX_ABORT_IF(packed_byte_count != expected_bytes,
+	             "[torch] tensor_create_ternary_packed_2d: byte-count "
+	             "mismatch (got %d, expected %d for shape [%d, %d])\n",
+	             packed_byte_count, expected_bytes, o, i);
 	auto unpacked = torch::empty({o, i}, at::TensorOptions().dtype(at::kChar));
 	int8_t* dst = unpacked.data_ptr<int8_t>();
 	for (int j = 0; j < o; j++) {
@@ -66,24 +64,25 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_by
 				v = -1;
 				break;
 			default:
+				// GCOVR_EXCL_START — switch-default for an invalid 2-bit code; only
+				// 0x0/0x1/0x3 are valid, 0x2 reaches here. Not same-line-guardable;
+				// abort() skips the gcov flush. Reachable only on corrupt packing.
 				fprintf(stderr,
 				        "[torch] tensor_create_ternary_packed_2d: "
 				        "invalid 2-bit code 0x%x at row %d col %d\n",
 				        code, j, k);
 				std::abort();
+				// GCOVR_EXCL_STOP
 			}
 			dst[(size_t)j * (size_t)i + (size_t)k] = v;
 		}
 	}
-	if (requires_grad != 0) {
-		/* int8 dtype rejects requires_grad in torch; flag as a programming
-		   error rather than silently dropping. Ternary weights are NoGrad
-		   by construction in the Idris-side type. */
-		fprintf(stderr, "[torch] tensor_create_ternary_packed_2d: "
-		                "requires_grad=1 not supported on int8/ternary storage; "
-		                "Ternary weights must be NoGrad.\n");
-		std::abort();
-	}
+	/* int8 dtype rejects requires_grad in torch; flag as a programming error
+	   rather than silently dropping. Ternary weights are NoGrad by construction
+	   in the Idris-side type. */
+	CXX_ABORT_IF(requires_grad != 0, "[torch] tensor_create_ternary_packed_2d: "
+	                                 "requires_grad=1 not supported on int8/ternary storage; "
+	                                 "Ternary weights must be NoGrad.\n");
 	// GCOVR_EXCL_START — torch MPS/CUDA-only device move; CI runs the CPU device
 	if (g_torch_target_device.type() != c10::DeviceType::CPU) {
 		unpacked = unpacked.to(g_torch_target_device);
@@ -168,13 +167,10 @@ extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* h
 			    hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
 			const int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
 			const int v = hf_code - 1;
-			if (v < -1 || v > 1) {
-				std::fprintf(stderr,
-				             "[torch] tensor_create_ternary_from_hf_packed_2d: "
-				             "invalid HF code %d (byte 0x%02x) at (j=%d, k=%d)\n",
-				             hf_code, hf_byte, j, k);
-				std::abort();
-			}
+			CXX_ABORT_IF(v < -1 || v > 1,
+			             "[torch] tensor_create_ternary_from_hf_packed_2d: "
+			             "invalid HF code %d (byte 0x%02x) at (j=%d, k=%d)\n",
+			             hf_code, hf_byte, j, k);
 			dst[(size_t)j * (size_t)i_dim + (size_t)k] = (int8_t)v;
 		}
 	}
@@ -192,13 +188,8 @@ extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* h
 
 extern "C" TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
 	auto w = *to_tensor(hw);
-	if (w.dim() != 2) {
-		std::fprintf(stderr,
-		             "[torch] tensor_absmean_per_row_2d: expected 2D, "
-		             "got dim=%lld\n",
-		             (long long)w.dim());
-		std::abort();
-	}
+	CXX_ABORT_IF(w.dim() != 2, "[torch] tensor_absmean_per_row_2d: expected 2D, got dim=%lld\n",
+	             (long long)w.dim());
 	/* at::mean(abs(w), dim=1) → [o], same dtype as w. NoGrad — one-shot
 	   frozen-quant calculation. */
 	auto scale = at::mean(at::abs(w), /*dim=*/1, /*keepdim=*/false);
@@ -208,21 +199,15 @@ extern "C" TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
 extern "C" TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hscale) {
 	auto w = *to_tensor(hw);
 	auto scale = *to_tensor(hscale);
-	if (w.dim() != 2) {
-		std::fprintf(stderr,
-		             "[torch] tensor_ternary_quant_with_scale_2d: "
-		             "expected 2D weight, got dim=%lld\n",
-		             (long long)w.dim());
-		std::abort();
-	}
-	if (scale.dim() != 1 || scale.size(0) != w.size(0)) {
-		std::fprintf(stderr,
-		             "[torch] tensor_ternary_quant_with_scale_2d: "
-		             "scale shape mismatch (expected [%lld], got dim=%lld size0=%lld)\n",
-		             (long long)w.size(0), (long long)scale.dim(),
-		             scale.dim() > 0 ? (long long)scale.size(0) : -1);
-		std::abort();
-	}
+	CXX_ABORT_IF(w.dim() != 2,
+	             "[torch] tensor_ternary_quant_with_scale_2d: "
+	             "expected 2D weight, got dim=%lld\n",
+	             (long long)w.dim());
+	CXX_ABORT_IF(scale.dim() != 1 || scale.size(0) != w.size(0),
+	             "[torch] tensor_ternary_quant_with_scale_2d: "
+	             "scale shape mismatch (expected [%lld], got dim=%lld size0=%lld)\n",
+	             (long long)w.size(0), (long long)scale.dim(),
+	             scale.dim() > 0 ? (long long)scale.size(0) : -1);
 	/* Clamp the divisor at 1e-12 — same /0 guard as
 	   `absmean_ternary_quant` in pytorch/torch_ref/models/bitlinear.py.
 	   Then mask rows where the *original* scale was zero so they stay

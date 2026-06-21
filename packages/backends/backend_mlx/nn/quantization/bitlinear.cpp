@@ -19,6 +19,7 @@
 #include <vector>
 #include "../../tensor.h"
 #include "../../stream.h"
+#include "../../../cxx_abort.h"
 
 extern "C" TensorHandle tensor_create_ternary_packed_2d_mlx_streamed(const uint8_t* packed_bytes,
                                                                      int packed_byte_count, int o,
@@ -27,23 +28,13 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d_mlx_streamed(const uint8
 	WITH_STREAM(stream_tag);
 	int const bytes_per_row = (i + 3) / 4;
 	int const expected_bytes = bytes_per_row * o;
-	if (packed_byte_count != expected_bytes) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize_mlx.c
-		std::fprintf(stderr,
-		             "[mlx] tensor_create_ternary_packed_2d: byte-count "
-		             "mismatch (got %d, expected %d for shape [%d, %d])\n",
-		             packed_byte_count, expected_bytes, o, i);
-		std::abort();
-		// GCOVR_EXCL_STOP
-	}
-	if (requires_grad != 0) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize_mlx.c
-		std::fprintf(stderr, "[mlx] tensor_create_ternary_packed_2d: "
-		                     "requires_grad=1 not supported on int8/ternary storage; "
-		                     "Ternary weights must be NoGrad.\n");
-		std::abort();
-		// GCOVR_EXCL_STOP
-	}
+	CXX_ABORT_IF(packed_byte_count != expected_bytes,
+	             "[mlx] tensor_create_ternary_packed_2d: byte-count "
+	             "mismatch (got %d, expected %d for shape [%d, %d])\n",
+	             packed_byte_count, expected_bytes, o, i);
+	CXX_ABORT_IF(requires_grad != 0, "[mlx] tensor_create_ternary_packed_2d: "
+	                                 "requires_grad=1 not supported on int8/ternary storage; "
+	                                 "Ternary weights must be NoGrad.\n");
 	std::vector<int8_t> unpacked((size_t)o * (size_t)i);
 	for (int j = 0; j < o; j++) {
 		const uint8_t* row = packed_bytes + (size_t)j * (size_t)bytes_per_row;
@@ -191,15 +182,10 @@ tensor_create_ternary_from_hf_packed_2d_mlx_streamed(const uint8_t* hf_packed_by
 			    hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
 			int const hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
 			int const v = hf_code - 1;
-			if (v < -1 || v > 1) {
-				// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize_mlx.c
-				std::fprintf(stderr,
-				             "[mlx] tensor_create_ternary_from_hf_packed_2d: "
-				             "invalid HF code %d (byte 0x%02x) at (j=%d, k=%d)\n",
-				             hf_code, hf_byte, j, k);
-				std::abort();
-				// GCOVR_EXCL_STOP
-			}
+			CXX_ABORT_IF(v < -1 || v > 1,
+			             "[mlx] tensor_create_ternary_from_hf_packed_2d: "
+			             "invalid HF code %d (byte 0x%02x) at (j=%d, k=%d)\n",
+			             hf_code, hf_byte, j, k);
 			unpacked[(size_t)j * (size_t)i_dim + (size_t)k] = (int8_t)v;
 		}
 	}
@@ -222,15 +208,8 @@ extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* h
 extern "C" TensorHandle tensor_absmean_per_row_2d_mlx_streamed(TensorHandle hw, int stream_tag) {
 	WITH_STREAM(stream_tag);
 	auto* w = (Tensor*)hw;
-	if (w->data.ndim() != 2) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize_mlx.c
-		std::fprintf(stderr,
-		             "[mlx] tensor_absmean_per_row_2d: expected 2D, "
-		             "got ndim=%d\n",
-		             (int)w->data.ndim());
-		std::abort();
-		// GCOVR_EXCL_STOP
-	}
+	CXX_ABORT_IF(w->data.ndim() != 2, "[mlx] tensor_absmean_per_row_2d: expected 2D, got ndim=%d\n",
+	             (int)w->data.ndim());
 	/* mean(abs(w), axis=1, keepdims=false) → [o] in w's dtype.
 	   NoGrad — this is a one-shot frozen-quant computation. */
 	auto scale = mx::mean(mx::abs(w->data), 1, /*keepdims=*/false);
@@ -248,25 +227,15 @@ extern "C" TensorHandle tensor_ternary_quant_with_scale_2d_mlx_streamed(TensorHa
 	WITH_STREAM(stream_tag);
 	auto* w = (Tensor*)hw;
 	auto* scale = (Tensor*)hscale;
-	if (w->data.ndim() != 2) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize_mlx.c
-		std::fprintf(stderr,
-		             "[mlx] tensor_ternary_quant_with_scale_2d: expected "
-		             "2D weight, got ndim=%d\n",
-		             (int)w->data.ndim());
-		std::abort();
-		// GCOVR_EXCL_STOP
-	}
-	if (scale->data.ndim() != 1 || scale->data.shape(0) != w->data.shape(0)) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize_mlx.c
-		std::fprintf(stderr,
-		             "[mlx] tensor_ternary_quant_with_scale_2d: scale "
-		             "shape mismatch (expected [%d], got ndim=%d shape0=%d)\n",
-		             (int)w->data.shape(0), (int)scale->data.ndim(),
-		             scale->data.ndim() > 0 ? (int)scale->data.shape(0) : -1);
-		std::abort();
-		// GCOVR_EXCL_STOP
-	}
+	CXX_ABORT_IF(w->data.ndim() != 2,
+	             "[mlx] tensor_ternary_quant_with_scale_2d: expected "
+	             "2D weight, got ndim=%d\n",
+	             (int)w->data.ndim());
+	CXX_ABORT_IF(scale->data.ndim() != 1 || scale->data.shape(0) != w->data.shape(0),
+	             "[mlx] tensor_ternary_quant_with_scale_2d: scale "
+	             "shape mismatch (expected [%d], got ndim=%d shape0=%d)\n",
+	             (int)w->data.shape(0), (int)scale->data.ndim(),
+	             scale->data.ndim() > 0 ? (int)scale->data.shape(0) : -1);
 	/* Per-row divisor; guard against /0 by clamping the divisor at a
 	   tiny floor (mlx's astype handles inf gracefully but we want the
 	   same {-1, 0, +1} clamp behaviour as the tape kernel). The clamp
