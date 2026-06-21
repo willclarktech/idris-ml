@@ -909,7 +909,8 @@ loadHfBitnetCheckpoint pfx path model = do
   -- mutates the existing param registry slots in place (the model
   -- record's float-typed Tensor fields keep their handles; their
   -- underlying C-side storage is overwritten).
-  floatOk <- loadModelAllowCast {ex} path
+  floatRes <- load {ex} path ({ allowCast := True } defaultLoadOpts)
+  let floatOk  = case floatRes of { Right () => True; Left _ => False }
   let newModel = MkBitNetModel model.embedTokens blocks' model.finalNorm
   pure (newModel, (tnLoaded, tnExpected, floatOk))
 

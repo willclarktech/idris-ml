@@ -106,7 +106,7 @@ testPeftKeyShape = do
       peftBName <- pure "base_model.model.L4ks.bert.encoder.layer.0.attention.self.query.lora_B.default.weight"
       pA <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} peftAName 99.0
       pB <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} peftBName 99.0
-      okLoad <- loadModel {ex=TestExecutor} (dir ++ "/adapter_model.safetensors")
+      okLoad <- (== Right ()) <$> load {ex=TestExecutor} (dir ++ "/adapter_model.safetensors") defaultLoadOpts
       let pAV = primItem1d {ex=TestExecutor} pA.tensorPtr 0
           pBV = primItem1d {ex=TestExecutor} pB.tensorPtr 0
       if okLoad && pAV == 0.5 && pBV == 0.0

@@ -9,11 +9,13 @@
 |||      per param.
 |||
 |||   2. `load-strict` — build a model on the active dtype, then attempt
-|||      to load the checkpoint via `loadModel` (strict semantics). If the
-|||      on-disk dtype matches the destination dtype, load succeeds. If
-|||      they differ, `param_load` errors and `loadModel` returns False.
+|||      to load the checkpoint via `load` with `defaultLoadOpts` (strict
+|||      semantics). If the on-disk dtype matches the destination dtype,
+|||      load succeeds. If they differ, `param_load` errors and `load`
+|||      returns `Left DtypeMismatch`.
 |||
-|||   3. `load-cast` — same model, load via `loadModelAllowCast`. On dtype
+|||   3. `load-cast` — same model, load via `load` with `allowCast := True`.
+|||      On dtype
 |||      mismatch the on-disk bytes are widened to doubles (lossless for
 |||      F32 -> F64) before being loaded into the destination param via
 |||      `param_load_data`, which narrows back to the destination's actual
@@ -142,12 +144,12 @@ doSave cfg opt = Control.Linear.LIO.run $ do
   liftIO1 $ do
     trainedLoss <- lossFrom predB
     putStrLn $ "Trained eval loss: " ++ show trainedLoss
-    ok <- saveAll {ex=Ex} cfg.path
+    ok <- (== Right ()) <$> saveAll {ex=Ex} cfg.path
     putStrLn $ (if ok then "Saved to " else "FAILED to save to ") ++ cfg.path
     pure ok
 
 -- Load mode: forward once pre-load and once post-load, threading the (linear)
--- inference model between the two so both reads are single-owner. loadModel
+-- inference model between the two so both reads are single-owner. `load`
 -- mutates the C param registry by name (the model value is unchanged), so the
 -- post-load forward reflects the loaded weights.
 doLoad : (allowCast : Bool) -> Config -> IO Bool
@@ -159,8 +161,9 @@ doLoad allowCast cfg = Control.Linear.LIO.run $ do
   liftIO1 $ do
     initLoss <- lossFrom predPre
     putStrLn $ "Pre-load eval loss: " ++ show initLoss
-  ok <- liftIO1 $ if allowCast then loadModelAllowCast {ex=Ex} cfg.path
-                               else loadModel {ex=Ex} cfg.path
+  ok <- liftIO1 $ if allowCast
+                    then (== Right ()) <$> load {ex=Ex} cfg.path ({ allowCast := True } defaultLoadOpts)
+                    else (== Right ()) <$> load {ex=Ex} cfg.path defaultLoadOpts
   let label : String
       label = if allowCast then "load-cast" else "load-strict"
   liftIO1 $ putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path

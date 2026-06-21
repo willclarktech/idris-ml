@@ -176,7 +176,7 @@ doTrain cfg opt = Control.Linear.LIO.run $ do
   liftIO1 $ if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
-      ok <- saveAll {ex=Ex} cfg.savePath
+      ok <- (== Right ()) <$> saveAll {ex=Ex} cfg.savePath
       putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok2 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
@@ -186,7 +186,7 @@ doContinue : Config -> Optimizer Ex -> IO ()
 doContinue cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
   liftIO1 $ do
-    ok <- loadModel {ex=Ex} cfg.loadPath
+    ok <- (== Right ()) <$> load {ex=Ex} cfg.loadPath defaultLoadOpts
     putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
     ok2 <- loadOptimizer (optPath cfg.loadPath) opt
     putStrLn $ (if ok2 then "Loaded optimizer from " else "FAILED to load optimizer from ")
@@ -198,7 +198,7 @@ doContinue cfg opt = Control.Linear.LIO.run $ do
   liftIO1 $ if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
-      ok3 <- saveAll {ex=Ex} cfg.savePath
+      ok3 <- (== Right ()) <$> saveAll {ex=Ex} cfg.savePath
       putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok4 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
@@ -208,7 +208,7 @@ doInfer : Config -> IO ()
 doInfer cfg = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
   liftIO1 $ do
-    ok <- loadModel {ex=Ex} cfg.loadPath
+    ok <- (== Right ()) <$> load {ex=Ex} cfg.loadPath defaultLoadOpts
     putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
   evalReportL [("mode", "infer")] model
 

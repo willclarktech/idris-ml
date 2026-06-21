@@ -58,8 +58,8 @@ shapeMismatch : IO Bool
 shapeMismatch = do
   let path = "/tmp/idrisml-lo-shape.safetensors"
   _ <- mkVecParam 2 "lo_shape_w" [1.0, 2.0]
-  True <- saveAll {ex=TestExecutor} path
-    | False => check "saveAll for shape test" False
+  Right () <- saveAll {ex=TestExecutor} path
+    | Left _ => check "saveAll for shape test" False
   _ <- mkVecParam 3 "lo_shape_w" [0.0, 0.0, 0.0]
   r <- load {ex=TestExecutor} path defaultLoadOpts
   check ("numel change -> Left ShapeMismatch (got " ++ show r ++ ")")
@@ -69,8 +69,8 @@ dtypeMismatchAndCast : IO Bool
 dtypeMismatchAndCast = do
   let path = "/tmp/idrisml-lo-dtype.safetensors"
   _ <- tparamScalar {ex=TestExecutor} {dt=F64} "lo_dt_w" 1.5
-  True <- saveAll {ex=TestExecutor} path
-    | False => check "saveAll for dtype test" False
+  Right () <- saveAll {ex=TestExecutor} path
+    | Left _ => check "saveAll for dtype test" False
   p32 <- tparamScalar {ex=TestExecutor} {dt=F32} "lo_dt_w" 0.0
   rStrict <- load {ex=TestExecutor} path defaultLoadOpts
   rCast <- load {ex=TestExecutor} path ({ allowCast := True } defaultLoadOpts)
@@ -85,8 +85,8 @@ onlyPrefixFilters = do
   let path = "/tmp/idrisml-lo-only.safetensors"
   _ <- tparamScalar {ex=TestExecutor} {dt=TestDType} "lo_only_a" 1.0
   _ <- tparamScalar {ex=TestExecutor} {dt=TestDType} "lo_only_b" 2.0
-  True <- saveAll {ex=TestExecutor} path
-    | False => check "saveAll for only test" False
+  Right () <- saveAll {ex=TestExecutor} path
+    | Left _ => check "saveAll for only test" False
   pa <- tparamScalar {ex=TestExecutor} {dt=TestDType} "lo_only_a" 9.0
   pb <- tparamScalar {ex=TestExecutor} {dt=TestDType} "lo_only_b" 9.0
   r <- load {ex=TestExecutor} path ({ only := Just "lo_only_a" } defaultLoadOpts)

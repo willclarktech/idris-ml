@@ -346,7 +346,7 @@ main = do
                             {maxPos=MaxPos} {typeVocab=TypeVocab}
                             {numClasses=NumClasses}
                             "bert" "classifier")
-        liftIO1 (do ok <- loadModelPrefixAllowCast {ex=ExampleExecutor} ckptPath "bert."
+        liftIO1 (do ok <- (== Right ()) <$> load {ex=ExampleExecutor} ckptPath ({ allowCast := True, only := Just "bert." } defaultLoadOpts)
                     if ok then putStrLn "Backbone warm-started from HF safetensors."
                           else do putStrLn $ "ERROR: failed to load backbone from " ++ ckptPath
                                           ++ " — run `make data-hf-bert-tiny`."

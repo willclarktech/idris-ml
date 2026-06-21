@@ -350,7 +350,7 @@ main = do
                                           {intermediate=Intermediate}
                                           {maxPos=MaxPos} {typeVocab=TypeVocab}
                                           "bert")
-        liftIO1 (do ok <- loadModelAllowCast {ex=ExampleExecutor} ckptPath
+        liftIO1 (do ok <- (== Right ()) <$> load {ex=ExampleExecutor} ckptPath ({ allowCast := True } defaultLoadOpts)
                     if ok then putStrLn "bert-tiny backbone + MLM head warm-started."
                           else do putStrLn $ "ERROR: failed to load bert-tiny from " ++ ckptPath
                                   exitFailure)

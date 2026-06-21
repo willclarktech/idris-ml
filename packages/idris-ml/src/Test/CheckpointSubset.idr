@@ -2,7 +2,8 @@
 |||
 ||| Subset load: register four 1-element params under two prefixes
 ||| (`ft1.aa.*` and `ft1.bb.*`), save, replace every value with 99.0
-||| via re-registration, then `loadModelPrefix path "ft1.aa."`. Assert
+||| via re-registration, then a prefix-filtered `load` (`only = Just
+||| "ft1.aa."`). Assert
 ||| `aa.*` restored to their original values + `bb.*` untouched at
 ||| 99.0 — exactly the "warm-start backbone, leave head fresh" guarantee
 ||| the API exists to provide.
@@ -39,16 +40,16 @@ subsetLoadTest = do
   _   <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.bb.0" 3.0
   _   <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.bb.1" 4.0
   -- Save the initial values.
-  _   <- saveModel {ex=TestExecutor} path
+  _   <- saveAll {ex=TestExecutor} path
   -- Re-register with 99.0 (replaces in registry; the returned handles
-  -- point at the new C-side tensors that `loadModelPrefix` will mutate
-  -- in place for matching names).
+  -- point at the new C-side tensors that the prefix-filtered `load`
+  -- will mutate in place for matching names).
   aa0 <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.aa.0" 99.0
   aa1 <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.aa.1" 99.0
   bb0 <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.bb.0" 99.0
   bb1 <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "ft1.bb.1" 99.0
   -- Subset-load only the `ft1.aa.` prefix.
-  ok  <- loadModelPrefix {ex=TestExecutor} path "ft1.aa."
+  ok  <- (== Right ()) <$> load {ex=TestExecutor} path ({ only := Just "ft1.aa." } defaultLoadOpts)
   let aa0v = readScalar1d aa0
       aa1v = readScalar1d aa1
       bb0v = readScalar1d bb0

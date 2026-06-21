@@ -55,8 +55,8 @@ main = do
   saveOne {dt=F16}  "w_f16"  floatVals
   saveOne {dt=I32}  "w_i32"  intVals
 
-  ok <- saveModel {ex=ExampleExecutor} path
+  ok <- (== Right ()) <$> saveAll {ex=ExampleExecutor} path
   if ok
     then putStrLn "PASS: wrote bf16/f16/i32 tensors"
-    else do putStrLn "FAIL: saveModel returned False"
+    else do putStrLn "FAIL: saveAll returned an error"
             exitFailure

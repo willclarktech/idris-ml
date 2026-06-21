@@ -16,22 +16,8 @@ import Tensor
 -- each backend's param/optimizer registry is TU-local, so `{ex}`
 -- selects which one is serialized.
 
-||| Save all registered parameters to a .safetensors file.
-||| Returns True on success.
-export
-saveModel : UserExecutorTraining ex => String -> IO Bool
-saveModel path = do
-  rc <- primIO (primParamSave {ex} path)
-  pure (rc == 0)
-
-||| Save everything registered, one file — the registry-wide escape
-||| hatch. Model-scoped saves arrive with the models-as-records work.
-export
-saveAll : UserExecutorTraining ex => String -> IO Bool
-saveAll path = saveModel {ex} path
-
 ----------------------------------------------------------------------
--- Typed load surface (v1)
+-- Typed save/load surface
 ----------------------------------------------------------------------
 
 ||| Why a load failed. Mirrors `param_load`'s C return codes
@@ -149,31 +135,16 @@ load path opts = do
             Just pfx => primIO (primParamLoadWithPrefix {ex} path castFlag pfx)
   pure (if rc == 0 then Right () else Left (decodeLoadError rc))
 
-||| Strict-dtype load as a bare Bool (wrapper over `load`).
+||| Save all registered parameters to a .safetensors file — the
+||| registry-wide escape hatch. Model-scoped saves arrive with the
+||| models-as-records work. A nonzero C return code becomes
+||| `Left (LoadFailed rc)` (the save path shares `LoadError`'s escape
+||| hatch rather than carrying a parallel error vocabulary).
 export
-loadModel : UserExecutorTraining ex => String -> IO Bool
-loadModel path = isRight <$> load {ex} path defaultLoadOpts
-
-||| `loadModel` with silent dtype conversion (wrapper over `load`
-||| with `allowCast`).
-export
-loadModelAllowCast : UserExecutorTraining ex => String -> IO Bool
-loadModelAllowCast path =
-  isRight <$> load {ex} path ({ allowCast := True } defaultLoadOpts)
-
-||| Load only keys under `pfx` (wrapper over `load` with `only`).
-export
-loadModelPrefix : UserExecutorTraining ex => (path : String) -> (pfx : String) -> IO Bool
-loadModelPrefix path pfx =
-  isRight <$> load {ex} path ({ only := Just pfx } defaultLoadOpts)
-
-||| Prefix-filtered load with silent dtype conversion (wrapper over
-||| `load`).
-export
-loadModelPrefixAllowCast : UserExecutorTraining ex =>
-                           (path : String) -> (pfx : String) -> IO Bool
-loadModelPrefixAllowCast path pfx =
-  isRight <$> load {ex} path ({ allowCast := True, only := Just pfx } defaultLoadOpts)
+saveAll : UserExecutorTraining ex => String -> IO (Either LoadError ())
+saveAll path = do
+  rc <- primIO (primParamSave {ex} path)
+  pure (if rc == 0 then Right () else Left (LoadFailed rc))
 
 ----------------------------------------------------------------------
 -- Filtered save (adapter-only checkpoints)
@@ -389,7 +360,7 @@ record CheckpointPolicy where
 saveCheckpointFiles : UserExecutorTraining ex => NativeOptimizer ex -> String -> String -> Nat -> Double -> IO Bool
 saveCheckpointFiles opt dir pfx ep best = do
   _   <- createDir dir
-  ok1 <- saveModel {ex} (pfx ++ ".model.safetensors")
+  ok1 <- isRight <$> saveAll {ex} (pfx ++ ".model.safetensors")
   ok2 <- saveOptimizer {ex} (pfx ++ ".opt.safetensors") opt
   ok3 <- writeTrainerState (pfx ++ ".trainer_state.json") ep best
   pure (ok1 && ok2 && ok3)
@@ -401,7 +372,7 @@ loadCheckpointFiles opt pfx = do
   case st of
     Nothing     => pure Nothing
     Just epBest => do
-      _ <- loadModel {ex} (pfx ++ ".model.safetensors")
+      _ <- load {ex} (pfx ++ ".model.safetensors") defaultLoadOpts
       _ <- loadOptimizer {ex} (pfx ++ ".opt.safetensors") opt
       pure (Just epBest)
 

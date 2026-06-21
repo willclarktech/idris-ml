@@ -44,7 +44,7 @@ saveMatchingExactNameTest = do
   a <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.exact.alpha" 99.0
   b <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} "L2.exact.beta"  99.0
   -- Load whatever's in the file.
-  okLoad <- loadModel {ex=TestExecutor} path
+  okLoad <- (== Right ()) <$> load {ex=TestExecutor} path defaultLoadOpts
   let aV = readScalar1d a
       bV = readScalar1d b
   r0 <- check "save+load returned ok" (okSave && okLoad)
@@ -75,7 +75,7 @@ saveBySuffixesPicksAdaptersTest = do
   w <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} wName 99.0
   a <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} aName 99.0
   b <- tparam1dConst {ex=TestExecutor} {dt=TestDType} {n=1} bName 99.0
-  okLoad <- loadModel {ex=TestExecutor} path
+  okLoad <- (== Right ()) <$> load {ex=TestExecutor} path defaultLoadOpts
   let wV = readScalar1d w
       aV = readScalar1d a
       bV = readScalar1d b

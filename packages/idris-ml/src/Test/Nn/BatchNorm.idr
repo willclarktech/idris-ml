@@ -69,7 +69,7 @@ bufferRoundtrip = do
   _  <- saveAll {ex=TestExecutor} path
   -- Fresh model re-registers the same names with reset 0/1 buffers.
   fresh <- runInit $ scoped "bnrt" (batchNorm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {channels=2} {spatialDim=4})
-  _  <- loadModel {ex=TestExecutor} path
+  _  <- load {ex=TestExecutor} path defaultLoadOpts
   let (fmeanP, fvarP) = runningStatPtrs fresh
   let lMean           = primItem1d {ex=TestExecutor} fmeanP 0
       lVar  = primItem1d {ex=TestExecutor} fvarP 0

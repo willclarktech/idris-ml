@@ -281,7 +281,7 @@ main = do
                                     {intermediate=Intermediate}
                                     {maxPos=MaxPos}
                                     "")
-        liftIO1 (do ok <- loadModelAllowCast {ex=ExampleExecutor} ckptPath
+        liftIO1 (do ok <- (== Right ()) <$> load {ex=ExampleExecutor} ckptPath ({ allowCast := True } defaultLoadOpts)
                     if ok then putStrLn "distilgpt2 backbone warm-started."
                           else do putStrLn $ "ERROR: failed to load distilgpt2 from " ++ ckptPath
                                   exitFailure)
