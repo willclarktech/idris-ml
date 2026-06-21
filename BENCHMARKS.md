@@ -164,17 +164,17 @@ Per-token wall-clock on HuggingFace inference workloads (encoder
 fwd / decoder fwd / cached-decode generation) vs HF transformers
 Python on the same hardware.
 
-### bert-inference
+### hf-bert-inference
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| bert-inference | 466.5932 | 0.9541 | 489.03× | 25 | `eb0635dc` |
+| hf-bert-inference | 466.5932 | 0.9541 | 489.03× | 25 | `eb0635dc` |
 
-### gpt2-inference
+### hf-gpt2-inference
 
 | Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
 |---|---:|---:|---:|---:|---|
-| gpt2-inference | 608.8837 | 16.9123 | 36.00× | 8 | `eb0635dc` |
+| hf-gpt2-inference | 608.8837 | 16.9123 | 36.00× | 8 | `eb0635dc` |
 
 ### hf-llama-generate-inference
 
