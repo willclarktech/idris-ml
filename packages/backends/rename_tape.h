@@ -66,7 +66,6 @@
 #define param_save param_save_tape
 #define param_save_by_name param_save_by_name_tape
 #define param_save_by_name_renamed param_save_by_name_renamed_tape
-#define param_subtract_delta param_subtract_delta_tape
 #define param_tensor param_tensor_tape
 #define param_zero_all_grads param_zero_all_grads_tape
 #define param_zero_all_grads_return param_zero_all_grads_return_tape
@@ -79,7 +78,6 @@
 #define tensor_avg_pool1d tensor_avg_pool1d_tape
 #define tensor_avg_pool2d tensor_avg_pool2d_tape
 #define tensor_backward tensor_backward_tape
-#define tensor_backward_conditional tensor_backward_conditional_tape
 #define tensor_backward_return tensor_backward_return_tape
 #define tensor_backward_return_loss tensor_backward_return_loss_tape
 #define tensor_batch tensor_batch_tape

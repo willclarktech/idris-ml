@@ -24,34 +24,11 @@ double _wall_ms(void) {
 	return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
 }
 
-/* --- Index-array helpers (DataLoader) --- */
-
-int* create_index_array(int n) {
-	int* arr = (int*)malloc(n * sizeof(int));
-	for (int i = 0; i < n; i++)
-		arr[i] = i;
-	return arr;
-}
-
-int* shuffle_index_array(int* arr, int n) {
-	for (int i = n - 1; i > 0; i--) {
-		int j = rand() % (i + 1);
-		int tmp = arr[i];
-		arr[i] = arr[j];
-		arr[j] = tmp;
-	}
-	return arr;
-}
-
-int index_array_get(int* arr, int i) {
-	return arr[i];
-}
-
 /* --- Seeded per-stream index array (DataStream) ---
  *
  * Carries its own xoshiro256++ RNG state so each stream shuffles
- * reproducibly from its seed, independent of the process-global rand()
- * that shuffle_index_array uses. The state is seeded once at creation
+ * reproducibly from its seed, independent of the process-global rand().
+ * The state is seeded once at creation
  * (splitmix64-expanded from the user seed) and ADVANCES on each
  * reshuffle, so epoch k's permutation is deterministic but distinct from
  * epoch k-1's — and two streams created with the same seed produce the

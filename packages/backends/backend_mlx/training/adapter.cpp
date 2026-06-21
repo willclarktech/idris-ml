@@ -11,7 +11,7 @@
  * Element accessors take a per-call hit because mlx arrays are immutable:
  * data_write / grad_write realize the array host-side, mutate one
  * element, then rebuild via mx_array_from_doubles. Param-registry callers
- * hit this rarely (param_subtract_delta / param_grad_item_and_zero on
+ * hit this rarely (param_grad_item_and_zero on
  * scalar params), so per-call allocate is acceptable for now.
  */
 #include "../tensor.h"
@@ -47,7 +47,7 @@ static void mlx_port_grad_write(void* h, int i, double v) {
 	/* Realize grad host-side, mutate element, push back. mlx arrays are
 	   immutable, so writing one element requires rebuilding via
 	   mx_array_from_doubles. Param-registry callers hit this rarely
-	   (only param_subtract_delta / param_grad_item_and_zero on scalar
+	   (only param_grad_item_and_zero on scalar
 	   params), so per-call allocate is acceptable. */
 	auto contig = mx::contiguous(t->grad);
 	mx::eval(contig);

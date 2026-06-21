@@ -85,9 +85,6 @@ def extract_symbols(header_text: str) -> list[str]:
         # generator won't see it anyway; the entries below cover the
         # shared_utils.c surface that DOES still pass through the
         # backend.h scan.
-        "create_index_array",
-        "shuffle_index_array",
-        "index_array_get",
         "create_seeded_index_array",
         "seeded_index_array_shuffle",
         "seeded_index_array_get",

@@ -128,7 +128,6 @@ KNOWN_SIDE_EFFECTING = {
     "param_clear",
     "param_register",
     "param_register_return",
-    "param_subtract_delta",
     "param_zero_all_grads",
     "param_zero_all_grads_return",
     "param_grad_item_and_zero",
@@ -141,7 +140,6 @@ KNOWN_SIDE_EFFECTING = {
     "tensor_backward",
     "tensor_backward_return",
     "tensor_backward_return_loss",
-    "tensor_backward_conditional",
     "tensor_zero_grad",
     "tensor_set_requires_grad",
     # Global grad-mode flag (mutates a thread-local toggle)

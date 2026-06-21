@@ -3,7 +3,7 @@
  * Owns the global parameter-array data structure (`ParamEntry` table)
  * and the surface the Idris training loop binds against:
  * `param_register`, `param_count`, `param_grad_item*`, `param_zero_all_grads`,
- * `param_subtract_delta`, `param_load_data`, `param_load_data_int64`.
+ * `param_load_data`, `param_load_data_int64`.
  *
  * Compiled once per backend with that backend's rename header (so multi-
  * link builds get `param_register_tape`, `param_register_torch`, etc.),
@@ -155,17 +155,6 @@ void param_zero_all_grads(void) {
 	for (int i = 0; i < param_count_val; i++) {
 		g_active_port.zero_grad(param_registry_arr[i].tensor);
 	}
-}
-
-/* ----------------------------------------------------------------------
-   Scalar param update — the `apply_delta` helper a few non-optimizer
-   training paths use to subtract a manually-computed delta from a
-   scalar param's data slot 0.
-   ---------------------------------------------------------------------- */
-void param_subtract_delta(int i, double delta) {
-	void* t = param_registry_arr[i].tensor;
-	double w = g_active_port.data_read(t, 0);
-	g_active_port.data_write(t, 0, w - delta);
 }
 
 /* ----------------------------------------------------------------------

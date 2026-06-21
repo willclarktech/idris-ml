@@ -13,11 +13,6 @@
 extern "C" {
 #endif
 
-/* Index-array helpers (DataLoader). */
-int* create_index_array(int n);
-int* shuffle_index_array(int* arr, int n);
-int index_array_get(int* arr, int i);
-
 /* Seeded per-stream index array (DataStream). Opaque handle carrying its
  * own xoshiro256++ state; reproducible from `seed`, independent of the
  * process-global rand(). See shared_utils.c for the lifecycle. */

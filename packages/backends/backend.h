@@ -460,7 +460,6 @@ double param_grad_item_at(int param_idx, int elem_idx); /* read grad element */
 double param_grad_item_and_zero(int idx);               /* read grad, then zero it */
 TensorHandle param_tensor(int idx);
 void param_zero_all_grads(void);
-void param_subtract_delta(int idx, double delta); /* in-place: param -= delta */
 
 /* In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading. */
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle t, double val);
@@ -646,7 +645,6 @@ int param_zero_all_grads_return(int dummy);                /* zero_all_grads(); 
  * tensor_alloc_ints / tensor_free_ints / tensor_write_int_return
  * are unified across backends — declared in shared_utils.h. */
 double* tensor_to_doubles_return(TensorHandle h, double* buf); /* tensor_to_doubles + return buf */
-int tensor_backward_conditional(TensorHandle t); /* backward if requires_grad; return param_count */
 double tensor_backward_return_loss(TensorHandle loss_ptr,
                                    double loss_val); /* backward if rg; return loss_val */
 double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val, TensorHandle loss_ptr,
@@ -824,10 +822,6 @@ TensorHandle tensor_argsort(TensorHandle t, int dim, int descending);
 TensorHandle tensor_cumprod(TensorHandle t, int dim);
 
 /* ---------- DataLoader ---------- */
-
-int* create_index_array(int n);
-int* shuffle_index_array(int* arr, int n);
-int index_array_get(int* arr, int i);
 
 /* Seeded per-stream index array (DataStream). Opaque handle with its own
  * xoshiro256++ state — reproducible from seed, independent of rand(). */

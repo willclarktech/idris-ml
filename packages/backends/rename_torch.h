@@ -66,7 +66,6 @@
 #define param_save param_save_torch
 #define param_save_by_name param_save_by_name_torch
 #define param_save_by_name_renamed param_save_by_name_renamed_torch
-#define param_subtract_delta param_subtract_delta_torch
 #define param_tensor param_tensor_torch
 #define param_zero_all_grads param_zero_all_grads_torch
 #define param_zero_all_grads_return param_zero_all_grads_return_torch
@@ -79,7 +78,6 @@
 #define tensor_avg_pool1d tensor_avg_pool1d_torch
 #define tensor_avg_pool2d tensor_avg_pool2d_torch
 #define tensor_backward tensor_backward_torch
-#define tensor_backward_conditional tensor_backward_conditional_torch
 #define tensor_backward_return tensor_backward_return_torch
 #define tensor_backward_return_loss tensor_backward_return_loss_torch
 #define tensor_batch tensor_batch_torch

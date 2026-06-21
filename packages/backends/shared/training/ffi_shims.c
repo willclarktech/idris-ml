@@ -48,11 +48,6 @@ double* tensor_to_doubles_return(TensorHandle h, double* buf) {
 	return buf;
 }
 
-int tensor_backward_conditional(TensorHandle t) {
-	if (tensor_requires_grad(t)) tensor_backward(t);
-	return param_count();
-}
-
 double tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val) {
 	if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
 	return loss_val;

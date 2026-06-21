@@ -7,7 +7,6 @@ ENTRIES = {
     "param_register_return": Entry(args=("s", "T"), ret="T"),
     "param_register_buffer_return": Entry(args=("s", "T"), ret="T"),
     "param_tensor": Entry(args=("i",), ret="T"),
-    "tensor_backward_conditional": Entry(args=("T",), ret="i"),
     "tensor_backward_return_loss": Entry(args=("T", "d"), ret="d"),
     "tensor_backward_return": Entry(args=("T",), ret="T"),
     "tensor_bmm_3x3": Entry(args=("T", "T"), ret="T"),
