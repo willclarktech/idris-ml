@@ -59,8 +59,8 @@ Test(nn_softmax_log_softmax_1d, backward) {
 		double softmax_j = exp(xd[j] - lse);
 		double expected = 1.0 - softmax_j * 3.0;
 		cr_assert_float_eq(param_grad_item_at(0, j), expected, TEST_TOL_RELAXED,
-		                   "d_log_softmax[%d]: got %.6f expected %.6f", j,
-		                   param_grad_item_at(0, j), expected);
+		                   "d_log_softmax[%d]: got %.6f expected %.6f", j, param_grad_item_at(0, j),
+		                   expected);
 		grad_sum += param_grad_item_at(0, j);
 	}
 	cr_assert_float_eq(grad_sum, 0.0, TEST_TOL_RELAXED, "sum of grads should be 0");

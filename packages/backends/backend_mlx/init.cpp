@@ -36,13 +36,15 @@
 static bool g_mlx_past_main = false;
 static std::terminate_handler g_prev_terminate_handler = nullptr;
 
-// GCOVR_EXCL_START — atexit hook; fires only during process teardown, not reachable from a unit test
+// GCOVR_EXCL_START — atexit hook; fires only during process teardown, not reachable from a unit
+// test
 static void mlx_set_past_main(void) {
 	g_mlx_past_main = true;
 }
 // GCOVR_EXCL_STOP
 
-// GCOVR_EXCL_START — std::terminate handler; runs only on an uncaught exception (crash path), not unit-testable without aborting the runner
+// GCOVR_EXCL_START — std::terminate handler; runs only on an uncaught exception (crash path), not
+// unit-testable without aborting the runner
 static void mlx_terminate_handler(void) {
 	if (g_mlx_past_main) {
 		// Process already exited cleanly; this is a destructor-order
@@ -83,7 +85,9 @@ __attribute__((constructor)) static void mlx_backend_init(void) {
 	// reference" — installing ours after the constructor leaves Chez's
 	// later sigaction call to overwrite us, so we re-install on the
 	// first FFI entry too. For diagnosis only.
-	// GCOVR_EXCL_START — opt-in diagnostic (MLX_CRASH_TRACE=1); the body is a SIGSEGV/SIGILL/SIGBUS handler that re-raises and kills the process — not reachable from a unit test without crashing the runner
+	// GCOVR_EXCL_START — opt-in diagnostic (MLX_CRASH_TRACE=1); the body is a SIGSEGV/SIGILL/SIGBUS
+	// handler that re-raises and kills the process — not reachable from a unit test without
+	// crashing the runner
 	if (std::getenv("MLX_CRASH_TRACE") != nullptr) {
 		struct sigaction sa;
 		std::memset(&sa, 0, sizeof(sa));
