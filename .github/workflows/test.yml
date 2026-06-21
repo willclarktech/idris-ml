@@ -282,7 +282,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: make typecheck-py-transformers
 
-      - name: Full clang-tidy over torch C++ backend (advisory)
+      - name: Full clang-tidy over torch C++ backend
         # The default `lint-c` runs clang-tidy on tape only; the torch
         # C++ sources need libtorch headers, which this job carries for
         # free via the ref-setup venv (the Makefile's LIBTORCH_PATH
@@ -291,14 +291,14 @@ jobs:
         # on torch being in BACKEND_LIST, so without it torch_CFLAGS gets
         # empty -I paths, clang-tidy can't find torch/torch.h, and every
         # TU parses with a broken AST that emits unreliable findings.
-        # Advisory for one run with correct headers to surface the REAL
-        # findings (the prior run's were AST artifacts of the missing
-        # includes); drop continue-on-error once those are triaged. Can't
-        # be linted locally on macOS (nix clang-tidy's libc++ is built
-        # for a different Apple SDK than the host's, breaking <math.h>);
+        # Enforcing (no continue-on-error): all 151 findings the first
+        # correct-header runs surfaced were triaged and fixed (145 in the
+        # initial sweep + 6 residual; commits 362f85f5 / 2f4e8f66), and a
+        # subsequent run came back with 0 displayed findings. Can't be
+        # linted locally on macOS (nix clang-tidy's libc++ is built for a
+        # different Apple SDK than the host's, breaking <math.h>);
         # replication is this Linux CI lane.
         if: ${{ !cancelled() }}
-        continue-on-error: true
         run: make BACKEND=torch C_LINT_FULL_CLANG_TIDY=1 lint-c-torch
       # <<< END GENERATED (lint-full) <<<
 
