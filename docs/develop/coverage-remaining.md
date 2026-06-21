@@ -11,12 +11,15 @@ uncovered, why, and how to close it. Re-measure with `make test-coverage-all`
 
 | backend | lines  | branches | suite |
 |---------|--------|----------|-------|
-| tape    | 99.5%* | —        | 591     |
-| mlx     | 99.7%  | —        | 633     |
-| torch   | 99.8%  | —        | 557     |
+| tape    | 99.97%*| —        | 599     |
+| mlx     | 99.9%  | —        | 635     |
+| torch   | 99.9%  | —        | 558     |
 
 (*tape is measured locally on macOS; the gating CI lane is **ubuntu**, where it
-is effectively higher — see the "local macOS vs CI ubuntu" note below.)
+is effectively 100% — the only local miss is the `tanh.c` scalar fallback, which
+is vForce-bypassed on macOS but exercised on ubuntu. See the note below. Test
+consolidation (one canonical test file per source, no `_cov_*` files) landed
+alongside; suite counts are post-consolidation.)
 
 (2026-06-27 push to 100%-or-exclusion: lifted tape 98.0% → 99.5%, mlx 99.2% →
 99.7%, torch 95.0% → 99.8%. **Phase 1** — `CXX_ABORT_IF` (a C++ same-line-guard
@@ -31,23 +34,26 @@ backward early-return. **Phase 3** — tape arena multi-chunk growth (>65,536 op
 DRY refactor of the duplicated MPS-F64 device ternary onto `torch_effective_device`,
 and misplaced-marker fixes.)
 
-### Residual (the last ~1%)
+### Residual (≈5 lines total, all documented)
 
-**Genuinely testable-but-deferred (tiny, fiddly):** torch `embedding.cpp` index
-dtype/device-normalization ternary arms (2) + `intermediates.cpp` pair-pool
-cleanup (1); tape `tape_reset` per-op free arms (OP_STACK/SWIGLU/GRU metas, ~12 —
-need a multi-op tape then reset) + `arena_free_all` body (4 — needs allocated
-chunks); a few mlx internals (`stream.h`, `tape.cpp`, `tile.cpp`, ~9).
+After the 100%-or-exclusion push + consolidation, the only uncovered product
+lines left:
 
-**local macOS vs CI ubuntu (tape):** tape's `#ifdef __APPLE__` vDSP path means the
-*scalar-fallback* helpers (`fn_div_f32` / `fn_tanh_f32` / `fn_sigmoid_f32` /
-`clamp_min`, ~10 lines) read uncovered **locally on macOS** (vDSP takes over) but
-are **covered on the gating ubuntu CI lane**; conversely the vDSP unary cases
-aren't compiled on ubuntu. Neither lane covers both halves; the union does. Don't
-chase these locally — the CI tape number is higher than the local 99.5%.
+- **tape `tanh.c` (2):** the `fn_tanh_f32` scalar fallback — `tanh` is a vForce op,
+  so on macOS the F32 unary takes `vvtanhf` and the scalar kernel is bypassed;
+  **covered on the gating ubuntu CI lane** (no vForce there). Local-only miss; the
+  div/sigmoid/etc. helpers that were in this bucket are now covered via
+  broadcast/non-vForce tests. Don't chase locally.
+- **mlx `tape.cpp` (2) + `tile.cpp` (1):** the `OP_CONV1D` replay-meta cleanup at
+  tape teardown and the no-grad tile `free(meta)` arm — reachable but need
+  replay/teardown scaffolding (a grad-tracked op on the mlx tape + an explicit
+  teardown); testable-but-deferred.
+- **torch `intermediates.cpp` (1):** the `all_pairs_torch` cleanup loop body —
+  needs a live `TensorPair` plus the intermediates-clear trigger; testable-but-deferred.
 
-**GPU-only:** `init.cpp` (mlx), the MPS-F64 fallback (torch, now centralized in
-`torch_effective_device` + excluded once) — Bucket B, CPU CI lane.
+Everything else is either covered or carries a reasoned `GCOVR_EXCL` (GPU/MPS
+paths, Idris-`Compatible`-gate-unreachable dispatch defaults, abort guards, the
+`mx::vjp` lambda-attribution artifact).
 
 (2026-06-26 progress: Task-1 exclusions lifted mlx 94.1% → 98.3% — NAN_TRAP +
 MLX_OPT_COMPILE marked `GCOVR_EXCL`, no behaviour change. Task-2 optimizer tests
