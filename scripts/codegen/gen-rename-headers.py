@@ -106,6 +106,17 @@ def extract_symbols(header_text: str) -> list[str]:
         "tensor_ptr_array_set_return",
         # Dropout RNG (drives process-global rand()).
         "dropout_random_seed",
+        # Backend-agnostic raw-bytes safetensors reader. Unlike the others
+        # above it lives in safetensors.c (a renamed shared TU), not
+        # shared_utils.c — but it's pure file I/O with no tensor handles or
+        # device side effects (see backend.h), so excluding it here keeps the
+        # `#define` out of every rename header and the function emerges under
+        # its unified name. The Idris FFI (Tensor/Handle.idr) binds the
+        # unified `safetensors_read_raw_bytes` directly (no per-backend
+        # dispatch); without this exclusion only `_<backend>` existed and the
+        # HF BitNet ternary-weight load aborted with "no entry for
+        # safetensors_read_raw_bytes".
+        "safetensors_read_raw_bytes",
     }
     return [n for n in names if n not in exclude]
 

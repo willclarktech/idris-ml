@@ -71,7 +71,6 @@
 #define param_zero_all_grads param_zero_all_grads_mlx
 #define param_zero_all_grads_return param_zero_all_grads_return_mlx
 #define polyak_blend_pair polyak_blend_pair_mlx
-#define safetensors_read_raw_bytes safetensors_read_raw_bytes_mlx
 #define tensor_abs tensor_abs_mlx
 #define tensor_absmean_per_row_2d tensor_absmean_per_row_2d_mlx
 #define tensor_add tensor_add_mlx
