@@ -6,8 +6,6 @@
  *     non-floating tensor).
  *   - `make_param_leaf` — the cast-before-requires_grad helper used by
  *     tensor_create_param_{1,2,3,4}d (F64 path) and the F32 param creators.
- *   - `torch_cast_to` — F32 state creator helper (cast an existing
- *     F64 state tensor down to F32).
  *   - `st_for_dtag` — runtime dtag → torch::ScalarType lookup; used by
  *     tensor_one_hot and the dtag dispatchers below.
  *   - `torch_create_*_dtag` / `torch_cast_dtype_dtag` — the per-shape
@@ -30,7 +28,6 @@ bool idrisml_is_floating_st(torch::ScalarType dt);
 torch::ScalarType st_for_dtag(int dtag);
 
 TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt);
-TensorHandle torch_cast_to(TensorHandle h, torch::ScalarType dt);
 
 /* Effective device for a (target-device, dtype) pair — falls back to CPU
    when MPS can't hold the dtype (MPS rejects F64 at construction). Used

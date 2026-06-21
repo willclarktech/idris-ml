@@ -27,12 +27,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "shared/training/port.h" /* g_active_port for the data_read/write/requires_grad slots */
 #include "test_helpers.h"
 
 #ifdef BACKEND_TORCH
 
 /* DType.Core dtag values (kind-major layout): 13=F16, 14=F32, 15=F64. */
 #define DTAG_F64 15
+#define DTAG_F32 14
 
 /* ---- load_doubles + tensor_numel: param_load_data overwrite ---- */
 
@@ -180,6 +182,49 @@ Test(adapter_cov, zero_all_grads_undefined_is_noop) {
 		cr_assert_float_eq(param_grad_item_at(0, i), 0.0, 0.0,
 		                   "grad with no backward should read 0 [%d] (got %.12f)", i,
 		                   param_grad_item_at(0, i));
+	param_clear();
+}
+
+/* ---- data_read / data_write fast arms via the port directly ----
+   torch's optimizer is libtorch-native and never routes through these port
+   slots, so (like test_param_registry.c does for data_read) drive them
+   directly off g_active_port to cover the F64/F32 contiguous fast arms. */
+
+Test(adapter_cov, data_read_write_f32_fast) {
+	param_clear();
+	double init[] = {1.0, 2.0, 3.0};
+	TensorHandle p = tensor_create_param_1d_streamed(3, hcopy(init, 3), /*stream_tag=*/0, DTAG_F32);
+	param_register("pf32", p);
+	/* data_read F32 fast branch */
+	cr_assert_float_eq(g_active_port.data_read(param_tensor(0), 1), 2.0, TEST_TOL_RELAXED,
+	                   "F32 data_read[1] (got %.6f)", g_active_port.data_read(param_tensor(0), 1));
+	/* data_write F32 fast branch */
+	g_active_port.data_write(param_tensor(0), 1, 9.0);
+	cr_assert_float_eq(g_active_port.data_read(param_tensor(0), 1), 9.0, TEST_TOL_RELAXED,
+	                   "F32 data_write[1] (got %.6f)", g_active_port.data_read(param_tensor(0), 1));
+	param_clear();
+}
+
+Test(adapter_cov, data_write_f64_fast) {
+	param_clear();
+	double init[] = {1.0, 2.0};
+	TensorHandle p = tensor_create_param_1d_streamed(2, hcopy(init, 2), /*stream_tag=*/0, DTAG_F64);
+	param_register("pf64", p);
+	g_active_port.data_write(param_tensor(0), 0, 5.5); /* F64 fast branch */
+	double buf[2];
+	tensor_to_doubles(p, buf);
+	cr_assert_float_eq(buf[0], 5.5, TEST_TOL_TIGHT, "F64 data_write[0] (got %.12f)", buf[0]);
+	cr_assert_float_eq(buf[1], 2.0, TEST_TOL_TIGHT, "F64 data_write left [1] (got %.12f)", buf[1]);
+	param_clear();
+}
+
+/* ---- tensor_requires_grad port slot ---- */
+Test(adapter_cov, tensor_requires_grad_slot) {
+	param_clear();
+	TensorHandle p = tensor_create_scalar(1.0, /*requires_grad=*/1);
+	param_register("prg", p);
+	cr_assert_eq(g_active_port.tensor_requires_grad(param_tensor(0)), 1,
+	             "requires_grad slot should report 1");
 	param_clear();
 }
 

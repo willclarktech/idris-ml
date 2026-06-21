@@ -133,12 +133,6 @@ static TensorHandle create_2d_dt(int rows, int cols, double* d, int rg, torch::S
 	return from_tensor(std::move(t));
 }
 
-/* ---- Cast helper used by F32 state creators + the dtag dispatchers ---- */
-TensorHandle torch_cast_to(TensorHandle h, torch::ScalarType dt) {
-	auto t = *to_tensor(h);
-	return from_tensor_persistent(t.dtype() == dt ? t : t.to(dt));
-}
-
 /* ---- State (non-grad persistent) builder mirroring make_param_leaf ----
    State tensors take the same cast-and-move-to-effective-device path as
    params, but without the requires_grad / leaf check. Used by the
