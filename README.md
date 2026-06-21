@@ -46,30 +46,17 @@ mkModel = do
 --   Mismatch between: 10 and 5
 ```
 
-NTM dimension relationships are type-level functions -- change one and the compiler tells you everywhere else that needs updating:
+**Five guarantees, one type mechanism.** Each of these is a compile error in idris-ml — and a runtime error, a silent bug, or simply impossible elsewhere:
 
-```idris
-ReadParamWidth : Nat -> Nat
-ReadParamWidth m = (m + ShiftKernelSize) + 3
+1. **Shape** mismatches — type-level `Nat` arithmetic (the NTM dimensions above).
+2. **Device** mismatches — including "CUDA on a Mac" (unspellable in a non-CUDA build) and Metal's F32-only limit (`Compatible (MlxExecutor MGpu) F64` deliberately doesn't exist).
+3. **Multi-backend in one program** — `tape`, `torch`, and `mlx` tensors coexist in one type-checked program with explicit, checked transfers. No mainstream framework offers this.
+4. **Grad-mode / model ownership** — models are single-owner linear resources; "freeze then train via the stale handle" (a silent no-op in PyTorch) is a linearity error.
+5. **Lossy dtype casts** — narrowing must be code-visible; `F64 → F32` won't resolve without an explicit cast.
 
-WriteParamWidth : Nat -> Nat
-WriteParamWidth m = ReadParamWidth m + m
-```
+All with dynamic-graph ergonomics intact: ordinary `if`/`for`/`while`, define-by-run autograd, normal debugging.
 
-The same compile-time discipline catches **device × dtype** mismatches. Metal GPU dropped float64 support in mlx 0.31; PyTorch users find out at runtime with a deep-in-C++ `RuntimeError`. idris-ml's `Compatible` capability interface lifts the check to the type system:
-
-```idris
--- Compiles: MlxCpu supports both F32 and F64; MlxGpu supports F32.
-gpuF32 : Tensor [4] (MlxExecutor MGpu) F32 WithGrad
-cpuF64 : Tensor [4] (MlxExecutor MCpu) F64 WithGrad
-
--- Compile error: Can't find an implementation for Compatible (MlxExecutor MGpu) F64
-gpuF64 : Tensor [4] (MlxExecutor MGpu) F64 WithGrad
-```
-
-`Tensor`'s dtype slot also carries a derived lossless-upcast partial order: `UpcastableTo F32 F64` resolves automatically (lossless), `UpcastableTo F64 F32` doesn't (narrowing — would need an explicit `tcast`). The same machinery applies to integer ladders (`Int 16 → Int 32`) and the brain-float family. Cross-family conversions (UInt 8 → F16, BF16 → F32) deliberately have no instance — even when the bit pattern fits, the semantic interpretation might not be what the user wants. See [`docs/develop/dtype-parameter.md`](docs/develop/dtype-parameter.md) for the design.
-
-You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging, define-by-run autograd) with static graph safety (shape errors, illegal device-dtype combinations, and silently lossy casts are all impossible at runtime). See [docs/static-vs-dynamic-graphs.md](docs/static-vs-dynamic-graphs.md) for the full discussion.
+→ [**Why idris-ml**](docs/why-idris-ml.md) makes the full case — every guarantee shown side by side in PyTorch, TensorFlow 1.x / JAX, Haskell (Grenade / hasktorch), and idris-ml, with the **literal error each one produces**.
 
 ## What works today
 
@@ -97,16 +84,7 @@ the PyTorch oracle and compare per-element: BERT matches HF's forward pass to **
 
 ## Getting started
 
-**Interactive notebooks** — progressive tutorial from tensors to training:
-
-1. [Tensors and Types](packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb) — shape-indexed types, the core value proposition
-2. [Building Models](packages/jupyter/notebooks/tutorials/02_building_models.ipynb) — layer composition, dimension checking
-3. [Data and Loss](packages/jupyter/notebooks/tutorials/03_data_and_loss.ipynb) — typed training data, loss functions
-4. [Training](packages/jupyter/notebooks/tutorials/04_training.ipynb) — end-to-end classifier with evaluation
-5. [Sequences](packages/jupyter/notebooks/tutorials/05_sequences.ipynb) — RNN/LSTM for time-series
-6. [Device Safety](packages/jupyter/notebooks/tutorials/06_device_safety.ipynb) — phantom Device parameter, type-safe CPU/GPU placement
-7. [Hyperparameter Optimization](packages/jupyter/notebooks/tutorials/07_hpo.ipynb) — `lr_find` and tuning workflows
-8. [Precision and Devices](packages/jupyter/notebooks/tutorials/08_precision_devices.ipynb) — `Compatible (device, dtype)` admissibility, parametric dtype families, `UpcastableTo` derivation, build-mode targeting
+The fastest path is the text walkthrough — [**docs/getting-started.md**](docs/getting-started.md) — which takes you from a first tensor to a trained model against the current `Nn` / `fit` API. The same path, interactively, is the 8-part Jupyter tutorial (tensors → models → data → training → sequences → device safety → HPO → precision); see [packages/jupyter/README.md](packages/jupyter/README.md).
 
 ### Development environment
 
@@ -162,6 +140,15 @@ Array (Vect-of-Vect)  ->  Tensor (autograd)     ->  Nn (models-as-records)  ->  
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the full module dependency order and development guide.
+
+## Documentation
+
+- [Why idris-ml](docs/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1+JAX / Haskell, with literal errors
+- [Getting Started](docs/getting-started.md) — first tensor → first trained model (text walkthrough)
+- [PyTorch Mapping](docs/pytorch-mapping.md) — concept-by-concept translation for PyTorch users
+- [idris-transformers](docs/users/idris-transformers.md) — load real HuggingFace BERT / GPT-2 / Llama / BitNet; fine-tuning + LoRA
+- Deep dives: [Static vs Dynamic Graphs](docs/static-vs-dynamic-graphs.md) · [Grad-Mode & Device Typing](docs/grad-mode-and-device-typing.md) · [Benchmarks](docs/benchmarks.md)
+- [docs/](docs/README.md) — full index · [CLAUDE.md](CLAUDE.md) — architecture + contributor guide
 
 ## References
 
