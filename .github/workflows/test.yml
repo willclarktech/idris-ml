@@ -154,8 +154,21 @@ jobs:
     if: ${{ needs.changes.outputs.lint == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Whole job runs in the pinned `lint` devShell: python3 (structural
+    # gates + jupyter venv bootstrap), uv (ruff/vulture/pyright/pytest dev
+    # venv), and the C-lint tools (clang-format/clang-tidy/cppcheck) all
+    # come from flake.lock — no apt/brew/curl, no runner-python skew.
+    # `uses:` steps (checkout, cache, nix-installer) ignore this shell.
+    defaults:
+      run:
+        shell: nix develop .#lint --command bash -e {0}
     steps:
       - uses: actions/checkout@v5
+      - name: Install Nix (pinned toolchain)
+        # Must precede every `run:` step (they all use the nix devShell as
+        # their default shell). SHA-pinned per the repo's zero-third-party-
+        # actions posture (see flake.nix header).
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Verify paired Idris ↔ torch_ref defaults match
         # Catches drift between Idris example defaults and the paired
         # torch_ref/scripts/*.py argparse defaults.
@@ -219,25 +232,22 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: packages/pytorch/.venv
-          key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+          key: pytorch-venv-lint-nix-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Restore jupyter venv cache
         id: jupyter-venv-cache
         uses: actions/cache/restore@v5
         with:
           path: packages/jupyter/.venv
-          key: jupyter-venv-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
+          key: jupyter-venv-nix-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
 
-      - name: Install uv + lint-only Python deps
-        # `--only-group dev --no-install-project` installs ruff + vulture
-        # + their transitive deps WITHOUT pulling in torch / transformers
-        # / gymnasium / mlx (the main `[project]` deps). Cold-cache cost
-        # ~5s; the torch-dependent gates live in the lint-full job
-        # instead.
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          cd packages/pytorch && $HOME/.local/bin/uv sync --quiet --only-group dev --no-install-project
+      - name: Sync lint-only Python deps (uv, dev group)
+        # uv comes from the nix `lint` devShell (no curl install). `--only-
+        # group dev --no-install-project` installs ruff + vulture + their
+        # transitive deps WITHOUT pulling in torch / transformers /
+        # gymnasium / mlx (the main `[project]` deps). Cold-cache cost ~5s;
+        # the torch-dependent gates live in the lint-full job instead.
+        run: cd packages/pytorch && uv sync --quiet --only-group dev --no-install-project
       - name: Lint Python surface (ruff check + vulture)
         # Runs `make lint-py` — ruff check + vulture (min-confidence 80%
         # per pyproject.toml). Use --no-sync so the partially-synced venv
@@ -279,20 +289,11 @@ jobs:
         # uv dev venv (pytest dev dep) synced for lint-py/typecheck-py above.
         # Wired in by the gate-coverage lint (these were previously orphaned).
         run: make test-integration-py-scripts
-      - name: Install Nix (pinned toolchain for C lint)
-        # The C-lint tools (clang-format / clang-tidy / cppcheck + <cblas.h>
-        # via openblas) come from the repo flake's `lint` devShell, pinned by
-        # flake.lock so CI's clang-tidy is byte-identical to a local checkout's
-        # (21.1.x). This kills the apt-clang-tidy-18 vs local-21 finding skew
-        # that made lint-c / include-cleaner failures unreproducible locally.
-        # SHA-pinned third-party action — a deliberate, narrow exception to the
-        # repo's zero-third-party-actions posture (see flake.nix header).
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Check C / C++ formatting (clang-format --dry-run)
         # Runs `make check-fmt-c` — the format half of the fmt family
         # (mk/fmt.mk), clang-format over all 3 backends + shared at once.
         # Separate from lint-c so format != lint. Pinned clang-format via nix.
-        run: nix develop .#lint --command make check-fmt-c
+        run: make check-fmt-c
       - name: Lint C / C++ backend surface (cppcheck + clang-tidy)
         # Runs `make lint-c`: cppcheck on all 3 backends + clang-tidy on
         # tape (tape uses only libc + BLAS headers; no libtorch / mlx
@@ -300,7 +301,7 @@ jobs:
         # runs in the lint-full job, which carries libtorch via the uv
         # venv. cppcheck flags inline; clang-tidy check set in
         # `.clang-tidy`. clang-format is the check-fmt-c step above.
-        run: nix develop .#lint --command make lint-c
+        run: make lint-c
       - name: Lint C misc-include-cleaner gate (rename-free)
         # Runs `make lint-c-include-cleaner` — clang-tidy with ONLY
         # misc-include-cleaner enabled and WITHOUT `-include
@@ -309,7 +310,7 @@ jobs:
         # tracker (~250 architectural FPs). Cannot enable the check
         # in the default `.clang-tidy` for that reason; this is the
         # canonical gate for include hygiene on backend_tape.
-        run: nix develop .#lint --command make lint-c-include-cleaner
+        run: make lint-c-include-cleaner
 
       - name: Save lint venv cache
         # Key changes only with uv.lock; a same-key re-save can only
@@ -318,14 +319,14 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: packages/pytorch/.venv
-          key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+          key: pytorch-venv-lint-nix-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Save jupyter venv cache
         if: always() && steps.jupyter-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: packages/jupyter/.venv
-          key: jupyter-venv-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
+          key: jupyter-venv-nix-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
 
   # Lint/typecheck gates that need the full torch venv (pyright import
   # resolution over torch/transformers-importing scripts). No Idris

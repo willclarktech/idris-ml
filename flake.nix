@@ -44,9 +44,23 @@
           openblas # cblas.h on Linux; macOS uses the Accelerate framework
         ];
 
-      # C-lint only: no idris2/pack, so the lint lane never triggers a compiler
-      # build. This is all the nix CI pilot wires in (the rest of the lanes move
-      # to the `default` shell in a later stage).
+      # The lint lane's toolchain: C-lint tools + the Python it needs to run
+      # the structural gates and Python-lint gates fully under nix (no
+      # apt/brew/curl, no runner-python skew). Deliberately no idris2/pack, so
+      # the lint lane never triggers a compiler build.
+      #
+      # python3 is here even though `defaultPackages` keeps Python OUT (see the
+      # rationale there): the two cases differ. defaultPackages' Python would be
+      # a *runtime* interpreter for torch/transformers, which MUST be the
+      # uv-pinned one — a second nixpkgs interpreter would diverge. The lint
+      # lane's python3 is *infrastructure*: it runs the stdlib-only structural
+      # gates (gen-ci-workflow / gen-rename-headers / executor-drift checks) and
+      # bootstraps the jupyter venv (`python3 -m venv`). For those a pinned
+      # nixpkgs python3 is strictly better than the runner's floating
+      # /usr/bin/python3 — same "CI == local, no skew" goal as clang-tidy.
+      # The torch-dependent lint gates (ruff/vulture/pyright over
+      # torch-importing code) live in lint-full and get their interpreter from
+      # the uv venv, not from this python3.
       lintPackages =
         pkgs:
         with pkgs;
@@ -54,6 +68,8 @@
           clang-tools
           cppcheck
           gnumake # CI runs `nix develop .#lint --command make lint-c …`
+          python3 # structural gates (stdlib) + jupyter venv bootstrap
+          uv # ruff/vulture/pyright/pytest dev venv (replaces curl-installed uv)
         ]
         ++ lib.optionals stdenv.isLinux [ openblas ];
 
