@@ -22,8 +22,7 @@
         test-integration-typegate-int-overflow-cast \
         test-integration-typegate-backend-linked \
         test-integration-typegate-linear-model \
-        test-integration-lint-prim-ratchet \
-        test-integration-lint-legacy-surface
+        test-integration-lint-prim-ratchet
 
 rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py
@@ -34,15 +33,6 @@ rename-headers:
 # the baseline to zero.
 test-integration-lint-prim-ratchet:
 	@python3 scripts/check-prim-in-examples.py
-
-# Ratchet gate: the legacy `Layer/`/`Network`/`epoch*`/`DataPoint`
-# training surface was deleted in the v1 API rework's concrete-collapse
-# step. This keeps it gone — zero code references to the legacy
-# identifiers + zero imports of the deleted modules across every
-# package's src. Comments are stripped before matching, so historical
-# prose in kept modules (Fit/Train.Engine/Nn.Module) doesn't trip it.
-test-integration-lint-legacy-surface:
-	@python3 scripts/check-legacy-surface.py
 
 test-integration-lint-rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py --check

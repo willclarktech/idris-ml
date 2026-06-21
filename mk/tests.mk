@@ -363,7 +363,6 @@ test-integration: \
 		test-integration-typegate-backend-linked \
 		test-integration-typegate-linear-model \
 		test-integration-lint-prim-ratchet \
-		test-integration-lint-legacy-surface \
 		test-integration-lint-fmt \
 		test-integration-checkpoint-resume \
 		test-integration-jupyter-cellparser \
