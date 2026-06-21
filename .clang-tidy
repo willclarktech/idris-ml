@@ -82,6 +82,13 @@
 #   readability-redundant-casting — sometimes intentional for clarity
 #   readability-uppercase-literal-suffix — `0L` vs `0l` typo; rare
 #       here
+#   misc-use-anonymous-namespace — C++-only; prefers `namespace {}` over
+#       file-scope `static` for internal linkage. The two are semantically
+#       identical for free functions/variables, and `static` is the idiom
+#       across this primarily-C codebase (the tape backend, C, can only
+#       use `static` and is exempt by language). Firing only on the
+#       torch/mlx C++ backends, it carries no bug-class signal — same
+#       rationale as the modernize-*/cppcoreguidelines-* family disables.
 #
 # Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 
@@ -111,6 +118,7 @@ Checks: >
   -cert-err33-c,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -misc-include-cleaner,
+  -misc-use-anonymous-namespace,
   -readability-braces-around-statements,
   -readability-function-cognitive-complexity,
   -readability-identifier-length,

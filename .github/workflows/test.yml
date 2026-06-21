@@ -282,15 +282,20 @@ jobs:
         # The default `lint-c` runs clang-tidy on tape only; the torch
         # C++ sources need libtorch headers, which this job carries for
         # free via the ref-setup venv (the Makefile's LIBTORCH_PATH
-        # detection finds the venv's torch). Closes the long-deferred
-        # "full clang-tidy needs libtorch staged" follow-up. Advisory
-        # until the first run's findings are triaged — the torch C++
-        # tree has never been clang-tidy'd and can't be linted locally
-        # (macOS+nix clang-tidy rejects Apple SDK headers); promote by
-        # dropping continue-on-error once clean.
+        # detection finds the venv's torch). BACKEND=torch is REQUIRED:
+        # the libtorch include-path detection in mk/backends.mk is gated
+        # on torch being in BACKEND_LIST, so without it torch_CFLAGS gets
+        # empty -I paths, clang-tidy can't find torch/torch.h, and every
+        # TU parses with a broken AST that emits unreliable findings.
+        # Advisory for one run with correct headers to surface the REAL
+        # findings (the prior run's were AST artifacts of the missing
+        # includes); drop continue-on-error once those are triaged. Can't
+        # be linted locally on macOS (nix clang-tidy's libc++ is built
+        # for a different Apple SDK than the host's, breaking <math.h>);
+        # replication is this Linux CI lane.
         if: ${{ !cancelled() }}
         continue-on-error: true
-        run: make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch
+        run: make BACKEND=torch C_LINT_FULL_CLANG_TIDY=1 lint-c-torch
       # <<< END GENERATED (lint-full) <<<
 
       - name: Save pytorch venv cache
