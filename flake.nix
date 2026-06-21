@@ -39,9 +39,15 @@
           pkg-config # resolves criterion/openblas include+lib paths for the
           # coverage lane's raw clang (which bypasses the nix cc wrapper's
           # NIX_CFLAGS_COMPILE, so it can't see buildInputs implicitly)
-          llvm # llvm-profdata / llvm-cov for `make test-coverage-backend-*`
-          # (clang-tools ships only clang-format/clang-tidy; macOS Command
-          # Line Tools ship no coverage tools, so the lane needs these here)
+          llvm # llvm-cov (incl. the `gcov` subcommand gcovr drives) for
+          # `make test-coverage-backend-*`. clang-tools ships only
+          # clang-format/clang-tidy; macOS Command Line Tools ship no coverage
+          # tools, so the lane needs these here. clang emits gcov-format
+          # .gcno/.gcda which gcovr reads via `--gcov-executable 'llvm-cov gcov'`.
+          gcovr # reads clang's gcov data → Cobertura XML (Codecov) + HTML.
+          # The coverage stack is gcov-based (gcovr), NOT llvm source-based:
+          # gcovr supports inline GCOVR_EXCL_* exclusion markers (see gcovr.cfg
+          # + docs/develop/coverage-policy.md).
         ]
         ++ lib.optionals stdenv.isLinux [
           openblas # cblas.h on Linux; macOS uses the Accelerate framework
