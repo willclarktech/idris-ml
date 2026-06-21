@@ -19,12 +19,12 @@ Test(lstm, lstm_gradient_chain) {
                        0.3, 0.4,   /* forget gate row */
                        0.5, 0.6,   /* cell gate row */
                        0.7, 0.8};  /* output gate row */
-    TensorHandle w = tensor_create_param_2d_f64(4, 2, heap_copy(w_data, 8));
+    TensorHandle w = tensor_create_param_2d_f64(4, 2, hcopy(w_data, 8));
     param_register("w", w);
 
     /* Create bias param [4] */
     double b_data[] = {0.0, 1.0, 0.0, 0.0};  /* forget bias = 1 */
-    TensorHandle b = tensor_create_param_1d_f64(4, heap_copy(b_data, 4));
+    TensorHandle b = tensor_create_param_1d_f64(4, hcopy(b_data, 4));
     param_register("b", b);
 
     /* Input [2] — not a param, requires_grad=0 */
@@ -92,7 +92,7 @@ Test(lstm, lstm_select_stack_chain) {
 
     /* Param: linear weight [1, 2] */
     double lw_data[] = {0.3, 0.7};
-    TensorHandle lw = tensor_create_param_2d_f64(1, 2, heap_copy(lw_data, 2));
+    TensorHandle lw = tensor_create_param_2d_f64(1, 2, hcopy(lw_data, 2));
     param_register("lw", lw);
 
     /* Create a hidden vector [2] with requires_grad (like LSTM output) */

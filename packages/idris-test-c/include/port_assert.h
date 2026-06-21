@@ -1,5 +1,6 @@
 /* port_assert.h — ASSERT_NEAR / ASSERT_TRUE Criterion shims, backend-aware
- * finite-difference vs value tolerances, and the heap_copy helper.
+ * finite-difference vs value tolerances. The heap-copy helper lives in
+ * test_helpers.h (hcopy / mk2d), re-exported here via #include.
  *
  * Shared by the per-area C suites (test_autograd / test_linalg /
  * test_nn_layers / test_activations / test_losses / test_lstm /
@@ -17,19 +18,14 @@
 #include <criterion/criterion.h>
 #include "backend.h"
 #include "shared_utils.h"
+#include "test_helpers.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-/* Copy stack array to heap (tensor_create_param_* frees the input
-   buffer). `static inline` so a suite that doesn't use it draws no
-   unused-function warning. */
-static inline double* heap_copy(const double* src, int n) {
-	double* buf = (double*)malloc(n * sizeof(double));
-	memcpy(buf, src, n * sizeof(double));
-	return buf;
-}
+/* The heap-copy helper for callee-frees creators is hcopy(), shared from
+   test_helpers.h (included above). For the common 2D case prefer mk2d(). */
 
 /* `got` is evaluated exactly once — required for sites that pass
    destructive readers like param_grad_item_and_zero(i) whose second

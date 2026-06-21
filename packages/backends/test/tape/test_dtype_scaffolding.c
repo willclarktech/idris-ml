@@ -11,7 +11,7 @@ Test(dtype_scaffolding, tape_dtype_storage) {
 
 	/* F32 create + dtype + readback (value-exact: these all fit f32). */
 	double fv[] = {1.5, -2.25, 3.0};
-	TensorHandle f32t = tensor_create_1d_streamed(3, heap_copy(fv, 3), 0, 0, 14);
+	TensorHandle f32t = tensor_create_1d_streamed(3, hcopy(fv, 3), 0, 0, 14);
 	ASSERT_TRUE("tape F32 dtype is F32", strcmp(tensor_dtype_name(f32t), "F32") == 0);
 	double fout[3];
 	tensor_to_doubles(f32t, fout);
@@ -19,7 +19,7 @@ Test(dtype_scaffolding, tape_dtype_storage) {
 
 	/* I32 create + dtype + readback (integer-valued). */
 	double iv[] = {1.0, 2.0, 3.0};
-	TensorHandle i32t = tensor_create_1d_streamed(3, heap_copy(iv, 3), 0, 0, 10);
+	TensorHandle i32t = tensor_create_1d_streamed(3, hcopy(iv, 3), 0, 0, 10);
 	ASSERT_TRUE("tape I32 dtype is I32", strcmp(tensor_dtype_name(i32t), "I32") == 0);
 	double iout[3];
 	tensor_to_doubles(i32t, iout);
@@ -27,7 +27,7 @@ Test(dtype_scaffolding, tape_dtype_storage) {
 
 	/* BF16 create + dtype + readback (bf16 tolerance). */
 	double bv[] = {1.5, 2.25, -0.5};
-	TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 17);
+	TensorHandle bf = tensor_create_1d_streamed(3, hcopy(bv, 3), 0, 0, 17);
 	ASSERT_TRUE("tape BF16 dtype is BF16", strcmp(tensor_dtype_name(bf), "BF16") == 0);
 	double bout[3];
 	tensor_to_doubles(bf, bout);
@@ -35,7 +35,7 @@ Test(dtype_scaffolding, tape_dtype_storage) {
 
 	/* Cast F64 -> F32 -> F64 round-trip (value-exact for these). */
 	double dv[] = {1.5, 2.25};
-	TensorHandle d0 = tensor_create_1d_streamed(2, heap_copy(dv, 2), 0, 0, 15);
+	TensorHandle d0 = tensor_create_1d_streamed(2, hcopy(dv, 2), 0, 0, 15);
 	TensorHandle to_f32 = tensor_cast_dtype_streamed(d0, 0, 14);
 	ASSERT_TRUE("tape cast F64->F32", strcmp(tensor_dtype_name(to_f32), "F32") == 0);
 	TensorHandle back = tensor_cast_dtype_streamed(to_f32, 0, 15);
@@ -46,7 +46,7 @@ Test(dtype_scaffolding, tape_dtype_storage) {
 
 	/* Cast F64 -> I32 -> F64 round-trip (integer-valued). */
 	double ev[] = {4.0, 5.0, 6.0};
-	TensorHandle e0 = tensor_create_1d_streamed(3, heap_copy(ev, 3), 0, 0, 15);
+	TensorHandle e0 = tensor_create_1d_streamed(3, hcopy(ev, 3), 0, 0, 15);
 	TensorHandle to_i32 = tensor_cast_dtype_streamed(e0, 0, 10);
 	ASSERT_TRUE("tape cast F64->I32", strcmp(tensor_dtype_name(to_i32), "I32") == 0);
 	double iback[3];
@@ -70,9 +70,9 @@ Test(dtype_scaffolding, tape_f32_gradcheck_oracle) {
 
 		/* F64 reference */
 		param_clear();
-		TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+		TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 		param_register("w", w64);
-		TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 15);
+		TensorHandle x64 = tensor_create_1d_streamed(3, hcopy(xv, 3), 0, 0, 15);
 		TensorHandle add64 = tensor_add(w64, x64);
 		TensorHandle sub64 = tensor_sub(w64, x64);
 		TensorHandle y64 = tensor_mul(add64, sub64);
@@ -83,9 +83,9 @@ Test(dtype_scaffolding, tape_f32_gradcheck_oracle) {
 		param_clear();
 
 		/* F32 path: same numeric chain, F32-tagged inputs. */
-		TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+		TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 		param_register("w", w32);
-		TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 14);
+		TensorHandle x32 = tensor_create_1d_streamed(3, hcopy(xv, 3), 0, 0, 14);
 		TensorHandle add32 = tensor_add(w32, x32);
 		TensorHandle sub32 = tensor_sub(w32, x32);
 		TensorHandle y32 = tensor_mul(add32, sub32);
@@ -119,9 +119,9 @@ Test(dtype_scaffolding, tape_f32_gradcheck_oracle) {
 		double gW_f64[6], gW_f32[6];
 
 		param_clear();
-		TensorHandle W64 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 15);
+		TensorHandle W64 = tensor_create_param_2d_streamed(2, 3, hcopy(Wv, 6), 0, 15);
 		param_register("W", W64);
-		TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 15);
+		TensorHandle x64 = tensor_create_1d_streamed(3, hcopy(xv, 3), 0, 0, 15);
 		TensorHandle y64 = tensor_mv(W64, x64);
 		tensor_to_doubles(y64, y_f64);
 		tensor_backward(tensor_sum(y64));
@@ -129,9 +129,9 @@ Test(dtype_scaffolding, tape_f32_gradcheck_oracle) {
 			gW_f64[i] = param_grad_item_at(0, i);
 		param_clear();
 
-		TensorHandle W32 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 14);
+		TensorHandle W32 = tensor_create_param_2d_streamed(2, 3, hcopy(Wv, 6), 0, 14);
 		param_register("W", W32);
-		TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 14);
+		TensorHandle x32 = tensor_create_1d_streamed(3, hcopy(xv, 3), 0, 0, 14);
 		TensorHandle y32 = tensor_mv(W32, x32);
 		tensor_to_doubles(y32, y_f32);
 		tensor_backward(tensor_sum(y32));
@@ -168,25 +168,25 @@ Test(dtype_scaffolding, tape_f32_gradcheck_oracle) {
 		double g_f64[4], g_f32[4];
 
 		param_clear();
-		TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 15);
+		TensorHandle w64 = tensor_create_param_1d_streamed(4, hcopy(wv, 4), 0, 15);
 		param_register("w", w64);
 		TensorHandle y64 = tensor_softmax(w64, 0);
 		tensor_to_doubles(y64, y_f64);
 		/* Use a non-trivial loss so grad isn't analytically zero:
 		   L = sum(softmax(w) * c) for fixed c = [1, 2, 3, 4]. */
 		double cv[] = {1.0, 2.0, 3.0, 4.0};
-		TensorHandle c64 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 15);
+		TensorHandle c64 = tensor_create_1d_streamed(4, hcopy(cv, 4), 0, 0, 15);
 		TensorHandle wt64 = tensor_mul(y64, c64);
 		tensor_backward(tensor_sum(wt64));
 		for (int i = 0; i < 4; i++)
 			g_f64[i] = param_grad_item_at(0, i);
 		param_clear();
 
-		TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 14);
+		TensorHandle w32 = tensor_create_param_1d_streamed(4, hcopy(wv, 4), 0, 14);
 		param_register("w", w32);
 		TensorHandle y32 = tensor_softmax(w32, 0);
 		tensor_to_doubles(y32, y_f32);
-		TensorHandle c32 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 14);
+		TensorHandle c32 = tensor_create_1d_streamed(4, hcopy(cv, 4), 0, 0, 14);
 		TensorHandle wt32 = tensor_mul(y32, c32);
 		tensor_backward(tensor_sum(wt32));
 		for (int i = 0; i < 4; i++)
@@ -219,9 +219,9 @@ Test(dtype_scaffolding, tape_f32_gradcheck_oracle) {
 		double w_f64_after[3], w_f32_after[3];
 
 		param_clear();
-		TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+		TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 		param_register("w", w64);
-		TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 15);
+		TensorHandle x64 = tensor_create_1d_streamed(3, hcopy(xv, 3), 0, 0, 15);
 		TensorHandle dot64 = tensor_dot(w64, x64); /* L = w·x */
 		tensor_backward(dot64);
 		OptimizerHandle opt64 = optimizer_create_sgd(0.01);
@@ -230,9 +230,9 @@ Test(dtype_scaffolding, tape_f32_gradcheck_oracle) {
 		optimizer_free(opt64);
 		param_clear();
 
-		TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+		TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 		param_register("w", w32);
-		TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 14);
+		TensorHandle x32 = tensor_create_1d_streamed(3, hcopy(xv, 3), 0, 0, 14);
 		TensorHandle dot32 = tensor_dot(w32, x32);
 		tensor_backward(dot32);
 		OptimizerHandle opt32 = optimizer_create_sgd(0.01);
@@ -278,7 +278,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		{
 			/* F64 reference */
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 			param_register("w", w64);
 			TensorHandle y64 = tensor_add_scalar(w64, s_add);
 			tensor_to_doubles(y64, y_f64);
@@ -288,7 +288,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			param_clear();
 
 			/* F32 path */
-			TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 			param_register("w", w32);
 			TensorHandle y32 = tensor_add_scalar(w32, s_add);
 			tensor_to_doubles(y32, y_f32);
@@ -311,7 +311,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		/* mul_scalar */
 		{
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 			param_register("w", w64);
 			TensorHandle y64 = tensor_mul_scalar(w64, s_mul);
 			tensor_to_doubles(y64, y_f64);
@@ -320,7 +320,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 			param_register("w", w32);
 			TensorHandle y32 = tensor_mul_scalar(w32, s_mul);
 			tensor_to_doubles(y32, y_f32);
@@ -344,7 +344,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		   also exercises OP_CLAMP_MIN's `tape_load_d` swap. */
 		{
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 			param_register("w", w64);
 			TensorHandle y64 = tensor_clamp_min(w64, s_clamp);
 			tensor_to_doubles(y64, y_f64);
@@ -353,7 +353,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 			param_register("w", w32);
 			TensorHandle y32 = tensor_clamp_min(w32, s_clamp);
 			tensor_to_doubles(y32, y_f32);
@@ -387,7 +387,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 #define RUN_UNARY_F32_VS_F64(label, opcall)                                                        \
 	do {                                                                                           \
 		param_clear();                                                                             \
-		TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);            \
+		TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);                \
 		param_register("w", w64);                                                                  \
 		TensorHandle y64 = opcall(w64);                                                            \
 		tensor_to_doubles(y64, y_f64);                                                             \
@@ -395,7 +395,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		for (int i = 0; i < 3; i++)                                                                \
 			g_f64[i] = param_grad_item_at(0, i);                                                   \
 		param_clear();                                                                             \
-		TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);            \
+		TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);                \
 		param_register("w", w32);                                                                  \
 		TensorHandle y32 = opcall(w32);                                                            \
 		tensor_to_doubles(y32, y_f32);                                                             \
@@ -418,7 +418,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		{
 			double alpha = 0.1;
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 			param_register("w", w64);
 			TensorHandle y64 = tensor_leaky_relu(w64, alpha);
 			tensor_to_doubles(y64, y_f64);
@@ -427,7 +427,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 			param_register("w", w32);
 			TensorHandle y32 = tensor_leaky_relu(w32, alpha);
 			tensor_to_doubles(y32, y_f32);
@@ -462,7 +462,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		double y_f64[4], y_f32[4], g_f64[4], g_f32[4];
 
 		param_clear();
-		TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 15);
+		TensorHandle w64 = tensor_create_param_1d_streamed(4, hcopy(wv, 4), 0, 15);
 		param_register("w", w64);
 		TensorHandle y64 = tensor_log_softmax(w64, 0);
 		tensor_to_doubles(y64, y_f64);
@@ -471,7 +471,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			g_f64[i] = param_grad_item_at(0, i);
 		param_clear();
 
-		TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 14);
+		TensorHandle w32 = tensor_create_param_1d_streamed(4, hcopy(wv, 4), 0, 14);
 		param_register("w", w32);
 		TensorHandle y32 = tensor_log_softmax(w32, 0);
 		tensor_to_doubles(y32, y_f32);
@@ -502,7 +502,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		/* tensor_sum: forward + grad. */
 		{
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 			param_register("w", w64);
 			TensorHandle r64 = tensor_sum(w64);
 			v64 = tensor_item(r64);
@@ -511,7 +511,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 			param_register("w", w32);
 			TensorHandle r32 = tensor_sum(w32);
 			v32 = tensor_item(r32);
@@ -533,7 +533,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		/* tensor_mean: forward + grad. */
 		{
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 15);
 			param_register("w", w64);
 			TensorHandle r64 = tensor_mean(w64);
 			v64 = tensor_item(r64);
@@ -542,7 +542,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(3, hcopy(wv, 3), 0, 14);
 			param_register("w", w32);
 			TensorHandle r32 = tensor_mean(w32);
 			v32 = tensor_item(r32);
@@ -564,8 +564,8 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		/* tensor_min / tensor_max — non-differentiable; check forward
 		   + tag only. param_clear keeps them out of registry. */
 		{
-			TensorHandle w64 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 15);
-			TensorHandle w32 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 14);
+			TensorHandle w64 = tensor_create_1d_streamed(3, hcopy(wv, 3), 0, 0, 15);
+			TensorHandle w32 = tensor_create_1d_streamed(3, hcopy(wv, 3), 0, 0, 14);
 			ASSERT_NEAR("min: v_f32 ~ v_f64", tensor_item(tensor_min(w32)),
 			            tensor_item(tensor_min(w64)), 1e-5);
 			ASSERT_NEAR("max: v_f32 ~ v_f64", tensor_item(tensor_max(w32)),
@@ -591,11 +591,11 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double out_f64[6], out_f32[6];
 			int new_shape[] = {2, 3};
 
-			TensorHandle w64 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 15);
+			TensorHandle w64 = tensor_create_1d_streamed(6, hcopy(rv, 6), 0, 0, 15);
 			TensorHandle r64 = tensor_reshape(w64, new_shape, 2);
 			tensor_to_doubles(r64, out_f64);
 
-			TensorHandle w32 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 14);
+			TensorHandle w32 = tensor_create_1d_streamed(6, hcopy(rv, 6), 0, 0, 14);
 			TensorHandle r32 = tensor_reshape(w32, new_shape, 2);
 			tensor_to_doubles(r32, out_f32);
 
@@ -614,7 +614,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double out_f64[3], out_f32[3], g_f64[5], g_f32[5];
 
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(5, hcopy(wv, 5), 0, 15);
 			param_register("w", w64);
 			TensorHandle r64 = tensor_narrow(w64, 0, 1, 3);
 			tensor_to_doubles(r64, out_f64);
@@ -623,7 +623,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(5, hcopy(wv, 5), 0, 14);
 			param_register("w", w32);
 			TensorHandle r32 = tensor_narrow(w32, 0, 1, 3);
 			tensor_to_doubles(r32, out_f32);
@@ -652,7 +652,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double g_f64[5], g_f32[5];
 
 			param_clear();
-			TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 15);
+			TensorHandle w64 = tensor_create_param_1d_streamed(5, hcopy(wv, 5), 0, 15);
 			param_register("w", w64);
 			TensorHandle r64 = tensor_select(w64, 0, 2);
 			double v64 = tensor_item(r64);
@@ -661,7 +661,7 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 14);
+			TensorHandle w32 = tensor_create_param_1d_streamed(5, hcopy(wv, 5), 0, 14);
 			param_register("w", w32);
 			TensorHandle r32 = tensor_select(w32, 0, 2);
 			double v32 = tensor_item(r32);
@@ -693,9 +693,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double out_f64[5], out_f32[5], gA_f64[3], gA_f32[3], gB_f64[2], gB_f32[2];
 
 			param_clear();
-			TensorHandle a64 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 15);
+			TensorHandle a64 = tensor_create_param_1d_streamed(3, hcopy(av, 3), 0, 15);
 			param_register("a", a64);
-			TensorHandle b64 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 15);
+			TensorHandle b64 = tensor_create_param_1d_streamed(2, hcopy(bv, 2), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_cat2(a64, b64);
 			tensor_to_doubles(r64, out_f64);
@@ -706,9 +706,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				gB_f64[i] = param_grad_item_at(1, i);
 			param_clear();
 
-			TensorHandle a32 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 14);
+			TensorHandle a32 = tensor_create_param_1d_streamed(3, hcopy(av, 3), 0, 14);
 			param_register("a", a32);
-			TensorHandle b32 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 14);
+			TensorHandle b32 = tensor_create_param_1d_streamed(2, hcopy(bv, 2), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_cat2(a32, b32);
 			tensor_to_doubles(r32, out_f32);
@@ -744,13 +744,13 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double bv[] = {5.0, 6.0, 7.0, 8.0, 9.0, 10.0}; /* [2,3] */
 			double out_f64[10], out_f32[10];
 
-			TensorHandle a64 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 15);
-			TensorHandle b64 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 15);
+			TensorHandle a64 = tensor_create_2d_streamed(2, 2, hcopy(av, 4), 0, 0, 15);
+			TensorHandle b64 = tensor_create_2d_streamed(2, 3, hcopy(bv, 6), 0, 0, 15);
 			TensorHandle r64 = tensor_concat_2d_axis1(a64, b64);
 			tensor_to_doubles(r64, out_f64);
 
-			TensorHandle a32 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 14);
-			TensorHandle b32 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 14);
+			TensorHandle a32 = tensor_create_2d_streamed(2, 2, hcopy(av, 4), 0, 0, 14);
+			TensorHandle b32 = tensor_create_2d_streamed(2, 3, hcopy(bv, 6), 0, 0, 14);
 			TensorHandle r32 = tensor_concat_2d_axis1(a32, b32);
 			tensor_to_doubles(r32, out_f32);
 
@@ -802,10 +802,10 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 
 		/* MSE — non-differentiable check (forward + tag). */
 		{
-			TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 15);
-			TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 15);
-			TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 14);
-			TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 14);
+			TensorHandle p64 = tensor_create_1d_streamed(3, hcopy(pv, 3), 0, 0, 15);
+			TensorHandle t64 = tensor_create_1d_streamed(3, hcopy(tv, 3), 0, 0, 15);
+			TensorHandle p32 = tensor_create_1d_streamed(3, hcopy(pv, 3), 0, 0, 14);
+			TensorHandle t32 = tensor_create_1d_streamed(3, hcopy(tv, 3), 0, 0, 14);
 			TensorHandle r64 = tensor_mse_loss(p64, t64);
 			TensorHandle r32 = tensor_mse_loss(p32, t32);
 			ASSERT_TRUE("mse: F32 output propagates F32 tag",
@@ -815,10 +815,10 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 
 		/* cross_entropy — non-differentiable check; depends on log_softmax. */
 		{
-			TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 15);
-			TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 15);
-			TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 14);
-			TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 14);
+			TensorHandle p64 = tensor_create_1d_streamed(3, hcopy(pv, 3), 0, 0, 15);
+			TensorHandle t64 = tensor_create_1d_streamed(3, hcopy(tv, 3), 0, 0, 15);
+			TensorHandle p32 = tensor_create_1d_streamed(3, hcopy(pv, 3), 0, 0, 14);
+			TensorHandle t32 = tensor_create_1d_streamed(3, hcopy(tv, 3), 0, 0, 14);
 			TensorHandle r64 = tensor_cross_entropy(p64, t64);
 			TensorHandle r32 = tensor_cross_entropy(p32, t32);
 			ASSERT_TRUE("cross_entropy: F32 output propagates F32 tag",
@@ -831,9 +831,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double g_f64[3], g_f32[3];
 
 			param_clear();
-			TensorHandle p64 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 15);
+			TensorHandle p64 = tensor_create_param_1d_streamed(3, hcopy(pv, 3), 0, 15);
 			param_register("p", p64);
-			TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 15);
+			TensorHandle t64 = tensor_create_1d_streamed(3, hcopy(tv, 3), 0, 0, 15);
 			TensorHandle r64 = tensor_bce_with_logits(p64, t64);
 			double v64 = tensor_item(r64);
 			tensor_backward(r64);
@@ -841,9 +841,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				g_f64[i] = param_grad_item_at(0, i);
 			param_clear();
 
-			TensorHandle p32 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 14);
+			TensorHandle p32 = tensor_create_param_1d_streamed(3, hcopy(pv, 3), 0, 14);
 			param_register("p", p32);
-			TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 14);
+			TensorHandle t32 = tensor_create_1d_streamed(3, hcopy(tv, 3), 0, 0, 14);
 			TensorHandle r32 = tensor_bce_with_logits(p32, t32);
 			double v32 = tensor_item(r32);
 			tensor_backward(r32);
@@ -878,11 +878,11 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			    gb_f32[2];
 
 			param_clear();
-			TensorHandle W64 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m * n), 0, 15);
+			TensorHandle W64 = tensor_create_param_2d_streamed(m, n, hcopy(Wv, m * n), 0, 15);
 			param_register("W", W64);
-			TensorHandle x64 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 15);
+			TensorHandle x64 = tensor_create_param_1d_streamed(n, hcopy(xv, n), 0, 15);
 			param_register("x", x64);
-			TensorHandle b64 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 15);
+			TensorHandle b64 = tensor_create_param_1d_streamed(m, hcopy(bv, m), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_linear(W64, x64, b64);
 			tensor_to_doubles(r64, y_f64);
@@ -895,11 +895,11 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				gb_f64[i] = param_grad_item_at(2, i);
 			param_clear();
 
-			TensorHandle W32 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m * n), 0, 14);
+			TensorHandle W32 = tensor_create_param_2d_streamed(m, n, hcopy(Wv, m * n), 0, 14);
 			param_register("W", W32);
-			TensorHandle x32 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 14);
+			TensorHandle x32 = tensor_create_param_1d_streamed(n, hcopy(xv, n), 0, 14);
 			param_register("x", x32);
-			TensorHandle b32 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 14);
+			TensorHandle b32 = tensor_create_param_1d_streamed(m, hcopy(bv, m), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_linear(W32, x32, b32);
 			tensor_to_doubles(r32, y_f32);
@@ -944,9 +944,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double y_f64[2], y_f32[2], ga_f64[3], ga_f32[3], gB_f64[6], gB_f32[6];
 
 			param_clear();
-			TensorHandle a64 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 15);
+			TensorHandle a64 = tensor_create_param_1d_streamed(n, hcopy(av, n), 0, 15);
 			param_register("a", a64);
-			TensorHandle B64 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n * m), 0, 15);
+			TensorHandle B64 = tensor_create_param_2d_streamed(n, m, hcopy(Bv, n * m), 0, 15);
 			param_register("B", B64);
 			TensorHandle r64 = tensor_matmul(a64, B64);
 			tensor_to_doubles(r64, y_f64);
@@ -957,9 +957,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				gB_f64[i] = param_grad_item_at(1, i);
 			param_clear();
 
-			TensorHandle a32 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 14);
+			TensorHandle a32 = tensor_create_param_1d_streamed(n, hcopy(av, n), 0, 14);
 			param_register("a", a32);
-			TensorHandle B32 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n * m), 0, 14);
+			TensorHandle B32 = tensor_create_param_2d_streamed(n, m, hcopy(Bv, n * m), 0, 14);
 			param_register("B", B32);
 			TensorHandle r32 = tensor_matmul(a32, B32);
 			tensor_to_doubles(r32, y_f32);
@@ -997,9 +997,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double y_f64[6], y_f32[6], ga_f64[3], ga_f32[3], gb_f64[2], gb_f32[2];
 
 			param_clear();
-			TensorHandle a64 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 15);
+			TensorHandle a64 = tensor_create_param_1d_streamed(m, hcopy(av, m), 0, 15);
 			param_register("a", a64);
-			TensorHandle b64 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 15);
+			TensorHandle b64 = tensor_create_param_1d_streamed(n, hcopy(bv, n), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_outer(a64, b64);
 			tensor_to_doubles(r64, y_f64);
@@ -1010,9 +1010,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				gb_f64[i] = param_grad_item_at(1, i);
 			param_clear();
 
-			TensorHandle a32 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 14);
+			TensorHandle a32 = tensor_create_param_1d_streamed(m, hcopy(av, m), 0, 14);
 			param_register("a", a32);
-			TensorHandle b32 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 14);
+			TensorHandle b32 = tensor_create_param_1d_streamed(n, hcopy(bv, n), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_outer(a32, b32);
 			tensor_to_doubles(r32, y_f32);
@@ -1050,9 +1050,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double y_f64[4], y_f32[4], ga_f64[6], ga_f32[6], gb_f64[6], gb_f32[6];
 
 			param_clear();
-			TensorHandle a64 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M * N), 0, 15);
+			TensorHandle a64 = tensor_create_param_2d_streamed(M, N, hcopy(av, M * N), 0, 15);
 			param_register("a", a64);
-			TensorHandle b64 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N * K), 0, 15);
+			TensorHandle b64 = tensor_create_param_2d_streamed(N, K, hcopy(bv, N * K), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_mm(a64, b64);
 			tensor_to_doubles(r64, y_f64);
@@ -1063,9 +1063,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				gb_f64[i] = param_grad_item_at(1, i);
 			param_clear();
 
-			TensorHandle a32 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M * N), 0, 14);
+			TensorHandle a32 = tensor_create_param_2d_streamed(M, N, hcopy(av, M * N), 0, 14);
 			param_register("a", a32);
-			TensorHandle b32 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N * K), 0, 14);
+			TensorHandle b32 = tensor_create_param_2d_streamed(N, K, hcopy(bv, N * K), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_mm(a32, b32);
 			tensor_to_doubles(r32, y_f32);
@@ -1105,12 +1105,11 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			    gb_f32[2];
 
 			param_clear();
-			TensorHandle W64 =
-			    tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo * ii), 0, 15);
+			TensorHandle W64 = tensor_create_param_2d_streamed(oo, ii, hcopy(Wv, oo * ii), 0, 15);
 			param_register("W", W64);
-			TensorHandle X64 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B * ii), 0, 15);
+			TensorHandle X64 = tensor_create_param_2d_streamed(B, ii, hcopy(Xv, B * ii), 0, 15);
 			param_register("X", X64);
-			TensorHandle b64 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 15);
+			TensorHandle b64 = tensor_create_param_1d_streamed(oo, hcopy(bv, oo), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_linear_2d(W64, X64, b64);
 			tensor_to_doubles(r64, y_f64);
@@ -1123,12 +1122,11 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				gb_f64[i] = param_grad_item_at(2, i);
 			param_clear();
 
-			TensorHandle W32 =
-			    tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo * ii), 0, 14);
+			TensorHandle W32 = tensor_create_param_2d_streamed(oo, ii, hcopy(Wv, oo * ii), 0, 14);
 			param_register("W", W32);
-			TensorHandle X32 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B * ii), 0, 14);
+			TensorHandle X32 = tensor_create_param_2d_streamed(B, ii, hcopy(Xv, B * ii), 0, 14);
 			param_register("X", X32);
-			TensorHandle b32 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 14);
+			TensorHandle b32 = tensor_create_param_1d_streamed(oo, hcopy(bv, oo), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_linear_2d(W32, X32, b32);
 			tensor_to_doubles(r32, y_f32);
@@ -1175,9 +1173,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 
 			param_clear();
 			TensorHandle a64 =
-			    tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B * m * n), 0, 15);
+			    tensor_create_param_3d_streamed(B, m, n, hcopy(av, B * m * n), 0, 15);
 			param_register("a", a64);
-			TensorHandle b64 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n * k), 0, 15);
+			TensorHandle b64 = tensor_create_param_2d_streamed(n, k, hcopy(bv, n * k), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_bmm(a64, b64);
 			tensor_to_doubles(r64, y_f64);
@@ -1189,9 +1187,9 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			param_clear();
 
 			TensorHandle a32 =
-			    tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B * m * n), 0, 14);
+			    tensor_create_param_3d_streamed(B, m, n, hcopy(av, B * m * n), 0, 14);
 			param_register("a", a32);
-			TensorHandle b32 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n * k), 0, 14);
+			TensorHandle b32 = tensor_create_param_2d_streamed(n, k, hcopy(bv, n * k), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_bmm(a32, b32);
 			tensor_to_doubles(r32, y_f32);
@@ -1235,19 +1233,19 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			double y_f64[6], y_f32[6];
 
 			/* F64 reference (no grad — exercise forward + running stats only). */
-			TensorHandle x64 = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 15);
-			TensorHandle g64 = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 15);
-			TensorHandle b64 = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 15);
-			TensorHandle rm64 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 15);
-			TensorHandle rv64 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 15);
+			TensorHandle x64 = tensor_create_1d_streamed(n, hcopy(xv, n), 0, 0, 15);
+			TensorHandle g64 = tensor_create_1d_streamed(C, hcopy(gv, C), 0, 0, 15);
+			TensorHandle b64 = tensor_create_1d_streamed(C, hcopy(bv, C), 0, 0, 15);
+			TensorHandle rm64 = tensor_create_state_1d_streamed(C, hcopy(rmv, C), 0, 15);
+			TensorHandle rv64 = tensor_create_state_1d_streamed(C, hcopy(rvv, C), 0, 15);
 			TensorHandle r64 = tensor_batch_norm(x64, g64, b64, rm64, rv64, C, sp, 1, 0.1, 1e-5);
 			tensor_to_doubles(r64, y_f64);
 
-			TensorHandle x32 = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 14);
-			TensorHandle g32 = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 14);
-			TensorHandle b32 = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 14);
-			TensorHandle rm32 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 14);
-			TensorHandle rv32 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 14);
+			TensorHandle x32 = tensor_create_1d_streamed(n, hcopy(xv, n), 0, 0, 14);
+			TensorHandle g32 = tensor_create_1d_streamed(C, hcopy(gv, C), 0, 0, 14);
+			TensorHandle b32 = tensor_create_1d_streamed(C, hcopy(bv, C), 0, 0, 14);
+			TensorHandle rm32 = tensor_create_state_1d_streamed(C, hcopy(rmv, C), 0, 14);
+			TensorHandle rv32 = tensor_create_state_1d_streamed(C, hcopy(rvv, C), 0, 14);
 			TensorHandle r32 = tensor_batch_norm(x32, g32, b32, rm32, rv32, C, sp, 1, 0.1, 1e-5);
 			tensor_to_doubles(r32, y_f32);
 
@@ -1283,11 +1281,11 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			    gb_f32[3];
 
 			param_clear();
-			TensorHandle x64 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M * N), 0, 15);
+			TensorHandle x64 = tensor_create_param_2d_streamed(M, N, hcopy(xv, M * N), 0, 15);
 			param_register("x", x64);
-			TensorHandle g64 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 15);
+			TensorHandle g64 = tensor_create_param_1d_streamed(N, hcopy(gv, N), 0, 15);
 			param_register("g", g64);
-			TensorHandle b64 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 15);
+			TensorHandle b64 = tensor_create_param_1d_streamed(N, hcopy(bv, N), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_layer_norm_2d(x64, g64, b64, 1e-5);
 			tensor_to_doubles(r64, y_f64);
@@ -1300,11 +1298,11 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 				gb_f64[i] = param_grad_item_at(2, i);
 			param_clear();
 
-			TensorHandle x32 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M * N), 0, 14);
+			TensorHandle x32 = tensor_create_param_2d_streamed(M, N, hcopy(xv, M * N), 0, 14);
 			param_register("x", x32);
-			TensorHandle g32 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 14);
+			TensorHandle g32 = tensor_create_param_1d_streamed(N, hcopy(gv, N), 0, 14);
 			param_register("g", g32);
-			TensorHandle b32 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 14);
+			TensorHandle b32 = tensor_create_param_1d_streamed(N, hcopy(bv, N), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_layer_norm_2d(x32, g32, b32, 1e-5);
 			tensor_to_doubles(r32, y_f32);
@@ -1350,10 +1348,10 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 
 			param_clear();
 			TensorHandle a64 =
-			    tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B * m * n), 0, 15);
+			    tensor_create_param_3d_streamed(B, m, n, hcopy(av, B * m * n), 0, 15);
 			param_register("a", a64);
 			TensorHandle b64 =
-			    tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B * n * k), 0, 15);
+			    tensor_create_param_3d_streamed(B, n, k, hcopy(bv, B * n * k), 0, 15);
 			param_register("b", b64);
 			TensorHandle r64 = tensor_bmm_3x3(a64, b64);
 			tensor_to_doubles(r64, y_f64);
@@ -1365,10 +1363,10 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 			param_clear();
 
 			TensorHandle a32 =
-			    tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B * m * n), 0, 14);
+			    tensor_create_param_3d_streamed(B, m, n, hcopy(av, B * m * n), 0, 14);
 			param_register("a", a32);
 			TensorHandle b32 =
-			    tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B * n * k), 0, 14);
+			    tensor_create_param_3d_streamed(B, n, k, hcopy(bv, B * n * k), 0, 14);
 			param_register("b", b32);
 			TensorHandle r32 = tensor_bmm_3x3(a32, b32);
 			tensor_to_doubles(r32, y_f32);
@@ -1436,10 +1434,10 @@ Test(dtype_scaffolding, tape_f32_rnn_conv_coverage) {
 
 		/* F64 path */
 		param_clear();
-		TensorHandle in64 = tensor_create_2d_streamed(1, 4, heap_copy(inv, 4), 0, 0, 15);
-		TensorHandle k64 = tensor_create_param_3d_streamed(1, 1, 2, heap_copy(kv, 2), 0, 15);
+		TensorHandle in64 = tensor_create_2d_streamed(1, 4, hcopy(inv, 4), 0, 0, 15);
+		TensorHandle k64 = tensor_create_param_3d_streamed(1, 1, 2, hcopy(kv, 2), 0, 15);
 		param_register("k", k64);
-		TensorHandle b64 = tensor_create_1d_streamed(1, heap_copy(bv, 1), 0, 0, 15);
+		TensorHandle b64 = tensor_create_1d_streamed(1, hcopy(bv, 1), 0, 0, 15);
 		TensorHandle y64 = tensor_conv1d(in64, k64, b64, 0, 1);
 		tensor_to_doubles(y64, y_f64);
 		tensor_backward(tensor_sum(y64));
@@ -1448,10 +1446,10 @@ Test(dtype_scaffolding, tape_f32_rnn_conv_coverage) {
 		param_clear();
 
 		/* F32 path */
-		TensorHandle in32 = tensor_create_2d_streamed(1, 4, heap_copy(inv, 4), 0, 0, 14);
-		TensorHandle k32 = tensor_create_param_3d_streamed(1, 1, 2, heap_copy(kv, 2), 0, 14);
+		TensorHandle in32 = tensor_create_2d_streamed(1, 4, hcopy(inv, 4), 0, 0, 14);
+		TensorHandle k32 = tensor_create_param_3d_streamed(1, 1, 2, hcopy(kv, 2), 0, 14);
 		param_register("k", k32);
-		TensorHandle b32 = tensor_create_1d_streamed(1, heap_copy(bv, 1), 0, 0, 14);
+		TensorHandle b32 = tensor_create_1d_streamed(1, hcopy(bv, 1), 0, 0, 14);
 		TensorHandle y32 = tensor_conv1d(in32, k32, b32, 0, 1);
 		tensor_to_doubles(y32, y_f32);
 		tensor_backward(tensor_sum(y32));
@@ -1485,7 +1483,7 @@ Test(dtype_scaffolding, tape_f32_rnn_conv_coverage) {
 		double g_f64[4], g_f32[4];
 
 		param_clear();
-		TensorHandle in64 = tensor_create_param_2d_streamed(1, 4, heap_copy(inv, 4), 0, 15);
+		TensorHandle in64 = tensor_create_param_2d_streamed(1, 4, hcopy(inv, 4), 0, 15);
 		param_register("in", in64);
 		TensorHandle y64 = tensor_avg_pool1d(in64, 2, 2);
 		tensor_to_doubles(y64, y_f64);
@@ -1494,7 +1492,7 @@ Test(dtype_scaffolding, tape_f32_rnn_conv_coverage) {
 			g_f64[i] = param_grad_item_at(0, i);
 		param_clear();
 
-		TensorHandle in32 = tensor_create_param_2d_streamed(1, 4, heap_copy(inv, 4), 0, 14);
+		TensorHandle in32 = tensor_create_param_2d_streamed(1, 4, hcopy(inv, 4), 0, 14);
 		param_register("in", in32);
 		TensorHandle y32 = tensor_avg_pool1d(in32, 2, 2);
 		tensor_to_doubles(y32, y_f32);
@@ -1534,10 +1532,10 @@ Test(dtype_scaffolding, tape_f32_rnn_conv_coverage) {
 		double g_f64[3], g_f32[3];
 
 		param_clear();
-		TensorHandle ih64 = tensor_create_param_1d_streamed(3, heap_copy(ihv, 3), 0, 15);
+		TensorHandle ih64 = tensor_create_param_1d_streamed(3, hcopy(ihv, 3), 0, 15);
 		param_register("ih", ih64);
-		TensorHandle hh64 = tensor_create_1d_streamed(3, heap_copy(hhv, 3), 0, 0, 15);
-		TensorHandle prev64 = tensor_create_1d_streamed(1, heap_copy(prevv, 1), 0, 0, 15);
+		TensorHandle hh64 = tensor_create_1d_streamed(3, hcopy(hhv, 3), 0, 0, 15);
+		TensorHandle prev64 = tensor_create_1d_streamed(1, hcopy(prevv, 1), 0, 0, 15);
 		TensorHandle y64 = tensor_gru_cell(ih64, hh64, prev64, 1);
 		tensor_to_doubles(y64, y_f64);
 		tensor_backward(tensor_sum(y64));
@@ -1545,10 +1543,10 @@ Test(dtype_scaffolding, tape_f32_rnn_conv_coverage) {
 			g_f64[i] = param_grad_item_at(0, i);
 		param_clear();
 
-		TensorHandle ih32 = tensor_create_param_1d_streamed(3, heap_copy(ihv, 3), 0, 14);
+		TensorHandle ih32 = tensor_create_param_1d_streamed(3, hcopy(ihv, 3), 0, 14);
 		param_register("ih", ih32);
-		TensorHandle hh32 = tensor_create_1d_streamed(3, heap_copy(hhv, 3), 0, 0, 14);
-		TensorHandle prev32 = tensor_create_1d_streamed(1, heap_copy(prevv, 1), 0, 0, 14);
+		TensorHandle hh32 = tensor_create_1d_streamed(3, hcopy(hhv, 3), 0, 0, 14);
+		TensorHandle prev32 = tensor_create_1d_streamed(1, hcopy(prevv, 1), 0, 0, 14);
 		TensorHandle y32 = tensor_gru_cell(ih32, hh32, prev32, 1);
 		tensor_to_doubles(y32, y_f32);
 		tensor_backward(tensor_sum(y32));
@@ -1582,8 +1580,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 	   f16  nearest representable for 0.1: 0x2E66 -> ~0.0999755859375 */
 	{
 		double bv[] = {1.5, 0.1, -2.0}; /* 1.5 + -2.0 exact in both; 0.1 rounds */
-		TensorHandle bf =
-		    tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 17); /* dtag 17 = BF16 */
+		TensorHandle bf = tensor_create_1d_streamed(3, hcopy(bv, 3), 0, 0, 17); /* dtag 17 = BF16 */
 		ASSERT_TRUE("BF16 dtype name", strcmp(tensor_dtype_name(bf), "BF16") == 0);
 		double bout[3];
 		tensor_to_doubles(bf, bout);
@@ -1591,8 +1588,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 		ASSERT_NEAR("BF16 round: 0.1 -> 0.10009765625", bout[1], 0.10009765625, 1e-7);
 		ASSERT_NEAR("BF16 exact: -2.0", bout[2], -2.0, 1e-12);
 
-		TensorHandle hf =
-		    tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 13); /* dtag 13 = F16 */
+		TensorHandle hf = tensor_create_1d_streamed(3, hcopy(bv, 3), 0, 0, 13); /* dtag 13 = F16 */
 		ASSERT_TRUE("F16 dtype name", strcmp(tensor_dtype_name(hf), "F16") == 0);
 		double hout[3];
 		tensor_to_doubles(hf, hout);
@@ -1605,7 +1601,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 	{
 		/* I8: -128..127 */
 		double v8[] = {-128.0, -1.0, 0.0, 1.0, 127.0};
-		TensorHandle i8 = tensor_create_1d_streamed(5, heap_copy(v8, 5), 0, 0, 8);
+		TensorHandle i8 = tensor_create_1d_streamed(5, hcopy(v8, 5), 0, 0, 8);
 		ASSERT_TRUE("I8 dtype name", strcmp(tensor_dtype_name(i8), "I8") == 0);
 		double out8[5];
 		tensor_to_doubles(i8, out8);
@@ -1617,7 +1613,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 
 		/* I16: -32768..32767 */
 		double v16[] = {-32768.0, 32767.0, 0.0};
-		TensorHandle i16 = tensor_create_1d_streamed(3, heap_copy(v16, 3), 0, 0, 9);
+		TensorHandle i16 = tensor_create_1d_streamed(3, hcopy(v16, 3), 0, 0, 9);
 		ASSERT_TRUE("I16 dtype name", strcmp(tensor_dtype_name(i16), "I16") == 0);
 		double out16[3];
 		tensor_to_doubles(i16, out16);
@@ -1629,7 +1625,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 
 		/* I32: full 32-bit range */
 		double v32[] = {-2147483648.0, 0.0, 2147483647.0};
-		TensorHandle i32 = tensor_create_1d_streamed(3, heap_copy(v32, 3), 0, 0, 10);
+		TensorHandle i32 = tensor_create_1d_streamed(3, hcopy(v32, 3), 0, 0, 10);
 		ASSERT_TRUE("I32 dtype name", strcmp(tensor_dtype_name(i32), "I32") == 0);
 		double out32[3];
 		tensor_to_doubles(i32, out32);
@@ -1641,7 +1637,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 
 		/* I64: within 2^53 (documented caveat — above loses precision via double). */
 		double v64[] = {-1e15, 0.0, 1e15};
-		TensorHandle i64 = tensor_create_1d_streamed(3, heap_copy(v64, 3), 0, 0, 11);
+		TensorHandle i64 = tensor_create_1d_streamed(3, hcopy(v64, 3), 0, 0, 11);
 		ASSERT_TRUE("I64 dtype name", strcmp(tensor_dtype_name(i64), "I64") == 0);
 		double out64[3];
 		tensor_to_doubles(i64, out64);
@@ -1655,7 +1651,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 	/* U8 + Bool — exact via Phase 2 rounding. */
 	{
 		double vu[] = {0.0, 1.0, 128.0, 255.0};
-		TensorHandle u8 = tensor_create_1d_streamed(4, heap_copy(vu, 4), 0, 0, 4);
+		TensorHandle u8 = tensor_create_1d_streamed(4, hcopy(vu, 4), 0, 0, 4);
 		ASSERT_TRUE("U8 dtype name", strcmp(tensor_dtype_name(u8), "U8") == 0);
 		double outu[4];
 		tensor_to_doubles(u8, outu);
@@ -1668,7 +1664,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 		/* Bool: 0 -> 0, anything-nonzero -> 1. */
 		double vb[] = {0.0, 1.0, 0.5, -3.0, 0.0};
 		double xb[] = {0.0, 1.0, 1.0, 1.0, 0.0};
-		TensorHandle bo = tensor_create_1d_streamed(5, heap_copy(vb, 5), 0, 0, 1);
+		TensorHandle bo = tensor_create_1d_streamed(5, hcopy(vb, 5), 0, 0, 1);
 		ASSERT_TRUE("Bool dtype name", strcmp(tensor_dtype_name(bo), "BOOL") == 0);
 		double outb[5];
 		tensor_to_doubles(bo, outb);
@@ -1683,7 +1679,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 	{
 		/* F64 -> U8 -> F64. -3 wraps to 253 via unsigned-char cast (documented). */
 		double cv[] = {10.0, -3.0, 7.0};
-		TensorHandle d0 = tensor_create_1d_streamed(3, heap_copy(cv, 3), 0, 0, 15);
+		TensorHandle d0 = tensor_create_1d_streamed(3, hcopy(cv, 3), 0, 0, 15);
 		TensorHandle to_u8 = tensor_cast_dtype_streamed(d0, 0, 4);
 		ASSERT_TRUE("cast F64->U8 dtype", strcmp(tensor_dtype_name(to_u8), "U8") == 0);
 		TensorHandle back = tensor_cast_dtype_streamed(to_u8, 0, 15);
@@ -1696,7 +1692,7 @@ Test(dtype_scaffolding, tape_inference_dtype_matrix) {
 
 		/* F64 -> Bool -> F64 */
 		double bv[] = {0.0, 5.0, -2.0};
-		TensorHandle s0 = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 15);
+		TensorHandle s0 = tensor_create_1d_streamed(3, hcopy(bv, 3), 0, 0, 15);
 		TensorHandle to_bool = tensor_cast_dtype_streamed(s0, 0, 1);
 		ASSERT_TRUE("cast F64->Bool dtype", strcmp(tensor_dtype_name(to_bool), "BOOL") == 0);
 		TensorHandle bback = tensor_cast_dtype_streamed(to_bool, 0, 15);
@@ -1715,9 +1711,8 @@ Test(dtype_scaffolding, tape_f32_cast_readout_agreement) {
 	/* π and √2: F32 nearest values differ from F64 source past the
 	   7th decimal, so the float-vs-double misread shows up clearly. */
 	double pv[] = {3.14159265358979, 1.4142135623730951};
-	TensorHandle f64src =
-	    tensor_create_1d_streamed(2, heap_copy(pv, 2), 0, 0, 15);     /* dtag 15 = F64 */
-	TensorHandle f32cast = tensor_cast_dtype_streamed(f64src, 0, 14); /* dtag 14 = F32 */
+	TensorHandle f64src = tensor_create_1d_streamed(2, hcopy(pv, 2), 0, 0, 15); /* dtag 15 = F64 */
+	TensorHandle f32cast = tensor_cast_dtype_streamed(f64src, 0, 14);           /* dtag 14 = F32 */
 	ASSERT_TRUE("F32 cast dtype name", strcmp(tensor_dtype_name(f32cast), "F32") == 0);
 
 	/* Reader paths must agree: tensor_to_doubles, tensor_item_1d, and a

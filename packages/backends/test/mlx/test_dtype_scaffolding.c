@@ -22,7 +22,7 @@ Test(dtype_scaffolding, mlx_bf16_storage) {
 
 	/* BF16 create via unified dispatch + dtype name + readback. */
 	double bv[] = {1.5, 2.25, -0.5};
-	TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 17);
+	TensorHandle bf = tensor_create_1d_streamed(3, hcopy(bv, 3), 0, 0, 17);
 	ASSERT_TRUE("mlx BF16 dtype is BF16", strcmp(tensor_dtype_name(bf), "BF16") == 0);
 	double bout[3];
 	tensor_to_doubles(bf, bout);
@@ -31,7 +31,7 @@ Test(dtype_scaffolding, mlx_bf16_storage) {
 	ASSERT_NEAR("mlx BF16 readback[2]", bout[2], -0.5, 1e-2);
 
 	/* BF16 + BF16 preserves BF16 dtype. */
-	TensorHandle bf2 = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 17);
+	TensorHandle bf2 = tensor_create_1d_streamed(3, hcopy(bv, 3), 0, 0, 17);
 	TensorHandle bsum = tensor_add(bf, bf2);
 	ASSERT_TRUE("mlx BF16 add preserves BF16", strcmp(tensor_dtype_name(bsum), "BF16") == 0);
 	double bsout[3];
@@ -40,7 +40,7 @@ Test(dtype_scaffolding, mlx_bf16_storage) {
 
 	/* Cast F32 -> BF16 -> F32 roundtrip. */
 	double fv[] = {1.5, 2.25};
-	TensorHandle f32t = tensor_create_1d_streamed(2, heap_copy(fv, 2), 0, 0, 14);
+	TensorHandle f32t = tensor_create_1d_streamed(2, hcopy(fv, 2), 0, 0, 14);
 	TensorHandle to_bf = tensor_cast_dtype_streamed(f32t, 0, 17);
 	ASSERT_TRUE("mlx cast F32->BF16", strcmp(tensor_dtype_name(to_bf), "BF16") == 0);
 	TensorHandle back = tensor_cast_dtype_streamed(to_bf, 0, 14);

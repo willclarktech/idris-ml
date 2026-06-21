@@ -133,10 +133,10 @@ Test(autograd, param_leaf_f32_grad_flow) {
 
     double wv[1] = {2.0};
     double xv[1] = {3.0};
-    TensorHandle w = tensor_create_param_1d_f32(1, heap_copy(wv, 1));
+    TensorHandle w = tensor_create_param_1d_f32(1, hcopy(wv, 1));
     param_register("w", w);
 
-    TensorHandle x = tensor_create_1d_f32(1, heap_copy(xv, 1), 0);
+    TensorHandle x = tensor_create_1d_f32(1, hcopy(xv, 1), 0);
     TensorHandle y = tensor_mul(w, x);   /* y = [6.0] */
     TensorHandle loss = tensor_sum(y);   /* scalar root — mlx vjp requires shape () */
 
@@ -294,11 +294,11 @@ Test(autograd, fused_mv_backward) {
     /* d_x[j] = sum_i W[i,j] = [5, 7, 9] */
 
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle W = tensor_create_param_2d_f64(2, 3, heap_copy(wdata, 6));
+    TensorHandle W = tensor_create_param_2d_f64(2, 3, hcopy(wdata, 6));
     param_register("W", W);
 
     double xdata[] = {1.0, 0.0, -1.0};
-    TensorHandle x = tensor_create_param_1d_f64(3, heap_copy(xdata, 3));
+    TensorHandle x = tensor_create_param_1d_f64(3, hcopy(xdata, 3));
     param_register("x", x);
 
     TensorHandle y = tensor_mv(W, x);
@@ -329,7 +329,7 @@ Test(autograd, fused_mv_optimizer) {
     param_clear();
 
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle W = tensor_create_param_2d_f64(2, 3, heap_copy(wdata, 6));
+    TensorHandle W = tensor_create_param_2d_f64(2, 3, hcopy(wdata, 6));
     param_register("W", W);
 
     double xdata[] = {1.0, 0.0, -1.0};

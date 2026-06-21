@@ -11,7 +11,7 @@
  *                                     tests; bodies GCOVR_EXCL'd in source).
  *
  * The streamed/dtag creators FREE their `data` argument (mirroring the *_f64
- * creator contract), so every input buffer is heap_copy'd. F32 readback
+ * creator contract), so every input buffer is hcopy'd. F32 readback
  * carries ~1e-6 error, so F32 asserts use an explicit 1e-5 tolerance.
  *
  * dtag codes (see test_dtype_scaffolding.c / tape_tag_from_dtag): F64=15,

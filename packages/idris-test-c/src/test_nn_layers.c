@@ -448,9 +448,9 @@ Test(nn_layers, batch_norm_backward) {
     double rm_d[] = {0.0, 0.0};
     double rv_d[] = {1.0, 1.0};
     int s1[] = {2};
-    double* g_buf = heap_copy(gamma_d, 2);
+    double* g_buf = hcopy(gamma_d, 2);
     TensorHandle gamma = tensor_create_param_1d_f64(2, g_buf);
-    double* b_buf = heap_copy(beta_d, 2);
+    double* b_buf = hcopy(beta_d, 2);
     TensorHandle beta = tensor_create_param_1d_f64(2, b_buf);
     TensorHandle rm = tensor_create(rm_d, s1, 1, 0);
     TensorHandle rv = tensor_create(rv_d, s1, 1, 0);
@@ -469,10 +469,10 @@ Test(nn_layers, batch_norm_backward) {
         param_clear();
         double gp[] = {1.0+eps, 1.0};
         double gm[] = {1.0-eps, 1.0};
-        double* gp_buf = heap_copy(gp, 2);
-        double* gm_buf = heap_copy(gm, 2);
-        double* b1 = heap_copy(beta_d, 2);
-        double* b2 = heap_copy(beta_d, 2);
+        double* gp_buf = hcopy(gp, 2);
+        double* gm_buf = hcopy(gm, 2);
+        double* b1 = hcopy(beta_d, 2);
+        double* b2 = hcopy(beta_d, 2);
 
         TensorHandle i1 = tensor_create(data, shape, 1, 0);
         TensorHandle g1 = tensor_create(gp, s1, 1, 0);
