@@ -1,22 +1,56 @@
 # C coverage: remaining gaps + plan
 
-Snapshot after the 2026-06-25 coverage push (gcov + gcovr, product-only, all three
-lanes green). This is the planning companion to
+Snapshot after the 2026-06-26 per-file gap audit (gcov + gcovr, product-only, all
+three lanes green). This is the planning companion to
 [`coverage-policy.md`](coverage-policy.md) — it enumerates what is still
-uncovered, why, and how to close it. Re-measure with
-`make BACKEND=<b> coverage-backend-<b>` and read `build-cov-<b>/html/`.
+uncovered, why, and how to close it. Re-measure with `make test-coverage-all`
+(per-backend overview) or `make BACKEND=<b> test-coverage-backend` then read
+`build-cov-<b>/html/`.
 
 ## Current state
 
 | backend | lines | branches | suite |
 |---------|-------|----------|-------|
-| tape    | 94.3% | 74.5%    | 501/501 |
-| mlx     | 93.3% | 49.9%    | 555/555 |
-| torch   | 93.2% | 50.0%    | 470/470 |
+| tape    | 96.5% | 77.4%    | 501/501 |
+| mlx     | 94.1% | 49.9%    | 555/555 |
+| torch   | 90.9% | 50.0%    | 470/470 |
 
-(Up from baselines tape 79.2% / mlx 78.8% / torch 73.7%.) The remaining ~6-7% per
-backend falls into three buckets below. Branch% is intentionally lower — gcov
-counts many compiler-generated/defensive branches; line% is the chased metric.
+(Up from baselines tape 79.2% / mlx 78.8% / torch 73.7%.) Branch% is intentionally
+lower — gcov counts many compiler-generated/defensive branches; line% is the
+chased metric.
+
+**Measurement note (2026-06-26):** tape previously *mis-read* as 92.8% (6402/6899)
+because a prior multi-link coverage build (`BACKEND=tape,mlx,torch`) left
+`shared_training_{mlx,torch}/` `.gcno` (compiled, never run) under
+`build-cov-tape/`; gcovr triple-counted each shared TU, inflating the denominator
+(`param_registry.c`/`ffi_shims.c` showed ~50% when fully covered). The
+`test-coverage-backend` self-heal now purges every non-primary `*_<b>/` tree, so
+this can't recur. **torch genuinely regressed** to 90.9% — the fused
+`adamw_step_foreach` / `rmsprop_step_foreach` paths in `optimizer.cpp` landed
+without coverage tests (the suite drives only Adam). See Bucket C.
+
+## Per-file gap audit (2026-06-26)
+
+Top product gaps by backend (parse `build-cov-<b>/cov.xml`; full list via the
+audit one-liner in git history). The single largest *real* gap is the optimizer
+variants — common to all three backends.
+
+| Lines | File | Backend | Category |
+|---|---|---|---|
+| 109 | `backend_torch/training/optimizer.cpp` | torch | C — RMSprop/SGD/AdamW step, wd, clip, per-group, state save/load |
+| 103 | `backend_mlx/training/optimizer.cpp` | mlx | C — same optimizer variants |
+| 69 | `backend_mlx/training/backward.cpp` | mlx | **B — `DEBUG_NAN_TRAP=1` env-gated diagnostic (lines 158-341); exclude** |
+| 42 | `backend_tape/nn/quantization/bitlinear.c` | tape | mixed — F32 absmean/quant arms (C) + `abort()` guards (B) |
+| 32 | `backend_tape/tape.c` | tape | C(scale) — arena multi-chunk growth (>64K tape entries) + reset/meta |
+| 21 | `backend_torch/nn/quantization/bitlinear.cpp` | torch | C — BitNet quant edge arms |
+| 20 | `backend_mlx/training/dtype_dispatch.cpp` | mlx | mixed — float dtag arms (C) + integer-param aborts (B) |
+| 15 | `backend_mlx/core/lifecycle/create_param_state.cpp` | mlx | C — param/state creator edge arms |
+| 15 | `backend_torch/training/adapter.cpp` | torch | C — adapter edge paths |
+| 12 | `shared/training/optimizer.c` | tape | C — shared optimizer helper arms |
+| 11 ea | `conv2d_batched.c` / mlx `autograd.cpp` / torch `dtype_dispatch.cpp` | — | C — conv backward + dtag arms |
+| ≤10 | conv1d/conv2d, linear_2d, mv, cat2, softmax, gru_cell, pools, scalar ops, … | tape | C — last-mile backward/edge branches (long tail) |
+
+The remaining ~6-7% per backend falls into the three buckets below.
 
 ## Bucket A — coverage-surfaced bugs (3 fixed, 1 mlx-upstream)
 
@@ -44,6 +78,16 @@ level in `gcovr.cfg` / `codecov.yml`. Not counted against the number.
   *guard condition* is covered. (~10-15 sites across the three.)
 - **F32-only kernels on tape** are NOT excluded — they're covered via the streamed
   dtag-14 path (tape's bare `tensor_create_*_f32` aborts; F32 lives on streamed).
+  Exception: `bitlinear.c`'s `tensor_absmean_per_row_2d` / quant F32 arms are NOT
+  on the streamed path and are currently uncovered (~20 lines) — testable with a
+  direct F32 input (Bucket C), not an exclusion.
+- **`DEBUG_NAN_TRAP=1` diagnostic** (`backend_mlx/training/backward.cpp` 158-341,
+  ~62 lines): an env-gated NaN-locating tape walk that only runs when both the env
+  var is set *and* a NaN is present. Debug scaffolding, not product logic reachable
+  by CI input. **NOT yet marked** — flagged 2026-06-26 as the largest single mlx
+  "gap" that is actually an exclusion; wrap in `GCOVR_EXCL_START/STOP` (reason:
+  "DEBUG_NAN_TRAP diagnostic — env-gated, fires only on injected NaN"). This lifts
+  mlx's *honest* product coverage by ~62 lines.
 - **Diagnostics / dispatch-table init / vendored / .venv framework headers**:
   file-level via `gcovr.cfg`.
 
@@ -54,26 +98,31 @@ exhaust them. Ordered by leverage:
 
 | Lines | Area | Note |
 |---|---|---|
-| mlx `backward.cpp` -69 | mlx replay vjp arms | each `MLX_REGISTER_REPLAY` op needs a forward+backward to exercise its replay; the common tests hit the common ops, not all. Drive the long tail (conv/pool/norm/attention replays). |
-| optimizer.cpp tail (mlx -103 minus compile, torch -63, tape -12) | optimizer variants | clip-by-value, weight-decay edges, per-group LR, schedule `tick`, `optimizer_set_m/v` realloc arms, load/save state. |
+| **optimizer.cpp (torch -109, mlx -103) + shared `optimizer.c` (tape -12)** | **optimizer variants — the dominant real gap** | The coverage suites drive only **Adam**. Uncovered: `optimizer_create_adamw` ctor, `adamw_step_foreach` (decoupled wd), `rmsprop_step_foreach`, SGD/momentum, clip-by-value, per-group LR, schedule `tick`, `optimizer_set_m/v` realloc, load/save state. **One focused optimizer test file per backend closes ~220 lines** and recovers torch's regression. Highest leverage by far. |
+| tape `bitlinear.c` F32 arms -~20 / torch `bitlinear.cpp` -21 | BitNet quant edge | `absmean_per_row_2d` / quant F32 arms (direct F32 input) + edge branches. The `abort()` guards in the same files are Bucket B. |
 | tape `conv2d_batched` -11 / `conv2d` -10 / `conv1d` -7 | conv backward + edge | stride/padding/dilation variants + backward grad asserts. |
-| tape `tape.c` -32 | tape mechanics | tape growth/reset/meta paths not hit by small tests. |
-| `dtype_dispatch` (mlx -20, torch -11) | remaining dtag arms | I32/Bool param-leaf arms abort on torch (`make_param_leaf` always sets requires_grad → c10 throw); cover float dtags, leave integer-param as a guard/exclusion. |
-| tape `_kernels.inc` -50 (non-broadcast part) | binop default arm | the same-shape vDSP `default:` switch arm is reached by pow/min/max (not add/sub/mul/div) — add a pow/min/max same-shape test. |
-| small: `mv`/`linear`/`linear_2d`/`cat2`/`softmax`/`log_softmax`/`gru_cell`/`accessors` (3-9 each) | misc backward/edge | last-mile branches. |
+| `dtype_dispatch` (mlx -20, torch -11) | remaining dtag arms | cover float dtags; I32/Bool param-leaf arms abort on torch (`make_param_leaf` always sets requires_grad → c10 throw) — leave integer-param as a guard/exclusion. |
+| mlx `create_param_state.cpp` -15 / `autograd.cpp` -11, torch `adapter.cpp` -15 | creator + adapter edge | param/state creator dtag arms + adapter paths. |
+| tape `tape.c` -32 | tape mechanics (scale) | arena multi-chunk growth fires only past 64K tape entries — testable only with a large workload; low-leverage. Reset/meta paths are cheap. |
+| small: `mv`/`linear`/`linear_2d`/`cat2`/`softmax`/`log_softmax`/`gru_cell`/pools/scalar (≤9 each) | misc backward/edge | last-mile branches; volume. |
 
 Closing Bucket C would push each backend into the high 90s. None is hard; it's
 volume. A follow-up workflow wave (same `.tmp/coverage-workflow-*.js` templates)
-targeting `backward.cpp` + optimizer + conv would capture most.
+targeting optimizer + bitlinear F32 + conv would capture most.
 
 ## Recommended order
 
 1. ✅ **Done** — Bucket A bugs investigated + fixed (general-broadcast, BitNet
    quant rounding, `tensor_pair_free`); mlx compile-teardown is won't-fix
    (upstream). See CHANGELOG.
-2. One Bucket-C workflow wave (mlx `backward.cpp`, optimizer tails, tape conv,
-   `tape.c`) for the high-90s — the remaining gap is volume, not hard.
-3. (Blocked on mlx upstream) the MLX_OPT_COMPILE branch — re-enable the 2
+2. **Mark the `DEBUG_NAN_TRAP` block + remaining `abort()` guards `GCOVR_EXCL`**
+   (Bucket B) — cheapest honest lift (~62 mlx lines), no new tests.
+3. **One optimizer coverage test file per backend** (RMSprop/SGD/AdamW/clip/wd/
+   per-group/save-load) — the single biggest real gap (~220 lines across the
+   three), and it recovers torch's regression to ≥93%.
+4. One Bucket-C workflow wave (bitlinear F32, conv, dtype_dispatch, long tail) for
+   the high-90s — the remaining gap is volume, not hard.
+5. (Blocked on mlx upstream) the MLX_OPT_COMPILE branch — re-enable the 2
    `mlx_optimizer_compile` tests once mlx's compile/Metal teardown is stable.
 
 ## How the gate behaves meanwhile
