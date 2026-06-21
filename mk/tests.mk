@@ -219,10 +219,17 @@ test-coverage-backend:
 	find $(COV_BUILD) -name '*.gcda' -delete
 	@# Drop foreign-backend object/.gcno trees that a prior multi-link coverage
 	@# build (BACKEND=tape,mlx,torch) may have left under this primary's tree.
-	@# gcovr scans the whole COV_BUILD dir, so stale backend_<other> .gcno would
-	@# count as uncovered and inflate the denominator. build-cov-<primary> is
-	@# single-backend by construction, so any backend_<other> dir is contamination.
-	find $(COV_BUILD) -type d -name 'backend_*' ! -name 'backend_$(PRIMARY)' -exec rm -rf {} +
+	@# gcovr scans the whole COV_BUILD dir, so a stale .gcno from another backend
+	@# counts as uncovered and inflates the denominator. build-cov-<primary> is
+	@# single-backend by construction, so any non-primary backend tree is
+	@# contamination. Two dir families carry a backend suffix: backend_<b>/ (the
+	@# backend's own sources) and shared_<group>_<b>/ (shared TUs compiled once
+	@# per backend in TRAINING_ADAPTER_BACKENDS — these have .gcno but no .gcda
+	@# under a foreign primary, so they only ever inflate "valid"). Purge both for
+	@# every non-primary backend in the built-in set.
+	for b in $(filter-out $(PRIMARY),$(MULTI_BACKEND_REQUIRED)); do \
+	  find $(COV_BUILD) -type d -name "*_$$b" -exec rm -rf {} +; \
+	done
 	@# -j1 serializes Criterion's per-test forks. The LLVM gcov writer still
 	@# emits noisy "profiling: ... cannot merge" lines for two heavily-forked
 	@# TEST files (test_activations, test_dtype_scaffolding) — both excluded from
