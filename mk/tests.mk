@@ -142,50 +142,35 @@ test-unit-c-asan-torch:
 # runner sees only its own lane.
 test-unit-c-asan: test-unit-c-asan-tape
 
-# Coverage build. Recompiles backend + test binary with
-# `-fprofile-instr-generate -fcoverage-mapping` into build-cov/ (separate
-# from build/ so a coverage run doesn't pollute the normal dylib + vice
-# versa). Runs the full Criterion suite with LLVM_PROFILE_FILE pointing
-# to build-cov/profraw/, merges via llvm-profdata, then emits
-# `llvm-cov report` + HTML via `llvm-cov show -format=html`.
+# Coverage build. Recompiles backend + test binary with gcov instrumentation
+# (`--coverage` = -fprofile-arcs -ftest-coverage) into build-cov/ (separate
+# from build/ so a coverage run doesn't pollute the normal dylib + vice versa).
+# Runs the full Criterion suite (which writes .gcda counter files next to the
+# build-cov object tree), then reads them with gcovr → a Cobertura XML
+# (build-cov/cov-<b>.xml, uploaded to Codecov) + an HTML report.
 #
-# Report-only — no CI gate yet. The HTML artifact lives at
-# build-cov/html-<b>/index.html.
+# The stack is gcov-based (gcovr), NOT llvm source-based, so genuinely
+# untestable lines can carry an INLINE `// GCOVR_EXCL_LINE — <reason>` marker
+# (see gcovr.cfg + docs/develop/coverage-policy.md). Codecov is the CI gate
+# (codecov.yml: per-backend flags + patch/project status checks).
 COV_BUILD := build-cov
-# Keep -O0 here: tried -O1 (which is compatible with -fcoverage-mapping),
-# but libtorch's template-heavy headers blew up compile time on the torch
-# coverage lane (8:58 → 21:58 cold). -O0 stays as the cheaper option.
-# The big win is -j$(NPROC) on the recursive make below.
-COV_CFLAGS := -fprofile-instr-generate -fcoverage-mapping -O0 -g
-COV_LDFLAGS := -fprofile-instr-generate
+# Keep -O0 here: tried -O1, but libtorch's template-heavy headers blew up
+# compile time on the torch coverage lane (8:58 → 21:58 cold). -O0 stays as the
+# cheaper option. The big win is -j$(NPROC) on the recursive make below.
+COV_CFLAGS := --coverage -O0 -g
+COV_LDFLAGS := --coverage
 
-# Files dropped from the coverage report + HTML (one var, used by both
-# llvm-cov invocations below so they can't drift apart — they did: cJSON
-# moved to vendored/ but the regex still named the dead packages/backends/
-# path, so 1922 cJSON regions leaked back into the report). Two classes,
-# matching the FFI gap probe's principled-exclusion philosophy (see
-# coverage-policy.md "Principled exclusions"):
-#   - vendored/    third-party code we don't author or test (cJSON)
-#   - the diagnostic / file-format-I/O infra: safetensors + shared_utils
-#     (format I/O), mnist + idx (dataset readers, covered by example-mnist),
-#     log + probes (logging / diagnostics, no correctness impact)
-#   - the diagnostic / dispatch-init basenames anywhere in the tree
-#     (diagnostics + profiling = telemetry, no correctness path; dtype_init =
-#     pure dispatch-table init, same class as the already-excluded op_dispatch
-#     init). These live nested under backend_*/training/, so they need a
-#     basename-anchored alternation, not the top-level $(BACKENDS_DIR)/ one.
-# Real kernel + training C (backend_*/**, shared/training/**) otherwise stays IN.
-COV_IGNORE_REGEX := (vendored/)|($(BACKENDS_DIR)/(safetensors|shared_utils|mnist|idx|log|probes))|(/(diagnostics|profiling|dtype_init)\.(c|cpp))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)
+# File/path exclusions now live in the committed gcovr.cfg at the repo root
+# (gcov-native `exclude =` regexes), auto-loaded by gcovr from --root. Per-file
+# torch/mlx passthrough exclusions live in codecov.yml `ignore:`. The old
+# llvm-cov COV_IGNORE_REGEX is retired.
 
-# llvm source-based coverage is clang-only. On macOS the system cc IS
-# clang and the llvm tools live behind xcrun. On Linux the default cc
-# is gcc, which rejects -fprofile-instr-generate/-fcoverage-mapping
-# (first exercised by CI on 2026-06-11 when the coverage matrix moved
-# to push — the target was previously dispatch-only and had never run
-# on a gcc host), so force the clang toolchain via the per-backend CC
-# vars (command-line overrides beat the := assignments in backends.mk)
-# and call the llvm tools directly (apt's `llvm` package ships
-# unversioned llvm-profdata/llvm-cov).
+# gcov coverage reads clang's gcov-format .gcno/.gcda via `llvm-cov gcov`. We
+# force the clang toolchain on BOTH platforms so the gcov reader is uniformly
+# `llvm-cov gcov` (gcc's `--coverage` would emit a gcc gcov format needing gcc's
+# `gcov` reader instead). On macOS the system cc is already Apple clang; on Linux
+# the default cc is gcc, so force the (wrapped, glibc-consistent) nix clang via
+# the per-backend CC vars (command-line overrides beat backends.mk's := ).
 ifeq ($(UNAME),Darwin)
 COV_CC_OVERRIDES :=
 else
@@ -205,16 +190,16 @@ COV_CC_OVERRIDES := tape_CC=$(COV_CLANG) torch_CC=$(COV_CLANGXX) mlx_CC=$(COV_CL
 COV_CFLAGS += -Wno-\#warnings
 endif
 
-# Resolve llvm-profdata / llvm-cov by detection rather than assuming a
-# platform-specific launcher. Prefer bare tools on PATH (Linux apt, the nix
-# dev shell's `llvm` package), and fall back to `xcrun -f` (macOS with full
-# Xcode). This keeps the lane working on a Mac that has only the Command Line
-# Tools — which ship clang but NOT llvm-profdata/llvm-cov — as long as the
-# dev shell provides them. The .profraw format is versioned: the reader must
-# be >= the compiler that wrote it (Apple clang on macOS / nix clang on
-# Linux); the pinned nixpkgs `llvm` matches both.
-LLVM_PROFDATA := $(shell command -v llvm-profdata 2>/dev/null || xcrun -f llvm-profdata 2>/dev/null)
-LLVM_COV      := $(shell command -v llvm-cov 2>/dev/null || xcrun -f llvm-cov 2>/dev/null)
+# The gcov reader: Apple's behind xcrun on macOS, the nix `llvm` package's on
+# Linux (matches the wrapped nix clang the lane forces there). gcovr is told to
+# invoke it via --gcov-executable. gcovr itself + file/path excludes come from
+# the dev shell + the committed gcovr.cfg.
+ifeq ($(UNAME),Darwin)
+GCOV_TOOL := xcrun llvm-cov gcov
+else
+GCOV_TOOL := llvm-cov gcov
+endif
+GCOVR := gcovr
 
 test-coverage-backend:
 	$(MAKE) -j$(NPROC) BUILD=$(COV_BUILD) \
@@ -223,26 +208,28 @@ test-coverage-backend:
 	  BACKEND=$(BACKEND) \
 	  $(COV_CC_OVERRIDES) \
 	  $(COV_BUILD)/test_criterion_smoke
-	@mkdir -p $(COV_BUILD)/profraw
-	@rm -f $(COV_BUILD)/profraw/*.profraw
-	@test -n "$(LLVM_PROFDATA)" || { echo "llvm-profdata not found — add 'llvm' to the dev shell (nix develop) or install full Xcode"; exit 1; }
-	LLVM_PROFILE_FILE='$(COV_BUILD)/profraw/test_criterion_%p_%m.profraw' \
-	  ./$(COV_BUILD)/test_criterion_smoke --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml > /dev/null
-	$(LLVM_PROFDATA) merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
+	@command -v gcovr >/dev/null 2>&1 || { echo "gcovr not found — run inside 'nix develop'"; exit 1; }
+	@# Clear stale per-run counters (.gcda); .gcno persist from the compile.
+	find $(COV_BUILD) -name '*.gcda' -delete
+	./$(COV_BUILD)/test_criterion_smoke --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml > /dev/null
+	@rm -rf $(COV_BUILD)/html-$(PRIMARY) && mkdir -p $(COV_BUILD)/html-$(PRIMARY)
 	@echo ""
 	@echo "=== Coverage report ($(PRIMARY)) ==="
-	$(LLVM_COV) report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='$(COV_IGNORE_REGEX)'
-	@rm -rf $(COV_BUILD)/html-$(PRIMARY)
-	$(LLVM_COV) show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='$(COV_IGNORE_REGEX)'
+	$(GCOVR) --root $(PWD) --gcov-executable '$(GCOV_TOOL)' \
+	  --cobertura $(COV_BUILD)/cov-$(PRIMARY).xml --cobertura-pretty \
+	  --html-details $(COV_BUILD)/html-$(PRIMARY)/index.html \
+	  --txt --print-summary \
+	  $(COV_BUILD)
 	@echo ""
-	@echo "Coverage HTML: file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
+	@echo "Coverage HTML:      file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
+	@echo "Coverage Cobertura: $(COV_BUILD)/cov-$(PRIMARY).xml (uploaded to Codecov in CI)"
 
 # Build-only the criterion suite with coverage flags so the
-# test-coverage-backend recipe can set LLVM_PROFILE_FILE before running.
+# test-coverage-backend recipe can run it (writing .gcda) before gcovr reads.
 # Matches the test-unit-c build recipe — link the full
 # discovered suite, not just the smoke shell.
 # TEST_CC is overridable so the coverage path can force clang on Linux
-# (EXTRA_CFLAGS carries clang-only instrumentation flags there).
+# (EXTRA_CFLAGS carries the --coverage instrumentation flags).
 TEST_CC := cc
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
 	$(TEST_CC) -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) $(BACKEND_LDFLAGS) -lm
