@@ -95,6 +95,9 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dt
 #include <stdio.h>
 #include <stdlib.h>
 
+// GCOVR_EXCL_START — unconditional abort fallback for backends that haven't wired
+// the fused-init port slots; tape + torch both wire them, so this is never called
+// on their lanes (and abort() skips the gcov flush regardless).
 static void abort_unwired_init(const char* fn) {
 	fprintf(stderr,
 	        "%s: this backend hasn't wired the fused-init port methods yet. "
@@ -104,6 +107,7 @@ static void abort_unwired_init(const char* fn) {
 	        fn);
 	abort();
 }
+// GCOVR_EXCL_STOP
 
 TensorHandle tensor_create_param_1d_normal_streamed(int n, double mean, double std, int stream_tag,
                                                     int dtag) {

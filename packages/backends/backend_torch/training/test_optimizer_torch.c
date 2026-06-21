@@ -356,6 +356,40 @@ Test(torch_optimizer_state, set_m_v_sgd_noop) {
 	param_clear();
 }
 
+/* set_v on a FRESH optimizer (no prior set_m) creates the param state via
+   set_v's own create branch — the round-trip tests above always call set_m
+   first, so set_v sees existing state and skips its create arm. */
+Test(torch_optimizer_state, set_v_first_creates_state) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(1.0, 1);
+	param_register("t_svf_a", a);
+	OptimizerHandle opt = optimizer_create_adam(0.001, 0.9, 0.999, 1e-8);
+	double v_in[1] = {0.4};
+	optimizer_set_v(opt, 0, v_in); /* creates AdamParamState, writes exp_avg_sq */
+	double v_out = -1.0;
+	optimizer_get_v(opt, 0, &v_out);
+	cr_assert_float_eq(v_out, 0.4, TEST_TOL_TIGHT, "set_v-first round-trip (got %.9f)", v_out);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* RMSprop with momentum=0: get_m sees state (created by set_v) but no
+   momentum_buffer, so it takes the zeros_like fallback. */
+Test(torch_optimizer_state, get_m_rmsprop_no_momentum_zeros) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(1.0, 1);
+	param_register("t_gmr_a", a);
+	OptimizerHandle opt = optimizer_create_rmsprop(0.01, 0.99, 1e-8, 0.0, /*momentum=*/0.0);
+	double v_in[1] = {0.7};
+	optimizer_set_v(opt, 0, v_in); /* creates RMSpropParamState (no momentum_buffer) */
+	double m_out = -1.0;
+	optimizer_get_m(opt, 0, &m_out); /* momentum_buffer undefined -> zeros_like fallback */
+	cr_assert_float_eq(m_out, 0.0, TEST_TOL_TIGHT, "RMSprop no-momentum get_m -> 0 (got %.9f)",
+	                   m_out);
+	optimizer_free(opt);
+	param_clear();
+}
+
 /* get_meta/set_meta step round-trip WITH live param state (set_m creates it):
    exercises the step read (get_meta) + step update (set_meta) on an existing
    AdamParamState — the meta_roundtrip test above has no state so skips those. */

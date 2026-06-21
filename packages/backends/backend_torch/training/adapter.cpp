@@ -144,9 +144,10 @@ static double torch_port_data_read(void* h, int i) {
 		if (t->dtype() == torch::kFloat64) return ((double*)t->data_ptr())[i];
 		if (t->dtype() == torch::kFloat32) return (double)((float*)t->data_ptr())[i];
 	}
-	// GCOVR_EXCL_LINE — non-contiguous/non-CPU fallback; params + test tensors on the torch CPU
+	// GCOVR_EXCL_START — non-contiguous/non-CPU fallback; params + test tensors on the torch CPU
 	// lane are always contiguous CPU
 	return t->flatten().index({i}).cpu().item<double>();
+	// GCOVR_EXCL_STOP
 }
 
 static void torch_port_data_write(void* h, int i, double v) {

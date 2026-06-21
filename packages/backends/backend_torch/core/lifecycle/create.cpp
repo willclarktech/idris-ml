@@ -9,6 +9,7 @@
  * `g_torch_target_device` (set at dylib load from TORCH_DEVICE) so
  * torch-mps / torch-cuda builds land tensors on the right hardware. */
 #include "../../tensor.h"
+#include "../../training/dtype_dispatch.h"
 
 #include <vector>
 
@@ -25,10 +26,7 @@ static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int r
 	// at construction. Lets Transfer.idr explicitly create F64-on-CPU even
 	// under a `TORCH_DEVICE=mps` build, then migrate later with the typed
 	// `toExecutor` (which gates on `Compatible`).
-	c10::Device target =
-	    (g_torch_target_device.type() == c10::DeviceType::MPS && dt == torch::kFloat64)
-	        ? at::kCPU
-	        : g_torch_target_device;
+	c10::Device target = torch_effective_device(dt);
 	const bool need_cast = dt != torch::kFloat64;
 	const bool need_move = target != at::kCPU;
 	if (need_cast || need_move) {

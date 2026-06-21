@@ -40,10 +40,7 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
 	   dtags abort there. */
 	torch::ScalarType st = st_for_dtag(dtag);
 	// Effective target degrades to CPU on (MPS, F64) — Metal rejects F64.
-	c10::Device target =
-	    (g_torch_target_device.type() == c10::DeviceType::MPS && st == torch::kFloat64)
-	        ? at::kCPU
-	        : g_torch_target_device;
+	c10::Device target = torch_effective_device(st);
 	const bool need_cast = st != torch::kFloat64;
 	const bool need_move = target != at::kCPU;
 	if (need_cast || need_move) {

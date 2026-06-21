@@ -384,8 +384,9 @@ static void dispatch_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& 
 		adamw_step_foreach(w, params, lr);
 		break;
 	default:
-		w->opt
-		    ->step(); // GCOVR_EXCL_LINE — unreachable: w->type is always 0..3 (set at construction)
+		// GCOVR_EXCL_START — unreachable: w->type is always 0..3 (set at construction)
+		w->opt->step();
+		// GCOVR_EXCL_STOP
 	}
 }
 
