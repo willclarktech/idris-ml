@@ -42,8 +42,8 @@ TensorHandle make_param_leaf_empty(c10::IntArrayRef dims, torch::ScalarType dt, 
 	auto t = torch::empty(dims, torch::TensorOptions().dtype(torch::kFloat64).device(at::kCPU));
 	init(t);
 	c10::Device target = torch_effective_device(dt);
-	bool need_cast = dt != torch::kFloat64;
-	bool need_move = target != at::kCPU;
+	const bool need_cast = dt != torch::kFloat64;
+	const bool need_move = target != at::kCPU;
 	if (need_cast || need_move) {
 		auto opts = torch::TensorOptions().dtype(dt).device(target);
 		t = t.to(opts);

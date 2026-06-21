@@ -52,10 +52,10 @@ extern "C" void backend_reset_for_eval(void) {
  * release that runs at process exit is fine on GPU lanes. We probe
  * the first param's device and bail when it's not CPU. */
 extern "C" void backend_release_all_persistent(void) {
-	int n = param_count();
+	const int n = param_count();
 	if (n > 0) {
 		auto* first = (at::Tensor*)param_tensor(0);
-		if (first && !first->is_cpu()) {
+		if (first != nullptr && !first->is_cpu()) {
 			/* GPU lane — async device release is cheap; explicit
 			 * delete forces sync per tensor and regresses wall. */
 			return;
@@ -71,7 +71,7 @@ extern "C" void backend_release_all_persistent(void) {
 
 extern "C" void tensor_print(TensorHandle h) {
 	// std::cout << at::Tensor requires the tensor to live on CPU.
-	std::cout << to_tensor(h)->cpu() << std::endl;
+	std::cout << to_tensor(h)->cpu() << '\n';
 }
 
 /* mx::compile is mlx-only; torch backend always reports disabled

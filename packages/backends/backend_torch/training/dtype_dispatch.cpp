@@ -62,7 +62,7 @@ c10::Device torch_effective_device(torch::ScalarType dt) {
    issues a single .to(device) op when migrating. Uses
    `torch_effective_device` so a hostile (target, dtype) pair degrades to
    CPU instead of aborting. */
-static inline at::Tensor torch_migrate_to_target(at::Tensor t) {
+static inline at::Tensor torch_migrate_to_target(const at::Tensor& t) {
 	auto target = torch_effective_device(t.scalar_type());
 	return t.device() == target ? t : t.to(target);
 }
@@ -92,8 +92,8 @@ bool idrisml_is_floating_st(torch::ScalarType dt) {
    downstream elementwise op. */
 static inline at::Tensor cast_and_migrate(at::Tensor t, torch::ScalarType dt) {
 	c10::Device target = torch_effective_device(dt);
-	bool need_cast = dt != t.scalar_type();
-	bool need_move = target != t.device();
+	const bool need_cast = dt != t.scalar_type();
+	const bool need_move = target != t.device();
 	if (need_cast || need_move) {
 		auto opts = torch::TensorOptions().dtype(dt).device(target);
 		t = t.to(opts);
@@ -106,7 +106,7 @@ static TensorHandle create_scalar_dt(double v, int rg, torch::ScalarType dt) {
 	auto t = torch::tensor(v, torch::dtype(dt));
 	c10::Device target = torch_effective_device(dt);
 	if (target != at::kCPU) t = t.to(target);
-	if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+	if (rg != 0 && idrisml_is_floating_st(dt)) t.requires_grad_(true);
 	return from_tensor_persistent(std::move(t));
 }
 static TensorHandle create_nd_dt(double* data, int* shape, int rank, int rg, torch::ScalarType dt) {
@@ -115,21 +115,21 @@ static TensorHandle create_nd_dt(double* data, int* shape, int rank, int rg, tor
 		dims[i] = shape[i];
 	auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
 	t = cast_and_migrate(std::move(t), dt);
-	if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+	if (rg != 0 && idrisml_is_floating_st(dt)) t.requires_grad_(true);
 	return from_tensor_persistent(std::move(t));
 }
 static TensorHandle create_1d_dt(int n, double* d, int rg, torch::ScalarType dt) {
 	auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
 	free(d);
 	t = cast_and_migrate(std::move(t), dt);
-	if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+	if (rg != 0 && idrisml_is_floating_st(dt)) t.requires_grad_(true);
 	return from_tensor(std::move(t));
 }
 static TensorHandle create_2d_dt(int rows, int cols, double* d, int rg, torch::ScalarType dt) {
 	auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
 	free(d);
 	t = cast_and_migrate(std::move(t), dt);
-	if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+	if (rg != 0 && idrisml_is_floating_st(dt)) t.requires_grad_(true);
 	return from_tensor(std::move(t));
 }
 
@@ -171,8 +171,8 @@ static TensorHandle make_state_persistent(double* data, c10::IntArrayRef dims,
 TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt) {
 	auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
 	c10::Device target = torch_effective_device(dt);
-	bool need_cast = dt != torch::kFloat64;
-	bool need_move = target != at::kCPU;
+	const bool need_cast = dt != torch::kFloat64;
+	const bool need_move = target != at::kCPU;
 	if (need_cast || need_move) {
 		auto opts = torch::TensorOptions().dtype(dt).device(target);
 		t = t.to(opts);
@@ -200,14 +200,14 @@ extern "C" TensorHandle tensor_create_1d_f64(int n, double* d, int rg) {
 	auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
 	free(d);
 	t = torch_migrate_to_target(std::move(t));
-	if (rg) t.requires_grad_(true);
+	if (rg != 0) t.requires_grad_(true);
 	return from_tensor(std::move(t));
 }
 extern "C" TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg) {
 	auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
 	free(d);
 	t = torch_migrate_to_target(std::move(t));
-	if (rg) t.requires_grad_(true);
+	if (rg != 0) t.requires_grad_(true);
 	return from_tensor(std::move(t));
 }
 /* F64 param/state wrappers go through make_param_leaf / state-create + migrate. */
@@ -243,7 +243,7 @@ extern "C" TensorHandle tensor_create_1d_f32(int n, double* d, int rg) {
 	free(d);
 	auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(g_torch_target_device);
 	t = t.to(opts);
-	if (rg) t.requires_grad_(true); // cast/move-before-grad: keep the F32 tensor a leaf
+	if (rg != 0) t.requires_grad_(true); // cast/move-before-grad: keep the F32 tensor a leaf
 	return from_tensor(std::move(t));
 }
 extern "C" TensorHandle tensor_create_2d_f32(int rows, int cols, double* d, int rg) {
@@ -251,7 +251,7 @@ extern "C" TensorHandle tensor_create_2d_f32(int rows, int cols, double* d, int 
 	free(d);
 	auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(g_torch_target_device);
 	t = t.to(opts);
-	if (rg) t.requires_grad_(true); // cast/move-before-grad: keep the F32 tensor a leaf
+	if (rg != 0) t.requires_grad_(true); // cast/move-before-grad: keep the F32 tensor a leaf
 	return from_tensor(std::move(t));
 }
 extern "C" TensorHandle tensor_create_param_1d_f32(int n, double* d) {

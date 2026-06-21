@@ -10,8 +10,9 @@
 extern "C" TensorHandle tensor_bmm(TensorHandle a, TensorHandle b) {
 	auto& ta = *to_tensor(a);
 	auto& tb = *to_tensor(b);
-	int B = ta.size(0);
+	const int B = static_cast<int>(ta.size(0));
 	std::vector<at::Tensor> results;
+	results.reserve(B);
 	for (int i = 0; i < B; i++)
 		results.push_back(torch::mm(ta[i], tb));
 	return from_tensor(torch::stack(results));

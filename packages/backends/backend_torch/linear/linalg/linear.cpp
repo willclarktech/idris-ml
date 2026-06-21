@@ -8,12 +8,12 @@
 
 extern "C" TensorHandle tensor_linear(TensorHandle W, TensorHandle x, TensorHandle bias) {
 	auto result = torch::mv(*to_tensor(W), *to_tensor(x));
-	if (bias) result = result + *to_tensor(bias);
+	if (bias != nullptr) result = result + *to_tensor(bias);
 	return from_tensor(result);
 }
 
 extern "C" TensorHandle tensor_linear_2d(TensorHandle W, TensorHandle X, TensorHandle bias) {
-	auto result = torch::nn::functional::linear(*to_tensor(X), *to_tensor(W),
-	                                            bias ? *to_tensor(bias) : torch::Tensor{});
+	auto result = torch::nn::functional::linear(
+	    *to_tensor(X), *to_tensor(W), bias != nullptr ? *to_tensor(bias) : torch::Tensor{});
 	return from_tensor(result);
 }

@@ -172,10 +172,10 @@ extern "C" void optimizer_free(OptimizerHandle h) {
 static void adam_core_foreach(double lr, double beta1, double beta2, double eps, int64_t new_step,
                               std::vector<at::Tensor>& params, std::vector<at::Tensor>& m_list,
                               std::vector<at::Tensor>& v_list, std::vector<at::Tensor>& g_list) {
-	double bc1 = 1.0 - std::pow(beta1, (double)new_step);
-	double bc2 = 1.0 - std::pow(beta2, (double)new_step);
-	double bc2_sqrt = std::sqrt(bc2);
-	double step_size = lr / bc1;
+	const double bc1 = 1.0 - std::pow(beta1, (double)new_step);
+	const double bc2 = 1.0 - std::pow(beta2, (double)new_step);
+	const double bc2_sqrt = std::sqrt(bc2);
+	const double step_size = lr / bc1;
 
 	/* m = β1·m + (1-β1)·g — matches libtorch's mul_().add_(g, 1-β1) order. */
 	at::_foreach_mul_(m_list, beta1);
@@ -207,7 +207,7 @@ static void adam_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& para
 	int64_t new_step = 0;
 	for (const auto& p : params) {
 		if (!p.grad().defined()) continue;
-		auto key = p.unsafeGetTensorImpl();
+		auto* key = p.unsafeGetTensorImpl();
 		if (state.count(key) == 0) {
 			state[key] = std::make_unique<torch::optim::AdamParamState>();
 			auto& s0 = static_cast<torch::optim::AdamParamState&>(*state[key]);
@@ -228,7 +228,7 @@ static void adam_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& para
 
 	/* In-place updates on leaf params with requires_grad=true would trip
 	   autograd's check_inplace. Same wrap as torch::optim::Adam::step(). */
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 	adam_core_foreach(lr, w->beta1, w->beta2, w->eps, new_step, active_params, m_list, v_list,
 	                  g_list);
 }
@@ -250,7 +250,7 @@ static void adamw_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& par
 	int64_t new_step = 0;
 	for (const auto& p : params) {
 		if (!p.grad().defined()) continue;
-		auto key = p.unsafeGetTensorImpl();
+		auto* key = p.unsafeGetTensorImpl();
 		if (state.count(key) == 0) {
 			state[key] = std::make_unique<torch::optim::AdamWParamState>();
 			auto& s0 = static_cast<torch::optim::AdamWParamState&>(*state[key]);
@@ -269,7 +269,7 @@ static void adamw_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& par
 
 	if (active_params.empty()) return;
 
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 
 	/* Decoupled weight decay: p *= 1 - lr*wd  (skip when wd == 0). Uses the
 	   effective (possibly per-param-overridden) lr, matching PyTorch's
@@ -304,7 +304,7 @@ static void rmsprop_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& p
 
 	for (const auto& p : params) {
 		if (!p.grad().defined()) continue;
-		auto key = p.unsafeGetTensorImpl();
+		auto* key = p.unsafeGetTensorImpl();
 		if (state.count(key) == 0) {
 			state[key] = std::make_unique<torch::optim::RMSpropParamState>();
 			auto& s0 = static_cast<torch::optim::RMSpropParamState&>(*state[key]);
@@ -324,7 +324,7 @@ static void rmsprop_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& p
 
 	if (active_params.empty()) return;
 
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 
 	std::vector<at::Tensor> g_eff;
 	if (use_wd) {
@@ -336,7 +336,7 @@ static void rmsprop_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& p
 		g_eff = g_list;
 	}
 
-	double alpha = w->alpha, eps = w->eps;
+	const double alpha = w->alpha, eps = w->eps;
 	at::_foreach_mul_(v_list, alpha);
 	at::_foreach_addcmul_(v_list, g_eff, g_eff, 1.0 - alpha);
 	auto avg = at::_foreach_sqrt(v_list);
@@ -364,7 +364,7 @@ static void sgd_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& param
 		grads.push_back(p.grad());
 	}
 	if (active.empty()) return;
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 	at::_foreach_add_(active, grads, -lr);
 }
 
@@ -389,7 +389,7 @@ static void dispatch_step_foreach(OptWrapper* w, const std::vector<at::Tensor>& 
 }
 
 extern "C" void optimizer_step(OptimizerHandle h) {
-	double t0 = _wall_ms_torch();
+	const double t0 = _wall_ms_torch();
 	auto* w = static_cast<OptWrapper*>(h);
 	auto* opt = w->opt;
 	/* Re-sync param list from registry (handles late registration via autoName).
@@ -403,12 +403,12 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 			for (auto& t : current)
 				params_ref.push_back(t);
 		}
-		double tm0 = _wall_ms_torch();
+		const double tm0 = _wall_ms_torch();
 		/* TORCH_FOREACH=0 disables every fused multi-tensor path for A/B
 		   perf comparison. Defaults to on. */
 		static const bool foreach_enabled = []() {
 			const char* e = std::getenv("TORCH_FOREACH");
-			return !(e && (e[0] == '0'));
+			return e == nullptr || e[0] != '0';
 		}();
 		if (foreach_enabled) {
 			if (w->param_lr.empty()) {
@@ -438,7 +438,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 		}
 		prof_optimizer_math_ms_torch += _wall_ms_torch() - tm0;
 	} else {
-		double tm0 = _wall_ms_torch();
+		const double tm0 = _wall_ms_torch();
 		opt->step();
 		prof_optimizer_math_ms_torch += _wall_ms_torch() - tm0;
 	}
@@ -494,6 +494,8 @@ extern "C" void optimizer_set_lr(OptimizerHandle h, double lr) {
 		case 3:
 			static_cast<torch::optim::AdamWOptions&>(g.options()).lr(lr);
 			break;
+		default:
+			break;
 		}
 	}
 }
@@ -519,18 +521,18 @@ extern "C" double optimizer_clip_grad_norm(double max_norm) {
 
 /* Polyak soft update: mirror of the tape-backend implementation. */
 extern "C" int polyak_blend_pair(double tau, const char* online_name, const char* target_name) {
-	if (!online_name || !target_name) return 0;
-	torch::NoGradGuard no_grad;
+	if (online_name == nullptr || target_name == nullptr) return 0;
+	const torch::NoGradGuard no_grad;
 	at::Tensor* on_t = nullptr;
 	at::Tensor* tg_t = nullptr;
 	/* Exact-match both names — no prefix logic, so a name that is a proper
 	   prefix of another can't over-match. */
 	for (int i = 0; i < param_count(); i++) {
-		std::string nm(param_name(i));
-		if (!on_t && nm == online_name) on_t = (at::Tensor*)param_tensor(i);
-		if (!tg_t && nm == target_name) tg_t = (at::Tensor*)param_tensor(i);
+		const std::string nm(param_name(i));
+		if (on_t == nullptr && nm == online_name) on_t = (at::Tensor*)param_tensor(i);
+		if (tg_t == nullptr && nm == target_name) tg_t = (at::Tensor*)param_tensor(i);
 	}
-	if (!on_t || !tg_t) return 0;
+	if (on_t == nullptr || tg_t == nullptr) return 0;
 	if (!on_t->sizes().equals(tg_t->sizes())) return 0;
 	tg_t->mul_(1.0 - tau).add_(*on_t, tau);
 	return 1;
@@ -551,9 +553,9 @@ extern "C" int optimizer_buf_count(OptimizerHandle h) {
 
 extern "C" void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
 	auto* w = static_cast<OptWrapper*>(h);
-	int numel = (int)((at::Tensor*)param_tensor(idx))->numel();
-	auto key = param_state_key(w->opt, idx);
-	if (!key || w->opt->state().count(key) == 0) {
+	const int numel = (int)((at::Tensor*)param_tensor(idx))->numel();
+	auto* key = param_state_key(w->opt, idx);
+	if (key == nullptr || w->opt->state().count(key) == 0) {
 		memset(out, 0, numel * sizeof(double));
 		return;
 	}
@@ -575,9 +577,9 @@ extern "C" void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
 
 extern "C" void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
 	auto* w = static_cast<OptWrapper*>(h);
-	int numel = (int)((at::Tensor*)param_tensor(idx))->numel();
-	auto key = param_state_key(w->opt, idx);
-	if (!key || w->opt->state().count(key) == 0) {
+	const int numel = (int)((at::Tensor*)param_tensor(idx))->numel();
+	auto* key = param_state_key(w->opt, idx);
+	if (key == nullptr || w->opt->state().count(key) == 0) {
 		memset(out, 0, numel * sizeof(double));
 		return;
 	}
@@ -598,9 +600,9 @@ extern "C" void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
 extern "C" void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
 	auto* w = static_cast<OptWrapper*>(h);
 	auto* param_t = (at::Tensor*)param_tensor(idx);
-	int numel = (int)param_t->numel();
-	auto key = param_state_key(w->opt, idx);
-	if (!key) return;
+	const int numel = (int)param_t->numel();
+	auto* key = param_state_key(w->opt, idx);
+	if (key == nullptr) return;
 	auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
 	tensor = tensor.reshape(param_t->sizes());
 	if (w->opt->state().count(key) == 0) {
@@ -626,9 +628,9 @@ extern "C" void optimizer_set_m(OptimizerHandle h, int idx, const double* data) 
 extern "C" void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
 	auto* w = static_cast<OptWrapper*>(h);
 	auto* param_t = (at::Tensor*)param_tensor(idx);
-	int numel = (int)param_t->numel();
-	auto key = param_state_key(w->opt, idx);
-	if (!key) return;
+	const int numel = (int)param_t->numel();
+	auto* key = param_state_key(w->opt, idx);
+	if (key == nullptr) return;
 	auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
 	tensor = tensor.reshape(param_t->sizes());
 	if (w->opt->state().count(key) == 0) {
@@ -666,8 +668,8 @@ extern "C" void optimizer_get_meta(OptimizerHandle h, double* out9) {
 	if (!w->opt->param_groups().empty()) {
 		auto& params = w->opt->param_groups()[0].params();
 		if (!params.empty()) {
-			auto key = params[0].unsafeGetTensorImpl();
-			if (w->opt->state().count(key)) {
+			auto* key = params[0].unsafeGetTensorImpl();
+			if (w->opt->state().count(key) != 0) {
 				auto& state = *w->opt->state().at(key);
 				if (w->type == 2)
 					step = static_cast<torch::optim::AdamParamState&>(state).step();
@@ -691,12 +693,12 @@ extern "C" void optimizer_set_meta(OptimizerHandle h, const double* in9) {
 	w->momentum = in9[7];
 	/* Step count: set on all existing param states, and stash for any
 	   states created later (optimizer_set_m/_v during load run after this). */
-	int64_t step = (int64_t)in9[8];
+	const int64_t step = (int64_t)in9[8];
 	w->pending_step = step;
 	if (!w->opt->param_groups().empty()) {
 		for (auto& p : w->opt->param_groups()[0].params()) {
-			auto key = p.unsafeGetTensorImpl();
-			if (w->opt->state().count(key)) {
+			auto* key = p.unsafeGetTensorImpl();
+			if (w->opt->state().count(key) != 0) {
 				auto& state = *w->opt->state().at(key);
 				if (w->type == 2)
 					static_cast<torch::optim::AdamParamState&>(state).step(step);
@@ -744,7 +746,7 @@ extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, d
 	if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
 
 	auto params = collect_param_tensors_filtered(w->owned);
-	double inv_scale = 1.0 / scale;
+	const double inv_scale = 1.0 / scale;
 	bool has_nonfinite = false;
 	for (auto& p : params) {
 		auto g = p.grad();

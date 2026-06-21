@@ -33,7 +33,7 @@ extern "C" void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cel
 }
 
 extern "C" TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 	to_tensor(h)->sub_(val);
 	return h;
 }

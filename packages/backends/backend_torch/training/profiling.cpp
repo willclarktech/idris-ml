@@ -18,7 +18,7 @@ long prof_op_count_torch = 0;
 double _wall_ms_torch(void) {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+	return static_cast<double>(tv.tv_sec) * 1000.0 + static_cast<double>(tv.tv_usec) / 1000.0;
 }
 
 /* param_count() is exposed by shared/training/param_registry. */
@@ -56,7 +56,7 @@ extern "C" void backend_profile_report(void) {
 	fprintf(stderr, "    of which math: %.1fms total (%.2fms/epoch)\n",
 	        prof_optimizer_math_ms_torch,
 	        prof_epochs_torch > 0 ? prof_optimizer_math_ms_torch / prof_epochs_torch : 0);
-	double total = prof_backward_ms_torch + prof_optimizer_ms_torch;
+	const double total = prof_backward_ms_torch + prof_optimizer_ms_torch;
 	fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n", total,
 	        prof_epochs_torch > 0 ? total / prof_epochs_torch : 0);
 }

@@ -7,6 +7,6 @@
 extern "C" TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
                                              TensorHandle bias, double eps) {
 	auto& t = *to_tensor(input);
-	int64_t n = t.size(-1);
+	const int64_t n = t.size(-1);
 	return from_tensor(torch::layer_norm(t, {n}, *to_tensor(gamma), *to_tensor(bias), eps));
 }

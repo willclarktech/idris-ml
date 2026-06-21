@@ -10,10 +10,11 @@ extern "C" TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
 
 	auto inp_4d = inp.unsqueeze(0);
 	at::Tensor bias_t;
-	if (hbias) bias_t = *to_tensor(hbias);
+	if (hbias != nullptr) bias_t = *to_tensor(hbias);
 
-	auto out = hbias ? torch::conv2d(inp_4d, ker, bias_t, {strideH, strideW}, {padH, padW})
-	                 : torch::conv2d(inp_4d, ker, {}, {strideH, strideW}, {padH, padW});
+	auto out = hbias != nullptr
+	               ? torch::conv2d(inp_4d, ker, bias_t, {strideH, strideW}, {padH, padW})
+	               : torch::conv2d(inp_4d, ker, {}, {strideH, strideW}, {padH, padW});
 	return from_tensor(out.squeeze(0));
 }
 
@@ -23,8 +24,8 @@ extern "C" TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle 
 	auto& inp = *to_tensor(hinput);  /* [B, inC, H, W] */
 	auto& ker = *to_tensor(hkernel); /* [outC, inC, kH, kW] */
 	at::Tensor bias_t;
-	if (hbias) bias_t = *to_tensor(hbias);
-	auto out = hbias ? torch::conv2d(inp, ker, bias_t, {strideH, strideW}, {padH, padW})
-	                 : torch::conv2d(inp, ker, {}, {strideH, strideW}, {padH, padW});
+	if (hbias != nullptr) bias_t = *to_tensor(hbias);
+	auto out = hbias != nullptr ? torch::conv2d(inp, ker, bias_t, {strideH, strideW}, {padH, padW})
+	                            : torch::conv2d(inp, ker, {}, {strideH, strideW}, {padH, padW});
 	return from_tensor(out);
 }

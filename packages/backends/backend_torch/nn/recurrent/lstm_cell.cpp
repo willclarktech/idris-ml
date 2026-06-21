@@ -11,7 +11,7 @@ extern "C" void tensor_lstm_cell(TensorHandle input, TensorHandle hx, TensorHand
 	auto in1d = *to_tensor(input);
 	auto hx1d = *to_tensor(hx);
 	auto cx1d = *to_tensor(cx);
-	bool unbatched = (in1d.dim() == 1);
+	const bool unbatched = (in1d.dim() == 1);
 	auto in2d = unbatched ? in1d.unsqueeze(0) : in1d;
 	auto hx2d = unbatched ? hx1d.unsqueeze(0) : hx1d;
 	auto cx2d = unbatched ? cx1d.unsqueeze(0) : cx1d;

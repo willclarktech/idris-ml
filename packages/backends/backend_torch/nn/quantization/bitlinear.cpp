@@ -37,8 +37,8 @@ extern c10::Device g_torch_target_device;
 extern "C" TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_bytes,
                                                         int packed_byte_count, int o, int i,
                                                         int requires_grad) {
-	int bytes_per_row = (i + 3) / 4;
-	int expected_bytes = bytes_per_row * o;
+	const int bytes_per_row = (i + 3) / 4;
+	const int expected_bytes = bytes_per_row * o;
 	if (packed_byte_count != expected_bytes) {
 		fprintf(stderr,
 		        "[torch] tensor_create_ternary_packed_2d: byte-count "
@@ -51,9 +51,9 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_by
 	for (int j = 0; j < o; j++) {
 		const uint8_t* row = packed_bytes + (size_t)j * (size_t)bytes_per_row;
 		for (int k = 0; k < i; k++) {
-			int byte_idx = k >> 2;
-			int slot = k & 0x3;
-			uint8_t code = (uint8_t)((row[byte_idx] >> (slot * 2)) & 0x3u);
+			const int byte_idx = k >> 2;
+			const int slot = k & 0x3;
+			const uint8_t code = (uint8_t)((row[byte_idx] >> (slot * 2)) & 0x3u);
 			int8_t v;
 			switch (code) {
 			case 0x0:
@@ -75,7 +75,7 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_by
 			dst[(size_t)j * (size_t)i + (size_t)k] = v;
 		}
 	}
-	if (requires_grad) {
+	if (requires_grad != 0) {
 		/* int8 dtype rejects requires_grad in torch; flag as a programming
 		   error rather than silently dropping. Ternary weights are NoGrad
 		   by construction in the Idris-side type. */
@@ -95,7 +95,7 @@ extern "C" TensorHandle tensor_bitlinear_fwd(TensorHandle hW, TensorHandle hscal
 	auto W = *to_tensor(hW);
 	auto scale = *to_tensor(hscale);
 	auto x = *to_tensor(hx);
-	bool has_bias = hbias != nullptr;
+	const bool has_bias = hbias != nullptr;
 	/* W: [o, i] int8. Dequant via .to(scale.dtype()) — produces a float
 	   tensor of the same shape, values still in {-1, 0, +1}. Multiply
 	   by scale unsqueezed to [o, 1] for row-wise broadcast. matmul
@@ -118,10 +118,10 @@ extern "C" TensorHandle tensor_bitlinear_fwd_hf_quant(TensorHandle hW, double w_
                                                       double rms_eps) {
 	auto W = *to_tensor(hW); /* [o, i] int8 */
 	auto x = *to_tensor(hx); /* [i] float */
-	bool has_bias = (hbias != nullptr);
+	const bool has_bias = (hbias != nullptr);
 	auto dtype = x.scalar_type();
 	/* Optional RMSNorm */
-	if (use_rms_norm && hrms_w) {
+	if (use_rms_norm != 0 && hrms_w != nullptr) {
 		auto w_rms = *to_tensor(hrms_w);
 		auto var = at::mean(x * x); /* scalar */
 		auto inv = at::rsqrt(var + rms_eps);
@@ -155,16 +155,17 @@ extern "C" TensorHandle tensor_bitlinear_fwd_hf_quant(TensorHandle hW, double w_
 
 extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* hf_packed_bytes,
                                                                 int o, int i_dim) {
-	int hf_row_dim = (o + 3) / 4;
+	const int hf_row_dim = (o + 3) / 4;
 	auto unpacked = torch::empty({o, i_dim}, at::TensorOptions().dtype(at::kChar));
 	int8_t* dst = unpacked.data_ptr<int8_t>();
 	for (int j = 0; j < o; j++) {
-		int hf_chunk = j / hf_row_dim;
-		int hf_byte_row = j % hf_row_dim;
+		const int hf_chunk = j / hf_row_dim;
+		const int hf_byte_row = j % hf_row_dim;
 		for (int k = 0; k < i_dim; k++) {
-			uint8_t hf_byte = hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
-			int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
-			int v = hf_code - 1;
+			const uint8_t hf_byte =
+			    hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
+			const int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
+			const int v = hf_code - 1;
 			if (v < -1 || v > 1) {
 				std::fprintf(stderr,
 				             "[torch] tensor_create_ternary_from_hf_packed_2d: "

@@ -22,7 +22,7 @@
 extern c10::Device g_torch_target_device;
 
 extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
-	int total = n_tokens * vocab_size;
+	const int total = n_tokens * vocab_size;
 	// Build the 0/1 pattern in F64 on CPU (we need .accessor<> to write
 	// the buffer cell-by-cell, which only works on CPU storage), then
 	// cast + migrate in a single .to(opts) call. Without the migration
@@ -32,8 +32,9 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
 	auto t = torch::zeros({(int64_t)total}, torch::kFloat64);
 	auto acc = t.accessor<double, 1>();
 	for (int i = 0; i < n_tokens; i++) {
-		int tok = tokens[i];
-		if (tok >= 0 && tok < vocab_size) acc[(size_t)i * vocab_size + tok] = 1.0;
+		const int tok = tokens[i];
+		if (tok >= 0 && tok < vocab_size)
+			acc[static_cast<long>((size_t)i * vocab_size + tok)] = 1.0;
 	}
 	/* Delegate to st_for_dtag for the kind-major dtag layout; invalid
 	   dtags abort there. */
@@ -43,8 +44,8 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
 	    (g_torch_target_device.type() == c10::DeviceType::MPS && st == torch::kFloat64)
 	        ? at::kCPU
 	        : g_torch_target_device;
-	bool need_cast = st != torch::kFloat64;
-	bool need_move = target != at::kCPU;
+	const bool need_cast = st != torch::kFloat64;
+	const bool need_move = target != at::kCPU;
 	if (need_cast || need_move) {
 		auto opts = torch::TensorOptions().dtype(st).device(target);
 		t = t.to(opts);

@@ -159,19 +159,19 @@ static void torch_port_data_write(void* h, int i, double v) {
 			return;
 		}
 	}
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 	t->flatten().index_put_({i}, v);
 }
 
 static void torch_port_load_doubles(void* h, const double* src, int n) {
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 	auto* t = to_tensor(h);
 	auto staging = torch::from_blob(const_cast<double*>(src), {(int64_t)n}, torch::kFloat64);
 	t->view({n}).copy_(staging);
 }
 
 static void torch_port_load_int64(void* h, const int64_t* src, int n) {
-	torch::NoGradGuard no_grad;
+	const torch::NoGradGuard no_grad;
 	auto* t = to_tensor(h);
 	auto staging = torch::from_blob(const_cast<int64_t*>(src), {(int64_t)n}, torch::kInt64);
 	t->view({n}).copy_(staging);

@@ -13,7 +13,7 @@ extern "C" TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int 
 	std::vector<at::Tensor> vec(count);
 	for (int i = 0; i < count; i++)
 		vec[i] = *to_tensor(arr[i]);
-	free(arr);
+	free(static_cast<void*>(arr));
 	return from_tensor(torch::cat(vec, dim));
 }
 

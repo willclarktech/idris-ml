@@ -41,8 +41,8 @@ extern "C" TensorHandle tensor_sdpa_2d(TensorHandle hq, TensorHandle hk, TensorH
 	auto& q = *to_tensor(hq); // [q_seq,  numHeads   * headDim]
 	auto& k = *to_tensor(hk); // [kv_seq, numKvHeads * headDim]
 	auto& v = *to_tensor(hv); // [kv_seq, numKvHeads * headDim]
-	int64_t q_seq = q.size(0);
-	int64_t kv_seq = k.size(0);
+	const int64_t q_seq = q.size(0);
+	const int64_t kv_seq = k.size(0);
 	// [q_seq, nH * hd] -> [q_seq, nH, hd] -> [nH, q_seq, hd]
 	auto q3 = q.view({q_seq, (int64_t)numHeads, (int64_t)headDim}).transpose(0, 1);
 	auto k3 = k.view({kv_seq, (int64_t)numKvHeads, (int64_t)headDim}).transpose(0, 1);

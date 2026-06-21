@@ -11,7 +11,7 @@ extern "C" TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle 
 	auto& ker = *to_tensor(kernel);
 
 	int64_t n = inp.size(0);
-	int64_t k = ker.size(0);
+	const int64_t k = ker.size(0);
 	int64_t pad = k / 2;
 
 	auto padded = torch::cat({inp.slice(0, n - pad, n), inp, inp.slice(0, 0, pad)});

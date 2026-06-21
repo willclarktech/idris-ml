@@ -17,7 +17,7 @@ extern "C" TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgam
 
 	auto inp_3d = inp.reshape({1, (int64_t)channels, (int64_t)spatial});
 	auto out = torch::batch_norm(inp_3d, gamma, beta, rm, rv,
-	                             /*training=*/training, momentum, eps,
+	                             /*training=*/training != 0, momentum, eps,
 	                             /*cudnn_enabled=*/false);
 	return from_tensor(out.reshape({-1}));
 }

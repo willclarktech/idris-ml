@@ -24,7 +24,7 @@
 extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
 
 void tensor_backward(TensorHandle h) {
-	double t0 = _wall_ms_torch();
+	const double t0 = _wall_ms_torch();
 	to_tensor(h)->backward();
 	prof_backward_ms_torch += _wall_ms_torch() - t0;
 	/* Per-param gradient L2-norm dump (DEBUG_PARAM_GRADS=1).
@@ -33,7 +33,7 @@ void tensor_backward(TensorHandle h) {
 }
 
 TensorHandle tensor_grad(TensorHandle h) {
-	auto& g = to_tensor(h)->grad();
+	const auto& g = to_tensor(h)->grad();
 	if (!g.defined()) return nullptr;
 	return from_tensor(g);
 }
@@ -60,12 +60,12 @@ TensorHandle tensor_with_grad(TensorHandle h) {
 }
 
 void tensor_set_requires_grad(TensorHandle h, int requires_grad) {
-	auto t = to_tensor(h);
+	auto* t = to_tensor(h);
 	/* torch throws if you request grad on a non-floating tensor. Inference
 	   dtypes (int/bool) can be registered (e.g. via registerParam, for
 	   serialization) but can't carry gradients — silently leave grad off
 	   rather than abort. */
-	if (requires_grad && !idrisml_is_floating_st(t->scalar_type())) return;
+	if (requires_grad != 0 && !idrisml_is_floating_st(t->scalar_type())) return;
 	t->requires_grad_(requires_grad != 0);
 }
 

@@ -27,7 +27,9 @@ struct _ReserveIntermediates {
 		all_pairs_torch.reserve(256);
 	}
 };
-_ReserveIntermediates _reserve_intermediates_instance;
+// cert-err58-cpp suppressed: the ctor only reserve()s two vectors; a
+// bad_alloc at static init is unrecoverable at startup regardless.
+_ReserveIntermediates _reserve_intermediates_instance; // NOLINT(cert-err58-cpp)
 } // namespace
 
 static std::unordered_set<void*> freed_by_cleanup;
@@ -36,7 +38,7 @@ void free_intermediates(void) {
 	freed_by_cleanup.clear();
 	freed_by_cleanup.reserve(intermediates_torch.size());
 	for (auto* p : intermediates_torch) {
-		if (p) {
+		if (p != nullptr) {
 			freed_by_cleanup.insert(p);
 			delete p;
 		}

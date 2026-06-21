@@ -22,7 +22,7 @@ static TensorHandle tensor_create_scalar_impl(double value, int requires_grad,
 	        ? at::kCPU
 	        : g_torch_target_device;
 	if (target != at::kCPU) t = t.to(target);
-	if (requires_grad) t.requires_grad_(true);
+	if (requires_grad != 0) t.requires_grad_(true);
 	return from_tensor_persistent(std::move(t));
 }
 

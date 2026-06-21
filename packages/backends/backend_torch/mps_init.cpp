@@ -44,8 +44,9 @@
 /* Process-wide pin observed by the streamed-path creators in
    dtype_dispatch.cpp. Set once at dylib load from `TORCH_DEVICE`; never
    mutated afterwards. Default `at::kCPU` keeps the no-env path identical
-   to the pre-existing behaviour. */
-c10::Device g_torch_target_device = at::kCPU;
+   to the pre-existing behaviour. The c10::Device(DeviceType) ctor is
+   constexpr + noexcept, so this load-time init cannot throw. */
+c10::Device g_torch_target_device = at::kCPU; // NOLINT(cert-err58-cpp)
 
 __attribute__((constructor)) static void torch_mps_eager_init(void) {
 	if (!at::hasMPS()) return;
@@ -60,16 +61,16 @@ __attribute__((constructor)) static void torch_mps_eager_init(void) {
 		(void)warm.cpu();
 		// `warm` falls out of scope; its storage refcount hits zero
 		// and libtorch returns the MPS buffer to the allocator pool.
-	} catch (...) {
-		// First-touch failures (paravirt-MPS quirks on Tart VMs etc.)
-		// shouldn't prevent dylib load. Subsequent Idris-side MPS use
-		// will surface the real error.
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+		            // Deliberate first-touch swallow: a load-time MPS warm-up failure
+		            // (paravirt-MPS quirks on Tart VMs etc.) must not abort dylib load.
+		            // The real error resurfaces on the first Idris-side MPS use.
 	}
 }
 
 __attribute__((constructor)) static void torch_target_device_init(void) {
 	const char* env = std::getenv("TORCH_DEVICE");
-	if (!env || *env == '\0') return; // leave at kCPU
+	if (env == nullptr || *env == '\0') return; // leave at kCPU
 	if (std::strcmp(env, "cpu") == 0) {
 		g_torch_target_device = at::kCPU;
 	} else if (std::strcmp(env, "mps") == 0) {
@@ -86,7 +87,7 @@ __attribute__((constructor)) static void torch_target_device_init(void) {
 		// Device(CUDA, -1) which libtorch then resolves to the current
 		// CUDA device on first use, so the same .device()-mismatch
 		// concern applies. Normalize unindexed to 0 explicitly.
-		std::string s(env);
+		const std::string s(env);
 		g_torch_target_device = (s == "cuda") ? at::Device(at::DeviceType::CUDA, 0) : at::Device(s);
 	}
 	// Unknown strings fall through silently — the first .to() will throw

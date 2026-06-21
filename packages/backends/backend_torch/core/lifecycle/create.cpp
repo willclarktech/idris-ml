@@ -29,13 +29,13 @@ static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int r
 	    (g_torch_target_device.type() == c10::DeviceType::MPS && dt == torch::kFloat64)
 	        ? at::kCPU
 	        : g_torch_target_device;
-	bool need_cast = dt != torch::kFloat64;
-	bool need_move = target != at::kCPU;
+	const bool need_cast = dt != torch::kFloat64;
+	const bool need_move = target != at::kCPU;
 	if (need_cast || need_move) {
 		auto opts = torch::TensorOptions().dtype(dt).device(target);
 		t = t.to(opts);
 	}
-	if (requires_grad) t.requires_grad_(true);
+	if (requires_grad != 0) t.requires_grad_(true);
 	return from_tensor_persistent(std::move(t));
 }
 

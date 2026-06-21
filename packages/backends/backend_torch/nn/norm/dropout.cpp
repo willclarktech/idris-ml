@@ -9,6 +9,6 @@ extern "C" TensorHandle tensor_dropout(TensorHandle hinput, double p, int traini
                                        unsigned int seed) {
 	(void)seed;
 	auto& inp = *to_tensor(hinput);
-	if (!training || p <= 0.0) return hinput;
+	if (training == 0 || p <= 0.0) return hinput;
 	return from_tensor(torch::dropout(inp, p, /*train=*/true));
 }

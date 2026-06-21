@@ -17,6 +17,6 @@ extern "C" TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, in
 	std::vector<at::Tensor> vec(count);
 	for (int i = 0; i < count; i++)
 		vec[i] = *to_tensor(arr[i]);
-	free(arr);
+	free(static_cast<void*>(arr));
 	return from_tensor(torch::stack(vec, dim));
 }
