@@ -261,12 +261,15 @@ lint-c-torch:
 		echo "lint-c-torch: cppcheck not installed; skipping"; \
 	fi
 	@echo "lint-c-torch: clang-tidy on libtorch C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-torch' (Linux). macOS+nix is blocked: Apple SDK <sys/resource.h> uint8_t/uint64_t fail to resolve against nix clang-tidy's libc++ pre-include chain — not fixable cheaply."
-	@# Per-file parallel fan-out (GNU xargs -P -I): one serial clang-tidy
-	@# over all ~100 torch TUs re-parses libtorch's headers each time and
-	@# blew the CI job's timeout (run 27879495722, cancelled at 30m). The
-	@# step only ever runs on the ubuntu lint-full lane (macOS SDK-blocked).
+	@# libtorch includes go in as -isystem (subst -I): clang-tidy does not
+	@# analyze system headers, so this drops the ~13.4k warnings/TU it was
+	@# generating from libtorch's own headers (430k+ before cancellation,
+	@# run 27879495722) AND most of the per-file time. Per-file parallel
+	@# fan-out (GNU xargs -P) on top, because the old single serial
+	@# clang-tidy over all ~100 TUs blew the CI job's 30m timeout. The step
+	@# only ever runs on the ubuntu lint-full lane (macOS SDK-blocked).
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
-		printf '%s\n' $(BACKEND_TORCH_SRCS) | xargs -P "$$(nproc 2>/dev/null || echo 4)" -I{} clang-tidy --quiet {} -- $(CLANG_TIDY_EXTRA_CFLAGS) $(torch_CFLAGS) -include $(BACKENDS_DIR)/rename_torch.h || exit 1; \
+		printf '%s\n' $(BACKEND_TORCH_SRCS) | xargs -P "$$(nproc 2>/dev/null || echo 4)" -I{} clang-tidy --quiet {} -- $(CLANG_TIDY_EXTRA_CFLAGS) $(subst -I,-isystem ,$(torch_CFLAGS)) -include $(BACKENDS_DIR)/rename_torch.h || exit 1; \
 	fi
 
 lint-c-mlx:
@@ -277,7 +280,7 @@ lint-c-mlx:
 	fi
 	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx' (Linux). Same macOS+nix block as torch — Apple SDK headers reject nix clang-tidy."
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
-		printf '%s\n' $(BACKEND_MLX_SRCS) | xargs -P "$$(nproc 2>/dev/null || echo 4)" -I{} clang-tidy --quiet {} -- $(CLANG_TIDY_EXTRA_CFLAGS) $(mlx_CFLAGS) -include $(BACKENDS_DIR)/rename_mlx.h || exit 1; \
+		printf '%s\n' $(BACKEND_MLX_SRCS) | xargs -P "$$(nproc 2>/dev/null || echo 4)" -I{} clang-tidy --quiet {} -- $(CLANG_TIDY_EXTRA_CFLAGS) $(subst -I,-isystem ,$(mlx_CFLAGS)) -include $(BACKENDS_DIR)/rename_mlx.h || exit 1; \
 	fi
 
 # Verify the GradMode gate is intact: a NoGrad loss must NOT type-check
