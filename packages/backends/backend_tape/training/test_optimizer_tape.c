@@ -19,6 +19,7 @@
  */
 
 #include <criterion/criterion.h>
+#include <math.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -148,6 +149,22 @@ Test(tape_optimizer_edge, clip_grad_value_filtered_clamps) {
 	param_clear();
 }
 
+/* clip value with a NEGATIVE grad below -max_val — the v < -max_val branch.
+   a = -3, loss = a*a => grad = 2a = -6 -> clamped to -2.0, then SGD lr=0.1:
+   a = -3 - 0.1*(-2) = -2.8. */
+Test(tape_optimizer_edge, clip_grad_value_filtered_neg_clamp) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(-3.0, 1);
+	param_register("clipv_neg", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(a, a);      /* grad = -6 */
+	native_train_step(opt, 1, 2.0, loss, 0.0); /* clip_mode 1, max_val 2.0 */
+	cr_assert_float_eq(tensor_item(a), -2.8, TEST_TOL_RELAXED,
+	                   "neg grad clamped to -2.0 then SGD -> -2.8 (got %.9f)", tensor_item(a));
+	optimizer_free(opt);
+	param_clear();
+}
+
 /* clip value with a grad already below max_val: no clamp, full grad steps. */
 Test(tape_optimizer_edge, clip_grad_value_filtered_no_clamp) {
 	param_clear();
@@ -248,3 +265,100 @@ Test(tape_param_registry_edge, load_data_int64_match_writes) {
 	                   "int64 matching numel wrote 42 (got %.9f)", tensor_item(a));
 	param_clear();
 }
+
+/* ----------------------------------------------------------------------
+   shared/training/optimizer.c trampolines: native_train_step_scaled and
+   optimizer_step_with_clip. On tape these route through the shared port
+   trampoline (torch/mlx have their own impls + own gated tests); the common
+   suite is the only thing that reaches the shared trampoline. Value-clip
+   oracles are backend-independent (no norm eps), so these are un-gated; the
+   norm-clip + overflow oracles are tape-exact and BACKEND_TAPE-gated.
+   ---------------------------------------------------------------------- */
+
+/* native_train_step_scaled, clip_mode 1 (value): unscale grads by 1/scale, then
+   value-clip, then step. scale=2 -> grad(a)=2*3=6 unscaled to 3.0, clamp to 2.0,
+   SGD lr=0.1: a = 3 - 0.2 = 2.8. Returns loss_val/scale. */
+Test(optimizer_scaled, value_clip_step) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(3.0, 1);
+	param_register("sc_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(a, a); /* grad = 6 */
+	double scale = 2.0;
+	double ret = native_train_step_scaled(opt, 1, 2.0, loss, 8.0, scale);
+	cr_assert_float_eq(tensor_item(a), 2.8, TEST_TOL_RELAXED, "scaled value-clip step (got %.9f)",
+	                   tensor_item(a));
+	cr_assert_float_eq(ret, 8.0 / scale, TEST_TOL_RELAXED, "returns loss/scale (got %.9f)", ret);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* optimizer_step_with_clip, clip_mode 1 (value). Does NOT call backward — run it
+   first. grad(a)=2*3=6 -> clamp to 2.0 -> SGD lr=0.1: 3 - 0.2 = 2.8. */
+Test(optimizer_step_with_clip, value_clip_then_step) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(3.0, 1);
+	param_register("swc_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(a, a); /* grad = 6 */
+	tensor_backward(loss);
+	optimizer_step_with_clip(opt, 1, 2.0, 0);
+	cr_assert_float_eq(tensor_item(a), 2.8, TEST_TOL_RELAXED, "value-clip then SGD (got %.9f)",
+	                   tensor_item(a));
+	optimizer_free(opt);
+	param_clear();
+}
+
+#ifdef BACKEND_TAPE
+/* native_train_step_scaled, clip_mode 2 (norm), tape-exact (no clip eps).
+   scale=2 -> grad(a)=2*8=16 unscaled to 8.0, norm 8 > max 2 -> scale 0.25 ->
+   grad 2.0, SGD lr=0.1: a = 8 - 0.2 = 7.8. */
+Test(optimizer_scaled, norm_clip_step_tape) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(8.0, 1);
+	param_register("scn_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(a, a); /* grad = 16 */
+	double scale = 2.0;
+	double ret = native_train_step_scaled(opt, 2, 2.0, loss, 4.0, scale);
+	cr_assert_float_eq(tensor_item(a), 7.8, TEST_TOL_RELAXED, "scaled norm-clip step (got %.9f)",
+	                   tensor_item(a));
+	cr_assert_float_eq(ret, 4.0 / scale, TEST_TOL_RELAXED, "returns loss/scale (got %.9f)", ret);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* optimizer_step_with_clip, clip_mode 2 (norm), tape-exact. grad(a)=2*4=8, norm
+   8 > max 2 -> scale 0.25 -> grad 2.0, SGD lr=0.1: a = 4 - 0.2 = 3.8. */
+Test(optimizer_step_with_clip, norm_clip_then_step_tape) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(4.0, 1);
+	param_register("swcn_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(a, a); /* grad = 8 */
+	tensor_backward(loss);
+	optimizer_step_with_clip(opt, 2, 2.0, 0);
+	cr_assert_float_eq(tensor_item(a), 3.8, TEST_TOL_RELAXED, "norm-clip then SGD (got %.9f)",
+	                   tensor_item(a));
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* native_train_step_scaled overflow path: a non-finite grad (GradScaler
+   overflow) -> skip clip+step, return NaN, param unchanged. a^3 with a = 1e300
+   has grad 3a^2 = 3e600 -> +Inf in F64 (F32 backends can't hold 1e300, hence
+   tape-gated). */
+Test(optimizer_scaled, overflow_returns_nan_skips_step) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(1e300, 1);
+	param_register("ovf_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(tensor_mul(a, a), a); /* grad = 3a^2 = +Inf */
+	double ret = native_train_step_scaled(opt, 0, 0.0, loss, 1.0, 1.0);
+	cr_assert(isnan(ret), "non-finite grad returns NaN sentinel (got %.3e)", ret);
+	cr_assert_float_eq(tensor_item(a), 1e300, 0.0, "param unchanged on overflow skip (got %.3e)",
+	                   tensor_item(a));
+	optimizer_free(opt);
+	param_clear();
+}
+#endif /* BACKEND_TAPE */
