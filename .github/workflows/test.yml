@@ -333,18 +333,29 @@ jobs:
   lint-full:
     name: lint-full
     runs-on: ubuntu-latest
+    # Single nix toolchain: uv, clang-tidy (21, == the tape lane + local),
+    # cppcheck and openblas all come from the default devShell — no apt, no
+    # uv-curl. nix-installer runs before the first `run:` step below.
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
     needs: changes
     # Skip the whole job on a docs-only push; the clang-tidy step itself is
     # further gated on `ccpp` (see test.yml.spec.json) so a Python/Idris-only
     # change runs the fast pyright steps but not the ~40m torch clang-tidy.
     if: ${{ needs.changes.outputs.lintfull == 'true' }}
-    # 60m: the (enforcing) torch clang-tidy fans out per-file over ~100 TUs
-    # (mk/lint.mk). Serial it blew the old 30m cap (run 27879495722); the
-    # parallel run lands well under, but libtorch-header parse time is
-    # high-variance so keep generous headroom.
+    # 60m: the torch clang-tidy fans out per-file over ~100 TUs (mk/lint.mk;
+    # temporarily advisory during the apt-18 -> nix-21 move, see spec). Serial
+    # it blew the old 30m cap (run 27879495722); the parallel run lands well
+    # under, but libtorch-header parse time is high-variance so keep headroom.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+      - name: Install Nix (pinned toolchain)
+        # uv, clang-tidy 21, cppcheck, openblas all come from the default
+        # devShell (set as defaults.run.shell above). SHA-pinned third-party
+        # action — same narrow exception as the other nixified lanes.
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Restore pytorch venv cache
         id: pytorch-venv-cache
         uses: actions/cache/restore@v5
@@ -353,18 +364,10 @@ jobs:
           key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Install torch + transformers via uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          export PATH="$HOME/.local/bin:$PATH"
-          make ref-setup
-
-      - name: Install clang-tidy + cppcheck + BLAS headers (for the torch C++ lint)
-        # clang-tidy for the C_LINT_FULL_CLANG_TIDY lane below; cppcheck
-        # so the cppcheck half of lint-c-torch actually runs here instead
-        # of "not installed; skipping"; libopenblas-dev so shared sources'
-        # non-Apple BLAS branch parses.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-tidy cppcheck libopenblas-dev
+        # uv comes from the default devShell (defaults.run.shell). ref-setup
+        # syncs the pytorch venv (torch/transformers) that the pyright gates
+        # and the torch clang-tidy's libtorch headers below both consume.
+        run: make ref-setup
 
       # >>> GENERATED (lint-full) FROM test.yml.spec.json >>>
       - name: Typecheck torch_ref (pyright)
@@ -394,22 +397,22 @@ jobs:
 
       - name: Full clang-tidy over torch C++ backend
         # The default `lint-c` runs clang-tidy on tape only; the torch
-        # C++ sources need libtorch headers, which this job carries for
-        # free via the ref-setup venv (the Makefile's LIBTORCH_PATH
-        # detection finds the venv's torch). BACKEND=torch is REQUIRED:
-        # the libtorch include-path detection in mk/backends.mk is gated
-        # on torch being in BACKEND_LIST, so without it torch_CFLAGS gets
-        # empty -I paths, clang-tidy can't find torch/torch.h, and every
-        # TU parses with a broken AST that emits unreliable findings.
-        # Enforcing (no continue-on-error): all 151 findings the first
-        # correct-header runs surfaced were triaged and fixed (145 in the
-        # initial sweep + 6 residual; commits 362f85f5 / 2f4e8f66), and a
-        # subsequent run came back with 0 displayed findings. Runnable
-        # locally too (incl. macOS) under the nix default devShell, which
-        # points clang-tidy at nix's apple-sdk (IDRISML_MACOS_SDKROOT) so
-        # its libc++ stops skewing against the host sdk; this Linux lane is
-        # the canonical CI check. Gated on the `ccpp` change-filter.
+        # C++ sources need libtorch headers, which this lane carries via
+        # the ref-setup venv (the Makefile's LIBTORCH_PATH detection finds
+        # the venv's torch). BACKEND=torch is REQUIRED: the libtorch
+        # include-path detection in mk/backends.mk is gated on torch being
+        # in BACKEND_LIST, so without it torch_CFLAGS gets empty -I paths,
+        # clang-tidy can't find torch/torch.h, and every TU parses with a
+        # broken AST that emits unreliable findings.
+        # TEMPORARILY ADVISORY (continue-on-error) for the toolchain move:
+        # the lane now runs under the nix default devShell, so clang-tidy
+        # goes apt-18 -> nix-21 (== the tape lane + local). 21 may surface
+        # new findings the 18-era triage didn't. One advisory run to
+        # surface them, then fix + drop continue-on-error to re-enforce.
+        # Runs locally too (incl. macOS, nix apple-sdk -isysroot). Gated on
+        # the `ccpp` change-filter.
         if: ${{ needs.changes.outputs.ccpp == 'true' && !cancelled() }}
+        continue-on-error: true
         run: make BACKEND=torch C_LINT_FULL_CLANG_TIDY=1 lint-c-torch
       # <<< END GENERATED (lint-full) <<<
 
