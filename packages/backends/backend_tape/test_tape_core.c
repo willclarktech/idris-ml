@@ -275,7 +275,9 @@ Test(tape_core, reset_frees_op_metadata) {
 	TensorHandle* arr = (TensorHandle*)malloc(2 * sizeof(TensorHandle));
 	arr[0] = s0;
 	arr[1] = s1;
-	TensorHandle st = tensor_stack(arr, 2, 0);
+	/* stack_from_array (not tensor_stack, which never tapes) records OP_STACK
+	   with a heap inputs[] array when an input requires grad — freed on reset. */
+	TensorHandle st = tensor_stack_from_array(arr, 2, 0);
 	cr_assert_eq(tensor_numel(st), 2, "stack -> [2]");
 	/* OP_GRU_CELL — gate metas (zG/rG/nG). */
 	double z[3] = {0.0, 0.0, 0.0};
