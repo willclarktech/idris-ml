@@ -9,17 +9,19 @@ uncovered, why, and how to close it. Re-measure with `make test-coverage-all`
 
 ## Current state
 
-| backend | lines  | branches | suite |
-|---------|--------|----------|-------|
-| tape    | 99.97%*| —        | 599     |
-| mlx     | 99.9%  | —        | 635     |
-| torch   | 99.9%  | —        | 558     |
+| backend | lines   | branches | suite |
+|---------|---------|----------|-------|
+| tape    | 99.97%* | —        | 599     |
+| mlx     | **100.0%** | —     | 636     |
+| torch   | **100.0%** | —     | 559     |
 
-(*tape is measured locally on macOS; the gating CI lane is **ubuntu**, where it
-is effectively 100% — the only local miss is the `tanh.c` scalar fallback, which
-is vForce-bypassed on macOS but exercised on ubuntu. See the note below. Test
-consolidation (one canonical test file per source, no `_cov_*` files) landed
-alongside; suite counts are post-consolidation.)
+(*tape is **100% on the gating ubuntu CI lane**; the single local-macOS miss is
+`tanh.c`'s `fn_tanh_f32` scalar fallback, which is vForce-bypassed on macOS but
+exercised on ubuntu — it can't be covered locally and needs no marker since the
+gating lane covers it. mlx/torch are 100% line coverage outright, with the
+unreachable code carrying reasoned `GCOVR_EXCL`. Test consolidation — one
+canonical test file per source, no `_cov_*` files — landed alongside; suite
+counts are post-consolidation.)
 
 (2026-06-27 push to 100%-or-exclusion: lifted tape 98.0% → 99.5%, mlx 99.2% →
 99.7%, torch 95.0% → 99.8%. **Phase 1** — `CXX_ABORT_IF` (a C++ same-line-guard
@@ -34,26 +36,19 @@ backward early-return. **Phase 3** — tape arena multi-chunk growth (>65,536 op
 DRY refactor of the duplicated MPS-F64 device ternary onto `torch_effective_device`,
 and misplaced-marker fixes.)
 
-### Residual (≈5 lines total, all documented)
+### Residual (1 line, lane-split)
 
-After the 100%-or-exclusion push + consolidation, the only uncovered product
-lines left:
+mlx and torch are at **100% line coverage**. tape has a single uncovered line on
+the local-macOS measurement: `core/elementwise/tanh.c`'s `fn_tanh_f32` scalar
+fallback. `tanh` is a vForce op, so on macOS the F32 unary takes `vvtanhf` and
+the scalar kernel is bypassed; the tape CI lane is **ubuntu** (no vForce) where
+it *is* exercised. It can't be covered locally and needs no `GCOVR_EXCL` (the
+gating lane covers it — excluding it would wrongly drop covered code from the
+ubuntu denominator).
 
-- **tape `tanh.c` (2):** the `fn_tanh_f32` scalar fallback — `tanh` is a vForce op,
-  so on macOS the F32 unary takes `vvtanhf` and the scalar kernel is bypassed;
-  **covered on the gating ubuntu CI lane** (no vForce there). Local-only miss; the
-  div/sigmoid/etc. helpers that were in this bucket are now covered via
-  broadcast/non-vForce tests. Don't chase locally.
-- **mlx `tape.cpp` (2) + `tile.cpp` (1):** the `OP_CONV1D` replay-meta cleanup at
-  tape teardown and the no-grad tile `free(meta)` arm — reachable but need
-  replay/teardown scaffolding (a grad-tracked op on the mlx tape + an explicit
-  teardown); testable-but-deferred.
-- **torch `intermediates.cpp` (1):** the `all_pairs_torch` cleanup loop body —
-  needs a live `TensorPair` plus the intermediates-clear trigger; testable-but-deferred.
-
-Everything else is either covered or carries a reasoned `GCOVR_EXCL` (GPU/MPS
-paths, Idris-`Compatible`-gate-unreachable dispatch defaults, abort guards, the
-`mx::vjp` lambda-attribution artifact).
+Everything else is covered or carries a reasoned `GCOVR_EXCL` (GPU/MPS paths,
+Idris-`Compatible`-gate-unreachable dispatch defaults, abort guards, the degenerate
+grad-tile-in-no_grad arm, the `mx::vjp` lambda-attribution artifact).
 
 (2026-06-26 progress: Task-1 exclusions lifted mlx 94.1% → 98.3% — NAN_TRAP +
 MLX_OPT_COMPILE marked `GCOVR_EXCL`, no behaviour change. Task-2 optimizer tests
