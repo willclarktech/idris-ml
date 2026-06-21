@@ -1,11 +1,11 @@
-/* Criterion suite for tensor_leaky_relu (forward + backward).
+/* Criterion suites for tensor_leaky_relu (forward + backward).
  *
  *   leaky_relu(x) = max(alpha*x, x) = (x >= 0) ? x : alpha*x
  *   d/dx          = (x >= 0) ? 1 : alpha
  *
- * Covers the F64 scalar (numel==1) branch and the F64 vector branch, plus
- * the OP_LEAKY_RELU backward (both x>=0 and x<0 gradient cases). The F32
- * paths (tensor_leaky_relu_f32) are not reachable from F64 tape tests.
+ * Covers the F64 scalar (numel==1) and vector branches plus the
+ * OP_LEAKY_RELU backward, and (under BACKEND_TAPE) the F32 scalar arm of
+ * tensor_leaky_relu_f32 via the streamed dtag-14 creators.
  */
 
 #include <criterion/criterion.h>
@@ -87,5 +87,44 @@ Test(nn_activation_leaky_relu, vector_backward) {
 		                   "d leaky_relu[%d]/dx expected %.9f got %.9f", i, expect,
 		                   param_grad_item_at(0, i));
 	}
+}
+
+/* alpha=0.25, x=-4 (F32 scalar). Negative leg: y = alpha*x = -1.
+   loss=sum (scalar identity) -> grad_out=1, d_x = alpha = 0.25.
+   Drives the F32 scalar arm + tape_append + the x<0 branch. */
+Test(leaky_relu_cov, f32_scalar_negative) {
+	param_clear();
+	TensorHandle x = tensor_create_scalar_streamed(-4.0, 1, 0, 14);
+	param_register("x", x);
+	TensorHandle r = tensor_leaky_relu(x, 0.25);
+	cr_assert_eq(tensor_numel(r), 1);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 in -> F32 out (got %s)",
+	                 tensor_dtype_name(r));
+	cr_assert_float_eq(tensor_item_1d(r, 0), -1.0, TEST_TOL_RELAXED,
+	                   "leaky_relu(-4, .25) should be -1 (got %.6f)", tensor_item_1d(r, 0));
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 0.25, TEST_TOL_RELAXED,
+	                   "d_x should be alpha=0.25 (got %.6f)", param_grad_item_at(0, 0));
+	param_clear();
+}
+
+/* alpha=0.25, x=4 (F32 scalar). Positive leg: y = x = 4.
+   loss=sum -> grad_out=1, d_x = 1. Same F32 scalar arm, x>=0 branch. */
+Test(leaky_relu_cov, f32_scalar_positive) {
+	param_clear();
+	TensorHandle x = tensor_create_scalar_streamed(4.0, 1, 0, 14);
+	param_register("x", x);
+	TensorHandle r = tensor_leaky_relu(x, 0.25);
+	cr_assert_eq(tensor_numel(r), 1);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 in -> F32 out (got %s)",
+	                 tensor_dtype_name(r));
+	cr_assert_float_eq(tensor_item_1d(r, 0), 4.0, TEST_TOL_RELAXED,
+	                   "leaky_relu(4, .25) should be 4 (got %.6f)", tensor_item_1d(r, 0));
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 1.0, TEST_TOL_RELAXED,
+	                   "d_x should be 1 (got %.6f)", param_grad_item_at(0, 0));
+	param_clear();
 }
 #endif /* BACKEND_TAPE */

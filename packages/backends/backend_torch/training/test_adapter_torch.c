@@ -1,25 +1,8 @@
-/* torch-only Criterion suite — adapter.cpp port-slot edge paths the
- * existing test_training_torch.c leaves uncovered.
- *
- * The common (tape-shared) param-registry suite never runs on torch, and
- * test_training_torch.c only drives the F32 / F16 grad branches plus the
- * dtag-streamed creators. That leaves these F64-fast / loader / zero_grad
- * arms of adapter.cpp's port shims unexercised:
- *
- *   - torch_port_grad_read    F64 fast branch (g cpu+contig, kFloat64)
- *   - torch_port_grad_write   F64 fast branch (kFloat64) via the sole
- *                             caller param_grad_item_and_zero
- *   - torch_port_zero_grad    BOTH branches: g.defined() true (after a
- *                             backward) and g.defined() false (a param
- *                             with no backward run yet -> no-op)
- *   - torch_port_load_doubles via param_load_data (overwrite + the
- *                             numel-mismatch reject in param_registry.c)
- *   - torch_port_load_int64   via param_load_data_int64 (int64 staging
- *                             copy_ into an F64 destination view)
- *   - torch_port_tensor_numel via param_load_data's dest-numel guard
- *
- * torch CPU base dtype is F64 (exact at 1e-12). Params/inputs use the
- * F64 dtag (15) so the default F64 storage path is hit.
+/* torch-only Criterion suite — adapter.cpp port-slot edge paths
+ * (F64-fast grad/data arms, zero_grad defined/undefined branches, and the
+ * load_doubles / load_int64 / tensor_numel loader shims) that the
+ * tape-shared param-registry suite and test_training_torch.c leave
+ * uncovered. torch CPU base dtype is F64; params use the F64 dtag (15).
  */
 
 #include <criterion/criterion.h>

@@ -1,22 +1,8 @@
-/* Criterion suite `dropout_cov` — coverage top-up for tape nn/norm/dropout.c.
+/* Criterion coverage for tape nn/norm/dropout.c.
  *
- * The base path leaves the F32 store arms of tensor_dropout uncovered:
- *   - line 38: ((float*)out)[i] = 0.0f;      (F32, element dropped)
- *   - line 45: ((float*)out)[i] = (float)v;  (F32, element survives, scaled)
- * Both sit under `if (is_f32)`, reached only when the input tensor is
- * F32-tagged (DT_F32) AND training=1 with p>0. A single F32 forward with a
- * fixed seed and a length large enough to land elements on both sides of the
- * survival threshold executes both arms.
- *
- * Oracle without predicting the LCG: the inverted-dropout contract pins every
- * output element to exactly one of two values — 0.0 (dropped) or
- * input[i] * scale (survived), scale = 1/(1-p). With p=0.5 the scale is 2 and
- * the inputs are integers, so both candidates are exact in single precision.
- * We assert each element matches one of the two, then assert the run produced
- * at least one of each (so both store arms actually fired — otherwise the test
- * fails loudly rather than silently skipping a line). The mask is recovered
- * through backward: grad[i] = mask[i] = scale for survivors, 0 for dropped,
- * tying the forward store arm to the backward mask arm element-by-element.
+ * Exercises the F32 store arms of tensor_dropout (zero arm for dropped
+ * elements, scale arm for survivors) via a fixed-seed F32 forward, with the
+ * mask recovered through backward to pin each forward arm to its mask.
  */
 
 #include <criterion/criterion.h>

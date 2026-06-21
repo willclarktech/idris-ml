@@ -1,23 +1,9 @@
-/* Criterion suite `log_softmax_f32_cov` — coverage top-up for the tape
- * log_softmax source (nn/softmax/log_softmax.c).
+/* Criterion coverage for the tape log_softmax source (nn/softmax/log_softmax.c).
  *
- * The pre-existing log_softmax tests exercise the F64 and F32 rank>=1
- * (vector) paths. This file closes the remaining uncovered rank==0
- * (scalar) arms of tensor_log_softmax:
- *
- *   - lines 29-30: the F32 scalar branch (make_scalar_f32), reached only
- *                  when a DT_F32-tagged tensor has rank 0.
- *   - line 57    : the F64 scalar branch (make_scalar), reached only when
- *                  an F64 tensor has rank 0.
- *
- * Oracle: log_softmax over a single element is identically 0. The stable
- * max-subtract makes the exponent 0, sum = exp(0) = 1, log_sum = log(1) +
- * max = max, so r = x - log_sum = x - max = 0 regardless of the input
- * value. Backward: with loss = sum(r), grad(r[0]) = 1, and
- * d_x[0] = grad[0] - exp(r[0]) * sum_grad = 1 - exp(0)*1 = 0.
- *
- * F32 storage reads use TEST_TOL_RELAXED; the oracle (0) is exact in both
- * precisions.
+ * Covers the rank==0 (scalar) arms of tensor_log_softmax for both the F32
+ * (make_scalar_f32) and F64 (make_scalar) paths. Oracle: log_softmax over a
+ * single element is identically 0 (stable max-subtract -> exp(0)=1,
+ * log_sum=max, r=x-max=0); backward d_x[0] = 1 - exp(0)*1 = 0.
  */
 
 #include <criterion/criterion.h>

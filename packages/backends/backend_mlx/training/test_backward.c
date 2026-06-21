@@ -281,4 +281,15 @@ Test(mlx_training_backward, composite_chain) {
 	param_clear();
 }
 
+/* ---- early-return arm: backward on an untracked (no-grad) tensor ---- */
+
+Test(mlx_backward_cov, backward_on_constant_is_noop) {
+	param_clear();
+	TensorHandle c = tensor_create_scalar(3.0, /*requires_grad=*/0); /* tape_idx < 0 */
+	tensor_backward(c); /* exercises the tape_idx < 0 early-return */
+	cr_assert_float_eq(tensor_item(c), 3.0, TEST_TOL_TIGHT, "value unchanged (got %.6f)",
+	                   tensor_item(c));
+	param_clear();
+}
+
 #endif /* BACKEND_MLX */

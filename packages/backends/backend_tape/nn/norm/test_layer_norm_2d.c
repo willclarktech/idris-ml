@@ -1,16 +1,7 @@
-/* Coverage suite `layer_norm_2d_cov` — closes the F32 arms of tape
- * `tensor_layer_norm_2d` (nn/norm/layer_norm_2d.c).
+/* Tape `tensor_layer_norm_2d` (nn/norm/layer_norm_2d.c) — F32 arms.
  *
- * The base suite covers the F64 path and the F32 grad-tracking path. The
- * remaining uncovered arm is the F32 *no-grad* tail (lines 66-68): when the
- * result does not require grad, the F32 branch frees the cached x_hat / rstd
- * buffers instead of stashing them in a LayerNormMeta. A grad-free F32 call
- * is the only way to reach those frees, so the first test drives exactly
- * that. The second test re-exercises the F32 grad path forward+backward with
- * a hand-computed oracle.
- *
- * (Line 24 — the mixed-dtype abort guard — is an abort path covered by the
- * dedicated death/guard suites and is intentionally NOT retested here.)
+ * Covers the F32 no-grad tail (frees cached x_hat / rstd instead of stashing
+ * meta) and the F32 grad path forward+backward against a hand-computed oracle.
  *
  * Tape aborts on bare tensor_create_*_f32, so F32 tensors are built via the
  * streamed dtag-14 creators (which own + free their hcopy'd buffer). Inputs

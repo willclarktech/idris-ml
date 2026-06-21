@@ -1,35 +1,6 @@
 /* mlx-only Criterion suite for training/autograd.cpp — the non-replay
- * autograd surface (grad accessor, zero/detach/with_grad/requires_grad
- * predicates, plus the no_grad + epoch generation-scoped sweep).
- *
- * autograd.cpp has no prior coverage; this file pins its public entry
- * points and the edge arms inside mlx_sweep_generation (the static
- * sweep shared by tensor_no_grad_end + tensor_epoch_end). Each Test
- * targets a specific arm:
- *
- *   - tensor_requires_grad        true + false predicate
- *   - tensor_set_requires_grad    0->1 and 1->0 toggle
- *   - tensor_detach               clone w/ requires_grad=false, data kept
- *   - tensor_with_grad            clone w/ requires_grad=true, data kept
- *   - tensor_grad (no-grad arm)   has_grad false -> nullptr short-circuit
- *   - tensor_grad (contig arm)    has_grad true  -> contiguous grad copy
- *   - tensor_zero_grad (true arm) has_grad true  -> grad rebuilt as zeros
- *   - tensor_zero_grad (skip arm) has_grad false -> no-op
- *   - no_grad nesting             begin(d==0)/begin(d>0)/end(d>0 return)/
- *                                 end(d==0 sweep) + end-at-d==0 guard-false
- *   - epoch scope                 epoch_end(empty-stack return),
- *                                 epoch_begin/epoch_end sweep:
- *                                   survivor arm (registered param, rc>0)
- *                                   has_grad eval arm (param after backward)
- *                                   husk arm  (rc==1 & create_id>=block)
- *                                   delete arm (rc==0 orphan)
- *
- * Refcount note: in a pure-C test there is no Idris guardian wrap, so a
- * freshly created Tensor has refcount 0. tape_append, however, retains
- * its result (tape.cpp), so any tensor produced by a forward op during a
- * backward is rc>=1 — that's why the sweep tests below never strand a
- * tape-referenced pointer. The rc==0 delete arm is exercised only with an
- * orphan scalar that nothing else references after the sweep.
+ * autograd surface: grad accessor, zero/detach/with_grad/requires_grad
+ * predicates, and the no_grad + epoch generation-scoped sweep arms.
  *
  * dtag 15 == F64; value asserts use TEST_TOL_TIGHT (1e-5 on mlx) except
  * exact-zero checks (0.0).

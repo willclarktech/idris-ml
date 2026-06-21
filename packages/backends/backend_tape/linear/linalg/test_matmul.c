@@ -1,23 +1,10 @@
-/* Criterion suite `matmul_f32_cov` — coverage top-up for tensor_matmul's
- * rank-dispatch tail in matmul.c.
- *
- * The pre-existing matmul coverage exercises the 1D×2D OP_VECMAT arm (both
- * F32 and F64). This file closes the remaining two dispatch lines:
- *
- *   - line 54: a->rank == 2 && b->rank == 1  -> delegate to tensor_mv.
- *   - line 55: else                          -> elementwise tensor_mul
- *              fallback (two 2D matrices land here).
- *
- * Both are driven with F32-tagged (streamed dtag-14) tensors. tensor_matmul
- * itself is dtype-agnostic on these two arms — it just forwards the handles —
- * so the F32 tag flows through tensor_mv / tensor_mul. Oracles are computed by
- * hand; F32 storage means reads use TEST_TOL_RELAXED, and all chosen values
- * are exact integers in single precision so the bar is generous.
+/* Criterion suite `matmul_f32_cov` — F32-tagged coverage for tensor_matmul's
+ * rank-dispatch tail in matmul.c: the 2D×1D arm (delegates to tensor_mv) and
+ * the 2D×2D else arm (elementwise tensor_mul fallback).
  *
  * Tape-only: bare F32 creation aborts on tape, so F32 tensors are built via
- * the streamed dtag-14 creators (which OWN+free their hcopy buffer). The file
- * lives in a tape dir but is compiled into every backend's test binary, hence
- * the BACKEND_TAPE guard.
+ * the streamed dtag-14 creators; the file compiles into every backend's test
+ * binary, hence the BACKEND_TAPE guard.
  */
 
 #ifdef BACKEND_TAPE

@@ -1,5 +1,5 @@
-/* add_scalar F32 arm coverage (tape). tensor_add_scalar's DT_F32 branch
- * (tensor_add_scalar_f32) is reachable only with an F32 input; built via the
+/* tensor_add_scalar F32 arm coverage (tape): the DT_F32 branch
+ * (tensor_add_scalar_f32) is reachable only with an F32 input, built via the
  * streamed dtag-14 path (tape's bare F32 creators abort). */
 #include <criterion/criterion.h>
 #include "backend.h"

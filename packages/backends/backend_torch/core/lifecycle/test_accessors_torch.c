@@ -1,8 +1,8 @@
-/* torch-only Criterion suite — tensor_to_floats (accessors.cpp).
+/* torch-only Criterion suite — host-buffer accessors (accessors.cpp).
  *
- * The F32 host-buffer readout has no in-tree torch test (tensor_to_doubles
- * is the common path). Drive it directly on an F32 tensor so the
- * .to(kFloat32) + memcpy<float> arm is covered.
+ * Covers tensor_to_floats: the F32 host-buffer readout has no in-tree torch
+ * test (tensor_to_doubles is the common path). Drive it directly on an F32
+ * tensor so the .to(kFloat32) + memcpy<float> arm is covered.
  */
 #include <criterion/criterion.h>
 #include "backend.h"

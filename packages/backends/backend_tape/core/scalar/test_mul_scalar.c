@@ -1,6 +1,6 @@
-/* mul_scalar F32 arm coverage (tape). tensor_mul_scalar's DT_F32 branch
- * (tensor_mul_scalar_f32) is reachable only with an F32 input; tape's bare
- * F32 creators abort, so build via the streamed dtag-14 path. */
+/* tensor_mul_scalar tests (tape). Covers the F32 streamed-dtag-14 arms:
+ * the rank>=1 loop (tensor_mul_scalar_f32) and the rank-0 make_scalar_f32
+ * fast-path, both reachable only with an F32 input. */
 #include <criterion/criterion.h>
 #include "backend.h"
 #include "test_helpers.h"

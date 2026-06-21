@@ -1,5 +1,6 @@
 /* Criterion suite for backend_tape/tape.c — the TypedArena<TapeEntry>
- * machinery + tape_append / tape_reset + the no_grad mechanism.
+ * machinery + tape_append / tape_reset + the no_grad mechanism, plus the
+ * multi-chunk arena growth / reset-reuse path past TAPE_CHUNK_SIZE.
  *
  * Driven entirely through the public FFI (backend.h): each Criterion test
  * forks into a fresh child with an empty tape, so we can rely on a clean
@@ -12,11 +13,14 @@
  *   - tape_reset's per-op heap-free arms (OP_DROPOUT mask, OP_EMBEDDING
  *     indices) are reached by running those ops then backend_reset_for_eval
  *     (which calls tape_reset).
+ *   - the TapeEntry arena's multi-chunk grow / reset / reuse arms are driven
+ *     by a long chain of scalar ops crossing the 65,536-entry boundary.
  */
 
 #include <criterion/criterion.h>
 #include <stdlib.h>
 #include "backend.h"
+#include "test_helpers.h"
 
 #ifdef BACKEND_TAPE
 
@@ -201,6 +205,48 @@ Test(tape_core, reset_frees_max_pool1d_indices) {
 	cr_assert_float_eq(tensor_item(loss), 3.0 + 4.0, 1e-12, "max_pool1d sum = 7");
 	tensor_backward(loss);
 	backend_reset_for_eval(); /* tape_reset -> free(meta->max_indices) */
+	param_clear();
+}
+
+/* ---- TapeEntry arena multi-chunk growth coverage (from
+   test_arena_growth_cov_tape.c) ---------------------------------------- */
+
+extern void tape_reset(void);
+
+/* TAPE_CHUNK_SIZE = 1 << 16 = 65536; go comfortably past it. */
+#define N_OPS 65600
+
+Test(arena_growth_cov, multi_chunk_grow_reset_reuse) {
+	/* Pass 1: > 65536 tracked ops force a second chunk allocation. */
+	param_clear();
+	TensorHandle x = tensor_create_scalar(0.0, /*requires_grad=*/1);
+	param_register("x", x);
+	TensorHandle y = x;
+	for (int i = 0; i < N_OPS; i++)
+		y = tensor_add_scalar(y, 1.0); /* each appends one OP_ADD_SCALAR entry */
+	cr_assert_float_eq(tensor_item(y), (double)N_OPS, TEST_TOL_TIGHT,
+	                   "sum of %d unit adds (got %.1f)", N_OPS, tensor_item(y));
+	tensor_backward(y); /* d(x + N)/dx = 1, across the chunk boundary */
+	cr_assert_float_eq(param_grad_item_at(0, 0), 1.0, TEST_TOL_TIGHT,
+	                   "grad through %d-op chain should be 1 (got %.9f)", N_OPS,
+	                   param_grad_item_at(0, 0));
+
+	/* Reset a >65536-entry tape: exercises the multi-chunk teardown walk. */
+	tape_reset();
+
+	/* Pass 2: re-grow past the boundary — the second chunk already exists,
+	   so the append takes the reuse-existing-next-chunk arm. */
+	param_clear();
+	TensorHandle x2 = tensor_create_scalar(0.0, /*requires_grad=*/1);
+	param_register("x2", x2);
+	TensorHandle y2 = x2;
+	for (int i = 0; i < N_OPS; i++)
+		y2 = tensor_add_scalar(y2, 2.0);
+	cr_assert_float_eq(tensor_item(y2), (double)N_OPS * 2.0, TEST_TOL_TIGHT,
+	                   "sum of %d twos (got %.1f)", N_OPS, tensor_item(y2));
+	tensor_backward(y2);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 1.0, TEST_TOL_TIGHT,
+	                   "grad after chunk reuse should be 1 (got %.9f)", param_grad_item_at(0, 0));
 	param_clear();
 }
 

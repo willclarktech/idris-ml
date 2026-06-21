@@ -1,18 +1,10 @@
-/* Criterion suite `softmax_cov` — closes the tape coverage gap on the
- * general 1-D `tensor_softmax` (OP_SOFTMAX) in nn/softmax/softmax.c.
+/* Tape coverage for nn/softmax/softmax.c.
  *
- * Every sibling op (softmax_2d, softmax_3d, log_softmax 1d/2d) already has a
- * suite, but the general 1-D softmax forward + the OP_SOFTMAX backward
- * (tape_backward_softmax: the full Jacobian d_x_i = sum_j g_j sm_j (delta_ij
- * - sm_i)) and the rank-0 scalar forward arm were never exercised.
- *
- * Oracles are hand-computed from the numerically-stable max-subtract form:
- *   sm_j = exp(x_j - max) / sum_k exp(x_k - max).
- *
- * RED before this commit: with softmax.c's backward unrun, the select-one
- * backward assertions (d_x_0 = sm_0(1-sm_0), d_x_i = -sm_0 sm_i for i>0)
- * fail; the numerical-stability forward (x ~ 1e3) would also NaN/Inf without
- * the max-subtract.
+ * Suite `softmax_cov` exercises the F64 paths: the general 1-D
+ * `tensor_softmax` forward (OP_SOFTMAX), the full-Jacobian backward, numerical
+ * stability under large logits, and the rank-0 scalar arm. Suite
+ * `softmax_f32_cov` closes the F32 scalar (rank==0) store arm of
+ * tensor_softmax_f32, forward and backward.
  */
 
 #include <criterion/criterion.h>
@@ -113,5 +105,36 @@ Test(softmax_cov, softmax_scalar_is_one) {
 	TensorHandle y = tensor_softmax(x, 0);
 	cr_assert_float_eq(tensor_item(y), 1.0, TEST_TOL_RELAXED,
 	                   "softmax(scalar) should be 1 (got %.12f)", tensor_item(y));
+}
+
+/* F32 scalar forward: drives the rank==0 make_scalar_f32 store arm. */
+Test(softmax_f32_cov, scalar_f32_forward) {
+	param_clear();
+	TensorHandle x = tensor_create_scalar_streamed(5.0, 0, 0, 14);
+	TensorHandle r = tensor_softmax(x, 0);
+	cr_assert_eq(tensor_numel(r), 1);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 scalar -> F32 output (got %s)",
+	                 tensor_dtype_name(r));
+	cr_assert_float_eq(tensor_item_1d(r, 0), 1.0, TEST_TOL_RELAXED,
+	                   "softmax of a scalar should be 1.0 (got %.6f)", tensor_item_1d(r, 0));
+	param_clear();
+}
+
+/* F32 scalar forward + backward: same store arm with requires_grad set, so
+   the tape-append branch fires too. The constant-1 output makes the input
+   gradient exactly 0. */
+Test(softmax_f32_cov, scalar_f32_backward) {
+	param_clear();
+	TensorHandle x = tensor_create_scalar_streamed(5.0, 1, 0, 14);
+	param_register("x", x);
+	TensorHandle r = tensor_softmax(x, 0);
+	cr_assert_eq(tensor_numel(r), 1);
+	cr_assert_float_eq(tensor_item_1d(r, 0), 1.0, TEST_TOL_RELAXED,
+	                   "softmax of a scalar should be 1.0 (got %.6f)", tensor_item_1d(r, 0));
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 0.0, TEST_TOL_RELAXED,
+	                   "d softmax(scalar) / d x should be 0 (got %.6f)", param_grad_item_at(0, 0));
+	param_clear();
 }
 #endif /* BACKEND_TAPE */

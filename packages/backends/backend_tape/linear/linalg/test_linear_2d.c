@@ -1,22 +1,9 @@
-/* Criterion suite `linear_2d_f32_extra_cov` — closes the F32 zero-dim
- * bias-broadcast arm of tensor_linear_2d (linear_2d.c lines 41-44).
- *
- * The sibling suite test_linalg_cov_tape.c covers the F64 zero-dim
- * bias-broadcast (the `else` arm at lines 45-47, via
- * `linear_2d_zero_dim_i0_bias`, which builds inputs with the base
- * tensor_create). It does NOT exercise the DT_F32 branch: when W/X/bias
- * are all F32-tagged and ii==0, the ii==0 guard drops the matmul and the
- * F32 arm emits the bias broadcast into the float-typed output buffer.
- *
- * This file drives that exact F32 arm. F32 tensors on tape are built via
- * the streamed dtag-14 creators (bare tensor_create_*_f32 aborts on tape).
- * All values are integers exactly representable in single precision, read
- * back under TEST_TOL_RELAXED.
+/* Criterion coverage for tensor_linear_2d — the F32 zero-dim
+ * bias-broadcast arm (linear_2d.c lines 41-44).
  *
  * Tape-only: the streamed dtag-14 creation path + the float-output oracle
  * are tape-specific, so the whole file is wrapped in #ifdef BACKEND_TAPE
- * (it sits in a tape dir but is compiled into every backend's test
- * binary).
+ * (it sits in a tape dir but is compiled into every backend's test binary).
  */
 
 #ifdef BACKEND_TAPE

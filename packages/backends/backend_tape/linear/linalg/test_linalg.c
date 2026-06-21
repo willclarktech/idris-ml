@@ -1,19 +1,12 @@
-/* Criterion suite `linalg_cov` — coverage top-up for the tape linalg dir.
+/* Criterion suite `linalg_cov` — tape linalg coverage.
  *
- * The pre-existing per-op suites (test_mv.c, test_dot_outer.c, ...) cover the
- * F64 happy paths. This file closes the remaining uncovered arms in the
- * sibling sources of this directory:
+ * Closes the remaining uncovered arms of this directory's sources:
+ *   - mv.c        : F32 forward+backward arms, F64 zero-dim guard.
+ *   - linear.c    : F64 + F32 forward/backward incl. bias-grad, F64 zero-dim.
+ *   - linear_2d.c : F64 + F32 forward/backward incl. bias-grad, F64 zero-dim.
  *
- *   - mv.c          : F32 forward + F32 backward arms (tensor_mv_f32 +
- *                     tape_backward_mv DT_F32 branches), F64 zero-dim guard.
- *   - linear.c      : F64 forward+backward incl. bias-grad arm, F32 path +
- *                     F32 backward arms, F64 zero-dim (n=0) bias-only branch.
- *   - linear_2d.c   : F64 forward+backward incl. bias-grad arm, F32 path +
- *                     F32 backward arms, F64 zero-dim (i=0) bias-broadcast.
- *
- * Oracles are computed by hand from the inputs. F32-tagged tensors store as
- * float, so reads use TEST_TOL_RELAXED (all chosen values are exact integers
- * representable in single precision, so this is generous).
+ * Oracles are hand-computed. F32-tagged tensors store as float, so reads use
+ * TEST_TOL_RELAXED (the chosen integer values are exact in single precision).
  */
 
 #include <criterion/criterion.h>
