@@ -1,28 +1,23 @@
 # Why idris-ml
 
-idris-ml gives you **the ergonomics of a dynamic graph (PyTorch) with safety guarantees
-stronger than any static graph (TensorFlow 1.x) ever offered** — and a few guarantees no
-mainstream framework offers at all. The computation graph is dynamic (define-by-run autograd,
-ordinary `if`/`for`/`while`, normal debugging), but the *constraints* — shapes, devices,
-grad-mode, dtype — live in the type system, checked at compile time and erased at runtime.
+idris-ml is a deep-learning framework with:
+- the ergonomics of dynamic graphs (like PyTorch),
+- the safety guarantees of static graphs (like TensorFlow v1),
+- support for multiple (pluggable) backends.
 
-The thesis: **one mechanism — dependently-typed indices plus linear resource types — covers
-five separate guarantees uniformly.** And it runs real models: `idris-transformers` loads
-HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches PyTorch's
-forward to within **4e-4** — see [Real HuggingFace models](#real-huggingface-models).
+The computation graph is dynamic, with all the usual benefits (define-by-run autograd, native control flow, transparent debugging). But the *constraints* — shapes, devices, grad-mode, dtype — live in the type system, meaning they're checked at compile time and erased at runtime.
 
-The five sections follow the ordinary arc of building one model, roughly in the order you'd hit
-each wall: wire the layers together (**shape**), move it to the GPU (**device**), freeze part of
-it to fine-tune (**grad-mode**), drop to fp16 to save memory (**dtype**), and finally run it
-across more than one backend (**multi-backend**). Each shows that step's bug in four settings —
-with the **literal error each tool produces**, captured from a real toolchain, so you can read
-the difference off the output rather than take it on faith.[^prov]
+To achieve this we make use of idris2's native support for dependent types and linear resource types, which is why other languages are either unable to implement these features, or can only do so inelegantly (eg with substantial boilerplate).
 
-Every idris-ml rejection below is lifted from a **CI-enforced fixture**
-(`packages/idris-ml/src/Test/neg/`, gated by `make test-integration-typegate-*`): if the type
-system stopped rejecting these, CI goes red.
+This document guides you through each major feature of idris-ml, demonstrating the problem it solves with reference to other frameworks.
 
-## The five guarantees at a glance
+## Assumed background
+
+- Dynamic vs static graphs
+- Dependent types
+- Linear resource types
+
+## At a glance
 
 | Guarantee | PyTorch (dynamic) | TF 1.x (static) | Haskell (Grenade / hasktorch) | idris-ml |
 |---|:---:|:---:|:---:|:---:|
@@ -31,12 +26,6 @@ system stopped rejecting these, CI goes red.
 | **Grad-mode / model ownership** | runtime / silent no-op | n/a (static graph) | partial (`LinearTypes` incomplete) | **compile** (linear types) |
 | **Lossy dtype cast** | silent | silent | silent (no lossless order) | **compile** (must opt in) |
 | **Multi-backend in one program** | none (one runtime) | none | none (libtorch-only) | **compile-tracked + explicit bridge** |
-
-Where each lands: Haskell reaches shape, device, and (with effort) grad-mode; the two genuinely
-out-of-reach-today are **multi-backend in one program** and **first-class model ownership**.
-What sets idris-ml apart even where Haskell competes is that it needs **no typechecker plugins,
-no `singletons` boilerplate, no `unsafeCoerce`** — proofs are ordinary terms, runtime values
-flow into types directly, and the *same* index machinery does all five jobs.
 
 ---
 
