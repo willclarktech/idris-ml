@@ -30,19 +30,13 @@ TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
 	Tensor* a = (Tensor*)ha;
 	Tensor* b = (Tensor*)hb;
 	if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_cat2");
-	if (a->rank != b->rank) {
-		fprintf(stderr, "tensor_cat2: rank mismatch (a->rank=%d, b->rank=%d)\n", a->rank, b->rank);
-		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
-		abort();
-	}
+	TAPE_ABORT_IF(a->rank != b->rank, "tensor_cat2: rank mismatch (a->rank=%d, b->rank=%d)\n",
+	              a->rank, b->rank);
 	for (int k = 1; k < a->rank; k++) {
-		if (a->shape[k] != b->shape[k]) {
-			fprintf(stderr,
-			        "tensor_cat2: trailing-dim mismatch at axis=%d "
-			        "(a->shape[%d]=%d, b->shape[%d]=%d)\n",
-			        k, k, a->shape[k], k, b->shape[k]);
-			abort();
-		}
+		TAPE_ABORT_IF(a->shape[k] != b->shape[k],
+		              "tensor_cat2: trailing-dim mismatch at axis=%d "
+		              "(a->shape[%d]=%d, b->shape[%d]=%d)\n",
+		              k, k, a->shape[k], k, b->shape[k]);
 	}
 	int na = a->numel, nb = b->numel, total = na + nb;
 	int rg = a->requires_grad || b->requires_grad;

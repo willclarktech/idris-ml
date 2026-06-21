@@ -25,18 +25,10 @@ TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
 	Tensor* t = (Tensor*)h;
 	int old_rank = t->rank;
 	int new_rank = old_rank + 1;
-	if (dim < 0 || dim > old_rank) {
-		// GCOVR_EXCL_START — out-of-range guard; abort() skips the gcov flush so
-		// the forked child can't register these lines. Behavior is asserted by
-		// test_unsqueeze.c::out_of_range_dim_aborts (a .signal=SIGABRT death test).
-		fprintf(stderr,
-		        "tensor_unsqueeze: dim=%d out of range for rank=%d "
-		        "(valid: 0..%d)\n",
-		        dim, old_rank, old_rank);
-		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
-		abort();
-		// GCOVR_EXCL_STOP
-	}
+	TAPE_ABORT_IF(dim < 0 || dim > old_rank,
+	              "tensor_unsqueeze: dim=%d out of range for rank=%d "
+	              "(valid: 0..%d)\n",
+	              dim, old_rank, old_rank);
 	int* new_shape = arena_alloc((size_t)new_rank * sizeof(int));
 	int j = 0;
 	for (int i = 0; i < new_rank; i++) {
