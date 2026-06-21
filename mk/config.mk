@@ -148,7 +148,7 @@ HAVE_ALL_MULTI_BACKENDS := $(if $(filter-out $(BACKEND_LIST),$(MULTI_BACKEND_REQ
 # library prefix, dylib, example executables, stamps). Each set's warm
 # cache survives backend-set switches indefinitely; switching between
 # `BACKEND=tape make test` and `BACKEND=torch TORCH_DEVICE=mps make
-# example-hf-llama-inference` no longer triggers full re-elaboration.
+# example-llama-inference` no longer triggers full re-elaboration.
 #
 # The key includes the backend-list ordering because PRIMARY decides
 # multi-link symbol resolution: `tape,torch` and `torch,tape` produce
@@ -167,7 +167,7 @@ HAVE_ALL_MULTI_BACKENDS := $(if $(filter-out $(BACKEND_LIST),$(MULTI_BACKEND_REQ
 # TORCH_DTYPE/MLX_DTYPE/TAPE_DTYPE to F32 ONLY IF the user hasn't
 # already specified them on the command line (`?=` semantics
 # inlined since this is `:=` parse-time). User-side override:
-# `TORCH_DTYPE=F64 make test-e2e-hf-llama-roundtrip` keeps F64 (e.g.
+# `TORCH_DTYPE=F64 make test-e2e-llama-roundtrip` keeps F64 (e.g.
 # for numerical bisection vs the F64 oracle path).
 # Every HF model target — Llama / BitNet need F32 for memory
 # (1.24B / 2B params at F64 don't fit on a 16 GB VM); BERT-tiny /
@@ -176,15 +176,15 @@ HAVE_ALL_MULTI_BACKENDS := $(if $(filter-out $(BACKEND_LIST),$(MULTI_BACKEND_REQ
 # BF16, oracle generators cast to F32 — running Idris at F64
 # means we're MORE precise than the comparison oracle, which is
 # pure waste. F32 is the canonical HF inference dtype.
-HF_GOALS := example-hf-bert-inference \
-                  example-hf-bitnet-inference \
-                  example-hf-gpt2-inference \
-                  example-hf-llama-inference \
-                  test-e2e-hf-bert-roundtrip \
-                  test-e2e-hf-bitnet-roundtrip \
-                  test-e2e-hf-gpt2-roundtrip \
-                  test-e2e-hf-llama-roundtrip \
-                  test-e2e-hf-llama-generate-roundtrip \
+HF_GOALS := example-bert-inference \
+                  example-bitnet-inference \
+                  example-gpt2-inference \
+                  example-llama-inference \
+                  test-e2e-bert-roundtrip \
+                  test-e2e-bitnet-roundtrip \
+                  test-e2e-gpt2-roundtrip \
+                  test-e2e-llama-roundtrip \
+                  test-e2e-llama-generate-roundtrip \
                   test-e2e-transformers-oracle-bert \
                   test-e2e-transformers-oracle-gpt2 \
                   test-e2e-transformers-oracle-llama \

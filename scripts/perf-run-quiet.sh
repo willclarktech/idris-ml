@@ -25,10 +25,10 @@
 #   scripts/perf-run-quiet.sh <example-key> <backend> [args...]
 #
 # Examples:
-#   scripts/perf-run-quiet.sh hf-llama-generate torch
-#   TORCH_DEVICE=mps scripts/perf-run-quiet.sh hf-llama-generate torch
-#   MLX_DEVICE=gpu   scripts/perf-run-quiet.sh hf-llama-generate mlx
-#   QUIET_J=4 TORCH_DEVICE=mps scripts/perf-run-quiet.sh hf-llama torch
+#   scripts/perf-run-quiet.sh llama-generate torch
+#   TORCH_DEVICE=mps scripts/perf-run-quiet.sh llama-generate torch
+#   MLX_DEVICE=gpu   scripts/perf-run-quiet.sh llama-generate mlx
+#   QUIET_J=4 TORCH_DEVICE=mps scripts/perf-run-quiet.sh llama torch
 #
 # For the "give me full machine speed" case, use `perf-run.sh` directly.
 

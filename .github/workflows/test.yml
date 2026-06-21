@@ -818,7 +818,7 @@ jobs:
           restore-hf-models: 'true'
           ttc-job: test-e2e-hf
           swap: 'true'
-          # 8 GB swap wasn't enough: the cold HfBitNetInference
+          # 8 GB swap wasn't enough: the cold BitNetInference
           # elaboration OOM-killed this job's runner in 27373449876
           # (exit 143), which also skipped the always() cache saves —
           # so the job stayed cold and died again every run.
@@ -868,22 +868,22 @@ jobs:
 
       - name: Run HfBert end-to-end roundtrip
         # The cross-language correctness gate: regenerates the Python
-        # oracle, runs the Idris HfBertInference example (loading the
+        # oracle, runs the Idris BertInference example (loading the
         # real Google bert-tiny weights via the HF-aligned HfBert
         # module), and asserts elementwise agreement within
         # max-abs-diff 1e-3 on the 128-dim pooled [CLS] output.
         # Currently passes at 4.1e-4 locally on tape.
         if: ${{ !cancelled() }}
-        run: make test-e2e-hf-bert-roundtrip
+        run: make test-e2e-bert-roundtrip
 
       - name: Run HfGpt2 end-to-end roundtrip
         # Same gate shape as HfBert but for GPT-2: regenerate the Python
         # oracle from hf-internal-testing/tiny-random-gpt2, run the Idris
-        # HfGpt2Inference binary, assert the 32-dim last-position hidden
+        # Gpt2Inference binary, assert the 32-dim last-position hidden
         # state matches within max-abs-diff 1e-3. Currently passes at
         # ~1e-6 locally on tape.
         if: ${{ !cancelled() }}
-        run: make test-e2e-hf-gpt2-roundtrip
+        run: make test-e2e-gpt2-roundtrip
       # <<< END GENERATED (test-e2e-hf) <<<
 
       - name: Save caches
@@ -901,7 +901,7 @@ jobs:
   # 80 min for the BitNet-2B / Llama-1B cold elaborations, which didn't
   # finish — and a timed-out job skips the always() cache save, so it
   # stayed cold and died again every run. Llama + BitNet (the ~2B-param
-  # torch roundtrips + the cold HfLlamaInference --check) get their own
+  # torch roundtrips + the cold LlamaInference --check) get their own
   # job here; the cheap tape/Python lane stays in test-e2e-hf. The ttc
   # restore-keys prefix lets this job inherit the same-sha library tree
   # that test-e2e-hf built, so only the llama/bitnet example
@@ -946,7 +946,7 @@ jobs:
           hf-cache-suffix: 'llama-'
           ttc-job: test-e2e-hf-llama
           swap: 'true'
-          # The cold HfBitNetInference / HfLlamaInference elaboration
+          # The cold BitNetInference / LlamaInference elaboration
           # peaks past 16 GB RAM; the 16 GB swapfile absorbs it (8 GB
           # OOM-killed the runner in 27373449876).
           swap-gb: '16'
@@ -968,7 +968,7 @@ jobs:
 
       - name: Run HfBitNet end-to-end roundtrip (torch)
         # Cross-language gate: regenerate the Python oracle from
-        # microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference
+        # microsoft/bitnet-b1.58-2B-4T, run the Idris BitNetInference
         # binary --dump-logits, assert argmax on the vocab-128256 logit
         # row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch
         # because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu
@@ -982,13 +982,13 @@ jobs:
         # mirror) is preserved. The job-level swapfile absorbs the
         # cold-tree elaboration peak that OOM-killed run 27364532457.
         if: ${{ !cancelled() }}
-        run: if [ -z "$HF_TOKEN" ]; then unset HF_TOKEN; fi; make BACKEND=torch test-e2e-hf-bitnet-roundtrip
+        run: if [ -z "$HF_TOKEN" ]; then unset HF_TOKEN; fi; make BACKEND=torch test-e2e-bitnet-roundtrip
 
       - name: Run HfLlama end-to-end roundtrip (torch)
         # Cross-language gate for Llama 3.2 1B. Regenerates the Python
         # oracle from unsloth/Llama-3.2-1B (download-gated on the mirror;
         # guarded on env.HF_TOKEN above, skips when unset), runs the Idris
-        # HfLlamaInference binary --dump-final-hidden, asserts the
+        # LlamaInference binary --dump-final-hidden, asserts the
         # 2048-dim last-position hidden state matches the oracle within
         # max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps
         # and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu
@@ -997,7 +997,7 @@ jobs:
         # arena vs ~14 GB runner RAM); see Low-priority TODO "Tape F64
         # large-LM OOM".
         if: ${{ env.HF_TOKEN != '' && !cancelled() }}
-        run: make BACKEND=torch test-e2e-hf-llama-roundtrip
+        run: make BACKEND=torch test-e2e-llama-roundtrip
 
       - name: Run HfLlama multi-step generation roundtrip (torch)
         # Cross-language gate for Llama 3.2 1B's *generation* path.
@@ -1010,10 +1010,10 @@ jobs:
         # in tokenization, every layer of the forward, argmax, and the
         # per-step glue that the single-forward gate can't see.
         if: ${{ env.HF_TOKEN != '' && !cancelled() }}
-        run: make BACKEND=torch test-e2e-hf-llama-generate-roundtrip
+        run: make BACKEND=torch test-e2e-llama-generate-roundtrip
 
-      - name: Type-check HfLlamaInference example (torch)
-        # `idris2 --check` over Example/HfLlamaInference.idr — catches
+      - name: Type-check LlamaInference example (torch)
+        # `idris2 --check` over Example/LlamaInference.idr — catches
         # type-drift against the library surface. Lives in this job, NOT
         # test-integration: elaborating the example cold peaks past the
         # runner ceiling (it OOM-killed the Ubuntu test-integration leg
@@ -1022,10 +1022,10 @@ jobs:
         # shared --build-dir, so the elaboration this step needs has
         # always just happened in-job and the check is nearly free.
         if: ${{ env.HF_TOKEN != '' && !cancelled() }}
-        run: make BACKEND=torch test-integration-lint-hf-llama-inference
+        run: make BACKEND=torch test-integration-lint-llama-inference
 
-      - name: Type-check HfBitNetInference example (torch)
-        # `idris2 --check` over Example/HfBitNetInference.idr — the bitnet
+      - name: Type-check BitNetInference example (torch)
+        # `idris2 --check` over Example/BitNetInference.idr — the bitnet
         # twin of the llama type-check above. Lives in this job, NOT
         # test-integration: cold elaboration of the ~2B-param example peaks
         # past the runner ceiling (same reason as llama). No HF_TOKEN guard
@@ -1034,7 +1034,7 @@ jobs:
         # --build-dir, so the check is nearly free. BACKEND=torch to match
         # the roundtrip's build set (tape F64 OOMs the runner).
         if: ${{ !cancelled() }}
-        run: make BACKEND=torch test-integration-lint-hf-bitnet-inference
+        run: make BACKEND=torch test-integration-lint-bitnet-inference
       # <<< END GENERATED (test-e2e-hf-llama) <<<
 
       - name: Save caches

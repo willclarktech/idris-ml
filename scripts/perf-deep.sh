@@ -131,9 +131,9 @@ fi
 # Each workload emits PERF_GENERATE_TOKENS + PERF_GENERATE_WALL_MS
 # from both sides. ms_per_iter = wall / tokens; iters = tokens.
 AXIS_D_WORKLOADS=(
-	"hf-bert            example-hf-bert-inference   torch_ref.scripts.hf_bert_inference  -"
-	"hf-gpt2            example-hf-gpt2-inference   torch_ref.scripts.hf_gpt2_inference  -"
-	"hf-llama-generate  example-hf-llama-inference  torch_ref.scripts.hf_llama_inference BACKEND=torch:TORCH_DEVICE=mps"
+	"bert            example-bert-inference   torch_ref.scripts.hf_bert_inference  -"
+	"gpt2            example-gpt2-inference   torch_ref.scripts.hf_gpt2_inference  -"
+	"llama-generate  example-llama-inference  torch_ref.scripts.hf_llama_inference BACKEND=torch:TORCH_DEVICE=mps"
 )
 
 log_axis_d_pair() {

@@ -116,7 +116,7 @@ backend). Examples:
   for the GradMode aliasing rule.
 - `test-integration-lint-paired-defaults` — drift detector for
   Idris ↔ PyTorch default hyperparameters.
-- `test-e2e-hf-llama-roundtrip` — cross-language HfLlama correctness
+- `test-e2e-llama-roundtrip` — cross-language HfLlama correctness
   gate.
 - `bench-rank3-broadcast` — single op-microbench under perf.
 - `test-coverage-backend-mlx` — LLVM coverage report for the mlx
@@ -258,7 +258,7 @@ and their dedicated recipes deleted; their assertions now ride
 | `check-ffi-wrap-template` | `test-integration-lint-ffi-wrap-template` |
 | `check-non-io-side-effects` | `test-integration-lint-non-io-side-effects` |
 | `check-paired-defaults` | `test-integration-lint-paired-defaults` |
-| `check-example-hf-llama-inference` | `test-integration-lint-hf-llama-inference` |
+| `check-example-llama-inference` | `test-integration-lint-llama-inference` |
 | `test-checkpoint-resume` | `test-integration-checkpoint-resume` |
 | `test-jupyter-unit` | `test-integration-jupyter-cellparser` |
 | *(new)* | `test-integration` — aggregator |
@@ -275,11 +275,11 @@ preflight, not behaviour gates.)
 
 | Old | New |
 |---|---|
-| `test-hf-bert-roundtrip` | `test-e2e-hf-bert-roundtrip` |
-| `test-hf-bitnet-roundtrip` | `test-e2e-hf-bitnet-roundtrip` |
-| `test-hf-gpt2-roundtrip` | `test-e2e-hf-gpt2-roundtrip` |
-| `test-hf-llama-roundtrip` | `test-e2e-hf-llama-roundtrip` |
-| `test-hf-llama-generate-roundtrip` | `test-e2e-hf-llama-generate-roundtrip` |
+| `test-hf-bert-roundtrip` | `test-e2e-bert-roundtrip` |
+| `test-hf-bitnet-roundtrip` | `test-e2e-bitnet-roundtrip` |
+| `test-hf-gpt2-roundtrip` | `test-e2e-gpt2-roundtrip` |
+| `test-hf-llama-roundtrip` | `test-e2e-llama-roundtrip` |
+| `test-hf-llama-generate-roundtrip` | `test-e2e-llama-generate-roundtrip` |
 | `test-transformers-oracle` | `test-e2e-transformers-oracle-bert` |
 | `test-transformers-oracle-gpt2` | `test-e2e-transformers-oracle-gpt2` |
 | `test-transformers-oracle-llama` | `test-e2e-transformers-oracle-llama` |

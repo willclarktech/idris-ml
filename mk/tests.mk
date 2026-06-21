@@ -352,8 +352,8 @@ test-integration: \
 		test-integration-lint-ffi-wrap-template \
 		test-integration-lint-non-io-side-effects \
 		test-integration-lint-paired-defaults \
-		test-integration-lint-hf-llama-inference \
-		test-integration-lint-hf-bitnet-inference \
+		test-integration-lint-llama-inference \
+		test-integration-lint-bitnet-inference \
 		test-integration-lint-ci-workflow \
 		test-integration-lint-benchmarks \
 		test-integration-lint-perf-regression \
@@ -384,11 +384,11 @@ test-integration: \
 # default chain — invoke it explicitly when adding new notebooks.
 test-e2e: \
 		test-e2e-examples \
-		test-e2e-hf-bert-roundtrip \
-		test-e2e-hf-gpt2-roundtrip \
-		test-e2e-hf-bitnet-roundtrip \
-		test-e2e-hf-llama-roundtrip \
-		test-e2e-hf-llama-generate-roundtrip \
+		test-e2e-bert-roundtrip \
+		test-e2e-gpt2-roundtrip \
+		test-e2e-bitnet-roundtrip \
+		test-e2e-llama-roundtrip \
+		test-e2e-llama-generate-roundtrip \
 		test-e2e-transformers-oracle-bert \
 		test-e2e-transformers-oracle-gpt2 \
 		test-e2e-transformers-oracle-llama \

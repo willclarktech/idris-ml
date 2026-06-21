@@ -333,7 +333,7 @@ main = do
                           {numClasses=NumClasses}
                           "bert" "classifier")
         -- On-disk weights are F32; the tape default dtype is F64. The AllowCast
-        -- variant upcasts silently (mirrors HfBertInference).
+        -- variant upcasts silently (mirrors BertInference).
         opt <- liftIO1 (do ok <- (== Right ()) <$> load {ex=ExampleExecutor} ckptPath ({ allowCast := True, only := Just "bert." } defaultLoadOpts)
                            if ok then putStrLn "Backbone warm-started; head at fresh init."
                                  else do putStrLn $ "ERROR: failed to load backbone from " ++ ckptPath

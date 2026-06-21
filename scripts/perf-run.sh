@@ -33,7 +33,7 @@ usage: $0 <example-key> <backend> [example-args...]
 example-keys: ntm-copy, ntm-recall, dnc-copy, dnc-recall, supervised,
 							rnn, lstm, gru, transformer, gpt, matmul-bench, mnist, seq-classify,
 							reinforce, dqn, double-dqn, mountain-car, mountain-car-cont, a2c,
-							ppo, sac, hf-bert, hf-gpt2, hf-llama, hf-llama-generate, hf-bitnet,
+							ppo, sac, bert, gpt2, llama, llama-generate, bitnet,
 							bert-classify-finetune, bert-classify-sst2-finetune,
 							bert-classify-sst2-lora,
 							gpt2-lm-finetune, bert-mlm-finetune
@@ -83,16 +83,16 @@ case "$EXAMPLE_KEY" in
 	# into entry.stages instead. AVAR is set to a no-op make-variable
 	# name so the existing AVAR=ARGS plumbing doesn't fight us (the
 	# inference examples don't take CLI args via *_ARGS).
-	hf-bert)             TGT=example-hf-bert-inference;          AVAR=_HF_NOARGS ;;
-	hf-gpt2)             TGT=example-hf-gpt2-inference;          AVAR=_HF_NOARGS ;;
-	hf-llama)            TGT=example-hf-llama-inference;         AVAR=_HF_NOARGS ;;
-	# Same example as hf-llama, but with the --dump-tokens / multi-step
-	# generation gate path exercised. Distinguished from `hf-llama` so
+	bert)             TGT=example-bert-inference;          AVAR=_HF_NOARGS ;;
+	gpt2)             TGT=example-gpt2-inference;          AVAR=_HF_NOARGS ;;
+	llama)            TGT=example-llama-inference;         AVAR=_HF_NOARGS ;;
+	# Same example as llama, but with the --dump-tokens / multi-step
+	# generation gate path exercised. Distinguished from `llama` so
 	# the perf-log entry carries the gate's wall-clock separately from
 	# the user-facing-demo wall-clock (they decode for different default
 	# budgets; the gate is fixed at --num-tokens 4 in the Makefile).
-	hf-llama-generate)   TGT=test-e2e-hf-llama-generate-roundtrip; AVAR=_HF_NOARGS ;;
-	hf-bitnet)           TGT=example-hf-bitnet-inference;        AVAR=_HF_NOARGS ;;
+	llama-generate)   TGT=test-e2e-llama-generate-roundtrip; AVAR=_HF_NOARGS ;;
+	bitnet)           TGT=example-bitnet-inference;        AVAR=_HF_NOARGS ;;
 	*) echo "unknown example-key: $EXAMPLE_KEY" >&2; exit 2 ;;
 esac
 

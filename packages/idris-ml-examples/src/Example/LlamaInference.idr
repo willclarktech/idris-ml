@@ -1,4 +1,4 @@
-||| HfLlamaInference — load `unsloth/Llama-3.2-1B` (base; a public
+||| LlamaInference — load `unsloth/Llama-3.2-1B` (base; a public
 ||| mirror of `meta-llama/Llama-3.2-1B`'s weights, no `HF_TOKEN`) and run
 ||| Llama through the typed-tensor / type-safe-dependent-shape stack.
 |||
@@ -47,7 +47,7 @@
 |||     (public mirror; no `HF_TOKEN` required).
 |||   - Python `transformers` available via the pytorch venv (for the
 |||     Tokenizer subprocess).
-module Example.HfLlamaInference
+module Example.LlamaInference
 
 import Data.Fin
 import Data.List
@@ -60,7 +60,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Example.Common.HfInferenceHelper
+import Example.Common.InferenceHelper
 import Executor
 import Nn.RoPE
 import Tensor
@@ -135,7 +135,7 @@ genStepCached cfg model tables caches toksList = do
 ||| Convention: this example has a single decode path. The legacy
 ||| no-cache `genLoop` / `genOneStep` were dropped 2026-06-04 — they
 ||| were correctness-equivalent but doubled Chez elaboration cost on
-||| this file. Recover via `git show 70f5017c:...HfLlamaInference.idr`
+||| this file. Recover via `git show 70f5017c:...LlamaInference.idr`
 ||| if differential debugging is needed.
 genLoopCached :
      (cfg : LlamaConfig)

@@ -1,6 +1,6 @@
 ||| Shared helpers for the HF inference example wrappers.
 |||
-||| HfLlamaInference and HfBitNetInference each carry the same small
+||| LlamaInference and BitNetInference each carry the same small
 ||| pile of utility functions for argv parsing, fixed-prompt tensor
 ||| construction, per-row dumps, argmax, stage timing. None of these
 ||| depend on the per-adapter model type or forward function, so they
@@ -15,7 +15,7 @@
 ||| All values use the `ExampleExecutor` / `ExampleDType` pair from
 ||| `BuildConfig` so the helpers pick up the per-build target lane
 ||| automatically (e.g. F32 on torch-mps / mlx-gpu, F64 on tape).
-module Example.Common.HfInferenceHelper
+module Example.Common.InferenceHelper
 
 import Data.String
 import Data.Vect

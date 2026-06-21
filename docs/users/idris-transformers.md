@@ -83,7 +83,7 @@ the model at those dims, and fills every param from
 
 Using the loaded model: the forward needs a `hidden = numHeads *
 headDim` proof. Since `numHeads` is read at runtime, recover the split
-with a `decEq` divisibility check (see `Example/HfBertInference.idr`):
+with a `decEq` divisibility check (see `Example/BertInference.idr`):
 
 ```idris
 Right (cfg ** model) <- fromPretrained {g = NoGrad} modelDir
@@ -113,11 +113,11 @@ a filed follow-up).
 
 ## Worked example: load and run BERT-tiny
 
-The repo ships `Example/HfBertInference.idr` and a one-line make
+The repo ships `Example/BertInference.idr` and a one-line make
 target that does the whole thing end-to-end:
 
 ```bash
-make example-hf-bert-inference
+make example-bert-inference
 ```
 
 This:
@@ -476,7 +476,7 @@ uses HF `peft.LoraConfig` with matching hyperparameters.
   — design rules for `Transformers.*` modules.
 - [`packages/idris-transformers/README.md`](../../packages/idris-transformers/README.md)
   — package overview + build instructions.
-- [`packages/idris-ml-examples/src/Example/HfBertInference.idr`](../../packages/idris-ml-examples/src/Example/HfBertInference.idr)
+- [`packages/idris-ml-examples/src/Example/BertInference.idr`](../../packages/idris-ml-examples/src/Example/BertInference.idr)
   — the worked example.
 - [`packages/idris-transformers/scripts/save_oracle.py`](../../packages/idris-transformers/scripts/save_oracle.py)
   / [`compare_inference.py`](../../packages/idris-transformers/scripts/compare_inference.py)

@@ -1,4 +1,4 @@
-||| HfBitNetInference — load `microsoft/bitnet-b1.58-2B-4T` and run
+||| BitNetInference — load `microsoft/bitnet-b1.58-2B-4T` and run
 ||| inference through the typed-tensor stack with ternary BitLinears.
 |||
 ||| BitNet 2B-4T: vocab=128256, hidden=2560, n_layer=30, n_head=20,
@@ -38,7 +38,7 @@
 |||      microsoft/bitnet-b1.58-2B-4T` — not gated).
 |||   - models/microsoft/bitnet-b1.58-2B-4T/tokenizer.json (default
 |||     mode only — dump-logits mode doesn't need a tokenizer).
-module Example.HfBitNetInference
+module Example.BitNetInference
 
 import Data.Fin
 import Data.List
@@ -51,7 +51,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Example.Common.HfInferenceHelper
+import Example.Common.InferenceHelper
 import Executor
 import Nn.Embedding
 import Nn.RoPE
@@ -106,7 +106,7 @@ iterateBlocksDumping cfg (b :: bs) tables x idx dumpFn = do
   iterateBlocksDumping cfg bs tables x' (S idx) dumpFn
 
 ----------------------------------------------------------------------
--- Greedy generation (helpers live in Example.Common.HfInferenceHelper)
+-- Greedy generation (helpers live in Example.Common.InferenceHelper)
 ----------------------------------------------------------------------
 
 genOneStep : (cfg : BitNetConfig)

@@ -13,14 +13,14 @@
         example-bert-classify-sst2-lora data-tinyshakespeare-distilgpt2 \
         data-tinyshakespeare-bert-tiny example-gpt2-lm-finetune \
         ref-gpt2-lm-finetune example-bert-mlm-finetune \
-        ref-bert-mlm-finetune example-hf-bert-inference \
-        test-e2e-hf-bert-roundtrip example-hf-gpt2-inference \
-        example-hf-llama-inference \
-        test-integration-lint-hf-llama-inference \
-        test-integration-lint-hf-bitnet-inference \
-        example-hf-bitnet-inference test-e2e-hf-bitnet-roundtrip \
-        test-e2e-hf-gpt2-roundtrip test-e2e-hf-llama-roundtrip \
-        test-e2e-hf-llama-generate-roundtrip \
+        ref-bert-mlm-finetune example-bert-inference \
+        test-e2e-bert-roundtrip example-gpt2-inference \
+        example-llama-inference \
+        test-integration-lint-llama-inference \
+        test-integration-lint-bitnet-inference \
+        example-bitnet-inference test-e2e-bitnet-roundtrip \
+        test-e2e-gpt2-roundtrip test-e2e-llama-roundtrip \
+        test-e2e-llama-generate-roundtrip \
         test-e2e-transformers-oracle-llama-generate example-rnn \
         example-lstm example-gru example-bring-your-own example-ntm-copy \
         example-ntm-associative-recall example-dnc-copy \
@@ -196,32 +196,32 @@ $(HF_MODELS_DIR)/%/config.json:
 .PHONY: hf-fixtures
 hf-fixtures: $(TRANSFORMERS_TEST_FIXTURES)
 
-example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
-	cp $(LIB) $(BUILD)/exec/hf-bert-inference_app/
-	./$(BUILD)/exec/hf-bert-inference
+example-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
+	$(IDRIS2) $(IDRIS_FLAGS) -o bert-inference $(EXAMPLE_SRC)/Example/BertInference.idr
+	cp $(LIB) $(BUILD)/exec/bert-inference_app/
+	./$(BUILD)/exec/bert-inference
 
 # Cross-language correctness gate for HfBert: regenerates the Python
 # oracle via save_oracle.py, then runs the Idris example and compares
 # stdout against the oracle within F32 tolerance.
-test-e2e-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
+test-e2e-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
-	cp $(LIB) $(BUILD)/exec/hf-bert-inference_app/
-	./$(BUILD)/exec/hf-bert-inference --dump-pooled > $(BUILD)/hf-bert-idris-out.txt
+	$(IDRIS2) $(IDRIS_FLAGS) -o bert-inference $(EXAMPLE_SRC)/Example/BertInference.idr
+	cp $(LIB) $(BUILD)/exec/bert-inference_app/
+	./$(BUILD)/exec/bert-inference --dump-pooled > $(BUILD)/bert-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
-		../../$(BUILD)/hf-bert-idris-out.txt \
+		../../$(BUILD)/bert-idris-out.txt \
 		../../models/bert-tiny-oracle.safetensors \
 		1e-3
 
-# Build + run Example/HfGpt2Inference. Fetches distilgpt2 once via the
+# Build + run Example/Gpt2Inference. Fetches distilgpt2 once via the
 # pattern rule above.
-example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
-	cp $(LIB) $(BUILD)/exec/hf-gpt2-inference_app/
-	./$(BUILD)/exec/hf-gpt2-inference
+example-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
+	$(IDRIS2) $(IDRIS_FLAGS) -o gpt2-inference $(EXAMPLE_SRC)/Example/Gpt2Inference.idr
+	cp $(LIB) $(BUILD)/exec/gpt2-inference_app/
+	./$(BUILD)/exec/gpt2-inference
 
 # Cross-language correctness gate for HfGpt2: regenerate the Python
 # oracle from distilgpt2 + run the Idris example + compare
@@ -235,8 +235,8 @@ example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # rule's recipe doesn't fire).
 #
 # Tape lane (F64) doesn't fit in 16 GB; build with
-# `BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference`
-# or `BACKEND=mlx MLX_DEVICE=gpu make example-hf-llama-inference` for
+# `BACKEND=torch TORCH_DEVICE=mps make example-llama-inference`
+# or `BACKEND=mlx MLX_DEVICE=gpu make example-llama-inference` for
 # the F32 / GPU paths.
 #
 # HF inference targets auto-set TORCH_DTYPE/MLX_DTYPE/TAPE_DTYPE
@@ -245,14 +245,14 @@ example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # on a 16 GB VM. Override by setting TORCH_DTYPE=F64 (etc) on the
 # command line if you genuinely want F64 (e.g. for numerical
 # bisection vs the F64 oracle in `save_oracle_llama.py`).
-example-hf-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
-	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
-	./$(BUILD)/exec/hf-llama-inference
+example-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
+	$(IDRIS2) $(IDRIS_FLAGS) -o llama-inference $(EXAMPLE_SRC)/Example/LlamaInference.idr
+	cp $(LIB) $(BUILD)/exec/llama-inference_app/
+	./$(BUILD)/exec/llama-inference
 
-# Fast feedback loop for HfLlamaInference: type-check only (`--check`),
+# Fast feedback loop for LlamaInference: type-check only (`--check`),
 # skip Scheme codegen + linking. Turns around in tens of seconds vs the
-# multi-minute `example-hf-llama-inference` build. Useful when iterating
+# multi-minute `example-llama-inference` build. Useful when iterating
 # on the typed surface (signatures, implicit-resolution, totality)
 # without caring about an executable binary yet.
 #
@@ -261,38 +261,38 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config
 # file itself is `--check`ed rather than `-o`'d.
 #
 # Shares $(BUILD) with the example builds (not an isolated check dir):
-# elaborating HfLlamaInference cold peaks past CI runner RAM — it
+# elaborating LlamaInference cold peaks past CI runner RAM — it
 # OOM-killed the Ubuntu test-integration leg and burned the macOS
 # leg's whole 60-min budget in run 27373449876. With the shared dir
 # the check is nearly free whenever the example (or the roundtrip
 # gate) already elaborated in this build set, and the --check ttc
 # warms the later `-o` build in turn.
-test-integration-lint-hf-llama-inference: install
+test-integration-lint-llama-inference: install
 	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
-		--check $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+		--check $(EXAMPLE_SRC)/Example/LlamaInference.idr
 
-# Same fast --check feedback loop for HfBitNetInference (see the llama
+# Same fast --check feedback loop for BitNetInference (see the llama
 # note above). The 1.18 GB model download isn't needed to type-check, so
 # this gates the typed surface (incl. the NoGrad inference path) without
 # fetching the checkpoint — the cheapest CI proof for this example.
-test-integration-lint-hf-bitnet-inference: install
+test-integration-lint-bitnet-inference: install
 	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
-		--check $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
+		--check $(EXAMPLE_SRC)/Example/BitNetInference.idr
 
-# Build + run Example/HfBitNetInference. Fetches microsoft/bitnet-b1.58-2B-4T
+# Build + run Example/BitNetInference. Fetches microsoft/bitnet-b1.58-2B-4T
 # once via the pattern rule (1.18 GB, not gated). Default mode runs the
 # fixed-prompt forward and prints the top 5 logits; `--dump-logits` mode
 # prints all 128256 logits for the roundtrip gate.
 #
 # Tape lane (F64) won't fit in 16 GB; build with
-# `BACKEND=torch TORCH_DEVICE=mps make example-hf-bitnet-inference` or
-# `BACKEND=mlx MLX_DEVICE=gpu make example-hf-bitnet-inference`.
-example-hf-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
-	cp $(LIB) $(BUILD)/exec/hf-bitnet-inference_app/
-	./$(BUILD)/exec/hf-bitnet-inference
+# `BACKEND=torch TORCH_DEVICE=mps make example-bitnet-inference` or
+# `BACKEND=mlx MLX_DEVICE=gpu make example-bitnet-inference`.
+example-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
+	$(IDRIS2) $(IDRIS_FLAGS) -o bitnet-inference $(EXAMPLE_SRC)/Example/BitNetInference.idr
+	cp $(LIB) $(BUILD)/exec/bitnet-inference_app/
+	./$(BUILD)/exec/bitnet-inference
 
 # Cross-language correctness gate for HfBitNet: regenerate the Python
 # oracle from microsoft/bitnet-b1.58-2B-4T, run the Idris example
@@ -304,27 +304,27 @@ example-hf-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-
 # The argmax-match assertion catches the meaningful regression class
 # (the model picking a different next token) without burdening the
 # gate with the per-element noise floor.
-test-e2e-hf-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
+test-e2e-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/save_oracle_bitnet.py
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
-	cp $(LIB) $(BUILD)/exec/hf-bitnet-inference_app/
-	./$(BUILD)/exec/hf-bitnet-inference --dump-logits > $(BUILD)/hf-bitnet-idris-out.txt
+	$(IDRIS2) $(IDRIS_FLAGS) -o bitnet-inference $(EXAMPLE_SRC)/Example/BitNetInference.idr
+	cp $(LIB) $(BUILD)/exec/bitnet-inference_app/
+	./$(BUILD)/exec/bitnet-inference --dump-logits > $(BUILD)/bitnet-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
-		../../$(BUILD)/hf-bitnet-idris-out.txt \
+		../../$(BUILD)/bitnet-idris-out.txt \
 		../../models/bitnet-2b-4t-oracle.safetensors \
 		1.0 --argmax-match
 
-test-e2e-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
+test-e2e-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
-	cp $(LIB) $(BUILD)/exec/hf-gpt2-inference_app/
-	./$(BUILD)/exec/hf-gpt2-inference --dump-final-hidden > $(BUILD)/hf-gpt2-idris-out.txt
+	$(IDRIS2) $(IDRIS_FLAGS) -o gpt2-inference $(EXAMPLE_SRC)/Example/Gpt2Inference.idr
+	cp $(LIB) $(BUILD)/exec/gpt2-inference_app/
+	./$(BUILD)/exec/gpt2-inference --dump-final-hidden > $(BUILD)/gpt2-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
-		../../$(BUILD)/hf-gpt2-idris-out.txt \
+		../../$(BUILD)/gpt2-idris-out.txt \
 		../../models/distilgpt2-oracle.safetensors \
 		1e-3
 
@@ -338,15 +338,15 @@ test-e2e-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # is catching macro regressions (broken forward, broken param load,
 # bad RoPE), not pinning numerics to BF16-noise-floor precision.
 # Tighten if measurements show consistent tighter alignment.
-test-e2e-hf-llama-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
+test-e2e-llama-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama.py -v
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
-	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
-	./$(BUILD)/exec/hf-llama-inference --dump-final-hidden > $(BUILD)/hf-llama-idris-out.txt
+	$(IDRIS2) $(IDRIS_FLAGS) -o llama-inference $(EXAMPLE_SRC)/Example/LlamaInference.idr
+	cp $(LIB) $(BUILD)/exec/llama-inference_app/
+	./$(BUILD)/exec/llama-inference --dump-final-hidden > $(BUILD)/llama-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
-		../../$(BUILD)/hf-llama-idris-out.txt \
+		../../$(BUILD)/llama-idris-out.txt \
 		../../models/llama-3.2-1b-oracle.safetensors \
 		1.0
 
@@ -357,7 +357,7 @@ test-e2e-hf-llama-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/confi
 # --dump-tokens mode for the same prompt + budget, and asserts the
 # resulting token-ID sequences match element-wise. Catches
 # generation-path drift the single-forward
-# `test-e2e-hf-llama-roundtrip` can't see.
+# `test-e2e-llama-roundtrip` can't see.
 #
 # Budget bumped 2026-06-04 from 4 to 8 after the KV cache landed
 # (commits `b5443135` ... `3b87291f`): with cached decode each step
@@ -368,20 +368,20 @@ test-e2e-hf-llama-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/confi
 # `BACKEND=torch TORCH_DEVICE=cpu` for CI or
 # `BACKEND=torch TORCH_DEVICE=mps` / `BACKEND=mlx MLX_DEVICE=gpu`
 # for paired-lane dev verification.
-test-e2e-hf-llama-generate-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
+test-e2e-llama-generate-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
-	$(IDRIS2) $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
-	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
-	./$(BUILD)/exec/hf-llama-inference --dump-tokens --num-tokens 8 > $(BUILD)/hf-llama-tokens-out.txt
+	$(IDRIS2) $(IDRIS_FLAGS) -o llama-inference $(EXAMPLE_SRC)/Example/LlamaInference.idr
+	cp $(LIB) $(BUILD)/exec/llama-inference_app/
+	./$(BUILD)/exec/llama-inference --dump-tokens --num-tokens 8 > $(BUILD)/llama-tokens-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
-		../../$(BUILD)/hf-llama-tokens-out.txt \
+		../../$(BUILD)/llama-tokens-out.txt \
 		../../models/llama-3.2-1b-generate-oracle.safetensors \
 		--token-sequence
 
 # Manual oracle-regen entry point (pytest harness pairs with
-# `test-e2e-hf-llama-generate-roundtrip` above). Useful when bumping
+# `test-e2e-llama-generate-roundtrip` above). Useful when bumping
 # the budget after KV cache lands.
 test-e2e-transformers-oracle-llama-generate:
 	cd packages/pytorch && uv run pytest \

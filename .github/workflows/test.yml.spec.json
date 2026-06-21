@@ -393,10 +393,10 @@
       },
       {
         "name": "Run HfBert end-to-end roundtrip",
-        "run": "make test-e2e-hf-bert-roundtrip",
+        "run": "make test-e2e-bert-roundtrip",
         "comment": [
           "The cross-language correctness gate: regenerates the Python",
-          "oracle, runs the Idris HfBertInference example (loading the",
+          "oracle, runs the Idris BertInference example (loading the",
           "real Google bert-tiny weights via the HF-aligned HfBert",
           "module), and asserts elementwise agreement within",
           "max-abs-diff 1e-3 on the 128-dim pooled [CLS] output.",
@@ -405,11 +405,11 @@
       },
       {
         "name": "Run HfGpt2 end-to-end roundtrip",
-        "run": "make test-e2e-hf-gpt2-roundtrip",
+        "run": "make test-e2e-gpt2-roundtrip",
         "comment": [
           "Same gate shape as HfBert but for GPT-2: regenerate the Python",
           "oracle from hf-internal-testing/tiny-random-gpt2, run the Idris",
-          "HfGpt2Inference binary, assert the 32-dim last-position hidden",
+          "Gpt2Inference binary, assert the 32-dim last-position hidden",
           "state matches within max-abs-diff 1e-3. Currently passes at",
           "~1e-6 locally on tape."
         ]
@@ -438,10 +438,10 @@
       },
       {
         "name": "Run HfBitNet end-to-end roundtrip (torch)",
-        "run": "if [ -z \"$HF_TOKEN\" ]; then unset HF_TOKEN; fi; make BACKEND=torch test-e2e-hf-bitnet-roundtrip",
+        "run": "if [ -z \"$HF_TOKEN\" ]; then unset HF_TOKEN; fi; make BACKEND=torch test-e2e-bitnet-roundtrip",
         "comment": [
           "Cross-language gate: regenerate the Python oracle from",
-          "microsoft/bitnet-b1.58-2B-4T, run the Idris HfBitNetInference",
+          "microsoft/bitnet-b1.58-2B-4T, run the Idris BitNetInference",
           "binary --dump-logits, assert argmax on the vocab-128256 logit",
           "row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch",
           "because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu",
@@ -458,13 +458,13 @@
       },
       {
         "name": "Run HfLlama end-to-end roundtrip (torch)",
-        "run": "make BACKEND=torch test-e2e-hf-llama-roundtrip",
+        "run": "make BACKEND=torch test-e2e-llama-roundtrip",
         "if": "env.HF_TOKEN != ''",
         "comment": [
           "Cross-language gate for Llama 3.2 1B. Regenerates the Python",
           "oracle from unsloth/Llama-3.2-1B (download-gated on the mirror;",
           "guarded on env.HF_TOKEN above, skips when unset), runs the Idris",
-          "HfLlamaInference binary --dump-final-hidden, asserts the",
+          "LlamaInference binary --dump-final-hidden, asserts the",
           "2048-dim last-position hidden state matches the oracle within",
           "max-abs-diff 1.0. Currently passes at 4.96e-05 on torch-mps",
           "and 1.20e-04 on mlx-gpu in local dev runs; the CI torch-cpu",
@@ -476,7 +476,7 @@
       },
       {
         "name": "Run HfLlama multi-step generation roundtrip (torch)",
-        "run": "make BACKEND=torch test-e2e-hf-llama-generate-roundtrip",
+        "run": "make BACKEND=torch test-e2e-llama-generate-roundtrip",
         "if": "env.HF_TOKEN != ''",
         "comment": [
           "Cross-language gate for Llama 3.2 1B's *generation* path.",
@@ -491,11 +491,11 @@
         ]
       },
       {
-        "name": "Type-check HfLlamaInference example (torch)",
-        "run": "make BACKEND=torch test-integration-lint-hf-llama-inference",
+        "name": "Type-check LlamaInference example (torch)",
+        "run": "make BACKEND=torch test-integration-lint-llama-inference",
         "if": "env.HF_TOKEN != ''",
         "comment": [
-          "`idris2 --check` over Example/HfLlamaInference.idr — catches",
+          "`idris2 --check` over Example/LlamaInference.idr — catches",
           "type-drift against the library surface. Lives in this job, NOT",
           "test-integration: elaborating the example cold peaks past the",
           "runner ceiling (it OOM-killed the Ubuntu test-integration leg",
@@ -506,10 +506,10 @@
         ]
       },
       {
-        "name": "Type-check HfBitNetInference example (torch)",
-        "run": "make BACKEND=torch test-integration-lint-hf-bitnet-inference",
+        "name": "Type-check BitNetInference example (torch)",
+        "run": "make BACKEND=torch test-integration-lint-bitnet-inference",
         "comment": [
-          "`idris2 --check` over Example/HfBitNetInference.idr — the bitnet",
+          "`idris2 --check` over Example/BitNetInference.idr — the bitnet",
           "twin of the llama type-check above. Lives in this job, NOT",
           "test-integration: cold elaboration of the ~2B-param example peaks",
           "past the runner ceiling (same reason as llama). No HF_TOKEN guard",

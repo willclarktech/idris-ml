@@ -98,7 +98,7 @@ ref-typecheck:
 # This target only runs the generator + asserts the fixture is
 # well-formed (shape, dtype, finite, nontrivial). The cross-language
 # Idris-vs-Python comparison gate lands in Phase 6 as
-# test-e2e-hf-bert-roundtrip.
+# test-e2e-bert-roundtrip.
 test-e2e-transformers-oracle-bert:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
@@ -115,7 +115,7 @@ test-e2e-rope-oracle:
 # generates `models/tiny-gpt2-oracle.safetensors` from
 # `distilgpt2`'s last-hidden-state for [15496, 995] and
 # asserts the fixture is well-formed. The cross-language gate lands
-# as test-e2e-hf-gpt2-roundtrip alongside the Idris example.
+# as test-e2e-gpt2-roundtrip alongside the Idris example.
 test-e2e-transformers-oracle-gpt2:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
@@ -123,7 +123,7 @@ test-e2e-transformers-oracle-gpt2:
 # Same shape, paired with HfLlama.idr: generates
 # `models/llama-3.2-1b-oracle.safetensors` from `unsloth/Llama-3.2-1B`'s
 # last-hidden-state for [9906] ("Hello") and asserts the fixture is
-# well-formed. The cross-language gate lands as test-e2e-hf-llama-roundtrip
+# well-formed. The cross-language gate lands as test-e2e-llama-roundtrip
 # alongside the Idris example.
 test-e2e-transformers-oracle-llama:
 	cd packages/pytorch && uv run pytest \

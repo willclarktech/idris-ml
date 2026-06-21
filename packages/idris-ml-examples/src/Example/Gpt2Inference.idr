@@ -1,4 +1,4 @@
-||| HfGpt2Inference — load `distilgpt2` and exercise the typed GPT-2
+||| Gpt2Inference — load `distilgpt2` and exercise the typed GPT-2
 ||| forward + greedy generation against the HF Python oracle.
 |||
 ||| `distilgpt2` (~350 MB safetensors, pretrained, 6 layers / hidden 768
@@ -40,7 +40,7 @@
 |||     — fetch with `bash packages/idris-transformers/scripts/hf-download.sh distilgpt2`
 |||   - Python `transformers` available via the pytorch venv (for the
 |||     Tokenizer subprocess).
-module Example.HfGpt2Inference
+module Example.Gpt2Inference
 
 import Data.Fin
 import Data.List
@@ -54,7 +54,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Example.Common.HfInferenceHelper
+import Example.Common.InferenceHelper
 import Executor
 import Tensor
 import Transformers.Gpt2
@@ -72,7 +72,7 @@ modelDir : String
 modelDir = "models/" ++ ModelRepo
 
 ----------------------------------------------------------------------
--- Build small input-ID + position tensors (mkIds lives in HfInferenceHelper)
+-- Build small input-ID + position tensors (mkIds lives in InferenceHelper)
 ----------------------------------------------------------------------
 
 arangeVect : (n : Nat) -> Vect n Double
@@ -110,7 +110,7 @@ runDumpHidden cfg nHeads hDim prf model = do
   printRow (cast {to=Int} (hidden cfg)) 0 lastRow.tensorPtr
 
 ----------------------------------------------------------------------
--- Greedy generation (argmaxRow / toExistVect live in HfInferenceHelper)
+-- Greedy generation (argmaxRow / toExistVect live in InferenceHelper)
 ----------------------------------------------------------------------
 
 -- One generation step: forward the current sequence, pick argmax of
@@ -201,7 +201,7 @@ runGenerate cfg nHeads hDim prf tok model prompt numTokens = do
   putStrLn ("Output:    " ++ text)
 
 ----------------------------------------------------------------------
--- main (stageStamp lives in HfInferenceHelper)
+-- main (stageStamp lives in InferenceHelper)
 ----------------------------------------------------------------------
 
 main : IO ()

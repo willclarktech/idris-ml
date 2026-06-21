@@ -32,7 +32,7 @@ BASELINE = {
     "Example/BertMlmFinetune.idr": 2,
     "Example/Gpt.idr": 7,
     "Example/Gpt2LmFinetune.idr": 2,
-    "Example/HfBitNetInference.idr": 1,
+    "Example/BitNetInference.idr": 1,
     "Example/MatmulBench.idr": 3,
     "Example/PrecisionDemo.idr": 3,
     "Example/RankBroadcastBench.idr": 7,

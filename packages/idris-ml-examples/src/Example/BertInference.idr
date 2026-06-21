@@ -1,4 +1,4 @@
-||| HfBertInference — fill-in-the-mask with `google/bert_uncased_L-2_H-128_A-2`.
+||| BertInference — fill-in-the-mask with `google/bert_uncased_L-2_H-128_A-2`.
 |||
 ||| By default the binary loads the HF checkpoint, runs three short
 ||| sentences with a `[MASK]` token through `BertForMaskedLM`, and
@@ -29,7 +29,7 @@
 |||     venv — `Transformers.Tokenizer.idr` shells out to `scripts/hf_tokenize.py`
 |||     for encode + decode, replacing the pre-2026-05-26 hardcoded ID
 |||     lists + vocab.txt lookup table.
-module Example.HfBertInference
+module Example.BertInference
 
 import Data.Fin
 import Data.List
@@ -43,7 +43,7 @@ import System.File
 import Array
 import BuildConfig
 import Checkpoint
-import Example.Common.HfInferenceHelper
+import Example.Common.InferenceHelper
 import Executor
 import Tensor
 import Transformers.Bert
@@ -58,7 +58,7 @@ modelDir : String
 modelDir = "models/google/bert_uncased_L-2_H-128_A-2"
 
 ----------------------------------------------------------------------
--- Build small input-ID tensors (mkIds lives in HfInferenceHelper)
+-- Build small input-ID tensors (mkIds lives in InferenceHelper)
 ----------------------------------------------------------------------
 
 arangeVect : (n : Nat) -> Vect n Double
@@ -213,7 +213,7 @@ runPooledDump cfg nHeads hDim prf model = do
   printPooled (cast {to=Int} (hidden cfg)) 0 out.tensorPtr
 
 ----------------------------------------------------------------------
--- main (stageStamp lives in HfInferenceHelper)
+-- main (stageStamp lives in InferenceHelper)
 ----------------------------------------------------------------------
 
 main : IO ()
