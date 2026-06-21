@@ -63,6 +63,7 @@ for lane in $BACKENDS; do
 			example-mnist)                   smoke_args="--epochs 1 --train-count 6000" ;;
 			example-seq-classify)            smoke_args="--epochs 5" ;;
 			example-dqn)                     smoke_args="--epochs 10" ;;
+			example-double-dqn)              smoke_args="--epochs 10" ;;
 			example-mountain-car)            smoke_args="--epochs 5" ;;
 			example-mountain-car-cont)       smoke_args="--epochs 5" ;;
 			example-a2c)                     smoke_args="--epochs 50" ;;
