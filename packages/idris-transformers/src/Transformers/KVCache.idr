@@ -24,7 +24,7 @@
 |||
 ||| This is the first stateful inference cache in the codebase; the API
 ||| is deliberately minimal (Empty / Filled, two functions) so future
-||| adapters (HfGpt2, HfBitNet) can adopt the same shape without a
+||| adapters (Transformers.Gpt2, Transformers.BitNet) can adopt the same shape without a
 ||| refactor. K and V keep separate handles rather than a single
 ||| concatenated tensor — that matches PyTorch's `past_key_values`
 ||| layout and gives the user-facing genLoop a natural place to release

@@ -1,4 +1,4 @@
-||| Unit tests for `HfDataset` — the TSV loader + padding + 2D
+||| Unit tests for `Transformers.Dataset` — the TSV loader + padding + 2D
 ||| attention-mask builder used by the SST-2 BERT-classify fine-tune
 ||| (RT3).
 |||
@@ -106,11 +106,11 @@ testToAttentionMask2d = do
 export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfDataset TSV loader",
+  [ ("Transformers.Dataset TSV loader",
      [ testLoadCount
      , testLoadValues
      ])
-  , ("HfDataset padding + mask",
+  , ("Transformers.Dataset padding + mask",
      [ testPadPadsShortExample
      , testPadTruncatesLongExample
      , testToAttentionMask2d

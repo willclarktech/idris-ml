@@ -20,7 +20,7 @@ import Test.Config
 import Tensor
 import Array
 
--- Build a Tensor [n] from a Vect of doubles (mirrors Test.HfBert).
+-- Build a Tensor [n] from a Vect of doubles (mirrors Test.Bert).
 -- `ioRerun` defers the C-side allocation per the pure-typed-FFI
 -- reorder gotcha (feedback_pure_typed_ffi_reorders.md).
 mkIdsTensor : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestExecutor TestDType WithGrad)
@@ -179,7 +179,7 @@ testOnesMaskDiffersFromNothing = do
 export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfBert attention-mask threading",
+  [ ("Transformers.Bert attention-mask threading",
      [ testZeroMaskMatchesNothing
      , testOnesMaskDiffersFromNothing
      ])

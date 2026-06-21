@@ -1,4 +1,4 @@
-||| Unit tests for `HfBert`.
+||| Unit tests for `Transformers.Bert`.
 |||
 ||| The pure-Idris piece (the param-name catalogue) is the first
 ||| suite. The FFI piece — constructing a tiny model and asserting
@@ -368,23 +368,23 @@ testDerivedGparamsMatchesCatalogue = do
 export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfBert param-name catalogue",
+  [ ("Transformers.Bert param-name catalogue",
      [ testParamCount
      , testParamNamesMatchHfReference
      , testNamingConvention
      ])
-  , ("HfBert constructor registers HF-native names",
+  , ("Transformers.Bert constructor registers HF-native names",
      [ testConstructorRegistersHfNames
      ])
-  , ("HfBert forward pass — shape + finite",
+  , ("Transformers.Bert forward pass — shape + finite",
      [ testForwardShapeAndFinite
      ])
-  , ("HfBert MLM-head catalogue",
+  , ("Transformers.Bert MLM-head catalogue",
      [ testMlmParamCount
      , testMlmParamNamesMatchHfReference
      , testMaskedLmCombinedCatalogue
      ])
-  , ("HfBert derived GCast traversal",
+  , ("Transformers.Bert derived GCast traversal",
      [ testDerivedGparamsMatchesCatalogue
      ])
   , ("readBertConfig — config.json parsing",

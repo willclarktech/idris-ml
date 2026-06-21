@@ -161,7 +161,7 @@ layerParamNames pfx i =
   , p ++ ".mlp.down_proj.weight_scale"
   ]
 
-||| All params HfBitNet registers, in the order they're constructed.
+||| All params Transformers.BitNet registers, in the order they're constructed.
 ||| For `bitnet2B4T_Config` (numLayers=30) this is 1 + 30*18 + 1
 ||| = 542 tensors. `pfx` is the HF on-disk prefix — typically `"model"`.
 ||| BitNet on disk uses `model.embed_tokens.weight`, `model.layers.{i}.…`,
@@ -180,8 +180,8 @@ hfBitnetParamNames cfg pfx =
 -- HF-named building blocks (private — BitNet-specific layouts)
 ----------------------------------------------------------------------
 --
--- Host-buffer helper (one private copy per Hf* module per CONVENTIONS
--- rule 4 — no cross-imports between Hf* modules).
+-- Host-buffer helper (one private copy per Transformers.* module per CONVENTIONS
+-- rule 4 — no cross-imports between Transformers.* modules).
 fillBytesZero : AnyPtr -> Int -> Int -> AnyPtr
 fillBytesZero buf _ 0   = buf
 fillBytesZero buf off n =
@@ -313,7 +313,7 @@ record BitNetAttentionState
   -- config invariant is `hidden = numHeads * headDim = qOut`, so the
   -- safetensors-stored shape `[hidden_size]` loads cleanly under
   -- either typing — `qOut` is the one that makes the type-checked
-  -- apply work without a proof. Same trick as HfLlama's `qOut` in
+  -- apply work without a proof. Same trick as Transformers.Llama's `qOut` in
   -- `oProj : LlamaLinearNoBias qOut hidden`.
   attnSubNorm : RmsNorm qOut qOut ex dt g
   oProj       : BitLinearHf qOut hidden ex dt g
@@ -469,7 +469,7 @@ makeBlocks pfx (S k) offset = do
 ||| etc.). No LM-head param is created — `tie_word_embeddings=True`
 ||| means the embedding tensor serves as both.
 |||
-||| Like HfLlama, `qOut = numHeads * headDim` and `kvOut = numKvHeads *
+||| Like Transformers.Llama, `qOut = numHeads * headDim` and `kvOut = numKvHeads *
 ||| headDim` are explicit Nat args (not derived from the BitNetConfig)
 ||| so the type system catches dimension mismatches at construction
 ||| time. For `bitnet2B4T_Config`: qOut=2560 (= hidden, since 20*128),
@@ -511,7 +511,7 @@ bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
 ||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Thin wrapper
 ||| around `Transformers.Common.applyRmsNorm2dRaw` that pattern-matches the
 ||| `BitNetRmsNorm` wrapper. The body (per-row fold over `primNarrow`
-||| / `primMul` / `primSum` / scale) lives in `Transformers.Common.idr` and is
+||| / `primMul` / `primSum` / scale) lives in `Transformers/Common.idr` and is
 ||| shared with Transformers.Llama.
 export
 applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
@@ -526,13 +526,13 @@ applyRmsNorm2d eps (MkRmsNorm weight) input =
 ||| 2D wrapper around the 1D `tBitlinearFwdHfQuant`. Walks `seqLen`
 ||| rows, calling the fused kernel per row, concatenating the [out]
 ||| outputs into a [seqLen, out] result. `useRmsNorm=False` here —
-||| HfBitNet applies the external `input_layernorm` /
+||| Transformers.BitNet applies the external `input_layernorm` /
 ||| `post_attention_layernorm` / `attn_sub_norm` / `ffn_sub_norm`
 ||| around the BitLinears, not the kernel's optional fused norm.
 |||
 ||| Bias is bias-free in BitNet's BitLinears; the fused kernel takes
 ||| a bias arg unconditionally so we feed a zero-init [out] tensor.
-||| Same zero-bias trick as HfLlama's LM head + the kernel ignores
+||| Same zero-bias trick as Transformers.Llama's LM head + the kernel ignores
 ||| the rmsNormWeight when `useRmsNorm=False`, so we reuse the bias
 ||| placeholder as the placeholder rmsNormWeight (any [in]-shaped
 ||| tensor would do, but matching shapes keeps the call site simple).
@@ -586,7 +586,7 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
       oI       = cast {to=Int} o
       iI       = cast {to=Int} i
       -- Zero bias placeholder ([out], NoGrad). Calloc-backed buffer
-      -- + dt-streamed creation, identical to HfLlama's LM head trick.
+      -- + dt-streamed creation, identical to Transformers.Llama's LM head trick.
       zBuf    = prim__allocDoubles oI
       biasPtr = dtCreateState1d {ex} {t=dt} oI zBuf (deviceStreamTag {ex})
       -- Placeholder rmsNormWeight ([in], NoGrad). C side won't read it
@@ -609,7 +609,7 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
     in MkTensor out Nothing)
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`.
-||| Same pattern as HfLlama's `applyEmbedLookup`.
+||| Same pattern as Transformers.Llama's `applyEmbedLookup`.
 export
 applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seqLen, vocab, hidden : Nat} ->
@@ -623,10 +623,10 @@ applyEmbedLookup {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
   in MkTensor out Nothing)
 
 -- `ropeAllHeadsFlat` is now imported from `Nn.RoPE` (consolidated from
--- the identical definitions HfLlama and this module each carried).
+-- the identical definitions Transformers.Llama and this module each carried).
 -- BitNet uses RoPE only at prefill, so the call sites pass a fixed
 -- positionOffset of 0 (the Nn.RoPE wrapper takes the offset that
--- HfLlama's incremental-decode path threads through).
+-- Transformers.Llama's incremental-decode path threads through).
 
 ||| Full multi-head causal self-attention with GQA + RoPE +
 ||| BitNet-specific `attn_sub_norm` between context aggregation and
@@ -749,7 +749,7 @@ hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model table
 
 ||| LM head: tied to `embed_tokens.weight` ([vocab, hidden]).
 ||| Output `[seq, vocab]` logits per position. Bias-free, so we feed
-||| a zero placeholder bias the same way HfLlama does.
+||| a zero placeholder bias the same way Transformers.Llama does.
 public export
 hfBitnetForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
                 => UserExecutorQuant ex => RuntimeDType dt => Linked ex => Compatible ex dt

@@ -172,7 +172,7 @@ testInjectNonzeroDelta = do
 export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfBertLora — adapter inject + forward plumbing",
+  [ ("Transformers.BertLora — adapter inject + forward plumbing",
      [ testInjectBitMatchAtInit
      , testInjectNonzeroDelta
      ])

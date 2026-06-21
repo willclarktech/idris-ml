@@ -26,8 +26,8 @@
 |||   - **Causal mask**: applied via `primMaskedFill` on scores BEFORE softmax.
 |||     BERT is bidirectional (no mask).
 |||   - **Tied LM head**: `lm_head.weight` is tied to `transformer.wte.weight`
-|||     — it isn't on disk separately. Mirrors the HfBert `MlmHead` pattern
-|||     (`applyMlmHead` at Transformers.Bert.idr:769).
+|||     — it isn't on disk separately. Mirrors the Transformers.Bert `MlmHead` pattern
+|||     (`applyMlmHead` at Transformers/Bert.idr:769).
 module Transformers.Gpt2
 
 import Control.Linear.LIO
@@ -128,10 +128,10 @@ finalNormParamNames pfx =
   , pfx ++ ".ln_f.bias"
   ]
 
-||| All params HfGpt2 registers, in the order they're constructed.
+||| All params Transformers.Gpt2 registers, in the order they're constructed.
 ||| For `tinyGpt2Config` (numLayers=2) this is 2 + 2*12 + 2 = 28 params.
 ||| Note: the LM-head weight is tied to `wte.weight` and is NOT
-||| registered separately (mirrors HfBert's MlmHead).
+||| registered separately (mirrors Transformers.Bert's MlmHead).
 |||
 ||| Empty `pfx` produces unprefixed HF-native names (`transformer.wte.weight`).
 ||| Non-empty `pfx` produces `<pfx>.transformer.…` for scoped multi-network
@@ -145,12 +145,12 @@ hfGpt2ParamNames cfg pfx =
   ++ finalNormParamNames pfx_t
 
 ----------------------------------------------------------------------
--- HF-named building blocks (mirror HfBert pattern but GPT-2-named)
+-- HF-named building blocks (mirror Transformers.Bert pattern but GPT-2-named)
 ----------------------------------------------------------------------
 
--- Small host-buffer helpers (copied from Transformers.Bert.idr's private region).
--- Each `Hf*` module owns these privately per CONVENTIONS rule 4
--- ("no cross-imports between Hf* modules"). The duplication is the
+-- Small host-buffer helpers (copied from Transformers/Bert.idr's private region).
+-- Each `Transformers.*` module owns these privately per CONVENTIONS rule 4
+-- ("no cross-imports between Transformers.* modules"). The duplication is the
 -- cost; the benefit is each module is independently readable
 -- side-by-side with HF's reference Python.
 
@@ -183,7 +183,7 @@ makeConv1D : UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatib
 makeConv1D pfx = do
   -- HF GPT-2 uses normal(0, 0.02) init for Conv1D weights, zero bias.
   -- Fused C-side init via tparam2dNormal / tparam1dConst (commit
-  -- 085348d); see Transformers.Bert.idr's makeBertLinear for the bottleneck
+  -- 085348d); see Transformers/Bert.idr's makeBertLinear for the bottleneck
   -- replaced.
   w <- tparam2dNormal {ex} {dt} {o=i} {i=o} (pfx ++ ".weight") 0.0 0.02
   b <- tparam1dConst  {ex} {dt} {n=o}       (pfx ++ ".bias")   0.0
@@ -363,7 +363,7 @@ hfGpt2Model pfx = do
 
 ----------------------------------------------------------------------
 -- Forward primitives (per-block, untyped at the AnyPtr boundary
--- inside the per-head loops — same pattern as HfBert's applySelfAttn)
+-- inside the per-head loops — same pattern as Transformers.Bert's applySelfAttn)
 ----------------------------------------------------------------------
 
 -- ε for LayerNorm. HF GPT-2 defaults to 1e-5 (per modeling_gpt2.py).
@@ -492,7 +492,7 @@ applyMlp mlp x = do
   applyConv1D2d mlp.cProj hAct
 
 ||| One decoder block. Pre-norm + residual on both attention and MLP
-||| sublayers. (Contrast HfBert which is post-norm.)
+||| sublayers. (Contrast Transformers.Bert which is post-norm.)
 applyBlock : {0 ex : Executor} -> UserExecutorTraining ex =>
              {seqLen, hidden, numHeads, headDim, intermediate : Nat}
           -> {auto prf : hidden = numHeads * headDim}
@@ -523,7 +523,7 @@ applyBlocks (b :: bs) cm x = do
   applyBlocks {numHeads} {headDim} bs cm x'
 
 -- Embedding lookup returning `[seqLen, hidden]`. Same wrapping pattern
--- as HfBert's `applyEmbedLookup2d`.
+-- as Transformers.Bert's `applyEmbedLookup2d`.
 applyEmbedLookup2d : {0 ex : Executor} -> UserExecutorTraining ex =>
                      {seqLen, vocab, hidden : Nat}
                   -> Embedding vocab hidden ex dt g
@@ -544,7 +544,7 @@ applyEmbedLookup2d {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
 ||| is applied separately (see `hfGpt2ForwardLm`).
 |||
 ||| `posIds` is a `[seqLen]` tensor of Double-typed position indices
-||| (matching the convention used by HfBert's `posIds`). The caller
+||| (matching the convention used by Transformers.Bert's `posIds`). The caller
 ||| materialises `[0, 1, ..., seqLen-1]`.
 public export
 hfGpt2Forward : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
@@ -574,7 +574,7 @@ hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
   applyLN2d model.lnF hMid
 
 ||| GPT-2 LM head: tied to `wte.weight`. Output `[seqLen, vocab]`
-||| logits for each position. Same reconstitution pattern as HfBert's
+||| logits for each position. Same reconstitution pattern as Transformers.Bert's
 ||| `applyMlmHead`.
 public export
 hfGpt2ForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>

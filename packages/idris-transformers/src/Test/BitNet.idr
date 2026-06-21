@@ -1,6 +1,6 @@
-||| Unit tests for `HfBitNet`.
+||| Unit tests for `Transformers.BitNet`.
 |||
-||| Same three-bucket structure as `Test.HfLlama`:
+||| Same three-bucket structure as `Test.Llama`:
 |||   1. Pure-Idris param-name catalogue tests (exact HF-naming match).
 |||   2. FFI bucket — the smart constructor registers the FLOAT params
 |||      (norms, embeddings, weight_scales, lm_head) under their HF
@@ -177,9 +177,9 @@ testConstructorRegistersHfNames = do
   --
   -- The C-side `param_register` is name-keyed and idempotent: re-
   -- registering an existing name REPLACES the tensor at that slot
-  -- without incrementing the count. Earlier `Test.HfLlama` already
+  -- without incrementing the count. Earlier `Test.Llama` already
   -- populated `model.embed_tokens.weight`, `model.layers.0..15.*`, and
-  -- `model.norm.weight` with `HfLlama`'s tensors — so 34 of the 333
+  -- `model.norm.weight` with `Transformers.Llama`'s tensors — so 34 of the 333
   -- BitNet names overwrite in-place rather than appending new slots.
   -- Validate by SET MEMBERSHIP (every expected name present in the
   -- registry post-construction), not by counting "newly added" entries.
@@ -327,18 +327,18 @@ testReadBitNetConfig = do
 public export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfBitNet — param name catalogue",
+  [ ("Transformers.BitNet — param name catalogue",
      [ testParamCount
      , testParamNamesMatchHfReference
      , testNamingConvention
      ])
-  , ("HfBitNet — FFI constructor registry (float subset)",
+  , ("Transformers.BitNet — FFI constructor registry (float subset)",
      [ testConstructorRegistersHfNames
      ])
-  , ("HfBitNet — derived GCast traversal",
+  , ("Transformers.BitNet — derived GCast traversal",
      [ testDerivedGparamsMatchesFloatSubset
      ])
-  , ("HfBitNet — forward-pass smoke",
+  , ("Transformers.BitNet — forward-pass smoke",
      [ testForwardLmSmoke
      ])
   , ("readBitNetConfig — config.json parsing",

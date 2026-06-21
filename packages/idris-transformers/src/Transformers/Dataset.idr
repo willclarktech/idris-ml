@@ -10,7 +10,7 @@
 ||| downloader script bakes the tokenization step in (so the Idris
 ||| side reads integer IDs directly), matching what
 ||| `transformers.AutoTokenizer.encode(...)` would produce at runtime
-||| without paying the ~1s/call subprocess startup of `Transformers.Tokenizer.idr`.
+||| without paying the ~1s/call subprocess startup of `Transformers/Tokenizer.idr`.
 ||| For datasets that ship multiple text fields (e.g. NLI premise +
 ||| hypothesis), extend the downloader to concatenate before tokenizing
 ||| — this module stays single-text on the Idris side.

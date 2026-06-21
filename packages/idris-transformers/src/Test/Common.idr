@@ -1,5 +1,5 @@
 ||| Shared test helpers across `Test.Hf{Bert,Gpt2,Llama,BitNet}`.
-||| Runtime adapter helpers live in `Transformers.Common.idr`; this is the
+||| Runtime adapter helpers live in `Transformers/Common.idr`; this is the
 ||| test-side counterpart so test bodies can stay one-liners.
 module Test.Common
 

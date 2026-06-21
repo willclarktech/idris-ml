@@ -5,11 +5,11 @@ HuggingFace `.safetensors` checkpoints into typed Idris models —
 without writing rename tables or fiddling with per-head reshape
 logic. The trick: each HF architecture is one Idris module whose
 param names and storage shapes match HF's on-disk format exactly,
-so the existing `loadModel` from `idris-ml`'s `Checkpoint` works
-out of the box.
+so the existing `load` / `fromPretrained` from `idris-ml`'s
+`Checkpoint` work out of the box.
 
 ```idris
-import HfBert
+import Transformers.Bert
 import Checkpoint
 
 model <- hfBertModel {ex=ExampleDevice} {dt=ExampleDType}
@@ -17,8 +17,9 @@ model <- hfBertModel {ex=ExampleDevice} {dt=ExampleDType}
                      {numHeads=2}  {intermediate=512}
                      {maxPos=512}  {typeVocab=2}
                      "bert"
-True <- loadModelAllowCast {ex=ExampleDevice}
-          "model.safetensors"
+Right () <- load {ex=ExampleDevice}
+              "model.safetensors" ({ allowCast := True } defaultLoadOpts)
+  | Left err => putStrLn ("load failed: " ++ show err)
 ```
 
 That's it. No remap table. No shape adapter. The module IS the
@@ -27,7 +28,7 @@ adapter, expressed as type-checked code.
 ## Why is this a separate package?
 
 Core `idris-ml` ships a transformer
-([`Layer/Transformer.idr`](../../packages/idris-ml/src/Layer/Transformer.idr))
+([`Nn.Attention`](../../packages/idris-ml/src/Nn/Attention.idr) + `TransformerBlock`)
 designed as a from-scratch teaching reference: attention is stored
 as `Vect numHeads (LinearState ...)` — one per head, decomposition
 explicit in types. That makes the math obvious but is a different
@@ -207,8 +208,8 @@ Short version:
 3. **No new layer primitives in this package.** Composed from core
    `idris-ml`'s `Layer.*` (Embedding, LayerNorm, Linear, GELU,
    Residual, …). Anything missing goes into core first.
-4. **One model per file** — `HfBert.idr` is BERT; `HfGpt2.idr`
-   will be GPT-2; etc. No cross-imports between `Hf*` modules.
+4. **One model per file** — `Transformers/Bert.idr` is BERT; `Transformers/Gpt2.idr`
+   will be GPT-2; etc. No cross-imports between `Transformers.*` modules.
 5. **One smart constructor** per module
    (`hfBertModel : … -> IO (BertModelState …)`), matching core's
    `*LayerAny` pattern.
@@ -222,7 +223,7 @@ Short version:
 As of 2026-06-07 the fine-tuning surface is in. Three primitives
 work together:
 
-1. **Subset-load** — `loadModelPrefix path pfx` in
+1. **Subset-load** — `load path ({ only := Just pfx } defaultLoadOpts)` in
    [`packages/idris-ml/src/Checkpoint.idr`](../../packages/idris-ml/src/Checkpoint.idr)
    loads only the safetensors keys whose name starts with `pfx`,
    leaving every other registered param untouched. Use to warm-start
@@ -236,7 +237,7 @@ work together:
    — no two-optimizer plumbing.
 3. **Classification head** —
    `hfBertForSequenceClassification bertPfx classifierPfx` in
-   [`HfBertForClassification.idr`](../../packages/idris-transformers/src/HfBertForClassification.idr)
+   [`Transformers/BertForClassification.idr`](../../packages/idris-transformers/src/Transformers/BertForClassification.idr)
    returns a `BertForSequenceClassificationState` whose params
    register under `<bertPfx>.*` (backbone) + `classifier.weight` /
    `classifier.bias` (head, HF-canonical naming). The forward
@@ -247,12 +248,13 @@ Putting it together:
 
 ```idris
 model <- hfBertForSequenceClassification {numClasses=3} "bert" "classifier"
-_     <- loadModelPrefix "models/google/bert_uncased_L-2_H-128_A-2/model.safetensors" "bert."
-let opt = nativeAdamW lr 0.9 0.999 1.0e-8 0.01 1.0
+_     <- load "models/google/bert_uncased_L-2_H-128_A-2/model.safetensors" ({ only := Just "bert." } defaultLoadOpts)
+opt   <- adamW lr 0.01 defaultOpts
 freezeByPrefix opt "bert."  -- optional: head-only training
 
--- runTrainingIO with a custom epoch fn (HF models aren't Network-shaped)
-runTrainingIO (epochBert opt) genBatch trainCfg model
+-- fit with a custom (linear) EpochStep — HF models are records, not a Seq
+-- chain. See Example/BertClassifySst2Finetune.idr for the exact threading.
+fit (epochBert opt) opt genBatch trainCfg model
 ```
 
 The full worked example is
@@ -275,7 +277,7 @@ primitives layer on the synthetic example above:
    `>= 0.5` are treated as "mask out"; `Nothing` is bit-identical
    to the pre-RT1 unmasked path.
 2. **Tokenized dataset loader** —
-   [`HfDataset.idr`](../../packages/idris-transformers/src/HfDataset.idr)
+   [`Transformers/Dataset.idr`](../../packages/idris-transformers/src/Transformers/Dataset.idr)
    exports `loadHfDataset : String -> IO (List TokenizedExample)`,
    `padToSeqLen : Nat -> Nat -> TokenizedExample -> (Vect seqLen Nat,
    Vect seqLen Double, Nat)`, and `toAttentionMask2d : Vect seqLen
@@ -298,7 +300,7 @@ primitives layer on the synthetic example above:
 The worked example is
 [`Example/BertClassifySst2Finetune.idr`](../../packages/idris-ml-examples/src/Example/BertClassifySst2Finetune.idr).
 Warm-starts the `google/bert_uncased_L-2_H-128_A-2` backbone via
-`loadModelPrefixAllowCast`, loads SST-2 via `loadHfDataset`, pads to
+`load` (`allowCast` + `only := Just "bert."`), loads SST-2 via `loadHfDataset`, pads to
 seqLen=32 + builds the 2D mask via `toAttentionMask2d`, forwards
 through `hfBertSeqClassifyForward _ _ _ _ (Just mask)`. Paired
 PyTorch ref:
@@ -398,17 +400,17 @@ of ~80 KB vs the ~17 MB full safetensors.
 The shape:
 
 ```idris
-import HfBert
-import HfBertForClassification
-import HfBertLora
-import HfLoraIO
+import Transformers.Bert
+import Transformers.BertForClassification
+import Transformers.BertLora
+import Transformers.LoraIO
 import Train.Freeze
 
 -- 1. Construct the model (same as the full-FT path).
 model <- hfBertForSequenceClassification {numClasses=2} "bert" "classifier"
 
 -- 2. Warm-start backbone from disk.
-True <- loadModelPrefixAllowCast ckptPath "bert."
+Right () <- load ckptPath ({ allowCast := True, only := Just "bert." } defaultLoadOpts)
 
 -- 3. Inject LoRA adapters on Q + V (peft's canonical default).
 --    Registers params under HF-aligned names:
@@ -471,7 +473,7 @@ uses HF `peft.LoraConfig` with matching hyperparameters.
 ## Cross-references
 
 - [`packages/idris-transformers/CONVENTIONS.md`](../../packages/idris-transformers/CONVENTIONS.md)
-  — design rules for `Hf*` modules.
+  — design rules for `Transformers.*` modules.
 - [`packages/idris-transformers/README.md`](../../packages/idris-transformers/README.md)
   — package overview + build instructions.
 - [`packages/idris-ml-examples/src/Example/HfBertInference.idr`](../../packages/idris-ml-examples/src/Example/HfBertInference.idr)

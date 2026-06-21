@@ -1,4 +1,4 @@
-||| LoRA (Hu et al. 2021) adapter injection for `HfBert`. Provides
+||| LoRA (Hu et al. 2021) adapter injection for `Transformers.Bert`. Provides
 ||| `BertLoraAdapters` — a value-level companion to `BertModelState`
 ||| holding per-layer `(A, B)` adapter pairs for the attention Q and
 ||| V projections (peft's canonical `target_modules=["query","value"]`)
@@ -28,7 +28,7 @@
 |||
 ||| (the leading `base_model.model.` peft decoration + the
 ||| trailing `.default.weight` peft adapter-naming suffix are added
-||| at the safetensors-IO boundary by the L4 `HfLoraIO` layer, NOT
+||| at the safetensors-IO boundary by the L4 `Transformers.LoraIO` layer, NOT
 ||| baked into the in-memory paramId — keeps the in-Idris param
 ||| registry HF-aligned to match the backbone load path).
 module Transformers.BertLora
@@ -171,7 +171,7 @@ addLoraDelta2d base input (Just adp)  rank alpha = do
 -- LoRA-aware self-attention
 ----------------------------------------------------------------------
 
--- Mirror of `applySelfAttn` from Transformers.Bert.idr, with Maybe LoraAdapter
+-- Mirror of `applySelfAttn` from Transformers/Bert.idr, with Maybe LoraAdapter
 -- slots for Q and V (K + output dense are intentionally left at peft's
 -- canonical default). When both adapters are Nothing AND
 -- `Compatible Maybe = Just`, output bit-matches `applySelfAttn`.

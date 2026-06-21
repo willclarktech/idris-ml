@@ -192,7 +192,7 @@ testRemapLoad = do
 export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfLoraIO — peft-compatible adapter I/O",
+  [ ("Transformers.LoraIO — peft-compatible adapter I/O",
      [ configRoundTrip
      , testPeftKeyShape
      , testNameRemap

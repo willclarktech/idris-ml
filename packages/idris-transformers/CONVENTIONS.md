@@ -1,12 +1,12 @@
 # `idris-transformers` conventions
 
-Design rules every `Hf*`-prefixed module in this package follows.
+Design rules every `Transformers.*`-prefixed module in this package follows.
 A new module that violates any of these is wrong; fix the module,
 don't extend the convention.
 
 ## Why this package exists
 
-idris-ml's core `Layer/Transformer.idr` is the canonical
+idris-ml's core `Nn.Attention` (+ `TransformerBlock`) is the canonical
 "build a transformer from scratch" reference. It stores attention as
 `Vect numHeads (LinearState ...)` — N tensors per QKV — because that
 makes the per-head decomposition explicit in types. That's the right
@@ -34,7 +34,7 @@ class whose modules match the on-disk format.
 
 `idris-transformers` mirrors that. Each HF architecture is one
 Idris module whose param names + storage shapes match HF on disk,
-so loading is plain `loadModel "model.safetensors"` from
+so loading is plain `fromPretrained` (or `load`) from
 `idris-ml`'s `Checkpoint`. The module IS the adapter, expressed as
 type-checked code rather than a runtime rename table.
 
@@ -84,7 +84,7 @@ qHeads : Tensor [nHeads, seq, headDim] ex dt g
 qHeads = transpose [0, 1] (reshape q [seq, nHeads, headDim])
 ```
 
-This is the key contrast with `idris-ml/src/Layer/Transformer.idr`
+This is the key contrast with `idris-ml/src/Nn/Attention.idr`
 which carries `Vect numHeads (LinearState ...)` for didactic
 clarity.
 
@@ -96,12 +96,12 @@ exist (RMSNorm, RoPE, GQA, SwiGLU, KV cache — Llama's pieces), that
 primitive lands in core `idris-ml/src/Layer/` first via a separate
 row (Row 7 — LLM-class example owns the Llama-side primitives).
 
-This package's `Hf*` modules are *composition*, not *invention*.
+This package's `Transformers.*` modules are *composition*, not *invention*.
 
 ### 4. One model per file
 
-`HfBert.idr` contains the BERT encoder + pooler. `HfGpt2.idr` will
-contain GPT-2. No cross-imports between `Hf*` modules; shared
+`Transformers/Bert.idr` contains the BERT encoder + pooler. `Transformers/Gpt2.idr` will
+contain GPT-2. No cross-imports between `Transformers.*` modules; shared
 helpers live in core `idris-ml` if they're broadly useful, or as
 private definitions inside the single module if they're not.
 
@@ -137,13 +137,13 @@ There is no separate translation table. Storage shape, param name,
 and forward semantics are all decided together inside the module
 to match HF on disk. If HF stores a fused tensor, the module stores
 it fused (rule 2). If HF stores it split, the module stores it split.
-A diff between an `Hf*` module and HF's reference Python source is
+A diff between an `Transformers.*` module and HF's reference Python source is
 the one canonical place to look for divergence.
 
-## Worked example — `HfBert.idr` skeleton
+## Worked example — `Transformers/Bert.idr` skeleton
 
 ```idris
-module HfBert
+module Transformers.Bert
 
 import Layer  -- brings in Embedding, LayerNorm, Linear, Activation,
               -- Residual, etc. from core idris-ml
@@ -207,11 +207,12 @@ record BertLayerState (hidden, nHeads, intermediate : Nat)
 
 ## Cross-references
 
-- `packages/idris-ml/src/Checkpoint.idr` — `loadModel` /
-  `saveModel`; consumed unchanged.
-- `packages/idris-ml/src/Layer/Transformer.idr` — the from-scratch
-  per-head transformer; stays the canonical learning reference,
-  intentionally NOT what this package matches.
+- `packages/idris-ml/src/Checkpoint.idr` — `load` / `saveAll` /
+  `fromPretrained`; consumed unchanged.
+- `packages/idris-ml/src/Nn/Attention.idr` — the from-scratch
+  per-head transformer (`Nn.Attention` + `TransformerBlock`); stays
+  the canonical learning reference, intentionally NOT what this
+  package matches.
 - HuggingFace `transformers` source — the upstream truth for HF
   param names and architecture:
   - BERT: `transformers/models/bert/modeling_bert.py`

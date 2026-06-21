@@ -1,5 +1,5 @@
-||| Unit tests for `HfBertForClassification`. Mirrors the 4-bucket
-||| layout of `Test.HfBert`:
+||| Unit tests for `Transformers.BertForClassification`. Mirrors the 4-bucket
+||| layout of `Test.Bert`:
 |||
 |||   1. classifier-head catalogue (pure Idris)
 |||   2. combined backbone + head catalogue (pure Idris)
@@ -85,7 +85,7 @@ expectedBertSeqClassifyParamNames =
   , "classifier.bias"
   ]
 
--- (Shared with Test.HfBert; lifted here so this test file is
+-- (Shared with Test.Bert; lifted here so this test file is
 -- self-contained against module-test churn.)
 firstMismatch : List String -> List String -> Maybe (Nat, String, String)
 firstMismatch xs ys = go Z xs ys
@@ -160,7 +160,7 @@ testConstructorRegistersClassifierHead : IO Bool
 testConstructorRegistersClassifierHead = do
   let cfg = bertTinyConfig
   -- Use distinct prefixes to dodge any registry pollution from
-  -- earlier Test.HfBert buckets ("bert" / "fwdtest" / "clstest").
+  -- earlier Test.Bert buckets ("bert" / "fwdtest" / "clstest").
   _ <- hfBertForSequenceClassification {ex=TestExecutor} {dt=TestDType}
                                        {vocab        = cfg.vocabSize}
                                        {hidden       = cfg.hidden}
@@ -283,20 +283,20 @@ testDerivedGparamsMatchesCatalogue = do
 export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfBertForClassification head catalogue",
+  [ ("Transformers.BertForClassification head catalogue",
      [ testClassifierHeadParamCount
      , testClassifierHeadParamNames
      ])
-  , ("HfBertForClassification combined catalogue",
+  , ("Transformers.BertForClassification combined catalogue",
      [ testSeqClassifyCombinedCatalogue
      ])
-  , ("HfBertForClassification constructor registers HF-native names",
+  , ("Transformers.BertForClassification constructor registers HF-native names",
      [ testConstructorRegistersClassifierHead
      ])
-  , ("HfBertForClassification derived GCast traversal",
+  , ("Transformers.BertForClassification derived GCast traversal",
      [ testDerivedGparamsMatchesCatalogue
      ])
-  , ("HfBertForClassification forward — shape + finite",
+  , ("Transformers.BertForClassification forward — shape + finite",
      [ testForwardShapeAndFinite
      ])
   ]

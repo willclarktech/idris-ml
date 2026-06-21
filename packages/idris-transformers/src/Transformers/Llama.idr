@@ -36,7 +36,7 @@
 |||         `k_proj.weight : [numKvHeads * headDim, hidden]`
 |||         `q_proj.weight : [numHeads * headDim, hidden]`
 |||       - LM head is tied to `model.embed_tokens.weight`; NOT stored
-|||         separately on disk (mirrors HfBert's `applyMlmHead`).
+|||         separately on disk (mirrors Transformers.Bert's `applyMlmHead`).
 |||
 ||| Forward composition (per layer):
 |||   x' = x + self_attn(RmsNorm(x))      -- pre-norm + residual
@@ -143,11 +143,11 @@ layerParamNames pfx i =
   , p ++ ".mlp.down_proj.weight"
   ]
 
-||| All params HfLlama registers, in the order they're constructed.
+||| All params Transformers.Llama registers, in the order they're constructed.
 ||| For `llama32_1B_Config` (numLayers=16) this is 1 + 16*9 + 1 = 146
 ||| tensors. The LM head is tied to `embed_tokens.weight` (Llama-3.2's
 ||| `tie_word_embeddings=true`) and is NOT registered separately
-||| (mirrors HfBert's MlmHead).
+||| (mirrors Transformers.Bert's MlmHead).
 |||
 ||| Pfx is the HF on-disk prefix — typically `"model"`. Llama on disk
 ||| uses `model.embed_tokens.weight`, `model.layers.{i}.…`, etc.
@@ -163,8 +163,8 @@ hfLlamaParamNames cfg pfx =
 -- HF-named building blocks (private — Llama-specific layouts)
 ----------------------------------------------------------------------
 
--- Host-buffer helpers (one private copy per Hf* module per CONVENTIONS
--- rule 4 — no cross-imports between Hf* modules).
+-- Host-buffer helpers (one private copy per Transformers.* module per CONVENTIONS
+-- rule 4 — no cross-imports between Transformers.* modules).
 packDs : AnyPtr -> Int -> Vect n Double -> AnyPtr
 packDs buf _   []        = buf
 packDs buf off (x :: xs) = packDs (prim__setDouble buf off x) (off + 1) xs
@@ -394,8 +394,8 @@ hfLlamaModel pfx = do
 
 ||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Thin wrapper
 ||| around `Transformers.Common.applyRmsNorm2dRaw` that pattern-matches the
-||| `LlamaRmsNorm` wrapper. The body lives in `Transformers.Common.idr` so
-||| HfBitNet (and any future adapter using the same per-row fold)
+||| `LlamaRmsNorm` wrapper. The body lives in `Transformers/Common.idr` so
+||| Transformers.BitNet (and any future adapter using the same per-row fold)
 ||| shares the implementation.
 applyRmsNorm2d : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex =>
                  {seqLen, hidden : Nat} ->
@@ -418,7 +418,7 @@ applyLinear2d (MkLlamaLinear w) x = ioRerun (\_ =>
   in MkTensor out Nothing)
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`. Same
-||| pattern as Transformers.Bert.idr's applyEmbedLookup2d.
+||| pattern as Transformers/Bert.idr's applyEmbedLookup2d.
 applyEmbedLookup : {0 ex : Executor} -> UserExecutorTraining ex =>
                    {seqLen, vocab, hidden : Nat} ->
                    Embedding vocab hidden ex dt g ->
@@ -442,7 +442,7 @@ writeCausalMask buf i j n =
 -- `ropeAllHeadsFlat` (the flat [seq, numH*headDim] ↔ rank-3 reshape
 -- wrapper around `applyRopeAllHeads`) is now imported from `Nn.RoPE`,
 -- where it was consolidated from the identical definitions this module
--- and `HfBitNet` each carried.
+-- and `Transformers.BitNet` each carried.
 
 ||| Full multi-head causal self-attention with GQA + RoPE.
 applyAttention : {0 ex : Executor} -> UserExecutorTraining ex => RuntimeDType dt => Linked ex => Compatible ex dt =>
@@ -553,7 +553,7 @@ hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
 
 ||| LM head: tied to `embed_tokens.weight`. Output `[seq, vocab]`
 ||| logits per position. Reuses the embedding tensor as the LM
-||| projection weight (same pattern as HfBert's applyMlmHead).
+||| projection weight (same pattern as Transformers.Bert's applyMlmHead).
 public export
 hfLlamaForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
                 => RuntimeDType dt => Linked ex => Compatible ex dt

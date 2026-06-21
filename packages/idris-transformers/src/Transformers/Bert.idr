@@ -523,7 +523,7 @@ applyBertLinear2d (MkLinear w b) x = tlinear2d w x b
 --
 -- `mask` is the optional [seqLen, seqLen] attention mask handle:
 -- when `Just`, `primMaskedFill scores mask (-1.0e20)` is applied
--- between matmul and softmax. Convention matches HfGpt2's
+-- between matmul and softmax. Convention matches Transformers.Gpt2's
 -- `causalMask`: a non-zero entry means "mask out this position".
 export
 oneHeadCtx : {0 ex : Executor} -> UserExecutorTraining ex

@@ -1,6 +1,6 @@
-||| Unit tests for `HfGpt2`.
+||| Unit tests for `Transformers.Gpt2`.
 |||
-||| Same three-bucket structure as `Test.HfBert`:
+||| Same three-bucket structure as `Test.Bert`:
 |||   1. Pure-Idris param-name catalogue tests (exact HF-naming match).
 |||   2. FFI bucket — the smart constructor actually registers under
 |||      those names in C-side param registry order.
@@ -214,15 +214,15 @@ testReadGpt2ConfigInnerDefault = do
 public export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfGpt2 — param name catalogue",
+  [ ("Transformers.Gpt2 — param name catalogue",
      [ testParamCount
      , testParamNamesMatchHfReference
      , testNamingConvention
      ])
-  , ("HfGpt2 — FFI constructor registry",
+  , ("Transformers.Gpt2 — FFI constructor registry",
      [ testConstructorRegistersHfNames
      ])
-  , ("HfGpt2 — derived GCast traversal",
+  , ("Transformers.Gpt2 — derived GCast traversal",
      [ testDerivedGparamsMatchesCatalogue
      ])
   , ("readGpt2Config — config.json parsing",

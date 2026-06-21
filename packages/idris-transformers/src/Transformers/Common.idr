@@ -1,16 +1,16 @@
 ||| Shared helpers across HF-aligned model adapters
-||| (`HfBert` / `HfGpt2` / `HfLlama` / `HfBitNet`).
+||| (`Transformers.Bert` / `Transformers.Gpt2` / `Transformers.Llama` / `Transformers.BitNet`).
 |||
 ||| Per `packages/idris-transformers/CONVENTIONS.md`:
 |||   - Param-name string literals stay per-adapter (load-bearing
 |||     contract with the HF on-disk format).
 |||   - Per-arch storage-shape catalogues stay per-adapter.
 |||   - Pure-Idris composition that doesn't depend on either of the
-|||     above can live here; the per-arch `Hf*.idr` modules import this
+|||     above can live here; the per-arch `Transformers/*.idr` modules import this
 |||     module and thin-wrap the helpers behind their arch-specific
 |||     newtype records.
 |||
-||| Don't add cross-imports between `Hf*` modules. If you need
+||| Don't add cross-imports between `Transformers.*` modules. If you need
 ||| something shared, lift it here.
 module Transformers.Common
 
@@ -24,8 +24,8 @@ import Tensor
 ----------------------------------------------------------------------
 
 ||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. The weight is
-||| a raw `[hidden]` tensor; per-arch wrappers in `HfLlama` /
-||| `HfBitNet` thin-wrap this to take their own RmsNorm record types.
+||| a raw `[hidden]` tensor; per-arch wrappers in `Transformers.Llama` /
+||| `Transformers.BitNet` thin-wrap this to take their own RmsNorm record types.
 |||
 ||| One fused FFI call (`primRmsNorm2d` on `UserExecutorTraining`) per
 ||| invocation. Replaces a per-row 7-primitive chain (narrow / mul /
@@ -55,7 +55,7 @@ applyRmsNorm2dRaw eps weight input = ioRerun (\_ =>
 |||   y   = x' + mlp(preMlpNorm(x'))
 |||
 ||| Parameterised by the per-arch attention and MLP closures. Both
-||| HfLlama and HfBitNet's `applyBlock` reduce to this skeleton; the
+||| Transformers.Llama and Transformers.BitNet's `applyBlock` reduce to this skeleton; the
 ||| arch-specific bits (BitNet's `attn_sub_norm` / `ffn_sub_norm`,
 ||| different linear primitives, GQA tiling) live entirely inside the
 ||| `attn` / `mlp` closures the caller passes in.
@@ -89,8 +89,8 @@ decoderBlockPreNorm preAttnNorm attn preMlpNorm mlp x = do
 ||| param), since the standard `tlinear2d` smart constructor expects
 ||| `y = x @ W^T + b` and HF's tied head has no bias.
 |||
-||| Used by HfLlama (forward + cached step), HfBitNet (forward), and
-||| HfGpt2 (forward). Bert's MLM head has a real learnable bias and
+||| Used by Transformers.Llama (forward + cached step), Transformers.BitNet (forward), and
+||| Transformers.Gpt2 (forward). Bert's MLM head has a real learnable bias and
 ||| does NOT use this — `applyMlmHead` keeps its own path.
 export
 projectTiedLmHead

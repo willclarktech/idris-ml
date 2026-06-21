@@ -1,6 +1,6 @@
-||| Unit tests for `HfLlama`.
+||| Unit tests for `Transformers.Llama`.
 |||
-||| Same three-bucket structure as `Test.HfBert` / `Test.HfGpt2`:
+||| Same three-bucket structure as `Test.Bert` / `Test.Gpt2`:
 |||   1. Pure-Idris param-name catalogue tests (exact HF-naming match).
 |||   2. FFI bucket — the smart constructor actually registers under
 |||      those names in C-side param registry order. Uses small dims
@@ -120,7 +120,7 @@ testConstructorRegistersHfNames : IO Bool
 testConstructorRegistersHfNames = do
   -- Snapshot the registry count before construction; slice off only
   -- what Llama adds (the param registry accumulates across all prior
-  -- tests in this process). Same trick as the HfGpt2 test.
+  -- tests in this process). Same trick as the Transformers.Gpt2 test.
   --
   -- Small dims (vocab=8, hidden=4, qOut=8, kvOut=2, intermediate=8)
   -- BUT numLayers=16 so the per-layer count matches the real Llama
@@ -208,15 +208,15 @@ testReadLlamaConfigHeadDimDefault = do
 public export
 suite : List (String, List (IO Bool))
 suite =
-  [ ("HfLlama — param name catalogue",
+  [ ("Transformers.Llama — param name catalogue",
      [ testParamCount
      , testParamNamesMatchHfReference
      , testNamingConvention
      ])
-  , ("HfLlama — FFI constructor registry",
+  , ("Transformers.Llama — FFI constructor registry",
      [ testConstructorRegistersHfNames
      ])
-  , ("HfLlama — derived GCast traversal",
+  , ("Transformers.Llama — derived GCast traversal",
      [ testDerivedGparamsMatchesCatalogue
      ])
   , ("readLlamaConfig — config.json parsing",
