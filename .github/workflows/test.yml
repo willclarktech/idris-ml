@@ -228,7 +228,11 @@ jobs:
   lint-full:
     name: lint-full
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60m: the advisory torch clang-tidy fans out per-file over ~100 TUs
+    # (mk/lint.mk). Serial it blew the old 30m cap (run 27879495722); the
+    # parallel run lands well under, but libtorch-header parse time is
+    # high-variance so keep generous headroom.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - name: Restore pytorch venv cache
