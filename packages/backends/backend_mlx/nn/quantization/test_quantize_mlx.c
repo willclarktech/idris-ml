@@ -40,15 +40,12 @@
 /* tensor_absmean_per_row_2d (mlx success path: bitlinear.cpp 214-228) */
 /* ------------------------------------------------------------------ */
 
-/* DISABLED: mlx absmean/ternary_quant crash on valid 2D input — same class as
-   the tape BitNet quant bug (see TODO.md "tape BitNet quant helpers crash"); the
-   bug is cross-backend. Re-enable when fixed. */
-Test(mlx_nn_quantization_absmean, per_row_mean_abs, .disabled = true) {
+Test(mlx_nn_quantization_absmean, per_row_mean_abs) {
 	/* w = [[1, -2, 3, -4], [0.5, -0.5, 1.5, -1.5]]
 	   row 0 absmean = (1+2+3+4)/4 = 2.5
 	   row 1 absmean = (0.5+0.5+1.5+1.5)/4 = 1.0 */
 	double w_data[8] = {1.0, -2.0, 3.0, -4.0, 0.5, -0.5, 1.5, -1.5};
-	TensorHandle w = tensor_create_2d(2, 4, w_data, 0);
+	TensorHandle w = tensor_create(w_data, (int[]){2, 4}, 2, 0);
 	TensorHandle s = tensor_absmean_per_row_2d(w);
 
 	cr_assert_eq(tensor_dim(s), 1, "absmean output should be rank 1");
@@ -60,11 +57,10 @@ Test(mlx_nn_quantization_absmean, per_row_mean_abs, .disabled = true) {
 	cr_assert_float_eq(out[1], 1.0, TEST_TOL_RELAXED, "absmean row1: got %.6f", out[1]);
 }
 
-/* DISABLED: cross-backend BitNet quant crash — see TODO.md. */
-Test(mlx_nn_quantization_absmean, all_zero_row_is_zero, .disabled = true) {
+Test(mlx_nn_quantization_absmean, all_zero_row_is_zero) {
 	/* A row of zeros -> absmean 0 (the /0-guard input for the quant op). */
 	double w_data[8] = {0.0, 0.0, 0.0, 0.0, 2.0, -2.0, 2.0, -2.0};
-	TensorHandle w = tensor_create_2d(2, 4, w_data, 0);
+	TensorHandle w = tensor_create(w_data, (int[]){2, 4}, 2, 0);
 	TensorHandle s = tensor_absmean_per_row_2d(w);
 	double out[2] = {0};
 	tensor_to_doubles(s, out);
@@ -86,8 +82,7 @@ Test(mlx_nn_quantization_absmean, rank1_aborts, .signal = SIGABRT) {
 /* verified via tensor_bitlinear_fwd                                   */
 /* ------------------------------------------------------------------ */
 
-/* DISABLED: cross-backend BitNet quant crash — see TODO.md. */
-Test(mlx_nn_quantization_ternary_quant, round_clamp_via_forward, .disabled = true) {
+Test(mlx_nn_quantization_ternary_quant, round_clamp_via_forward) {
 	/* w = [[2, 0, -3, 1], [-1, 0.4, 0.6, -2]], scale = [2, 1]
 	   row0 w/scale = [1, 0, -1.5, 0.5] -> round/clamp = [1, 0, -1, 0]
 	   row1 w/scale = [-1, 0.4, 0.6, -2] -> round/clamp = [-1, 0, 1, -1]
@@ -97,7 +92,7 @@ Test(mlx_nn_quantization_ternary_quant, round_clamp_via_forward, .disabled = tru
 	double w_data[8] = {2.0, 0.0, -3.0, 1.0, -1.0, 0.4, 0.6, -2.0};
 	double scale_data[2] = {2.0, 1.0};
 	int scale_shape[1] = {2};
-	TensorHandle w = tensor_create_2d(2, 4, w_data, 0);
+	TensorHandle w = tensor_create(w_data, (int[]){2, 4}, 2, 0);
 	TensorHandle scale = tensor_create(scale_data, scale_shape, 1, 0);
 	TensorHandle q = tensor_ternary_quant_with_scale_2d(w, scale);
 
@@ -114,14 +109,13 @@ Test(mlx_nn_quantization_ternary_quant, round_clamp_via_forward, .disabled = tru
 	cr_assert_float_eq(out[1], -1.0, TEST_TOL_RELAXED, "quant row1 fwd: got %.6f", out[1]);
 }
 
-/* DISABLED: cross-backend BitNet quant crash — see TODO.md. */
-Test(mlx_nn_quantization_ternary_quant, zero_scale_row_all_zero, .disabled = true) {
+Test(mlx_nn_quantization_ternary_quant, zero_scale_row_all_zero) {
 	/* scale[0] == 0 -> the active-row mask zeroes the whole row (covers
 	   the mx::greater / mask multiply branch: bitlinear.cpp 268-270). */
 	double w_data[4] = {5.0, -5.0, 5.0, -5.0};
 	double scale_data[1] = {0.0};
 	int scale_shape[1] = {1};
-	TensorHandle w = tensor_create_2d(1, 4, w_data, 0);
+	TensorHandle w = tensor_create(w_data, (int[]){1, 4}, 2, 0);
 	TensorHandle scale = tensor_create(scale_data, scale_shape, 1, 0);
 	TensorHandle q = tensor_ternary_quant_with_scale_2d(w, scale);
 
@@ -150,7 +144,7 @@ Test(mlx_nn_quantization_ternary_quant, rank1_weight_aborts, .signal = SIGABRT) 
 /* Scale shape mismatch aborts (bitlinear.cpp 248-255). */
 Test(mlx_nn_quantization_ternary_quant, scale_shape_mismatch_aborts, .signal = SIGABRT) {
 	double w_data[8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
-	TensorHandle w = tensor_create_2d(2, 4, w_data, 0);
+	TensorHandle w = tensor_create(w_data, (int[]){2, 4}, 2, 0);
 	double sc[3] = {1.0, 1.0, 1.0};
 	int s[1] = {3}; /* expected [2], given [3] */
 	TensorHandle scale = tensor_create(sc, s, 1, 0);

@@ -346,9 +346,12 @@ TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* hf_packed_by
  * Output: DT_TERNARY in tape's packed 2-bit layout
  * ([o, (i + 3) / 4] bytes). NoGrad. */
 static inline int8_t round_clamp_ternary(double x) {
-	/* round-half-to-even (banker's) — matches `torch.round` and the
-	   absmean_ternary_quant reference in pytorch/torch_ref/models/bitlinear.py. */
-	double r = (x >= 0.0) ? floor(x + 0.5) : ceil(x - 0.5);
+	/* round-half-to-even (banker's) — matches `torch.round`, mlx/torch's
+	   at::round / mx::round, and the absmean_ternary_quant reference in
+	   pytorch/torch_ref/models/bitlinear.py. nearbyint() honours the default
+	   FE_TONEAREST mode (round-half-to-even); the previous floor(x+0.5)/
+	   ceil(x-0.5) was round-half-AWAY and diverged at ties (0.5 -> 1 not 0). */
+	double r = nearbyint(x);
 	if (r > 1.0) r = 1.0;
 	if (r < -1.0) r = -1.0;
 	return (int8_t)r;
