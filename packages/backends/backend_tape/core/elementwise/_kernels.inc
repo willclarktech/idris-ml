@@ -129,6 +129,9 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
     double _gb0 = _wall_ms();
     int r_shape[MAX_BCAST_RANK], r_rank, r_numel;
     if (!compute_bcast_shape(a, b, r_shape, &r_rank, &r_numel)) {
+        // GCOVR_EXCL_START — incompatible-shape abort; the shape-printing loops can't
+        // collapse to a same-line guard, and abort() skips the gcov flush. Reachable
+        // only on a shape-mismatched binop (the typed surface forbids it upstream).
         fprintf(stderr, "binop_elementwise: incompatible shapes op=%d a=[", op_tag);
         for (int k = 0; k < a->rank; k++)
             fprintf(stderr, "%d%s", a->shape[k], k+1<a->rank?",":"");
@@ -137,6 +140,7 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
             fprintf(stderr, "%d%s", b->shape[k], k+1<b->rank?",":"");
         fprintf(stderr, "]\n");
         abort();
+        // GCOVR_EXCL_STOP
     }
     int a_strides[MAX_BCAST_RANK], b_strides[MAX_BCAST_RANK];
     compute_bcast_strides(a, r_rank, r_shape, a_strides);

@@ -266,9 +266,6 @@ TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, doubl
  * allocated for reuse. Also calls arena_reset. */
 void tape_reset(void);
 
-/* Look up tape entry by index (used by tensor_backward). */
-TapeEntry* tape_at(int idx);
-
 /* Globals exposed for backward / optimizer / no_grad. */
 extern long g_tape_peak;
 extern int no_grad_depth;

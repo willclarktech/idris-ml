@@ -62,15 +62,6 @@ static void* typed_arena_append(TypedArena* a) {
 	return p;
 }
 
-static void* typed_arena_at(TypedArena* a, int idx) {
-	int chunk_idx = idx / a->chunk_capacity;
-	int intra = idx % a->chunk_capacity;
-	TypedArenaChunk* c = a->head;
-	while (chunk_idx-- > 0 && c)
-		c = c->next;
-	return c ? (char*)((double*)c->data) + intra * a->element_size : NULL;
-}
-
 static void typed_arena_reset(TypedArena* a) {
 	a->size = 0;
 	a->tail = a->head;
@@ -95,10 +86,6 @@ TypedArena tape_arena = {
 };
 
 long g_tape_peak = 0;
-
-TapeEntry* tape_at(int idx) {
-	return (TapeEntry*)typed_arena_at(&tape_arena, idx);
-}
 
 /* Forward declaration: _wall_ms is defined in the profiling section of
  * backend_tape.c (still monolithic for now). The profiling globals it
