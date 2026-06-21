@@ -16,7 +16,7 @@
         test-unit-c-asan-tape test-unit-c-asan-mlx \
         test-unit-c-asan-torch test-unit-c-asan test-coverage-backend \
         test-coverage-backend-tape test-coverage-backend-mlx \
-        test-coverage-backend-torch test-coverage-gap-probe \
+        test-coverage-backend-torch test-coverage-all test-coverage-gap-probe \
         bench-rank3-broadcast bench-rank3-broadcast-wrapped print-torch \
         check-examples test-unit test-unit-idris test test-integration \
         test-e2e test-coverage test-unit-idris-ml \
@@ -260,6 +260,37 @@ test-coverage-backend-mlx:
 
 test-coverage-backend-torch:
 	$(MAKE) BACKEND=torch test-coverage-backend
+
+# Single-command overview across all three backends. Coverage is inherently
+# per-backend (each backend's sources are only exercised when it is primary;
+# the dylib's unified symbols resolve to the primary, so a multi-link
+# `BACKEND=tape,mlx,torch test-coverage-backend` parks mlx+torch sources at ~0%
+# and reports a meaningless ~55% aggregate). This runs the three per-backend
+# builds in turn — each into its own build-cov-<b>/ tree — then tabulates the
+# root lines-covered/lines-valid from each Cobertura cov.xml. There is no merged
+# denominator on purpose: the three numbers ARE the overview.
+# Sequential sub-makes (NOT prerequisites): two concurrent coverage builds under
+# -j would race for memory and interleave output. Each writes its own
+# build-cov-<b>/ tree, so serializing here is the only ordering needed.
+test-coverage-all:
+	$(MAKE) test-coverage-backend-tape
+	$(MAKE) test-coverage-backend-mlx
+	$(MAKE) test-coverage-backend-torch
+	@echo ""
+	@echo "=== Coverage overview (per-backend; line%) ==="
+	@printf '%-8s %10s %10s %8s\n' backend covered valid lines
+	@for b in tape mlx torch; do \
+	  xml="build-cov-$$b/cov.xml"; \
+	  if [ -f "$$xml" ]; then \
+	    line=$$(grep -m1 'lines-valid=' "$$xml"); \
+	    cov=$$(printf '%s' "$$line" | sed -n 's/.*lines-covered="\([0-9]*\)".*/\1/p'); \
+	    val=$$(printf '%s' "$$line" | sed -n 's/.*lines-valid="\([0-9]*\)".*/\1/p'); \
+	    pct=$$(awk "BEGIN{ if ($$val>0) printf \"%.1f%%\", 100*$$cov/$$val; else print \"n/a\" }"); \
+	    printf '%-8s %10s %10s %8s\n' "$$b" "$$cov" "$$val" "$$pct"; \
+	  else \
+	    printf '%-8s %10s %10s %8s\n' "$$b" - - "MISSING"; \
+	  fi; \
+	done
 
 # Static coverage gap probe — no build required. Emits CSV reports of
 # OP_* tags + extern "C" symbols vs test-file mentions. Output land in
