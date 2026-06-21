@@ -11,9 +11,9 @@ uncovered, why, and how to close it. Re-measure with `make test-coverage-all`
 
 | backend | lines | branches | suite |
 |---------|-------|----------|-------|
-| tape    | 96.7% | —        | 518     |
-| mlx     | 98.3% | —        | 577     |
-| torch   | 94.7% | —        | 497     |
+| tape    | 98.0% | —        | 549     |
+| mlx     | 99.2% | —        | 632     |
+| torch   | 95.0% | —        | 544     |
 
 (2026-06-26 progress: Task-1 exclusions lifted mlx 94.1% → 98.3% — NAN_TRAP +
 MLX_OPT_COMPILE marked `GCOVR_EXCL`, no behaviour change. Task-2 optimizer tests
@@ -21,6 +21,23 @@ lifted torch 90.9% → 94.7% — new `test_optimizer_torch.c` + common shared-tr
 tests in `test_optimizer_tape.c`. The optimizer files on all three backends —
 `optimizer.cpp` (torch/mlx), `optimizer.c` (tape) and `shared/training/optimizer.c`
 — are now fully covered or `GCOVR_EXCL`.)
+
+(Task-3 Bucket-C wave: conv / softmax / gru / linalg / cat2 (tape),
+dtype_dispatch / create_param_state / autograd (mlx), bitlinear / adapter /
+dtype_dispatch (torch) backfilled — tape 96.7% → 98.0%, mlx 98.3% → 99.2%,
+torch 94.7% → 95.0%. The wave surfaced **two real bugs** (Bucket A): a tape
+`conv2d_batched` F32 backward heap overflow — `r->grad`/`a->grad`/`b->grad`
+read/written as `double*` on float-sized F32 grad buffers (fixed: widen via the
+typed `tape_grad_*_d` accessors) — and an mlx `tensor_item_1d` non-contiguous
+read — `mx_read_double` indexed raw storage, ignoring strides, so a multichannel
+conv1d output came back transposed (fixed: flatten before reading, matching
+`tensor_item_2d`). Both were latent: multichannel/F32 conv backward had no prior
+test on any backend.)
+
+(Earlier `TAPE_ABORT_IF` rollout: the standalone `if(cond){fprintf;abort;}` guards
+in `op_dispatch.c` / `cat2.c` / `unsqueeze.c` (plus the earlier `bitlinear.c`
+conversion) now use the same-line-guard macro — covered with no `GCOVR_EXCL` and no
+coverage-only death test. else-branch / switch-default aborts stay `GCOVR_EXCL`.)
 
 (Up from baselines tape 79.2% / mlx 78.8% / torch 73.7%.) Branch% is intentionally
 lower — gcov counts many compiler-generated/defensive branches; line% is the
@@ -69,6 +86,8 @@ All four were investigated 2026-06-25 (ASan-pinpointed). See CHANGELOG.
 | BitNet quant `absmean`/`ternary_quant` (all 3) | **FIXED** — test bugs (`create_2d(stack)`, 1-byte `hf` for `[1,4]`) **plus a real tape product bug**: `round_clamp_ternary` was round-half-AWAY, not round-half-to-even; fixed to `nearbyint` (matches torch/mlx/PyTorch). 8 tests re-enabled. |
 | `tensor_pair_free` (all 3) | **FIXED** — dead double-free-prone API removed entirely; pairs are reset-owned. |
 | `optimizer.cpp` MLX_OPT_COMPILE Adam branch (mlx) | **WON'T-FIX (mlx upstream)** — `mx::compile` runs (g++ shim) but libmlx's Metal-allocator/device static teardown crashes the forked child; clearing our cache + `mx::detail::compile_clear_cache()` both insufficient (cf. `init.cpp`). The 2 `mlx_optimizer_compile` tests stay `.disabled`; this branch is a **principled exclusion** below until mlx fixes the teardown. |
+| tape `conv2d_batched` F32 backward heap overflow | **FIXED (2026-06-26)** — `tape_backward_conv2d_batched` read `r->grad` and wrote `a->grad`/`b->grad` directly as `double*`, but F32 tensors get float-sized grad buffers (`ensure_grad`). On an F32 conv the result-grad read overran 4 bytes/elem and the Apple cblas d_kernel / col2im d_input writes overran. Fix: widen through the typed `tape_grad_*_d` accessors. ASan-pinpointed by the new multichannel-F32 conv test (no prior F32 conv backward test on any backend). |
+| mlx `tensor_item_1d` non-contiguous read | **FIXED (2026-06-26)** — read `mx_read_double(t->data, idx)`, which indexes raw storage ignoring strides; an mlx transpose is a lazy strided view, so a multichannel conv1d output (`[outC,oL]` via internal transpose) read back as `[oL,outC]`. Fix: flatten to contiguous before reading, matching `tensor_item_2d`. Latent because single-element-per-axis results are layout-invariant. Surfaced by the new multichannel conv1d test. |
 
 ## Bucket B — principled exclusions (no CI input reaches them)
 
@@ -119,6 +138,13 @@ exhaust them. Ordered by leverage:
 Closing Bucket C would push each backend into the high 90s. None is hard; it's
 volume. A follow-up workflow wave (same `.tmp/coverage-workflow-*.js` templates)
 targeting optimizer + bitlinear F32 + conv would capture most.
+
+**Status (2026-06-26 Task-3 close).** The Bucket-C wave landed all of the above
+**except** tape `tape.c` arena multi-chunk growth (only reachable past 64K tape
+entries — testable only at scale, low ROI; **deferred**, a known hole). Final:
+tape 98.0% / mlx 99.2% / torch 95.0%. torch's smaller bump reflects that its
+dtype arms are runtime-dtyped on shared source lines (F32/F64 traverse the same
+lines), so the new tests add branch/behaviour coverage more than line coverage.
 
 ## Recommended order
 
