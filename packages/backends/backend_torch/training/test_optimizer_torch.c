@@ -275,4 +275,160 @@ Test(torch_optimizer, scaled_value_clip_step) {
 	param_clear();
 }
 
+/* ----------------------------------------------------------------------
+   optimizer_set_lr per type — each switch arm (SGD/RMSprop/Adam/AdamW) in
+   optimizer_set_lr updates that optimizer's option object. get_meta[1]
+   mirrors w->lr, set in the same call.
+   ---------------------------------------------------------------------- */
+Test(torch_optimizer, set_lr_per_type) {
+	double m[9];
+	param_clear();
+	TensorHandle a0 = tensor_create_scalar(1.0, 1);
+	param_register("t_slr0", a0);
+	OptimizerHandle o0 = optimizer_create_sgd(0.1);
+	optimizer_set_lr(o0, 0.5);
+	optimizer_get_meta(o0, m);
+	cr_assert_float_eq(m[1], 0.5, TEST_TOL_TIGHT, "SGD set_lr (got %.9f)", m[1]);
+	optimizer_free(o0);
+	param_clear();
+
+	TensorHandle a1 = tensor_create_scalar(1.0, 1);
+	param_register("t_slr1", a1);
+	OptimizerHandle o1 = optimizer_create_rmsprop(0.1, 0.99, 1e-8, 0.0, 0.0);
+	optimizer_set_lr(o1, 0.6);
+	optimizer_get_meta(o1, m);
+	cr_assert_float_eq(m[1], 0.6, TEST_TOL_TIGHT, "RMSprop set_lr (got %.9f)", m[1]);
+	optimizer_free(o1);
+	param_clear();
+
+	TensorHandle a2 = tensor_create_scalar(1.0, 1);
+	param_register("t_slr2", a2);
+	OptimizerHandle o2 = optimizer_create_adam(0.1, 0.9, 0.999, 1e-8);
+	optimizer_set_lr(o2, 0.7);
+	optimizer_get_meta(o2, m);
+	cr_assert_float_eq(m[1], 0.7, TEST_TOL_TIGHT, "Adam set_lr (got %.9f)", m[1]);
+	optimizer_free(o2);
+	param_clear();
+
+	TensorHandle a3 = tensor_create_scalar(1.0, 1);
+	param_register("t_slr3", a3);
+	OptimizerHandle o3 = optimizer_create_adamw(0.1, 0.9, 0.999, 1e-8, 0.01);
+	optimizer_set_lr(o3, 0.8);
+	optimizer_get_meta(o3, m);
+	cr_assert_float_eq(m[1], 0.8, TEST_TOL_TIGHT, "AdamW set_lr (got %.9f)", m[1]);
+	optimizer_free(o3);
+	param_clear();
+}
+
+/* get_m / get_v on AdamW (type 3): after a step the param has an AdamParamState,
+   but get_m/get_v only special-case type==2 (Adam) and type==1 (RMSprop), so
+   type 3 falls to the "no moment buffer -> zeros" else arm. */
+Test(torch_optimizer_state, get_m_v_adamw_else_zeros) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(2.0, 1);
+	param_register("t_gmw_a", a);
+	OptimizerHandle opt = optimizer_create_adamw(0.1, 0.9, 0.999, 1e-8, 0.01);
+	TensorHandle loss = tensor_mul(a, a);
+	native_train_step(opt, 0, 0.0, loss, 0.0); /* creates per-param state */
+	double m_out = -1.0, v_out = -1.0;
+	optimizer_get_m(opt, 0, &m_out);
+	optimizer_get_v(opt, 0, &v_out);
+	cr_assert_float_eq(m_out, 0.0, TEST_TOL_TIGHT, "AdamW get_m else -> 0 (got %.9f)", m_out);
+	cr_assert_float_eq(v_out, 0.0, TEST_TOL_TIGHT, "AdamW get_v else -> 0 (got %.9f)", v_out);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* set_m / set_v on SGD (type 0): no Adam/RMSprop state to create, so both take
+   the `else return;` no-op arm. A subsequent get_m reads back zeros. */
+Test(torch_optimizer_state, set_m_v_sgd_noop) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(1.0, 1);
+	param_register("t_sms_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	double buf[1] = {0.5};
+	optimizer_set_m(opt, 0, buf); /* type 0 -> else return (no-op) */
+	optimizer_set_v(opt, 0, buf); /* type 0 -> else return (no-op) */
+	double m_out = -1.0;
+	optimizer_get_m(opt, 0, &m_out);
+	cr_assert_float_eq(m_out, 0.0, TEST_TOL_TIGHT, "SGD set_m is a no-op (got %.9f)", m_out);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* get_meta/set_meta step round-trip WITH live param state (set_m creates it):
+   exercises the step read (get_meta) + step update (set_meta) on an existing
+   AdamParamState — the meta_roundtrip test above has no state so skips those. */
+Test(torch_optimizer_state, meta_step_with_state_adam) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(1.0, 1);
+	param_register("t_msa_a", a);
+	OptimizerHandle opt = optimizer_create_adam(0.001, 0.9, 0.999, 1e-8);
+	double mbuf[1] = {0.1};
+	optimizer_set_m(opt, 0, mbuf); /* creates AdamParamState (step = pending = 0) */
+	double m[9];
+	optimizer_get_meta(opt, m);
+	cr_assert_float_eq(m[8], 0.0, TEST_TOL_TIGHT, "Adam step read pre-set (got %.9f)", m[8]);
+	double in9[9] = {2.0, 0.001, 0.9, 0.999, 1e-8, 0.0, 0.0, 0.0, 5.0}; /* step=5 */
+	optimizer_set_meta(opt, in9); /* updates existing state step */
+	optimizer_get_meta(opt, m);
+	cr_assert_float_eq(m[8], 5.0, TEST_TOL_TIGHT, "Adam step after set_meta (got %.9f)", m[8]);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* Same, RMSprop (type 1): covers the RMSpropParamState step read/update arms. */
+Test(torch_optimizer_state, meta_step_with_state_rmsprop) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(1.0, 1);
+	param_register("t_msr_a", a);
+	OptimizerHandle opt = optimizer_create_rmsprop(0.01, 0.99, 1e-8, 0.0, 0.9);
+	double mbuf[1] = {0.2};
+	optimizer_set_m(opt, 0, mbuf); /* creates RMSpropParamState */
+	double in9[9] = {1.0, 0.01, 0.0, 0.0, 1e-8, 0.99, 0.0, 0.9, 7.0}; /* type=1, step=7 */
+	optimizer_set_meta(opt, in9);
+	double m[9];
+	optimizer_get_meta(opt, m);
+	cr_assert_float_eq(m[8], 7.0, TEST_TOL_TIGHT, "RMSprop step after set_meta (got %.9f)", m[8]);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* optimizer_step_with_clip, clip_mode 2 (norm). grad(a)=8; torch clip_grad_norm_
+   adds 1e-6 eps to the denominator (same eps-aware oracle as the native_train_step
+   norm test above). */
+Test(torch_optimizer, step_with_clip_norm) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(4.0, 1);
+	param_register("t_swcn_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(a, a); /* grad = 8 */
+	tensor_backward(loss);
+	optimizer_step_with_clip(opt, 2, 2.0, 0); /* norm clip, max_norm 2.0 */
+	double clip_coef = 2.0 / (8.0 + 1e-6);
+	double expect = 4.0 - 0.1 * (8.0 * clip_coef);
+	cr_assert_float_eq(tensor_item(a), expect, 1e-6, "norm-clip then SGD (got %.9f, want %.9f)",
+	                   tensor_item(a), expect);
+	optimizer_free(opt);
+	param_clear();
+}
+
+/* native_train_step_scaled, clip_mode 2 (norm). scale=2 unscales grad 8 -> 4,
+   then norm-clip to max 2.0 (eps-aware), then SGD. */
+Test(torch_optimizer, scaled_norm_clip_step) {
+	param_clear();
+	TensorHandle a = tensor_create_scalar(4.0, 1);
+	param_register("t_scn_a", a);
+	OptimizerHandle opt = optimizer_create_sgd(0.1);
+	TensorHandle loss = tensor_mul(a, a); /* grad = 8 (scaled) */
+	double scale = 2.0;
+	native_train_step_scaled(opt, 2, 2.0, loss, 8.0, scale); /* unscale -> grad 4, norm-clip */
+	double clip_coef = 2.0 / (4.0 + 1e-6);
+	double expect = 4.0 - 0.1 * (4.0 * clip_coef);
+	cr_assert_float_eq(tensor_item(a), expect, 1e-5, "scaled norm-clip step (got %.9f, want %.9f)",
+	                   tensor_item(a), expect);
+	optimizer_free(opt);
+	param_clear();
+}
+
 #endif /* BACKEND_TORCH */
