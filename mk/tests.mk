@@ -217,6 +217,12 @@ test-coverage-backend:
 	@command -v gcovr >/dev/null 2>&1 || { echo "gcovr not found — run inside 'nix develop'"; exit 1; }
 	@# Clear stale per-run counters (.gcda); .gcno persist from the compile.
 	find $(COV_BUILD) -name '*.gcda' -delete
+	@# Drop foreign-backend object/.gcno trees that a prior multi-link coverage
+	@# build (BACKEND=tape,mlx,torch) may have left under this primary's tree.
+	@# gcovr scans the whole COV_BUILD dir, so stale backend_<other> .gcno would
+	@# count as uncovered and inflate the denominator. build-cov-<primary> is
+	@# single-backend by construction, so any backend_<other> dir is contamination.
+	find $(COV_BUILD) -type d -name 'backend_*' ! -name 'backend_$(PRIMARY)' -exec rm -rf {} +
 	@# -j1 serializes Criterion's per-test forks. The LLVM gcov writer still
 	@# emits noisy "profiling: ... cannot merge" lines for two heavily-forked
 	@# TEST files (test_activations, test_dtype_scaffolding) — both excluded from
