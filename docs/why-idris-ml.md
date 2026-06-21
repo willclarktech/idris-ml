@@ -19,10 +19,10 @@ This document guides you through each major feature of idris-ml, demonstrating t
 
 ## At a glance
 
-| Guarantee | PyTorch (dynamic) | TF 1.x (static) | Haskell (Grenade / hasktorch) | idris-ml |
+| Guarantee | PyTorch (dynamic) | TF 1.x (static) | hasktorch (Torch.Typed) | idris-ml |
 |---|:---:|:---:|:---:|:---:|
 | **Shape** mismatch | runtime error | graph-build | **compile** (plugins + singletons) | **compile** (native) |
-| **Device** mismatch | runtime error | runtime | **compile** (phantom, hasktorch) | **compile** |
+| **Device** mismatch | runtime error | runtime | **compile** (phantom) | **compile** |
 | **Grad-mode / model ownership** | runtime / silent no-op | n/a (static graph) | partial (`LinearTypes` incomplete) | **compile** (linear types) |
 | **Lossy dtype cast** | silent | silent | silent (no lossless order) | **compile** (must opt in) |
 | **Multi-backend in one program** | none (one runtime) | none | none (libtorch-only) | **compile-tracked + explicit bridge** |
@@ -31,19 +31,15 @@ This document guides you through each major feature of idris-ml, demonstrating t
 
 ## 1. Shape mismatches
 
-The model is a small classifier — a couple of `Linear` layers, `784 → 256 → 10`. You change the
-hidden size and update one layer but not the next.
-
-**PyTorch — runtime error.** The mismatch fires only when that path executes; if broadcasting
-makes a wrong shape "compatible" you get plausible garbage instead of a crash:
+Here's a common bug class in PyTorch:
 
 ```python
-fc1 = nn.Linear(784, 256); fc2 = nn.Linear(128, 10)   # bug: should be 256
-fc2(fc1(torch.randn(64, 784)))
+fc1 = nn.Linear(784, 256); # this hidden layer size got increased from 128 to 256
+fc2 = nn.Linear(128, 10)   # bug: this value didn't get updated
+fc2(fc1(some_inputs))           # RuntimeError: mat1 and mat2 shapes cannot be multiplied (64x256 and 128x10)
 ```
-```text
-RuntimeError: mat1 and mat2 shapes cannot be multiplied (64x256 and 128x10)
-```
+
+If you have an expensive training or inference run, 
 
 **TensorFlow 1.x — graph-build (a point in its favour).** TF1 catches *statically-known* dim
 mismatches at graph construction; but the batch dim is usually `None`, so anything depending on it
@@ -61,9 +57,9 @@ ValueError: Dimensions must be equal, but are 256 and 128 for '{{node MatMul_1}}
   MatMul[T=DT_FLOAT, ...](MatMul, MatMul_1/ReadVariableOp)' with input shapes: [?,256], [128,10].
 ```
 
-**Haskell — compile error, with plugins + singletons (Grenade / hasktorch).** GHC *does* type
-shapes via type-level `Nat` literals — the mechanism both Grenade (`Network '[…]`) and hasktorch's
-`Torch.Typed` (`Tensor dev dtype '[n, inF]`) are built on. A minimal reproduction:
+**hasktorch — compile error, with plugins + singletons.** `Torch.Typed` carries the shape as a
+type-level `[Nat]` (`Tensor device dtype '[n, inF]`), checked by GHC. A minimal stand-in (hasktorch
+itself needs libtorch to build, so this is the bare mechanism):
 
 ```haskell
 data Tensor (rows :: Nat) (cols :: Nat) = Tensor
@@ -105,7 +101,7 @@ The same check threads through a whole `Seq` chain (`l1 ~~> reluA ~~> l2 ~~> Nil
 so the dims don't line up — the same hidden-size mistake — and elaboration fails with `Mismatch
 between: 10 and 5` before anything runs.
 
-And the part Haskell can't reach ergonomically today — **runtime values flowing into types with
+And the part hasktorch can't reach ergonomically today — **runtime values flowing into types with
 no singleton ceremony**. `Gpt2.fromPretrained` reads `n_embd`/`n_head` from `config.json` at
 runtime and `decEq`'s a proof straight into the model builder:
 
@@ -152,9 +148,9 @@ assigned to /device:GPU:0 but available devices are [ …/device:CPU:0 ]. … Th
 appears to be a GPU, but CUDA is not enabled.
 ```
 
-**Haskell — compile error.** Device is a DataKinds phantom `'(DeviceType, Nat)` (the way hasktorch's
-`Torch.Typed` carries it; Grenade is CPU-only); a CPU tensor won't unify with a CUDA one. A plain
-phantom — no dependent types needed. Minimal reproduction:
+**hasktorch — compile error.** `Torch.Typed` carries the device as a DataKinds phantom
+`'(DeviceType, Nat)`; a CPU tensor won't unify with a CUDA one. A plain phantom — no dependent types
+needed. Minimal stand-in:
 
 ```haskell
 data DeviceType = CPU | CUDA
@@ -241,9 +237,11 @@ footgun (params are graph variables updated by ops, not Python handles you can s
 notion of a spent handle either — nothing tracks at compile time that an optimizer step references
 the *current* parameters rather than a discarded copy.
 
-**Haskell — partial.** GHC 9 has the linear arrow `%1 ->`, but linear `do`-notation isn't in
-`base` (you reach for experimental `linear-base`), multiplicity polymorphism is incomplete, and
-no ML library threads models linearly. The capability exists; the idiom doesn't.
+**hasktorch — not addressed; GHC's linear types are partial.** hasktorch doesn't track model
+ownership at all. The language could in principle: GHC 9 has the linear arrow `%1 ->`, but linear
+`do`-notation isn't in `base` (you reach for experimental `linear-base`), multiplicity polymorphism
+is incomplete, and no ML library (hasktorch included) threads models linearly. The capability
+exists; the idiom doesn't.
 
 ```haskell
 {-# LANGUAGE LinearTypes #-}
@@ -301,7 +299,7 @@ print(y.dtype.name)
 float16          # no error; ~13 bits of mantissa silently gone
 ```
 
-**Haskell — silent (no lossless order).** hasktorch carries dtype as a type parameter, but with no
+**hasktorch — silent (no lossless order).** hasktorch carries dtype as a type parameter, but with no
 partial-order gate a narrowing `toDType` compiles like any other. Minimal reproduction of the
 missing gate (compiles clean, exit 0):
 
@@ -371,7 +369,7 @@ torchVec : Tensor [4] (TorchExecutor TMps) F32 g  -- libtorch on Metal
 -- tapeVec and torchVec cannot be added: the executors don't unify.
 ```
 
-**PyTorch / TF1 / Haskell — none.** Each is a single runtime. The closest in PyTorch is a manual,
+**PyTorch / TF1 / hasktorch — none.** Each is a single runtime. The closest in PyTorch is a manual,
 untyped host copy to another array library — nothing tracks which backend a value lives on, and
 there's no error to show because there's no check:
 
@@ -472,6 +470,6 @@ verified on every publication push, not asserted. Fine-tuning is supported too:
 [^prov]: Every error in this article is captured from a real toolchain in this repo's environment —
     PyTorch 2.11, TensorFlow 2.21 (graph mode via `tf.compat.v1`, the TF 1.x API), GHC 9.10.3, and
     Idris 2 0.8 — the non-PyTorch ones via disposable `nix shell` environments. The TF and GHC
-    snippets are minimal reproductions of the exact mechanism the named libraries use (Grenade /
-    hasktorch carry shapes and devices as the same type-level `Nat` / DataKinds phantoms); only
+    snippets are minimal reproductions of the exact mechanism hasktorch uses (its `Torch.Typed`
+    carries shapes and devices as the same type-level `Nat` / DataKinds phantoms); only
     long internal node-attribute lists in TF errors are elided with `…`.
