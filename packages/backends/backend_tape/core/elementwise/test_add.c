@@ -196,13 +196,11 @@ Test(core_elementwise_add, mixed_dtype_aborts, .signal = SIGABRT) {
 }
 #endif /* BACKEND_TAPE */
 
-/* DISABLED: tape general-broadcast elementwise crashes (heap corruption) — see
-   TODO.md "tape general-broadcast elementwise crash". Re-enable when fixed. */
-Test(core_elementwise_add, forward_general_broadcast_row, .disabled = true) {
+Test(core_elementwise_add, forward_general_broadcast_row) {
 	/* [2,3] + [3] -> [3] is right-aligned-broadcast across rows.
 	   Exercises compute_bcast_shape (broadcast.c) on the forward path. */
 	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle a = tensor_create_2d(2, 3, ad, 0);
+	TensorHandle a = tensor_create(ad, (int[]){2, 3}, 2, 0);
 	double bd[] = {10.0, 20.0, 30.0};
 	int bs[] = {3};
 	TensorHandle b = tensor_create(bd, bs, 1, 0);
@@ -217,14 +215,13 @@ Test(core_elementwise_add, forward_general_broadcast_row, .disabled = true) {
 		cr_assert_float_eq(out[i], expected[i], 1e-12, "broadcast add out[%d]", i);
 }
 
-/* DISABLED: tape general-broadcast elementwise crash — see TODO.md. */
-Test(core_elementwise_add, backward_general_broadcast_row, .disabled = true) {
+Test(core_elementwise_add, backward_general_broadcast_row) {
 	/* c = a[2,3] + b[3]; loss = sum(c). Exercises the general numpy-broadcast
 	   backward path (add.c lines 70-98) + compute_bcast_strides (broadcast.c).
 	   b broadcasts across the 2 rows so d_b[j] = sum over rows = 2.0; d_a[i] = 1. */
 	param_clear();
 	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle a = tensor_create_2d(2, 3, ad, 1);
+	TensorHandle a = tensor_create(ad, (int[]){2, 3}, 2, 1);
 	double bd[] = {10.0, 20.0, 30.0};
 	int bs[] = {3};
 	TensorHandle b = tensor_create(bd, bs, 1, 1);
@@ -241,16 +238,15 @@ Test(core_elementwise_add, backward_general_broadcast_row, .disabled = true) {
 		                   "d(sum(a+b))/db[%d] should be 2.0 (summed over 2 rows)", j);
 }
 
-/* DISABLED: tape general-broadcast elementwise crash — see TODO.md. */
-Test(core_elementwise_add, backward_general_broadcast_col, .disabled = true) {
+Test(core_elementwise_add, backward_general_broadcast_col) {
 	/* c = a[2,3] + b[2,1]; b broadcasts across the 3 columns so
 	   d_b[i] = sum over columns = 3.0. Hits the same general path with a
 	   different stride pattern (trailing size-1 axis -> stride 0). */
 	param_clear();
 	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-	TensorHandle a = tensor_create_2d(2, 3, ad, 1);
+	TensorHandle a = tensor_create(ad, (int[]){2, 3}, 2, 1);
 	double bd[] = {100.0, 200.0};
-	TensorHandle b = tensor_create_2d(2, 1, bd, 1);
+	TensorHandle b = tensor_create(bd, (int[]){2, 1}, 2, 1);
 	param_register("a", a);
 	param_register("b", b);
 	TensorHandle c = tensor_add(a, b);

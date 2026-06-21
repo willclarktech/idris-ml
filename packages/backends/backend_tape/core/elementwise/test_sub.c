@@ -169,11 +169,10 @@ Test(core_elementwise_sub, mixed_dtype_aborts, .signal = SIGABRT) {
 }
 #endif /* BACKEND_TAPE */
 
-/* DISABLED: tape general-broadcast elementwise crash — see TODO.md. */
-Test(core_elementwise_sub, forward_general_broadcast_row, .disabled = true) {
+Test(core_elementwise_sub, forward_general_broadcast_row) {
 	/* [2,3] - [3] broadcasts across rows; exercises compute_bcast_shape. */
 	double ad[] = {10.0, 20.0, 30.0, 40.0, 50.0, 60.0};
-	TensorHandle a = tensor_create_2d(2, 3, ad, 0);
+	TensorHandle a = tensor_create(ad, (int[]){2, 3}, 2, 0);
 	double bd[] = {1.0, 2.0, 3.0};
 	int bs[] = {3};
 	TensorHandle b = tensor_create(bd, bs, 1, 0);
@@ -188,14 +187,13 @@ Test(core_elementwise_sub, forward_general_broadcast_row, .disabled = true) {
 		cr_assert_float_eq(out[i], expected[i], 1e-12, "broadcast sub out[%d]", i);
 }
 
-/* DISABLED: tape general-broadcast elementwise crash — see TODO.md. */
-Test(core_elementwise_sub, backward_general_broadcast_row, .disabled = true) {
+Test(core_elementwise_sub, backward_general_broadcast_row) {
 	/* c = a[2,3] - b[3]; loss = sum(c). Exercises the general numpy-broadcast
 	   backward path (sub.c lines 58-85) + compute_bcast_strides.
 	   d_a[i] = +1; b broadcasts across 2 rows with sign flip => d_b[j] = -2. */
 	param_clear();
 	double ad[] = {10.0, 20.0, 30.0, 40.0, 50.0, 60.0};
-	TensorHandle a = tensor_create_2d(2, 3, ad, 1);
+	TensorHandle a = tensor_create(ad, (int[]){2, 3}, 2, 1);
 	double bd[] = {1.0, 2.0, 3.0};
 	int bs[] = {3};
 	TensorHandle b = tensor_create(bd, bs, 1, 1);
@@ -213,15 +211,14 @@ Test(core_elementwise_sub, backward_general_broadcast_row, .disabled = true) {
 		                   j);
 }
 
-/* DISABLED: tape general-broadcast elementwise crash — see TODO.md. */
-Test(core_elementwise_sub, backward_general_broadcast_col, .disabled = true) {
+Test(core_elementwise_sub, backward_general_broadcast_col) {
 	/* c = a[2,3] - b[2,1]; b broadcasts across 3 columns, sign-flipped =>
 	   d_b[i] = -3.0. Different stride pattern (trailing size-1 axis). */
 	param_clear();
 	double ad[] = {10.0, 20.0, 30.0, 40.0, 50.0, 60.0};
-	TensorHandle a = tensor_create_2d(2, 3, ad, 1);
+	TensorHandle a = tensor_create(ad, (int[]){2, 3}, 2, 1);
 	double bd[] = {1.0, 2.0};
-	TensorHandle b = tensor_create_2d(2, 1, bd, 1);
+	TensorHandle b = tensor_create(bd, (int[]){2, 1}, 2, 1);
 	param_register("a", a);
 	param_register("b", b);
 	TensorHandle c = tensor_sub(a, b);
