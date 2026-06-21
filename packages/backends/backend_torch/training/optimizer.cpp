@@ -145,6 +145,11 @@ extern "C" OptimizerHandle optimizer_create_adamw(double lr, double beta1, doubl
 	w->beta1 = beta1;
 	w->beta2 = beta2;
 	w->eps = eps;
+	/* Load-bearing: the fused adamw_step_foreach path (default, TORCH_FOREACH
+	   on) reads w->weight_decay to apply decoupled decay. Without this the
+	   decay is only seen by AdamWOptions (the non-foreach opt->step() fallback),
+	   so fused AdamW silently runs at weight_decay=0. */
+	w->weight_decay = weight_decay;
 	w->opt = new torch::optim::AdamW(params, torch::optim::AdamWOptions(lr)
 	                                             .betas(std::make_tuple(beta1, beta2))
 	                                             .eps(eps)

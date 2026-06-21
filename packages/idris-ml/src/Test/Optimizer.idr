@@ -119,8 +119,11 @@ adamWStepsQuadratic = do
   w <- mkW "opt_adamw_w" 1.0
   opt <- adamW {ex=TestExecutor} 0.01 0.1 ({ clip := NormClip 1.0 } defaultOpts)
   traj <- trajectory opt w 3
+  -- Oracle = torch.optim.AdamW (lr=0.01, wd=0.1, clip-norm 1.0) on loss=w²,
+  -- w₀=1.0, 3 steps. AdamW applies decoupled weight decay to the PRE-step
+  -- weight, then the Adam update; all three backends match this order.
   check ("adamW steps quadratic (" ++ show traj ++ ")")
-        (trajApprox traj [0.9890100001116916, 0.9780315770610051, 0.9670651316195747])
+        (trajApprox traj [0.9890000001, 0.9780110002013497, 0.9670329893050524])
 
 -- restrictTo scopes to an EXACT name set: the leak-free guarantee a string
 -- prefix can't give. "rt_keep" is owned (steps at base LR 0.5 → 1 - 0.5*2 = 0),

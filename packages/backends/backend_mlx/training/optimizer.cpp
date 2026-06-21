@@ -11,8 +11,9 @@
  * Math intentionally mirrors PyTorch's torch.optim semantics op-for-op:
  *   - RMSprop keeps lr OUTSIDE the momentum buffer so an LR schedule
  *     doesn't carry stale rates in the buffer.
- *   - AdamW applies decoupled weight-decay AFTER the update (param * wd
- *     gets subtracted using the current lr).
+ *   - AdamW applies decoupled weight-decay to the PRE-step weight, then
+ *     the Adam update (param.mul_(1 - lr*wd) before addcdiv_), matching
+ *     torch.optim.AdamW.
  *   - Optimizer-state scalars (beta1/beta2/eps/bc1/bc2 etc.) are hoisted
  *     out of the per-param loop so they don't graph-build per param. */
 #include <cmath>
@@ -381,17 +382,19 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 			    t->data, mx::divide(mx::multiply(lr_arr, mhat), mx::add(mx::sqrt(vhat), eps_arr)));
 			break;
 		}
-		case 3: { // AdamW (decoupled weight decay)
+		case 3: { // AdamW (decoupled weight decay, PRE-step — torch.optim.AdamW order)
 			opt->m_bufs[i] =
 			    mx::add(mx::multiply(beta1_arr, opt->m_bufs[i]), mx::multiply(one_m_beta1, g));
 			opt->v_bufs[i] = mx::add(mx::multiply(beta2_arr, opt->v_bufs[i]),
 			                         mx::multiply(one_m_beta2, mx::square(g)));
 			auto mhat = mx::divide(opt->m_bufs[i], bc1_arr);
 			auto vhat = mx::divide(opt->v_bufs[i], bc2_arr);
-			t->data = mx::subtract(
-			    t->data, mx::divide(mx::multiply(lr_arr, mhat), mx::add(mx::sqrt(vhat), eps_arr)));
+			/* Decoupled weight decay on the PRE-step weight, then the Adam
+			   update (param.mul_(1 - lr*wd) before addcdiv_). */
 			t->data = mx::subtract(
 			    t->data, mx::multiply(scalar_like(lr * opt->weight_decay, t->data), t->data));
+			t->data = mx::subtract(
+			    t->data, mx::divide(mx::multiply(lr_arr, mhat), mx::add(mx::sqrt(vhat), eps_arr)));
 			break;
 		}
 		default:

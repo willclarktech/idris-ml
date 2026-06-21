@@ -23,7 +23,9 @@
  * RMSprop: lr OUTSIDE the momentum buffer (matches
  *   torch.optim.RMSprop under LR schedules; folding lr into the
  *   buffer coincides with PyTorch only at constant lr).
- * AdamW: decoupled weight decay applied to the post-step weight.
+ * AdamW: decoupled weight decay applied to the PRE-step weight, then
+ *   the Adam update — matches torch.optim.AdamW (_single_tensor_adamw
+ *   runs param.mul_(1 - lr*wd) before the addcdiv_ step).
  *
  * Epoch boundary (DEBUG_LSTM_TRAJ dump → tape_reset → re-register
  * params on the fresh tape → prof_optimizer_ms accounting → bump
@@ -207,9 +209,8 @@ void tape_optimizer_set_param_lr(void* h, const char* name, double lr) {
    convergence within 1e-12, not bit-identical equality.
 
    Adam (`opt->type == 2`) reuses this path: `tape_optimizer_create_adam`
-   `calloc`s the struct so `weight_decay == 0`, and the wd term in the
-   final weight update self-zeroes (`w1 - lr * 0 * w1 = w1`) to the Adam
-   expression.
+   `calloc`s the struct so `weight_decay == 0`, and the pre-step wd term
+   self-zeroes (`w_decayed = w - lr * 0 * w = w`) to the Adam expression.
 
    F32-tagged params fall through to the scalar inner switch's case 2/3
    (mixed-dtype foreach is out of scope; the per-call BLAS overhead
@@ -248,8 +249,11 @@ static void adamw_foreach_param(TapeOptimizer* opt, Tensor* t, int base, double 
 	for (int j = 0; j < n; j++) {
 		double mhat = m[j] / bc1;
 		double vhat = v[j] / bc2;
-		double w1 = w[j] - lr * mhat / (sqrt(vhat) + opt->eps);
-		w[j] = w1 - lr * opt->weight_decay * w1;
+		/* Decoupled weight decay on the PRE-step weight, then the Adam
+		   update (torch.optim.AdamW order). Self-zeroes for Adam
+		   (type 2, weight_decay == 0): w_decayed == w[j]. */
+		double w_decayed = w[j] - lr * opt->weight_decay * w[j];
+		w[j] = w_decayed - lr * mhat / (sqrt(vhat) + opt->eps);
 	}
 }
 
@@ -270,8 +274,8 @@ void tape_optimizer_step(void* h) {
 	/* Adam/AdamW foreach: default for F64 params; F32 params fall through
 	   to the scalar inner switch. Adam (type 2) and AdamW (type 3) share
 	   the same foreach body — `tape_optimizer_create_adam` `calloc`s the
-	   struct so `weight_decay == 0` for Adam, and the foreach's wd term
-	   (`w1 - lr * 0 * w1 = w1`) self-zeroes to the Adam expression. The
+	   struct so `weight_decay == 0` for Adam, and the foreach's pre-step
+	   wd term self-zeroes (`w - lr * 0 * w = w`) to the Adam expression. The
 	   paired tests in test_optimizers.c use the env-var opt-out
 	   (`TAPE_OPTIMIZER_FOREACH=0`) to force scalar for one phase. */
 	int use_adam_foreach = (opt->type == 2 || opt->type == 3);
@@ -334,8 +338,10 @@ void tape_optimizer_step(void* h) {
 				opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
 				double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
 				double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
-				double w1 = w - lr * mhat / (sqrt(vhat) + opt->eps);
-				tape_store_d(t, j, w1 - lr * opt->weight_decay * w1);
+				/* Decoupled wd on the PRE-step weight, then Adam update
+				   (torch.optim.AdamW order). */
+				double w_decayed = w - lr * opt->weight_decay * w;
+				tape_store_d(t, j, w_decayed - lr * mhat / (sqrt(vhat) + opt->eps));
 				break;
 			}
 			default:
