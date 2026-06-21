@@ -163,6 +163,8 @@ void tensor_backward(TensorHandle h) {
 		static int reported = 0;
 		const char* env = getenv("DEBUG_NAN_TRAP");
 		if ((env != nullptr) && env[0] == '1' && (reported == 0)) {
+			// GCOVR_EXCL_START — env-gated NaN-locating diagnostic; body runs
+			// only on DEBUG_NAN_TRAP=1 + an actual NaN/Inf in a param grad.
 			int any_nan = 0;
 			for (int i = 0; i < param_count(); i++) {
 				const char* p_name = param_name(i);
@@ -339,6 +341,7 @@ void tensor_backward(TensorHandle h) {
 				}
 			}
 			if (reported != 0) fflush(stderr);
+			// GCOVR_EXCL_STOP
 		}
 	}
 

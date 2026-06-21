@@ -12,8 +12,11 @@ uncovered, why, and how to close it. Re-measure with `make test-coverage-all`
 | backend | lines | branches | suite |
 |---------|-------|----------|-------|
 | tape    | 96.5% | 77.4%    | 501/501 |
-| mlx     | 94.1% | 49.9%    | 555/555 |
+| mlx     | 98.2% | 53.6%    | 555/555 |
 | torch   | 90.9% | 50.0%    | 470/470 |
+
+(mlx lifted 94.1% → 98.2% by the Task-1 exclusions below — NAN_TRAP + MLX_OPT_COMPILE
+marked `GCOVR_EXCL`, no behaviour change.)
 
 (Up from baselines tape 79.2% / mlx 78.8% / torch 73.7%.) Branch% is intentionally
 lower — gcov counts many compiler-generated/defensive branches; line% is the
@@ -38,8 +41,8 @@ variants — common to all three backends.
 | Lines | File | Backend | Category |
 |---|---|---|---|
 | 109 | `backend_torch/training/optimizer.cpp` | torch | C — RMSprop/SGD/AdamW step, wd, clip, per-group, state save/load |
-| 103 | `backend_mlx/training/optimizer.cpp` | mlx | C — same optimizer variants |
-| 69 | `backend_mlx/training/backward.cpp` | mlx | **B — `DEBUG_NAN_TRAP=1` env-gated diagnostic (lines 158-341); exclude** |
+| ~~103~~ → 4 | `backend_mlx/training/optimizer.cpp` | mlx | **B (done) — MLX_OPT_COMPILE compile path now `GCOVR_EXCL`; eager paths already covered** |
+| ~~69~~ → 3 | `backend_mlx/training/backward.cpp` | mlx | **B (done) — `DEBUG_NAN_TRAP=1` diagnostic now `GCOVR_EXCL`** |
 | 42 | `backend_tape/nn/quantization/bitlinear.c` | tape | mixed — F32 absmean/quant arms (C) + `abort()` guards (B) |
 | 32 | `backend_tape/tape.c` | tape | C(scale) — arena multi-chunk growth (>64K tape entries) + reset/meta |
 | 21 | `backend_torch/nn/quantization/bitlinear.cpp` | torch | C — BitNet quant edge arms |
@@ -81,13 +84,16 @@ level in `gcovr.cfg` / `codecov.yml`. Not counted against the number.
   Exception: `bitlinear.c`'s `tensor_absmean_per_row_2d` / quant F32 arms are NOT
   on the streamed path and are currently uncovered (~20 lines) — testable with a
   direct F32 input (Bucket C), not an exclusion.
-- **`DEBUG_NAN_TRAP=1` diagnostic** (`backend_mlx/training/backward.cpp` 158-341,
-  ~62 lines): an env-gated NaN-locating tape walk that only runs when both the env
-  var is set *and* a NaN is present. Debug scaffolding, not product logic reachable
-  by CI input. **NOT yet marked** — flagged 2026-06-26 as the largest single mlx
-  "gap" that is actually an exclusion; wrap in `GCOVR_EXCL_START/STOP` (reason:
-  "DEBUG_NAN_TRAP diagnostic — env-gated, fires only on injected NaN"). This lifts
-  mlx's *honest* product coverage by ~62 lines.
+- **`DEBUG_NAN_TRAP=1` diagnostic** (`backend_mlx/training/backward.cpp` body of
+  the `if(env)` block): env-gated NaN-locating tape walk, runs only when the env var
+  is set *and* a NaN is present. **DONE 2026-06-26** — wrapped `GCOVR_EXCL`
+  (backward.cpp 69→3 miss). The `getenv` condition itself stays counted.
+- **`MLX_OPT_COMPILE` Adam-compile path** (`backend_mlx/training/optimizer.cpp`
+  `get_adam_compiled` / `adam_step_compile` / the compile branch in
+  `optimizer_step`): won't-fix on CI (libmlx Metal teardown crashes the forked
+  test child); pinned by the `.disabled` `mlx_optimizer_compile` tests. **DONE
+  2026-06-26** — wrapped `GCOVR_EXCL` (optimizer.cpp 103→4 miss). The eager
+  Adam/AdamW/RMSprop/SGD paths stay counted and covered.
 - **Diagnostics / dispatch-table init / vendored / .venv framework headers**:
   file-level via `gcovr.cfg`.
 

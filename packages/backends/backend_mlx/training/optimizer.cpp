@@ -164,6 +164,9 @@ static bool mlx_opt_compile_enabled(void) {
 static std::unordered_map<int, std::function<std::vector<mx::array>(const std::vector<mx::array>&)>>
     adam_compiled_by_n;
 
+// GCOVR_EXCL_START — MLX_OPT_COMPILE Adam-compile path: won't-fix on CI (libmlx
+// Metal teardown crashes the forked test child after mx::compile); behaviour is
+// pinned by the .disabled mlx_optimizer_compile tests in test_optimizer_mlx.c.
 static std::function<std::vector<mx::array>(const std::vector<mx::array>&)>&
 get_adam_compiled(int n) {
 	auto it = adam_compiled_by_n.find(n);
@@ -269,6 +272,7 @@ static void adam_step_compile(Optimizer* opt, int np) {
 		opt->v_bufs[i] = outs[2 * n + j];
 	}
 }
+// GCOVR_EXCL_STOP
 
 extern "C" void optimizer_step(OptimizerHandle h) {
 	double const t0_opt = _wall_ms_mlx();
@@ -290,6 +294,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 
 	/* Adam-only compile path: gate via MLX_OPT_COMPILE=1. */
 	if (opt->type == 2 && mlx_opt_compile_enabled()) {
+		// GCOVR_EXCL_START — MLX_OPT_COMPILE body; see get_adam_compiled note above
 		double const tm0 = _wall_ms_mlx();
 		adam_step_compile(opt, np);
 		prof_optimizer_math_ms_mlx += _wall_ms_mlx() - tm0;
@@ -309,6 +314,7 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 		prof_optimizer_ms_mlx += _wall_ms_mlx() - t0_opt;
 		prof_epochs_mlx++;
 		return;
+		// GCOVR_EXCL_STOP
 	}
 
 	double const tm0 = _wall_ms_mlx();
