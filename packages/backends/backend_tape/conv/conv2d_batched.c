@@ -248,10 +248,14 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel, Te
 
 static void tape_backward_conv2d_batched(TapeEntry* e) {
 	/* r = conv2d_batched(input [B,inC,H,W], kernel [outC,inC,kH,kW]) + bias
-	   r=[B,outC,oH,oW]. Backward via im2col + cblas_dgemm in F64; for F32
-	   inputs the existing F64 dgemm path is reused by widening input and
-	   kernel to temporary double buffers (grads are F64 anyway, so this
-	   keeps the case body untouched). */
+	   r=[B,outC,oH,oW]. Backward via im2col + cblas_dgemm in F64. For F32
+	   tensors the F64 dgemm path is reused by widening *data* (input/kernel)
+	   to temporary double buffers — but the GRAD buffers of F32 tensors are
+	   float-sized too (see ensure_grad), so every grad read/write must go
+	   through the typed accessors: the result grad is widened into `rgrad`,
+	   and the input/kernel grads are written via a double scratch then
+	   scattered with tape_grad_add_d. (Direct ((double*)t->grad)[i] on an
+	   F32 tensor reads/writes 8 bytes into a 4-byte slot — a heap overflow.) */
 	Conv2DBatchedMeta* meta = (Conv2DBatchedMeta*)e->op_meta;
 	Tensor* a = e->arg1;
 	Tensor* b = e->arg2;
@@ -295,12 +299,20 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 		b_data_ptr = b_data_dbl;
 	}
 
+	/* r->grad may be F32 storage (float-sized); the F64 dgemm/permute below
+	   assume double. Widen the result grad through the typed accessor into a
+	   double scratch buffer. */
+	size_t r_n = (size_t)B * out_per_sample;
+	double* rgrad = (double*)malloc(r_n * sizeof(double));
+	for (size_t i = 0; i < r_n; i++)
+		rgrad[i] = tape_grad_load_d(r, (int)i);
+
 	/* Permute dY [B, outC, oH, oW] -> dY_unf [B*oH*oW, outC] */
 	double* dY_unf =
 	    (need_dW || need_dX) ? (double*)calloc((size_t)M_unf * outC, sizeof(double)) : NULL;
 	if (dY_unf) {
 		for (int bb = 0; bb < B; bb++) {
-			const double* dout_b = ((double*)r->grad) + (size_t)bb * out_per_sample;
+			const double* dout_b = rgrad + (size_t)bb * out_per_sample;
 			for (int oc = 0; oc < outC; oc++) {
 				for (int oh = 0; oh < oH; oh++) {
 					for (int ow = 0; ow < oW; ow++) {
@@ -319,8 +331,14 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 		conv2d_im2col((const double*)a_data_ptr, B, inC, HH, WW, kH, kW, padH, padW, strideH,
 		              strideW, oH, oW, X_col);
 #ifdef __APPLE__
+		/* dgemm into a double scratch (beta=0), then scatter through the
+		   typed accessor so an F32 kernel's float-sized grad isn't overrun. */
+		double* dW_tmp = (double*)calloc((size_t)outC * K_unf, sizeof(double));
 		cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, outC, K_unf, M_unf, 1.0, dY_unf, outC,
-		            X_col, K_unf, 1.0, b->grad, K_unf);
+		            X_col, K_unf, 0.0, dW_tmp, K_unf);
+		for (int i = 0; i < outC * K_unf; i++)
+			tape_grad_add_d(b, i, dW_tmp[i]);
+		free(dW_tmp);
 #else
 		for (int oc = 0; oc < outC; oc++)
 			for (int kk = 0; kk < K_unf; kk++) {
@@ -350,8 +368,15 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 				dX_col[m * K_unf + kk] = s;
 			}
 #endif
+		/* col2im into a double scratch, then scatter through the typed
+		   accessor so an F32 input's float-sized grad isn't overrun. */
+		size_t a_n = (size_t)B * inC * HH * WW;
+		double* dA_tmp = (double*)calloc(a_n, sizeof(double));
 		conv2d_col2im_accumulate(dX_col, B, inC, HH, WW, kH, kW, padH, padW, strideH, strideW, oH,
-		                         oW, a->grad);
+		                         oW, dA_tmp);
+		for (size_t i = 0; i < a_n; i++)
+			tape_grad_add_d(a, (int)i, dA_tmp[i]);
+		free(dA_tmp);
 		free(dX_col);
 	}
 
@@ -361,7 +386,7 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 		for (int oc = 0; oc < outC; oc++) {
 			double s = 0;
 			for (int bb = 0; bb < B; bb++) {
-				const double* dout_b = ((double*)r->grad) + (size_t)bb * out_per_sample;
+				const double* dout_b = rgrad + (size_t)bb * out_per_sample;
 				for (int oh = 0; oh < oH; oh++)
 					for (int ow = 0; ow < oW; ow++)
 						s += dout_b[oc * oH * oW + oh * oW + ow];
@@ -372,6 +397,7 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 	if (dY_unf) free(dY_unf);
 	if (a_data_dbl) free(a_data_dbl);
 	if (b_data_dbl) free(b_data_dbl);
+	free(rgrad);
 }
 
 TAPE_REGISTER_OP(OP_CONV2D_BATCHED, tape_backward_conv2d_batched)
