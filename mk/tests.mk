@@ -183,7 +183,6 @@ COV_IGNORE_REGEX := (vendored/)|($(BACKENDS_DIR)/(safetensors|shared_utils|mnist
 # unversioned llvm-profdata/llvm-cov).
 ifeq ($(UNAME),Darwin)
 COV_CC_OVERRIDES :=
-COV_LLVM := xcrun
 else
 # COV_CLANG/COV_CLANGXX default to bare clang/clang++ but the nix dev shell
 # exports them as the *wrapped* clang (absolute store path) so the coverage
@@ -193,7 +192,6 @@ else
 COV_CLANG ?= clang
 COV_CLANGXX ?= clang++
 COV_CC_OVERRIDES := tape_CC=$(COV_CLANG) torch_CC=$(COV_CLANGXX) mlx_CC=$(COV_CLANGXX) LINK_CC=$(COV_CLANGXX) TEST_CC=$(COV_CLANG) SHARED_CC=$(COV_CLANG)
-COV_LLVM :=
 # The wrapped clang injects nix hardening's -D_FORTIFY_SOURCE=2, but coverage
 # is -O0 (see COV_CFLAGS note), so glibc features.h fires `#warning
 # _FORTIFY_SOURCE requires compiling with optimization` once per TU. Fortify
@@ -201,6 +199,17 @@ COV_LLVM :=
 # than bend the optimization level the torch lane can't afford.
 COV_CFLAGS += -Wno-\#warnings
 endif
+
+# Resolve llvm-profdata / llvm-cov by detection rather than assuming a
+# platform-specific launcher. Prefer bare tools on PATH (Linux apt, the nix
+# dev shell's `llvm` package), and fall back to `xcrun -f` (macOS with full
+# Xcode). This keeps the lane working on a Mac that has only the Command Line
+# Tools — which ship clang but NOT llvm-profdata/llvm-cov — as long as the
+# dev shell provides them. The .profraw format is versioned: the reader must
+# be >= the compiler that wrote it (Apple clang on macOS / nix clang on
+# Linux); the pinned nixpkgs `llvm` matches both.
+LLVM_PROFDATA := $(shell command -v llvm-profdata 2>/dev/null || xcrun -f llvm-profdata 2>/dev/null)
+LLVM_COV      := $(shell command -v llvm-cov 2>/dev/null || xcrun -f llvm-cov 2>/dev/null)
 
 test-coverage-backend:
 	$(MAKE) -j$(NPROC) BUILD=$(COV_BUILD) \
@@ -211,14 +220,15 @@ test-coverage-backend:
 	  $(COV_BUILD)/test_criterion_smoke
 	@mkdir -p $(COV_BUILD)/profraw
 	@rm -f $(COV_BUILD)/profraw/*.profraw
+	@test -n "$(LLVM_PROFDATA)" || { echo "llvm-profdata not found — add 'llvm' to the dev shell (nix develop) or install full Xcode"; exit 1; }
 	LLVM_PROFILE_FILE='$(COV_BUILD)/profraw/test_criterion_%p_%m.profraw' \
 	  ./$(COV_BUILD)/test_criterion_smoke --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml > /dev/null
-	$(COV_LLVM) llvm-profdata merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
+	$(LLVM_PROFDATA) merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
 	@echo ""
 	@echo "=== Coverage report ($(PRIMARY)) ==="
-	$(COV_LLVM) llvm-cov report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='$(COV_IGNORE_REGEX)'
+	$(LLVM_COV) report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='$(COV_IGNORE_REGEX)'
 	@rm -rf $(COV_BUILD)/html-$(PRIMARY)
-	$(COV_LLVM) llvm-cov show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='$(COV_IGNORE_REGEX)'
+	$(LLVM_COV) show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='$(COV_IGNORE_REGEX)'
 	@echo ""
 	@echo "Coverage HTML: file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
 

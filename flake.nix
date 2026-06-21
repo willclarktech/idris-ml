@@ -39,6 +39,9 @@
           pkg-config # resolves criterion/openblas include+lib paths for the
           # coverage lane's raw clang (which bypasses the nix cc wrapper's
           # NIX_CFLAGS_COMPILE, so it can't see buildInputs implicitly)
+          llvm # llvm-profdata / llvm-cov for `make test-coverage-backend-*`
+          # (clang-tools ships only clang-format/clang-tidy; macOS Command
+          # Line Tools ship no coverage tools, so the lane needs these here)
         ]
         ++ lib.optionals stdenv.isLinux [
           openblas # cblas.h on Linux; macOS uses the Accelerate framework
