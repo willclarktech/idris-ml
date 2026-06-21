@@ -14,7 +14,8 @@ name: perf
 #
 # The perf-log sync lints run here, where the data is produced:
 # test-integration-lint-benchmarks (BENCHMARKS.md ↔ JSONL) and the
-# advisory perf-regression reports.
+# enforcing perf-regression gates (op_bench + run, both fail the job
+# on a regression once a cell has enough history).
 #
 # Trigger is push-to-main, not a nightly cron: day-to-day work happens
 # on the private mirror (CI disabled) and this public repo only moves
@@ -79,17 +80,24 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-lint-benchmarks
 
-      - name: Run perf-regression gate (kind="op_bench", advisory)
+      - name: Run perf-regression gate (kind="op_bench", enforcing)
+        # op_bench mode always gates (check-perf-regression.py
+        # always_gates=True): a FAIL exits non-zero regardless of
+        # PERF_GATE. Cells with < 6 samples are INSUFFICIENT-HISTORY
+        # and can't FAIL, so it stays green until per-cell history fills.
         if: ${{ !cancelled() }}
         run: make test-integration-lint-perf-regression
 
-      - name: Run perf-regression gate (kind="run" entries, advisory)
+      - name: Run perf-regression gate (kind="run" entries, enforcing)
         # Groups perf-log.jsonl `kind="run"` entries by (example,
         # backend, args), medians the last 10, and reports OK / WARN
-        # (>15%) / FAIL (>100% slower) for the latest entry per cell.
-        # Advisory only — exits 0 even on FAILs — until the noise
-        # profile is calibrated; promote by setting PERF_GATE=1.
+        # (>15%) / FAIL (>100% = 2× slower) for the latest entry per
+        # cell. PERF_GATE=1 makes a FAIL fail the job. Safe to enforce:
+        # cells with < 11 samples are INSUFFICIENT-HISTORY and can't
+        # FAIL, so the gate self-activates per-cell as history accrues.
         if: ${{ !cancelled() }}
+        env:
+          PERF_GATE: "1"
         run: make lint-perf-run
 
       - name: Save caches
