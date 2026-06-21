@@ -18,21 +18,16 @@ uncovered, why, and how to close it. Re-measure with
 backend falls into three buckets below. Branch% is intentionally lower — gcov
 counts many compiler-generated/defensive branches; line% is the chased metric.
 
-## Bucket A — bug-blocked (cannot cover until the bug is fixed)
+## Bucket A — coverage-surfaced bugs (3 fixed, 1 mlx-upstream)
 
-These paths have committed `.disabled = true` reproducer tests; fixing the bug +
-re-enabling the test closes the lines. All filed in [`TODO.md`](../../TODO.md).
+All four were investigated 2026-06-25 (ASan-pinpointed). See CHANGELOG.
 
-| Area | Uncovered | Bug |
-|---|---|---|
-| `add.c`/`sub.c` general-broadcast backward (~35 lines) + `broadcast.c` general path (~16) + `_kernels.inc` general-broadcast block (~part of -50) | tape | **general-broadcast elementwise heap corruption** — `[2,3]+[3]` etc. crash. Reproducers: `core_elementwise_{add,sub}/*_general_broadcast_*`. Fixing unlocks ~50-65 tape lines. |
-| `bitlinear.c` absmean/ternary_quant arms (part of tape -108, mlx -29, torch -21) | all 3 | **BitNet quant helpers crash** on valid 2D F64 (cross-backend). Reproducers: `nn_quantization_{absmean,ternary_quant}/*`. |
-| `pair_helpers` free path (a few lines × 3) | all 3 | **`tensor_pair_free` crash** (cross-backend). Reproducers: `*_pair_helpers/*free*`. |
-| `optimizer.cpp` MLX_OPT_COMPILE Adam branch (~part of mlx -103) | mlx | **mlx compile-path teardown crash** — the g++→clang++ shim makes `mx::compile` run but mlx's compile-state teardown crashes the forked child (no gcov flush). Reproducers: `mlx_optimizer_compile/*`. |
-
-**Priority: the general-broadcast heap corruption is P1 (memory corruption).** The
-others are crashes on narrower inputs. Fixing all four unlocks ~120-150 lines
-across the three backends and removes the 18 disabled tests.
+| Area | Status |
+|---|---|
+| general-broadcast elementwise (`[2,3]+[3]`) | **FIXED** — was a *test* bug (stack array freed by `tensor_create_2d`'s callee-owns contract), not a product defect. The general-broadcast path is correct; the 6 tests re-enabled. |
+| BitNet quant `absmean`/`ternary_quant` (all 3) | **FIXED** — test bugs (`create_2d(stack)`, 1-byte `hf` for `[1,4]`) **plus a real tape product bug**: `round_clamp_ternary` was round-half-AWAY, not round-half-to-even; fixed to `nearbyint` (matches torch/mlx/PyTorch). 8 tests re-enabled. |
+| `tensor_pair_free` (all 3) | **FIXED** — dead double-free-prone API removed entirely; pairs are reset-owned. |
+| `optimizer.cpp` MLX_OPT_COMPILE Adam branch (mlx) | **WON'T-FIX (mlx upstream)** — `mx::compile` runs (g++ shim) but libmlx's Metal-allocator/device static teardown crashes the forked child; clearing our cache + `mx::detail::compile_clear_cache()` both insufficient (cf. `init.cpp`). The 2 `mlx_optimizer_compile` tests stay `.disabled`; this branch is a **principled exclusion** below until mlx fixes the teardown. |
 
 ## Bucket B — principled exclusions (no CI input reaches them)
 
@@ -73,14 +68,13 @@ targeting `backward.cpp` + optimizer + conv would capture most.
 
 ## Recommended order
 
-1. **Fix the P1 general-broadcast heap corruption** (Bucket A) — memory-safety,
-   unlocks the most tape lines, removes 6 disabled tests.
-2. Fix the BitNet quant + `tensor_pair_free` crashes (Bucket A) — cross-backend,
-   removes 11 disabled tests.
-3. One more Bucket-C workflow wave (mlx `backward.cpp`, optimizer tails, tape
-   conv) for the high-90s.
-4. The mlx compile-teardown crash (Bucket A) is lowest priority — opt-in feature,
-   needs an mlx-internal teardown fix.
+1. ✅ **Done** — Bucket A bugs investigated + fixed (general-broadcast, BitNet
+   quant rounding, `tensor_pair_free`); mlx compile-teardown is won't-fix
+   (upstream). See CHANGELOG.
+2. One Bucket-C workflow wave (mlx `backward.cpp`, optimizer tails, tape conv,
+   `tape.c`) for the high-90s — the remaining gap is volume, not hard.
+3. (Blocked on mlx upstream) the MLX_OPT_COMPILE branch — re-enable the 2
+   `mlx_optimizer_compile` tests once mlx's compile/Metal teardown is stable.
 
 ## How the gate behaves meanwhile
 
