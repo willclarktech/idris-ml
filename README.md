@@ -1,154 +1,98 @@
 # idris-ml
 
-Deep learning in Idris 2 with compile-time tensor shape checking and automatic differentiation.
-
-**New here?** [**Why idris-ml**](docs/why-idris-ml.md) makes the full case: dynamic-graph
-ergonomics with safety guarantees stronger than any static graph, compared side-by-side
-against PyTorch, TensorFlow 1.x / JAX, and Haskell (Grenade / hasktorch).
+A dependently-typed deep-learning ecosystem in Idris 2: dynamic-graph ergonomics (define-by-run
+autograd, ordinary `if`/`for`/`while`, normal debugging) with safety guarantees stronger than any
+static graph ever offered — shapes, devices, dtypes, and grad-mode are checked at compile time
+and erased at runtime. This is a **monorepo** of a core library plus RL environments, an
+HF-aligned model library, supporting tools, and the PyTorch oracle it's validated against.
 
 ## Why?
 
-Dynamic graph frameworks like PyTorch catch shape errors at runtime:
-
-```python
-class NTM(nn.Module):
-    def __init__(self, n=128, m=20, h=100):
-        self.lstm = nn.LSTM(m + 9, h)        # input = memory_width + data_width
-        self.read_fc = nn.Linear(h, m + 6)    # should be m + ShiftKernelSize + 3
-        self.output_fc = nn.Linear(h + m, 8)  # hidden + memory_width -> output
-```
-
-Change the memory width `m` and five layer dimensions must update in concert. A typo in any one crashes mid-training -- or worse, silently broadcasts wrong shapes into plausible-looking garbage.
-
-**idris-ml makes these compile errors.** Shape, device, dtype, and grad-mode are all part of the autograd-aware tensor type:
+Dynamic frameworks like PyTorch catch shape errors at runtime, devices at runtime, lossy casts
+never. idris-ml makes them compile errors — and one mechanism (dependent + linear types) covers
+all of it. Shape, executor (backend), dtype, and grad-mode all ride on the autograd tensor type:
 
 ```idris
 record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkTensor
-  tensorPtr : AnyPtr        -- backend handle (carries autograd graph)
+  tensorPtr : AnyPtr        -- backend handle (carries the autograd graph)
   paramId   : Maybe String  -- registry key for the optimizer
 ```
 
-Models are records of `Nn` layers; a `Seq` chain threads dimensions at compile time — its
-type pins only the endpoints, hidden dims are existential:
+**Five guarantees, one type mechanism** — each a compile error here, a runtime error / silent
+bug / outright impossibility elsewhere:
 
-```idris
-Model : Type
-Model = Seq 2 3 Ex F WithGrad
+1. **Shape** mismatches — type-level `Nat` arithmetic threads dimensions through a whole model.
+2. **Device** mismatches — including "CUDA on a Mac" (unspellable in a non-CUDA build) and
+   Metal's F32-only limit (`Compatible (MlxExecutor MGpu) F64` deliberately doesn't exist).
+3. **Grad-mode / model ownership** — models are single-owner linear resources; "freeze then
+   train via the stale handle" (a silent no-op in PyTorch) is a linearity error.
+4. **Lossy dtype casts** — narrowing must be code-visible; `F32 → BF16` won't resolve without an
+   explicit cast.
+5. **Multi-backend in one program** — `tape`, `torch`, and `mlx` tensors coexist in one
+   type-checked program with explicit, checked transfers. No mainstream framework offers this.
 
-mkModel : Init Model
-mkModel = do
-  l1 <- linear {i=2} {o=10}
-  l2 <- linear {i=10} {o=3}
-  pure (l1 ~~> reluA ~~> l2 ~~> Nil)   -- compiles: l1's out 10 unifies with l2's in 10
+→ [**Why idris-ml**](docs/why-idris-ml.md) makes the full case, side by side against PyTorch,
+TensorFlow 1.x / JAX, and Haskell (Grenade / hasktorch), with the **literal error each one
+produces**. It also shows this isn't a toy: [`idris-transformers`](packages/idris-transformers/)
+loads real HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches
+PyTorch's forward pass to **4e-4**.
 
--- Swap l2 for `linear {i=5} {o=3}` and the chain won't elaborate:
---   Mismatch between: 10 and 5
-```
+## Packages
 
-**Five guarantees, one type mechanism.** Each of these is a compile error in idris-ml — and a runtime error, a silent bug, or simply impossible elsewhere:
-
-1. **Shape** mismatches — type-level `Nat` arithmetic (the NTM dimensions above).
-2. **Device** mismatches — including "CUDA on a Mac" (unspellable in a non-CUDA build) and Metal's F32-only limit (`Compatible (MlxExecutor MGpu) F64` deliberately doesn't exist).
-3. **Multi-backend in one program** — `tape`, `torch`, and `mlx` tensors coexist in one type-checked program with explicit, checked transfers. No mainstream framework offers this.
-4. **Grad-mode / model ownership** — models are single-owner linear resources; "freeze then train via the stale handle" (a silent no-op in PyTorch) is a linearity error.
-5. **Lossy dtype casts** — narrowing must be code-visible; `F64 → F32` won't resolve without an explicit cast.
-
-All with dynamic-graph ergonomics intact: ordinary `if`/`for`/`while`, define-by-run autograd, normal debugging.
-
-→ [**Why idris-ml**](docs/why-idris-ml.md) makes the full case — every guarantee shown side by side in PyTorch, TensorFlow 1.x / JAX, Haskell (Grenade / hasktorch), and idris-ml, with the **literal error each one produces**.
-
-## What works today
-
-| Example | Description | Command |
-|---------|-------------|---------|
-| Supervised | 3-class classification with softmax | `make example-supervised` |
-| RNN | Sequence prediction (repeating pattern) | `make example-rnn` |
-| LSTM | Same task, LSTM controller | `make example-lstm` |
-| NTM Copy | Neural Turing Machine binary vector copy | `make example-ntm-copy` |
-| NTM Recall | NTM associative recall (content-based memory) | `make example-ntm-associative-recall` |
-| Transformer | Autoregressive next-token prediction (causal self-attention) | `make example-transformer` |
-| GPT | Character-level language model on Shakespeare | `make example-gpt` |
-| MNIST | CNN digit classification (Conv2D + MaxPool2D) | `make example-mnist` |
-| SeqClassify | 1D waveform classification (Conv1D + MaxPool1D) | `make example-seq-classify` |
-| REINFORCE | Policy gradient on CartPole (pure Idris env) | `make example-reinforce` |
-
-All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
-
-**Not just toy tasks.** [`idris-transformers`](docs/users/idris-transformers.md) loads
-real HuggingFace checkpoints by name — **BERT** (`google/bert_uncased_L-2_H-128_A-2`),
-**GPT-2** (`distilgpt2`), **Llama-3.2-1B**, **BitNet** — via `fromPretrained` (parse
-`config.json`, fill from `model.safetensors`, no remap machinery). CI gates regenerate
-the PyTorch oracle and compare per-element: BERT matches HF's forward pass to **4e-4**
-(`make test-e2e-bert-roundtrip`). LoRA + prefix-freeze fine-tuning are supported.
+| Package | What it is |
+| --- | --- |
+| [`idris-ml`](packages/idris-ml/) | **Core library** — autograd `Tensor`, `Nn` models, optimizers, `fit`, data, checkpoints, pluggable backends |
+| [`idris-ml-examples`](packages/idris-ml-examples/) | Runnable example programs (supervised, recurrent, transformers, RL) + microbenchmarks |
+| [`idris-transformers`](packages/idris-transformers/) | HF-aligned model library — load BERT / GPT-2 / Llama / BitNet via `fromPretrained`; LoRA + fine-tuning |
+| [`idris-gym`](packages/idris-gym/) | Pure-Idris RL environments with a Gymnasium-parity API (CartPole, FrozenLake, Taxi, …) |
+| [`idris-args`](packages/idris-args/) | Typed CLI flag parsing (zero deps beyond base) |
+| [`idris-fmt`](packages/idris-fmt/) | Compiler-native Idris formatter, gated by a round-trip safety oracle |
+| [`idris-ml-notebook`](packages/idris-ml-notebook/) | `Notebook.Prelude` re-export shim auto-loaded by the Jupyter kernel |
+| [`jupyter`](packages/jupyter/) | Jupyter kernel (Python) wrapping the Idris 2 REPL with FFI support |
+| [`backends`](packages/backends/) | C/C++ backends (tape, libtorch, MLX) + the shared training port |
+| [`idris-test`](packages/idris-test/) | Shared Idris test harness (assertions, suites, property testing) |
+| [`idris-test-c`](packages/idris-test-c/) | Cross-cutting C test infrastructure for the backend layer |
+| [`pytorch`](packages/pytorch/) | PyTorch reference implementations — the correctness oracle (not shipped code) |
 
 ## Getting started
 
-The fastest path is the text walkthrough — [**docs/getting-started.md**](docs/getting-started.md) — which takes you from a first tensor to a trained model against the current `Nn` / `fit` API. The same path, interactively, is the 8-part Jupyter tutorial (tensors → models → data → training → sequences → device safety → HPO → precision); see [packages/jupyter/README.md](packages/jupyter/README.md).
+The toolchain (Idris 2 via [pack](https://github.com/stefan-hoeck/idris2-pack), Chez Scheme, a C
+compiler, Criterion, clang-tools, uv) is pinned in [`flake.nix`](flake.nix) — the **same shell CI
+runs in**, so local builds match CI. You need [Nix](https://nixos.org/download) with flakes.
 
-### Development environment
-
-The toolchain — Idris 2 (via [pack](https://github.com/stefan-hoeck/idris2-pack)), Chez Scheme, a C compiler, Criterion, cppcheck, clang-tools, and uv — is pinned in [`flake.nix`](flake.nix). This is the **same shell CI runs in**, so local builds match CI exactly. You need [Nix](https://nixos.org/download) with flakes enabled.
-
-**Recommended — [direnv](https://direnv.net) + [nix-direnv](https://github.com/nix-community/nix-direnv):** the repo ships an `.envrc` (`use flake`), so `cd` into the tree auto-loads the dev shell (cached, instant after the first eval) and `cd` out unloads it. After installing direnv + nix-direnv, one-time per checkout:
+**Recommended — [direnv](https://direnv.net) + [nix-direnv](https://github.com/nix-community/nix-direnv):**
+the repo ships an `.envrc` (`use flake`), so `cd` into the tree auto-loads the dev shell:
 
 ```bash
-direnv allow                # in the repo root
+direnv allow                # one-time, in the repo root
 ```
 
-**Or explicitly**, without direnv:
+**Or explicitly:**
 
 ```bash
 nix develop                                 # enter the dev shell, then run make targets
 nix develop .#default --command make test   # run a single target in the shell
 ```
 
-All `make` targets expect to run inside this shell. In particular the C unit tests (`make test`, `make test-unit-c`) compile against Criterion — like any C library, it's only on the compiler's search path inside the dev shell, never from a global install (Nix exposes libraries to compilation through the build environment, not the user profile).
-
-**Quick start** — inside the dev shell above (or with a system Idris 2 0.8.0+ and a C compiler):
+All `make` targets expect to run inside this shell. Quick start:
 
 ```bash
 make backend                # build the C tape backend (no external dependencies)
+make install                # install core lib + gym (needed for examples/tests)
 make example-supervised     # run the simplest example
-make example-ntm-copy       # train NTM on binary copy task
-make test                   # run test suite
-make jupyter-install && make jupyter-lab  # interactive notebooks
+make test                   # run the Idris test suite
+make jupyter-install && make jupyter-lab   # interactive notebooks
 ```
 
-For the optional libtorch backend: `make BACKEND=torch backend`.
-
-For the optional Apple MLX backend on Apple Silicon: `make BACKEND=mlx backend`. The nixpkgs `python3Packages.mlx` is CPU-only (Metal compute is hardcoded off — see `docs/develop/gotchas.md`); to get a Metal-capable build use a project-local pip install:
-
-```bash
-uv venv .venv-mlx && source .venv-mlx/bin/activate && uv pip install mlx
-make BACKEND=mlx MLX_SITE=$VIRTUAL_ENV/lib/python3.13/site-packages/mlx backend
-```
-
-`MLX_DEVICE=gpu` enables Metal, but at the current example scales (RNN-cell, NTM/DNC, batch-32 MNIST) per-op kernel-launch overhead makes GPU 3-12× slower than the CPU stream. Default (`MLX_DEVICE=cpu`) is the right choice for the examples shipped here; GPU becomes interesting only with bigger batches/models or after `mx::compile`-style fusion lands.
-
-## Performance
-
-NTM-copy runs at ~110ms/epoch on the C tape backend (Apple M-series), comparable to the PyTorch reference (~130ms/epoch). See [docs/benchmarks.md](docs/benchmarks.md) for comparisons across all backends.
-
-## Architecture
-
-```
-Array (Vect-of-Vect)  ->  Tensor (autograd)     ->  Nn (models-as-records)  ->  fit (driver)
-  [3,4] Double            shape+executor+dtype       Module / Seq (~~>)          fitSupervised
-  pure-Idris ops          +grad-mode on the type     linear single-owner models  early stopping
-                          backend C handle, opts     Linear, Conv, LSTM, NTM…    checkpointing
-```
-
-See [CLAUDE.md](CLAUDE.md) for the full module dependency order and development guide.
+The optional libtorch / MLX backends and the full per-backend build matrix are documented in
+[`packages/idris-ml/README.md`](packages/idris-ml/README.md#backends).
 
 ## Documentation
 
-- [Why idris-ml](docs/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1+JAX / Haskell, with literal errors
-- [Getting Started](docs/getting-started.md) — first tensor → first trained model (text walkthrough)
-- [PyTorch Mapping](docs/pytorch-mapping.md) — concept-by-concept translation for PyTorch users
-- [idris-transformers](docs/users/idris-transformers.md) — load real HuggingFace BERT / GPT-2 / Llama / BitNet; fine-tuning + LoRA
-- Deep dives: [Static vs Dynamic Graphs](docs/static-vs-dynamic-graphs.md) · [Grad-Mode & Device Typing](docs/grad-mode-and-device-typing.md) · [Benchmarks](docs/benchmarks.md)
-- [docs/](docs/README.md) — full index · [CLAUDE.md](CLAUDE.md) — architecture + contributor guide
+- [**Why idris-ml**](docs/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1+JAX / Haskell, with literal errors.
+- [docs/](docs/README.md) — full user documentation index (getting-started, PyTorch mapping, deep dives, benchmarks).
+- [CLAUDE.md](CLAUDE.md) — architecture, module dependency order, and the contributor guide.
 
 ## References
 
