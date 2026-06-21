@@ -65,29 +65,34 @@ mismatches at graph construction; but the batch dim is usually `None`, so anythi
 slips to session-run, and untaken branches are never built.
 
 ```python
-# TF 1.x
+import tensorflow.compat.v1 as tf
+tf.disable_eager_execution()
+x = tf.placeholder(tf.float32, [None, 784])
 h = tf.matmul(x, tf.Variable(tf.zeros([784, 256])))
 y = tf.matmul(h, tf.Variable(tf.zeros([128, 10])))    # bug: 128 ≠ 256
 ```
 ```text
-ValueError: Dimensions must be equal, but are 256 and 128 for 'MatMul_1'
-  (op: 'MatMul') with input shapes: [?,256], [128,10].          †
+ValueError: Dimensions must be equal, but are 256 and 128 for '{{node MatMul_1}} =
+  MatMul[T=DT_FLOAT, ...](MatMul, MatMul_1/ReadVariableOp)' with input shapes: [?,256], [128,10].
 ```
 
 **Haskell — compile error, with plugins + singletons (Grenade / hasktorch).** GHC *does* type
-shapes via type-level `Nat` literals:
+shapes via type-level `Nat` literals — the mechanism both Grenade (`Network '[…]`) and hasktorch's
+`Torch.Typed` (`Tensor dev dtype '[n, inF]`) are built on. A minimal reproduction:
 
 ```haskell
--- Grenade: the 128 ≠ 256 typo won't compile
-type MNIST = Network '[ FullyConnected 784 256, Relu, FullyConnected 128 10 ]
-                     '[ 'D1 784, 'D1 256, 'D1 256, 'D1 10 ]
--- hasktorch Torch.Typed: shape carried as a type-level [Nat]
-linearForward :: Linear inF outF dtype dev
-              -> Tensor dev dtype '[n, inF] -> Tensor dev dtype '[n, outF]
+data Tensor (rows :: Nat) (cols :: Nat) = Tensor
+matmul :: Tensor m k -> Tensor k n -> Tensor m n   -- (m×k)·(k×n): inner dims must unify
+fc1 :: Tensor 64 256
+fc2 :: Tensor 128 10                               -- bug: should be 256 10
+bad = matmul fc1 fc2
 ```
 ```text
-• Couldn't match type ‘256’ with ‘128’                          †
-    arising from the second argument of ‘Network’
+error: [GHC-83865]
+    • Couldn't match type ‘128’ with ‘256’
+      Expected: Tensor 256 10
+        Actual: Tensor 128 10
+    • In the second argument of ‘matmul’, namely ‘fc2’
 ```
 
 The friction: GHC's type-level `Nat` arithmetic isn't a solver (`n + m ~ m + n` needs `-fplugin
@@ -146,21 +151,39 @@ a + b
 RuntimeError: Expected all tensors to be on the same device, but found at least two devices, mps:0 and cpu!
 ```
 
-**TensorFlow 1.x — runtime.** Device placement resolves at session-run, not graph construction:
+**TensorFlow 1.x — runtime.** Placement resolves at session-run, not graph construction; pinning an
+op to a device that isn't there fails when the graph executes:
 
+```python
+import tensorflow.compat.v1 as tf
+tf.disable_eager_execution()
+with tf.device('/device:GPU:0'):
+    c = tf.constant([1.0]) + tf.constant([2.0])
+tf.Session(config=tf.ConfigProto(allow_soft_placement=False)).run(c)
+```
 ```text
-# TF 1.x:  InvalidArgumentError: Cannot assign a device for operation … (at session.run)   †
+InvalidArgumentError: Cannot assign a device for operation add: {{node add}} was explicitly
+assigned to /device:GPU:0 but available devices are [ …/device:CPU:0 ]. … The requested device
+appears to be a GPU, but CUDA is not enabled.
 ```
 
-**Haskell — compile error (hasktorch Torch.Typed).** Device is a type parameter `'(DeviceType,
-Nat)`; a CPU tensor won't unify with a CUDA one. This is a plain phantom — no dependent types
-needed (and Grenade is CPU-only):
+**Haskell — compile error.** Device is a DataKinds phantom `'(DeviceType, Nat)` (the way hasktorch's
+`Torch.Typed` carries it; Grenade is CPU-only); a CPU tensor won't unify with a CUDA one. A plain
+phantom — no dependent types needed. Minimal reproduction:
 
 ```haskell
-addCuda :: Tensor '( 'CUDA, 0) dt sh -> Tensor '( 'CUDA, 0) dt sh -> Tensor '( 'CUDA, 0) dt sh
+data DeviceType = CPU | CUDA
+data Tensor (dev :: (DeviceType, Nat)) = Tensor
+addT :: Tensor d -> Tensor d -> Tensor d           -- both operands share the device
+cpu  :: Tensor '( 'CPU, 0);  cuda :: Tensor '( 'CUDA, 0)
+bad  = addT cpu cuda
 ```
 ```text
-• Couldn't match type ‘'( 'CPU, 0)’ with ‘'( 'CUDA, 0)’          †
+error: [GHC-83865]
+    • Couldn't match type ‘CPU’ with ‘CUDA’
+      Expected: Tensor '(CUDA, 0)
+        Actual: Tensor '(CPU, 0)
+    • In the first argument of ‘addT’, namely ‘cpu’
 ```
 
 **idris-ml — compile error.** Device-as-phantom is the easy part; idris-ml gets it the same way
@@ -285,15 +308,24 @@ torch.float16          # no error; ~13 bits of mantissa silently gone
 **TensorFlow 1.x — silent.** `tf.cast` narrows in either direction with no error or warning:
 
 ```python
-tf.cast(tf.constant([1.0], dtype=tf.float64), tf.float16)   # → float16, ~13 bits gone, silently  †
+import tensorflow.compat.v1 as tf
+y = tf.cast(tf.constant([1.0], dtype=tf.float64), tf.float16)
+print(y.dtype.name)
+```
+```text
+float16          # no error; ~13 bits of mantissa silently gone
 ```
 
-**Haskell — silent (no lossless order).** hasktorch carries dtype as a type parameter, but
-`toDType` changes it in either direction with no partial-order gate:
+**Haskell — silent (no lossless order).** hasktorch carries dtype as a type parameter, but with no
+partial-order gate a narrowing `toDType` compiles like any other. Minimal reproduction of the
+missing gate (compiles clean, exit 0):
 
 ```haskell
-x :: Tensor dev 'Float sh
-y = toDType @'Half x      -- compiles; silently narrows F32 → F16     †
+data DType = F32 | F16
+data Tensor (dt :: DType) = Tensor
+toDType :: Tensor a -> Tensor b               -- no LosslessTo-style premise
+narrow  :: Tensor 'F16
+narrow  = toDType (Tensor :: Tensor 'F32)     -- silently narrows F32 → F16
 ```
 
 **idris-ml — compile error unless you opt in.** A *single* `LosslessTo` instance defines the
@@ -453,7 +485,9 @@ verified on every publication push, not asserted. Fine-tuning is supported too:
 
 ---
 
-[^prov]: PyTorch and idris-ml errors are captured verbatim in this repo's environment —
-    torch 2.11, Idris 2 0.8. Lines marked **†** are the frameworks' documented output
-    (TF 1.x and Haskell toolchains aren't reproducible here), shown to illustrate the shape of the
-    error rather than as captured evidence.
+[^prov]: Every error in this article is captured from a real toolchain in this repo's environment —
+    PyTorch 2.11, TensorFlow 2.21 (graph mode via `tf.compat.v1`, the TF 1.x API), GHC 9.10.3, and
+    Idris 2 0.8 — the non-PyTorch ones via disposable `nix shell` environments. The TF and GHC
+    snippets are minimal reproductions of the exact mechanism the named libraries use (Grenade /
+    hasktorch carry shapes and devices as the same type-level `Nat` / DataKinds phantoms); only
+    long internal node-attribute lists in TF errors are elided with `…`.
