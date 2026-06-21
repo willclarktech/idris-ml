@@ -120,11 +120,12 @@ void tensor_backward(TensorHandle h) {
 	};
 
 	// Compute gradients via MLX native autograd (vjp with unit cotangent)
+	// GCOVR_EXCL_START — forward_vec runs inside mx::vjp's trace; gcov mis-attributes the
+	// braced return + the lambda's closing brace as uncovered.
 	auto forward_vec = [&](const std::vector<mx::array>& xs) -> std::vector<mx::array> {
-		// GCOVR_EXCL_START — runs inside mx::vjp's trace; gcov mis-attributes the braced return
 		return {forward_fn(xs)};
-		// GCOVR_EXCL_STOP
 	};
+	// GCOVR_EXCL_STOP
 
 	// Build the [params..., constants...] inputs vector
 	std::vector<mx::array> all_inputs;
