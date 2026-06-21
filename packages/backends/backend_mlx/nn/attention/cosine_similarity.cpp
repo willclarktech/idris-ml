@@ -41,7 +41,7 @@ static void mlx_replay_cosine_sim(std::vector<mx::array>& pool, TapeEntry& e) {
 	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	// Inline cosine similarity forward
-	int n = (int)a.shape(0), m = (int)a.shape(1);
+	int const m = (int)a.shape(1);
 	auto key_2d = mx::reshape(b, {1, m});
 	auto dots = mx::sum(mx::multiply(a, key_2d), std::vector<int>{1});
 	auto eps = scalar_like(1.0e-8, a);

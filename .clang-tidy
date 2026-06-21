@@ -39,6 +39,15 @@
 #   zircon-*       — Fuchsia Zircon kernel; N/A
 #
 # Individual-check disables (within otherwise-enabled families):
+#   bugprone-branch-clone — FALSE POSITIVE on this codebase's dtype
+#       dispatch. Fires on `switch`/`if` whose arms are structurally
+#       parallel but semantically distinct (e.g. `case 13: dt =
+#       mx::float16; break; case 14: dt = mx::float32; break;` — the check
+#       treats `dt = <X>; break;` as a clone regardless of the differing
+#       RHS), and on if/else whose bodies differ only by one extra
+#       statement. Every hit (device select, 4 dtag->Dtype dispatches,
+#       the RMSprop momentum branch) was confirmed distinct. Carries no
+#       bug-class signal here.
 #   bugprone-easily-swappable-parameters — tensor APIs are full of
 #       `(int m, int n)` adjacent parameter pairs by necessity
 #   bugprone-reserved-identifier — `_var` is the local convention for
@@ -128,6 +137,7 @@ Checks: >
   -objc-*,
   -openmp-*,
   -zircon-*,
+  -bugprone-branch-clone,
   -bugprone-easily-swappable-parameters,
   -bugprone-reserved-identifier,
   -cert-dcl37-c,

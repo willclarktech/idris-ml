@@ -10,7 +10,7 @@ extern "C" TensorHandle tensor_max_pool1d_mlx_streamed(TensorHandle hinput, int 
                                                        int stream_tag) {
 	WITH_STREAM(stream_tag);
 	auto* inp = (Tensor*)hinput;
-	int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+	int const C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
 	int const oL = (L - kL) / stride + 1;
 
 	mx::array result = mx::full({C, oL}, -1e30, inp->data.dtype());

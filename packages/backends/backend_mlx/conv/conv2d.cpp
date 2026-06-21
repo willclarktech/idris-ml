@@ -18,7 +18,8 @@ extern "C" TensorHandle tensor_conv2d_mlx_streamed(TensorHandle hinput, TensorHa
 	auto* ker = (Tensor*)hkernel;
 	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 
-	int inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+	int const inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1),
+	          W = (int)inp->data.shape(2);
 
 	auto inp_hwc = mx::transpose(inp->data, {1, 2, 0});
 	auto inp_nhwc = mx::reshape(inp_hwc, {1, H, W, inC});
@@ -65,8 +66,8 @@ extern "C" TensorHandle tensor_conv2d_batched_mlx_streamed(TensorHandle hinput,
 	auto* ker = (Tensor*)hkernel;
 	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
 
-	int B = (int)inp->data.shape(0), inC = (int)inp->data.shape(1);
-	int H = (int)inp->data.shape(2), W = (int)inp->data.shape(3);
+	int const B = (int)inp->data.shape(0), inC = (int)inp->data.shape(1);
+	int const H = (int)inp->data.shape(2), W = (int)inp->data.shape(3);
 
 	auto inp_nhwc = mx::transpose(inp->data, {0, 2, 3, 1});
 	auto ker_mlx = mx::transpose(ker->data, {0, 2, 3, 1});
@@ -109,7 +110,7 @@ static void mlx_replay_conv2d(std::vector<mx::array>& pool, TapeEntry& e) {
 	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* cm = (Conv2DReplayMeta*)e.meta;
-	int inC = cm->inC, HH = cm->H, WW = cm->W;
+	int const inC = cm->inC, HH = cm->H, WW = cm->W;
 	auto inp_hwc = mx::transpose(a, {1, 2, 0});
 	auto inp_nhwc = mx::reshape(inp_hwc, {1, HH, WW, inC});
 	auto ker_mlx = mx::transpose(b, {0, 2, 3, 1});
@@ -128,7 +129,7 @@ static void mlx_replay_conv2d_batched(std::vector<mx::array>& pool, TapeEntry& e
 	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* cm = (Conv2DBatchedReplayMeta*)e.meta;
-	int B = cm->B, inC = cm->inC, HH = cm->H, WW = cm->W;
+	int const B = cm->B, inC = cm->inC, HH = cm->H, WW = cm->W;
 	(void)inC;
 	(void)HH;
 	(void)WW; // dimensions inferred from shape

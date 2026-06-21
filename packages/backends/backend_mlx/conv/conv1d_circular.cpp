@@ -44,7 +44,7 @@ static void mlx_replay_conv1d_circ(std::vector<mx::array>& pool, TapeEntry& e) {
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	// Inline circular convolution forward (kernel reversed — see
 	// backend_mlx/conv/conv1d_circular.cpp for the index derivation)
-	int n = (int)a.size(), k = (int)b.size();
+	int const n = (int)a.size(), k = (int)b.size();
 	int const half_k = k / 2;
 	auto result = mx::zeros({n}, a.dtype());
 	for (int j = 0; j < k; j++) {

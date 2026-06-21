@@ -15,7 +15,7 @@ extern "C" TensorHandle tensor_avg_pool1d_mlx_streamed(TensorHandle hinput, int 
 	WITH_STREAM(stream_tag);
 	auto* inp = (Tensor*)hinput;
 	auto dt = inp->data.dtype();
-	int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+	int const C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
 	int const oL = (L - kL) / stride + 1;
 	mx::array result = mx::zeros({C, oL}, dt);
 	for (int kl = 0; kl < kL; kl++) {

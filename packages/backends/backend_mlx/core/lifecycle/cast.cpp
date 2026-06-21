@@ -61,11 +61,23 @@ static void mlx_replay_cast_dtype(std::vector<mx::array>& pool, TapeEntry& e) {
 	int const out = e.result->pool_idx;
 	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
-	mx::Dtype const target = (e.scalar_arg == 0.0)   ? mx::float32
-	                         : (e.scalar_arg == 1.0) ? mx::float64
-	                         : (e.scalar_arg == 2.0) ? mx::bfloat16
-	                         : (e.scalar_arg == 3.0) ? mx::float16
-	                                                 : mx::int32; /* 4.0 */
+	mx::Dtype target = mx::int32; /* 4.0 */
+	switch ((int)e.scalar_arg) {
+	case 0:
+		target = mx::float32;
+		break;
+	case 1:
+		target = mx::float64;
+		break;
+	case 2:
+		target = mx::bfloat16;
+		break;
+	case 3:
+		target = mx::float16;
+		break;
+	default:
+		break;
+	}
 	pool[out] = mx::astype(a, target);
 }
 MLX_REGISTER_REPLAY(OP_CAST_DTYPE, mlx_replay_cast_dtype)

@@ -51,6 +51,6 @@ inline int default_stream_tag() {
 	return cached;
 }
 
-#define WITH_STREAM(stream_tag) mx::StreamContext _stream_guard(stream_for_tag(stream_tag))
+#define WITH_STREAM(stream_tag) const mx::StreamContext _stream_guard(stream_for_tag(stream_tag))
 
 #endif /* IDRISML_BACKEND_MLX_STREAM_H */

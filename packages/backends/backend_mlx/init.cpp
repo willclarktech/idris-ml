@@ -52,8 +52,6 @@ static void mlx_terminate_handler(void) {
 
 __attribute__((constructor)) static void mlx_backend_init(void) {
 	const char* env = std::getenv("MLX_DEVICE");
-	// Branches are distinct (gpu vs cpu device); clang-tidy branch-clone FP.
-	// NOLINTNEXTLINE(bugprone-branch-clone)
 	if ((env != nullptr) && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
 		mx::set_default_device(mx::Device(mx::Device::gpu));
 	} else {

@@ -18,10 +18,11 @@
 #ifndef IDRISML_BACKEND_MLX_TAPE_H
 #define IDRISML_BACKEND_MLX_TAPE_H
 
+#include <cstdint>
 #include <vector>
 #include "tensor.h"
 
-enum {
+enum : std::uint8_t {
 	OP_CONST = 0,
 	OP_ADD,
 	OP_SUB,

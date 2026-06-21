@@ -32,6 +32,9 @@ static void mlx_replay_scatter_add(std::vector<mx::array>& pool, TapeEntry& e) {
 	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	int const out_size = (int)e.scalar_arg;
+	// arg2 (index tensor) is always present for OP_SCATTER_ADD (tape_append
+	// sets it); the analyzer's null path is infeasible.
+	// NOLINTNEXTLINE(clang-analyzer-core.NonNullParamChecker)
 	auto idx_int = mx::astype(e.arg2->data, mx::int32);
 	auto base = mx::zeros({out_size}, a.dtype());
 	auto updates_2d = mx::reshape(a, {(int)a.size(), 1});

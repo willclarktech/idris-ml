@@ -21,7 +21,7 @@ extern "C" TensorHandle tensor_conv1d_grouped(TensorHandle hinput, TensorHandle 
 	auto* inp = (Tensor*)hinput;
 	auto* ker = (Tensor*)hkernel;
 	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
-	int inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+	int const inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
 	auto inp_lc = mx::transpose(inp->data, {1, 0});
 	auto inp_nlc = mx::reshape(inp_lc, {1, L, inC});
 	auto ker_mlx = mx::transpose(ker->data, {0, 2, 1});
@@ -39,7 +39,8 @@ extern "C" TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle 
 	auto* inp = (Tensor*)hinput;
 	auto* ker = (Tensor*)hkernel;
 	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
-	int inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+	int const inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1),
+	          W = (int)inp->data.shape(2);
 	auto inp_hwc = mx::transpose(inp->data, {1, 2, 0});
 	auto inp_nhwc = mx::reshape(inp_hwc, {1, H, W, inC});
 	auto ker_mlx = mx::transpose(ker->data, {0, 2, 3, 1});

@@ -22,7 +22,7 @@ extern "C" void _dbg_dump_param_grads_if_enabled_mlx(void) {
 	static int max_dumps = -1;
 	if (max_dumps < 0) {
 		const char* mx_env = getenv("DEBUG_PARAM_GRADS_MAX");
-		max_dumps = (mx_env != nullptr) ? atoi(mx_env) : 1;
+		max_dumps = (mx_env != nullptr) ? (int)strtol(mx_env, nullptr, 10) : 1;
 	}
 	const char* env = getenv("DEBUG_PARAM_GRADS");
 	if ((env == nullptr) || env[0] != '1') return;

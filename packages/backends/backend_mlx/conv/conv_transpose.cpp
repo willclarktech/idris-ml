@@ -18,8 +18,8 @@ extern "C" TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandl
 	auto* inp = (Tensor*)hinput;
 	auto* ker = (Tensor*)hkernel;
 	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
-	int inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
-	int outC = (int)ker->data.shape(1), kL = (int)ker->data.shape(2);
+	int const inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+	int const outC = (int)ker->data.shape(1), kL = (int)ker->data.shape(2);
 	int const oL = (L - 1) * stride - 2 * pad + kL;
 
 	mx::eval(inp->data);
@@ -61,8 +61,10 @@ extern "C" TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandl
 	auto* inp = (Tensor*)hinput;
 	auto* ker = (Tensor*)hkernel;
 	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
-	int inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
-	int outC = (int)ker->data.shape(1), kH = (int)ker->data.shape(2), kW = (int)ker->data.shape(3);
+	int const inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1),
+	          W = (int)inp->data.shape(2);
+	int const outC = (int)ker->data.shape(1), kH = (int)ker->data.shape(2),
+	          kW = (int)ker->data.shape(3);
 	int const oH = (H - 1) * strideH - 2 * padH + kH;
 	int const oW = (W - 1) * strideW - 2 * padW + kW;
 	mx::eval(inp->data);

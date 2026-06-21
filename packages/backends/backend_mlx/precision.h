@@ -96,7 +96,7 @@ inline mx::array mx_from_doubles(const double* data, const mx::Shape& shape) {
 		n *= (int)s;
 	std::vector<float> tmp((size_t)n);
 	for (int i = 0; i < n; i++)
-		tmp[i] = (float)data[i];
+		tmp[i] = (float)data[i]; // NOLINT(clang-analyzer-core.uninitialized.Assign)
 	return mx::array(tmp.data(), shape, mx::float32);
 }
 
@@ -110,7 +110,7 @@ inline mx::array mx_bf16_from_doubles(const double* data, const mx::Shape& shape
 		n *= (int)s;
 	std::vector<float> tmp((size_t)n);
 	for (int i = 0; i < n; i++)
-		tmp[i] = (float)data[i];
+		tmp[i] = (float)data[i]; // NOLINT(clang-analyzer-core.uninitialized.Assign)
 	auto fp32 = mx::array(tmp.data(), shape, mx::float32);
 	return mx::astype(fp32, mx::bfloat16);
 }
@@ -123,7 +123,7 @@ inline mx::array mx_f16_from_doubles(const double* data, const mx::Shape& shape)
 		n *= (int)s;
 	std::vector<float> tmp((size_t)n);
 	for (int i = 0; i < n; i++)
-		tmp[i] = (float)data[i];
+		tmp[i] = (float)data[i]; // NOLINT(clang-analyzer-core.uninitialized.Assign)
 	auto fp32 = mx::array(tmp.data(), shape, mx::float32);
 	return mx::astype(fp32, mx::float16);
 }
@@ -139,7 +139,7 @@ inline mx::array mx_i32_from_doubles(const double* data, const mx::Shape& shape)
 		n *= (int)s;
 	std::vector<int32_t> tmp((size_t)n);
 	for (int i = 0; i < n; i++)
-		tmp[i] = (int32_t)data[i];
+		tmp[i] = (int32_t)data[i]; // NOLINT(clang-analyzer-core.uninitialized.Assign)
 	return mx::array(tmp.data(), shape, mx::int32);
 }
 

@@ -364,9 +364,6 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 			opt->v_bufs[i] = mx::add(mx::multiply(alpha_arr, opt->v_bufs[i]),
 			                         mx::multiply(one_m_alpha, mx::square(g)));
 			auto avg = mx::add(mx::sqrt(opt->v_bufs[i]), eps_arr);
-			// Branches differ (then updates m_bufs then t->data; else
-			// updates t->data directly); clang-tidy branch-clone FP.
-			// NOLINTNEXTLINE(bugprone-branch-clone)
 			if (opt->momentum > 0) {
 				opt->m_bufs[i] =
 				    mx::add(mx::multiply(momentum_a, opt->m_bufs[i]), mx::divide(g, avg));
@@ -515,7 +512,7 @@ extern "C" int optimizer_buf_count(OptimizerHandle h) {
 extern "C" void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
 	auto* opt = (Optimizer*)h;
 	if (idx >= (int)opt->m_bufs.size()) {
-		int const n = ((Tensor*)param_tensor(idx))->data.size();
+		int const n = (int)((Tensor*)param_tensor(idx))->data.size();
 		memset(out, 0, n * sizeof(double));
 		return;
 	}
@@ -527,7 +524,7 @@ extern "C" void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
 extern "C" void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
 	auto* opt = (Optimizer*)h;
 	if (idx >= (int)opt->v_bufs.size()) {
-		int const n = ((Tensor*)param_tensor(idx))->data.size();
+		int const n = (int)((Tensor*)param_tensor(idx))->data.size();
 		memset(out, 0, n * sizeof(double));
 		return;
 	}

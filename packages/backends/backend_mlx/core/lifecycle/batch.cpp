@@ -51,10 +51,20 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
 		if (tok >= 0 && tok < vocab_size) data[(size_t)i * vocab_size + tok] = 1.0;
 	}
 	mx::Shape const sh = {(int)total};
-	mx::Dtype const dt = (dtag == 15)   ? mx::float64
-	                     : (dtag == 17) ? mx::bfloat16
-	                     : (dtag == 13) ? mx::float16
-	                                    : mx::float32;
+	mx::Dtype dt = mx::float32;
+	switch (dtag) {
+	case 15:
+		dt = mx::float64;
+		break;
+	case 17:
+		dt = mx::bfloat16;
+		break;
+	case 13:
+		dt = mx::float16;
+		break;
+	default:
+		break;
+	}
 	auto* t = new Tensor(mx_array_from_doubles(data.data(), sh, dt), false);
 	free(tokens);
 	return (TensorHandle)t;

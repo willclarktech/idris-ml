@@ -196,7 +196,7 @@ void tensor_backward(TensorHandle h) {
 			// first NaN-producing op. result->data already holds the actual
 			// forward value, so we just check those in tape order.
 			if (any_nan != 0) {
-				static const char const* OP_NAMES[] = {
+				static const char* const OP_NAMES[] = {
 				    "CONST",
 				    "ADD",
 				    "SUB",

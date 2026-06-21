@@ -11,7 +11,7 @@ extern "C" TensorHandle tensor_avg_pool2d_mlx_streamed(TensorHandle hinput, int 
 	WITH_STREAM(stream_tag);
 	auto* inp = (Tensor*)hinput;
 	auto dt = inp->data.dtype();
-	int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+	int const C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
 	int const oH = (H - kH) / strideH + 1;
 	int const oW = (W - kW) / strideW + 1;
 	mx::array result = mx::zeros({C, oH, oW}, dt);
@@ -53,9 +53,9 @@ static void mlx_replay_avg_pool2d(std::vector<mx::array>& pool, TapeEntry& e) {
 	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* meta = (AvgPool2DReplayMeta*)e.meta;
-	int CC = meta->C, kH = meta->kH, kW = meta->kW;
-	int sH = meta->strH, sW = meta->strW;
-	int oH = meta->oH, oW = meta->oW;
+	int const CC = meta->C, kH = meta->kH, kW = meta->kW;
+	int const sH = meta->strH, sW = meta->strW;
+	int const oH = meta->oH, oW = meta->oW;
 	mx::array res = mx::zeros({CC, oH, oW}, a.dtype());
 	for (int kh = 0; kh < kH; kh++)
 		for (int kw = 0; kw < kW; kw++) {

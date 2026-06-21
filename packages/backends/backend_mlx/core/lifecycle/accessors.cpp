@@ -63,7 +63,7 @@ extern "C" void tensor_to_int64(TensorHandle h, int64_t* out) {
 	if (tmp == nullptr) return;
 	mx_to_doubles(contig, tmp);
 	for (int i = 0; i < n; i++)
-		out[i] = (int64_t)tmp[i];
+		out[i] = (int64_t)tmp[i]; // NOLINT(clang-analyzer-core.uninitialized.Assign)
 	free(tmp);
 }
 

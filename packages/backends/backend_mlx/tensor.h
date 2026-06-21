@@ -38,7 +38,7 @@ struct Tensor {
 	int refcount;
 	long create_id; /* generation marker: g_mlx_create_calls_global at construction */
 
-	Tensor(mx::array d, bool rg = false);
+	Tensor(mx::array d, bool requires_grad = false);
 };
 
 /* Tracking globals — defined in backend_mlx.cpp, referenced from any

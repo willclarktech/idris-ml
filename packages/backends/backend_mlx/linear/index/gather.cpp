@@ -33,6 +33,9 @@ static void mlx_replay_gather(std::vector<mx::array>& pool, TapeEntry& e) {
 	// pool). The constants-collection above intentionally
 	// excludes arg2 for this op so mlx::vjp never sees it as a
 	// differentiable input. See `arg2_is_index` above.
+	// arg2 (index tensor) is always present for OP_GATHER (tape_append sets
+	// it); the analyzer's null path is infeasible.
+	// NOLINTNEXTLINE(clang-analyzer-core.NonNullParamChecker)
 	auto idx_int = mx::astype(e.arg2->data, mx::int32);
 	pool[out] = mx::take(a, idx_int, 0);
 }

@@ -17,7 +17,7 @@ extern "C" TensorHandle tensor_conv1d_mlx_streamed(TensorHandle hinput, TensorHa
 	auto* inp = (Tensor*)hinput;
 	auto* ker = (Tensor*)hkernel;
 	Tensor const* bias = (hbias != nullptr) ? (Tensor*)hbias : nullptr;
-	int inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+	int const inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
 
 	auto inp_lc = mx::transpose(inp->data, {1, 0}); /* [L, inC]      */
 	auto inp_nlc = mx::reshape(inp_lc, {1, L, inC});
@@ -55,7 +55,7 @@ static void mlx_replay_conv1d(std::vector<mx::array>& pool, TapeEntry& e) {
 	[[maybe_unused]] auto a = (e.arg1 != nullptr) ? pool[e.arg1->pool_idx] : kF32_ZERO();
 	[[maybe_unused]] auto b = (e.arg2 != nullptr) ? pool[e.arg2->pool_idx] : kF32_ZERO();
 	auto* cm = (Conv1DReplayMeta*)e.meta;
-	int inC = cm->inC, LL = cm->L;
+	int const inC = cm->inC, LL = cm->L;
 	auto inp_lc = mx::transpose(a, {1, 0});
 	auto inp_nlc = mx::reshape(inp_lc, {1, LL, inC});
 	auto ker_mlx = mx::transpose(b, {0, 2, 1});

@@ -9,7 +9,7 @@ extern "C" TensorHandle tensor_max_pool2d_mlx_streamed(TensorHandle hinput, int 
                                                        int strideH, int strideW, int stream_tag) {
 	WITH_STREAM(stream_tag);
 	auto* inp = (Tensor*)hinput;
-	int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+	int const C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
 	int const oH = (H - kH) / strideH + 1;
 	int const oW = (W - kW) / strideW + 1;
 

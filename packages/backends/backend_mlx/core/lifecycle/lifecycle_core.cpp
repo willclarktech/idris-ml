@@ -22,9 +22,9 @@ int next_pool_idx = 0;
 long g_mlx_create_calls_global = 0; /* monotonic Tensor-creation counter (feeds create_id) */
 long g_mlx_peak_live = 0;           /* high-water mark of all_tensors.size() */
 
-Tensor::Tensor(mx::array d, bool rg)
-    : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg), has_grad(false), tape_idx(-1),
-      pool_idx(next_pool_idx++), refcount(0) {
+Tensor::Tensor(mx::array d, bool requires_grad)
+    : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(requires_grad), has_grad(false),
+      tape_idx(-1), pool_idx(next_pool_idx++), refcount(0) {
 	create_id = g_mlx_create_calls_global++;
 	all_tensors.push_back(this);
 	g_mlx_peak_live = std::max((long)all_tensors.size(), g_mlx_peak_live);
