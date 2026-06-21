@@ -268,15 +268,18 @@ lint-c-torch:
 	@# matches across the whole TU AST (libtorch's headers included) BEFORE
 	@# the system-header / header-filter display drop, and clang-tidy has no
 	@# flag to skip analyzing included headers — so ~13k/TU is generated-
-	@# then-hidden regardless of -isystem. The bash -c wrapper greps that one
-	@# summary line out of each file's output, preserving clang-tidy's exit
-	@# code via `exit $$rc` so the enforcing gate still fails on any real
-	@# (displayed) finding. Per-file parallel fan-out (GNU xargs -P) because
-	@# one serial clang-tidy over ~100 TUs blew the CI job's 30m timeout. The
-	@# step only ever runs on the ubuntu lint-full lane (macOS SDK-blocked).
+	@# then-hidden regardless of -isystem. The bash -c wrapper streams each
+	@# file's output through `grep -v` to drop that one summary line, prints a
+	@# `>> <file>` progress marker first (the per-file count lines used to be
+	@# the only heartbeat — without a replacement the ~40-min step looks
+	@# hung), and propagates clang-tidy's exit via PIPESTATUS so the enforcing
+	@# gate still fails on any real (displayed) finding. Per-file parallel
+	@# fan-out (GNU xargs -P) because one serial clang-tidy over ~100 TUs blew
+	@# the CI job's 30m timeout. Runs only on the ubuntu lint-full lane
+	@# (macOS SDK-blocked).
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
 		printf '%s\n' $(BACKEND_TORCH_SRCS) | xargs -P "$$(nproc 2>/dev/null || echo 4)" -I{} \
-			bash -c 'out=$$(clang-tidy --quiet "$$1" -- $(CLANG_TIDY_EXTRA_CFLAGS) $(subst -I,-isystem ,$(torch_CFLAGS)) -include $(BACKENDS_DIR)/rename_torch.h 2>&1); rc=$$?; printf "%s\n" "$$out" | grep -v "warnings generated\.$$" || true; exit $$rc' _ {} || exit 1; \
+			bash -c 'echo ">> $$1"; clang-tidy --quiet "$$1" -- $(CLANG_TIDY_EXTRA_CFLAGS) $(subst -I,-isystem ,$(torch_CFLAGS)) -include $(BACKENDS_DIR)/rename_torch.h 2>&1 | grep -v "warnings generated\.$$"; exit $${PIPESTATUS[0]}' _ {} || exit 1; \
 	fi
 
 lint-c-mlx:
@@ -286,12 +289,13 @@ lint-c-mlx:
 		echo "lint-c-mlx: cppcheck not installed; skipping"; \
 	fi
 	@echo "lint-c-mlx: clang-tidy on mlx C++ skipped by default; enable via 'make C_LINT_FULL_CLANG_TIDY=1 lint-c-mlx' (Linux). Same macOS+nix block as torch — Apple SDK headers reject nix clang-tidy."
-	@# bash -c wrapper greps clang-tidy's noisy "N warnings generated." per-TU
-	@# summary (counted pre-display-suppression over mlx's headers) out of the
-	@# output, preserving the exit code; see lint-c-torch for the full rationale.
+	@# bash -c wrapper streams clang-tidy through `grep -v` to drop the noisy
+	@# "N warnings generated." per-TU summary (counted pre-display-suppression
+	@# over mlx's headers), prints a `>> <file>` progress marker, and
+	@# propagates the exit via PIPESTATUS; see lint-c-torch for the rationale.
 	@if [ -n "$$C_LINT_FULL_CLANG_TIDY" ] && command -v clang-tidy >/dev/null 2>&1; then \
 		printf '%s\n' $(BACKEND_MLX_SRCS) | xargs -P "$$(nproc 2>/dev/null || echo 4)" -I{} \
-			bash -c 'out=$$(clang-tidy --quiet "$$1" -- $(CLANG_TIDY_EXTRA_CFLAGS) $(subst -I,-isystem ,$(mlx_CFLAGS)) -include $(BACKENDS_DIR)/rename_mlx.h 2>&1); rc=$$?; printf "%s\n" "$$out" | grep -v "warnings generated\.$$" || true; exit $$rc' _ {} || exit 1; \
+			bash -c 'echo ">> $$1"; clang-tidy --quiet "$$1" -- $(CLANG_TIDY_EXTRA_CFLAGS) $(subst -I,-isystem ,$(mlx_CFLAGS)) -include $(BACKENDS_DIR)/rename_mlx.h 2>&1 | grep -v "warnings generated\.$$"; exit $${PIPESTATUS[0]}' _ {} || exit 1; \
 	fi
 
 # Verify the GradMode gate is intact: a NoGrad loss must NOT type-check
