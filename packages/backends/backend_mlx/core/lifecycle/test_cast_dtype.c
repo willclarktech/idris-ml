@@ -15,9 +15,7 @@
  */
 
 #include <criterion/criterion.h>
-#include <math.h>
 #include <stdlib.h>
-#include <string.h>
 #include <string.h>
 #include "backend.h"
 #include "test_helpers.h"

@@ -39,10 +39,11 @@
      step = lr * mhat / (sqrt(vhat) + eps) ~= lr * g / |g| = lr  (sign of g)
    so a -> a - lr (for g > 0).
    ---------------------------------------------------------------------- */
-/* DISABLED: mlx's CPU-JIT (mx::compile) shells out to `g++`, which is absent in
-   the nix dev shell (and the CI mlx runner) — clang only. The MLX_OPT_COMPILE
-   Adam path can't be exercised here. Re-enable if a g++ (or clang-as-g++) lands
-   on the mlx lane. */
+/* DISABLED: the flake's g++→clang++ shim lets mlx's CPU-JIT (mx::compile) RUN
+   and the assertions pass, but mlx's compile-state teardown crashes the forked
+   Criterion child on exit ("crashed during teardown") — which also skips the
+   gcov flush, so this test gains no coverage while emitting crash warnings.
+   Re-enable once mlx's compile teardown is stable (see TODO.md). */
 Test(mlx_optimizer_compile, adam_compiled_step_matches_eager, .disabled = true) {
 	setenv("MLX_OPT_COMPILE", "1", 1);
 	param_clear();
@@ -69,7 +70,7 @@ Test(mlx_optimizer_compile, adam_compiled_step_matches_eager, .disabled = true) 
 
 /* Compile path with two params, exercising the per-param scatter/gather loop
    in adam_step_compile (n == 2) and the get_adam_compiled cache key on n. */
-/* DISABLED: mlx CPU-JIT needs g++ (absent in nix shell / CI mlx runner). */
+/* DISABLED: see adam_compiled_step_matches_eager — mlx compile teardown crash. */
 Test(mlx_optimizer_compile, adam_compiled_two_params, .disabled = true) {
 	setenv("MLX_OPT_COMPILE", "1", 1);
 	param_clear();

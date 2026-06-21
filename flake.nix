@@ -107,6 +107,20 @@
           exec "$@"
         '';
 
+      # A `g++` shim → clang++ (prepended to PATH by the default devShell's
+      # shellHook on macOS). mlx's CPU JIT (mx::compile) shells out to a
+      # hard-coded `g++ -std=c++17 -O3 -fPIC -shared` to build fused kernels at
+      # runtime (no CXX/MLX_CXX env override in mlx 0.31). The nix shell ships
+      # clang, not g++, so the JIT path (MLX_OPT_COMPILE=1, the compiled Adam
+      # optimizer) aborts with "tool 'g++' not found". clang++ compiles mlx's
+      # generated C++17 fine, so this shim makes the compile path usable in dev
+      # + CI (and testable). macOS-only: the mlx lane runs on macOS.
+      gxxShim =
+        pkgs:
+        pkgs.writeShellScriptBin "g++" ''
+          exec clang++ "$@"
+        '';
+
       # Full build/test shell = the shared toolchain plus git-tools, which the
       # CI lanes need for `git restore-mtime` (the cross-commit TTC-cache mtime
       # reconciliation in setup-idris-ml). Python is intentionally NOT here —
@@ -161,7 +175,7 @@
           # the toolchain the dotfiles install system-wide.
           shellHook =
             pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
-              export PATH="${noopStdbuf pkgs}/bin:$PATH"
+              export PATH="${noopStdbuf pkgs}/bin:${gxxShim pkgs}/bin:$PATH"
               # SDK root for the full C++ clang-tidy (see apple-sdk above +
               # mk/config.mk CLANG_TIDY_EXTRA_CFLAGS). Referenced by absolute
               # path, NOT added to the build's sysroot — the actual compile
