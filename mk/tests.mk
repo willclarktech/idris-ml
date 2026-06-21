@@ -181,6 +181,12 @@ COV_CLANG ?= clang
 COV_CLANGXX ?= clang++
 COV_CC_OVERRIDES := tape_CC=$(COV_CLANG) torch_CC=$(COV_CLANGXX) mlx_CC=$(COV_CLANGXX) LINK_CC=$(COV_CLANGXX) TEST_CC=$(COV_CLANG) SHARED_CC=$(COV_CLANG)
 COV_LLVM :=
+# The wrapped clang injects nix hardening's -D_FORTIFY_SOURCE=2, but coverage
+# is -O0 (see COV_CFLAGS note), so glibc features.h fires `#warning
+# _FORTIFY_SOURCE requires compiling with optimization` once per TU. Fortify
+# just no-ops at -O0; silence the (clang-only) preprocessor warning rather
+# than bend the optimization level the torch lane can't afford.
+COV_CFLAGS += -Wno-\#warnings
 endif
 
 test-coverage-backend:
@@ -213,8 +219,10 @@ TEST_CC := cc
 $(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
 	$(TEST_CC) -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(TEST_C_INCLUDES) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) $(BACKEND_LDFLAGS) -lm
 
-$(COV_BUILD):
-	mkdir -p $@
+# No `$(COV_BUILD):` dir rule here — the coverage recipe runs a sub-make with
+# BUILD=$(COV_BUILD), so backends.mk's `$(BUILD): mkdir -p $(BUILD)` already
+# creates build-cov/. A second rule for the same target made `make` warn
+# "overriding recipe for target 'build-cov'" in the coverage sub-make.
 
 test-coverage-backend-tape:
 	$(MAKE) BACKEND=tape test-coverage-backend
