@@ -14,6 +14,7 @@
  */
 
 #include <criterion/criterion.h>
+#include <signal.h>
 #include "backend_tape/tape.h"
 #include "backend_tape/training/autograd/op_dispatch.h"
 
@@ -65,6 +66,18 @@ Test(op_dispatch, out_of_range_returns_null) {
 	cr_assert_null(tape_dispatch_get(-1));
 	cr_assert_null(tape_dispatch_get(OP_COUNT));
 	cr_assert_null(tape_dispatch_get(OP_COUNT + 1000));
+}
+
+static void unreached_backward(TapeEntry* e) {
+	(void)e;
+}
+
+/* Registering a backward fn for an out-of-range op tag is a programmer
+   error — tape_register_op logs to stderr and aborts (op_dispatch.c
+   16-21). Drives the diagnostic + abort body; the body is GCOVR-excluded
+   in the product source since it never returns. */
+Test(op_dispatch, register_out_of_range_aborts, .signal = SIGABRT) {
+	tape_register_op(OP_COUNT, unreached_backward);
 }
 
 #endif /* BACKEND_TAPE */

@@ -345,9 +345,14 @@ void tape_optimizer_step(void* h) {
 				break;
 			}
 			default:
+				// GCOVR_EXCL_START — abort path; covered by the SIGABRT death test
+				// tape_optimizer_edge.unknown_type_aborts (test_optimizer_tape.c).
+				// abort() skips the gcov flush in the forked Criterion child, so
+				// these lines can't register as covered despite firing.
 				fprintf(stderr, "tape optimizer: unknown opt->type=%d\n", opt->type);
 				// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 				abort();
+				// GCOVR_EXCL_STOP
 			}
 		}
 	}

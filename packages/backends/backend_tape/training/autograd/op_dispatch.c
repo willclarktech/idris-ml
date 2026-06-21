@@ -13,12 +13,15 @@ static TapeBackwardFn g_tape_backward[OP_COUNT] = {0};
 
 void tape_register_op(int op, TapeBackwardFn fn) {
 	if (op < 0 || op >= OP_COUNT) {
+		// GCOVR_EXCL_START — death-tested by Test(op_dispatch, register_out_of_range_aborts); body
+		// never returns
 		fprintf(stderr,
 		        "[tape backend] tape_register_op: op tag %d out of range "
 		        "[0..%d)\n",
 		        op, OP_COUNT);
 		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 	g_tape_backward[op] = fn;
 }

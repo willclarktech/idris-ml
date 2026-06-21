@@ -1,7 +1,17 @@
 /* Criterion suite for tape `tensor_cumprod`. */
 
 #include <criterion/criterion.h>
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
+
+/* Streamed creators free their data argument (callee-owns); hand each a fresh
+   heap copy so a stack array is never passed directly or shared across calls. */
+static double* hcopy(const double* s, int n) {
+	double* b = malloc((size_t)n * sizeof(double));
+	memcpy(b, s, (size_t)n * sizeof(double));
+	return b;
+}
 
 Test(linear_sort_cumprod, forward) {
 	double d[] = {2.0, 3.0, 4.0};
@@ -76,4 +86,42 @@ Test(linear_sort_cumprod, forward_no_grad) {
 	cr_assert_float_eq(out[1], 3.0, 1e-12);
 	cr_assert_float_eq(out[2], 1.5, 1e-12);
 	cr_assert_float_eq(out[3], 6.0, 1e-12);
+}
+
+/* ---- F32 coverage (cumprod.c lines 24-28, 30-31: F32 arena output) ---- */
+
+Test(linear_sort_cumprod, f32_forward) {
+	/* F32 a = [2, 3, 4] -> r = [2, 6, 24]. F32 readback ~1e-6 error. */
+	double d[] = {2.0, 3.0, 4.0};
+	TensorHandle t = tensor_create_1d_streamed(3, hcopy(d, 3), 0, 0, 14);
+	cr_assert_str_eq(tensor_dtype_name(t), "F32");
+	TensorHandle r = tensor_cumprod(t, 0);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 cumprod output keeps F32 tag");
+	double out[3];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 2.0, 1e-5);
+	cr_assert_float_eq(out[1], 6.0, 1e-5);
+	cr_assert_float_eq(out[2], 24.0, 1e-5);
+}
+
+Test(linear_sort_cumprod, f32_backward_simple) {
+	/* F32 a = [2,3,4]; r = [2,6,24]; loss = sum(r).
+	   d_a[0] = (2+6+24)/2 = 16, d_a[1] = (6+24)/3 = 10, d_a[2] = 24/4 = 6.
+	   Exercises the F32 forward arena path + tape append; the backward
+	   (tape_backward_cumprod) is dtype-agnostic. */
+	param_clear();
+	double d[] = {2.0, 3.0, 4.0};
+	TensorHandle t = tensor_create_param_1d_streamed(3, hcopy(d, 3), 0, 14);
+	param_register("t", t);
+	TensorHandle r = tensor_cumprod(t, 0);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32");
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 16.0, 1e-4, "d_t[0] should be 16 (got %.6f)",
+	                   param_grad_item_at(0, 0));
+	cr_assert_float_eq(param_grad_item_at(0, 1), 10.0, 1e-4, "d_t[1] should be 10 (got %.6f)",
+	                   param_grad_item_at(0, 1));
+	cr_assert_float_eq(param_grad_item_at(0, 2), 6.0, 1e-4, "d_t[2] should be 6 (got %.6f)",
+	                   param_grad_item_at(0, 2));
+	param_clear();
 }

@@ -86,6 +86,58 @@ Test(nn_attention_embedding_2d, single_row_lookup) {
 	cr_assert_float_eq(got[3], 8.0, TEST_TOL_RELAXED, "elt 3");
 }
 
+Test(nn_attention_embedding_2d, f32_gathers_correct_rows) {
+	/* F32 gather path (embedding.c lines 22-26, 29-30: the F32 arena
+	 * branch of embedding_impl). Out[i, j] = weight[idx[i], j], same as
+	 * gathers_correct_rows but with F32 weight storage. F32 readback
+	 * carries ~1e-6 error so assert at an explicit 1e-5 tolerance. */
+	param_clear();
+	double w_d[] = {
+	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+	};
+	double idx_d[] = {2.0, 0.0, 3.0};
+	/* tape F32 storage is reachable only via *_streamed with dtag=14; the
+	 * F32 branch of embedding_impl keys on weight->dtype_tag == DT_F32.
+	 * Indices are read through tape_load_d so they may stay F64. */
+	TensorHandle w = tensor_create_2d_streamed(4, 3, heap_copy(w_d, 12), 0, 0, 14);
+	TensorHandle idx = tensor_create_1d_f64(3, heap_copy(idx_d, 3), 0);
+	TensorHandle r = tensor_embedding_2d(w, idx, 3, 3);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 embedding output should stay F32 (got %s)",
+	                 tensor_dtype_name(r));
+	cr_assert_eq(tensor_dim(r), 2, "F32 embedding_2d output should be rank 2, got %d",
+	             tensor_dim(r));
+	double got[9];
+	tensor_to_doubles(r, got);
+	double expected[] = {
+	    7.0, 8.0, 9.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0,
+	};
+	for (int k = 0; k < 9; k++) {
+		cr_assert_float_eq(got[k], expected[k], 1e-5, "F32 embedding_2d[%d] expected %.3f got %.3f",
+		                   k, expected[k], got[k]);
+	}
+}
+
+Test(nn_attention_embedding_2d, f32_flat_variant) {
+	/* Drive the F32 branch through the flat (rank-1) tensor_embedding
+	 * entry point too — same embedding_impl F32 path, out_rank=1. */
+	param_clear();
+	double w_d[] = {
+	    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+	};
+	double idx_d[] = {1.0, 0.0};
+	TensorHandle w = tensor_create_2d_streamed(2, 4, heap_copy(w_d, 8), 0, 0, 14);
+	TensorHandle idx = tensor_create_1d_f64(2, heap_copy(idx_d, 2), 0);
+	TensorHandle r = tensor_embedding(w, idx, 2, 4);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 flat embedding output should stay F32");
+	double got[8];
+	tensor_to_doubles(r, got);
+	double expected[] = {5.0, 6.0, 7.0, 8.0, 1.0, 2.0, 3.0, 4.0};
+	for (int k = 0; k < 8; k++) {
+		cr_assert_float_eq(got[k], expected[k], 1e-5,
+		                   "F32 embedding flat[%d] expected %.3f got %.3f", k, expected[k], got[k]);
+	}
+}
+
 Test(nn_attention_embedding_2d, matches_decomposed_chain) {
 	/* Strongest correctness check: fused 2D path must produce
 	 * identical values to the legacy flat path. */

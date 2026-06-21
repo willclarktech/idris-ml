@@ -65,6 +65,8 @@ int tape_tag_from_dtag(int dtag) {
 	case 25:
 		return DT_TERNARY;
 	default:
+		// GCOVR_EXCL_START — death test tape_tensor_core::tag_from_dtag_invalid_aborts
+		// (abort() skips the gcov flush, so the forked child can't register these lines)
 		fprintf(stderr,
 		        "[tape backend] invalid dtag=%d (expected one of "
 		        "{1=Bool, 4=U8, 8-11=I8/I16/I32/I64, 13-15=F16/F32/F64, 17=BF16, "
@@ -72,6 +74,7 @@ int tape_tag_from_dtag(int dtag) {
 		        dtag);
 		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 }
 

@@ -101,7 +101,11 @@ TensorHandle tensor_batch(TensorHandle* handles, int count) {
 	int is_f32 = (first->dtype_tag == DT_F32);
 	for (int i = 1; i < count; i++)
 		if (((Tensor*)handles[i])->dtype_tag != first->dtype_tag)
+			// GCOVR_EXCL_START — death test core_lifecycle::batch_mixed_dtype_aborts
+			// drives this; SIGABRT kills the forked process before gcda flush so
+			// gcov can't attribute the line even though it is exercised.
 			tape_abort_mixed_dtype("tensor_batch");
+	// GCOVR_EXCL_STOP
 	int* shape = malloc(rank * sizeof(int));
 	shape[0] = count;
 	for (int i = 0; i < first->rank; i++)

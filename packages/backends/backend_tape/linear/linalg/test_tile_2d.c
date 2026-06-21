@@ -44,6 +44,32 @@ Test(linear_linalg_tile_2d, forward_tile) {
 	                   tensor_item_2d(r, 1, 5));
 }
 
+Test(linear_linalg_tile_2d, forward_f32) {
+	/* F32 path: same values as `forward_tile`, exercises the DT_F32 branch
+	 * (tile_2d.c lines 31-36, 38-39). Small integers fit exactly in f32;
+	 * tensor_item_2d readback carries ~1e-6 error, so assert at an explicit
+	 * 1e-5 tolerance (NOT TEST_TOL_RELAXED's tighter F64 bound). */
+	param_clear();
+	double td[] = {1.0, 2.0};
+	TensorHandle t = tensor_create_param_2d_streamed(1, 2, heap_copy(td, 2), 0, 14);
+	param_register("t", t);
+	TensorHandle r = tensor_tile_2d(t, 2, 3);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "tile_2d should propagate F32 tag (got %s)",
+	                 tensor_dtype_name(r));
+	cr_assert_eq(tensor_size(r, 0), 2);
+	cr_assert_eq(tensor_size(r, 1), 6);
+	cr_assert_float_eq(tensor_item_2d(r, 0, 0), 1.0, 1e-5, "tile F32[0,0] should be 1 (got %.9f)",
+	                   tensor_item_2d(r, 0, 0));
+	cr_assert_float_eq(tensor_item_2d(r, 0, 1), 2.0, 1e-5, "tile F32[0,1] should be 2 (got %.9f)",
+	                   tensor_item_2d(r, 0, 1));
+	cr_assert_float_eq(tensor_item_2d(r, 1, 4), 1.0, 1e-5,
+	                   "tile F32[1,4] should be 1 (col 4 mod 2 = 0) (got %.9f)",
+	                   tensor_item_2d(r, 1, 4));
+	cr_assert_float_eq(tensor_item_2d(r, 1, 5), 2.0, 1e-5,
+	                   "tile F32[1,5] should be 2 (col 5 mod 2 = 1) (got %.9f)",
+	                   tensor_item_2d(r, 1, 5));
+}
+
 Test(linear_linalg_tile_2d, backward_grad_accumulates) {
 	/* t = [[1, 2]] tile(2, 3) -> [2, 6]. Loss = sum(tile(t)) = 6 * (1+2) = 18.
 	 * Each source cell is replicated rep0 * rep1 = 6 times, so

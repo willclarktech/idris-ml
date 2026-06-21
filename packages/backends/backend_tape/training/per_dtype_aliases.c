@@ -25,6 +25,9 @@
 #include <stdlib.h>
 #include "../../backend.h"
 
+// GCOVR_EXCL_START — abort path; covered by death tests in test_dtype_aliases.c
+// (tape_f32_aliases.*_aborts). abort() skips the gcov flush in the forked
+// Criterion child, so the lines can't register as covered despite firing.
 static TensorHandle tape_f32_unsupported(const char* sym) {
 	fprintf(stderr,
 	        "[tape backend] %s called but tape has no fp32 arena. "
@@ -33,6 +36,7 @@ static TensorHandle tape_f32_unsupported(const char* sym) {
 	// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 	abort();
 }
+// GCOVR_EXCL_STOP
 
 TensorHandle tensor_create_scalar_f64(double v, int rg) {
 	return tensor_create_scalar(v, rg);
@@ -52,6 +56,10 @@ TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg) {
 /* tensor_create_{param,state}_{Nd}_f64 live in training/param_create.c
    (the F64-default path is the only path tape supports for these). */
 
+// GCOVR_EXCL_START — every _f32 bare stub funnels into tape_f32_unsupported's
+// abort(); proven to fire by the SIGABRT death tests in test_dtype_aliases.c
+// (tape_f32_aliases suite). The fork-and-abort skips the gcov flush, so the
+// stub bodies can't register as covered.
 TensorHandle tensor_create_scalar_f32(double v, int rg) {
 	(void)v;
 	(void)rg;
@@ -114,6 +122,7 @@ TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d) {
 	(void)d;
 	return tape_f32_unsupported("tensor_create_state_2d_f32");
 }
+// GCOVR_EXCL_STOP
 
 /* F64 cast is observational identity (no new tape op — gradients flow
    through the source's tape entry). F32 cast aborts here; the real
@@ -121,7 +130,9 @@ TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d) {
 TensorHandle tensor_cast_dtype_f64(TensorHandle src) {
 	return src;
 }
+// GCOVR_EXCL_START — abort stub; covered by tape_f32_aliases.cast_dtype_f32_aborts
 TensorHandle tensor_cast_dtype_f32(TensorHandle src) {
 	(void)src;
 	return tape_f32_unsupported("tensor_cast_dtype_f32");
 }
+// GCOVR_EXCL_STOP

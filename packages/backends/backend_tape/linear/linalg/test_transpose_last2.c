@@ -58,6 +58,29 @@ Test(linear_linalg_transpose_last2, double_transpose_is_identity) {
 	}
 }
 
+Test(linear_linalg_transpose_last2, forward_f32) {
+	/* F32 path: same values as `forward_single_batch`, exercises the
+	 * DT_F32 branch (transpose_last2.c lines 20-26). reshape_3d propagates
+	 * the F32 dtype_tag. Small integers fit exactly in f32; readback carries
+	 * ~1e-6 error, so assert at an explicit 1e-5 tolerance. */
+	param_clear();
+	double xd[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	TensorHandle flat = tensor_create_param_2d_streamed(2, 3, heap_copy(xd, 6), 0, 14);
+	param_register("x_flat", flat);
+	TensorHandle x = tensor_reshape_3d(flat, 1, 2, 3);
+	TensorHandle y = tensor_transpose_last2(x);
+	cr_assert_str_eq(tensor_dtype_name(y), "F32",
+	                 "transpose_last2 should propagate F32 tag (got %s)", tensor_dtype_name(y));
+	double buf[6];
+	tensor_to_doubles(y, buf);
+	double expected[] = {1.0, 4.0, 2.0, 5.0, 3.0, 6.0};
+	for (int i = 0; i < 6; i++) {
+		cr_assert_float_eq(buf[i], expected[i], 1e-5,
+		                   "transpose_last2 F32 flat[%d] should be %.1f (got %.9f)", i, expected[i],
+		                   buf[i]);
+	}
+}
+
 Test(linear_linalg_transpose_last2, backward_passes_through) {
 	/* For loss = sum(transpose_last2(x)) = sum(x) (transpose preserves
 	 * elements), d loss / d x[i] = 1 for all i. */

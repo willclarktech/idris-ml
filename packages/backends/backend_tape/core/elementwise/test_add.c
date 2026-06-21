@@ -14,7 +14,17 @@
  */
 
 #include <criterion/criterion.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
+
+/* Heap-copy a stack array — the streamed creators take ownership and free it. */
+static double* hcopy(const double* s, int n) {
+	double* b = malloc((size_t)n * sizeof(double));
+	memcpy(b, s, (size_t)n * sizeof(double));
+	return b;
+}
 
 Test(core_elementwise_add, forward_scalar_scalar) {
 	TensorHandle a = tensor_create_scalar(3.0, 1);
@@ -119,6 +129,69 @@ Test(core_elementwise_add, backward_vector_plus_scalar_b_side) {
 	cr_assert_float_eq(param_grad_item_at(1, 0), 4.0, 1e-12,
 	                   "d(sum(vec+scalar))/d_scalar should be 4.0 (got %.6f)",
 	                   param_grad_item_at(1, 0));
+}
+
+/* ---- F32 coverage (add.c fn_add_f32 + binop_elementwise_f32_disp) ---- */
+
+Test(core_elementwise_add, f32_forward_scalar_scalar) {
+	/* Drives add.c line 34 (F32 dispatch) + the F32 stamping's both-scalar
+	   path in _kernels.inc. F32 readback carries ~1e-6 error. */
+	double av = 3.0, bv = 4.0;
+	TensorHandle a = tensor_create_scalar_streamed(av, 0, 0, 14);
+	TensorHandle b = tensor_create_scalar_streamed(bv, 0, 0, 14);
+	cr_assert_str_eq(tensor_dtype_name(a), "F32");
+	TensorHandle c = tensor_add(a, b);
+	cr_assert_str_eq(tensor_dtype_name(c), "F32", "F32 add output keeps F32 tag");
+	cr_assert_float_eq(tensor_item(c), 7.0, 1e-5);
+}
+
+Test(core_elementwise_add, f32_forward_vector_same_shape) {
+	/* Same-shape F32 vDSP fast path (fn_add_f32 stamping). */
+	double ad[] = {1.0, 2.0, 3.0};
+	double bd[] = {10.0, 20.0, 30.0};
+	TensorHandle a = tensor_create_1d_streamed(3, hcopy(ad, 3), 0, 0, 14);
+	TensorHandle b = tensor_create_1d_streamed(3, hcopy(bd, 3), 0, 0, 14);
+	TensorHandle c = tensor_add(a, b);
+	cr_assert_str_eq(tensor_dtype_name(c), "F32");
+	double out[3];
+	tensor_to_doubles(c, out);
+	cr_assert_float_eq(out[0], 11.0, 1e-5);
+	cr_assert_float_eq(out[1], 22.0, 1e-5);
+	cr_assert_float_eq(out[2], 33.0, 1e-5);
+}
+
+Test(core_elementwise_add, f32_backward_vector_same_shape) {
+	/* F32 same-shape backward: d(sum(a+b))/d_each = 1. The backward
+	   (tape_backward_add) is dtype-agnostic (tape_grad_load_d) so this
+	   shares the F64 a_match/b_match arms, but exercises them after an
+	   F32 forward. */
+	param_clear();
+	double ad[] = {1.0, 2.0, 3.0};
+	double bd[] = {10.0, 20.0, 30.0};
+	TensorHandle a = tensor_create_param_1d_streamed(3, hcopy(ad, 3), 0, 14);
+	TensorHandle b = tensor_create_param_1d_streamed(3, hcopy(bd, 3), 0, 14);
+	param_register("a", a);
+	param_register("b", b);
+	TensorHandle c = tensor_add(a, b);
+	TensorHandle loss = tensor_sum(c);
+	tensor_backward(loss);
+	for (int i = 0; i < 3; i++) {
+		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 1e-5, "d(sum(a+b))/da[%d] should be 1.0",
+		                   i);
+		cr_assert_float_eq(param_grad_item_at(1, i), 1.0, 1e-5, "d(sum(a+b))/db[%d] should be 1.0",
+		                   i);
+	}
+	param_clear();
+}
+
+/* Death test for the mixed-dtype guard: add.c line 33 calls
+   tape_abort_mixed_dtype (_dispatch.c lines 125-131) when one operand is
+   F32 and the other F64. The guard aborts (SIGABRT). */
+Test(core_elementwise_add, mixed_dtype_aborts, .signal = SIGABRT) {
+	double av = 1.0, bv = 2.0;
+	TensorHandle a = tensor_create_scalar_f32(av, 0); /* F32 */
+	TensorHandle b = tensor_create_scalar(bv, 0);     /* F64 */
+	(void)tensor_add(a, b);                           /* must abort */
 }
 
 /* DISABLED: tape general-broadcast elementwise crashes (heap corruption) — see

@@ -18,8 +18,18 @@
 
 #include <criterion/criterion.h>
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
 #include "test_helpers.h"
+
+/* The _streamed F32 path copies its data buffer into the arena, so feed
+   it a heap copy (mirrors the dtype-scaffolding suite's convention). */
+static double* heap_copy(const double* src, int n) {
+	double* buf = (double*)malloc((size_t)n * sizeof(double));
+	memcpy(buf, src, (size_t)n * sizeof(double));
+	return buf;
+}
 
 Test(nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
 	param_clear();
@@ -76,6 +86,60 @@ Test(nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
 	cr_assert_float_eq(param_grad_item_at(0, 3), d_o_raw, TEST_TOL_TIGHT, "o_raw");
 	/* prev_cell, param 1 */
 	cr_assert_float_eq(param_grad_item_at(1, 0), d_prev, TEST_TOL_TIGHT, "prev");
+}
+
+/* F32 branch (lstm_gates_pair.c:71-92): same single-element (o=1) case
+   as backward_grads_both_arms, but with F32-tagged combined + prev_cell
+   routed through the arena-f32 forward path. Both backward arms run
+   (loss = sum(h)+sum(cell)); the gate cache stays double* so grads are
+   F64. Forward values + analytic grads match the F64 reference within
+   1e-5 (F32 readback tolerance). Single element avoids the multi-element
+   crash filed in TODO.md. F32 storage on tape is reachable only via the
+   _streamed entry point with dtag=14 (the bare _f32 creator aborts).
+   NOTE: does NOT call tensor_pair_free (P1 crash). */
+Test(nn_recurrent_lstm_gates_pair, f32_backward_grads_both_arms) {
+	param_clear();
+	int o = 1;
+	double comb_data[4] = {0.0, 0.0, 0.0, 0.0};
+	double prev_data[1] = {1.0};
+	TensorHandle combined =
+	    tensor_create_param_1d_streamed(4 * o, heap_copy(comb_data, 4 * o), 0, 14);
+	TensorHandle prev_cell = tensor_create_param_1d_streamed(o, heap_copy(prev_data, o), 0, 14);
+	param_register("combined", combined);
+	param_register("prev_cell", prev_cell);
+
+	TensorPair* p = tensor_lstm_gates_pair(combined, prev_cell, o);
+	TensorHandle h = tensor_pair_first(p);
+	TensorHandle cell = tensor_pair_second(p);
+
+	cr_assert_str_eq(tensor_dtype_name(h), "F32",
+	                 "lstm_gates F32 inputs should yield F32 hidden (got %s)",
+	                 tensor_dtype_name(h));
+	cr_assert_str_eq(tensor_dtype_name(cell), "F32",
+	                 "lstm_gates F32 inputs should yield F32 cell (got %s)",
+	                 tensor_dtype_name(cell));
+
+	double tanhC = tanh(0.5);
+	cr_assert_float_eq(tensor_item_1d(cell, 0), 0.5, 1e-5);
+	cr_assert_float_eq(tensor_item_1d(h, 0), 0.5 * tanhC, 1e-5);
+
+	TensorHandle loss = tensor_add(tensor_sum(h), tensor_sum(cell));
+	tensor_backward(loss);
+
+	/* Same analytic gradients as the F64 backward_grads_both_arms test. */
+	double d_o_raw_h = tanhC * 0.25;
+	double d_cell_net = 0.5 * (1.0 - tanhC * tanhC) + 1.0;
+	double d_i_raw = d_cell_net * 0.0 * 0.25; /* g=0 → 0 */
+	double d_f_raw = d_cell_net * 1.0 * 0.25;
+	double d_g_raw = d_cell_net * 0.5 * 1.0;
+	double d_o_raw = d_o_raw_h;
+	double d_prev = d_cell_net * 0.5;
+
+	cr_assert_float_eq(param_grad_item_at(0, 0), d_i_raw, 1e-5, "F32 i_raw");
+	cr_assert_float_eq(param_grad_item_at(0, 1), d_f_raw, 1e-5, "F32 f_raw");
+	cr_assert_float_eq(param_grad_item_at(0, 2), d_g_raw, 1e-5, "F32 g_raw");
+	cr_assert_float_eq(param_grad_item_at(0, 3), d_o_raw, 1e-5, "F32 o_raw");
+	cr_assert_float_eq(param_grad_item_at(1, 0), d_prev, 1e-5, "F32 prev");
 }
 
 /* Multi-element forward (o=2) with distinct, non-zero gate raws — exercises the

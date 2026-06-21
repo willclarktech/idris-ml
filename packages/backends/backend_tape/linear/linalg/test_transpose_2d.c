@@ -56,6 +56,30 @@ Test(linear_linalg_transpose_2d, double_transpose_is_identity) {
 		                   "double-transpose flat[%d] should be %.1f (got %.9f)", i, ad[i], buf[i]);
 }
 
+Test(linear_linalg_transpose_2d, forward_f32) {
+	/* F32 path: same values as `forward`, exercises the DT_F32 branch
+	 * (transpose_2d.c lines 19-24). Values are small integers that fit
+	 * exactly in f32; readback via tensor_to_doubles carries ~1e-6 error,
+	 * so assert at an explicit 1e-5 tolerance (NOT TEST_TOL_TIGHT). */
+	param_clear();
+	double ad[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	TensorHandle a = tensor_create_param_2d_streamed(2, 3, heap_copy(ad, 6), 0, 14);
+	param_register("a", a);
+	TensorHandle r = tensor_transpose_2d(a);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "transpose_2d should propagate F32 tag (got %s)",
+	                 tensor_dtype_name(r));
+	cr_assert_eq(tensor_dim(r), 2);
+	cr_assert_eq(tensor_size(r, 0), 3);
+	cr_assert_eq(tensor_size(r, 1), 2);
+	double buf[6];
+	tensor_to_doubles(r, buf);
+	double expected[] = {1.0, 4.0, 2.0, 5.0, 3.0, 6.0};
+	for (int i = 0; i < 6; i++)
+		cr_assert_float_eq(buf[i], expected[i], 1e-5,
+		                   "transpose_2d F32 flat[%d] should be %.1f (got %.9f)", i, expected[i],
+		                   buf[i]);
+}
+
 Test(linear_linalg_transpose_2d, backward_transposes_grad) {
 	/* loss = sum(a^T) = sum(a); d loss / d a[i] = 1 for all i.
 	 * Exercises tape_backward_transpose_2d (transpose the grad back). */

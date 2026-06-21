@@ -123,10 +123,14 @@ TensorHandle unop_elementwise_f32_disp(TensorHandle ha, int op_tag, float (*fn)(
 }
 
 void tape_abort_mixed_dtype(const char* op) {
+	// GCOVR_EXCL_START — aborting body; SIGABRT kills the forked test process
+	// before gcda flush, so gcov can't attribute coverage even though the
+	// death test core_elementwise_add::mixed_dtype_aborts exercises this path.
 	fprintf(stderr,
 	        "[tape backend] %s: mixed-dtype inputs forbidden — both operands must "
 	        "share a dtype_tag (cast first via tcast / tensor_cast_dtype_streamed).\n",
 	        op);
 	// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
 	abort();
+	// GCOVR_EXCL_STOP
 }

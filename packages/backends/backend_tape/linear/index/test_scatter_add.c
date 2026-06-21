@@ -1,7 +1,18 @@
 /* Criterion suite for tape `tensor_scatter_add`. */
 
 #include <criterion/criterion.h>
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
+
+/* Streamed creators are callee-owns: they FREE their data argument. Route every
+   data pointer through a fresh heap copy so stack arrays / shared buffers stay
+   valid. (dtag 14 = F32; stream_tag 0.) */
+static double* hcopy(const double* s, int n) {
+	double* b = malloc((size_t)n * sizeof(double));
+	memcpy(b, s, (size_t)n * sizeof(double));
+	return b;
+}
 
 Test(linear_index_scatter_add, forward_accumulates) {
 	/* index = [0, 1, 0, 2], src = [10, 20, 30, 40], out_size = 3
@@ -77,4 +88,64 @@ Test(linear_index_scatter_add, backward_gathers_grad) {
 	for (int i = 0; i < 4; i++)
 		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 1e-12,
 		                   "src grad[%d] should be 1 (got %.6f)", i, param_grad_item_at(0, i));
+}
+
+/* ---- F32 coverage (scatter_add.c lines 20-25, 27-28: F32 arena output) ---- */
+
+Test(linear_index_scatter_add, f32_forward_accumulates) {
+	/* F32 src = [10,20,30,40], index = [0,1,0,2], out_size = 3
+	   r[0] = 10+30 = 40, r[1] = 20, r[2] = 40. Index stays F64 (tape_load_d
+	   is dtype-agnostic); the F32 src selects the F32 arena path. */
+	double ixd[] = {0.0, 1.0, 0.0, 2.0};
+	double sd[] = {10.0, 20.0, 30.0, 40.0};
+	int s_ix[] = {4};
+	TensorHandle index = tensor_create(ixd, s_ix, 1, 0);
+	TensorHandle src = tensor_create_1d_streamed(4, hcopy(sd, 4), 0, 0, 14);
+	cr_assert_str_eq(tensor_dtype_name(src), "F32");
+	TensorHandle r = tensor_scatter_add(index, src, 3);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "F32 scatter_add output keeps F32 tag");
+	double out[3];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 40.0, 1e-5);
+	cr_assert_float_eq(out[1], 20.0, 1e-5);
+	cr_assert_float_eq(out[2], 40.0, 1e-5);
+}
+
+Test(linear_index_scatter_add, f32_forward_skips_out_of_range_index) {
+	/* F32 src with index = [-1, 1, 5, 2], out_size = 3. Indices -1 and 5
+	   are out of range and dropped by the F32 branch's `idx >= 0 && idx < out_size`
+	   guard. r[0] = 0, r[1] = 20, r[2] = 40. */
+	double ixd[] = {-1.0, 1.0, 5.0, 2.0};
+	double sd[] = {10.0, 20.0, 30.0, 40.0};
+	int s_ix[] = {4};
+	TensorHandle index = tensor_create(ixd, s_ix, 1, 0);
+	TensorHandle src = tensor_create_1d_streamed(4, hcopy(sd, 4), 0, 0, 14);
+	TensorHandle r = tensor_scatter_add(index, src, 3);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32");
+	double out[3];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 0.0, 1e-5, "out[0] should be 0 (got %.6f)", out[0]);
+	cr_assert_float_eq(out[1], 20.0, 1e-5);
+	cr_assert_float_eq(out[2], 40.0, 1e-5);
+}
+
+Test(linear_index_scatter_add, f32_backward_gathers_grad) {
+	/* F32 src requires_grad; index [0,1,0,2], sum -> d_src = 1 everywhere.
+	   Exercises the F32 forward arena path + tape append; the backward
+	   (tape_backward_scatter_add) is dtype-agnostic. */
+	param_clear();
+	double ixd[] = {0.0, 1.0, 0.0, 2.0};
+	double sd[] = {10.0, 20.0, 30.0, 40.0};
+	int s_ix[] = {4};
+	TensorHandle index = tensor_create(ixd, s_ix, 1, 0);
+	TensorHandle src = tensor_create_param_1d_streamed(4, hcopy(sd, 4), 0, 14);
+	param_register("src", src);
+	TensorHandle r = tensor_scatter_add(index, src, 3);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32");
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	for (int i = 0; i < 4; i++)
+		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 1e-5,
+		                   "src grad[%d] should be 1 (got %.6f)", i, param_grad_item_at(0, i));
+	param_clear();
 }

@@ -13,9 +13,18 @@
  */
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include <criterion/criterion.h>
 #include "test_helpers.h"
+
+/* Heap-copy a double buffer: the *_streamed creators (the only tape F32
+ * construction path) take ownership of and free their input pointer. */
+static double* sdpa_heap_copy(const double* src, int n) {
+	double* buf = (double*)malloc(n * sizeof(double));
+	memcpy(buf, src, n * sizeof(double));
+	return buf;
+}
 
 /* Host reference: single-head SDPA, no mask. q,k,v are [seq, hd] row-major. */
 static void sdpa_ref(const double* q, const double* k, const double* v, int qs, int ks, int hd,
@@ -79,6 +88,29 @@ Test(nn_attention_sdpa, causal_row0_attends_only_to_key0) {
 	tensor_to_doubles(r, out);
 	cr_assert_float_eq(out[0], 10.0, TEST_TOL_RELAXED, "causal out[0,0] == V[0,0]");
 	cr_assert_float_eq(out[1], 20.0, TEST_TOL_RELAXED, "causal out[0,1] == V[0,1]");
+}
+
+Test(nn_attention_sdpa, causal_f32_mask_row0_attends_only_to_key0) {
+	/* F32 causal mask path (scaled_dot_product_attention.c lines 69-74:
+	 * the F32 arm of build_causal_mask). The mask dtype follows Q's
+	 * storage, so feeding an F32 Q drives the F32 mask build. Same setup
+	 * as causal_row0_attends_only_to_key0: row 0 attends only to key 0,
+	 * so out[row 0] == V[row 0]. F32 readback carries ~1e-6 error so we
+	 * assert at an explicit 1e-5 tolerance. */
+	double qd[] = {1.0, 1.0, 2.0, 2.0};
+	double kd[] = {0.5, 0.5, 1.5, 1.5};
+	double vd[] = {10.0, 20.0, 30.0, 40.0};
+	/* tape F32 storage is reachable only via *_streamed with dtag=14; the
+	 * mask dtype follows Q's storage, so an F32 Q drives build_causal_mask's
+	 * F32 arm. */
+	TensorHandle q = tensor_create_2d_streamed(2, 2, sdpa_heap_copy(qd, 4), 0, 0, 14);
+	TensorHandle k = tensor_create_2d_streamed(2, 2, sdpa_heap_copy(kd, 4), 0, 0, 14);
+	TensorHandle v = tensor_create_2d_streamed(2, 2, sdpa_heap_copy(vd, 4), 0, 0, 14);
+	TensorHandle r = tensor_sdpa_2d(q, k, v, 1, 1, 2, /*isCausal=*/1);
+	double out[4];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 10.0, 1e-5, "F32 causal out[0,0] == V[0,0] (got %.9f)", out[0]);
+	cr_assert_float_eq(out[1], 20.0, 1e-5, "F32 causal out[0,1] == V[0,1] (got %.9f)", out[1]);
 }
 
 Test(nn_attention_sdpa, gqa_single_key_kv_seq1) {

@@ -176,3 +176,55 @@ Test(nn_activation_swiglu, backward_up_only) {
 		                   "d/d up[%d] expected %.9f got %.9f", k, du, param_grad_item_at(0, k));
 	}
 }
+
+/* F32 forward path: when both inputs carry the F32 tag (tag 14 via the
+ * streamed constructor — tape's *_f32 convenience constructors are abort
+ * stubs), tensor_swiglu_2d takes the DT_F32 branch (swiglu_2d.c:43-51) and
+ * make_tensor_arena_f32 with NO grad (sig_g==NULL since rg==0). F32 readback
+ * tolerance 1e-5. */
+Test(nn_activation_swiglu, f32_forward_no_grad) {
+	param_clear();
+	double g_d[] = {1.0, -1.0, 0.5, 2.0, -2.0, 0.0};
+	double u_d[] = {2.0, 3.0, -1.0, 0.5, 1.0, 4.0};
+	TensorHandle gate = tensor_create_2d_streamed(2, 3, heap_copy(g_d, 6), 0, 0, 14);
+	TensorHandle up = tensor_create_2d_streamed(2, 3, heap_copy(u_d, 6), 0, 0, 14);
+	cr_assert_str_eq(tensor_dtype_name(gate), "F32", "gate should be F32-tagged");
+	TensorHandle r = tensor_swiglu_2d(gate, up);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "swiglu F32 output should propagate F32 tag");
+	double buf[6];
+	tensor_to_doubles(r, buf);
+	for (int k = 0; k < 6; k++) {
+		double expect = silu_ref(g_d[k]) * u_d[k];
+		cr_assert_float_eq(buf[k], expect, 1e-5, "f32 swiglu[%d] expected %.7f got %.7f", k, expect,
+		                   buf[k]);
+	}
+}
+
+/* F32 forward + backward: both inputs F32 params (rg==1) so the DT_F32 branch
+ * allocates sig_g and appends the tape entry (swiglu_2d.c:53-60), then
+ * tape_backward_swiglu_2d runs over the cached sigmoids. Closes the F32 grad
+ * gap. F32 tolerance 1e-5. */
+Test(nn_activation_swiglu, f32_backward_both_inputs) {
+	param_clear();
+	double g_d[] = {1.0, -1.0, 0.5, 2.0};
+	double u_d[] = {2.0, 3.0, -1.0, 0.5};
+	TensorHandle gate = tensor_create_param_2d_streamed(2, 2, heap_copy(g_d, 4), 0, 14);
+	TensorHandle up = tensor_create_param_2d_streamed(2, 2, heap_copy(u_d, 4), 0, 14);
+	param_register("gate", gate);
+	param_register("up", up);
+	cr_assert_str_eq(tensor_dtype_name(gate), "F32", "gate param should be F32-tagged");
+	TensorHandle r = tensor_swiglu_2d(gate, up);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "swiglu F32 output should propagate F32 tag");
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	for (int k = 0; k < 4; k++) {
+		double dg = swiglu_dgate_ref(g_d[k], u_d[k]);
+		double du = swiglu_dup_ref(g_d[k], u_d[k]);
+		cr_assert_float_eq(param_grad_item_at(0, k), dg, 1e-5,
+		                   "f32 d/d gate[%d] expected %.7f got %.7f", k, dg,
+		                   param_grad_item_at(0, k));
+		cr_assert_float_eq(param_grad_item_at(1, k), du, 1e-5,
+		                   "f32 d/d up[%d] expected %.7f got %.7f", k, du,
+		                   param_grad_item_at(1, k));
+	}
+}

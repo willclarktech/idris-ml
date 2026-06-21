@@ -7,9 +7,19 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
+#include <signal.h>
 #include <criterion/criterion.h>
 #include "backend.h"
 #include "shared_utils.h" /* tensor_ptr_array_alloc / _set_return / _free */
+
+/* Streamed creators are callee-owns (they FREE their data argument), so every
+   streamed data pointer is routed through a fresh heap copy. */
+static double* hcopy(const double* s, int n) {
+	double* b = malloc((size_t)n * sizeof(double));
+	memcpy(b, s, (size_t)n * sizeof(double));
+	return b;
+}
 
 /* Back-compat aliases live in lifecycle_ext.c but are not part of the public
    backend.h surface (no live caller). Declared here so this colocated suite
@@ -227,4 +237,89 @@ Test(core_lifecycle, batch_stacks_via_ptr_array) {
 	double expect[6] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
 	for (int i = 0; i < 6; i++)
 		cr_assert_float_eq(out[i], expect[i], 1e-12, "tensor_batch row-major [2,3] cell %d", i);
+}
+
+/* ----------------------------------------------------------------------
+   F32 coverage — clone / subtract_scalar_inplace / batch F32 branches.
+   F32 readback (tensor_to_doubles) carries ~1e-6 error; assert at 1e-5.
+   ---------------------------------------------------------------------- */
+
+Test(core_lifecycle, clone_f32_vector) {
+	/* clone.c F32 non-scalar path (lines 22-24): an F32 input clones via the
+	   float storage memcpy + make_tensor_arena_f32, preserving values and the
+	   F32 dtype tag. */
+	double data[] = {1.5, 2.5, 3.5};
+	TensorHandle a = tensor_create_1d_streamed(3, hcopy(data, 3), 0, 0, 14);
+	TensorHandle b = tensor_clone(a);
+	cr_assert_str_eq(tensor_dtype_name(b), "F32", "F32 clone keeps the F32 dtype tag");
+	cr_assert_eq(tensor_numel(b), 3);
+	cr_assert_eq(tensor_dim(b), 1);
+	cr_assert_neq((void*)a, (void*)b, "clone must be a new handle");
+	double out[3];
+	tensor_to_doubles(b, out);
+	cr_assert_float_eq(out[0], 1.5, 1e-5, "F32 clone cell 0");
+	cr_assert_float_eq(out[1], 2.5, 1e-5, "F32 clone cell 1");
+	cr_assert_float_eq(out[2], 3.5, 1e-5, "F32 clone cell 2");
+}
+
+Test(core_lifecycle, clone_f32_scalar_keeps_dtype) {
+	/* clone.c scalar path: rank-0 F32 clone routes through make_scalar_f32. */
+	TensorHandle a = tensor_create_scalar_streamed(9.25, 0, 0, 14);
+	TensorHandle b = tensor_clone(a);
+	cr_assert_str_eq(tensor_dtype_name(b), "F32");
+	cr_assert_eq(tensor_dim(b), 0);
+	cr_assert_float_eq(tensor_item(b), 9.25, 1e-5, "F32 scalar clone value");
+}
+
+Test(core_lifecycle, subtract_scalar_inplace_mutates_f32) {
+	/* lifecycle_ext.c F32 branch (lines 71-74): per-element float subtraction
+	   in place, returns the same handle. */
+	double data[] = {10.0, 20.0, 30.0};
+	TensorHandle v = tensor_create_1d_streamed(3, hcopy(data, 3), 0, 0, 14);
+	TensorHandle r = tensor_subtract_scalar_inplace(v, 5.0);
+	cr_assert_eq((void*)r, (void*)v, "in-place op returns the same handle");
+	cr_assert_str_eq(tensor_dtype_name(r), "F32");
+	double out[3];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], 5.0, 1e-5);
+	cr_assert_float_eq(out[1], 15.0, 1e-5);
+	cr_assert_float_eq(out[2], 25.0, 1e-5);
+}
+
+Test(core_lifecycle, batch_stacks_f32) {
+	/* lifecycle_ext.c F32 branch (lines 110-116): stacking F32 inputs goes
+	   through the arena float allocator and preserves the F32 dtype tag. */
+	double d0[] = {1.0, 2.0, 3.0};
+	double d1[] = {4.0, 5.0, 6.0};
+	TensorHandle a = tensor_create_1d_streamed(3, hcopy(d0, 3), 0, 0, 14);
+	TensorHandle b = tensor_create_1d_streamed(3, hcopy(d1, 3), 0, 0, 14);
+	void** arr = tensor_ptr_array_alloc(2);
+	tensor_ptr_array_set_return(arr, 0, a);
+	tensor_ptr_array_set_return(arr, 1, b);
+	TensorHandle batched = tensor_batch(arr, 2);
+	tensor_ptr_array_free(arr);
+	cr_assert_str_eq(tensor_dtype_name(batched), "F32", "F32 batch keeps the F32 dtype tag");
+	cr_assert_eq(tensor_dim(batched), 2);
+	cr_assert_eq(tensor_size(batched, 0), 2);
+	cr_assert_eq(tensor_size(batched, 1), 3);
+	double out[6];
+	tensor_to_doubles(batched, out);
+	double expect[6] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	for (int i = 0; i < 6; i++)
+		cr_assert_float_eq(out[i], expect[i], 1e-5, "F32 tensor_batch cell %d", i);
+}
+
+Test(core_lifecycle, batch_mixed_dtype_aborts, .signal = SIGABRT) {
+	/* lifecycle_ext.c line 104: a second input whose dtype_tag differs from
+	   the first triggers tape_abort_mixed_dtype -> abort(). Stack an F64 and
+	   an F32 of identical shape so only the dtype mismatch fires the abort. */
+	double d0[] = {1.0, 2.0, 3.0};
+	double d1[] = {4.0, 5.0, 6.0};
+	int shape[] = {3};
+	TensorHandle a = tensor_create(d0, shape, 1, 0);                       /* F64 first */
+	TensorHandle b = tensor_create_1d_streamed(3, hcopy(d1, 3), 0, 0, 14); /* F32 mismatch */
+	void** arr = tensor_ptr_array_alloc(2);
+	tensor_ptr_array_set_return(arr, 0, a);
+	tensor_ptr_array_set_return(arr, 1, b);
+	tensor_batch(arr, 2); /* expected: SIGABRT */
 }

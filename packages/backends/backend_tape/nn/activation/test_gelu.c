@@ -13,8 +13,18 @@
 
 #include <criterion/criterion.h>
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
 #include "test_helpers.h"
+
+/* The streamed constructors consume a heap buffer (mirrors the dtype
+ * scaffolding suite's convention); copy stack literals before passing. */
+static double* heap_copy(const double* src, int n) {
+	double* buf = (double*)malloc(n * sizeof(double));
+	memcpy(buf, src, n * sizeof(double));
+	return buf;
+}
 
 static double gelu_ref(double x) {
 	double c = 0.7978845608028654;
@@ -68,4 +78,24 @@ Test(nn_activation_gelu, forward_negative_input) {
 	cr_assert_float_eq(tensor_item(r), expected, TEST_TOL_RELAXED,
 	                   "gelu(-1) should match reference (got %.9f vs %.9f)", tensor_item(r),
 	                   expected);
+}
+
+/* F32 forward path: tensor_gelu routes to unop_elementwise_f32_disp +
+ * fn_gelu_f32 when the input carries the F32 tag (tag 14 via the streamed
+ * constructor — the tape convenience *_f32 constructors are abort stubs).
+ * Covers gelu.c:22-25 (the float kernel). F32 readback tolerance 1e-5. */
+Test(nn_activation_gelu, f32_forward_vector) {
+	param_clear();
+	double in[] = {-2.0, -1.0, 0.0, 0.5, 1.0, 2.0};
+	TensorHandle a = tensor_create_1d_streamed(6, heap_copy(in, 6), 0, 0, 14);
+	cr_assert_str_eq(tensor_dtype_name(a), "F32", "input should be F32-tagged");
+	TensorHandle r = tensor_gelu(a);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "gelu F32 output should propagate F32 tag");
+	double out[6];
+	tensor_to_doubles(r, out);
+	for (int i = 0; i < 6; i++) {
+		cr_assert_float_eq(out[i], gelu_ref(in[i]), 1e-5,
+		                   "f32 gelu[%d] expected %.7f got %.7f (x=%.3f)", i, gelu_ref(in[i]),
+		                   out[i], in[i]);
+	}
 }

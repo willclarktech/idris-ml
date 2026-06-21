@@ -1,7 +1,17 @@
 /* Criterion suite for tape `tensor_sub`. */
 
 #include <criterion/criterion.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
+
+/* Heap-copy a stack array — the streamed creators take ownership and free it. */
+static double* hcopy(const double* s, int n) {
+	double* b = (double*)malloc((size_t)n * sizeof(double));
+	memcpy(b, s, (size_t)n * sizeof(double));
+	return b;
+}
 
 Test(core_elementwise_sub, forward_scalar) {
 	TensorHandle a = tensor_create_scalar(10.0, 0);
@@ -99,6 +109,62 @@ Test(core_elementwise_sub, backward_vector_minus_scalar_b_side) {
 	cr_assert_float_eq(param_grad_item_at(1, 0), -4.0, 1e-12,
 	                   "d(sum(vec-scalar))/d_scalar should be -4.0 (got %.6f)",
 	                   param_grad_item_at(1, 0));
+}
+
+/* ---- F32 coverage (sub.c fn_sub_f32 + binop_elementwise_f32_disp) ---- */
+
+Test(core_elementwise_sub, f32_forward_scalar) {
+	/* Drives sub.c line 26 (F32 dispatch) + F32 both-scalar path. */
+	double av = 10.0, bv = 3.0;
+	TensorHandle a = tensor_create_scalar_streamed(av, 0, 0, 14);
+	TensorHandle b = tensor_create_scalar_streamed(bv, 0, 0, 14);
+	TensorHandle c = tensor_sub(a, b);
+	cr_assert_str_eq(tensor_dtype_name(c), "F32", "F32 sub output keeps F32 tag");
+	cr_assert_float_eq(tensor_item(c), 7.0, 1e-5);
+}
+
+Test(core_elementwise_sub, f32_forward_vector_same_shape) {
+	/* Same-shape F32 vDSP path (fn_sub_f32 stamping). */
+	double ad[] = {10.0, 20.0, 30.0};
+	double bd[] = {1.0, 2.0, 3.0};
+	TensorHandle a = tensor_create_1d_streamed(3, hcopy(ad, 3), 0, 0, 14);
+	TensorHandle b = tensor_create_1d_streamed(3, hcopy(bd, 3), 0, 0, 14);
+	TensorHandle c = tensor_sub(a, b);
+	cr_assert_str_eq(tensor_dtype_name(c), "F32");
+	double out[3];
+	tensor_to_doubles(c, out);
+	cr_assert_float_eq(out[0], 9.0, 1e-5);
+	cr_assert_float_eq(out[1], 18.0, 1e-5);
+	cr_assert_float_eq(out[2], 27.0, 1e-5);
+}
+
+Test(core_elementwise_sub, f32_backward_vector_same_shape) {
+	/* F32 same-shape backward: d(sum(a-b))/da = +1, /db = -1 (sign flip). */
+	param_clear();
+	double ad[] = {5.0, 6.0, 7.0};
+	double bd[] = {1.0, 2.0, 3.0};
+	TensorHandle a = tensor_create_param_1d_streamed(3, hcopy(ad, 3), 0, 14);
+	TensorHandle b = tensor_create_param_1d_streamed(3, hcopy(bd, 3), 0, 14);
+	param_register("a", a);
+	param_register("b", b);
+	TensorHandle c = tensor_sub(a, b);
+	TensorHandle loss = tensor_sum(c);
+	tensor_backward(loss);
+	for (int i = 0; i < 3; i++) {
+		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 1e-5, "d(sum(a-b))/da[%d] should be +1.0",
+		                   i);
+		cr_assert_float_eq(param_grad_item_at(1, i), -1.0, 1e-5,
+		                   "d(sum(a-b))/db[%d] should be -1.0", i);
+	}
+	param_clear();
+}
+
+/* Death test for sub.c line 25's mixed-dtype guard call. */
+Test(core_elementwise_sub, mixed_dtype_aborts, .signal = SIGABRT) {
+	double av = 1.0, bv = 2.0;
+	TensorHandle a = tensor_create_scalar_streamed(av, 0, 0, 14); /* F32 */
+	TensorHandle b = tensor_create_scalar(bv, 0);                 /* F64 */
+	(void)tensor_sub(a, b);                                       /* must abort */
 }
 
 /* DISABLED: tape general-broadcast elementwise crash — see TODO.md. */

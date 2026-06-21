@@ -18,8 +18,18 @@
  */
 
 #include <criterion/criterion.h>
+#include <stdlib.h>
+#include <string.h>
 #include "backend.h"
 #include "test_helpers.h"
+
+/* The _streamed F32 path copies its data buffer into the arena, so feed
+   it a heap copy (mirrors the dtype-scaffolding suite's convention). */
+static double* heap_copy(const double* src, int n) {
+	double* buf = (double*)malloc((size_t)n * sizeof(double));
+	memcpy(buf, src, (size_t)n * sizeof(double));
+	return buf;
+}
 
 Test(conv_conv1d_circular, forward_and_backward) {
 	param_clear();
@@ -83,6 +93,38 @@ Test(conv_conv1d_circular, even_kernel_forward_and_backward) {
 		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, TEST_TOL_TIGHT, "d_in[%d]", i);
 	for (int i = 0; i < 4; i++)
 		cr_assert_float_eq(param_grad_item_at(1, i), 10.0, TEST_TOL_TIGHT, "d_k[%d]", i);
+}
+
+/* F32 branch (conv1d_circular.c:29-41): same k=3/pad=1 base case as the
+   forward_and_backward test above, but with F32 input + kernel routed
+   through the arena-f32 path. Forward values 1.3/1.0/1.3 and grads
+   (d_in=0.6, d_k=6.0) match the F64 reference within 1e-5 (F32 readback
+   tolerance); the F32 result must carry the F32 tag. F32 storage on tape
+   is reachable only via the _streamed entry point with dtag=14 (the bare
+   _f32 creator aborts). */
+Test(conv_conv1d_circular, f32_forward_and_backward) {
+	param_clear();
+	double in_data[3] = {1.0, 2.0, 3.0};
+	double k_data[3] = {0.1, 0.2, 0.3};
+	TensorHandle in = tensor_create_1d_streamed(3, heap_copy(in_data, 3), 1, 0, 14);
+	TensorHandle k = tensor_create_1d_streamed(3, heap_copy(k_data, 3), 1, 0, 14);
+	param_register("in", in);
+	param_register("k", k);
+
+	TensorHandle out = tensor_conv1d_circular(in, k);
+	cr_assert_str_eq(tensor_dtype_name(out), "F32",
+	                 "conv1d_circular F32 inputs should yield F32 result (got %s)",
+	                 tensor_dtype_name(out));
+	cr_assert_float_eq(tensor_item_1d(out, 0), 1.3, 1e-5);
+	cr_assert_float_eq(tensor_item_1d(out, 1), 1.0, 1e-5);
+	cr_assert_float_eq(tensor_item_1d(out, 2), 1.3, 1e-5);
+
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
+	for (int i = 0; i < 3; i++)
+		cr_assert_float_eq(param_grad_item_at(0, i), 0.6, 1e-5, "F32 d_in[%d]", i);
+	for (int i = 0; i < 3; i++)
+		cr_assert_float_eq(param_grad_item_at(1, i), 6.0, 1e-5, "F32 d_k[%d]", i);
 }
 
 /* Only the kernel requires grad: exercises the `b->requires_grad` branch in

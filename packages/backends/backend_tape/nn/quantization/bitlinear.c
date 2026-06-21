@@ -86,11 +86,14 @@ static inline int8_t decode_slot(const uint8_t* row_base, int k) {
 	case 0x3:
 		return -1;
 	default:
+		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
+		// nn_quantization_decode/invalid_code_aborts
 		fprintf(stderr,
 		        "[tape] tensor_bitlinear_fwd: invalid 2-bit code "
 		        "0x%x at slot %d (byte 0x%02x)\n",
 		        code, k, row_base[byte_idx]);
 		abort();
+		// GCOVR_EXCL_STOP
 	}
 }
 
@@ -156,12 +159,15 @@ TensorHandle tensor_bitlinear_fwd(TensorHandle hW, TensorHandle hscale, TensorHa
 		int all_f32 = scale->dtype_tag == DT_F32 && x->dtype_tag == DT_F32 &&
 		              (!bias || bias->dtype_tag == DT_F32);
 		if (!all_f32) {
+			// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
+			// nn_quantization_fwd/mixed_dtype_aborts
 			fprintf(stderr,
 			        "[tape] tensor_bitlinear_fwd: mixed-dtype inputs "
 			        "(scale=%d, x=%d, bias=%d). All of scale/x/bias must share "
 			        "the same dtype (F32 or F64).\n",
 			        scale->dtype_tag, x->dtype_tag, bias ? bias->dtype_tag : -1);
 			abort();
+			// GCOVR_EXCL_STOP
 		}
 		return tensor_bitlinear_fwd_tape_f32(hW, hscale, hx, hbias);
 	}
@@ -312,11 +318,14 @@ TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* hf_packed_by
 			int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
 			int value = hf_code - 1; /* {-1, 0, +1} */
 			if (value < -1 || value > 1) {
+				// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
+				// nn_quantization_hf_packed/invalid_hf_code_aborts
 				fprintf(stderr,
 				        "[tape] tensor_create_ternary_from_hf_packed_2d: "
 				        "invalid HF code %d (byte 0x%02x, chunk %d) at (j=%d, k=%d)\n",
 				        hf_code, hf_byte, hf_chunk, j, k);
 				abort();
+				// GCOVR_EXCL_STOP
 			}
 			/* Canonical 3-way ternary encoding (HF -1/0/+1 → 11/00/01) */
 			// NOLINTNEXTLINE(readability-avoid-nested-conditional-operator)

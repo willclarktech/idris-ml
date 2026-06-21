@@ -110,6 +110,39 @@ Test(nn_mask_masked_fill, no_masked_is_identity_with_full_grad) {
 		                   param_grad_item_at(0, i));
 }
 
+/* F32 branch (masked_fill.c:19-24): an F32 input + mask fills masked
+   positions with `value` and keeps the rest, via the arena-f32 path.
+   Backward still passes gradient through the unmasked positions (the
+   tape entry + OP_MASKED_FILL backward are dtype-agnostic; grads are
+   F64). Forward values asserted at 1e-5 (F32 readback tolerance). F32
+   storage on tape is reachable only via the _streamed entry point with
+   dtag=14 (the bare _f32 creator aborts). */
+Test(nn_mask_masked_fill, f32_forward_and_backward) {
+	param_clear();
+	double td[] = {1.5, 2.25, -3.0};
+	double md[] = {0.0, 1.0, 0.0};
+	TensorHandle t = tensor_create_param_2d_streamed(1, 3, heap_copy(td, 3), 0, 14);
+	TensorHandle mask = tensor_create_2d_streamed(1, 3, heap_copy(md, 3), 0, 0, 14);
+	param_register("t", t);
+	TensorHandle r = tensor_masked_fill(t, mask, -1.5);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32",
+	                 "masked_fill F32 input should yield F32 result (got %s)",
+	                 tensor_dtype_name(r));
+	double buf[3];
+	tensor_to_doubles(r, buf);
+	cr_assert_float_eq(buf[0], 1.5, 1e-5, "F32 unmasked[0] keeps original (got %.6f)", buf[0]);
+	cr_assert_float_eq(buf[1], -1.5, 1e-5, "F32 masked[1] becomes value (got %.6f)", buf[1]);
+	cr_assert_float_eq(buf[2], -3.0, 1e-5, "F32 unmasked[2] keeps original (got %.6f)", buf[2]);
+	TensorHandle loss = tensor_sum(r);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), 1.0, 1e-5, "F32 grad[0] passes through (got %.6f)",
+	                   param_grad_item_at(0, 0));
+	cr_assert_float_eq(param_grad_item_at(0, 1), 0.0, 1e-5,
+	                   "F32 grad[1] killed where masked (got %.6f)", param_grad_item_at(0, 1));
+	cr_assert_float_eq(param_grad_item_at(0, 2), 1.0, 1e-5, "F32 grad[2] passes through (got %.6f)",
+	                   param_grad_item_at(0, 2));
+}
+
 Test(nn_mask_masked_fill, no_grad_input_skips_tape) {
 	/* requires_grad=0 input -> result has requires_grad=0 and no tape entry is
 	 * appended (the `if (r->requires_grad)` branch is skipped). Forward still

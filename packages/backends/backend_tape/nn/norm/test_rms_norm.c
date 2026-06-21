@@ -130,6 +130,117 @@ Test(nn_norm_rms_norm, forward_matches_decomposed_chain) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* F32 forward path (rms_norm_2d.c lines 37-71). Tape supports F32; the    */
+/* whole `if (t->dtype_tag == DT_F32)` block is a separate kernel that the */
+/* F64 tests above never reach. F32 readback carries ~1e-6 error, so       */
+/* assert at an explicit 1e-5 literal (NOT TEST_TOL_TIGHT).                */
+/* ---------------------------------------------------------------------- */
+
+Test(nn_norm_rms_norm, forward_f32_weight_scaling) {
+	/* Mirror of forward_weight_scaling but on F32 tensors. Drives the
+	 * F32 forward kernel (var accumulation, rstd, x_hat, weighted store),
+	 * the make_tensor_arena_f32 result, and the dtype-name tag.
+	 *   Input: [[3, 4]]  (mean_sq = 12.5, rstd = 1/sqrt(12.5+eps))
+	 *   weight = [2, 3]
+	 *   out[0] = 3 * rstd * 2 = 6 * rstd ; out[1] = 4 * rstd * 3 = 12 * rstd
+	 */
+	param_clear();
+	double in_d[] = {3.0, 4.0};
+	double w_d[] = {2.0, 3.0};
+	TensorHandle input = tensor_create_2d_streamed(1, 2, heap_copy(in_d, 2), 0, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(2, heap_copy(w_d, 2), 0, 0, 14);
+	double eps = 1e-6;
+	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "result dtype should be F32 (got %s)",
+	                 tensor_dtype_name(r));
+	double buf[2];
+	tensor_to_doubles(r, buf);
+	double rstd = 1.0 / sqrt(12.5 + eps);
+	cr_assert_float_eq(buf[0], 6.0 * rstd, 1e-5, "f32 weighted[0] expected %.9f got %.9f",
+	                   6.0 * rstd, buf[0]);
+	cr_assert_float_eq(buf[1], 12.0 * rstd, 1e-5, "f32 weighted[1] expected %.9f got %.9f",
+	                   12.0 * rstd, buf[1]);
+}
+
+Test(nn_norm_rms_norm, forward_f32_per_row_independent) {
+	/* Two F32 rows normalized independently — exercises the F32 outer
+	 * row loop more than once and the per-row rstd divergence.
+	 *   row 0: [1, 1, 1, 1] -> mean_sq = 1.0, rstd = 1/sqrt(1+eps)
+	 *   row 1: [2, 2, 2, 2] -> mean_sq = 4.0, rstd = 1/sqrt(4+eps)
+	 */
+	param_clear();
+	double in_d[] = {1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0};
+	double w_d[] = {1.0, 1.0, 1.0, 1.0};
+	TensorHandle input = tensor_create_2d_streamed(2, 4, heap_copy(in_d, 8), 0, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(4, heap_copy(w_d, 4), 0, 0, 14);
+	double eps = 1e-6;
+	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
+	double buf[8];
+	tensor_to_doubles(r, buf);
+	double rstd0 = 1.0 / sqrt(1.0 + eps);
+	double rstd1 = 1.0 / sqrt(4.0 + eps);
+	for (int j = 0; j < 4; j++) {
+		cr_assert_float_eq(buf[j], 1.0 * rstd0, 1e-5, "f32 row0[%d] expected %.9f got %.9f", j,
+		                   1.0 * rstd0, buf[j]);
+		cr_assert_float_eq(buf[4 + j], 2.0 * rstd1, 1e-5, "f32 row1[%d] expected %.9f got %.9f", j,
+		                   2.0 * rstd1, buf[4 + j]);
+	}
+}
+
+Test(nn_norm_rms_norm, backward_f32_input_and_weight_grads) {
+	/* F32 forward with requires_grad -> drives the F32 rg=1 branch
+	 * (lines 57-69: meta alloc, tape_append, x_hat/rstd cached). Backward
+	 * reads x_hat/rstd uniformly as double*, so grads match the F64 case.
+	 *   Single row [[3, 4]], weight = [1, 1]; loss = sum(out); dout = ones.
+	 *   d(x)[0] = rstd*(1 - 10.5*rstd^2), d(x)[1] = rstd*(1 - 14.0*rstd^2)
+	 *   d(w)[j] = x_hat[j] = {3*rstd, 4*rstd}
+	 */
+	param_clear();
+	double in_d[] = {3.0, 4.0};
+	double w_d[] = {1.0, 1.0};
+	TensorHandle input = tensor_create_2d_streamed(1, 2, heap_copy(in_d, 2), 1, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(2, heap_copy(w_d, 2), 1, 0, 14);
+	param_register("input", input);   /* param_idx 0 */
+	param_register("weight", weight); /* param_idx 1 */
+	double eps = 1e-9;
+	TensorHandle loss = tensor_sum(tensor_rms_norm_2d(input, weight, eps));
+	tensor_backward(loss);
+
+	double rstd = 1.0 / sqrt(12.5 + eps);
+	double r2 = rstd * rstd;
+	double dx0 = rstd * (1.0 - 10.5 * r2);
+	double dx1 = rstd * (1.0 - 14.0 * r2);
+	cr_assert_float_eq(param_grad_item_at(0, 0), dx0, 1e-5, "f32 d(x)[0] expected %.9f got %.9f",
+	                   dx0, param_grad_item_at(0, 0));
+	cr_assert_float_eq(param_grad_item_at(0, 1), dx1, 1e-5, "f32 d(x)[1] expected %.9f got %.9f",
+	                   dx1, param_grad_item_at(0, 1));
+	cr_assert_float_eq(param_grad_item_at(1, 0), 3.0 * rstd, 1e-5,
+	                   "f32 d(w)[0] expected %.9f got %.9f", 3.0 * rstd, param_grad_item_at(1, 0));
+	cr_assert_float_eq(param_grad_item_at(1, 1), 4.0 * rstd, 1e-5,
+	                   "f32 d(w)[1] expected %.9f got %.9f", 4.0 * rstd, param_grad_item_at(1, 1));
+}
+
+Test(nn_norm_rms_norm, forward_f32_no_grad_frees_meta) {
+	/* F32 forward with requires_grad = 0 -> drives the F32 else branch
+	 * (lines 67-69: free(x_hat); free(rstd)) where no tape entry is made.
+	 * Just check the value is correct and no crash on the free path.
+	 */
+	param_clear();
+	double in_d[] = {1.0, 2.0, 3.0, 4.0};
+	double w_d[] = {1.0, 1.0, 1.0, 1.0};
+	TensorHandle input = tensor_create_2d_streamed(1, 4, heap_copy(in_d, 4), 0, 0, 14);
+	TensorHandle weight = tensor_create_1d_streamed(4, heap_copy(w_d, 4), 0, 0, 14);
+	double eps = 1e-6;
+	TensorHandle r = tensor_rms_norm_2d(input, weight, eps);
+	double buf[4];
+	tensor_to_doubles(r, buf);
+	double rstd = 1.0 / sqrt(7.5 + eps);
+	for (int j = 0; j < 4; j++)
+		cr_assert_float_eq(buf[j], (j + 1.0) * rstd, 1e-5, "f32 nograd[%d] expected %.9f got %.9f",
+		                   j, (j + 1.0) * rstd, buf[j]);
+}
+
+/* ---------------------------------------------------------------------- */
 /* Backward (OP_RMS_NORM_2D). Covers the rg=1 tape-append branch and the  */
 /* tape_backward_rms_norm_2d body: both the weight-grad and input-grad    */
 /* accumulation paths.                                                    */
