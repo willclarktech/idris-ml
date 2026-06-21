@@ -2,6 +2,10 @@
 
 Deep learning in Idris 2 with compile-time tensor shape checking and automatic differentiation.
 
+**New here?** [**Why idris-ml**](docs/why-idris-ml.md) makes the full case: dynamic-graph
+ergonomics with safety guarantees stronger than any static graph, compared side-by-side
+against PyTorch, TensorFlow 1.x / JAX, and Haskell (Grenade / hasktorch).
+
 ## Why?
 
 Dynamic graph frameworks like PyTorch catch shape errors at runtime:
@@ -19,24 +23,27 @@ Change the memory width `m` and five layer dimensions must update in concert. A 
 **idris-ml makes these compile errors.** Shape, device, dtype, and grad-mode are all part of the autograd-aware tensor type:
 
 ```idris
-record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr        -- backend handle (carries autograd graph)
   paramId   : Maybe String  -- registry key for the optimizer
 ```
 
-The network type chains layers with compile-time dimension threading:
+Models are records of `Nn` layers; a `Seq` chain threads dimensions at compile time — its
+type pins only the endpoints, hidden dims are existential:
 
 ```idris
-(~~>) : AnyLayer i h d -> Network h hs o d -> Network i (h :: hs) o d
+Model : Type
+Model = Seq 2 3 Ex F WithGrad
 
--- Compiles: output 10 matches input 10
-ll <- linearLayerAny {i=2} {o=10} "ll0"
-let model = ll ~~> OutputLayer reluLayerAny
+mkModel : Init Model
+mkModel = do
+  l1 <- linear {i=2} {o=10}
+  l2 <- linear {i=10} {o=3}
+  pure (l1 ~~> reluA ~~> l2 ~~> Nil)   -- compiles: l1's out 10 unifies with l2's in 10
 
--- Compile error: output 10 doesn't match input 5
-ll2 <- linearLayerAny {i=5} {o=3} "ll1"
-let bad = ll ~~> OutputLayer ll2  -- Error: Can't unify 10 with 5
+-- Swap l2 for `linear {i=5} {o=3}` and the chain won't elaborate:
+--   Mismatch between: 10 and 5
 ```
 
 NTM dimension relationships are type-level functions -- change one and the compiler tells you everywhere else that needs updating:
@@ -53,11 +60,11 @@ The same compile-time discipline catches **device × dtype** mismatches. Metal G
 
 ```idris
 -- Compiles: MlxCpu supports both F32 and F64; MlxGpu supports F32.
-gpuF32 : Tensor [4] (MlxDev MGpu) F32 WithGrad
-cpuF64 : Tensor [4] (MlxDev MCpu) F64 WithGrad
+gpuF32 : Tensor [4] (MlxExecutor MGpu) F32 WithGrad
+cpuF64 : Tensor [4] (MlxExecutor MCpu) F64 WithGrad
 
--- Compile error: Can't find an implementation for Compatible (MlxDev MGpu) F64
-gpuF64 : Tensor [4] (MlxDev MGpu) F64 WithGrad
+-- Compile error: Can't find an implementation for Compatible (MlxExecutor MGpu) F64
+gpuF64 : Tensor [4] (MlxExecutor MGpu) F64 WithGrad
 ```
 
 `Tensor`'s dtype slot also carries a derived lossless-upcast partial order: `UpcastableTo F32 F64` resolves automatically (lossless), `UpcastableTo F64 F32` doesn't (narrowing — would need an explicit `tcast`). The same machinery applies to integer ladders (`Int 16 → Int 32`) and the brain-float family. Cross-family conversions (UInt 8 → F16, BF16 → F32) deliberately have no instance — even when the bit pattern fits, the semantic interpretation might not be what the user wants. See [`docs/develop/dtype-parameter.md`](docs/develop/dtype-parameter.md) for the design.
@@ -80,6 +87,13 @@ You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging,
 | REINFORCE | Policy gradient on CartPole (pure Idris env) | `make example-reinforce` |
 
 All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
+
+**Not just toy tasks.** [`idris-transformers`](docs/users/idris-transformers.md) loads
+real HuggingFace checkpoints by name — **BERT** (`google/bert_uncased_L-2_H-128_A-2`),
+**GPT-2** (`distilgpt2`), **Llama-3.2-1B**, **BitNet** — via `fromPretrained` (parse
+`config.json`, fill from `model.safetensors`, no remap machinery). CI gates regenerate
+the PyTorch oracle and compare per-element: BERT matches HF's forward pass to **4e-4**
+(`make test-e2e-bert-roundtrip`). LoRA + prefix-freeze fine-tuning are supported.
 
 ## Getting started
 
@@ -141,10 +155,10 @@ NTM-copy runs at ~110ms/epoch on the C tape backend (Apple M-series), comparable
 ## Architecture
 
 ```
-Array (Vect-of-Vect)  ->  Tensor (autograd)  ->  Layer (composable)  ->  Train (runner)
-  [3,4] Double            shape + Device on value   LayerLike interface     runTraining
-  pure-Idris ops          backend C handle          Network chains layers  early stopping
-                          native optimizers         LSTM, Linear, NTM      CLI arg parsing
+Array (Vect-of-Vect)  ->  Tensor (autograd)     ->  Nn (models-as-records)  ->  fit (driver)
+  [3,4] Double            shape+executor+dtype       Module / Seq (~~>)          fitSupervised
+  pure-Idris ops          +grad-mode on the type     linear single-owner models  early stopping
+                          backend C handle, opts     Linear, Conv, LSTM, NTM…    checkpointing
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the full module dependency order and development guide.
