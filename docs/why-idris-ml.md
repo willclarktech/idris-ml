@@ -11,14 +11,12 @@ five separate guarantees uniformly.** And it isn't a toy: `idris-transformers` l
 HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches PyTorch's
 forward to within **4e-4** — see [Not a toy](#not-a-toy--real-huggingface-models).
 
-To keep it concrete, one model runs through the whole article: a **Neural Turing Machine**. An
-NTM is a small recurrent controller wired to an external memory, and its layer dimensions all
-derive from one number — the memory width `m`. That single coupling is enough to hit every bug
-class below in turn: change `m` and the shapes must agree; move it to the Mac's GPU and the
-device must agree; freeze the controller and the grad-mode must agree; drop to fp16 and the
-dtype must agree; and finally prototype it on one backend while training on another. Each
-section is the same project, one step later — with the **literal error each tool produces** at
-that step, so you can read the difference off the output, not take it on faith.[^prov]
+The five sections follow the ordinary arc of building one model, roughly in the order you'd hit
+each wall: wire the layers together (**shape**), move it to the GPU (**device**), freeze part of
+it to fine-tune (**grad-mode**), drop to fp16 to save memory (**dtype**), and finally run it
+across more than one backend (**multi-backend**). Each shows that step's bug in four settings —
+with the **literal error each tool produces**, captured from a real toolchain, so you can read
+the difference off the output rather than take it on faith.[^prov]
 
 Every idris-ml rejection below is lifted from a **CI-enforced fixture**
 (`packages/idris-ml/src/Test/neg/`, gated by `make test-integration-typegate-*`): if the type
@@ -44,13 +42,11 @@ flow into types directly, and the *same* index machinery does all five jobs.
 
 ## 1. Shape mismatches
 
-You wire up the NTM. Its read head emits `m + 6` numbers, the controller takes `memory_width +
-9`, the output projection takes `hidden + m` — five layer dimensions, all functions of `m`. You
-bump `m` and miss one.
+The model is a small classifier — a couple of `Linear` layers, `784 → 256 → 10`. You change the
+hidden size and update one layer but not the next.
 
 **PyTorch — runtime error.** The mismatch fires only when that path executes; if broadcasting
-makes a wrong shape "compatible" you get plausible garbage instead of a crash. Minimal repro of
-the bug hiding in those NTM dimensions:
+makes a wrong shape "compatible" you get plausible garbage instead of a crash:
 
 ```python
 fc1 = nn.Linear(784, 256); fc2 = nn.Linear(128, 10)   # bug: should be 256
@@ -117,7 +113,7 @@ Mismatch between: 1 and 0.
 ```
 
 The same check threads through a whole `Seq` chain (`l1 ~~> reluA ~~> l2 ~~> Nil`): swap a layer
-so the dims don't line up — exactly the NTM-`m` mistake — and elaboration fails with `Mismatch
+so the dims don't line up — the same hidden-size mistake — and elaboration fails with `Mismatch
 between: 10 and 5` before anything runs.
 
 And the part Haskell can't reach ergonomically today — **runtime values flowing into types with
@@ -138,8 +134,8 @@ you pass as ordinary terms. A runtime value off disk refines the model's *type* 
 
 ## 2. Device mismatches
 
-The NTM runs. You move it to your Mac's GPU to train faster — and leave one tensor (the memory
-init, say) on the CPU.
+The classifier trains. You move it to your Mac's GPU to train faster — and leave one tensor (an
+input batch, say) on the CPU.
 
 **PyTorch — runtime error** (captured here with MPS, since this is an Apple-silicon box):
 
@@ -187,7 +183,7 @@ error: [GHC-83865]
 ```
 
 **idris-ml — compile error.** Device-as-phantom is the easy part; idris-ml gets it the same way
-(both operands of `tadd` share the executor `ex`, so the CPU-memory-init bug doesn't typecheck),
+(both operands of `tadd` share the executor `ex`, so the stray-CPU-tensor bug doesn't typecheck),
 and then goes further in two directions a phantom alone can't.
 
 ```idris
@@ -227,8 +223,8 @@ Can't find an implementation for Compatible (MlxExecutor MGpu) (Float 64).
 
 ## 3. Grad-mode and single-owner model ownership
 
-Training works. Now you fine-tune: freeze the NTM's controller and train only the memory
-read/write heads. In PyTorch this is where the *silent* bugs live — and it's where idris-ml uses
+Training works. Now you fine-tune: freeze the early layers and train only the classifier head.
+In PyTorch this is where the *silent* bugs live — and it's where idris-ml uses
 **linear types**, the guarantee every other setting falls short of.
 
 **PyTorch — runtime error, or a silent no-op.** A loss built under `no_grad` then sent to
@@ -290,8 +286,8 @@ discipline is only at model granularity, exactly where the aliasing footgun live
 
 ## 4. Lossy dtype conversions must be explicit
 
-Your NTM's memory got big, so you switch it to fp16 to fit. Half the dtype edges you cross are
-lossless (widening); the dangerous ones narrow precision — and nothing warns you which is which.
+The model got big, so you switch it to fp16 to fit. Half the dtype edges you cross are lossless
+(widening); the dangerous ones narrow precision — and nothing warns you which is which.
 
 **PyTorch — silent.** `.half()` / autocast narrow precision with no error — that's the whole
 problem:
@@ -367,7 +363,7 @@ so the lossy edge in your fp16 switch shows up in review instead of hiding in an
 ## 5. Multi-backend in a single program
 
 The finale — the guarantee with **no precedent in any mainstream framework**. You prototyped the
-NTM on the pure-C tape backend (no deps, easy to debug), you want to train it on libtorch, and
+model on the pure-C tape backend (no deps, easy to debug), you want to train it on libtorch, and
 deploy inference on Apple MLX. Normally that's three programs. Here it's one.
 
 `Executor` is an *open* kind, and a single build links every backend you ask for into **one**
@@ -400,8 +396,7 @@ a = mx.array(t.numpy())         # manual host round-trip; no type says "this is 
 hasktorch is libtorch-only, with no open device kind to add a second backend.
 
 **idris-ml — compile-tracked, with an explicit checked bridge.** From the CI fixture
-`Test/Transfer.idr`, the NTM's data moving tape → torch → mlx → tape, value preserved at every
-hop:
+`Test/Transfer.idr`, a vector moving tape → torch → mlx → tape, value preserved at every hop:
 
 ```idris
 roundtripF64Smoke = do
@@ -439,7 +434,7 @@ The deeper point: **one mechanism does all five jobs.** Shape needs genuinely de
 grad-mode, and dtype reuse the *same* parameter machinery — no new language features, no `|G| ×
 |G|` overload tables, no plugins. Add linear resources for model ownership and the last guarantee
 falls out of the same type system. In PyTorch four of these are runtime-only (and one is
-unattainable); in idris-ml they're a single, uniform compile-time discipline — the same NTM,
+unattainable); in idris-ml they're a single, uniform compile-time discipline — the same model,
 checked at every step.
 
 ---
