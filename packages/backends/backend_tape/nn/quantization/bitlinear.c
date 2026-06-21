@@ -40,17 +40,10 @@
 TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_bytes, int packed_byte_count,
                                              int o, int i, int requires_grad) {
 	int expected_bytes = ((i + 3) / 4) * o;
-	if (packed_byte_count != expected_bytes) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
-		// nn_quantization_ternary_packed/byte_count_mismatch_aborts
-		fprintf(stderr,
-		        "[tape] tensor_create_ternary_packed_2d: byte-count "
-		        "mismatch (got %d, expected %d for shape [%d, %d])\n",
-		        packed_byte_count, expected_bytes, o, i);
-		// NOLINTNEXTLINE(misc-include-cleaner): macOS SDK: abort via _abort.h umbrella
-		abort();
-		// GCOVR_EXCL_STOP
-	}
+	TAPE_ABORT_IF(packed_byte_count != expected_bytes,
+	              "[tape] tensor_create_ternary_packed_2d: byte-count mismatch "
+	              "(got %d, expected %d for shape [%d, %d])\n",
+	              packed_byte_count, expected_bytes, o, i);
 	Tensor* t = arena_alloc(sizeof(Tensor));
 	memset(t, 0, sizeof(Tensor));
 	uint8_t* data = arena_alloc((size_t)packed_byte_count);
@@ -78,23 +71,13 @@ static inline int8_t decode_slot(const uint8_t* row_base, int k) {
 	int byte_idx = k >> 2; /* k / 4 */
 	int slot = k & 0x3;    /* k % 4 */
 	uint8_t code = (uint8_t)((row_base[byte_idx] >> (slot * 2)) & 0x3u);
-	switch (code) {
-	case 0x0:
-		return 0;
-	case 0x1:
-		return 1;
-	case 0x3:
-		return -1;
-	default:
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
-		// nn_quantization_decode/invalid_code_aborts
-		fprintf(stderr,
-		        "[tape] tensor_bitlinear_fwd: invalid 2-bit code "
-		        "0x%x at slot %d (byte 0x%02x)\n",
-		        code, k, row_base[byte_idx]);
-		abort();
-		// GCOVR_EXCL_STOP
-	}
+	/* Guard up front (evaluated on every decode, so it's covered by normal data)
+	   then map the 3 valid codes: 0x0->0, 0x1->+1, 0x3->-1. 0x2 is unused. */
+	TAPE_ABORT_IF(code != 0x0 && code != 0x1 && code != 0x3,
+	              "[tape] tensor_bitlinear_fwd: invalid 2-bit code 0x%x at slot %d (byte 0x%02x)\n",
+	              code, k, row_base[byte_idx]);
+	// NOLINTNEXTLINE(readability-avoid-nested-conditional-operator)
+	return (int8_t)(code == 0x0 ? 0 : (code == 0x1 ? 1 : -1));
 }
 
 /* F32 forward — real `float*` data on scale / x / bias / output. Same
@@ -142,48 +125,31 @@ TensorHandle tensor_bitlinear_fwd(TensorHandle hW, TensorHandle hscale, TensorHa
 	Tensor* x = (Tensor*)hx;
 	Tensor* bias = hbias ? (Tensor*)hbias : NULL;
 
-	if (W->dtype_tag != DT_TERNARY) {
-		// GCOVR_EXCL_START — tape-only invalid-input guard (torch/mlx don't
-		// abort here, so no cross-backend death test); abort() skips gcov flush
-		fprintf(stderr,
-		        "[tape] tensor_bitlinear_fwd: weight is not Ternary "
-		        "(dtype_tag=%d). Construct via tensor_create_ternary_packed_2d.\n",
-		        W->dtype_tag);
-		abort();
-		// GCOVR_EXCL_STOP
-	}
+	TAPE_ABORT_IF(W->dtype_tag != DT_TERNARY,
+	              "[tape] tensor_bitlinear_fwd: weight is not Ternary (dtype_tag=%d). "
+	              "Construct via tensor_create_ternary_packed_2d.\n",
+	              W->dtype_tag);
 	/* F32 dispatch: if any of scale/x/bias is F32, require all three. */
 	int any_f32 =
 	    scale->dtype_tag == DT_F32 || x->dtype_tag == DT_F32 || (bias && bias->dtype_tag == DT_F32);
 	if (any_f32) {
 		int all_f32 = scale->dtype_tag == DT_F32 && x->dtype_tag == DT_F32 &&
 		              (!bias || bias->dtype_tag == DT_F32);
-		if (!all_f32) {
-			// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
-			// nn_quantization_fwd/mixed_dtype_aborts
-			fprintf(stderr,
-			        "[tape] tensor_bitlinear_fwd: mixed-dtype inputs "
-			        "(scale=%d, x=%d, bias=%d). All of scale/x/bias must share "
-			        "the same dtype (F32 or F64).\n",
-			        scale->dtype_tag, x->dtype_tag, bias ? bias->dtype_tag : -1);
-			abort();
-			// GCOVR_EXCL_STOP
-		}
+		TAPE_ABORT_IF(!all_f32,
+		              "[tape] tensor_bitlinear_fwd: mixed-dtype inputs (scale=%d, x=%d, bias=%d). "
+		              "All of scale/x/bias must share the same dtype (F32 or F64).\n",
+		              scale->dtype_tag, x->dtype_tag, bias ? bias->dtype_tag : -1);
 		return tensor_bitlinear_fwd_tape_f32(hW, hscale, hx, hbias);
 	}
 	/* F64 path. The lingua-franca on tape means BF16 / F16 inputs would
 	   arrive here too (their storage is F64 with a narrower dtype_tag);
 	   the strict equality check rejects them since they need a separate
 	   cast-down step that this kernel doesn't yet implement. */
-	if (scale->dtype_tag != DT_F64 || x->dtype_tag != DT_F64 ||
-	    (bias && bias->dtype_tag != DT_F64)) {
-		fprintf(stderr,
-		        "[tape] tensor_bitlinear_fwd: only F64 + F32 inputs "
-		        "supported (scale=%d, x=%d, bias=%d). BF16 / F16 lands in a "
-		        "#411 follow-up.\n",
-		        scale->dtype_tag, x->dtype_tag, bias ? bias->dtype_tag : -1);
-		abort();
-	}
+	TAPE_ABORT_IF(scale->dtype_tag != DT_F64 || x->dtype_tag != DT_F64 ||
+	                  (bias && bias->dtype_tag != DT_F64),
+	              "[tape] tensor_bitlinear_fwd: only F64 + F32 inputs supported "
+	              "(scale=%d, x=%d, bias=%d). BF16 / F16 lands in a #411 follow-up.\n",
+	              scale->dtype_tag, x->dtype_tag, bias ? bias->dtype_tag : -1);
 
 	int o = W->shape[0];
 	int i_dim = W->shape[1];
@@ -231,16 +197,13 @@ TensorHandle tensor_bitlinear_fwd(TensorHandle hW, TensorHandle hscale, TensorHa
  * [w->shape[0]]. NoGrad (rhs of the BitNet quantization pipeline). */
 TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
 	Tensor* w = (Tensor*)hw;
-	if (w->rank != 2) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
-		// nn_quantization_absmean/rank1_aborts
-		fprintf(stderr,
-		        "[tape] tensor_absmean_per_row_2d: expected 2D input, "
-		        "got rank=%d\n",
-		        w->rank);
-		abort();
-		// GCOVR_EXCL_STOP
-	}
+	TAPE_ABORT_IF(w->rank != 2,
+	              "[tape] tensor_absmean_per_row_2d: expected 2D input, got rank=%d\n", w->rank);
+	TAPE_ABORT_IF(w->dtype_tag != DT_F64 && w->dtype_tag != DT_F32,
+	              "[tape] tensor_absmean_per_row_2d: only F64 and F32 inputs supported "
+	              "(got dtype_tag=%d)\n",
+	              w->dtype_tag);
+
 	int o = w->shape[0];
 	int i_dim = w->shape[1];
 	int out_shape[1] = {o};
@@ -260,28 +223,20 @@ TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
 		Tensor* r = make_tensor_arena(sd, o, out_shape, 1, 0);
 		return (TensorHandle)r;
 	}
-	if (w->dtype_tag == DT_F32) {
-		const float* wf = (const float*)w->data;
-		float* sf = arena_alloc((size_t)o * sizeof(float));
-		for (int j = 0; j < o; j++) {
-			float s = 0.0f;
-			const float* row = wf + (size_t)j * (size_t)i_dim;
-			for (int k = 0; k < i_dim; k++) {
-				float v = row[k];
-				s += v < 0.0f ? -v : v;
-			}
-			sf[j] = s / (float)i_dim;
+	/* F32 (guard above guarantees F64 or F32). */
+	const float* wf = (const float*)w->data;
+	float* sf = arena_alloc((size_t)o * sizeof(float));
+	for (int j = 0; j < o; j++) {
+		float s = 0.0f;
+		const float* row = wf + (size_t)j * (size_t)i_dim;
+		for (int k = 0; k < i_dim; k++) {
+			float v = row[k];
+			s += v < 0.0f ? -v : v;
 		}
-		Tensor* r = make_tensor_arena_f32(sf, o, out_shape, 1, 0);
-		return (TensorHandle)r;
+		sf[j] = s / (float)i_dim;
 	}
-	{
-		fprintf(stderr,
-		        "[tape] tensor_absmean_per_row_2d: only F64 and F32 "
-		        "inputs supported (got dtype_tag=%d)\n",
-		        w->dtype_tag);
-		abort();
-	}
+	Tensor* r = make_tensor_arena_f32(sf, o, out_shape, 1, 0);
+	return (TensorHandle)r;
 }
 
 /* HF -> ours layout repack. Reads HF's `[(o+3)/4, i]` uint8 buffer
@@ -317,16 +272,10 @@ TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* hf_packed_by
 			uint8_t hf_byte = hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
 			int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
 			int value = hf_code - 1; /* {-1, 0, +1} */
-			if (value < -1 || value > 1) {
-				// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
-				// nn_quantization_hf_packed/invalid_hf_code_aborts
-				fprintf(stderr,
-				        "[tape] tensor_create_ternary_from_hf_packed_2d: "
-				        "invalid HF code %d (byte 0x%02x, chunk %d) at (j=%d, k=%d)\n",
-				        hf_code, hf_byte, hf_chunk, j, k);
-				abort();
-				// GCOVR_EXCL_STOP
-			}
+			TAPE_ABORT_IF(value < -1 || value > 1,
+			              "[tape] tensor_create_ternary_from_hf_packed_2d: invalid HF code %d "
+			              "(byte 0x%02x, chunk %d) at (j=%d, k=%d)\n",
+			              hf_code, hf_byte, hf_chunk, j, k);
 			/* Canonical 3-way ternary encoding (HF -1/0/+1 → 11/00/01) */
 			// NOLINTNEXTLINE(readability-avoid-nested-conditional-operator)
 			uint8_t our_code = (value == 0) ? 0u : (value == 1 ? 1u : 3u);
@@ -360,33 +309,20 @@ static inline int8_t round_clamp_ternary(double x) {
 TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hscale) {
 	Tensor* w = (Tensor*)hw;
 	Tensor* scale = (Tensor*)hscale;
-	if (w->rank != 2) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
-		// nn_quantization_ternary_quant/rank1_weight_aborts
-		fprintf(stderr,
-		        "[tape] tensor_ternary_quant_with_scale_2d: expected "
-		        "2D weight, got rank=%d\n",
-		        w->rank);
-		abort();
-		// GCOVR_EXCL_STOP
-	}
-	if (scale->rank != 1 || scale->shape[0] != w->shape[0]) {
-		// GCOVR_EXCL_START — abort() skips gcov flush; asserted by test_quantize.c
-		// nn_quantization_ternary_quant/scale_shape_mismatch_aborts
-		fprintf(stderr,
-		        "[tape] tensor_ternary_quant_with_scale_2d: scale shape "
-		        "mismatch (expected [%d], got rank=%d shape0=%d)\n",
-		        w->shape[0], scale->rank, scale->rank > 0 ? scale->shape[0] : -1);
-		abort();
-		// GCOVR_EXCL_STOP
-	}
-	if (w->dtype_tag != scale->dtype_tag) {
-		fprintf(stderr,
-		        "[tape] tensor_ternary_quant_with_scale_2d: dtype "
-		        "mismatch (w=%d, scale=%d)\n",
-		        w->dtype_tag, scale->dtype_tag);
-		abort();
-	}
+	TAPE_ABORT_IF(w->rank != 2,
+	              "[tape] tensor_ternary_quant_with_scale_2d: expected 2D weight, got rank=%d\n",
+	              w->rank);
+	TAPE_ABORT_IF(scale->rank != 1 || scale->shape[0] != w->shape[0],
+	              "[tape] tensor_ternary_quant_with_scale_2d: scale shape mismatch "
+	              "(expected [%d], got rank=%d shape0=%d)\n",
+	              w->shape[0], scale->rank, scale->rank > 0 ? scale->shape[0] : -1);
+	TAPE_ABORT_IF(w->dtype_tag != scale->dtype_tag,
+	              "[tape] tensor_ternary_quant_with_scale_2d: dtype mismatch (w=%d, scale=%d)\n",
+	              w->dtype_tag, scale->dtype_tag);
+	TAPE_ABORT_IF(w->dtype_tag != DT_F64 && w->dtype_tag != DT_F32,
+	              "[tape] tensor_ternary_quant_with_scale_2d: only F64 and F32 inputs supported "
+	              "(got dtype_tag=%d)\n",
+	              w->dtype_tag);
 	int o = w->shape[0];
 	int i_dim = w->shape[1];
 	int bytes_per_row = (i_dim + 3) / 4;
@@ -429,7 +365,8 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hs
 				row_out[byte_idx] |= (uint8_t)(code << (slot * 2));
 			}
 		}
-	} else if (w->dtype_tag == DT_F32) {
+	} else {
+		/* F32 (guard above guarantees F64 or F32). */
 		const float* wf = (const float*)w->data;
 		const float* sf = (const float*)scale->data;
 		for (int j = 0; j < o; j++) {
@@ -448,12 +385,6 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hs
 				row_out[byte_idx] |= (uint8_t)(code << (slot * 2));
 			}
 		}
-	} else {
-		fprintf(stderr,
-		        "[tape] tensor_ternary_quant_with_scale_2d: only F64 "
-		        "and F32 inputs supported (got dtype_tag=%d)\n",
-		        w->dtype_tag);
-		abort();
 	}
 	return (TensorHandle)t;
 }
@@ -618,13 +549,10 @@ TensorHandle tensor_bitlinear_fwd_hf_quant(TensorHandle hW, double w_scale, Tens
 		return tensor_bitlinear_fwd_hf_quant_tape_f32(hW, w_scale, hx, hbias, use_rms_norm, hrms_w,
 		                                              rms_eps);
 	}
-	if (x->dtype_tag != DT_F64) {
-		fprintf(stderr,
-		        "[tape] tensor_bitlinear_fwd_hf_quant: only F64 + F32 "
-		        "supported (x dtype_tag=%d)\n",
-		        x->dtype_tag);
-		abort();
-	}
+	TAPE_ABORT_IF(x->dtype_tag != DT_F64,
+	              "[tape] tensor_bitlinear_fwd_hf_quant: only F64 + F32 supported "
+	              "(x dtype_tag=%d)\n",
+	              x->dtype_tag);
 	return tensor_bitlinear_fwd_hf_quant_tape_f64(hW, w_scale, hx, hbias, use_rms_norm, hrms_w,
 	                                              rms_eps);
 }

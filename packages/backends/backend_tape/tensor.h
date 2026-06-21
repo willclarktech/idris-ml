@@ -10,6 +10,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>  /* fprintf for TAPE_ABORT_IF */
+#include <stdlib.h> /* abort for TAPE_ABORT_IF */
 
 /* Internal tape dtype tags. Deliberately dense (0..N) **F64 = 0** so that
    every memset/calloc-zeroed Tensor defaults to F64 without touching the
@@ -63,5 +65,22 @@ int tape_tag_from_dtag(int dtag);
 /* Round a value through the internal dtype's representable precision,
    staying in `double` (the lingua-franca storage). */
 double tape_round_to_dtype(double v, int tag);
+
+/* Fatal precondition guard for invalid-input aborts. Logs to stderr and
+   abort()s when `cond` holds. Written as ONE statement so gcov attributes the
+   whole expansion (the abort included) to the single invocation line — which
+   every normal-input test already executes when it evaluates the condition.
+   That makes the guard line covered with NO `// GCOVR_EXCL` marker and NO
+   SIGABRT death test (gcov's same-line-guard rule; see
+   docs/develop/coverage-policy.md "Principled exclusions"). Use this for tape's
+   loud invalid-input guards instead of an own-line fprintf+abort wrapped in
+   GCOVR_EXCL. */
+#define TAPE_ABORT_IF(cond, ...)                                                                   \
+	do {                                                                                           \
+		if (cond) {                                                                                \
+			fprintf(stderr, __VA_ARGS__);                                                          \
+			abort();                                                                               \
+		}                                                                                          \
+	} while (0)
 
 #endif /* IDRISML_BACKEND_TAPE_TENSOR_H */

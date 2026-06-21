@@ -421,3 +421,52 @@ Test(nn_quantization_hf_packed, invalid_hf_code_aborts, .signal = SIGABRT) {
 	uint8_t hf[4] = {0x03, 0x00, 0x00, 0x00};
 	tensor_create_ternary_from_hf_packed_2d(hf, 1, 4); /* invalid code 3 -> abort */
 }
+
+/* ------------------------------------------------------------------ */
+/* F32 arms + unsupported-dtype abort guards (tape-specific dtags &    */
+/* abort()s; F32 readback carries ~1e-6 error -> assert at 1e-5).      */
+/* ------------------------------------------------------------------ */
+#ifdef BACKEND_TAPE
+
+/* tensor_absmean_per_row_2d F32 arm (dtag 14): same fixture as the F64 test. */
+Test(nn_quantization_absmean_f32, per_row_mean_abs_f32) {
+	double w_data[8] = {1.0, -2.0, 3.0, -4.0, 0.5, -0.5, 1.5, -1.5};
+	TensorHandle w = tensor_create_2d_streamed(2, 4, hcopy(w_data, 8), 0, 0, 14); /* F32 */
+	cr_assert_str_eq(tensor_dtype_name(w), "F32");
+	TensorHandle s = tensor_absmean_per_row_2d(w);
+	cr_assert_str_eq(tensor_dtype_name(s), "F32", "F32 absmean output should stay F32");
+	double out[2] = {0};
+	tensor_to_doubles(s, out);
+	cr_assert_float_eq(out[0], 2.5, 1e-5, "f32 absmean row0: got %.6f", out[0]);
+	cr_assert_float_eq(out[1], 1.0, 1e-5, "f32 absmean row1: got %.6f", out[1]);
+}
+
+/* tensor_ternary_quant_with_scale_2d F32 arm (dtag 14), verified via the F32
+   forward. Same fixture as the F64 round_clamp_via_forward test:
+     w/scale row0 -> [1,0,-1,0], row1 -> [-1,0,1,-1]; fwd scale=[1,1] x=[1,1,1,1]
+     => row0 sum 0, row1 sum -1. */
+Test(nn_quantization_ternary_quant_f32, round_clamp_via_forward_f32) {
+	double w_data[8] = {2.0, 0.0, -3.0, 1.0, -1.0, 0.4, 0.6, -2.0};
+	double scale_data[2] = {2.0, 1.0};
+	TensorHandle w = tensor_create_2d_streamed(2, 4, hcopy(w_data, 8), 0, 0, 14);      /* F32 */
+	TensorHandle scale = tensor_create_1d_streamed(2, hcopy(scale_data, 2), 0, 0, 14); /* F32 */
+	TensorHandle q = tensor_ternary_quant_with_scale_2d(w, scale);
+
+	double fwd_scale_data[2] = {1.0, 1.0};
+	double x_data[4] = {1.0, 1.0, 1.0, 1.0};
+	TensorHandle fwd_scale = tensor_create_1d_streamed(2, hcopy(fwd_scale_data, 2), 0, 0, 14);
+	TensorHandle x = tensor_create_1d_streamed(4, hcopy(x_data, 4), 0, 0, 14);
+	TensorHandle y = tensor_bitlinear_fwd(q, fwd_scale, x, NULL);
+	cr_assert_str_eq(tensor_dtype_name(y), "F32", "F32 quant->fwd output should stay F32");
+	double out[2] = {0};
+	tensor_to_doubles(y, out);
+	cr_assert_float_eq(out[0], 0.0, 1e-5, "f32 quant row0 fwd: got %.6f", out[0]);
+	cr_assert_float_eq(out[1], -1.0, 1e-5, "f32 quant row1 fwd: got %.6f", out[1]);
+}
+
+/* The unsupported-dtype / mixed-dtype / BF16-reject abort guards in bitlinear.c
+   use the TAPE_ABORT_IF single-statement macro, so their guard lines are covered
+   by the normal-input tests above (the condition is evaluated every call) — no
+   SIGABRT death test is needed for coverage (gcov same-line-guard rule). */
+
+#endif /* BACKEND_TAPE */
