@@ -34,8 +34,8 @@ bug / outright impossibility elsewhere:
 
 → [**Why idris-ml**](docs/why-idris-ml.md) makes the full case, side by side against PyTorch,
 TensorFlow 1.x, and Haskell (Grenade / hasktorch), with the **literal error each one
-produces**. It also shows this isn't a toy: [`idris-transformers`](packages/idris-transformers/)
-loads real HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches
+produces**. It also runs real models: [`idris-transformers`](packages/idris-transformers/)
+loads HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches
 PyTorch's forward pass to **4e-4**.
 
 ## Packages

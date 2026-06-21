@@ -7,9 +7,9 @@ ordinary `if`/`for`/`while`, normal debugging), but the *constraints* — shapes
 grad-mode, dtype — live in the type system, checked at compile time and erased at runtime.
 
 The thesis: **one mechanism — dependently-typed indices plus linear resource types — covers
-five separate guarantees uniformly.** And it isn't a toy: `idris-transformers` loads real
+five separate guarantees uniformly.** And it runs real models: `idris-transformers` loads
 HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches PyTorch's
-forward to within **4e-4** — see [Not a toy](#not-a-toy--real-huggingface-models).
+forward to within **4e-4** — see [Real HuggingFace models](#real-huggingface-models).
 
 The five sections follow the ordinary arc of building one model, roughly in the order you'd hit
 each wall: wire the layers together (**shape**), move it to the GPU (**device**), freeze part of
@@ -439,9 +439,9 @@ checked at every step.
 
 ---
 
-## Not a toy — real HuggingFace models
+## Real HuggingFace models
 
-The guarantees above would be academic if the library only ran toy tasks. It doesn't.
+These guarantees would be academic on synthetic tasks alone. They aren't:
 `packages/idris-transformers/` loads real HuggingFace checkpoints **by name** — each HF
 architecture is one Idris module whose params and shapes match HF on disk, so loading is plain
 `fromPretrained "<dir>"` (parse `config.json`, fill from `model.safetensors`) with no remap or
