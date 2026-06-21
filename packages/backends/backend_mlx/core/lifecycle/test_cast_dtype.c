@@ -73,4 +73,79 @@ Test(mlx_core_lifecycle_cast_dtype, backward_passes_gradient) {
 	}
 }
 
+Test(mlx_core_lifecycle_cast_dtype, f32_to_f16_forward) {
+	/* tensor_cast_dtype_f16_mlx_streamed via the public unified dispatch
+	   (dtag=13). f16 has 11 mantissa bits; powers of two are exact. */
+	param_clear();
+	double xd[] = {1.0, 2.0, 4.0, -8.0};
+	TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
+	TensorHandle as_f16 = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/13);
+	cr_assert_str_eq(tensor_dtype_name(as_f16), "F16",
+	                 "after cast_dtype f16, dtype should be F16 (got %s)",
+	                 tensor_dtype_name(as_f16));
+	double buf[4];
+	tensor_to_doubles(as_f16, buf);
+	for (int i = 0; i < 4; i++) {
+		cr_assert_float_eq(buf[i], xd[i], 0.01, "f16 cast buf[%d] expected %.3f got %.9f", i, xd[i],
+		                   buf[i]);
+	}
+}
+
+Test(mlx_core_lifecycle_cast_dtype, f32_to_i32_forward) {
+	/* tensor_cast_dtype_i32_mlx_streamed via the public unified dispatch
+	   (dtag=10). astype to int32 truncates toward zero; whole-number
+	   inputs are exact. */
+	param_clear();
+	double xd[] = {1.0, -2.0, 7.0, -42.0};
+	TensorHandle x = tensor_create_2d_f64(2, 2, heap_copy(xd, 4), 0);
+	TensorHandle as_i32 = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/10);
+	cr_assert_str_eq(tensor_dtype_name(as_i32), "I32",
+	                 "after cast_dtype i32, dtype should be I32 (got %s)",
+	                 tensor_dtype_name(as_i32));
+	double buf[4];
+	tensor_to_doubles(as_i32, buf);
+	for (int i = 0; i < 4; i++) {
+		cr_assert_float_eq(buf[i], xd[i], 0.0, "i32 cast buf[%d] expected %.0f got %.6f", i, xd[i],
+		                   buf[i]);
+	}
+}
+
+Test(mlx_core_lifecycle_cast_dtype, backward_replay_bf16) {
+	/* Forward: y = cast_bf16(x); loss = sum(y); dL/dx = 1 elementwise.
+	   Exercises the OP_CAST_DTYPE replay case 2 (bf16, lines 73-74). */
+	param_clear();
+	double xd[] = {1.0, 2.0, 4.0};
+	TensorHandle x = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
+	param_register("x", x);
+	TensorHandle y = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/17);
+	cr_assert_str_eq(tensor_dtype_name(y), "BF16", "cast target should be BF16 (got %s)",
+	                 tensor_dtype_name(y));
+	TensorHandle loss = tensor_sum(y);
+	tensor_backward(loss);
+	for (int i = 0; i < 3; i++) {
+		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 0.05,
+		                   "grad x[%d] should pass through bf16 cast as 1 (got %.9f)", i,
+		                   param_grad_item_at(0, i));
+	}
+}
+
+Test(mlx_core_lifecycle_cast_dtype, backward_replay_f16) {
+	/* Forward: y = cast_f16(x); loss = sum(y); dL/dx = 1 elementwise.
+	   Exercises the OP_CAST_DTYPE replay case 3 (f16, lines 76-77). */
+	param_clear();
+	double xd[] = {1.0, 2.0, 4.0};
+	TensorHandle x = tensor_create_param_2d_f64(1, 3, heap_copy(xd, 3));
+	param_register("x", x);
+	TensorHandle y = tensor_cast_dtype_streamed(x, /*stream_tag=*/0, /*dtag=*/13);
+	cr_assert_str_eq(tensor_dtype_name(y), "F16", "cast target should be F16 (got %s)",
+	                 tensor_dtype_name(y));
+	TensorHandle loss = tensor_sum(y);
+	tensor_backward(loss);
+	for (int i = 0; i < 3; i++) {
+		cr_assert_float_eq(param_grad_item_at(0, i), 1.0, 0.01,
+		                   "grad x[%d] should pass through f16 cast as 1 (got %.9f)", i,
+		                   param_grad_item_at(0, i));
+	}
+}
+
 #endif /* BACKEND_MLX */

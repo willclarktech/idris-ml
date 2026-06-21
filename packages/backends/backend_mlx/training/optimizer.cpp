@@ -399,8 +399,11 @@ extern "C" void optimizer_step(OptimizerHandle h) {
 			    t->data, mx::divide(mx::multiply(lr_arr, mhat), mx::add(mx::sqrt(vhat), eps_arr)));
 			break;
 		}
+		// GCOVR_EXCL_START — unreachable default: opt->type is always 0-3 from the create_* ctors;
+		// no in-tree path sets an out-of-range type on mlx
 		default:
 			break;
+			// GCOVR_EXCL_STOP
 		}
 	}
 	prof_optimizer_math_ms_mlx += _wall_ms_mlx() - tm0;
