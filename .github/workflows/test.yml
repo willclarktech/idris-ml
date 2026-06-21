@@ -891,6 +891,55 @@ jobs:
           save-datasets: 'true'
           ttc-job: test-e2e-examples
 
+  # Notebook execution gate: runs every tutorial + model notebook
+  # headless through the idris-ml Jupyter kernel (nbconvert, no
+  # --allow-errors, so a broken cell fails the job; cells tagged
+  # `raises-exception` are the deliberate compile-error demos and are
+  # allowed to error). Tape backend only (the notebooks pin
+  # TapeExecutor/F64), so backend-deps stays `none`. This is the gate
+  # that catches notebook API drift — the kernel surfaces idris2's
+  # error reply, which nbconvert turns into a cell failure.
+  test-e2e-notebooks:
+    name: test-e2e-notebooks
+    defaults:
+      run:
+        shell: "nix develop .#default --command bash -e {0}"
+    needs: [build, changes]
+    if: ${{ !cancelled() && needs.changes.outputs.e2e == 'true' }}
+    runs-on: ubuntu-latest
+    # Cold: idris2 bootstrap + `make install` elaboration + jupyter-install
+    # venv + 17 notebook cold-starts. Warm is well under.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - uses: ./.github/actions/setup-idris-ml
+        id: setup
+        with:
+          os-label: ubuntu-latest
+          backend-deps: none
+          ttc-job: test-e2e-notebooks
+
+      # >>> GENERATED (test-e2e-notebooks) FROM test.yml.spec.json >>>
+      - name: Execute all Jupyter notebooks
+        # Runs every tutorial + model notebook headless via nbconvert
+        # through the idris-ml kernel (dep-chains install + jupyter-install).
+        # No --allow-errors: a broken cell fails the job. The kernel resolves
+        # idris2 via pack, and surfaces compile errors as an error reply so
+        # nbconvert records the failure. Catches notebook API drift.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-notebooks
+      # <<< END GENERATED (test-e2e-notebooks) <<<
+
+      - name: Save caches
+        if: always()
+        uses: ./.github/actions/save-idris-ml-caches
+        with:
+          os-label: ubuntu-latest
+          ttc-job: test-e2e-notebooks
+
   # E2E HF cross-language gates — the cheap (tape/Python) half: the
   # PyTorch reference correctness suite, the oracle generators, and the
   # small bert/gpt2 Idris-vs-HF roundtrips. The expensive ~2B-param

@@ -1,5 +1,5 @@
 {
-  "_comment": "Spec consumed by scripts/gen-ci-workflow.py. The `jobs` map lists the make-invocation block of each correspondingly-named job in .github/workflows/test.yml (one marker-bounded generated region per job; the job scaffolding — checkout, composite setup, cache saves, artifact upload — stays hand-written). Every generated step gets `!cancelled()` merged into its condition so one red gate never hides its siblings (detector-not-gate CI: results are read after the fact, so a run must surface every failure at once). Add a new gate by appending to the right job here and running scripts/gen-ci-workflow.py; the make test-integration-lint-ci-workflow target fails CI if this spec disagrees with the on-disk workflow.",
+  "_comment": "Spec consumed by scripts/gen-ci-workflow.py. The `jobs` map lists the make-invocation block of each correspondingly-named job in .github/workflows/test.yml (one marker-bounded generated region per job; the job scaffolding \u2014 checkout, composite setup, cache saves, artifact upload \u2014 stays hand-written). Every generated step gets `!cancelled()` merged into its condition so one red gate never hides its siblings (detector-not-gate CI: results are read after the fact, so a run must surface every failure at once). Add a new gate by appending to the right job here and running scripts/gen-ci-workflow.py; the make test-integration-lint-ci-workflow target fails CI if this spec disagrees with the on-disk workflow.",
   "_coverage_comment": "ci_coverage_exceptions / ci_coverage_known_holes feed scripts/check-ci-gate-coverage.py (make test-integration-lint-ci-coverage): every test-unit/test-integration/test-e2e/test-coverage aggregator leaf must run in some workflow, be a named exception (permanent, reason required), or be a known hole (temporary; warns, and the lint fails if a hole becomes covered without being removed here).",
   "ci_coverage_exceptions": {
     "test-e2e-jupyter": "dep-chains jupyter-install into a full backend rebuild; run locally when touching the kernel"
@@ -81,7 +81,7 @@
         "comment": [
           "Pure-Idris suite for the gym package (spaces, RNG, classic-control",
           "+ toy-text envs, wrappers) via the pack-built test harness. Wired",
-          "in by the gate-coverage lint — it was the only test-unit leaf",
+          "in by the gate-coverage lint \u2014 it was the only test-unit leaf",
           "running in no workflow."
         ]
       },
@@ -119,7 +119,7 @@
         "comment": [
           "Idris-side suite living in packages/idris-ml-examples (Test.Reinforce,",
           "Test.Generate). Wired in to catch drift like the IO-lift mismatch on",
-          "rolloutEpBatched and the bitlinear-test scale formula — both pre-existed",
+          "rolloutEpBatched and the bitlinear-test scale formula \u2014 both pre-existed",
           "in tree because the target was not previously gated by CI."
         ]
       },
@@ -173,7 +173,7 @@
           "Adds Test.Transfer (cross-backend `toExecutor` smoke) +",
           "Test.MultiExecutorRegistry (registry isolation invariant) on",
           "top of the per-backend buckets. Forces BACKEND=torch,tape,mlx",
-          "so all three sets of C symbols are linked — only feasible on",
+          "so all three sets of C symbols are linked \u2014 only feasible on",
           "the macOS lane (Ubuntu has no mlx)."
         ]
       },
@@ -297,7 +297,7 @@
         "os": "ubuntu",
         "comment": [
           "Verifies the typed targsort/tgather/tscatterAdd surface *resolves*",
-          "on torch (Compatible d I64) and runs — the C test covers numerics,",
+          "on torch (Compatible d I64) and runs \u2014 the C test covers numerics,",
           "check-all is tape-only and can't resolve the I64 gate. Torch-only:",
           "an integer-dtyped index tensor exists nowhere else."
         ]
@@ -354,10 +354,10 @@
         "name": "Run PyTorch reference correctness suite",
         "run": "make test-e2e-pytorch-ref",
         "comment": [
-          "pytest over packages/pytorch/torch_ref/correctness/ — the",
+          "pytest over packages/pytorch/torch_ref/correctness/ \u2014 the",
           "PyTorch side is the correctness oracle for every paired example,",
           "so its own suite gates first. Wired in by the gate-coverage",
-          "lint — it ran in no workflow despite being the oracle."
+          "lint \u2014 it ran in no workflow despite being the oracle."
         ]
       },
       {
@@ -386,7 +386,7 @@
           "Same shape as the HfBert oracle gate but for sshleifer/tiny-gpt2.",
           "Downloads the checkpoint, runs forward on [15496, 995], asserts",
           "the last-position hidden state is shape [2] (sshleifer/tiny-gpt2",
-          "is intentionally degenerate at hidden=2 — exercises the",
+          "is intentionally degenerate at hidden=2 \u2014 exercises the",
           "architectural pieces without burning CI disk)."
         ]
       },
@@ -445,7 +445,7 @@
           "row matches the HF oracle at max-abs-diff 1.0. BACKEND=torch",
           "because tape F64 on a ~2B-param model OOMs the 14 GB Ubuntu",
           "runner (see Low-priority TODO \"Tape F64 large-LM OOM\"). BitNet",
-          "is public (not license-gated), so it downloads anonymously —",
+          "is public (not license-gated), so it downloads anonymously \u2014",
           "but the job-level `HF_TOKEN: ${{ secrets.HF_TOKEN }}` resolves",
           "to the EMPTY string on a mirror without the secret, and the HF",
           "client then sends an illegal `Authorization: Bearer ` header",
@@ -482,7 +482,7 @@
           "The companion single-forward gate above tests one fixed token;",
           "this step exercises the full greedy-decode loop: tokenize \"The",
           "capital of France is\", generate 4 tokens via `genLoop` (no KV",
-          "cache yet — bumps to 8+ once KV cache lands), assert the",
+          "cache yet \u2014 bumps to 8+ once KV cache lands), assert the",
           "resulting token-ID sequence matches HF `model.generate(",
           "do_sample=False, use_cache=True)` element-wise. Catches drift",
           "in tokenization, every layer of the forward, argmax, and the",
@@ -494,7 +494,7 @@
         "run": "make BACKEND=torch test-integration-lint-llama-inference",
         "if": "env.HF_TOKEN != ''",
         "comment": [
-          "`idris2 --check` over Example/LlamaInference.idr — catches",
+          "`idris2 --check` over Example/LlamaInference.idr \u2014 catches",
           "type-drift against the library surface. Lives in this job, NOT",
           "test-integration: elaborating the example cold peaks past the",
           "runner ceiling (it OOM-killed the Ubuntu test-integration leg",
@@ -508,15 +508,28 @@
         "name": "Type-check BitNetInference example (torch)",
         "run": "make BACKEND=torch test-integration-lint-bitnet-inference",
         "comment": [
-          "`idris2 --check` over Example/BitNetInference.idr — the bitnet",
+          "`idris2 --check` over Example/BitNetInference.idr \u2014 the bitnet",
           "twin of the llama type-check above. Lives in this job, NOT",
           "test-integration: cold elaboration of the ~2B-param example peaks",
           "past the runner ceiling (same reason as llama). No HF_TOKEN guard",
-          "— bitnet is public and the type-check downloads nothing; the",
+          "\u2014 bitnet is public and the type-check downloads nothing; the",
           "bitnet roundtrip earlier in this job already warmed the",
           "--build-dir, so the check is nearly free. BACKEND=torch to match",
           "the roundtrip's build set (tape F64 OOMs the runner)."
         ]
+      }
+    ],
+    "test-e2e-notebooks": [
+      {
+        "name": "Execute all Jupyter notebooks",
+        "comment": [
+          "Runs every tutorial + model notebook headless via nbconvert",
+          "through the idris-ml kernel (dep-chains install + jupyter-install).",
+          "No --allow-errors: a broken cell fails the job. The kernel resolves",
+          "idris2 via pack, and surfaces compile errors as an error reply so",
+          "nbconvert records the failure. Catches notebook API drift."
+        ],
+        "run": "make test-e2e-notebooks"
       }
     ]
   }
