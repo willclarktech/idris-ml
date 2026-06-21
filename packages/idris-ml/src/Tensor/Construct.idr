@@ -81,7 +81,7 @@ tparam1d {n} pid buf = ioRerun (\_ =>
 -- Fused param create + in-place init
 -- ---------------------------------------------------------------
 -- Replaces the `traverse normalSample + packDoubles + tparam*` chain
--- in HF model + core Layer/ smart constructors. The init runs in the
+-- in HF model + core Nn smart constructors. The init runs in the
 -- C backend (libtorch's `torch::nn::init::normal_` or `t.fill_`); no
 -- per-element host-side loop, no per-element FFI marshalling. See
 -- `docs/develop/perf-changes.md` for the head-to-head measurements

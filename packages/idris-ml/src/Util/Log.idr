@@ -61,16 +61,15 @@ public export
 logDebug : String -> IO ()
 logDebug msg = primIO (prim__logDebug msg)
 
-||| Emit at TRACE level. Used by `forwardVarTraced`'s
-||| activation-dump branch (see `Layer/Core.idr`); reserve for
-||| per-op tracing.
+||| Emit at TRACE level. Used by the TRACE-level per-layer
+||| activation dump; reserve for per-op tracing.
 public export
 logTrace : String -> IO ()
 logTrace msg = primIO (prim__logTrace msg)
 
 ||| Level constants matching `backends/log.h` IDRISML_LEVEL_*.
 ||| Use these for `getLogLevel >= levelTrace`-style branch gates
-||| in callers (e.g. `forwardVarTraced`'s SafeTensors-dump branch).
+||| in callers (e.g. the TRACE-level SafeTensors activation dump).
 public export
 levelSilent : Int
 levelSilent = 0

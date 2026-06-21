@@ -198,7 +198,7 @@ interface UserExecutorLinear ex => UserExecutorNN (0 ex : Executor) where
   ||| pure-Idris alternative (`sum(a * b, dim) / (sqrt(sum(a^2, dim))
   ||| * sqrt(sum(b^2, dim)))`) would emit 8 lazy-graph nodes per call
   ||| (4 reductions + 2 sqrts + mul + div). In NTM's per-timestep
-  ||| content-addressing loop (3 callsites in `Layer/{Ntm,Dnc}.idr`)
+  ||| content-addressing loop (3 callsites in `Nn/{Ntm,Dnc}.idr`)
   ||| under the `withNoGrad` bracket on mlx, that would compound
   ||| MTLBuffer pressure and risk hitting the existing handle-count
   ||| ceiling. The fused kernel is the right shape for this hot loop.

@@ -156,9 +156,7 @@ Examples don't hardcode device or dtype. They reference `ExampleDevice` / `Examp
 
 Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked into `BuildConfig.idr`. Switching modes is just a different `make install` — no source edits. (Same trick generates the per-build `Linked` instances in `HwConfig.idr`.)
 
-The `LayerLike` interface (4 methods: `applyVar`, `applyVarBatch`, `layerPrefix`, `resetState`) + `AnyLayer` existential provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~~>)`. Adding a new layer = one file implementing `LayerLike`, zero edits elsewhere.
-
-#### `Nn/` — the v1 models-as-records surface
+#### `Nn/` — the models-as-records surface
 
 The successor to `Layer/` (now the sole layer surface; `Layer/` is gone). Models are plain records of layers, and **a model is a single-owner LINEAR resource** threaded through `Control.Linear.LIO.L IO` — every `forward`/`recurStep`/`eval`/`freeze`/`fit` *consumes* the handle `(1 _ : l …)` and threads it back, so "freeze/eval a model then reuse the stale handle to train" (a silent no-op against the shared C params) is a **compile-time linearity error**. Tensors stay **unrestricted** (reverse-mode AD shares them); the linear discipline is only at model granularity. See `docs/develop/linear-types-and-effects.md` + the gate `make test-integration-typegate-linear-model`. `Nn.Module`'s batched-first `forward : (1 _ : l i o ex dt g) -> Tensor [b,i] ex dt g -> L IO (LPair (!* (Tensor [b,o] ex dt g)) (l i o ex dt g))` (output rides the `(!*)` bang; no `applyVarBatch`, no `idris_crash` default — a layer that can't batch isn't a `Module`). `Nn.Params` (the base of `Module`/`Recurrent`) carries a flat read-only `params : l … -> List SomeParam` (ω, the PyTorch `.parameters()` analogue — used by `groupOf`, freeze-by-prefix, HF param collectors) **plus** the linear `reflect`/`castGrad`/`discard`. `Nn.Seq` (endpoints-only index, `~~>`/list-literal; sub-models in linear `(1 _)` fields) chains `Module`s. `Module`/`Params` are **higher-kinded** over the `Nat -> Nat -> Executor -> DType -> GradMode -> Type` constructor (instances written unapplied); layers with extra config Nats lead them and trail the `(i,o)` pin (Conv2D, TransformerBlock). `GradMode` is on the model type; `eval`/`freeze`/`unfreeze`/`trainable` are linear (flip C `requires_grad` over the reflected param list, return the retyped/`Frozen` handle). Recurrent/memory layers (RNN/LSTM/GRU/NTM/DNC) implement `Nn.Recurrent` (linear `recurStep`/`recurReset`, state in the record) instead of `Module`; NTM/DNC step their embedded LSTM controller via `lstmStepIO` (linear `recurStep` bridged to IO so the controller threads ω internally while the cell stays the single-owner resource). The mixed-precision surface (`Nn.LinearMixed`'s `ModuleMixed`/`ParamsMixed`) collapsed onto the same linear surface too — `forwardMixed` consumes-and-threads the model, `ParamsMixed` mirrors `Params` (`paramsMixed` ω + linear `reflectMixed`/`castGradMixed`/`discardMixed`). **Kept dual/IO** (no footgun — tensors unrestricted): the `*L` tensor ops beside the IO ones, and `runInitL`/`bornL`/`withNoGradL`. Param names derive over the **unchanged** C registry via `Nn.Init` (`scoped`/`scopedChild`/`freshChild`/`named`/`runInit`); `Nn.Group.groupOf` returns a submodel's exact registry names for optimizer scoping (replaces substring-prefix matching). 19 layers ported; the Transformer is decomposed (`Nn.Attention` + a `TransformerBlock` that stacks via `Seq`), not the legacy monolith. Hand-written 3-line `Params` instances (the deriveParams spike chose this); see design-decisions.md "models-as-records: the `Nn` surface".
 
@@ -168,14 +166,20 @@ The successor to `Layer/` (now the sole layer surface; `Layer/` is gone). Models
 
 ## Key Patterns
 
-### Network composition
+### Model composition
+
+A model is a record of `Nn` layers or a `Nn.Seq` chain (`~~>` / list-literal, endpoints-only index, hidden dims existential). Layers are built in the `Init` monad; `runInit` / `runInitL` populates the C param registry, deriving names from the scope path — no hand-typed prefixes:
 
 ```idris
-ll <- linearLayerAny {i=2} {o=3} "ll0"      -- naming happens at construction
-let model = ll ~~> OutputLayer reluLayerAny -- registers "ll0_weights" + "ll0_bias"
+model <- runInitL (linear {i=2} {o=3})          -- a one-layer model
+
+Model = Seq InputDim NumClasses Ex F WithGrad    -- a chain (hidden dims existential)
+mkModel : Init Model
+mkModel = pure (c1 ~~> reluA ~~> l ~~> Nil)
+trained <- runInitL mkModel
 ```
 
-Each `*LayerAny` constructor takes a paramPrefix and registers parameters in the C-side optimizer registry. **Parameters without a paramId are invisible to the optimizer** — always pass a prefix. For multi-network examples, scope each network's prefix distinctly (`actor_ll0`, `critic_ll0`).
+`Nn.Init`'s `scoped` / `scopedChild` / `runInit` own naming (the PyTorch `state_dict` convention). **Parameters reach the optimizer only through the registry `runInit` populates** — there is no separate paramId to pass. `Nn.Group.groupOf submodel` returns a submodel's exact registry names for per-network optimizer scoping (`actor` / `critic`), replacing substring-prefix matching.
 
 ### Construction
 
@@ -184,12 +188,11 @@ Each `*LayerAny` constructor takes a paramPrefix and registers parameters in the
 ### Forward pass
 
 ```idris
-forwardVar : Network i hs o d g -> Tensor [i] d g -> IO (Network i hs o d g, Tensor [o] d g)
+forward    : (1 _ : l i o ex dt g) -> Tensor [b,i] ex dt g -> L IO (LPair (!* (Tensor [b,o] ex dt g)) (l i o ex dt g))
+forwardSeq : (1 _ : Seq i o ex dt g) -> Tensor [b,i] ex dt g -> L IO (LPair (!* (Tensor [b,o] ex dt g)) (Seq i o ex dt g))
 ```
 
-`forwardVar` (and every Tensor-handle-touching smart constructor: `tadd`, `tmul`, `ttanh`, etc.) is `IO`-typed. This is load-bearing: `withNoGrad (pure (forwardVar …))` would have fired the FFI *before* `noGradBegin` since `pure`'s argument is evaluated strictly. With IO typing the FFI body fires only on `<-` sequencing — inside the bracket. The helper `ioRerun : (() -> a) -> IO a` defers a pure body to IO without using the prelude's private `MkIO`; `Lazy a` was rejected because it memoizes.
-
-Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/NaN to stderr without affecting numerics.
+`forward` / `forwardSeq` consume the linear model handle and thread it back (the output rides the `(!*)` bang). Every Tensor-handle-touching smart constructor (`tadd`, `tmul`, `ttanh`, etc.) is `IO`-typed. This is load-bearing: `withNoGrad (pure (tadd …))` would have fired the FFI *before* `noGradBegin` since `pure`'s argument is evaluated strictly. With IO typing the FFI body fires only on `<-` sequencing — inside the bracket. The helper `ioRerun : (() -> a) -> IO a` defers a pure body to IO without using the prelude's private `MkIO`; `Lazy a` was rejected because it memoizes.
 
 **Expression ops**: row-select-by-index and elementwise arithmetic compose without hand recursions — `tgatherRows` ([b,n] × [b] double-valued-int indices → [b]; PyTorch `gather(1, ·)`), `tmaxRows` ([b,n] → [b]; `max(1).values`), and the infix aliases `(+.)` `(-.)` `(*.)` (elementwise) / `(*:)` (scalar-left) on plain evaluated tensors with bang notation: `tgt <- r +. !(gamma *: !(tmaxRows qNext))`. No `Num` instance, no IO-carrier operators (roadmap.md decision 5). Note `tmseLoss` is a *sum* reduction — scale by `1/n` for PyTorch's mean default. (`tgather` is the separate torch-only integer-dtyped 1-D surface.)
 

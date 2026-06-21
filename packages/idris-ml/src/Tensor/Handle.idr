@@ -357,7 +357,7 @@ withNoGradKeep act = do
 ||| autograd ON — for heavy training inner loops (a DQN replay step, a PPO
 ||| rollout step) whose per-step grad intermediates would otherwise pile up
 ||| within a single epoch past the mlx buffer ceiling. The per-epoch bracket
-||| in `runTrainingIO` is the outer frame; this nests inside it. The free is
+||| in the training loop is the outer frame; this nests inside it. The free is
 ||| create_id-based (no GC needed); registry params (rc>1) and result
 ||| tensors (retained via `KeepAlive`) are spared. Most callers pass a
 ||| scalar/`()` result, so `KeepAlive` is a no-op.

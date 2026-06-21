@@ -32,8 +32,8 @@ tmv w x = ioRerun (\_ => MkTensor (primMv {ex} w.tensorPtr x.tensorPtr) Nothing)
 
 ||| Fused 1D linear: y = W[m,n] · x[n] + bias[m]. One C call instead
 ||| of `tadd (tmv W x) bias` — collapses two FFI hops into one and
-||| eliminates the intermediate Idris-side glue. Used by Layer.Linear's
-||| applyVar and by NTM/DNC FCs.
+||| eliminates the intermediate Idris-side glue. Used by `Nn.Linear`'s
+||| forward and by NTM/DNC FCs.
 export %inline
 tlinear : {0 ex : Executor} -> UserExecutorTraining ex =>
           Tensor [o, i] ex dt g -> Tensor [i] ex dt g -> Tensor [o] ex dt g -> IO (Tensor [o] ex dt g)

@@ -257,7 +257,7 @@ record LlamaAttentionState
   oProj : LlamaLinearNoBias qOut hidden ex dt g      -- [hidden, numHeads * headDim]
 
 ||| SwiGLU MLP sublayer. All three projections are bias-free. Mirrors
-||| Layer.SwiGLU's record shape but with HF-aligned names re-bound at
+||| `Nn.SwiGLU`'s record shape but with HF-aligned names re-bound at
 ||| construction.
 public export
 record LlamaMlpState
@@ -431,7 +431,7 @@ applyEmbedLookup {seqLen} {hidden} (MkEmbedding w) tokens = ioRerun (\_ =>
   in MkTensor out Nothing)
 
 -- Build the strict-upper-triangle causal mask (1.0 above diagonal,
--- 0.0 elsewhere). Same routine as Layer/Transformer.idr / Transformers.Gpt2.
+-- 0.0 elsewhere). Same routine as `Transformers.Gpt2`'s `writeCausalMask`.
 writeCausalMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
 writeCausalMask buf i j n =
   if i >= n then buf

@@ -190,8 +190,8 @@ bertForMaskedLmParamNames cfg bertPfx clsPfx =
 -- un-loaded model still produces sensible numerics; loadModel
 -- overwrites everything anyway.
 
--- Pack a Vect of Doubles into a buffer (mirrors Layer.Linear.packDoubles
--- — re-exporting that would couple to Linear's module; duplicate is
+-- Pack a Vect of Doubles into a buffer (mirrors the `packDoubles`
+-- helpers in `Nn.Ntm`/`Nn.Dnc` — re-exporting would couple modules; duplicate is
 -- cheaper than an export chain).
 packDs : AnyPtr -> Int -> Vect k Double -> AnyPtr
 packDs buf _ []          = buf
@@ -476,7 +476,8 @@ hfBertModel pfx = do
 --
 -- Inner attention uses primitives directly (primMm / primTranspose2d /
 -- primSoftmax2d / primNarrow / primConcat2dAxis1) for the per-head
--- loop — same pattern as Layer/Transformer.idr's runHeadAttn. The
+-- loop — same per-head primitive pattern as the other `Transformers.*`
+-- encoders. The
 -- typed surface re-emerges at the BertLayer boundary.
 
 -- ε for LayerNorm. HF BERT defaults to 1e-12.

@@ -75,7 +75,7 @@ interface UserExecutorAutograd ex => UserExecutorParamRegistry (0 ex : Executor)
   primParamZeroAll      : PrimIO ()
   ||| Drop every registered param whose paramId starts with `prefix`,
   ||| releasing its handle retain. Used by the activation-dump path
-  ||| in `forwardVarTraced` (TRACE level) to flush transient
+  ||| (TRACE level) to flush transient
   ||| `__act/<label>/<i>` entries before backward / step so they
   ||| don't pollute the optimizer's full-registry walk.
   primParamEraseByPrefix : String -> PrimIO ()

@@ -9,9 +9,8 @@ import Tensor
 import Test.Config
 import Test.Harness
 
--- Value-pin tests for the relocated `Nn.RoPE` free functions against the
--- same Python oracle as `Test.RoPE` (which stays on `Layer.RoPE` until the
--- migration sweep). Oracle generator:
+-- Value-pin tests for the `Nn.RoPE` free functions against the Python
+-- oracle. Oracle generator:
 --   `packages/idris-transformers/scripts/save_rope_oracle.py`
 -- which ports HF transformers' `_compute_llama3_parameters` to F64.
 --

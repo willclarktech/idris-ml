@@ -28,9 +28,6 @@
 ||| `AsMixed`/`AnyLayerMixed`/`NetworkMixed`/`lift*` apparatus to chain
 ||| mixed + plain layers through existentials; models-as-records drops all
 ||| of it — a mixed model is just a record with a hand-written forward.)
-|||
-||| Coexists with the legacy `Layer/` surface (`LayerLike`/`Network`);
-||| examples migrate at the later sweep.
 module Nn.Module
 
 import Control.Linear.LIO

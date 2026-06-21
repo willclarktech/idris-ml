@@ -11,9 +11,8 @@ import Util.Log
 -- so a single test process can't observe both INFO and TRACE.
 -- These tests assert the FFI's contract (valid level returned,
 -- constants distinct), not specific level values. The
--- "TRACE-on changes forwardVarTraced behavior" gate lives in
--- Test.Log.ActivationDump (added alongside the Layer/Core
--- expansion).
+-- "TRACE-on changes activation-dump behavior" gate lives in
+-- Test.ActivationDump.
 
 getLogLevelInRange : IO Bool
 getLogLevelInRange = do

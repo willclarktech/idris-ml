@@ -10,8 +10,8 @@
 ||| The table is polymorphic in `GradMode`: it carries no paramId so the
 ||| optimizer never touches it whatever `g` is, but the result must share the
 ||| embedding's `g` to feed `tadd` — pin `g = WithGrad` at the call site to add
-||| it to learnable embeddings. Relocated from `Layer.Transformer`'s private
-||| `posEncVal`/`writePE` (which die with `Layer/` at the migration sweep).
+||| it to learnable embeddings. Relocated from the now-removed
+||| `Layer.Transformer`'s private `posEncVal`/`writePE`.
 module Nn.PosEncoding
 
 import Control.Linear.LIO as LIO

@@ -95,8 +95,8 @@ dtCreateParam4d a b c e dat stream = primCreateParam4dStreamed {ex} a b c e dat 
 -- `primCreateParam<rank><Init>Streamed` instance method, threading
 -- the dtypeTag from `RuntimeDType t`. Replaces the per-element
 -- Idris-side sampler + per-element `prim__setDouble` FFI in callers
--- (HfBert / HfGpt2 / HfLlama smart constructors + the core
--- Layer/{Linear,RmsNorm,SwiGLU,Embedding}). The actual init runs in
+-- (the Transformers.{Bert,Gpt2,Llama} smart constructors + the core
+-- Nn.{Linear,RmsNorm,SwiGLU,Embedding}). The actual init runs in
 -- the C backend (libtorch's `torch::nn::init::normal_` or
 -- `t.fill_`), at memory-bandwidth speed.
 public export

@@ -392,7 +392,7 @@ applyConv1D2d (MkGpt2Conv1D w b) x = ioRerun (\_ =>
   in MkTensor withBias Nothing)
 
 -- Fill the strict upper triangle of an n×n buffer with 1.0. Used for
--- the causal mask. Mirrors `Layer/Transformer.idr:114` `writeCausalMask`.
+-- the causal mask. Shared routine with `Transformers.Llama`'s `writeCausalMask`.
 writeCausalMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
 writeCausalMask buf i j n =
   if i >= n then buf
@@ -562,9 +562,8 @@ hfGpt2Forward {seqLen} {hidden} {numHeads} {headDim} model tokenIds posIds = do
   -- BERT did).
   hEmb <- tadd hTok hPos
   -- Build causal mask once for the sequence (seqLen × seqLen). Routed
-  -- through dtCreateState2d to land in the persistent-state path
-  -- (same pattern as Layer/Transformer.idr:411-414) so the buffer isn't
-  -- clobbered by tape_reset on grad-requiring backends.
+  -- through dtCreateState2d to land in the persistent-state path so the
+  -- buffer isn't clobbered by tape_reset on grad-requiring backends.
   let sI = cast {to=Int} seqLen
       maskBuf  = prim__allocDoubles (sI * sI)
       maskBuf' = writeCausalMask maskBuf 0 1 sI

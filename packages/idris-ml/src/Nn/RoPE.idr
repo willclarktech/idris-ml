@@ -3,8 +3,8 @@
 ||| RoPE has NO learnable parameters, so this is the `Nn`-surface home for
 ||| RoPE as a set of parameter-free free functions — NOT a `Module`/`Params`
 ||| instance. It relocates the table builders + forward rotation from
-||| `Layer.RoPE` (which dies with the rest of `Layer/` once the migration
-||| sweep completes) and additionally hosts `ropeAllHeadsFlat`, the
+||| the now-removed `Layer.RoPE`, and additionally hosts
+||| `ropeAllHeadsFlat`, the
 ||| flat↔rank-3 reshape wrapper the HF model files (`Transformers.Llama` /
 ||| `Transformers.BitNet`) used to each define privately.
 module Nn.RoPE

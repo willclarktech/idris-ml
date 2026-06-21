@@ -335,8 +335,9 @@ readTrainerState path = do
         _ => pure Nothing
 
 ||| Policy describing how the training loop persists and restores state.
-||| Built by `fileCheckpoint`. `runTrainingIO` consults the policy after
-||| each epoch (periodic + keep-best) and once before the loop (resume).
+||| Built by `fileCheckpoint`. The training loop (`fit`) consults the
+||| policy after each epoch (periodic + keep-best) and once before the
+||| loop (resume).
 |||
 ||| `monitor` selects the scalar to keep-best on (lower is better);
 ||| `Nothing` tracks the per-epoch training loss the loop already has.

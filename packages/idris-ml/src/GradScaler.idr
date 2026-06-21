@@ -70,8 +70,8 @@ currentScale gs = readIORef gs.scaleRef
 ||| Apply the scaler's current scale to a loss tensor (multiplies
 ||| by `currentScale gs`). The caller feeds the returned tensor
 ||| into backward + `trainStepScaled` (which unscales the grads).
-||| Named `applyScale` rather than `scaleLoss` to avoid clashing
-||| with Backprop.idr's `scaleLoss` (the mean-reduction helper).
+||| Named `applyScale` rather than `scaleLoss` — it scales the loss
+||| tensor for the mixed-precision step, not a mean reduction.
 export
 applyScale : {0 ex : Executor} -> UserExecutorCore ex =>
              GradScaler ex dt -> Tensor [] ex dt WithGrad ->

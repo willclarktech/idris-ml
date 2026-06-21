@@ -175,7 +175,7 @@ testConstructorRegistersHfNames = do
 -- Build a Tensor [n] from a Vect of doubles. Wraps bulkToTensor (which
 -- copies into a fresh C buffer) + tinput1d (which records the handle
 -- as a non-parameter input). The values represent token IDs encoded
--- as doubles — same convention as Layer.Embedding's input contract.
+-- as doubles — same convention as Nn.Embedding's input contract.
 mkIdsTensor : {n : Nat} -> Vect n Double -> Tensor [n] TestExecutor TestDType WithGrad
 mkIdsTensor xs =
   let raw = bulkToTensor {ex=TestExecutor} {dt=TestDType}

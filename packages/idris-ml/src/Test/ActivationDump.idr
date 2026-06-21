@@ -13,8 +13,9 @@ import Test.Config
 import Test.Harness
 import Util.Log
 
--- Tests for the activation-dump machinery used by the TRACE-level
--- branch of `forwardVarTraced` in `Layer/Core.idr`. Tests the
+-- Tests for the activation-dump machinery — the C-side
+-- `param_save_by_name` flush the TRACE log level uses to dump
+-- per-layer activations. Tests the
 -- load-bearing registry round-trip directly so coverage is
 -- independent of `IDRISML_LOG_LEVEL` (which can only be raised to
 -- TRACE in a build with `IDRISML_LOG=trace` set at make time, and
@@ -48,7 +49,7 @@ mechanicsRoundTrip = do
       v2 = primCreateScalar {ex=TestExecutor} 2.5 0
   _ <- ioRerun (\_ => primParamRegister {ex=TestExecutor} "__act/mech/0" v1)
   _ <- ioRerun (\_ => primParamRegister {ex=TestExecutor} "__act/mech/1" v2)
-  -- Flush to disk via the same primitive `forwardVarTraced` calls.
+  -- Flush to disk via the same `param_save_by_name` primitive the dump uses.
   let names = "__act/mech/0\n__act/mech/1\n"
   rc <- primIO (primParamSaveByName {ex=TestExecutor} path names 2)
   -- Erase the synthetic entries (the TRACE-branch cleanup step).
