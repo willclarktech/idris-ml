@@ -45,4 +45,18 @@ Test(torch_nn_recurrent_pair_helpers, lstm_pair_accessors) {
 	                   expect_hidden, tensor_item(hidden));
 }
 
+/* free_intermediates' all_pairs_torch cleanup loop (intermediates.cpp): create
+   a pair (pushed into all_pairs_torch) then backend_reset_for_eval(), which
+   calls free_intermediates -> the `for (p : all_pairs_torch) delete p` body. */
+Test(torch_nn_recurrent_pair_helpers, reset_frees_all_pairs) {
+	double cd[] = {0.0, 0.0, 0.0, 0.0};
+	double pd[] = {2.0};
+	TensorHandle combined = tensor_create_1d_f32(4, hcopy(cd, 4), /*rg=*/0);
+	TensorHandle prev_cell = tensor_create_1d_f32(1, hcopy(pd, 1), /*rg=*/0);
+	TensorPair* p = tensor_lstm_gates_pair(combined, prev_cell, 1);
+	cr_assert_neq(p, NULL, "pair created -> pushed into all_pairs_torch");
+	backend_reset_for_eval(); /* free_intermediates -> all_pairs cleanup loop */
+	cr_assert_eq(tensor_live_count(), 0, "intermediates cleared after reset");
+}
+
 #endif /* BACKEND_TORCH */

@@ -27,6 +27,8 @@ extern "C" TensorHandle tensor_tile_2d_mlx_streamed(TensorHandle h, int rep0, in
 		if (idx >= 0)
 			tape[idx].meta = meta;
 		else
+			// GCOVR_EXCL_LINE — only a grad-tracked tile inside no_grad reaches this (tape_append
+			// returns -1); a degenerate combo the typed surface never produces (grad op, grad off).
 			std::free(meta);
 	}
 	return (TensorHandle)r;
