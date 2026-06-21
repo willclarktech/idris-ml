@@ -37,11 +37,13 @@ Test(nn_loss_bce_with_logits, forward_known_value) {
 	cr_assert_float_eq(tensor_item(tensor_bce_with_logits(p, y)), expected, TEST_TOL_RELAXED);
 }
 
-/* NB: assert grads at logits AWAY FROM 0. The closed-form derivative is
- * sigmoid(p)-y, but the loss has a kink at p==0 (relu(p) and |p|). tape /
- * torch use the smooth closed form; mlx decomposes into primitives and so
- * reports the subgradient at the kink — both valid, but they only agree
- * off the non-differentiable point. */
+/* Backward derivative is the closed form sigmoid(p)-y. The loss has a
+ * kink at p==0 (relu(p) and |p|): all three backends now agree there.
+ * tape computes the closed form directly; torch uses libtorch's fused
+ * backward; mlx records one OP_BCE_WITH_LOGITS entry whose replay uses
+ * the smooth softplus form (log(1+exp(p))), so its vjp gives sigmoid(p)
+ * at the kink instead of the subgradient the decomposed relu/|p| path
+ * picked. The backward_at_kink test below pins p==0 across all three. */
 
 Test(nn_loss_bce_with_logits, backward_scalar) {
 	/* p=1, y=1, n=1: d_input = sigmoid(1) - 1 */
@@ -58,6 +60,24 @@ Test(nn_loss_bce_with_logits, backward_scalar) {
 	cr_assert_float_eq(param_grad_item_at(0, 0), expected, TEST_TOL_RELAXED,
 	                   "d_bce/dp = sigmoid(1)-1 (got %.6f exp %.6f)", param_grad_item_at(0, 0),
 	                   expected);
+}
+
+Test(nn_loss_bce_with_logits, backward_at_kink) {
+	/* p=0, y=1, n=1: the kink. Closed form d_input = sigmoid(0) - 1 = -0.5.
+	   Pre-fix, mlx's decomposed relu/|p| replay returned the subgradient
+	   -1.0 here; tape/torch already gave -0.5. All three must now agree. */
+	param_clear();
+	double pd[] = {0.0};
+	double yd[] = {1.0};
+	int s[] = {1};
+	TensorHandle p = tensor_create(pd, s, 1, 1);
+	TensorHandle y = tensor_create(yd, s, 1, 0);
+	param_register("p", p);
+	TensorHandle loss = tensor_bce_with_logits(p, y);
+	tensor_backward(loss);
+	cr_assert_float_eq(param_grad_item_at(0, 0), -0.5, TEST_TOL_RELAXED,
+	                   "d_bce/dp at kink p=0 = sigmoid(0)-1 = -0.5 (got %.6f)",
+	                   param_grad_item_at(0, 0));
 }
 
 Test(nn_loss_bce_with_logits, backward_vector_mean_scaled) {
