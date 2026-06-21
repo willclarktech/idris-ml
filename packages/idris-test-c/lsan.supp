@@ -27,7 +27,7 @@ leak:tensor_create_state
 leak:tape_persistent_f32_from_doubles
 
 # Test-helper buffer handed to tensor_create_*_f32, which routes to the
-# f32-unsupported tape stub (per_dtype_legacy.c) that returns without
+# f32-unsupported tape stub (per_dtype_aliases.c) that returns without
 # consuming its input. Test-only (heap_copy in port_assert.h, used by the
 # split per-area C suites).
 leak:heap_copy

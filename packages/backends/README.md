@@ -47,7 +47,7 @@ packages/backends/
 │       ├── dtype_dispatch.c   # tape_create_*_dtag (port creator impls).
 │       ├── param_create.c     # tensor_create_param_*d.
 │       ├── diagnostics.c      # DEBUG_PARAM_GRADS / DEBUG_LSTM_TRAJ.
-│       ├── per_dtype_legacy.c # Pre-streamed _f32/_f64 ABI aliases.
+│       ├── per_dtype_aliases.c # Per-dtype _f32/_f64 creator ABI aliases.
 │       ├── profiling.c        # Per-OP timing arrays + report.
 │       ├── shims.c            # backend_reset_for_eval + mlx_compile stubs.
 │       ├── host_io.c          # tensor_to_doubles + size queries.

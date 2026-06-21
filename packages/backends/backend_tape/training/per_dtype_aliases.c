@@ -1,20 +1,21 @@
-/* training/per_dtype_legacy.c — per-dtype creator aliases (pre-streamed).
+/* training/per_dtype_aliases.c — per-dtype creator aliases for the
+ * backend.h ABI surface.
  *
- * These per-dtype `_f32` / `_f64` symbols predate the
- * unified `tensor_create_<shape>_streamed(..., int dtag)` entry points
- * that landed with the FFI tag-dispatch unification (2026-05-22). The
- * typed Idris surface routes through the unified streamed symbols
- * exclusively; these per-dtype variants are kept only for `backend.h`
- * ABI completeness across the multi-link dylib (every backend must
- * export every prototype declared in backend.h).
- *
- * The _f64 variants delegate to the unsuffixed F64 creators — identity,
- * F64 is the lingua-franca path. The _f32 variants are left as abort
- * stubs even though tape now has *real* F32 storage via
- * `tape_arena_f32_from_doubles` / `tape_persistent_f32_from_doubles`
- * (used by the unified streamed path); no caller reaches the legacy
- * `_f32` symbols any more — the abort diagnostic is reachable only via
- * direct C linkage.
+ * backend.h declares per-dtype `_f32` / `_f64` creator + cast symbols;
+ * every backend in the multi-link dylib exports the full prototype set.
+ * On tape:
+ *   - The `_f64` variants delegate to the unsuffixed F64 creators
+ *     (identity — F64 is tape's lingua-franca path). These are the
+ *     bare-ABI construction API the C unit-test suite calls directly
+ *     (tensor_create_2d_f64 / tensor_create_param_*_f64 / ...).
+ *   - The `_f32` variants are abort stubs: tape has no fp32 *bare*-ABI
+ *     arena. Real tape F32 storage exists, but only via the unified
+ *     `tensor_create_<shape>_streamed(..., int dtag)` entry points
+ *     (tape_arena_f32_from_doubles / tape_persistent_f32_from_doubles),
+ *     which the typed Idris surface routes through exclusively. The bare
+ *     `_f32` symbols have no caller on tape; the abort diagnostic is
+ *     reachable only via direct C linkage, and the symbols exist solely
+ *     for backend.h ABI completeness across the multi-link dylib.
  *
  * F64 cast is observational identity (preserves autograd-through-cast);
  * F32 cast routes through `tensor_cast_dtype_streamed(src, _, 0)` only.
