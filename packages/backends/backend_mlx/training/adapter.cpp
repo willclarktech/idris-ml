@@ -24,9 +24,15 @@ static int mlx_port_tensor_numel(void* h) {
 	return (int)((Tensor*)h)->data.size();
 }
 
+/* GCOVR_EXCL_START — no consumer on the mlx lane: mlx is not in
+   SHARED_BACKENDS_optimizer (mk/backends.mk), so shared optimizer.c — the
+   only caller of port.tensor_requires_grad (its native-train-step
+   backward guard) — is never linked here, and param_registry.c does not
+   call this slot. Wired into g_active_port for struct completeness only. */
 static int mlx_port_tensor_requires_grad(void* h) {
 	return ((Tensor*)h)->requires_grad ? 1 : 0;
 }
+/* GCOVR_EXCL_STOP */
 
 static int mlx_port_tensor_has_grad(void* h) {
 	return ((Tensor*)h)->has_grad ? 1 : 0;
@@ -74,6 +80,12 @@ static double mlx_port_data_read(void* h, int i) {
 	return mx_read_double(contig, i);
 }
 
+/* GCOVR_EXCL_START — no consumer on the mlx lane: port.data_write is only
+   invoked by shared optimizer.c (polyak_blend_pair's in-place target
+   blend), and mlx is not in SHARED_BACKENDS_optimizer (mk/backends.mk) —
+   it ships its own training/optimizer.cpp polyak that mutates arrays
+   directly. param_registry.c never calls this slot. Wired into
+   g_active_port for struct completeness only. */
 static void mlx_port_data_write(void* h, int i, double v) {
 	auto* t = (Tensor*)h;
 	auto contig = mx::contiguous(t->data);
@@ -86,6 +98,7 @@ static void mlx_port_data_write(void* h, int i, double v) {
 	t->data = mx_array_from_doubles(buf, t->data.shape(), t->data.dtype());
 	free(buf);
 }
+/* GCOVR_EXCL_STOP */
 
 static void mlx_port_load_doubles(void* h, const double* src, int n) {
 	auto* t = (Tensor*)h;
