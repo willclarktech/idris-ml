@@ -264,4 +264,45 @@ Test(tape_core, arena_free_all_frees_chunks) {
 	cr_assert_eq(tensor_numel(t2), 2, "arena usable after free_all");
 }
 
+/* tape_reset per-op metadata frees: build one OP_STACK / OP_GRU_CELL /
+   OP_MAX_POOL2D / OP_SWIGLU_2D entry on the tape (rg=1 inputs, so each is taped
+   with its heap op_meta/inputs), then tape_reset() exercises each free-arm. */
+Test(tape_core, reset_frees_op_metadata) {
+	param_clear();
+	/* OP_STACK — stores a heap `inputs` array freed on reset. */
+	TensorHandle s0 = tensor_create_scalar(1.0, 1);
+	TensorHandle s1 = tensor_create_scalar(2.0, 1);
+	TensorHandle* arr = (TensorHandle*)malloc(2 * sizeof(TensorHandle));
+	arr[0] = s0;
+	arr[1] = s1;
+	TensorHandle st = tensor_stack(arr, 2, 0);
+	cr_assert_eq(tensor_numel(st), 2, "stack -> [2]");
+	/* OP_GRU_CELL — gate metas (zG/rG/nG). */
+	double z[3] = {0.0, 0.0, 0.0};
+	double pv[1] = {1.0};
+	int s3[1] = {3};
+	int s1d[1] = {1};
+	TensorHandle ih = tensor_create(z, s3, 1, 1);
+	TensorHandle hh = tensor_create(z, s3, 1, 1);
+	TensorHandle prev = tensor_create(pv, s1d, 1, 1);
+	TensorHandle h = tensor_gru_cell(ih, hh, prev, 1);
+	cr_assert_eq(tensor_numel(h), 1, "gru -> [1]");
+	/* OP_MAX_POOL2D — max_indices. */
+	double pin[4] = {1.0, 2.0, 3.0, 4.0};
+	int s322[3] = {1, 2, 2};
+	TensorHandle mpin = tensor_create(pin, s322, 3, 1);
+	TensorHandle mp = tensor_max_pool2d(mpin, 2, 2, 1, 1);
+	cr_assert(tensor_numel(mp) >= 1, "max_pool2d produced output");
+	/* OP_SWIGLU_2D — sig_g. */
+	double gd[4] = {1.0, 2.0, 3.0, 4.0};
+	double ud[4] = {1.0, 1.0, 1.0, 1.0};
+	TensorHandle gate = tensor_create_2d_f64(1, 4, hcopy(gd, 4), 1);
+	TensorHandle up = tensor_create_2d_f64(1, 4, hcopy(ud, 4), 1);
+	TensorHandle sg = tensor_swiglu_2d(gate, up);
+	cr_assert(tensor_numel(sg) >= 1, "swiglu produced output");
+	/* Reset: walk the tape, freeing each op's heap metadata (the free-arms). */
+	tape_reset();
+	param_clear();
+}
+
 #endif /* BACKEND_TAPE */

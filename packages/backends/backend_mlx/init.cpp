@@ -61,8 +61,8 @@ __attribute__((constructor)) static void mlx_backend_init(void) {
 	if ((env != nullptr) && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
 		// GCOVR_EXCL_START — mlx GPU-only branch; CI runs the CPU stream (MLX_DEVICE unset)
 		mx::set_default_device(mx::Device(mx::Device::gpu));
-		// GCOVR_EXCL_STOP
 	} else {
+		// GCOVR_EXCL_STOP
 		mx::set_default_device(mx::Device(mx::Device::cpu));
 	}
 	// Leave memory_limit / cache_limit at mlx's defaults. The
