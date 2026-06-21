@@ -34,8 +34,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Skip the 40-min bench-deep on a docs-only push: docs can't move
+  # perf, and a pointless run only burns a runner + exposes the perf
+  # path to transient pack-clone flakes. Mirrors test.yml's `changes`
+  # job (same pinned paths-filter). The `code` filter adds BENCHMARKS.md
+  # + perf-log.jsonl on top of test.yml's globs because the sync check
+  # (test-integration-lint-benchmarks) runs ONLY here — a hand-edit to
+  # either artifact must still trigger it.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Detect changed paths
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        with:
+          filters: |
+            code:
+              - 'packages/**'
+              - 'mk/**'
+              - 'scripts/**'
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'Makefile'
+              - 'pack.toml'
+              - '.github/**'
+              - 'BENCHMARKS.md'
+              - 'docs/develop/perf-log.jsonl'
+
   bench-deep:
     name: bench-deep (tape)
+    needs: changes
+    # Run on any code change; always on a manual dispatch. paths-filter
+    # leaves `code` empty on an ambiguous base (first/force push) → the
+    # `!= 'false'` test fails safe = run, matching test.yml's bias.
+    if: ${{ (needs.changes.outputs.code != 'false' || github.event_name == 'workflow_dispatch') && !cancelled() }}
     runs-on: ubuntu-latest
     defaults:
       run:
