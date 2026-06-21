@@ -1,6 +1,6 @@
 package idris-ml-notebook
 
-depends = contrib, idris-ml
+depends = contrib, linear, idris-ml
 
 sourcedir = "src"
 

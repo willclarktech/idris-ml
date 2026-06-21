@@ -96,6 +96,11 @@ class Idris2REPL:
             [
                 "-p",
                 "contrib",
+                # `linear` carries Control.Linear.LIO — the Nn/Fit surface
+                # (and thus Notebook.Prelude) imports it transitively, so the
+                # prelude fails to load without it.
+                "-p",
+                "linear",
                 "-p",
                 "idris-ml",
                 "-p",

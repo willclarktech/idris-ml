@@ -5,6 +5,8 @@
 
 module Notebook.Prelude
 
+import public Control.Linear.LIO
+import public Data.Linear.Notation
 import public Data.List
 import public Data.String
 import public Data.Vect
