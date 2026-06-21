@@ -81,6 +81,32 @@ Test(nn_attention_sdpa, causal_row0_attends_only_to_key0) {
 	cr_assert_float_eq(out[1], 20.0, TEST_TOL_RELAXED, "causal out[0,1] == V[0,1]");
 }
 
+Test(nn_attention_sdpa, gqa_single_key_kv_seq1) {
+	/* Degenerate single-key decode: q_seq=1, kv_seq=1, numHeads=2,
+	   numKvHeads=1. Reachable in practice via a 1-token prefill from a
+	   lone BOS. With a single key, softmax over the length-1 row is 1.0,
+	   so each head's output is exactly its V slice; the GQA heads share
+	   the one KV head, so the concatenated output is [V, V]. */
+	double qd[] = {1.0, 1.0, 1.0, 1.0}; /* [1, 4] = 2 heads x hd 2 */
+	double kd[] = {1.0, 0.0};           /* [1, 2] = 1 kv head x hd 2, kv_seq=1 */
+	double vd[] = {3.0, 7.0};
+	int sq[] = {1, 4};
+	int skv[] = {1, 2};
+	TensorHandle q = tensor_create(qd, sq, 2, 0);
+	TensorHandle k = tensor_create(kd, skv, 2, 0);
+	TensorHandle v = tensor_create(vd, skv, 2, 0);
+	TensorHandle r = tensor_sdpa_2d(q, k, v, /*numHeads=*/2, /*numKvHeads=*/1, /*headDim=*/2, 0);
+	double out[4];
+	tensor_to_doubles(r, out);
+	double ref[2];
+	double q_head[] = {1.0, 1.0};
+	sdpa_ref(q_head, kd, vd, 1, 1, 2, ref); /* single shared head, kv_seq=1 */
+	double expected[] = {ref[0], ref[1], ref[0], ref[1]};
+	for (int i = 0; i < 4; i++)
+		cr_assert_float_eq(out[i], expected[i], TEST_TOL_RELAXED,
+		                   "single-key out[%d]: got %.6f exp %.6f", i, out[i], expected[i]);
+}
+
 Test(nn_attention_sdpa, gqa_shared_kv) {
 	/* numHeads=2, numKvHeads=1: both query heads share the single KV head.
 	   The decode shape q_seq=1, kv_seq=2. With identical Q across the two

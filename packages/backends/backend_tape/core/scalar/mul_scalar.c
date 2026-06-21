@@ -14,7 +14,11 @@
 static TensorHandle tensor_mul_scalar_f32(TensorHandle ha, double s) {
 	Tensor* a = (Tensor*)ha;
 	float sf = (float)s;
-	if (a->numel == 1) {
+	/* Scalar fast-path is for genuine rank-0 scalars only. A numel==1
+	 * tensor of rank >= 1 (e.g. a [1,1] scores matrix from SDPA at
+	 * q_seq==kv_seq==1) must KEEP its shape — make_scalar would collapse
+	 * it to rank-0 with shape==NULL and crash the next shape-reading op. */
+	if (a->rank == 0) {
 		Tensor* r = make_scalar_f32((double)(((float*)a->data)[0] * sf), a->requires_grad);
 		if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
 		return r;
@@ -30,7 +34,7 @@ static TensorHandle tensor_mul_scalar_f32(TensorHandle ha, double s) {
 TensorHandle tensor_mul_scalar(TensorHandle ha, double s) {
 	Tensor* a = (Tensor*)ha;
 	if (a->dtype_tag == DT_F32) return tensor_mul_scalar_f32(ha, s);
-	if (a->numel == 1) {
+	if (a->rank == 0) {
 		Tensor* r = make_scalar(((double*)a->data)[0] * s, a->requires_grad);
 		if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
 		return r;
