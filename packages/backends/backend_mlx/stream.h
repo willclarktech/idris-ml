@@ -35,8 +35,11 @@ inline mx::Stream& cpu_stream() {
 }
 
 inline mx::Stream& gpu_stream() {
+	// GCOVR_EXCL_START — GPU (Metal) stream; the CI lane is mlx-cpu (MLX_DEVICE=cpu),
+	// so the GPU stream is never constructed. Bucket B (GPU-only).
 	static const mx::Stream* s = new mx::Stream(mx::default_stream(mx::Device(mx::Device::gpu)));
 	return *const_cast<mx::Stream*>(s);
+	// GCOVR_EXCL_STOP
 }
 
 inline mx::Stream& stream_for_tag(int tag) {

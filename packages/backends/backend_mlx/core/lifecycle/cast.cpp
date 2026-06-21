@@ -76,7 +76,8 @@ static void mlx_replay_cast_dtype(std::vector<mx::array>& pool, TapeEntry& e) {
 		target = mx::float16;
 		break;
 	default:
-		break;
+		break; // GCOVR_EXCL_LINE — int32 cast-replay arm; a grad-tracked int32 cast (which would
+		       // tape this replay) doesn't arise — int dtypes aren't differentiable
 	}
 	pool[out] = mx::astype(a, target);
 }

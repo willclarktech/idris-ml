@@ -82,3 +82,19 @@ Test(nn_softmax_log_softmax_2d, backward_runs) {
 	                   "grad x[0,1] should be -softmax[1] (got %.9f vs %.9f)",
 	                   param_grad_item_at(0, 1), -softmax1);
 }
+
+#ifdef BACKEND_TAPE
+/* F32 arm (tape streamed dtag-14): drives the is_f32 store + the F32 result
+   construction in log_softmax_2d.c. Row [0, ln3] -> y = [-ln4, ln3-ln4]. */
+Test(log_softmax_2d_f32, forward) {
+	double l3 = log(3.0), l4 = log(4.0);
+	double d[] = {0.0, l3};
+	TensorHandle x = tensor_create_2d_streamed(1, 2, hcopy(d, 2), /*rg=*/0, /*stream_tag=*/0, 14);
+	TensorHandle r = tensor_log_softmax_2d(x);
+	cr_assert_str_eq(tensor_dtype_name(r), "F32", "got %s", tensor_dtype_name(r));
+	double out[2];
+	tensor_to_doubles(r, out);
+	cr_assert_float_eq(out[0], -l4, 1e-5, "y[0,0] = -ln4 (got %.6f)", out[0]);
+	cr_assert_float_eq(out[1], l3 - l4, 1e-5, "y[0,1] = ln3-ln4 (got %.6f)", out[1]);
+}
+#endif /* BACKEND_TAPE */

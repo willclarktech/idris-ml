@@ -250,4 +250,18 @@ Test(arena_growth_cov, multi_chunk_grow_reset_reuse) {
 	param_clear();
 }
 
+/* arena_free_all: the chunk-teardown loop body only runs with >=1 allocated
+   chunk (its other caller hits it empty). Allocate an arena tensor, free all,
+   then re-allocate to confirm the arena re-inits cleanly. */
+extern void arena_free_all(void);
+Test(tape_core, arena_free_all_frees_chunks) {
+	double d[] = {1.0, 2.0};
+	int sh[] = {2};
+	TensorHandle t = tensor_create(d, sh, 1, 0); /* arena-allocates a chunk */
+	(void)t;
+	arena_free_all(); /* frees the chunk list -> covers the while-loop body */
+	TensorHandle t2 = tensor_create(d, sh, 1, 0); /* arena re-inits */
+	cr_assert_eq(tensor_numel(t2), 2, "arena usable after free_all");
+}
+
 #endif /* BACKEND_TAPE */
