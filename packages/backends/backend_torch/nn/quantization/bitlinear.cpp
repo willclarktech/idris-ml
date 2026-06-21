@@ -84,9 +84,11 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d(const uint8_t* packed_by
 		                "Ternary weights must be NoGrad.\n");
 		std::abort();
 	}
+	// GCOVR_EXCL_START — torch MPS/CUDA-only device move; CI runs the CPU device
 	if (g_torch_target_device.type() != c10::DeviceType::CPU) {
 		unpacked = unpacked.to(g_torch_target_device);
 	}
+	// GCOVR_EXCL_STOP
 	return from_tensor_persistent(unpacked);
 }
 
@@ -176,9 +178,11 @@ extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(const uint8_t* h
 			dst[(size_t)j * (size_t)i_dim + (size_t)k] = (int8_t)v;
 		}
 	}
+	// GCOVR_EXCL_START — torch MPS/CUDA-only device move; CI runs the CPU device
 	if (g_torch_target_device.type() != c10::DeviceType::CPU) {
 		unpacked = unpacked.to(g_torch_target_device);
 	}
+	// GCOVR_EXCL_STOP
 	return from_tensor_persistent(unpacked);
 }
 

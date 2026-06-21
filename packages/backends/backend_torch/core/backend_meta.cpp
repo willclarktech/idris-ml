@@ -58,7 +58,9 @@ extern "C" void backend_release_all_persistent(void) {
 		if (first != nullptr && !first->is_cpu()) {
 			/* GPU lane — async device release is cheap; explicit
 			 * delete forces sync per tensor and regresses wall. */
+			// GCOVR_EXCL_START — torch MPS/CUDA-only branch; CI runs the CPU device
 			return;
+			// GCOVR_EXCL_STOP
 		}
 	}
 	free_intermediates();

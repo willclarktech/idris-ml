@@ -71,6 +71,11 @@ __attribute__((constructor)) static void torch_mps_eager_init(void) {
 __attribute__((constructor)) static void torch_target_device_init(void) {
 	const char* env = std::getenv("TORCH_DEVICE");
 	if (env == nullptr || *env == '\0') return; // leave at kCPU
+	// GCOVR_EXCL_START — load-time-only env dispatch; the TORCH_DEVICE-set
+	// branches run inside a dylib-load __attribute__((constructor)) that has
+	// already executed by the time any unit test runs, and the CI torch lane
+	// leaves TORCH_DEVICE unset (the line-73 early return is the covered path).
+	// The mps/cuda branches are additionally MPS/CUDA-only and the CI lane is CPU.
 	if (std::strcmp(env, "cpu") == 0) {
 		g_torch_target_device = at::kCPU;
 	} else if (std::strcmp(env, "mps") == 0) {
@@ -90,6 +95,7 @@ __attribute__((constructor)) static void torch_target_device_init(void) {
 		const std::string s(env);
 		g_torch_target_device = (s == "cuda") ? at::Device(at::DeviceType::CUDA, 0) : at::Device(s);
 	}
+	// GCOVR_EXCL_STOP
 	// Unknown strings fall through silently — the first .to() will throw
 	// and the EAFP gate surfaces it.
 }

@@ -18,12 +18,14 @@
 extern "C" TensorHandle tensor_to_device(TensorHandle h, const char* device) {
 	try {
 		return from_tensor(to_tensor(h)->to(std::string(device)));
+		// GCOVR_EXCL_START — c10::Error catch fires only on absent/invalid device (MPS/CUDA); CI runs the CPU device
 	} catch (const std::exception& e) {
 		fprintf(stderr, "[torch] tensor_to_device(%s) failed: %s\n", device, e.what());
 		return nullptr;
 	} catch (...) {
 		fprintf(stderr, "[torch] tensor_to_device(%s) failed: unknown\n", device);
 		return nullptr;
+		// GCOVR_EXCL_STOP
 	}
 }
 
@@ -38,12 +40,14 @@ extern "C" TensorHandle tensor_to_device(TensorHandle h, const char* device) {
 extern "C" TensorHandle tensor_to_device_persistent(TensorHandle h, const char* device) {
 	try {
 		return from_tensor_persistent(to_tensor(h)->to(std::string(device)));
+		// GCOVR_EXCL_START — c10::Error catch fires only on absent/invalid device (MPS/CUDA); CI runs the CPU device
 	} catch (const std::exception& e) {
 		fprintf(stderr, "[torch] tensor_to_device_persistent(%s) failed: %s\n", device, e.what());
 		return nullptr;
 	} catch (...) {
 		fprintf(stderr, "[torch] tensor_to_device_persistent(%s) failed: unknown\n", device);
 		return nullptr;
+		// GCOVR_EXCL_STOP
 	}
 }
 
