@@ -206,8 +206,15 @@ lint-c: lint-c-tape lint-c-torch lint-c-mlx
 # cppcheck covers ALL C: the tape backend, the backends/ root + shared/
 # implementation files, and the idris-test-c contract/test suites. (torch/mlx
 # .cpp sources cppcheck in their own c++ lanes below.) `unknownMacro:*test_*.c`
-# silences Criterion's `Test()` macro in test files; clang-tidy stays
-# implementation-only (no test files — see BACKEND_TAPE_SRCS filter).
+# silences Criterion's `Test()` macro in test files.
+# clang-tidy covers implementation only — NOT test files (Criterion patterns),
+# examples (backend_byo.c), benches (bench_*.c), or RTS glue (refc_shims.c,
+# needs gmp). LINT_C_CORE_SRCS adds the backend-agnostic root + shared/
+# implementation files to the tape clang-tidy pass (compiled with tape flags;
+# -I$(CJSON_DIR) for safetensors.c's cJSON).
+LINT_C_CORE_SRCS := packages/backends/idx.c packages/backends/log.c packages/backends/probes.c \
+                    packages/backends/shared_utils.c packages/backends/safetensors.c \
+                    $(SHARED_TRAINING_SRCS)
 lint-c-tape:
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --suppress=nullPointerOutOfResources --suppress=unknownMacro:*test_*.c --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape -I packages/idris-test-c/include packages/backends/*.c packages/backends/shared/ packages/backends/backend_tape/ packages/idris-test-c/src/ || exit 1; \
@@ -215,7 +222,7 @@ lint-c-tape:
 		echo "lint-c-tape: cppcheck not installed (install via 'brew install cppcheck' or 'apt-get install cppcheck'); skipping"; \
 	fi
 	@if command -v clang-tidy >/dev/null 2>&1; then \
-		clang-tidy --quiet $(BACKEND_TAPE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
+		clang-tidy --quiet $(BACKEND_TAPE_SRCS) $(LINT_C_CORE_SRCS) -- $(CLANG_TIDY_EXTRA_CFLAGS) $(tape_CFLAGS) -I$(CJSON_DIR) -include $(BACKENDS_DIR)/rename_tape.h || exit 1; \
 	else \
 		echo "lint-c-tape: clang-tidy not installed (install via 'brew install llvm' or 'apt-get install clang-tidy'); skipping"; \
 	fi

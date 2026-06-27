@@ -20,6 +20,9 @@
 
 static uint32_t idx_read_be32(FILE* f) {
 	uint8_t buf[4];
+	/* Trusted IDX dataset files; sequential reads on a truncated file fall
+	   through to a bad-magic / dim check in the caller. */
+	// NOLINTNEXTLINE(clang-analyzer-unix.Stream)
 	if (fread(buf, 1, 4, f) != 4) return 0;
 	return ((uint32_t)buf[0] << 24) | ((uint32_t)buf[1] << 16) | ((uint32_t)buf[2] << 8) |
 	       (uint32_t)buf[3];
@@ -45,6 +48,13 @@ void* idx_load(const char* images_path, const char* labels_path) {
 	ds->rows = (int)idx_read_be32(f);
 	ds->cols = (int)idx_read_be32(f);
 	int pixels = ds->count * ds->rows * ds->cols;
+	if (pixels <= 0) {
+		fprintf(stderr, "idx_load: invalid image dimensions %dx%dx%d\n", ds->count, ds->rows,
+		        ds->cols);
+		fclose(f);
+		free(ds);
+		return NULL;
+	}
 
 	uint8_t* raw = malloc(pixels);
 	if (fread(raw, 1, pixels, f) != (size_t)pixels) {
@@ -81,6 +91,7 @@ void* idx_load(const char* images_path, const char* labels_path) {
 		fprintf(stderr, "idx_load: image count %d != label count %d\n", ds->count, label_count);
 	}
 	ds->labels = malloc(ds->count);
+	// NOLINTNEXTLINE(clang-analyzer-unix.Stream)
 	if (fread(ds->labels, 1, ds->count, f) != (size_t)ds->count) {
 		fprintf(stderr, "idx_load: short read on labels\n");
 	}

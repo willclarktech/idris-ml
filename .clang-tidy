@@ -12,6 +12,16 @@
 # it the first time around.
 #
 # Family-wholesale disables:
+#   android-*      — Android-specific (e.g. android-cloexec-fopen wants
+#                    fopen mode 'e' for O_CLOEXEC); we target desktop
+#                    macOS/Linux and macOS fopen doesn't accept 'e'
+#   clang-analyzer-optin.taint.* — taint analysis treats every file read
+#                    as attacker-controlled and flags the downstream
+#                    malloc size / array index. safetensors.c + idx.c load
+#                    the user's own checkpoints + datasets (trusted input),
+#                    so the taint model doesn't fit; it also drives the
+#                    "tainted index" variant of clang-analyzer-security.
+#                    ArrayBound, which goes away with the family disabled.
 #   altera-*       — Intel Altera FPGA OpenCL optimization hints; we
 #                    target CPU
 #   abseil-*       — Abseil library; not a dep
@@ -50,12 +60,25 @@
 #       bug-class signal here.
 #   bugprone-easily-swappable-parameters — tensor APIs are full of
 #       `(int m, int n)` adjacent parameter pairs by necessity
+#   bugprone-multi-level-implicit-pointer-conversion — fires ~25× in
+#       safetensors.c on idiomatic C `char**`/`const char**` -> `void*`
+#       passing (cJSON + FFI marshalling). In C any object pointer
+#       converts to void* implicitly; the "multilevel" warning is a
+#       C++-flavoured style nit that carries no bug-class signal for this
+#       C marshalling code, and explicit (void*) casts at every site would
+#       be pure clutter.
 #   bugprone-reserved-identifier — `_var` is the local convention for
 #       tape-internal helpers and statement-expression locals
 #   cert-dcl37-c, cert-dcl51-cpp — aliases of bugprone-reserved-identifier
 #   cert-err33-c — predicted 41 hits across the backend, all
 #       `fprintf(stderr, ...)` discards in diagnostic-logging paths;
 #       wrong noise:signal ratio
+#   cert-msc30-c, cert-msc50-cpp, clang-analyzer-security.insecureAPI.rand
+#       — flag rand() as a poor/insecure RNG. The dropout + seeded-shuffle
+#       paths (shared_utils.c) use rand()/srand() DELIBERATELY: dropout
+#       masks are non-cryptographic and need a process-global seedable
+#       generator for reproducible training, which arc4random (the
+#       suggested replacement) can't provide. Intentional, not a bug.
 #   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 #       — "use fprintf_s instead of fprintf" (C11 Annex K, not widely
 #       shipped); ~41 FPs for plain fprintf calls
@@ -89,6 +112,12 @@
 #       well-defined
 #   readability-non-const-parameter — partly C-doesn't-have-const-views
 #   readability-redundant-casting — sometimes intentional for clarity
+#   readability-redundant-declaration — backend.h is the Idris FFI surface
+#       (every %foreign binds a decl there); backend-agnostic helpers
+#       (get_rss_mb, create_seeded_index_array, ...) are ALSO declared in
+#       their local header (shared_utils.h) so C consumers that include
+#       only the local header still see them. The cross-header overlap is
+#       intentional include-locality — declarations, not definitions.
 #   readability-uppercase-literal-suffix — `0L` vs `0l` typo; rare
 #       here
 #   misc-use-anonymous-namespace — C++-only; prefers `namespace {}` over
@@ -122,7 +151,9 @@ Checks: >
   *,
   -abseil-*,
   -altera-*,
+  -android-*,
   -boost-*,
+  -clang-analyzer-optin.taint.*,
   -concurrency-*,
   -cppcoreguidelines-*,
   -darwin-*,
@@ -139,11 +170,15 @@ Checks: >
   -zircon-*,
   -bugprone-branch-clone,
   -bugprone-easily-swappable-parameters,
+  -bugprone-multi-level-implicit-pointer-conversion,
   -bugprone-reserved-identifier,
   -cert-dcl37-c,
   -cert-dcl51-cpp,
   -cert-err33-c,
+  -cert-msc30-c,
+  -cert-msc50-cpp,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-security.insecureAPI.rand,
   -misc-include-cleaner,
   -misc-non-private-member-variables-in-classes,
   -misc-use-anonymous-namespace,
@@ -157,6 +192,7 @@ Checks: >
   -readability-math-missing-parentheses,
   -readability-non-const-parameter,
   -readability-redundant-casting,
+  -readability-redundant-declaration,
   -readability-uppercase-literal-suffix
 
 WarningsAsErrors: '*'

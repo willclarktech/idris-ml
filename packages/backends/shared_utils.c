@@ -21,7 +21,7 @@
 double _wall_ms(void) {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+	return (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0;
 }
 
 /* --- Seeded per-stream index array (DataStream) ---
@@ -97,7 +97,7 @@ int get_rss_mb(void) {
 	struct rusage usage;
 	getrusage(RUSAGE_SELF, &usage);
 #ifdef __APPLE__
-	return (int)(usage.ru_maxrss / (1024 * 1024));
+	return (int)(usage.ru_maxrss / (1024L * 1024));
 #else
 	return (int)(usage.ru_maxrss / 1024);
 #endif
@@ -114,7 +114,7 @@ int get_current_rss_mb(void) {
 	/* cppcheck-suppress uninitvar */
 	if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) ==
 	    KERN_SUCCESS)
-		return (int)(info.resident_size / (1024 * 1024));
+		return (int)(info.resident_size / (1024ULL * 1024));
 #endif
 	return get_rss_mb();
 }
