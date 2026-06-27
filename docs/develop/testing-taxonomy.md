@@ -126,29 +126,52 @@ The pattern is enforced *by convention* — the linter
 `test-integration-lint-make-naming` (filed in Phase 6) is the
 mechanical enforcement path.
 
-## Test file layout — hybrid colocation
+## Test file layout — location encodes coupling
 
-Test files live as close to the source they exercise as Criterion and
-Idris-2's module-to-file constraint allow. **The `packages/<pkg>/test/`
-tree is gone.** Two rules cover where a new test belongs:
+Colocation is a *consequence* of semantic coupling, not the goal: a test
+lives with the thing it is coupled to. For C tests that thing is either
+**one backend's implementation** or **the public `backend.h` contract**, so
+there are exactly two buckets. **The `packages/<pkg>/test/` tree is gone.**
 
 ### C side (Criterion suites + standalone main()s)
 
-| Test kind | Lives at |
-|---|---|
-| Per-op unit test (cross-backend FFI) | `packages/backends/backend_tape/<subsystem>/test_<op>.c` (next to the tape source — `find` glob picks it up regardless of which backend is primary) |
-| Backend-specific test (touches internals) | `packages/backends/backend_<b>/<subsystem>/test_<topic>.c` with `#ifdef BACKEND_<NAME>` gating the body |
-| Cross-cutting integration / oracle / framework infra | `packages/idris-test-c/src/` (peer package; cross-cutting "shared infra is a package, not just a directory") |
-| 1:1 with a source file (`safetensors.c` ↔ `test_safetensors.c`) | next to the source — `packages/backends/test_safetensors.c` |
+| Coupling | Lives at | Gating |
+|---|---|---|
+| **Backend-specific** — one backend's internals (`OP_*` dispatch, arena, port, internal helpers) or single-backend kernel/numeric coverage (e.g. tape's F32-via-streamed-dtag-14 / vDSP arms, LCG RNG) | `packages/backends/backend_<b>/<subsystem>/test_<topic>.c` | always `#ifdef BACKEND_<NAME>` |
+| **Contract** — exercises the public `backend.h` FFI on every backend, per-op or aggregate | `packages/idris-test-c/src/ops/<subsystem>/test_<op>.c` (per-op) or `packages/idris-test-c/src/` (cross-cutting integration / oracle / framework infra) | never gated (may carry a trailing `#ifdef BACKEND_<b>` *appendix* for that op's backend-specific arms) |
+| 1:1 with a non-FFI source file (`safetensors.c` ↔ `test_safetensors.c`) | next to the source — `packages/backends/test_safetensors.c` | as needed |
 
-Discovery is the Makefile's `find` glob (`CRITERION_BACKEND_TEST_SRCS`)
-which walks `backend_{tape,torch,mlx}/` for `test_*.c`. The dylib
-build's source glob excludes `test_*.c` via `! -name 'test_*.c'` so
-test files don't get compiled into `libidrisml.dylib`.
+`backend_<b>/` ⟺ backend-coupled; `idris-test-c/` ⟺ contract-coupled.
+The discriminator when deciding where a new test belongs: **does it run on
+more than one backend?** If yes (any ungated test through public FFI), it's
+a contract test → `idris-test-c/src/ops/`. If it only ever runs on one
+backend (whole-file `#ifdef`) or pokes that backend's internals, it's
+backend-specific → `backend_<b>/`. The `idris-test-c` package is the home
+for *all* backend-agnostic tests (it already held `test_linalg.c`,
+`test_activations.c`, …); consolidating there means location alone tells
+you the coupling, with no per-file convention to memorize.
+
+**No `_<backend>` filename suffix.** The dir + `#ifdef` + path-prefixed
+Criterion suite name already disambiguate; a suffix is redundant.
+
+**Criterion suite names** must be unique across the one linked binary
+(all three backend dirs compile in together). Prefix with backend/path —
+e.g. `mlx_core_lifecycle_param_state` — so two backends' suites for the
+same op never collide.
+
+Discovery is the Makefile's `find` glob (`CRITERION_BACKEND_TEST_SRCS`):
+it walks `backend_{tape,torch,mlx}/` *and* `idris-test-c/src/` for
+`test_*.c`, regardless of which backend is primary; non-primary `#ifdef`
+bodies compile away. **Test files are always `.c`** — this is load-bearing
+twice over: the dylib source globs exclude them (tape via
+`! -name 'test_*.c'`, torch/mlx via `! -name 'test_*.c*'` on the `*.cpp`
+glob), and discovery keys on `test_*.c`. A test named `.cpp` would leak
+into `libidrisml.dylib` and vanish from the suite.
 
 Include paths: tests use bare `#include "backend.h"` and `#include
 "test_helpers.h"`; the Makefile passes
-`-Ipackages/backends -Ipackages/idris-test-c/include` to resolve.
+`-Ipackages/backends -Ipackages/idris-test-c/include` to resolve (so a
+test resolves its headers from any location).
 
 ### Idris side (per-package Test.* subtree under same sourcedir)
 
