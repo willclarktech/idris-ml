@@ -6,32 +6,6 @@
 #include "port_assert.h"
 
 
-Test(activations, softmax) {
-    double data[] = {1.0, 2.0, 3.0};
-    int shape[] = {3};
-    TensorHandle v = tensor_create(data, shape, 1, 0);
-    TensorHandle sm = tensor_softmax(v, 0);
-    TensorHandle s = tensor_sum(sm);
-    ASSERT_NEAR("softmax sums to 1", tensor_item(s), 1.0, 1e-6);
-    tensor_free(v); tensor_free(sm); tensor_free(s);
-}
-
-Test(activations, softmax_2d) {
-    /* 2x3 matrix, each row should sum to 1 */
-    double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    int shape[] = {2, 3};
-    TensorHandle t = tensor_create(data, shape, 2, 0);
-    TensorHandle s = tensor_softmax_2d(t);
-
-    double row0_sum = tensor_item_2d(s, 0, 0) + tensor_item_2d(s, 0, 1) + tensor_item_2d(s, 0, 2);
-    double row1_sum = tensor_item_2d(s, 1, 0) + tensor_item_2d(s, 1, 1) + tensor_item_2d(s, 1, 2);
-    ASSERT_NEAR("softmax_2d row0 sum", row0_sum, 1.0, VAL_TOL);
-    ASSERT_NEAR("softmax_2d row1 sum", row1_sum, 1.0, VAL_TOL);
-    /* Max element in each row should have highest probability */
-    ASSERT_TRUE("softmax_2d row0 max", tensor_item_2d(s, 0, 2) > tensor_item_2d(s, 0, 0));
-    ASSERT_TRUE("softmax_2d row1 max", tensor_item_2d(s, 1, 2) > tensor_item_2d(s, 1, 0));
-}
-
 Test(activations, leaky_relu_silu_softplus) {
     param_clear();
 

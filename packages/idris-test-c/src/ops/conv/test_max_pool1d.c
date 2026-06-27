@@ -7,6 +7,7 @@
 #include <criterion/criterion.h>
 #include "backend.h"
 #include "test_helpers.h"
+#include "port_assert.h"
 
 Test(conv_max_pool1d, forward_and_backward) {
 	param_clear();
@@ -96,3 +97,17 @@ Test(max_pool1d_f32_cov, f32_overlap_shared_winner) {
 }
 
 #endif /* BACKEND_TAPE */
+
+Test(conv_max_pool1d, max_pool1d_forward) {
+    double inp_data[] = {1, 3, 2, 4, 5, 1};
+    int inp_shape[] = {1, 6};
+    TensorHandle inp = tensor_create(inp_data, inp_shape, 2, 0);
+
+    TensorHandle out = tensor_max_pool1d(inp, 2, 2);
+    ASSERT_TRUE("pool1d size1", tensor_size(out, 1) == 3);
+    double result[3];
+    tensor_to_doubles(out, result);
+    ASSERT_NEAR("pool1d[0]", result[0], 3.0, 1e-10);
+    ASSERT_NEAR("pool1d[1]", result[1], 4.0, 1e-10);
+    ASSERT_NEAR("pool1d[2]", result[2], 5.0, 1e-10);
+}
