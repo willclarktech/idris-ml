@@ -194,6 +194,13 @@
               # aborting with "GLIBC_ABI_DT_X86_64_PLT not found".
               export COV_CLANG="${pkgs.clang}/bin/clang"
               export COV_CLANGXX="${pkgs.clang}/bin/clang++"
+              # Path to nix's libstdc++.so.6 for pip-installed binary wheels in
+              # the jupyter venv (pyzmq's _zmq dlopens it via LD_LIBRARY_PATH,
+              # which the nix shell doesn't expose → ImportError on
+              # `make jupyter-install`, run 28318698677). mk/jupyter.mk prepends
+              # this for the venv runtime only; exported (not added to
+              # LD_LIBRARY_PATH globally) so the rest of the build is untouched.
+              export IDRISML_CXX_LIB="${pkgs.stdenv.cc.cc.lib}/lib"
             '';
         };
         lint = pkgs.mkShell { packages = lintPackages pkgs; };
