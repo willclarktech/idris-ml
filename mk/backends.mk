@@ -178,11 +178,14 @@ BACKEND_TAPE_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_tape/%.c,$(BUILD)/bac
 # trees grow incrementally during Phase 6 — empty tree on day zero is
 # fine (find returns nothing, OBJS is empty, link sees only the monolith).
 BACKEND_TORCH_HEADERS := $(shell find $(BACKENDS_DIR)/backend_torch -name '*.h' 2>/dev/null)
-BACKEND_TORCH_SRCS    := $(shell find $(BACKENDS_DIR)/backend_torch -name '*.cpp' 2>/dev/null)
+# Exclude colocated test files (always `.c`) — they ride the Criterion build,
+# not the dylib. The `*.cpp` glob already skips them; the filter makes it explicit.
+BACKEND_TORCH_SRCS    := $(shell find $(BACKENDS_DIR)/backend_torch -name '*.cpp' ! -name 'test_*.c*' 2>/dev/null)
 BACKEND_TORCH_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_torch/%.cpp,$(BUILD)/backend_torch/%.o,$(BACKEND_TORCH_SRCS))
 
 BACKEND_MLX_HEADERS := $(shell find $(BACKENDS_DIR)/backend_mlx -name '*.h' 2>/dev/null)
-BACKEND_MLX_SRCS    := $(shell find $(BACKENDS_DIR)/backend_mlx -name '*.cpp' 2>/dev/null)
+# Exclude colocated test files (always `.c`) — see backend_torch above.
+BACKEND_MLX_SRCS    := $(shell find $(BACKENDS_DIR)/backend_mlx -name '*.cpp' ! -name 'test_*.c*' 2>/dev/null)
 BACKEND_MLX_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_mlx/%.cpp,$(BUILD)/backend_mlx/%.o,$(BACKEND_MLX_SRCS))
 
 # shared/training/** sources + headers (the shared-port lift). Backend

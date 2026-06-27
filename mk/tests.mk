@@ -64,31 +64,21 @@ CRITERION_FLAGS ?=
 # Linux coverage lane; gcc rejects the clang-only coverage flags).
 TEST_CC ?= cc
 
-# Discover Criterion suites. Three locations:
-#  - packages/backends/test/common/  — backend-agnostic per-op tests
-#    colocated next to their source (forward + backward correctness via
-#    the public backend.h FFI; runs against any backend's dylib).
-#  - packages/backends/test/<primary>/  — backend-specific tests that
-#    touch internals (e.g. tape's OP_* dispatch table) or assert
-#    port-struct slot populations specific to that backend's adapter.
-#  - packages/idris-test-c/src/  — cross-cutting test infra package
-#    (framework smoke, NTM integration tests, mlx-compile, training-loop
-#    oracle ladder, param registry, clip-grad-norm, optimizers).
 TEST_C_DIR := packages/idris-test-c
-# Discover Criterion suites. Tests are colocated alongside source under
-# backend_{tape,torch,mlx}/<subsystem>/test_<topic>.c (one test file per
-# kernel pair lives next to the tape source — it tests the public
-# `tensor_<op>` FFI so it covers all backends regardless of physical
-# location). Backend-specific tests gate themselves with `#ifdef
-# BACKEND_<NAME>`. Cross-cutting infra (integration tests, oracle
-# ladder, framework smoke) lives in $(TEST_C_DIR)/src/. The temporary
-# $(BACKENDS_DIR)/test/{common,tape,mlx}/ tree is fading out as Phase 3b
-# moves complete.
+# Discover Criterion suites. Test location encodes semantic coupling
+# (see docs/develop/testing-taxonomy.md "Test file layout"):
+#  - backend_{tape,torch,mlx}/<subsystem>/test_<topic>.c — backend-specific
+#    tests (one backend's internals/numerics), always #ifdef BACKEND_<NAME>.
+#  - $(TEST_C_DIR)/src/ops/<subsystem>/test_<op>.c — contract tests of the
+#    public backend.h FFI; run against whatever dylib is primary.
+#  - $(TEST_C_DIR)/src/ — cross-cutting infra (framework smoke, NTM
+#    integration, oracle ladder, param registry, clip-grad-norm, optimizers).
+# All three backend dirs are globbed regardless of primary; non-primary
+# bodies compile away via their #ifdef. Test files are always `.c` — the
+# dylib source globs exclude them (backends.mk).
 CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/backend_tape -name 'test_*.c' 2>/dev/null) \
                                $(shell find $(BACKENDS_DIR)/backend_torch -name 'test_*.c' 2>/dev/null) \
                                $(shell find $(BACKENDS_DIR)/backend_mlx -name 'test_*.c' 2>/dev/null) \
-                               $(shell find $(BACKENDS_DIR)/test/common -name '*.c' 2>/dev/null) \
-                               $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null) \
                                $(shell find $(TEST_C_DIR)/src -name '*.c' -not -name 'test_criterion_smoke.c' 2>/dev/null)
 CRITERION_TEST_SRCS := $(TEST_C_DIR)/src/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
 TEST_C_INCLUDES := -I$(BACKENDS_DIR) -I$(TEST_C_DIR)/include
