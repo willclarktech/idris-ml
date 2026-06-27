@@ -2,6 +2,21 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Coverage-gap probe flipped to a hard CI gate (2026-06-28). Closed the
+TODO "Close the honest C-coverage gaps the probe-fix revealed". The honest
+probe (filed at ~50 zero-hit FFI symbols) had since fallen to **6**, all
+tidy: the four named-subset checkpoint symbols
+(`param_save_by_name{,_renamed}`, `param_load_{with_prefix,renamed}`) —
+exercised end-to-end by the Idris `Checkpoint` suite + HF roundtrip but with
+no C unit — and the two `tensor_perf_*` op-counter diagnostics. Added
+`test_param_checkpoint.c` (a cross-backend save→clobber→load roundtrip over
+all four, incl. the peft-style rename path), excluded the two perf counters
+in `FFI_EXCLUSIONS` (diagnostic glue, same class as `backend_profile_*`),
+and flipped `scripts/coverage-gap-probe.py` from advisory to a **hard gate**
+(nonzero exit on any uncovered OP_* or zero-hit symbol — already CI-wired via
+`make test-coverage-gap-probe`). Probe now: 0 OP_* gaps, 0 zero-hit symbols.
+Suites green (tape 601 / mlx 638 / torch 561).
+
 C-coverage reached 100% (2026-06-28). Closed the last deferred arms: mlx `OP_CONV1D` replay-meta teardown (a grad-tracked mlx conv1d + `backend_reset_for_eval` → `tape_reset` frees it) and the no-grad eager-eval tile arm; torch `free_intermediates`' `all_pairs_torch` cleanup loop (`tensor_lstm_gates_pair` + `backend_reset_for_eval`). The degenerate grad-tile-inside-no_grad `free(meta)` arm is `GCOVR_EXCL`'d (it yields a malformed result — not a real path). **Final: mlx 100.0% (3702/3702), torch 100.0% (1839/1839), tape 100% on the gating ubuntu CI lane** (the one local-macOS miss, `fn_tanh_f32`, is vForce-bypassed on macOS but exercised on ubuntu — no marker, since the gating lane covers it). All suites green (tape 599 / mlx 636 / torch 559).
 
 C-coverage final close + test consolidation (2026-06-27). Took the three backends to **tape 99.97% (effectively 100% on the gating ubuntu lane) / mlx 99.9% / torch 99.9%** and consolidated the coverage-backfill tests. **Coverage**: closed the tape F32 elementwise arms via the dispatch-correct route (matching-shape binops use vDSP on macOS, so `fn_div_f32` etc. are reachable only through a *broadcast* op; non-vForce ops like sigmoid/clamp_min use the scalar kernel directly), the `log_softmax_2d` F32 arm, `arena_free_all` + the `tape_reset` per-op metadata free-arms (OP_STACK via `tensor_stack_from_array` — `tensor_stack` never tapes), mlx `backend_name` + no-grad tile, and the torch embedding already-int64 fast arm. Reasoned `GCOVR_EXCL` for the mlx GPU stream/init brace + the `mx::vjp` lambda-attribution artifact. The remaining ≈5 lines are documented: tape `fn_tanh_f32` (vForce-bypassed on macOS, covered on ubuntu CI), and a few mlx/torch replay/teardown/pair-cleanup arms (testable-but-deferred) — see `docs/develop/coverage-remaining.md`. **Consolidation**: folded every `test_<op>_cov_*.c` into a single canonical test file per source (merge into the sibling under `#ifdef BACKEND_<X>`, or rename to drop the `_cov` suffix) — one test file per source, behavior-preserving, no test logic changed (60 files, net −573 lines). All suites green under ASan (tape 599 / mlx 635 / torch 558); clang-format clean.

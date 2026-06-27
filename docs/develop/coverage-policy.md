@@ -112,17 +112,20 @@ test, not into this exclusion table.
 ## Gap-probe usage
 
 ```bash
-make coverage-gap-probe       # writes CSVs to build/, prints summary
+make test-coverage-gap-probe  # writes CSVs to build/, prints summary
 ```
 
 Outputs:
 - `build/coverage-gap-ops.csv` — per-OP_* status across tape + mlx
 - `build/coverage-gap-symbols.csv` — per-FFI-symbol test-file hit count
 
-Exit code is **advisory** (always 0) initially. Once W3+W4 close (the
-OP_* gap is 0 on both backends) the script will be flipped to gating
-in CI — adding a new OP_* tag without a corresponding test will fail
-the build. See `.github/workflows/test.yml`.
+Exit code is a **hard gate** (flipped from advisory once the OP_* gap hit
+0 on both backends and the residual zero-hit FFI symbols were tested or
+excluded). A new OP_* tag without a corresponding test, or a new `extern
+"C"` symbol with no `test_*.c` mention, fails the build — close it with a
+test or add the symbol to `FFI_EXCLUSIONS` (with a rationale) in
+`scripts/coverage-gap-probe.py`. Runs in CI via `make
+test-coverage-gap-probe` (`.github/workflows/test.yml`).
 
 ## Line/region coverage: the gcov + gcovr + Codecov stack
 
@@ -239,7 +242,7 @@ When introducing a new `OP_FOO` to either tape or mlx:
    body line `RED before this commit: <assertion>`) or commit the
    test under a skip flag first, then a follow-up commit removes
    the skip after the implementation lands.
-5. **Run the probe**: `make coverage-gap-probe` should not list your
+5. **Run the probe**: `make test-coverage-gap-probe` should not list your
    new `OP_FOO` as MISSING.
 6. **F32 routing**: if `OP_FOO` is routed through tape's F32
    storage path, also add a rung in the T29 ladder
@@ -268,7 +271,7 @@ When introducing a new `OP_FOO` to either tape or mlx:
 3. Add a Criterion test that references the symbol by name (so the
    probe finds it). If the symbol is on the principled-exclusion list
    above, document why in the symbol's header doc comment.
-4. Re-run `make coverage-gap-probe`; the symbol should not appear
+4. Re-run `make test-coverage-gap-probe`; the symbol should not appear
    with `test_hits = 0`.
 
 ## Why we don't have a dedicated cross-backend agreement harness

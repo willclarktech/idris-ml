@@ -201,5 +201,5 @@ lines), so the new tests add branch/behaviour coverage more than line coverage.
 Codecov (`codecov.yml`) gates **patch coverage at 100%** (new C must be covered or
 inline-excluded) and **project coverage with a 1% threshold** per flag. So the
 current numbers are the floor — they can't regress, and Bucket A/C work ratchets
-them up. The four-axis gap probe (`make coverage-gap-probe`) remains the
+them up. The four-axis gap probe (`make test-coverage-gap-probe`) remains the
 complementary symbol/OP_*/F32-oracle gate.

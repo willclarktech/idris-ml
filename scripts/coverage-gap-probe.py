@@ -26,8 +26,9 @@ CSV outputs land at `<OUTDIR>/coverage-gap-ops.csv` and
 `<OUTDIR>/coverage-gap-symbols.csv` (default OUTDIR = `build/`).
 Summary + sample MISSING rows print to stdout.
 
-Exit code is advisory (always 0) until the OP_* gaps close per
-coverage-policy.md; then flip to non-zero on any MISSING.
+Exit code is a hard gate: non-zero on any uncovered OP_* or any zero-hit
+FFI symbol (after FFI_EXCLUSIONS). Close a new gap with a test, or add the
+symbol to FFI_EXCLUSIONS with a rationale. See coverage-policy.md.
 """
 
 from __future__ import annotations
@@ -108,6 +109,11 @@ FFI_EXCLUSIONS = frozenset(
         "idrisml_seq",
         "tensor_mlx_compile_enabled",
         "tensor_mlx_compile_invocations",
+        # Perf op-counter diagnostics (commit e9763d0; used to measure the
+        # fused-op work). Pure introspection glue, same class as the
+        # backend_profile_* / tensor_live_count entries above.
+        "tensor_perf_op_count",
+        "tensor_perf_reset",
     }
 )
 
@@ -228,8 +234,12 @@ def print_summary(
         if len(symbols_zero) > 15:
             print(f"  ... and {len(symbols_zero) - 15} more — see CSV")
 
-    # Advisory only; matches the predecessor.
-    return 0
+    # Hard gate (flipped from advisory once the OP_* gaps closed and the
+    # residual zero-hit FFI symbols were tested or excluded — see
+    # docs/develop/coverage-policy.md). Any new uncovered OP_* or zero-hit
+    # FFI symbol fails CI; close it with a test or add it to FFI_EXCLUSIONS
+    # with a rationale.
+    return 1 if (missing or symbols_zero) else 0
 
 
 def main(argv: list[str]) -> int:

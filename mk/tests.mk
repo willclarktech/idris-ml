@@ -297,8 +297,8 @@ test-coverage-all:
 
 # Static coverage gap probe — no build required. Emits CSV reports of
 # OP_* tags + extern "C" symbols vs test-file mentions. Output land in
-# $(BUILD)/coverage-gap-{ops,symbols}.csv. Advisory exit; gating flip
-# tracked under W3+W4 in coverage-policy.md.
+# $(BUILD)/coverage-gap-{ops,symbols}.csv. Hard gate: nonzero exit on any
+# uncovered OP_* or zero-hit FFI symbol (see coverage-policy.md).
 test-coverage-gap-probe:
 	@python3 scripts/coverage-gap-probe.py $(BUILD)
 
