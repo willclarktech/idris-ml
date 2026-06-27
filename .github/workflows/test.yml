@@ -1099,6 +1099,13 @@ jobs:
       # this job's defaults.run.shell. Must precede any run step (incl. the
       # free-disk steps) since they'd otherwise execute before nix exists.
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        # fallback = true: build from source if a binary substitute fails.
+        # The dev-shell is built by the first run step (Free runner disk, via
+        # this job's `nix develop` default shell); a transient cache.nixos.org
+        # 416 there otherwise hard-fails the whole job (run 28318698677).
+        with:
+          extra-conf: |
+            fallback = true
       - name: Free runner disk (android SDK + dotnet)
         # Same as test-e2e-transformers: this job carries the multi-GB HF model
         # cache + torch venv + a 16 GB swapfile; reclaim the ~10 GB of

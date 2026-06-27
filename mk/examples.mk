@@ -383,7 +383,7 @@ test-e2e-llama-generate-roundtrip: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B
 # Manual oracle-regen entry point (pytest harness pairs with
 # `test-e2e-llama-generate-roundtrip` above). Useful when bumping
 # the budget after KV cache lands.
-test-e2e-transformers-oracle-llama-generate:
+test-e2e-transformers-oracle-llama-generate: $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama_generate.py -v
 

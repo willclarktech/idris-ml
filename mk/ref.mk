@@ -99,7 +99,7 @@ ref-typecheck:
 # well-formed (shape, dtype, finite, nontrivial). The cross-language
 # Idris-vs-Python comparison gate lands in Phase 6 as
 # test-e2e-bert-roundtrip.
-test-e2e-transformers-oracle-bert:
+test-e2e-transformers-oracle-bert: $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 
@@ -116,7 +116,7 @@ test-e2e-rope-oracle:
 # `distilgpt2`'s last-hidden-state for [15496, 995] and
 # asserts the fixture is well-formed. The cross-language gate lands
 # as test-e2e-gpt2-roundtrip alongside the Idris example.
-test-e2e-transformers-oracle-gpt2:
+test-e2e-transformers-oracle-gpt2: $(HF_MODELS_DIR)/distilgpt2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 
@@ -125,7 +125,11 @@ test-e2e-transformers-oracle-gpt2:
 # last-hidden-state for [9906] ("Hello") and asserts the fixture is
 # well-formed. The cross-language gate lands as test-e2e-llama-roundtrip
 # alongside the Idris example.
-test-e2e-transformers-oracle-llama:
+# Depends on the model file-target so a cache miss downloads it (hf-download.sh,
+# gated -> needs HF_TOKEN) BEFORE the oracle pytest, which only asserts the model
+# is present. Without this the oracle (first llama step in CI) fails "model not
+# found" on any cold cache, before the roundtrip that would have fetched it runs.
+test-e2e-transformers-oracle-llama: $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_llama.py -v
 
