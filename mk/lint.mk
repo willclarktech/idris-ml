@@ -203,9 +203,14 @@ lint-c: lint-c-tape lint-c-torch lint-c-mlx
 
 # cppcheck + clang-tidy only; clang-format lives in the fmt family
 # (`make check-fmt-c`, all backends at once) so format != lint.
+# cppcheck covers ALL C: the tape backend, the backends/ root + shared/
+# implementation files, and the idris-test-c contract/test suites. (torch/mlx
+# .cpp sources cppcheck in their own c++ lanes below.) `unknownMacro:*test_*.c`
+# silences Criterion's `Test()` macro in test files; clang-tidy stays
+# implementation-only (no test files — see BACKEND_TAPE_SRCS filter).
 lint-c-tape:
 	@if command -v cppcheck >/dev/null 2>&1; then \
-		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape packages/backends/backend_tape/ || exit 1; \
+		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --suppress=nullPointerOutOfResources --suppress=unknownMacro:*test_*.c --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape -I packages/idris-test-c/include packages/backends/*.c packages/backends/shared/ packages/backends/backend_tape/ packages/idris-test-c/src/ || exit 1; \
 	else \
 		echo "lint-c-tape: cppcheck not installed (install via 'brew install cppcheck' or 'apt-get install cppcheck'); skipping"; \
 	fi
@@ -256,7 +261,7 @@ lint-c-include-cleaner:
 
 lint-c-torch:
 	@if command -v cppcheck >/dev/null 2>&1; then \
-		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_torch packages/backends/backend_torch/ || exit 1; \
+		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --suppress=nullPointerOutOfResources --suppress=unknownMacro:*test_*.c --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_torch packages/backends/backend_torch/ || exit 1; \
 	else \
 		echo "lint-c-torch: cppcheck not installed; skipping"; \
 	fi
@@ -284,7 +289,7 @@ lint-c-torch:
 
 lint-c-mlx:
 	@if command -v cppcheck >/dev/null 2>&1; then \
-		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_mlx packages/backends/backend_mlx/ || exit 1; \
+		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --suppress=nullPointerOutOfResources --suppress=unknownMacro:*test_*.c --error-exitcode=1 --inline-suppr --language=c++ -I packages/backends -I packages/backends/backend_mlx packages/backends/backend_mlx/ || exit 1; \
 	else \
 		echo "lint-c-mlx: cppcheck not installed; skipping"; \
 	fi

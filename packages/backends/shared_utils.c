@@ -110,6 +110,8 @@ int get_current_rss_mb(void) {
 #ifdef __APPLE__
 	mach_task_basic_info_data_t info;
 	mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+	/* task_info() fills `info` via the pointer on KERN_SUCCESS; cppcheck can't see the syscall */
+	/* cppcheck-suppress uninitvar */
 	if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) ==
 	    KERN_SUCCESS)
 		return (int)(info.resident_size / (1024 * 1024));
