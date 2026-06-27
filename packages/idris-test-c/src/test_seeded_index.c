@@ -18,8 +18,7 @@ int seeded_index_array_get(void* handle, int i);
 
 static int orders_equal(void* a, void* b, int n) {
 	for (int i = 0; i < n; i++)
-		if (seeded_index_array_get(a, i) != seeded_index_array_get(b, i))
-			return 0;
+		if (seeded_index_array_get(a, i) != seeded_index_array_get(b, i)) return 0;
 	return 1;
 }
 

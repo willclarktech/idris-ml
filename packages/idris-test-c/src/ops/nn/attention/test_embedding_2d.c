@@ -159,34 +159,34 @@ Test(nn_attention_embedding_2d, matches_decomposed_chain) {
 }
 
 Test(nn_attention_embedding_2d, embedding) {
-    param_clear();
-    /* weight [3, 2]: 3 vocab, 2-dim embeddings */
-    double w[] = {1,2, 3,4, 5,6};
-    int ws[] = {3, 2};
-    TensorHandle weight = tensor_create(w, ws, 2, 1);
-    param_register("emb", weight);
+	param_clear();
+	/* weight [3, 2]: 3 vocab, 2-dim embeddings */
+	double w[] = {1, 2, 3, 4, 5, 6};
+	int ws[] = {3, 2};
+	TensorHandle weight = tensor_create(w, ws, 2, 1);
+	param_register("emb", weight);
 
-    /* indices [2]: lookup rows 2 and 0 */
-    double idx[] = {2, 0};
-    int is[] = {2};
-    TensorHandle indices = tensor_create(idx, is, 1, 0);
+	/* indices [2]: lookup rows 2 and 0 */
+	double idx[] = {2, 0};
+	int is[] = {2};
+	TensorHandle indices = tensor_create(idx, is, 1, 0);
 
-    TensorHandle out = tensor_embedding(weight, indices, 2, 2);
-    /* Expected: [5,6, 1,2] (row 2 then row 0) */
-    double result[4];
-    tensor_to_doubles(out, result);
-    ASSERT_NEAR("embed[0]", result[0], 5.0, 1e-10);
-    ASSERT_NEAR("embed[1]", result[1], 6.0, 1e-10);
-    ASSERT_NEAR("embed[2]", result[2], 1.0, 1e-10);
-    ASSERT_NEAR("embed[3]", result[3], 2.0, 1e-10);
+	TensorHandle out = tensor_embedding(weight, indices, 2, 2);
+	/* Expected: [5,6, 1,2] (row 2 then row 0) */
+	double result[4];
+	tensor_to_doubles(out, result);
+	ASSERT_NEAR("embed[0]", result[0], 5.0, 1e-10);
+	ASSERT_NEAR("embed[1]", result[1], 6.0, 1e-10);
+	ASSERT_NEAR("embed[2]", result[2], 1.0, 1e-10);
+	ASSERT_NEAR("embed[3]", result[3], 2.0, 1e-10);
 
-    /* Backward: sum all outputs */
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
-    /* d_weight[2,0] += 1, d_weight[2,1] += 1, d_weight[0,0] += 1, d_weight[0,1] += 1 */
-    ASSERT_NEAR("d_emb[0]", param_grad_item_at(0, 0), 1.0, 1e-10);
-    ASSERT_NEAR("d_emb[1]", param_grad_item_at(0, 1), 1.0, 1e-10);
-    ASSERT_NEAR("d_emb[2]", param_grad_item_at(0, 2), 0.0, 1e-10);
-    ASSERT_NEAR("d_emb[4]", param_grad_item_at(0, 4), 1.0, 1e-10);
-    param_clear();
+	/* Backward: sum all outputs */
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
+	/* d_weight[2,0] += 1, d_weight[2,1] += 1, d_weight[0,0] += 1, d_weight[0,1] += 1 */
+	ASSERT_NEAR("d_emb[0]", param_grad_item_at(0, 0), 1.0, 1e-10);
+	ASSERT_NEAR("d_emb[1]", param_grad_item_at(0, 1), 1.0, 1e-10);
+	ASSERT_NEAR("d_emb[2]", param_grad_item_at(0, 2), 0.0, 1e-10);
+	ASSERT_NEAR("d_emb[4]", param_grad_item_at(0, 4), 1.0, 1e-10);
+	param_clear();
 }

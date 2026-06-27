@@ -30,13 +30,12 @@
 /* `got` is evaluated exactly once — required for sites that pass
    destructive readers like param_grad_item_and_zero(i) whose second
    call would observe the zeroed state. */
-#define ASSERT_NEAR(msg, got, expected, tol)            \
-	do {                                                \
-		double _an_got = (got);                         \
-		double _an_exp = (expected);                    \
-		cr_assert_float_eq(_an_got, _an_exp, (tol),     \
-			"%s: got %.6f expected %.6f", msg, _an_got, \
-			_an_exp);                                   \
+#define ASSERT_NEAR(msg, got, expected, tol)                                                       \
+	do {                                                                                           \
+		double _an_got = (got);                                                                    \
+		double _an_exp = (expected);                                                               \
+		cr_assert_float_eq(_an_got, _an_exp, (tol), "%s: got %.6f expected %.6f", msg, _an_got,    \
+		                   _an_exp);                                                               \
 	} while (0)
 
 #define ASSERT_TRUE(msg, cond) cr_assert((cond), "%s", msg)

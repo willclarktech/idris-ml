@@ -208,43 +208,43 @@ Test(conv1d_cov, multichannel_forward_and_backward) {
 }
 
 Test(conv_conv1d, conv1d_forward) {
-    double inp_data[] = {1, 2, 3, 4, 5};
-    int inp_shape[] = {1, 5};
-    TensorHandle inp = tensor_create(inp_data, inp_shape, 2, 0);
+	double inp_data[] = {1, 2, 3, 4, 5};
+	int inp_shape[] = {1, 5};
+	TensorHandle inp = tensor_create(inp_data, inp_shape, 2, 0);
 
-    double ker_data[] = {1, 0, 1};
-    int ker_shape[] = {1, 1, 3};
-    TensorHandle ker = tensor_create(ker_data, ker_shape, 3, 0);
+	double ker_data[] = {1, 0, 1};
+	int ker_shape[] = {1, 1, 3};
+	TensorHandle ker = tensor_create(ker_data, ker_shape, 3, 0);
 
-    TensorHandle out = tensor_conv1d(inp, ker, NULL, 0, 1);
-    ASSERT_TRUE("conv1d dim", tensor_dim(out) == 2);
-    ASSERT_TRUE("conv1d size0", tensor_size(out, 0) == 1);
-    ASSERT_TRUE("conv1d size1", tensor_size(out, 1) == 3);
-    double result[3];
-    tensor_to_doubles(out, result);
-    ASSERT_NEAR("conv1d[0]", result[0], 4.0, 1e-10);
-    ASSERT_NEAR("conv1d[1]", result[1], 6.0, 1e-10);
-    ASSERT_NEAR("conv1d[2]", result[2], 8.0, 1e-10);
+	TensorHandle out = tensor_conv1d(inp, ker, NULL, 0, 1);
+	ASSERT_TRUE("conv1d dim", tensor_dim(out) == 2);
+	ASSERT_TRUE("conv1d size0", tensor_size(out, 0) == 1);
+	ASSERT_TRUE("conv1d size1", tensor_size(out, 1) == 3);
+	double result[3];
+	tensor_to_doubles(out, result);
+	ASSERT_NEAR("conv1d[0]", result[0], 4.0, 1e-10);
+	ASSERT_NEAR("conv1d[1]", result[1], 6.0, 1e-10);
+	ASSERT_NEAR("conv1d[2]", result[2], 8.0, 1e-10);
 }
 
 Test(conv_conv1d, conv1d_backward) {
-    param_clear();
-    double inp_data[] = {1, 2, 3, 4, 5};
-    int inp_shape[] = {1, 5};
-    double ker_data[] = {1, 1, 1};
-    int ker_shape[] = {1, 1, 3};
+	param_clear();
+	double inp_data[] = {1, 2, 3, 4, 5};
+	int inp_shape[] = {1, 5};
+	double ker_data[] = {1, 1, 1};
+	int ker_shape[] = {1, 1, 3};
 
-    TensorHandle inp = tensor_create(inp_data, inp_shape, 2, 1);
-    param_register("inp", inp);
-    TensorHandle ker = tensor_create(ker_data, ker_shape, 3, 1);
-    param_register("ker", ker);
+	TensorHandle inp = tensor_create(inp_data, inp_shape, 2, 1);
+	param_register("inp", inp);
+	TensorHandle ker = tensor_create(ker_data, ker_shape, 3, 1);
+	param_register("ker", ker);
 
-    TensorHandle out = tensor_conv1d(inp, ker, NULL, 0, 1);
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
+	TensorHandle out = tensor_conv1d(inp, ker, NULL, 0, 1);
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
 
-    ASSERT_NEAR("d_ker1d[0]", param_grad_item_at(1, 0), 6.0, 1e-10);
-    ASSERT_NEAR("d_ker1d[1]", param_grad_item_at(1, 1), 9.0, 1e-10);
-    ASSERT_NEAR("d_ker1d[2]", param_grad_item_at(1, 2), 12.0, 1e-10);
-    param_clear();
+	ASSERT_NEAR("d_ker1d[0]", param_grad_item_at(1, 0), 6.0, 1e-10);
+	ASSERT_NEAR("d_ker1d[1]", param_grad_item_at(1, 1), 9.0, 1e-10);
+	ASSERT_NEAR("d_ker1d[2]", param_grad_item_at(1, 2), 12.0, 1e-10);
+	param_clear();
 }

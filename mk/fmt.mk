@@ -50,9 +50,10 @@ check-fmt-py:
 
 # ---- C / C++: clang-format -------------------------------------------
 
-# Every backend C/C++ source (tape + torch + mlx + shared). rename_*.h
-# is generated (gen-rename-headers.py owns its layout) and excluded.
-C_FMT_SRCS := $(shell find packages/backends \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) ! -name "rename_*.h" 2>/dev/null)
+# Every backend C/C++ source (tape + torch + mlx + shared) plus the
+# idris-test-c contract/test suites. rename_*.h is generated
+# (gen-rename-headers.py owns its layout) and excluded.
+C_FMT_SRCS := $(shell find packages/backends packages/idris-test-c \( -name "*.c" -o -name "*.h" -o -name "*.cpp" -o -name "*.hpp" \) ! -name "rename_*.h" 2>/dev/null)
 
 fmt-c:
 	@if command -v clang-format >/dev/null 2>&1; then \

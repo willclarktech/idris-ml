@@ -109,17 +109,17 @@ Test(nn_softmax_softmax_2d, backward_finite_difference) {
 #endif /* BACKEND_TAPE */
 
 Test(nn_softmax_softmax_2d, softmax_2d) {
-    /* 2x3 matrix, each row should sum to 1 */
-    double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    int shape[] = {2, 3};
-    TensorHandle t = tensor_create(data, shape, 2, 0);
-    TensorHandle s = tensor_softmax_2d(t);
+	/* 2x3 matrix, each row should sum to 1 */
+	double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	int shape[] = {2, 3};
+	TensorHandle t = tensor_create(data, shape, 2, 0);
+	TensorHandle s = tensor_softmax_2d(t);
 
-    double row0_sum = tensor_item_2d(s, 0, 0) + tensor_item_2d(s, 0, 1) + tensor_item_2d(s, 0, 2);
-    double row1_sum = tensor_item_2d(s, 1, 0) + tensor_item_2d(s, 1, 1) + tensor_item_2d(s, 1, 2);
-    ASSERT_NEAR("softmax_2d row0 sum", row0_sum, 1.0, VAL_TOL);
-    ASSERT_NEAR("softmax_2d row1 sum", row1_sum, 1.0, VAL_TOL);
-    /* Max element in each row should have highest probability */
-    ASSERT_TRUE("softmax_2d row0 max", tensor_item_2d(s, 0, 2) > tensor_item_2d(s, 0, 0));
-    ASSERT_TRUE("softmax_2d row1 max", tensor_item_2d(s, 1, 2) > tensor_item_2d(s, 1, 0));
+	double row0_sum = tensor_item_2d(s, 0, 0) + tensor_item_2d(s, 0, 1) + tensor_item_2d(s, 0, 2);
+	double row1_sum = tensor_item_2d(s, 1, 0) + tensor_item_2d(s, 1, 1) + tensor_item_2d(s, 1, 2);
+	ASSERT_NEAR("softmax_2d row0 sum", row0_sum, 1.0, VAL_TOL);
+	ASSERT_NEAR("softmax_2d row1 sum", row1_sum, 1.0, VAL_TOL);
+	/* Max element in each row should have highest probability */
+	ASSERT_TRUE("softmax_2d row0 max", tensor_item_2d(s, 0, 2) > tensor_item_2d(s, 0, 0));
+	ASSERT_TRUE("softmax_2d row1 max", tensor_item_2d(s, 1, 2) > tensor_item_2d(s, 1, 0));
 }

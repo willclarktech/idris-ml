@@ -60,95 +60,100 @@ Test(nn_norm_batch_norm, running_var_bessel_corrected) {
 }
 
 Test(nn_norm_batch_norm, batch_norm_forward) {
-    /* Input: [2 channels, 3 spatial] = flat [6] */
-    double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    int shape[] = {6};
-    TensorHandle inp = tensor_create(data, shape, 1, 0);
+	/* Input: [2 channels, 3 spatial] = flat [6] */
+	double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	int shape[] = {6};
+	TensorHandle inp = tensor_create(data, shape, 1, 0);
 
-    double gamma_d[] = {1.0, 1.0};
-    double beta_d[] = {0.0, 0.0};
-    double rm_d[] = {0.0, 0.0};
-    double rv_d[] = {1.0, 1.0};
-    int s1[] = {2};
-    TensorHandle gamma = tensor_create(gamma_d, s1, 1, 0);
-    TensorHandle beta = tensor_create(beta_d, s1, 1, 0);
-    TensorHandle rm = tensor_create(rm_d, s1, 1, 0);
-    TensorHandle rv = tensor_create(rv_d, s1, 1, 0);
+	double gamma_d[] = {1.0, 1.0};
+	double beta_d[] = {0.0, 0.0};
+	double rm_d[] = {0.0, 0.0};
+	double rv_d[] = {1.0, 1.0};
+	int s1[] = {2};
+	TensorHandle gamma = tensor_create(gamma_d, s1, 1, 0);
+	TensorHandle beta = tensor_create(beta_d, s1, 1, 0);
+	TensorHandle rm = tensor_create(rm_d, s1, 1, 0);
+	TensorHandle rv = tensor_create(rv_d, s1, 1, 0);
 
-    /* Training mode: normalize using input stats */
-    TensorHandle out = tensor_batch_norm(inp, gamma, beta, rm, rv, 2, 3, 1, 0.1, 1e-5);
+	/* Training mode: normalize using input stats */
+	TensorHandle out = tensor_batch_norm(inp, gamma, beta, rm, rv, 2, 3, 1, 0.1, 1e-5);
 
-    /* Channel 0: mean=2, var=2/3, x_hat = [-1.22, 0, 1.22] (approx) */
-    double result[6];
-    tensor_to_doubles(out, result);
-    ASSERT_NEAR("bn ch0 mean~0", (result[0]+result[1]+result[2])/3.0, 0.0, 1e-4);
-    ASSERT_NEAR("bn ch1 mean~0", (result[3]+result[4]+result[5])/3.0, 0.0, 1e-4);
+	/* Channel 0: mean=2, var=2/3, x_hat = [-1.22, 0, 1.22] (approx) */
+	double result[6];
+	tensor_to_doubles(out, result);
+	ASSERT_NEAR("bn ch0 mean~0", (result[0] + result[1] + result[2]) / 3.0, 0.0, 1e-4);
+	ASSERT_NEAR("bn ch1 mean~0", (result[3] + result[4] + result[5]) / 3.0, 0.0, 1e-4);
 
-    /* Eval mode: should use running stats */
-    TensorHandle out2 = tensor_batch_norm(inp, gamma, beta, rm, rv, 2, 3, 0, 0.1, 1e-5);
-    double result2[6];
-    tensor_to_doubles(out2, result2);
-    /* Running mean was updated — eval output should differ from training output */
-    printf("ok: batch norm forward runs\n");
+	/* Eval mode: should use running stats */
+	TensorHandle out2 = tensor_batch_norm(inp, gamma, beta, rm, rv, 2, 3, 0, 0.1, 1e-5);
+	double result2[6];
+	tensor_to_doubles(out2, result2);
+	/* Running mean was updated — eval output should differ from training output */
+	printf("ok: batch norm forward runs\n");
 }
 
 Test(nn_norm_batch_norm, batch_norm_backward) {
-    param_clear();
+	param_clear();
 
-    double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    int shape[] = {6};
-    TensorHandle inp = tensor_create(data, shape, 1, 1);
-    param_register("inp", inp);
+	double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	int shape[] = {6};
+	TensorHandle inp = tensor_create(data, shape, 1, 1);
+	param_register("inp", inp);
 
-    double gamma_d[] = {1.0, 1.0};
-    double beta_d[] = {0.0, 0.0};
-    double rm_d[] = {0.0, 0.0};
-    double rv_d[] = {1.0, 1.0};
-    int s1[] = {2};
-    double* g_buf = hcopy(gamma_d, 2);
-    TensorHandle gamma = tensor_create_param_1d_f64(2, g_buf);
-    double* b_buf = hcopy(beta_d, 2);
-    TensorHandle beta = tensor_create_param_1d_f64(2, b_buf);
-    TensorHandle rm = tensor_create(rm_d, s1, 1, 0);
-    TensorHandle rv = tensor_create(rv_d, s1, 1, 0);
+	double gamma_d[] = {1.0, 1.0};
+	double beta_d[] = {0.0, 0.0};
+	double rm_d[] = {0.0, 0.0};
+	double rv_d[] = {1.0, 1.0};
+	int s1[] = {2};
+	double* g_buf = hcopy(gamma_d, 2);
+	TensorHandle gamma = tensor_create_param_1d_f64(2, g_buf);
+	double* b_buf = hcopy(beta_d, 2);
+	TensorHandle beta = tensor_create_param_1d_f64(2, b_buf);
+	TensorHandle rm = tensor_create(rm_d, s1, 1, 0);
+	TensorHandle rv = tensor_create(rv_d, s1, 1, 0);
 
-    TensorHandle out = tensor_batch_norm(inp, gamma, beta, rm, rv, 2, 3, 1, 0.1, 1e-5);
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
+	TensorHandle out = tensor_batch_norm(inp, gamma, beta, rm, rv, 2, 3, 1, 0.1, 1e-5);
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
 
-    /* d_beta[c] = sum of output grads for that channel = 3 * 1.0 = 3.0 */
-    /* But output is normalized, so d_beta[c] = sum(1.0) = 3.0 for each channel */
-    /* d_gamma: sum of x_hat * grad. Since mean(x_hat)=0, sum(x_hat)=0 → d_gamma=0 */
+	/* d_beta[c] = sum of output grads for that channel = 3 * 1.0 = 3.0 */
+	/* But output is normalized, so d_beta[c] = sum(1.0) = 3.0 for each channel */
+	/* d_gamma: sum of x_hat * grad. Since mean(x_hat)=0, sum(x_hat)=0 → d_gamma=0 */
 
-    /* Finite diff check: perturb gamma[0] */
-    double eps = 1e-5;
-    {
-        param_clear();
-        double gp[] = {1.0+eps, 1.0};
-        double gm[] = {1.0-eps, 1.0};
-        double* gp_buf = hcopy(gp, 2);
-        double* gm_buf = hcopy(gm, 2);
-        double* b1 = hcopy(beta_d, 2);
-        double* b2 = hcopy(beta_d, 2);
+	/* Finite diff check: perturb gamma[0] */
+	double eps = 1e-5;
+	{
+		param_clear();
+		double gp[] = {1.0 + eps, 1.0};
+		double gm[] = {1.0 - eps, 1.0};
+		double* gp_buf = hcopy(gp, 2);
+		double* gm_buf = hcopy(gm, 2);
+		double* b1 = hcopy(beta_d, 2);
+		double* b2 = hcopy(beta_d, 2);
 
-        TensorHandle i1 = tensor_create(data, shape, 1, 0);
-        TensorHandle g1 = tensor_create(gp, s1, 1, 0);
-        TensorHandle bt1 = tensor_create(beta_d, s1, 1, 0);
-        TensorHandle rm1 = tensor_create(rm_d, s1, 1, 0);
-        TensorHandle rv1 = tensor_create(rv_d, s1, 1, 0);
-        double fp = tensor_item(tensor_sum(tensor_batch_norm(i1, g1, bt1, rm1, rv1, 2, 3, 1, 0.1, 1e-5)));
+		TensorHandle i1 = tensor_create(data, shape, 1, 0);
+		TensorHandle g1 = tensor_create(gp, s1, 1, 0);
+		TensorHandle bt1 = tensor_create(beta_d, s1, 1, 0);
+		TensorHandle rm1 = tensor_create(rm_d, s1, 1, 0);
+		TensorHandle rv1 = tensor_create(rv_d, s1, 1, 0);
+		double fp =
+		    tensor_item(tensor_sum(tensor_batch_norm(i1, g1, bt1, rm1, rv1, 2, 3, 1, 0.1, 1e-5)));
 
-        TensorHandle i2 = tensor_create(data, shape, 1, 0);
-        TensorHandle g2 = tensor_create(gm, s1, 1, 0);
-        TensorHandle bt2 = tensor_create(beta_d, s1, 1, 0);
-        TensorHandle rm2 = tensor_create(rm_d, s1, 1, 0);
-        TensorHandle rv2 = tensor_create(rv_d, s1, 1, 0);
-        double fm = tensor_item(tensor_sum(tensor_batch_norm(i2, g2, bt2, rm2, rv2, 2, 3, 1, 0.1, 1e-5)));
+		TensorHandle i2 = tensor_create(data, shape, 1, 0);
+		TensorHandle g2 = tensor_create(gm, s1, 1, 0);
+		TensorHandle bt2 = tensor_create(beta_d, s1, 1, 0);
+		TensorHandle rm2 = tensor_create(rm_d, s1, 1, 0);
+		TensorHandle rv2 = tensor_create(rv_d, s1, 1, 0);
+		double fm =
+		    tensor_item(tensor_sum(tensor_batch_norm(i2, g2, bt2, rm2, rv2, 2, 3, 1, 0.1, 1e-5)));
 
-        double fd = (fp - fm) / (2*eps);
-        /* d_gamma[0] should be ~0 (sum of x_hat for centered data) */
-        ASSERT_NEAR("bn fd d_gamma[0]", fd, 0.0, 0.2);
-        (void)gp_buf; (void)gm_buf; (void)b1; (void)b2;
-    }
-    param_clear();
+		double fd = (fp - fm) / (2 * eps);
+		/* d_gamma[0] should be ~0 (sum of x_hat for centered data) */
+		ASSERT_NEAR("bn fd d_gamma[0]", fd, 0.0, 0.2);
+		(void)gp_buf;
+		(void)gm_buf;
+		(void)b1;
+		(void)b2;
+	}
+	param_clear();
 }

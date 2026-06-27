@@ -13,18 +13,18 @@
 #include <criterion/criterion.h>
 
 Test(smoke, hello) {
-    cr_assert(1, "Criterion is linked and the test harness runs");
+	cr_assert(1, "Criterion is linked and the test harness runs");
 }
 
 Test(smoke, addition) {
-    cr_assert_eq(2 + 2, 4);
+	cr_assert_eq(2 + 2, 4);
 }
 
 Test(smoke, process_isolation_sentinel) {
-    /* Each Test() forks; this body must not see state from a sibling.
-     * Verified manually by the process-isolation invariant Criterion
-     * provides — Test() fixtures don't leak globals. */
-    static int seen = 0;
-    cr_assert_eq(seen, 0, "fresh subprocess should not have prior seen=%d", seen);
-    seen = 1;
+	/* Each Test() forks; this body must not see state from a sibling.
+	 * Verified manually by the process-isolation invariant Criterion
+	 * provides — Test() fixtures don't leak globals. */
+	static int seen = 0;
+	cr_assert_eq(seen, 0, "fresh subprocess should not have prior seen=%d", seen);
+	seen = 1;
 }

@@ -79,27 +79,31 @@ Test(linear_linalg_outer, forward_backward) {
 }
 
 Test(linear_linalg_dot, dot) {
-    double a[] = {1.0, 2.0, 3.0};
-    double b[] = {4.0, 5.0, 6.0};
-    int shape[] = {3};
-    TensorHandle va = tensor_create(a, shape, 1, 0);
-    TensorHandle vb = tensor_create(b, shape, 1, 0);
-    TensorHandle d = tensor_dot(va, vb);
-    ASSERT_NEAR("dot([1,2,3],[4,5,6])", tensor_item(d), 32.0, 1e-10);
-    tensor_free(va); tensor_free(vb); tensor_free(d);
+	double a[] = {1.0, 2.0, 3.0};
+	double b[] = {4.0, 5.0, 6.0};
+	int shape[] = {3};
+	TensorHandle va = tensor_create(a, shape, 1, 0);
+	TensorHandle vb = tensor_create(b, shape, 1, 0);
+	TensorHandle d = tensor_dot(va, vb);
+	ASSERT_NEAR("dot([1,2,3],[4,5,6])", tensor_item(d), 32.0, 1e-10);
+	tensor_free(va);
+	tensor_free(vb);
+	tensor_free(d);
 }
 
 Test(linear_linalg_outer, outer) {
-    double a[] = {1.0, 2.0};
-    double b[] = {3.0, 4.0, 5.0};
-    int sa[] = {2};
-    int sb[] = {3};
-    TensorHandle va = tensor_create(a, sa, 1, 0);
-    TensorHandle vb = tensor_create(b, sb, 1, 0);
-    TensorHandle o = tensor_outer(va, vb);
-    /* [[3,4,5],[6,8,10]] */
-    ASSERT_NEAR("outer dim", (double)tensor_dim(o), 2.0, 1e-10);
-    ASSERT_NEAR("outer[0,0]", tensor_item_2d(o, 0, 0), 3.0, 1e-10);
-    ASSERT_NEAR("outer[1,2]", tensor_item_2d(o, 1, 2), 10.0, 1e-10);
-    tensor_free(va); tensor_free(vb); tensor_free(o);
+	double a[] = {1.0, 2.0};
+	double b[] = {3.0, 4.0, 5.0};
+	int sa[] = {2};
+	int sb[] = {3};
+	TensorHandle va = tensor_create(a, sa, 1, 0);
+	TensorHandle vb = tensor_create(b, sb, 1, 0);
+	TensorHandle o = tensor_outer(va, vb);
+	/* [[3,4,5],[6,8,10]] */
+	ASSERT_NEAR("outer dim", (double)tensor_dim(o), 2.0, 1e-10);
+	ASSERT_NEAR("outer[0,0]", tensor_item_2d(o, 0, 0), 3.0, 1e-10);
+	ASSERT_NEAR("outer[1,2]", tensor_item_2d(o, 1, 2), 10.0, 1e-10);
+	tensor_free(va);
+	tensor_free(vb);
+	tensor_free(o);
 }

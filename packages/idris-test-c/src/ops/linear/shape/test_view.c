@@ -32,32 +32,34 @@ Test(linear_shape_view, view_2d_reads_element) {
    or its data buffer; tensor_create(requires_grad=1) now heap-allocates
    those, so the alias can't fire. */
 Test(linear_shape_view, tensor_view) {
-    param_clear();
-    double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    int wshape[] = {2, 3};
-    TensorHandle wmat = tensor_create(wdata, wshape, 2, 1);
-    param_register("wmat", wmat);
+	param_clear();
+	double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	int wshape[] = {2, 3};
+	TensorHandle wmat = tensor_create(wdata, wshape, 2, 1);
+	param_register("wmat", wmat);
 
-    /* Select element [0,1] as a scalar view */
-    TensorHandle row0 = tensor_select(wmat, 0, 0);
-    TensorHandle elem01 = tensor_select(row0, 0, 1);
-    ASSERT_NEAR("view elem[0,1]", tensor_item(elem01), 2.0, 1e-10);
+	/* Select element [0,1] as a scalar view */
+	TensorHandle row0 = tensor_select(wmat, 0, 0);
+	TensorHandle elem01 = tensor_select(row0, 0, 1);
+	ASSERT_NEAR("view elem[0,1]", tensor_item(elem01), 2.0, 1e-10);
 
-    /* Modify parent via optimizer, check update */
-    OptimizerHandle sgd = optimizer_create_sgd(1.0); /* lr=1.0 for easy math */
-    /* loss = sum(wmat) so grad = ones */
-    TensorHandle wsum = tensor_sum(wmat);
-    optimizer_zero_grad(sgd);
-    tensor_backward(wsum);
-    optimizer_step(sgd);
-    /* After step: wmat[0,1] should be 2.0 - 1.0*1.0 = 1.0. Re-creating the
-       chain via fresh tensor_selects regression-tests the arena_alloc /
-       parent-aliasing fix in tape's select.c (a post-optimizer-step arena
-       reset can rewind to wmat's own struct address; the snapshot in
-       tensor_select prevents the aliasing memset from corrupting it). */
-    ASSERT_NEAR("parent updated", tensor_item(tensor_select(tensor_select(wmat, 0, 0), 0, 1)), 1.0, 1e-10);
+	/* Modify parent via optimizer, check update */
+	OptimizerHandle sgd = optimizer_create_sgd(1.0); /* lr=1.0 for easy math */
+	/* loss = sum(wmat) so grad = ones */
+	TensorHandle wsum = tensor_sum(wmat);
+	optimizer_zero_grad(sgd);
+	tensor_backward(wsum);
+	optimizer_step(sgd);
+	/* After step: wmat[0,1] should be 2.0 - 1.0*1.0 = 1.0. Re-creating the
+	   chain via fresh tensor_selects regression-tests the arena_alloc /
+	   parent-aliasing fix in tape's select.c (a post-optimizer-step arena
+	   reset can rewind to wmat's own struct address; the snapshot in
+	   tensor_select prevents the aliasing memset from corrupting it). */
+	ASSERT_NEAR("parent updated", tensor_item(tensor_select(tensor_select(wmat, 0, 0), 0, 1)), 1.0,
+	            1e-10);
 
-    optimizer_free(sgd);
-    tensor_free(wmat); tensor_free(wsum);
-    param_clear();
+	optimizer_free(sgd);
+	tensor_free(wmat);
+	tensor_free(wsum);
+	param_clear();
 }

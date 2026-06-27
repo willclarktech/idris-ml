@@ -74,59 +74,49 @@ Test(max_pool2d_f32_cov, f32_forward_multi_window) {
 #endif /* BACKEND_TAPE */
 
 Test(conv_max_pool2d, max_pool2d_forward) {
-    /* Input: [1, 4, 4] */
-    double inp_data[] = {
-        1, 2, 3, 4,
-        5, 6, 7, 8,
-        9, 10, 11, 12,
-        13, 14, 15, 16
-    };
-    int inp_shape[] = {1, 4, 4};
-    TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 0);
+	/* Input: [1, 4, 4] */
+	double inp_data[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+	int inp_shape[] = {1, 4, 4};
+	TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 0);
 
-    /* MaxPool2D: k=2, stride=2 -> output [1, 2, 2] */
-    TensorHandle out = tensor_max_pool2d(inp, 2, 2, 2, 2);
+	/* MaxPool2D: k=2, stride=2 -> output [1, 2, 2] */
+	TensorHandle out = tensor_max_pool2d(inp, 2, 2, 2, 2);
 
-    ASSERT_TRUE("pool output rank", tensor_dim(out) == 3);
-    ASSERT_TRUE("pool output size 0", tensor_size(out, 0) == 1);
-    ASSERT_TRUE("pool output size 1", tensor_size(out, 1) == 2);
-    ASSERT_TRUE("pool output size 2", tensor_size(out, 2) == 2);
+	ASSERT_TRUE("pool output rank", tensor_dim(out) == 3);
+	ASSERT_TRUE("pool output size 0", tensor_size(out, 0) == 1);
+	ASSERT_TRUE("pool output size 1", tensor_size(out, 1) == 2);
+	ASSERT_TRUE("pool output size 2", tensor_size(out, 2) == 2);
 
-    double result[4];
-    tensor_to_doubles(out, result);
-    /* max of each 2x2 block: {6, 8, 14, 16} */
-    ASSERT_NEAR("pool out[0]", result[0], 6.0, 1e-10);
-    ASSERT_NEAR("pool out[1]", result[1], 8.0, 1e-10);
-    ASSERT_NEAR("pool out[2]", result[2], 14.0, 1e-10);
-    ASSERT_NEAR("pool out[3]", result[3], 16.0, 1e-10);
+	double result[4];
+	tensor_to_doubles(out, result);
+	/* max of each 2x2 block: {6, 8, 14, 16} */
+	ASSERT_NEAR("pool out[0]", result[0], 6.0, 1e-10);
+	ASSERT_NEAR("pool out[1]", result[1], 8.0, 1e-10);
+	ASSERT_NEAR("pool out[2]", result[2], 14.0, 1e-10);
+	ASSERT_NEAR("pool out[3]", result[3], 16.0, 1e-10);
 }
 
 Test(conv_max_pool2d, max_pool2d_backward) {
-    param_clear();
+	param_clear();
 
-    double inp_data[] = {
-        1, 2, 3, 4,
-        5, 6, 7, 8,
-        9, 10, 11, 12,
-        13, 14, 15, 16
-    };
-    int inp_shape[] = {1, 4, 4};
+	double inp_data[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+	int inp_shape[] = {1, 4, 4};
 
-    TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 1);
-    param_register("inp", inp);
+	TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 1);
+	param_register("inp", inp);
 
-    TensorHandle out = tensor_max_pool2d(inp, 2, 2, 2, 2);
-    TensorHandle loss = tensor_sum(out);
-    tensor_backward(loss);
+	TensorHandle out = tensor_max_pool2d(inp, 2, 2, 2, 2);
+	TensorHandle loss = tensor_sum(out);
+	tensor_backward(loss);
 
-    /* Gradient at max positions (indices 5,7,13,15) should be 1.0 */
-    ASSERT_NEAR("d_pool inp[5]", param_grad_item_at(0, 5), 1.0, 1e-10);
-    ASSERT_NEAR("d_pool inp[7]", param_grad_item_at(0, 7), 1.0, 1e-10);
-    ASSERT_NEAR("d_pool inp[13]", param_grad_item_at(0, 13), 1.0, 1e-10);
-    ASSERT_NEAR("d_pool inp[15]", param_grad_item_at(0, 15), 1.0, 1e-10);
-    /* Non-max positions should be 0 */
-    ASSERT_NEAR("d_pool inp[0]", param_grad_item_at(0, 0), 0.0, 1e-10);
-    ASSERT_NEAR("d_pool inp[4]", param_grad_item_at(0, 4), 0.0, 1e-10);
+	/* Gradient at max positions (indices 5,7,13,15) should be 1.0 */
+	ASSERT_NEAR("d_pool inp[5]", param_grad_item_at(0, 5), 1.0, 1e-10);
+	ASSERT_NEAR("d_pool inp[7]", param_grad_item_at(0, 7), 1.0, 1e-10);
+	ASSERT_NEAR("d_pool inp[13]", param_grad_item_at(0, 13), 1.0, 1e-10);
+	ASSERT_NEAR("d_pool inp[15]", param_grad_item_at(0, 15), 1.0, 1e-10);
+	/* Non-max positions should be 0 */
+	ASSERT_NEAR("d_pool inp[0]", param_grad_item_at(0, 0), 0.0, 1e-10);
+	ASSERT_NEAR("d_pool inp[4]", param_grad_item_at(0, 4), 0.0, 1e-10);
 
-    param_clear();
+	param_clear();
 }

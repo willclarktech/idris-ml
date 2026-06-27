@@ -47,56 +47,56 @@ Test(linear_concat_concat_2d_axis1, backward_splits_columnwise) {
 }
 
 Test(linear_concat_concat_2d_axis1, concat_2d_axis1_forward) {
-    /* A: [2, 3], B: [2, 1] -> out: [2, 4]
-       A = [[1,2,3],[4,5,6]] B = [[7],[8]] -> [[1,2,3,7],[4,5,6,8]] */
-    double a_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    double b_data[] = {7.0, 8.0};
-    int a_shape[] = {2, 3};
-    int b_shape[] = {2, 1};
-    TensorHandle A = tensor_create(a_data, a_shape, 2, 0);
-    TensorHandle B = tensor_create(b_data, b_shape, 2, 0);
-    TensorHandle Y = tensor_concat_2d_axis1(A, B);
-    ASSERT_NEAR("c2d Y[0,0]", tensor_item_2d(Y, 0, 0), 1.0, 1e-9);
-    ASSERT_NEAR("c2d Y[0,2]", tensor_item_2d(Y, 0, 2), 3.0, 1e-9);
-    ASSERT_NEAR("c2d Y[0,3]", tensor_item_2d(Y, 0, 3), 7.0, 1e-9);
-    ASSERT_NEAR("c2d Y[1,0]", tensor_item_2d(Y, 1, 0), 4.0, 1e-9);
-    ASSERT_NEAR("c2d Y[1,3]", tensor_item_2d(Y, 1, 3), 8.0, 1e-9);
+	/* A: [2, 3], B: [2, 1] -> out: [2, 4]
+	   A = [[1,2,3],[4,5,6]] B = [[7],[8]] -> [[1,2,3,7],[4,5,6,8]] */
+	double a_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	double b_data[] = {7.0, 8.0};
+	int a_shape[] = {2, 3};
+	int b_shape[] = {2, 1};
+	TensorHandle A = tensor_create(a_data, a_shape, 2, 0);
+	TensorHandle B = tensor_create(b_data, b_shape, 2, 0);
+	TensorHandle Y = tensor_concat_2d_axis1(A, B);
+	ASSERT_NEAR("c2d Y[0,0]", tensor_item_2d(Y, 0, 0), 1.0, 1e-9);
+	ASSERT_NEAR("c2d Y[0,2]", tensor_item_2d(Y, 0, 2), 3.0, 1e-9);
+	ASSERT_NEAR("c2d Y[0,3]", tensor_item_2d(Y, 0, 3), 7.0, 1e-9);
+	ASSERT_NEAR("c2d Y[1,0]", tensor_item_2d(Y, 1, 0), 4.0, 1e-9);
+	ASSERT_NEAR("c2d Y[1,3]", tensor_item_2d(Y, 1, 3), 8.0, 1e-9);
 }
 
 Test(linear_concat_concat_2d_axis1, concat_2d_axis1_backward) {
-    param_clear();
+	param_clear();
 
-    double a_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    double b_data[] = {7.0, 8.0};
-    int a_shape[] = {2, 3};
-    int b_shape[] = {2, 1};
+	double a_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+	double b_data[] = {7.0, 8.0};
+	int a_shape[] = {2, 3};
+	int b_shape[] = {2, 1};
 
-    TensorHandle A = tensor_create(a_data, a_shape, 2, 1);
-    param_register("A", A);
-    TensorHandle B = tensor_create(b_data, b_shape, 2, 1);
-    param_register("B", B);
+	TensorHandle A = tensor_create(a_data, a_shape, 2, 1);
+	param_register("A", A);
+	TensorHandle B = tensor_create(b_data, b_shape, 2, 1);
+	param_register("B", B);
 
-    TensorHandle Y = tensor_concat_2d_axis1(A, B);
-    TensorHandle loss = tensor_sum(Y);
-    tensor_backward(loss);
+	TensorHandle Y = tensor_concat_2d_axis1(A, B);
+	TensorHandle loss = tensor_sum(Y);
+	tensor_backward(loss);
 
-    /* Loss = sum(Y) so dY = 1 everywhere; dA = 1 everywhere [2,3]; dB = 1 [2,1]. */
-    {
-        double analytic = param_grad_item_at(0, 0);
-        ASSERT_NEAR("c2d grad A[0,0]", analytic, 1.0, 1e-9);
-    }
-    {
-        double analytic = param_grad_item_at(0, 5);  /* A[1,2] */
-        ASSERT_NEAR("c2d grad A[1,2]", analytic, 1.0, 1e-9);
-    }
-    {
-        double analytic = param_grad_item_at(1, 0);  /* B[0,0] */
-        ASSERT_NEAR("c2d grad B[0,0]", analytic, 1.0, 1e-9);
-    }
-    {
-        double analytic = param_grad_item_at(1, 1);  /* B[1,0] */
-        ASSERT_NEAR("c2d grad B[1,0]", analytic, 1.0, 1e-9);
-    }
+	/* Loss = sum(Y) so dY = 1 everywhere; dA = 1 everywhere [2,3]; dB = 1 [2,1]. */
+	{
+		double analytic = param_grad_item_at(0, 0);
+		ASSERT_NEAR("c2d grad A[0,0]", analytic, 1.0, 1e-9);
+	}
+	{
+		double analytic = param_grad_item_at(0, 5); /* A[1,2] */
+		ASSERT_NEAR("c2d grad A[1,2]", analytic, 1.0, 1e-9);
+	}
+	{
+		double analytic = param_grad_item_at(1, 0); /* B[0,0] */
+		ASSERT_NEAR("c2d grad B[0,0]", analytic, 1.0, 1e-9);
+	}
+	{
+		double analytic = param_grad_item_at(1, 1); /* B[1,0] */
+		ASSERT_NEAR("c2d grad B[1,0]", analytic, 1.0, 1e-9);
+	}
 
-    param_clear();
+	param_clear();
 }
