@@ -317,7 +317,8 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 				for (int oh = 0; oh < oH; oh++) {
 					for (int ow = 0; ow < oW; ow++) {
 						int row = bb * oH * oW + oh * oW + ow;
-						// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) row<M_unf, oc<outC; in bounds
+						/* row<M_unf, oc<outC: provably in bounds */
+						// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
 						dY_unf[row * outC + oc] = dout_b[oc * oH * oW + oh * oW + ow];
 					}
 				}
@@ -390,7 +391,8 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 				const double* dout_b = rgrad + (size_t)bb * out_per_sample;
 				for (int oh = 0; oh < oH; oh++)
 					for (int ow = 0; ow < oW; ow++)
-						// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) oc<outC,oh<oH,ow<oW; in bounds
+						/* oc<outC, oh<oH, ow<oW: provably in bounds */
+						// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
 						s += dout_b[oc * oH * oW + oh * oW + ow];
 			}
 			tape_grad_add_d(bias_t, oc, s);
