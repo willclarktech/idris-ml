@@ -22,7 +22,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from mltools.idris_parser import (  # noqa: E402
+    is_excluded,
     normalize_fqn,
+    parse_exclusions,
     parse_reachable,
     scan_universe,
     scan_universe_text,
@@ -72,6 +74,32 @@ def test_normalize_fqn() -> None:
     assert normalize_fqn("Tensor.Core.weakenGrad") == "Tensor.Core.weakenGrad"
 
 
+# --- exclusions: exact + prefix rules -----------------------------------
+EXCL_SAMPLE = """\
+# a comment
+Tensor.Core.weakenGrad     # exact, inline comment
+
+Executor.Mlx.*
+Executor.Torch.*
+"""
+
+
+def test_parse_exclusions_splits_exact_and_prefix() -> None:
+    exact, prefixes = parse_exclusions(EXCL_SAMPLE)
+    assert exact == frozenset({"Tensor.Core.weakenGrad"})
+    assert prefixes == ("Executor.Mlx.", "Executor.Torch.")
+
+
+def test_is_excluded_exact_and_prefix() -> None:
+    exact, prefixes = parse_exclusions(EXCL_SAMPLE)
+    assert is_excluded("Tensor.Core.weakenGrad", exact, prefixes)  # exact
+    assert is_excluded("Executor.Mlx.Nn.linearForward", exact, prefixes)  # prefix
+    assert is_excluded("Executor.Torch.Linear.matmul", exact, prefixes)  # prefix
+    # Tape executor must NOT be caught by the Mlx/Torch prefixes.
+    assert not is_excluded("Executor.Tape.Transfer.toHost", exact, prefixes)
+    assert not is_excluded("Tensor.Core.retypeGrad", exact, prefixes)
+
+
 # --- universe scan: a synthetic module covering the edge cases -----------
 MODULE_SAMPLE = """\
 module Demo.Mod
@@ -102,6 +130,14 @@ length n = n
 export bar : Int -> Int
 bar x = x
 
+export %inline
+fastPath : Int -> Int
+fastPath x = x
+
+%inline
+quux : Int -> Int
+quux x = x
+
 public export
 (++) : List a -> List a -> List a
 (++) xs ys = xs
@@ -122,6 +158,15 @@ def test_scan_universe_text_handles_inline_modifier() -> None:
     """`export bar : Int -> Int` — modifier on the same line as the sig."""
     names = scan_universe_text(MODULE_SAMPLE)
     assert "bar" in names
+
+
+def test_scan_universe_text_drops_pct_inline_defs() -> None:
+    """`%inline` defs are spliced into callers and never get a --dumpcases
+    line, so they're unmeasurable and must be dropped from the universe
+    (else they're permanent false gaps — the `tadd` case)."""
+    names = scan_universe_text(MODULE_SAMPLE)
+    assert "fastPath" not in names  # `export %inline` on the line above
+    assert "quux" not in names  # bare `%inline` on the line above
 
 
 def test_scan_universe_text_normalizes_operator_def() -> None:

@@ -33,7 +33,10 @@ handled by the EXCL sidecar + documented as known gaps.
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # A definition line in a --dumpcases dump: `<fqn> = ...`. The FQN is every
 # non-space, non-`=` character before the ` = `.
@@ -43,12 +46,55 @@ _DUMP_LINE_RE = re.compile(r"^([^\s=]+) = ")
 # same line — they are usually on their own line above, but tolerate
 # inline), then an identifier or a parenthesized operator, then a single
 # `:` that is not `::`/`:=`.
-_MODIFIER = r"(?:(?:public\s+)?export\s+|private\s+|%[A-Za-z]\w*\s+|total\s+|covering\s+|partial\s+)*"
+_MODIFIER = (
+    r"(?:(?:public\s+)?export\s+|private\s+|%[A-Za-z]\w*\s+"
+    r"|total\s+|covering\s+|partial\s+)*"
+)
 _SIG_RE = re.compile(rf"^{_MODIFIER}([a-z_][A-Za-z0-9'_]*|\([^)]+\))\s*:(?![:=])")
 
 # MULTILINE: the `module` decl is rarely the literal first byte — most
 # files open with a license/doc comment block, so anchor to any line start.
 _MODULE_RE = re.compile(r"^module\s+(\S+)", re.MULTILINE)
+
+# Visibility/totality modifier words that can precede a signature (on its
+# own line or inline). `%inline` (and any `%`-pragma) is handled
+# separately because `%inline` defs are spliced into callers and so never
+# get their own --dumpcases line — they are unmeasurable by this method
+# and are dropped from the universe (see scan_universe_text).
+_MOD_WORDS = frozenset({"public", "export", "private", "total", "covering", "partial"})
+
+
+def _is_modifier_line(line: str) -> bool:
+    """True if every token on the line is a visibility/totality modifier
+    or a `%`-pragma (i.e. the line carries no signature of its own)."""
+    toks = line.split()
+    return bool(toks) and all(t in _MOD_WORDS or t.startswith("%") for t in toks)
+
+
+def parse_exclusions(text: str) -> tuple[frozenset[str], tuple[str, ...]]:
+    """Parse an exclusions file into (exact FQNs, prefix rules).
+
+    A line ending in `*` is a PREFIX rule (matches any FQN starting with
+    the text before the `*`) — used to collapse a whole backend-specific
+    module (`Executor.Mlx.*`) that a single-backend dump can't reach.
+    Any other line is an exact FQN. `#` starts a comment; blanks ignored.
+    """
+    exact: set[str] = set()
+    prefixes: list[str] = []
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.endswith("*"):
+            prefixes.append(line[:-1])
+        else:
+            exact.add(line)
+    return frozenset(exact), tuple(prefixes)
+
+
+def is_excluded(fqn: str, exact: frozenset[str], prefixes: tuple[str, ...]) -> bool:
+    """True if `fqn` is matched by an exact or prefix exclusion rule."""
+    return fqn in exact or any(fqn.startswith(p) for p in prefixes)
 
 
 def normalize_fqn(fqn: str) -> str:
@@ -102,17 +148,27 @@ def scan_universe_text(module_text: str) -> set[str]:
     """Top-level def names (paren-normalized, no module prefix) declared
     in one module's source text. Column-0 signatures only."""
     names: set[str] = set()
+    pending_inline = False  # did a modifier line just above carry %inline?
     for raw in _strip_block_comments(module_text).splitlines():
         # Column-0 only: a leading space/tab means a nested scope
         # (data/record/interface body, `where`, `namespace`, multi-line
-        # sig continuation) — skip it.
-        if not raw or raw[0].isspace():
+        # sig continuation). Blank / nested / comment lines also break the
+        # modifier-above-signature association, so reset pending_inline.
+        if not raw or raw[0].isspace() or raw.lstrip().startswith("--"):
+            pending_inline = False
             continue
-        if raw.lstrip().startswith("--"):
+        if _is_modifier_line(raw):
+            pending_inline = pending_inline or ("%inline" in raw.split())
             continue
         m = _SIG_RE.match(raw)
         if m:
-            names.add(normalize_fqn(m.group(1)))
+            # `%inline` may also sit inline on the sig line itself.
+            inline = pending_inline or ("%inline" in raw.split())
+            pending_inline = False
+            if not inline:
+                names.add(normalize_fqn(m.group(1)))
+        else:
+            pending_inline = False
     return names
 
 
