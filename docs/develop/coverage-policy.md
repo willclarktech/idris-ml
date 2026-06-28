@@ -154,6 +154,28 @@ mechanism for the high-bar exclusions below.
   `COV_IGNORE_REGEX`. Whole-dir passthrough excludes additionally live
   in `codecov.yml` `ignore:`.
 
+### Line vs branch (what Codecov displays)
+
+The tracked metric is **line** coverage — a line counts as covered if it
+executed at least once. Codecov, however, derives an extra "partial"
+state from the Cobertura branch/condition records (a line that ran but
+left a branch untaken), and folds partials into its headline % as
+non-hits. With branch data present that pulled the displayed/badge number
+to ~80% while line coverage sat at ~100% (the ~2k "partials" were almost
+all untaken branch arms, not unexecuted lines — only a handful of true
+misses).
+
+To make the badge report the metric we actually track, `gcovr.cfg`
+strips every per-line branch/condition record before upload
+(`exclude-branches-by-pattern = .*`): the cov.xml carries only line
+hit/miss data, so Codecov's headline == line coverage. Line hit/miss
+counts and the per-backend `lines-covered/lines-valid` totals are
+unchanged — only the branch attributes are dropped, from **all** reports
+(cobertura, HTML, txt). This loses no **gated** signal: the policy gates
+on the four-axis target + line %, never on branch %. If you want
+branch-level detail for a subsystem, run `gcovr` ad-hoc without the
+`exclude-branches-by-pattern` line.
+
 ### Triage rubric — test, death-test, or exclude
 
 For each uncovered line, walk top-to-bottom; first match wins. The

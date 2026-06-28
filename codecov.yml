@@ -3,6 +3,13 @@
 # and uploaded per backend as a flag (tape / torch / mlx) from the `coverage`
 # job in .github/workflows/test.yml.
 #
+# LINE coverage, not branch: gcovr.cfg strips all per-line branch/condition
+# records before upload (`exclude-branches-by-pattern = .*`), so the cov.xml
+# carries only line hit/miss data. Without that, Codecov folds partially-taken
+# branches into its headline % (a ran-but-unbranched line counts as a non-hit),
+# which displayed ~80% while line coverage was ~100%. The displayed/badge number
+# now matches the tracked line metric. See coverage-policy.md "Line vs branch".
+#
 # Policy, the triage decision tree, and the exclusion bar live in
 # docs/develop/coverage-policy.md. The four-axis gap probe
 # (scripts/coverage-gap-probe.py) is a separate, complementary gate.
