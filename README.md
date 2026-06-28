@@ -1,5 +1,7 @@
 # idris-ml
 
+[![codecov](https://codecov.io/gh/willclarktech/idris-ml/branch/main/graph/badge.svg)](https://codecov.io/gh/willclarktech/idris-ml)
+
 A dependently-typed deep-learning framework in Idris 2: dynamic-graph ergonomics (define-by-run
 autograd, ordinary `if`/`for`/`while`, normal debugging) with safety guarantees stronger than any
 static graph ever offered — shapes, devices, dtypes, and grad-mode are checked at compile time
