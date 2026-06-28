@@ -58,11 +58,17 @@ test-integration-jupyter-cellparser: $(JUPYTER_VENV)/bin/activate
 # pair the kernel's REPL requests (`-p idris-ml -p idris-ml-notebook`). Without
 # it the kernel dies on a cold cache with "Can't find package idris-ml (any)"
 # (run 28325498685); it only ever passed off a warm install cache.
+# IDRIS_ML_BUILD_DIR pins the kernel's REPL to the set THIS job built (default
+# tape) — without it repl.py falls back to the newest `build/*/libidrisml.*`,
+# which on CI can be a torch-linked set restored from another job's ttc cache
+# (the cache path is all of `build/`), so the kernel loads a dylib that needs
+# libtorch.so and dies "libtorch.so: cannot open shared object file" (run
+# 28335335187). Same pin test-e2e-jupyter already uses.
 test-e2e-notebooks: install-notebook jupyter-install
 	@fail=0; \
 	for nb in packages/jupyter/notebooks/tutorials/*.ipynb packages/jupyter/notebooks/models/*.ipynb; do \
 		echo "--- $$nb ---"; \
-		$(JUPYTER_LDPATH)$(JUPYTER_VENV)/bin/jupyter nbconvert --execute --to notebook \
+		$(JUPYTER_LDPATH)IDRIS_ML_BUILD_DIR=$(CURDIR)/$(BUILD) $(JUPYTER_VENV)/bin/jupyter nbconvert --execute --to notebook \
 			--ExecutePreprocessor.timeout=120 "$$nb" \
 			--output /tmp/test_nb_out.ipynb 2>&1 || { echo "FAIL: $$nb"; fail=1; continue; }; \
 		echo "ok"; \
