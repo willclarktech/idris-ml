@@ -27,10 +27,10 @@ jobs:
     timeout-minutes: 20
     steps:
       # Shallow checkout is fine: only hashFiles() needs the tree.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Touch pack cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.local/state/pack
@@ -41,7 +41,7 @@ jobs:
             pack-${{ matrix.os }}-
 
       - name: Touch TTC cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             build
@@ -56,7 +56,7 @@ jobs:
           restore-keys: ttc-${{ matrix.os }}-v4-
 
       - name: Touch dataset cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             data
@@ -65,7 +65,7 @@ jobs:
 
       - name: Touch HF model cache (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             models
@@ -75,21 +75,21 @@ jobs:
 
       - name: Touch pytorch venv caches (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Touch lint venv cache (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-lint-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Touch jupyter venv cache (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: packages/jupyter/.venv
           key: jupyter-venv-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}

@@ -119,7 +119,7 @@ runs:
     # deterministic trigger that builds the pinned idris2, and the small
     # collection libs it also pulls (hedgehog, …) are cheap and cached.
     - name: Restore pack cache
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v6
       with:
         path: |
           ~/.local/state/pack
@@ -193,7 +193,7 @@ runs:
     - name: Restore pytorch venv cache
       if: contains(inputs.backend-deps, 'torch')
       id: pytorch-venv-cache
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v6
       with:
         path: packages/pytorch/.venv
         key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
@@ -239,7 +239,7 @@ runs:
     # wedged tree.
     - name: Restore TTC cache
       if: inputs.restore-ttc == 'true'
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v6
       with:
         path: |
           build
@@ -283,7 +283,7 @@ runs:
     # File-as-make-target, so a restored file is simply not re-fetched.
     - name: Restore dataset cache
       if: inputs.restore-ttc == 'true'
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v6
       with:
         path: |
           data
@@ -297,7 +297,7 @@ runs:
     # keeps old models while a new one downloads.
     - name: Restore HF model cache
       if: inputs.restore-hf-models == 'true'
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v6
       with:
         path: |
           models

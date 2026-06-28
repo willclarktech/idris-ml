@@ -48,11 +48,11 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Detect changed paths
         id: filter
         if: github.event_name != 'workflow_dispatch'
-        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
           filters: |
             code:
@@ -85,7 +85,7 @@ jobs:
     steps:
       # Full history: the composite's git-restore-mtime needs per-file
       # last-commit dates for the TTC-cache reuse.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain from the repo flake; make steps run inside it via this job's

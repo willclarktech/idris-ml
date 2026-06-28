@@ -77,11 +77,11 @@ jobs:
       e2e: ${{ steps.decide.outputs.e2e }}
       ccpp: ${{ steps.decide.outputs.ccpp }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Detect changed paths
         id: filter
         if: github.event_name != 'workflow_dispatch'
-        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
           filters: |
             code:
@@ -163,7 +163,7 @@ jobs:
       run:
         shell: nix develop .#lint --command bash -e {0}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Nix (pinned toolchain)
         # Must precede every `run:` step (they all use the nix devShell as
         # their default shell). SHA-pinned per the repo's zero-third-party-
@@ -229,14 +229,14 @@ jobs:
       # Paired saves at the end of the job, if: always().
       - name: Restore lint venv cache
         id: lint-venv-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-lint-nix-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Restore jupyter venv cache
         id: jupyter-venv-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: packages/jupyter/.venv
           key: jupyter-venv-nix-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
@@ -316,14 +316,14 @@ jobs:
         # Key changes only with uv.lock; a same-key re-save can only
         # warn on reserve.
         if: always() && steps.lint-venv-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-lint-nix-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
 
       - name: Save jupyter venv cache
         if: always() && steps.jupyter-venv-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: packages/jupyter/.venv
           key: jupyter-venv-nix-${{ runner.os }}-${{ hashFiles('packages/jupyter/pyproject.toml') }}
@@ -351,7 +351,7 @@ jobs:
     # under, but libtorch-header parse time is high-variance so keep headroom.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Nix (pinned toolchain)
         # uv, clang-tidy 21, cppcheck, openblas all come from the default
         # devShell (set as defaults.run.shell above). SHA-pinned third-party
@@ -359,7 +359,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Restore pytorch venv cache
         id: pytorch-venv-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
@@ -417,7 +417,7 @@ jobs:
 
       - name: Save pytorch venv cache
         if: always() && steps.pytorch-venv-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: packages/pytorch/.venv
           key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
@@ -446,7 +446,7 @@ jobs:
       # Full history (fetch-depth 0): the composite's git-restore-mtime
       # needs per-file last-commit dates; a shallow clone would stamp
       # every file with the HEAD commit's time and defeat the TTC cache.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain comes from the repo flake; the make steps run inside it via
@@ -504,7 +504,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain comes from the repo flake; the make steps run inside it via
@@ -717,7 +717,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain comes from the repo flake; the make steps run inside it via
@@ -853,7 +853,7 @@ jobs:
     # keeps 90.
     timeout-minutes: ${{ matrix.os == 'macos-latest' && 150 || 90 }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain comes from the repo flake; the make steps run inside it via
@@ -911,7 +911,7 @@ jobs:
     # venv + 17 notebook cold-starts. Warm is well under.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
@@ -964,7 +964,7 @@ jobs:
     # AND cold runs of this cheap lane come in well under.
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain comes from the repo flake; the make steps run inside it via
@@ -1092,7 +1092,7 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain comes from the repo flake; the make steps run inside it via
@@ -1248,7 +1248,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Toolchain comes from the repo flake; the make steps run inside it via
@@ -1296,7 +1296,7 @@ jobs:
       # CODECOV_TOKEN repo secret on the public mirror.
       - name: Upload coverage to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: build-cov-${{ matrix.backend }}/cov.xml
           flags: ${{ matrix.backend }}
