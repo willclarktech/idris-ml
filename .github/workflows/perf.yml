@@ -147,14 +147,14 @@ jobs:
 
       - name: Upload perf-log.jsonl
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: perf-log
           path: docs/develop/perf-log.jsonl
 
       - name: Upload BENCHMARKS.md
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: benchmarks-md
           path: BENCHMARKS.md

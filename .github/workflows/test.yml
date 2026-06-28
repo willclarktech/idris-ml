@@ -688,7 +688,7 @@ jobs:
         # invocation writes build/test-criterion-<b>.xml; this collects
         # all per-lane files (tape always, torch on ubuntu, mlx on macos).
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: criterion-junit-${{ matrix.os }}
           path: build/test-criterion-*.xml
@@ -1283,7 +1283,7 @@ jobs:
 
       - name: Upload coverage HTML
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-html-${{ matrix.backend }}
           path: build-cov-${{ matrix.backend }}/html/
