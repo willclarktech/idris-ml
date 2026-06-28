@@ -70,17 +70,11 @@ The two big e2e recipes live in `scripts/test-e2e-examples.sh` /
 
 Build artifacts live under `build/<BUILD_KEY>/` where
 `BUILD_KEY := <backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>` (e.g.
-`tape-mlxcpu-torchcpu`, `torch-mlxcpu-torchmps`, `tape-torch-mlxcpu-torchmps`).
-Each distinct `(BACKEND, MLX_DEVICE, TORCH_DEVICE)` tuple keeps its own warm
-ttc/install/dylib/exec tree, so switching between sets (e.g. `make test` on
-tape ↔ `BACKEND=torch TORCH_DEVICE=mps make example-llama-inference`) is
-near-free instead of triggering 60-min cascading re-elaboration. `clean`
-removes every backend set's tree (plus `build-cov/`, the per-package
-`build/` dirs from pack-driven test builds, and legacy `.idris2/`);
-`clean-set` removes just the active set; `clean-all` cascades to
-`clean-models` + `clean-datasets` (root `data/` + `packages/pytorch/data/`)
-+ `clean-venvs` (pytorch/jupyter `.venv`s) + removes `vendored/` and the
-run-output dirs (`logs/`, `results/`, `.tmp/`).
+`tape-mlxcpu-torchcpu`). Each `(BACKEND, MLX_DEVICE, TORCH_DEVICE)` tuple keeps
+its own warm ttc/install/dylib/exec tree, so switching sets is near-free instead
+of triggering 60-min cascading re-elaboration. `clean` removes every set's tree;
+`clean-set` just the active set; `clean-all` cascades to models + datasets +
+venvs + `vendored/` + run-output dirs.
 
 ## Architecture
 
@@ -102,24 +96,17 @@ Device = Type
 --   TapeExecutor               — tape backend (CPU only, no hardware variants)
 --   TorchExecutor d            — libtorch; d : TorchHwDev = TCpu | TMps | TCuda Nat
 --   MlxExecutor s              — mlx; s : MlxStream = MCpu | MGpu
--- `UserDeviceTransfer` makes the generic `toDevice` work between any
--- pair: matching backendTag → fast intra-backend HW migration; differing
--- → host buffer round-trip. Declare your own backend by adding a tag type
--- with these instances + a unique `backendTag`. See design-decisions.md
--- "Open `d` parameter".
+-- `UserDeviceTransfer` makes the generic `toDevice` work between any pair
+-- (matching backendTag → fast intra-backend HW migration; differing → host
+-- round-trip). Declare your own backend via a tag type with these instances
+-- + a unique `backendTag`. See design-decisions.md "Open `d` parameter".
 --
--- Availability gating (design-decisions.md "Device-availability gating";
--- full doc device-availability-gating.md). Two gates, each where the fact
--- lives:
---   • Linkage (compile-time): empty `Linked ex` marker gates construction;
---     instances emitted per build by the generated `HwConfig`, so a
---     tape-only build can't even spell `MlxExecutor _`.
---   • Hardware presence (runtime, EAFP): construction shims catch the
---     backend's exception → NULL handle; `toDeviceChecked` / `attemptOn`
---     lift NULL → `Left DeviceError`; `availableDevices builtinDevices`
---     probes the build's candidates (`builtinDevices` is generated per
---     build into `HwDevices.idr`, the value-level mirror of `Linked`).
---     Degrades to "always Right" on tape/mlx (their construction can't fail).
+-- Availability gating (two gates; full doc device-availability-gating.md):
+-- compile-time linkage via the empty `Linked ex` marker (emitted per build
+-- into `HwConfig`, so a tape-only build can't even spell `MlxExecutor _`),
+-- and runtime EAFP hardware-presence (construction shims → NULL handle;
+-- `toDeviceChecked`/`attemptOn` lift NULL → `Left DeviceError`;
+-- `availableDevices builtinDevices` probes the build's candidates).
 
 -- DType.Core (open dtype kind — pick a Type with an IsDType / Compatible instance)
 0 DType : Type
@@ -145,7 +132,7 @@ record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gra
 
 The library is **fully polymorphic in dt** — every interface method, smart constructor, and layer state record binds `dt` as an implicit and uses it. Callers pin the concrete dtype at the leaf use site. Hardcoding F64 in method bodies while leaving the record's slot polymorphic caused a 30+ GB elaborator memory blowup; see `docs/develop/gotchas.md` "Polymorphic type-parameter slot vs concrete value in method body."
 
-Examples don't hardcode device or dtype. They reference `ExampleDevice` / `ExampleDType` from `packages/idris-ml-examples/src/BuildConfig.idr` — a Makefile-generated source file (template at `BuildConfig.idr.in`, version-controlled). The generator reads `BACKEND` + `MLX_DEVICE` + `TORCH_DEVICE` at build time and picks the right `(ExampleDevice, ExampleDType)` cell:
+Examples don't hardcode device/dtype — they reference `ExampleDevice` / `ExampleDType` from the Makefile-generated `BuildConfig.idr` (template `BuildConfig.idr.in`), whose `(BACKEND, MLX_DEVICE, TORCH_DEVICE)` → cell is:
 
   - `BACKEND=tape`                       → `TapeExecutor`, `F64`
   - `BACKEND=torch TORCH_DEVICE=cpu`      → `TorchExecutor TCpu`, `F64`
@@ -154,11 +141,11 @@ Examples don't hardcode device or dtype. They reference `ExampleDevice` / `Examp
   - `BACKEND=mlx MLX_DEVICE=cpu`          → `MlxExecutor MCpu`, `F64`
   - `BACKEND=mlx MLX_DEVICE=gpu`          → `MlxExecutor MGpu`, `F32`
 
-Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked into `BuildConfig.idr`. Switching modes is just a different `make install` — no source edits. (Same trick generates the per-build `Linked` instances in `HwConfig.idr`.)
+Types fix at elaboration, so the env is observed at build time and baked into `BuildConfig.idr` — switching modes is just a different `make install`, no source edits. (Same trick generates the per-build `Linked` instances in `HwConfig.idr`.)
 
 #### `Nn/` — the models-as-records surface
 
-The successor to `Layer/` (now the sole layer surface; `Layer/` is gone). Models are plain records of layers, and **a model is a single-owner LINEAR resource** threaded through `Control.Linear.LIO.L IO` — every `forward`/`recurStep`/`eval`/`freeze`/`fit` *consumes* the handle `(1 _ : l …)` and threads it back, so "freeze/eval a model then reuse the stale handle to train" (a silent no-op against the shared C params) is a **compile-time linearity error**. Tensors stay **unrestricted** (reverse-mode AD shares them); the linear discipline is only at model granularity. See `docs/develop/linear-types-and-effects.md` + the gate `make test-integration-typegate-linear-model`. `Nn.Module`'s batched-first `forward : (1 _ : l i o ex dt g) -> Tensor [b,i] ex dt g -> L IO (LPair (!* (Tensor [b,o] ex dt g)) (l i o ex dt g))` (output rides the `(!*)` bang; no `applyVarBatch`, no `idris_crash` default — a layer that can't batch isn't a `Module`). `Nn.Params` (the base of `Module`/`Recurrent`) carries a flat read-only `params : l … -> List SomeParam` (ω, the PyTorch `.parameters()` analogue — used by `groupOf`, freeze-by-prefix, HF param collectors) **plus** the linear `reflect`/`castGrad`/`discard`. `Nn.Seq` (endpoints-only index, `~~>`/list-literal; sub-models in linear `(1 _)` fields) chains `Module`s. `Module`/`Params` are **higher-kinded** over the `Nat -> Nat -> Executor -> DType -> GradMode -> Type` constructor (instances written unapplied); layers with extra config Nats lead them and trail the `(i,o)` pin (Conv2D, TransformerBlock). `GradMode` is on the model type; `eval`/`freeze`/`unfreeze`/`trainable` are linear (flip C `requires_grad` over the reflected param list, return the retyped/`Frozen` handle). Recurrent/memory layers (RNN/LSTM/GRU/NTM/DNC) implement `Nn.Recurrent` (linear `recurStep`/`recurReset`, state in the record) instead of `Module`; NTM/DNC step their embedded LSTM controller via `lstmStepIO` (linear `recurStep` bridged to IO so the controller threads ω internally while the cell stays the single-owner resource). The mixed-precision surface (`Nn.LinearMixed`'s `ModuleMixed`/`ParamsMixed`) collapsed onto the same linear surface too — `forwardMixed` consumes-and-threads the model, `ParamsMixed` mirrors `Params` (`paramsMixed` ω + linear `reflectMixed`/`castGradMixed`/`discardMixed`). **Kept dual/IO** (no footgun — tensors unrestricted): the `*L` tensor ops beside the IO ones, and `runInitL`/`bornL`/`withNoGradL`. Param names derive over the **unchanged** C registry via `Nn.Init` (`scoped`/`scopedChild`/`freshChild`/`named`/`runInit`); `Nn.Group.groupOf` returns a submodel's exact registry names for optimizer scoping (replaces substring-prefix matching). 19 layers ported; the Transformer is decomposed (`Nn.Attention` + a `TransformerBlock` that stacks via `Seq`), not the legacy monolith. Hand-written 3-line `Params` instances (the deriveParams spike chose this); see design-decisions.md "models-as-records: the `Nn` surface".
+The sole layer surface (`Layer/` is gone). Models are plain records of layers, and **a model is a single-owner LINEAR resource** threaded through `Control.Linear.LIO.L IO` — every `forward`/`recurStep`/`eval`/`freeze`/`fit` *consumes* the handle `(1 _ : l …)` and threads it back, so reusing a stale handle after freeze/eval (a silent no-op against the shared C params) is a **compile-time linearity error**. Tensors stay **unrestricted** (reverse-mode AD shares them); the linear discipline is only at model granularity. Gate: `make test-integration-typegate-linear-model`. `Nn.Module` is batched-first (`forward` sig under **Forward pass** below; a layer that can't batch isn't a `Module`). `Nn.Params` (base of `Module`/`Recurrent`) carries a flat read-only `params : l … -> List SomeParam` (ω, the `.parameters()` analogue) plus the linear `reflect`/`castGrad`/`discard`; `Nn.Seq` chains `Module`s (`~~>`/list-literal, endpoints-only index). `Module`/`Params` are **higher-kinded** over the `Nat -> Nat -> Executor -> DType -> GradMode -> Type` constructor; layers with extra config Nats lead them and trail the `(i,o)` pin (Conv2D, TransformerBlock). `GradMode` is on the model type; `eval`/`freeze`/`unfreeze`/`trainable` are linear. Recurrent/memory layers (RNN/LSTM/GRU/NTM/DNC) implement `Nn.Recurrent` (linear `recurStep`/`recurReset`, state in the record); mixed precision (`Nn.LinearMixed`'s `ModuleMixed`/`ParamsMixed`) lives on the same linear surface. Param names derive over the C registry via `Nn.Init` (`scoped`/`runInit`, the PyTorch `state_dict` convention); `Nn.Group.groupOf` returns a submodel's exact registry names for optimizer scoping (replaces substring-prefix matching). 19 layers ported; the Transformer is decomposed (`Nn.Attention` + a `TransformerBlock` stacked via `Seq`), not the legacy monolith. `Params` instances are hand-written (~3 lines each). Full design: `docs/develop/linear-types-and-effects.md`.
 
 ### Tensor lifecycle (wrapped-handle ABI)
 
@@ -244,9 +231,9 @@ Backend-agnostic SafeTensors (`.safetensors`) via `Checkpoint` module: `saveAll`
 
 Training-loop integration: attach a `CheckpointPolicy` (built by `fileCheckpoint dir everyN keepBest opt`) to a `TrainConfig` via `withCheckpoint`. `fit` then auto-saves every N epochs to `<dir>/last`, keeps the best to `<dir>/best`, resumes from `<dir>/last` if present, and reloads best at the end (return-best). Resume scalars (epoch, best metric) live in a `trainer_state.json` sidecar; safetensors stays the only on-disk format. Examples expose `--checkpoint-dir` / `--resume` / `--checkpoint-every` (gpt, transformer, ntm-copy, dnc-copy). See design-decisions.md "Training-loop checkpointing".
 
-Foreign HuggingFace checkpoints — where param names + storage shapes diverge from idris-ml's conventions — are handled by `packages/idris-transformers/`. That package contains one Idris module per HF architecture (`Transformers.Bert`, etc.) whose params and shapes match HF on-disk, so loading is plain `fromPretrained "<dir>"` (reads `config.json` + `model.safetensors`) with no remap or shape-split machinery in core. The module IS the adapter, expressed as type-checked code. User guide at `docs/users/idris-transformers.md`; design rules at `packages/idris-transformers/CONVENTIONS.md`. The worked example `Example/BertInference.idr` loads `google/bert_uncased_L-2_H-128_A-2` and matches HF transformers' Python forward output to within 4e-4 (gated by `make test-e2e-bert-roundtrip`).
+Foreign HuggingFace checkpoints (param names/shapes diverge from idris-ml's) are handled by `packages/idris-transformers/` — one Idris module per HF architecture (`Transformers.Bert`, …) whose params/shapes match HF on-disk, so loading is plain `fromPretrained "<dir>"` (reads `config.json` + `model.safetensors`), no remap machinery in core. The module IS the adapter. Guide: `docs/users/idris-transformers.md`; rules: `packages/idris-transformers/CONVENTIONS.md`. `Example/BertInference.idr` matches HF's Python forward to 4e-4 (`make test-e2e-bert-roundtrip`).
 
-Fine-tuning HF-loaded models is supported as of the 2026-06-07 closure. Three primitives: (a) `load path ({only := Just pfx} defaultLoadOpts)` in `Checkpoint.idr` — load only safetensors keys whose name starts with `pfx` (warm-start a backbone while keeping a fresh head at its init). (b) `freezeByPrefix opt pfx` in `Train/Freeze.idr` — bulk-freeze every registered param whose name starts with `pfx` by zeroing its per-param LR override on the optimizer (composes with a single optimizer; no two-optimizer plumbing). (c) `BertForSequenceClassification` head module in `Transformers.BertForClassification` — registers `classifier.weight` / `classifier.bias` alongside the backbone, forward composes `hfBertForward`'s pooled `[CLS]` with a 1-D `tlinear`. The worked example `Example/BertClassifyFinetune.idr` trains a tiny BERT from scratch on a synthetic 3-class task to 100% in seconds across tape / torch / mlx-cpu; the real-text path (tokenizer + attention mask) and LoRA / PEFT are parked as TODO follow-ups. See `docs/users/idris-transformers.md` "Fine-tuning HF-loaded models".
+Fine-tuning HF-loaded models has three primitives — prefix-filtered subset-load (`load … {only := Just pfx}` in `Checkpoint.idr`), `freezeByPrefix opt pfx` (`Train/Freeze.idr`, zeroes per-param LR on a single optimizer), and a `BertForSequenceClassification` head — with the worked example `Example/BertClassifyFinetune.idr`. Full detail: `docs/users/idris-transformers.md` "Fine-tuning HF-loaded models".
 
 ### Type-safety conventions
 
@@ -268,94 +255,88 @@ Commit at each step. PyTorch is the correctness oracle.
 
 ### Test-driven development (cross-cutting — governs all new capability work)
 
-**Default to TDD** for any new behaviour-bearing change: a new kernel, a new dtype rung, a new layer instance, a new example, a new bug fix. Write the test first; run it; **observe it failing for the right reason** (a value mismatch, a wrong `tensor_dtype_name`, an `abort`, a NaN, a wrong gradient). A compile error or missing-symbol/link error does **not** count as red — "it links" is not "it works". If the unit is too coarse to fail-for-the-right-reason because the symbol doesn't exist yet, shrink to the smallest behavioural probe that can fail, or use the skip-flag pattern below.
+**Default to TDD** for any behaviour-bearing change (kernel, dtype rung, layer, example, bug fix). Write the test first; **observe it failing for the right reason** (value mismatch, wrong `tensor_dtype_name`, `abort`, NaN, wrong gradient). A compile/link error does **not** count as red — "it links" is not "it works". If the unit is too coarse to fail because the symbol doesn't exist yet, shrink to the smallest behavioural probe, or use the skip-flag shape below.
 
-**Record the red** in the conversation and in the implementing commit's body (`RED before this commit: <assertion>`). This is the evidence the cycle happened; without it the step was skipped.
+**Record the red** in the conversation and the implementing commit body (`RED before this commit: <assertion>`) — without it the step was skipped.
 
-**Reconciling TDD with build-green-per-commit + "test gates must run in CI"** (`feedback_test_gates_must_run_in_ci`): a test must never be *pushed* red. Exactly two allowed commit shapes:
+**Never push a test red** (`feedback_test_gates_must_run_in_ci`). Two allowed commit shapes: **(i) skip-flag** — commit the test present-but-skipped (CI green), then the implementing commit removes the skip; used when the impl lands across multiple commits. **(ii) paired commit** — observe red locally, commit test + impl together with the red recorded in the body.
 
-- **(i) skip-flag** — commit the test present-but-skipped (CI green), then the implementing commit *removes the skip* and turns it green. The red is observed locally before the skip is added. Used when the implementation lands across multiple commits (Phase 3's per-rung gradcheck ladder, Phase 5's `PRECISION_DEMO_READY=0/1` gate).
-- **(ii) paired commit** — observe red locally, then commit test + implementation together in one commit whose body records the red. Used when a skip flag would be more ceremony than the change warrants.
+**Test layer** (pick what the change drives):
+- **C unit tests** (criterion `test_*.c`, `make test-unit-c-{tape,torch,mlx}`) — backend dtype/kernel/lifetime work; verify on **all three** backends, not just the primary.
+- **F32 gradcheck oracle** (tape T29 block) — extending F32 routing: paired F32-vs-F64 contract (tag-propagation + forward-tol + grad-tol).
+- **Idris unit tests** (`packages/idris-ml/test`, `make test`) — typed-surface / smart-constructor / training-loop work.
+- **`.expect` outputs** (`make test-examples`) — user-visible example behaviour; author the expected stdout first (`<EXAMPLE>_READY` gates the skip-flag shape).
 
-**Test layer to use** (pick the one the change actually drives):
-- **C unit tests** (criterion `test_*.c` files next to the backend sources, `make test-unit-c-{tape,torch,mlx}`) — backend-side dtype/kernel/lifetime work. Add assertions under the relevant `#ifdef`; verify on **all three** backends, not just the primary (regression on the non-primary backend is the bug class this catches).
-- **F32 gradcheck oracle** (tape T29 block) — when extending F32 routing to a new kernel: paired F32-vs-F64 contract with tag-propagation + forward-tol + grad-tol asserts.
-- **Idris unit tests** (`packages/idris-ml/test`, `make test`) — typed-surface, smart-constructor, training-loop work.
-- **`.expect` example outputs** (`make test-examples`) — user-visible example behaviour. Author the fixed expected stdout first; the example is RED until step 2 writes it (gated by a `<EXAMPLE>_READY` Makefile var for the skip-flag shape).
+**No "linked = green"** — compile/link coverage alone has shipped broken behaviour here; the behavioural test is the gate.
 
-**No "linked = green"**. The Phase 1 (unified FFI dispatch) slip — entry-point commits 1.1–1.4 shipped with only compile/link coverage; the behavioural test (`db1e4fb`) followed days later — is the failure mode this section exists to prevent.
-
-**Coverage policy** — what "covered" means for the three backends, the principled-exclusion list, and the contributor checklist for adding new ops live in [`docs/develop/coverage-policy.md`](docs/develop/coverage-policy.md). Run `make test-coverage-gap-probe` to see current OP_* and FFI-symbol gaps. The three-axis target (symbol coverage + OP_* backward coverage + F32 paired oracle) is the yardstick; C-line % is advisory only.
+**Coverage policy** — the "covered" definition, principled-exclusion list, and new-op checklist live in [`docs/develop/coverage-policy.md`](docs/develop/coverage-policy.md). `make test-coverage-gap-probe` shows OP_*/FFI-symbol gaps; the three-axis target (symbol + OP_* backward + F32 oracle) is the yardstick, C-line % advisory.
 
 ### Verification procedure on completion (cross-cutting — governs every landed change)
 
-**Every completed piece of work ends with an explicit, runnable verification procedure handed to the user.** Not "it should work" / "the tests passed" — the actual commands the user types to confirm the change does what was claimed, ordered cheapest-first, with the expected output called out for each layer.
+**Every completed change ends with an explicit, runnable verification procedure handed to the user** — the actual commands to confirm the change does what was claimed, cheapest-first, with expected output per layer. Not "it should work" / "the tests passed". Three layers (pick what matches):
 
-The procedure has three layers when applicable; pick the ones that match the change:
+- **Cheapest — CI gate**: name the `make test-*` / `scripts/check-*` target + expected pass line. No covering target = a hole; wire one in this commit (or file a follow-up row, not "skip verification") — an unverified gate is not a gate.
+- **End-to-end — observable behavior**: the user-facing invocation (`make example-X` / perf-run / roundtrip) with the env+flags that exercise the change and what to look for (stdout / disk / perf log). Wrap heavy commands per the heavy-command convention; >few-seconds runs need a paired `perf-run.sh` entry.
+- **External-tool inspection** (for artifacts users interrogate): the Python/shell snippet that loads the artifact and shows the expected shape/keys/values.
 
-- **Cheapest — automated gate already in CI**: name the `make test-*` / `scripts/check-*` target that exercises the change, and the expected pass line. If no existing target covers it, that's a hole — wire one in this commit (or file the gap as a follow-up row, not "skip verification"). Per `feedback_test_gates_must_run_in_ci`, test gates must run in CI; an unverified gate is not a gate.
-- **End-to-end — observable behavior**: the actual user-facing invocation (`make example-X` / a perf-run / a roundtrip test) with the env vars + flags that exercise the change, plus what to look for in stdout / on disk / in the perf log. Wrap heavy commands with `caffeinate -i nice -n 19 env MAKEFLAGS=-j2` per the heavy-command convention. If the run is more than a few seconds, include the paired `scripts/perf-run.sh` call per `feedback_no_expensive_run_without_log`.
-- **External-tool inspection** (when the change produces artifacts users will interrogate): the Python / shell snippet that loads the artifact and shows the expected shape / keys / values. Worked example: the activation-dump landing (2026-06-09, see CHANGELOG entry) — `python3 -c "from safetensors.numpy import load_file; ..."` showing the `__act/<label>/<i>` keys and per-layer shapes.
-
-**Don't conflate verification with TDD.** TDD's red-then-green is *during* implementation; verification is what the user runs *after* the landing. A passing test in CI is necessary, not sufficient — the verification block tells the user how to convince themselves the feature does what the commit message claims, not just that the tests didn't regress.
-
-**Don't outsource it.** "Run `make test`" is not a verification procedure for a new behavior; it's a regression check. Name the specific assertion / line / artifact that proves *this* change works, not a generic gate that would pass whether or not the change landed.
-
-**Tone**: terse, copy-paste ready, the user shouldn't have to assemble it. Three log levels / build flags / env vars get a table, not prose. Match the response shape the activation-dump "how do I test this?" answer used.
+**Verification ≠ TDD**: red-then-green is *during* implementation; verification is what the user runs *after*. **Don't outsource it** — "run `make test`" is a regression check, not verification; name the specific assertion/line/artifact that proves *this* change works. Tone: terse, copy-paste ready; tables for >2 flags/levels.
 
 ### Alignment policy (cross-cutting — governs all example work)
 
-**Identical defaults**: Idris examples and PyTorch references MUST use identical defaults for all hyperparameters (lr, batch size, epochs, seed, architecture, init). When a discrepancy is found, adopt the better practice in BOTH. When changing an example, always update both sides. See `docs/develop/reference-alignment.md`.
+**Identical defaults**: Idris examples and PyTorch references MUST share all hyperparameter defaults (lr, batch, epochs, seed, architecture, init). On a discrepancy, adopt the better practice in BOTH, same commit. See `docs/develop/reference-alignment.md`.
 
-**Multi-seed convergence is required**: a single-seed pass is not a convergence claim. Validate on ≥ 5 seeds and report the pass rate (e.g. "converges 5/5 for REINFORCE on CartPole", "converges 4/7 for A2C on CartPole"). Single-seed convergence at seed=42 has hidden real bugs here — A2C shipped as "converges to 200" based on one seed; multi-seed testing later exposed that the Idris-side optimizer wasn't updating the actor's weights at all. RL is noisy; use PyTorch's pass rate as the target, flag when Idris differs.
+**Multi-seed convergence required**: a single-seed pass is not a convergence claim — validate on ≥ 5 seeds and report the pass rate (e.g. "5/5 REINFORCE on CartPole"). Single-seed at seed=42 has hidden real bugs here (A2C "converged" on one seed while the Idris optimizer wasn't updating the actor at all). RL is noisy; use PyTorch's pass rate as the target.
 
-**Architectural alignment — DO NOT pivot silently**: divergent architectures destroy the implementation-vs-configuration signal. If Idris' Network chain can't express the PyTorch architecture, update PyTorch to match Idris, not the other way around. Hyperparameter changes must land on both sides in the same commit, and PyTorch must still converge after the change. Divergences are a **refactor**, not a fix: commit explicitly, name the divergence, record it in `docs/develop/reference-alignment.md`. **Process**: when a convergence issue appears on one side, the first action is to align configs so both sides run the same experiment — only then can the remaining gap be attributed to implementation.
+**Don't pivot architecture silently**: divergent architectures destroy the implementation-vs-config signal. If Idris' chain can't express the PyTorch architecture, change PyTorch to match Idris (not vice-versa), same commit, PyTorch must still converge. Divergences are a **refactor** — commit explicitly, name it, record in `reference-alignment.md`. First action on any one-sided convergence issue: align configs so both sides run the same experiment.
 
 ### Performance documentation regime
 
-Four files, each with a distinct role. Don't conflate them; updating the wrong one loses information.
-
-- **`docs/develop/perf-log.jsonl`** — *append-only* raw measurement log. One JSON object per line. `scripts/perf-run.sh` and `scripts/perf-baseline.sh` auto-append. Tagged with short commit hash (`+dirty` if uncommitted). **Never edit/delete prior entries** — historical numbers are regression evidence. If a measurement is invalid, append a follow-up entry saying so. Query via `jq` (cookbook in `perf-log.md`).
-- **`docs/develop/perf-log.md`** — schema documentation for the JSONL. Don't add new entries here.
-- **`docs/develop/perf-baseline.md`** — *current-state* table. Re-written, not appended. Snapshot of every example × backend ratio at the latest commit.
-- **`docs/develop/perf-changes.md`** — *append-only* log of every perf *change*. One entry per change with motivation / change / impact / commit / outcome (landed / reverted / partial). Reverted attempts stay — negative results save future redoing.
+Four files, distinct roles (don't conflate; schema + jq cookbook in `perf-log.md`):
+`perf-log.jsonl` (**append-only** raw measurements, auto-appended by the perf
+scripts — **never edit prior entries**, they're regression evidence),
+`perf-log.md` (JSONL schema), `perf-baseline.md` (current-state ratio table,
+re-written not appended), `perf-changes.md` (**append-only** log of each perf
+change, incl. reverted attempts — negative results save future redoing).
 
 ### Performance optimization workflow
 
-**Post-change measurement (required after every landable commit)**: use the auto-logging scripts so results land in `perf-log.jsonl`. **Never** hand-write JSONL entries; **never** use `make bench-compare` for post-change gating (it doesn't log).
-- `scripts/perf-run.sh <example-key> <backend>` — single (example, backend) measurement.
-- `scripts/perf-baseline.sh <example-key> <backend>` — Idris-vs-PyTorch ratio with two-point timing.
-- `scripts/perf-sweep.sh [--examples …] [--cells tape,torch,mlx-cpu,mlx-gpu]` — **canonical for cross-backend cascade changes** (typeclass cascade, C ABI, lifecycle work). One PyTorch ref per example, cached across cells. A single-backend `bench-compare` on cross-backend work hides per-backend regressions and leaves no log entry.
+**Post-change measurement (required after every landable commit)**: use the
+auto-logging scripts so results land in `perf-log.jsonl`. **Never** hand-write
+JSONL; **never** gate on `make bench-compare` (it doesn't log).
+- `scripts/perf-run.sh <example-key> <backend>` — single measurement.
+- `scripts/perf-baseline.sh <example-key> <backend>` — Idris-vs-PyTorch ratio.
+- `scripts/perf-sweep.sh [--examples …] [--cells …]` — **canonical for
+  cross-backend cascade changes**; a single-backend `bench-compare` hides
+  per-backend regressions and leaves no log entry.
 
-**No expensive run without a perf log.** Any inference or training run that takes more than a few seconds — whether you're verifying correctness, eyeballing output, comparing backends, debugging, or doing ad-hoc exploration — MUST land in `perf-log.jsonl`. Run via `scripts/perf-run.sh` (or the equivalent script) instead of `make example-*` directly; if the example isn't yet wired into `perf-run.sh`, wire it in first (case arms are one line each). Build-only invocations (`make install`, `make backend`) are exempt — only the *run* must be logged. The rule applies to correctness gates too: `test-e2e-bert-roundtrip` etc. are correctness scaffolding, but the underlying inference run is expensive and a paired `perf-run.sh` entry is the cheapest way to keep "yesterday's wall" comparable. Re-running a measurement that's already in the log is fine; missing measurements are not.
+Ad-hoc grids: `python3 scripts/sweep.py`, then update `docs/develop/performance-analysis.md`.
 
-**Ad-hoc local exploration**: `make example-profile` → `make bench-compare` (same batch, currently 16) → `python3 scripts/sweep.py` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data. `bench-compare` is convenient for eyeballing but does *not* log to `perf-log.jsonl` — pair it with a `perf-run.sh` measurement if you're keeping the result.
+**No expensive run without a perf log.** Any inference/training run over a few
+seconds — correctness, eyeballing, debugging, ad-hoc — MUST land in
+`perf-log.jsonl` via `perf-run.sh` (wire the example into the script first if
+missing; case arms are one line). Build-only (`make install`/`backend`) is
+exempt; correctness gates (`test-e2e-bert-roundtrip` …) need a paired
+`perf-run.sh` entry. Re-running a logged measurement is fine; missing ones aren't.
 
-**Heavy-command convention — always wrap with caffeinate + nice + capped parallelism.** Any command that takes more than ~1 minute on this codebase (Idris elaboration of a real example, full backend rebuild, perf sweeps, multi-example test runs) is "heavy" and competes for CPU + holds the laptop awake. Wrap *every* such invocation:
+**Heavy-command convention** — wrap any >~1-min command (real-example
+elaboration, full rebuild, perf sweeps, multi-example test runs):
 
 ```bash
 caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make …
 ```
 
-- **`caffeinate -i`** (macOS) prevents idle sleep — without it, a closed lid or display sleep suspends/kills the build mid-run. Observed 2026-06-03/04 multiple times: harness-spawned builds stranded with no exit code after the laptop slept.
-- **`nice -n 19`** is the lowest CPU priority. Foreground apps preempt the build; the build still progresses, just slower. Without it, Chez elaboration peaks at 17-23 GB and saturates cores, making the host VM unresponsive (the user can't browse / edit / run tests in parallel).
-- **`MAKEFLAGS="-j2"`** caps the parallel C++ compile to 2 cores. The Idris elaboration phase is single-threaded so `-j` doesn't help it; capping the C++ side stops the parallel-link phase from pegging all cores.
-
-The wrapper `scripts/perf-run-quiet.sh` bakes all three in for perf measurements (`scripts/perf-run-quiet.sh hf-llama-generate torch` etc.); use it as the default for any `perf-run`-style invocation. For gates / Make targets that aren't wrapped via perf-run, inline the trio:
-
-```bash
-caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make BACKEND=torch test-e2e-llama-roundtrip
-caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make BACKEND=mlx test-transformers
-caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make test-examples
-```
-
-Exceptions (~rare): `make install` / `make backend` of a hot tree (already-cached), short `make probe-foo` debug targets, anything that finishes in seconds. When in doubt, wrap — the overhead of `nice` + `caffeinate` is negligible on a fast command, and the cost of forgetting on a slow one is a slow host + a stranded build.
+`caffeinate -i` stops idle-sleep killing the build; `nice -n 19` keeps the host
+responsive (Chez elaboration peaks 17-23 GB); `MAKEFLAGS=-j2` caps the parallel
+C++ compile (the elaboration phase is single-threaded). `scripts/perf-run-quiet.sh`
+bakes all three in — default for any perf-style run; inline the trio for
+Make-target gates. Exempt: hot-tree `make install`/`backend`, short debug
+targets, anything finishing in seconds.
 
 ## Conventions
 
 - **Indentation**: governed by `.editorconfig` per-extension. Honour it when writing new files — no editor enforces it in your environment. Quick read: `.idr` 2 spaces, `.py` 4 spaces (ruff format), `.c`/`.h`/`.cpp`/`.hpp` tabs (clang-format `ForIndentation`), `.{yml,yaml}` 2 spaces (spec), everything else (`.sh`, `.json`, `.md`, …) tabs (repo-wide default).
-- **Formatters**: `make fmt` rewrites every source file in place (all languages); `make check-fmt` fails if anything is unformatted — run it before considering a change done. The `fmt` family is cross-language and lives in `mk/fmt.mk`; format is kept distinct from lint (per testing-taxonomy.md "format != lint"). Subtargets: `fmt-idris`/`check-fmt`'s `test-integration-lint-fmt` — **idris-fmt**, the repo's own compiler-native formatter (`packages/idris-fmt/`; parses with the compiler's own parser, gates every reformat behind a round-trip oracle, so it can never change a file's meaning; scope is whitespace hygiene + import-sort + `:`/`=`/`=>` alignment + FC-driven reindentation, each pass independently oracle-gated with identity fallback — reindent uses the deep `deepSig` oracle since whitespace-only edits leave `codeSig` unchanged). `fmt-py`/`check-fmt-py` — `ruff format`. `fmt-c`/`check-fmt-c` — `clang-format -i` over all backends. The **linters** are separate: `make lint-py` (ruff check + vulture) **and `make typecheck-py`** (pyright strict on every Python-bearing package; config roots are `packages/pytorch/pyproject.toml` for the pytorch tree and per-surface `pyrightconfig.json` / `[tool.pyright]` selected via `-p` for the rest — pyright discovers config from the project root, not per-file like ruff); `make lint-c` (cppcheck + clang-tidy with deny-list config in `.clang-tidy`). No formatter for shell / markdown / YAML — the `.editorconfig` indent rule is the only contract.
-- **clang-tidy include hygiene**: `misc-include-cleaner` is disabled in `.clang-tidy` (the `-include rename_tape.h` flag hides every renamed `backend.h` symbol from include-cleaner, producing ~250 architectural FPs) but is exercised as a separate gate `make lint-c-include-cleaner` that runs WITHOUT the rename. Suppression conventions when adding a new BLAS/macro-provider include: `// IWYU pragma: keep` as a **trailing** comment on the include line (the preceding-line form doesn't suppress reliably in clang-tidy 21); `// NOLINTNEXTLINE(misc-include-cleaner)` per call site for macOS-Apple-SDK FPs that don't fire on Linux (`abort`, `cblas_*`, `vDSP_*`). Don't NOLINTBEGIN/END regions unless the call spans multiple lines past NEXTLINE's scope.
+- **Formatters**: `make fmt` rewrites every source file in place; `make check-fmt` fails if anything is unformatted — run it before considering a change done (`mk/fmt.mk`; format ≠ lint, per testing-taxonomy.md). Per-language: `fmt-idris` (**idris-fmt**, the repo's compiler-native formatter in `packages/idris-fmt/` — round-trip-oracle-gated so it can't change meaning; whitespace + import-sort + `:`/`=`/`=>` alignment + reindentation), `fmt-py` (ruff format), `fmt-c` (clang-format). Linters are separate: `make lint-py` (ruff check + vulture), `make typecheck-py` (pyright strict per package), `make lint-c` (cppcheck + clang-tidy, deny-list in `.clang-tidy`). No formatter for shell/markdown/YAML — `.editorconfig` indent is the only contract.
+- **clang-tidy include hygiene**: `misc-include-cleaner` is disabled in `.clang-tidy` (the `-include rename_tape.h` flag causes ~250 architectural FPs) and run rename-free as a separate gate `make lint-c-include-cleaner`. Suppression conventions (IWYU-pragma placement, per-call-site `NOLINTNEXTLINE` for Apple-SDK FPs) are documented in `.clang-tidy`.
 - **Naming**: PascalCase for types/constructors, camelCase for functions/variables
 - **Imports**: Idris stdlib first, then internal modules alphabetically
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`. ~50 char subject, imperative present tense. One logical change per commit. No ads/branding in messages or PRs.
