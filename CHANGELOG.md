@@ -2,6 +2,20 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+HF_TOKEN secret added → HfLlama CI gates re-enabled (2026-06-28). Closed
+the TODO "Add HF_TOKEN secret to CI". The five `HF_TOKEN`-guarded steps in
+the `test-e2e-transformers-large` job (oracle-gen + oracle-generate
+pytests, the end-to-end roundtrip, the multi-step generation roundtrip,
+and the `LlamaInference` type-check) had been skipping on the token-less
+public mirror — only the non-gated HfBitNet roundtrip ran. With the
+`HF_TOKEN` repo secret set on the mirror, all five steps now run green
+(observed `success`, not `skipped`, in run 28325498685): `unsloth/Llama-3.2-1B`
+downloads, the Idris `LlamaInference` forward + greedy-decode match the HF
+oracle within the gate tolerances. No code change — the `env.HF_TOKEN != ''`
+guard reads the secret automatically. (Same run also surfaced two
+pre-existing cold-cache CI bugs since fixed: the tape clang-tidy
+cJSON.h/conv2d findings and the notebook gate's missing idris-ml install.)
+
 Coverage-gap probe flipped to a hard CI gate (2026-06-28). Closed the
 TODO "Close the honest C-coverage gaps the probe-fix revealed". The honest
 probe (filed at ~50 zero-hit FFI symbols) had since fallen to **6**, all
