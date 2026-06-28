@@ -17,6 +17,7 @@
         test-unit-c-asan-torch test-unit-c-asan test-coverage-backend \
         test-coverage-backend-tape test-coverage-backend-mlx \
         test-coverage-backend-torch test-coverage-all test-coverage-gap-probe \
+        reach-dump test-coverage-reach-gap \
         bench-rank3-broadcast bench-rank3-broadcast-wrapped print-torch \
         check-examples test-unit test-unit-idris test test-integration \
         test-e2e test-coverage test-unit-idris-ml \
@@ -301,6 +302,38 @@ test-coverage-all:
 # uncovered OP_* or zero-hit FFI symbol (see coverage-policy.md).
 test-coverage-gap-probe:
 	@python3 scripts/coverage-gap-probe.py $(BUILD)
+
+# Idris reachability gap-finder (ADVISORY v1 — exit 0). Compiles the
+# idris-ml test main + every example with `--dumpcases`, producing a
+# tree-shaken list of definitions reachable from each entry point. The
+# probe then diffs that union against the source universe and reports
+# definitions no test or example exercises. Not a coverage % — a gap
+# finder. See docs/develop/reachability-policy.md.
+#
+# The test main builds through its ipkg (`--build`) so the hedgehog /
+# idris-test dep chain resolves via the warm install (same path as
+# test-unit-idris-ml); examples compile standalone with $(IDRIS_FLAGS).
+# `--dumpcases` requires real codegen (`--cg chez -o`); examples that
+# don't compile under the active $(BACKEND) are skipped (advisory).
+reach-dump: install
+	@mkdir -p $(BUILD)/reach
+	@echo "--- reach-dump: idris-ml test main ---"
+	cd packages/idris-ml && $(IDRIS2) --dumpcases $(CURDIR)/$(BUILD)/reach/test.cases \
+		--build idris-ml-tests.ipkg >/dev/null
+	@echo "--- reach-dump: examples ---"
+	@for f in $(wildcard $(EXAMPLE_SRC)/Example/*.idr); do \
+		name=$$(basename $$f .idr); \
+		if $(IDRIS2) $(IDRIS_FLAGS) --dumpcases $(BUILD)/reach/$$name.cases \
+			--cg chez -o reach-$$name $$f >/dev/null 2>&1; then \
+			echo "  ok   $$name"; \
+		else \
+			echo "  SKIP $$name (did not compile under BACKEND=$(BACKEND))"; \
+		fi; \
+	done
+	@echo "reach-dump: $$(ls $(BUILD)/reach/*.cases 2>/dev/null | wc -l | tr -d ' ') dumps in $(BUILD)/reach/"
+
+test-coverage-reach-gap: reach-dump
+	@python3 scripts/reach-gap-probe.py $(BUILD)
 
 # Specialized C test suites. The NTM + mlx-compile tests live under
 # packages/idris-test-c/src/ (cross-cutting integration; no 1:1 source

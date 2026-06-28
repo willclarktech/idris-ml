@@ -1,0 +1,28 @@
+# reach-exclusions.txt — FQNs the Idris reachability gap-finder must not
+# flag, because they legitimately never appear in an `idris2 --dumpcases`
+# dump even when they ARE used. One normalized FQN per line; `#` starts a
+# comment; blank lines ignored. Keep a rationale comment per entry/group.
+#
+# Categories (see docs/develop/reachability-policy.md):
+#   - %inline / heavily auto-inlined defs: the body is spliced into every
+#     caller, so no standalone `Name = ` line is emitted.
+#   - erased / type-level-only defs (0-quantity, used only in types):
+#     no runtime code is generated.
+#   - %foreign / prim__ shims that get inlined to their raw FFI call.
+#
+# A line ending in `*` is a PREFIX rule (whole module/subtree); any other
+# line is an exact FQN.
+#
+# v1 is ADVISORY (the probe exits 0 regardless). An entry here is a claim
+# that a def is exercised but invisible to --dumpcases, not that it's
+# untested. Do not add a genuinely-untested def here; write a test instead.
+
+# --- single-backend dump limitation (reach-dump runs under BACKEND=tape) ---
+# The mlx and torch executor implementations are not linked/reachable in a
+# tape-only --dumpcases run, so they show up as 290 false gaps. They ARE
+# exercised under BACKEND=mlx / BACKEND=torch builds (their own test mains +
+# examples). Remove these two rules when the deferred multi-backend dump
+# union lands (see docs/develop/reachability-policy.md). Executor.Tape.* is
+# correctly reachable under tape and is NOT excluded.
+Executor.Mlx.*
+Executor.Torch.*
