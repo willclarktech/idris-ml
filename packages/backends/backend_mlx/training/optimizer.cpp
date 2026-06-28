@@ -166,7 +166,10 @@ static std::unordered_map<int, std::function<std::vector<mx::array>(const std::v
 
 // GCOVR_EXCL_START — MLX_OPT_COMPILE Adam-compile path: won't-fix on CI (libmlx
 // Metal teardown crashes the forked test child after mx::compile); behaviour is
-// pinned by the .disabled mlx_optimizer_compile tests in test_optimizer_mlx.c.
+// pinned by the .disabled mlx_optimizer_compile tests in test_optimizer.c.
+// NB: mlx PR #1142 (leak-on-exit) does NOT fix this — it skips the allocator's
+// destructor (free path), but our crash is a throwing MetalAllocator::malloc
+// (alloc) during teardown. See the TODO "mlx compile-path teardown crash".
 static std::function<std::vector<mx::array>(const std::vector<mx::array>&)>&
 get_adam_compiled(int n) {
 	auto it = adam_compiled_by_n.find(n);
