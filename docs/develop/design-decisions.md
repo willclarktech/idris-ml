@@ -1568,7 +1568,7 @@ exposed. It is whack-a-mole because the model itself is unsound.
 content-keyed caches (hash the sources into the key, no cross-content
 fallback) would be sound but over-invalidate: *any* `.idr` edit busts
 the whole cache, forcing the heavy ~2B-param HF example jobs
-(`test-e2e-transformers-llama`, split off precisely because they time out cold)
+(`test-e2e-transformers-large`, split off precisely because they time out cold)
 to cold-elaborate on nearly every commit. Instead, keep the warm
 cross-commit restore and make the **staleness detection** sound:
 

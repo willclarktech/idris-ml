@@ -414,7 +414,7 @@
         ]
       }
     ],
-    "test-e2e-transformers-llama": [
+    "test-e2e-transformers-large": [
       {
         "name": "Run HfLlama oracle generator + pytest",
         "run": "make test-e2e-transformers-oracle-llama",
