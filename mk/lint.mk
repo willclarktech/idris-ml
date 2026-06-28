@@ -215,7 +215,11 @@ lint-c: lint-c-tape lint-c-torch lint-c-mlx
 LINT_C_CORE_SRCS := packages/backends/idx.c packages/backends/log.c packages/backends/probes.c \
                     packages/backends/shared_utils.c packages/backends/safetensors.c \
                     $(SHARED_TRAINING_SRCS)
-lint-c-tape:
+# $(CJSON_H) prereq: safetensors.c (in LINT_C_CORE_SRCS) #includes cJSON.h,
+# which is vendored on demand. The lint job doesn't build the backend, so the
+# header would be absent without this — clang-tidy then hard-errors with
+# clang-diagnostic-error 'cJSON.h file not found'. Make fetches it first.
+lint-c-tape: $(CJSON_H)
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --quiet --enable=warning --suppress=missingIncludeSystem --suppress=nullPointerOutOfMemory --suppress=nullPointerArithmeticOutOfMemory --suppress=ctunullpointerOutOfMemory --suppress=ctunullpointer --suppress=nullPointerRedundantCheck --suppress=invalidFunctionArg --suppress=returnImplicitInt --suppress=normalCheckLevelMaxBranches --suppress=syntaxError --suppress=nullPointerOutOfResources --suppress=unknownMacro:*test_*.c --error-exitcode=1 --inline-suppr -I packages/backends -I packages/backends/backend_tape -I packages/idris-test-c/include packages/backends/*.c packages/backends/shared/ packages/backends/backend_tape/ packages/idris-test-c/src/ || exit 1; \
 	else \

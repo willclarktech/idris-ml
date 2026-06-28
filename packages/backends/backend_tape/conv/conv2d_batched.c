@@ -303,7 +303,12 @@ static void tape_backward_conv2d_batched(TapeEntry* e) {
 	   assume double. Widen the result grad through the typed accessor into a
 	   double scratch buffer. */
 	size_t r_n = (size_t)B * out_per_sample;
-	double* rgrad = (double*)malloc(r_n * sizeof(double));
+	/* calloc (not malloc): the loop below fills every slot, but CI's
+	   clang-analyzer (v18) can't track the fill across the need_dB path and
+	   flags a core.uninitialized.Assign FP at the dout_b read. Zero-init
+	   makes the region defined in the analyzer's model — robust across
+	   clang-tidy versions, unlike a NOLINT clang-format could wrap-break. */
+	double* rgrad = (double*)calloc(r_n, sizeof(double));
 	for (size_t i = 0; i < r_n; i++)
 		rgrad[i] = tape_grad_load_d(r, (int)i);
 
