@@ -52,8 +52,13 @@ test-integration-jupyter-cellparser: $(JUPYTER_VENV)/bin/activate
 	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
 	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
 
-# Run all notebooks headless to check for API breakage
-test-e2e-notebooks: jupyter-install
+# Run all notebooks headless to check for API breakage.
+# install-notebook (→ install-core) installs the idris-ml + idris-ml-notebook
+# packages into IDRIS2_PACKAGE_PATH ($(IDRIS2_LOCAL)/idris2-0.8.0) — exactly the
+# pair the kernel's REPL requests (`-p idris-ml -p idris-ml-notebook`). Without
+# it the kernel dies on a cold cache with "Can't find package idris-ml (any)"
+# (run 28325498685); it only ever passed off a warm install cache.
+test-e2e-notebooks: install-notebook jupyter-install
 	@fail=0; \
 	for nb in packages/jupyter/notebooks/tutorials/*.ipynb packages/jupyter/notebooks/models/*.ipynb; do \
 		echo "--- $$nb ---"; \
