@@ -15,20 +15,24 @@ import pexpect
 def _idris2_bin() -> str:
     """Resolve the idris2 executable.
 
-    Prefer one on PATH; otherwise fall back to pack's installed app
-    (`pack app-path idris2`). In this repo's nix dev shell idris2 is a
-    pack app, not on PATH, so the bare-name spawn the kernel used would
-    fail (and with it `make test-e2e-notebooks` in CI).
+    Prefer pack's RAW binary (`pack app-path idris2`) over a bare `idris2`
+    on PATH. In this repo's pack setup the PATH `idris2` is a wrapper that
+    `export`s IDRIS2_PACKAGE_PATH="$(pack package-path)" before exec'ing the
+    real binary — clobbering the value we (and make) set to include the
+    local install prefix where idris-ml lives. The result is the kernel
+    dying with "Can't find package idris-ml (any)" even though idris-ml is
+    installed (CI run 28329359748). The raw binary honours the inherited
+    IDRIS2_PACKAGE_PATH. Fall back to a PATH `idris2`, then the bare name.
     """
-    found = shutil.which("idris2")
-    if found:
-        return found
     with contextlib.suppress(Exception):
         out = subprocess.run(
             ["pack", "app-path", "idris2"], capture_output=True, text=True, check=True
         ).stdout.strip()
         if out:
             return out
+    found = shutil.which("idris2")
+    if found:
+        return found
     return "idris2"
 
 
@@ -108,7 +112,19 @@ class Idris2REPL:
         # derive it from the resolved build tree (standalone kernel).
         if "IDRIS2_PACKAGE_PATH" not in env:
             pkg_path = self._build_dir() / "idris2-prefix" / "idris2-0.8.0"
-            env["IDRIS2_PACKAGE_PATH"] = str(pkg_path)
+            paths = [str(pkg_path)]
+            # Append pack's collection so base/contrib/linear resolve: we use
+            # the raw idris2 binary (see _idris2_bin), bypassing the PATH
+            # wrapper that would otherwise set this. Make-driven runs already
+            # export the combined local:pack path, so this branch only fires
+            # for a standalone kernel launched straight from the kernelspec.
+            with contextlib.suppress(Exception):
+                pp = subprocess.run(
+                    ["pack", "package-path"], capture_output=True, text=True, check=True
+                ).stdout.strip()
+                if pp:
+                    paths.append(pp)
+            env["IDRIS2_PACKAGE_PATH"] = ":".join(paths)
 
         # Declared spawn[str]: the stubs can't infer the str specialization
         # from encoding="utf-8" (the constructor isn't overloaded on it).
