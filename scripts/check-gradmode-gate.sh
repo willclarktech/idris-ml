@@ -38,11 +38,15 @@ cd "$(dirname "$NEG_FILE")"
 OUTPUT="$(IDRIS2_PACKAGE_PATH="$IDRIS_LOCAL/idris2-0.8.0${PACK_PKG_PATH:+:$PACK_PKG_PATH}" \
 					"$IDRIS2" --check "$(basename "$NEG_FILE")" -p idris-ml 2>&1 || true)"
 
-# Success path: idris2 should have produced an error mentioning both
-# GradMode constructors. If it compiled cleanly, the gate is broken.
+# Success path: idris2 should have produced an error whose MESSAGE
+# mentions both GradMode constructors. Strip the echoed source-context
+# lines (` NN | ...`) first — the fixture's comments contain these words,
+# and grepping the raw output let a wrong-reason failure (e.g. an arity
+# error on NativeOptimizer) pass the gate.
+ERRS="$(echo "$OUTPUT" | grep -Ev '^[[:space:]]*[0-9]+ \|')"
 if echo "$OUTPUT" | grep -q "GateRejectsNoGrad:" \
-	 && echo "$OUTPUT" | grep -q "WithGrad" \
-	 && echo "$OUTPUT" | grep -q "NoGrad"; then
+	 && echo "$ERRS" | grep -q "WithGrad" \
+	 && echo "$ERRS" | grep -q "NoGrad"; then
 	echo "PASS: gate rejects NoGrad loss with the expected type error"
 	exit 0
 fi

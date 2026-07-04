@@ -66,7 +66,11 @@ if [ "$NEG_RC" -eq 0 ]; then
 	exit 1
 fi
 
-if ! echo "$NEG_OUT" | grep -Eq "uses of linear name|not accessible in this context|linearly bounded"; then
+# Strip echoed source-context lines (` NN | ...`) before grepping — the
+# fixture's comments quote the expected error text, so grepping the raw
+# output would let a wrong-reason failure pass the gate.
+NEG_ERRS="$(echo "$NEG_OUT" | grep -Ev '^[[:space:]]*[0-9]+ \|')"
+if ! echo "$NEG_ERRS" | grep -Eq "uses of linear name|not accessible in this context|linearly bounded"; then
 	echo "FAIL: negative test errored, but not with a linearity error —" >&2
 	echo "      the gate may have regressed to a different failure mode." >&2
 	echo "" >&2
