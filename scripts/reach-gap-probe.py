@@ -134,9 +134,7 @@ def main(argv: list[str]) -> int:
     universe = scan_universe(SRC_ROOT)
     empty: tuple[frozenset[str], tuple[str, ...]] = (frozenset(), ())
     exact, prefixes = (
-        parse_exclusions(EXCLUSIONS_FILE.read_text())
-        if EXCLUSIONS_FILE.exists()
-        else empty
+        parse_exclusions(EXCLUSIONS_FILE.read_text()) if EXCLUSIONS_FILE.exists() else empty
     )
 
     excluded_hits = {u for u in universe if is_excluded(u, exact, prefixes)}
