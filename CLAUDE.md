@@ -2,6 +2,27 @@
 
 Deep learning library in Idris 2 with compile-time tensor shape checking and automatic differentiation.
 
+## Writing style — user-facing prose (IMPORTANT: read before touching any docs/*.md)
+
+**LLM output drifts into a recognizable house style that this repo's docs must not have.** These rules were extracted from repeated review feedback on `docs/why-idris-ml.md` (2026-07); every one of them was violated more than once before being named. Re-read this section before writing or editing user-facing prose, and sweep your own draft against it before presenting it.
+
+**Voice — the banned patterns (each observed in real drafts):**
+- **No reveal/announcer framing.** Never introduce a point by announcing its significance — "the real cost", "the deeper point", "that's the telling part", "This is worth pausing on", "here's the part hasktorch can't reach", "the deciding fact:". State the significant thing directly; if the sentence's only job is to promise the next sentence matters, delete it.
+- **No epigrams or punchlines.** "The extension exists; the ecosystem was never built on it", "dodges one instance without touching the class", "doesn't survive a type system that counts", "sits exactly where the footgun lives". If a sentence reads like a mic-drop, rewrite it to carry information instead.
+- **No abstract metaphors.** "Floats free of reality", "no rung to stand on", "you pay full price", "the language's day job". One exception: an *established, cited* metaphor may be reused as a callback (the ["keyhole"](https://www.georgeho.org/tensor-computation-libraries/) in why-idris-ml.md).
+- **No anthropomorphized machinery.** "Nothing looked", "nothing objects", "the graph builder never looks", "the failure waiting for execution". Say what is or isn't checked, and when.
+- **No intensifiers.** "Truly", "genuinely", "really", filler-"actually". They add doubt, not force.
+- **No narrated make-believe; present tense throughout.** Don't describe a hypothetical as a concrete past event ("the shapes were fixed the moment you wrote the layers" → "both shapes are known the moment you write the layers"), and don't let scenario setup slip into past tense mid-sentence ("your model got big, so you drop it" → "your model is too big for memory, so you drop it"). State conditions as properties ("hardware that is linked into the build", not "was linked"). Verbatim captured error text is exempt.
+- **No imputed reader opinions.** Not "we want the mismatch caught early" — say "ideally a program with this bug is unrepresentable", anchored to the project mantra (*make illegal states unrepresentable*).
+- **Plain words.** No cute variation ("flavour" → "kind"); en-US spelling; simple and familiar beats clever. No tool-grabbing idioms ("you reach for the experimental linear-base library", "its QualifiedDo sugar" → "it requires the linear-base library and the QualifiedDo extension").
+- **Ration em-dashes.** Dash-heavy prose is an LLM signature, and the dash is the joint most of the banned patterns hinge on ("— linear types do" is an epigram pivot). Prefer parentheses for asides, a semicolon or colon for a pivot, or more, simpler sentences. Rough budget: one dash construction per paragraph, and only where it does narrative work.
+
+**Devices that ARE house style** (use these, not the ones above): direct questions as section pivots ("Does the static graph help this time?"); "To be fair to X" concessions before criticism; numbered enumerations "(1) … (2) …"; `> [!TIP]` blockquotes reserved for idris-ml thesis statements; second-person bug scenarios ("you move the model to the GPU and forget one tensor").
+
+**Structure (framework-comparison sections):** five beats per feature — (1) the bug class, shown concretely; (2) how the alternative framework approaches it; (3) how far that gets, conceded plainly; (4) the remaining limitation; (5) how idris-ml addresses it. Framework order: PyTorch → TF 1.x → (Pyright where relevant) → hasktorch → idris-ml. The SAME example threads through every framework in a section (the 784/256/128/10 layers, batch 64). Be honest in both directions: competitors' wins are stated ("To be fair to Pyright, this actually catches our planted bug"), and so are idris-ml's limits (Idris can't guess `k + n = n + k` either — the difference is the fix is ordinary library code). Distinguish plain language vs extensions vs plugins vs library encodings when crediting a capability.
+
+**Evidence:** every error message and every "compiles clean" claim is captured from a real toolchain run — never composed from memory or predicted. Code and error live in separate blocks (` ```text ` for errors); captured text stays verbatim, ugly internals included; the provenance footnote lists every toolchain used and gets updated when a new one enters.
+
 ## References
 
 - [Neural Turing Machines (Graves, Wayne, Danihelka 2014)](https://arxiv.org/abs/1410.5401) — original NTM paper
@@ -342,6 +363,7 @@ targets, anything finishing in seconds.
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`. ~50 char subject, imperative present tense. One logical change per commit. No ads/branding in messages or PRs.
 - **Section dividers**: `----------------------------------------------------------------------` with titles, Layer.idr style
 - **Documentation**: Update CLAUDE.md, `docs/develop/design-decisions.md`, and `TODO.md` when adding features, changing architecture, or making design decisions. `TODO.md` holds the open backlog only; when a row is finished, move its closure entry to `CHANGELOG.md` (most-recent-first) rather than into a Done section in `TODO.md`.
+- **Prose style**: user-facing docs are governed by the **"Writing style — user-facing prose"** section at the top of this file. Re-read it before writing any docs/*.md prose — its banned patterns are the ones LLM drafts reliably drift into.
 - **No ephemeral plan labels in committed docs**: don't reference "Phase 2.1b" / "Job 4 Phase B" / "Step 3" etc. in committed prose (design-decisions, gotchas, CLAUDE.md, in-code comments). Those labels live in the working plan file and are meaningless six months later. Anchor to the *commit* hash (`e67fe15`), a *date* (`2026-05-13`), or the *feature name* ("the multi-link refactor", "the rename + alias machinery") instead. Plan labels are fine in commit messages and conversation — that's their natural lifetime.
 
 ## Gotchas
