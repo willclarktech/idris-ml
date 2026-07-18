@@ -85,7 +85,9 @@ cell_to_backend_device() {
 	esac
 }
 
-# Build the per-cell BUILD_KEY (matches Makefile's BUILD_KEY := ...).
+# Per-cell BUILD_KEY, asked from make itself (mk/config.mk `print-%`).
+# Replicating the key here rotted when BUILD_KEY grew the mach/hw axes
+# — the derived path silently pointed at a nonexistent build tree.
 build_key_for_cell() {
 	local backend="$1" device="$2"
 	local mlx_dev=cpu torch_dev=cpu
@@ -94,10 +96,11 @@ build_key_for_cell() {
 		torch) torch_dev="$device" ;;
 		tape)  ;;
 	esac
-	echo "${backend}-mlx${mlx_dev}-torch${torch_dev}"
+	BACKEND="$backend" MLX_DEVICE="$mlx_dev" TORCH_DEVICE="$torch_dev" \
+		make -s --no-print-directory print-BUILD_KEY
 }
 
-# example-rnn (tape, cpu) -> ./build/tape-mlxcpu-torchcpu/exec/rnn
+# example-rnn (tape, cpu) -> ./build/<BUILD_KEY>/exec/rnn
 binary_for_target() {
 	local target="$1" backend="$2" device="$3"
 	local build_key
