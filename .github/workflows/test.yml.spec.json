@@ -273,6 +273,16 @@
         ]
       },
       {
+        "name": "Verify Seq shape gate (mis-sized chain names both dims)",
+        "run": "make test-integration-typegate-seq-shape",
+        "comment": [
+          "Negative type-check: a Seq chain whose hidden dims don't line up",
+          "must fail with the ChainFits error naming both dims",
+          "(`ChainFits 256 128`), not the opaque `Module ?l` search failure.",
+          "Pairs with the well-sized positive twin that must still compile."
+        ]
+      },
+      {
         "name": "Verify prim__ ratchet in examples",
         "run": "make test-integration-lint-prim-ratchet",
         "comment": [

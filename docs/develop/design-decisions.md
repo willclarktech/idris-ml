@@ -2570,3 +2570,34 @@ corpus changes** — the tree was already canonical — so reindentation is a
 standing safe no-op today whose value is normalising future edits, exactly as
 the deferral predicted; the work was justified by the user's explicit choice to
 build-and-enable it rather than by present diff.
+
+### `ChainFits` on `Nn.Seq`'s cons — error quality via a `%defaulthint` witness (2026-07-27)
+
+A mis-sized `Seq` chain used to fail as `Can't find an implementation for
+Module ?l`: with the layer bound as a higher-kinded implicit, unifying
+`?l i ?h` against `Linear 784 256` is not a Miller pattern (a rigid `i` sits
+in argument position), so higher-order unification postpones the inversion —
+and when the chain's dims conflict, the pending `Module ?l` dictionary search
+wins error reporting over the 256-vs-128 mismatch, which is never printed.
+
+Decision: split the cons's shared hidden-width index into `h` (the layer's
+out-dim) and `h'` (the tail's in-dim) tied by an empty-ish witness
+`ChainFits layerOut nextIn` carrying one erased proof (`0 chainFitsPrf :
+layerOut = nextIn`; `forwardSeq` `replace`s the activation across the split).
+The sole provider is a **`%defaulthint`** `chainFitsRefl : {n : Nat} ->
+ChainFits n n`, NOT a plain implementation — plain instance search refuses to
+bind goal metavariables, which broke every chain where a neighbour's width
+must flow through the joint (identity layers; SeqClassify's
+`ChainFits (C1 * ConvOutDim SeqLen K 0) ?h'`). Default hints may unify, so
+inference is preserved; a genuinely mismatched pair still fails as
+`Can't find an implementation for ChainFits 256 128` — both dims named,
+which was the entire point (the TODO row's success criterion).
+
+Alternatives tried and rejected (all probed in a standalone mini-model):
+telescope reorder (auto-dict after the explicit args — same masked error),
+tail-first argument order (same), a bare `{auto 0 fits : h = h'}` equality
+(surfaces a unification error but with garbled numbers, not the user's dims).
+Gate: `test-integration-typegate-seq-shape` (neg fixture must fail naming
+256/128; pos twin routes an activation's dims through two ChainFits ties).
+Related gotcha: "Auto-implicit (instance) search refuses to bind goal
+metavariables — `%defaulthint` may" in gotchas.md.

@@ -77,6 +77,23 @@ Idris 2 represents `Nat` as Peano numbers at the type level — `2304` becomes `
 
 **Update (2026-07-27 audit — the thresholds above no longer reproduce standalone).** On the pack toolchain (`0.8.0-b2d2cf40d`, nightly-260604) against the current `Nn` surface, all of these elaborate in under a second: `Dropout 512/2304/9216`, `Dropout (4 * 576)`, a `Seq` chain with existential hidden dim 2304 (`linear {i=8} {o=2304}` → `dropout` → `linear {i=2304} {o=8}`), and even a raw `Tensor [4 * o]` signature with a free variable. The original observations were on the V1 `Layer` surface + an earlier toolchain, and no specific upstream fix was identified — so treat the hazard as *unconfirmed on the current stack* rather than gone: keep the `TVec`/`TMat` routing and identity-layer placement guidance until an in-tree removal experiment (revert one alias, full rebuild) passes. The *pattern-compilation* sibling below is NOT fixed — it still reproduces on the same nightly.
 
+### Auto-implicit (instance) search refuses to bind goal metavariables — `%defaulthint` may
+
+Surfaced 2026-07-27 wiring the `ChainFits` witness onto `Nn.Seq`'s `(::)`. A
+plain implementation `{n : Nat} -> ChainFits n n` fails the search for a goal
+like `ChainFits 256 ?h'` — Idris's instance search will not instantiate a
+metavariable in the goal, so any chain where a neighbour's dim must FLOW
+through the constraint (identity layers: activations, dropout, pools) stopped
+elaborating (`Can't find an implementation for ChainFits (C1 * ConvOutDim
+SeqLen K 0) ?h'` in SeqClassify). The same provider exposed as a
+`%defaulthint` function (`chainFitsRefl : {n : Nat} -> ChainFits n n`) IS
+allowed to unify, so `?h'` gets solved to the neighbour's dim — while a
+genuinely mismatched goal (`ChainFits 256 128`) still fails, with both
+numbers in the message. Lesson: when an empty/equality-shaped constraint
+exists to *propagate* information between indices, provide it as a
+`%defaulthint`, not a plain instance. See `Ml/Nn/Seq.idr` (`ChainFits`) and
+the `test-integration-typegate-seq-shape` gate.
+
 ### Pattern-matching `Nat` literals in a case arm OOMs the elaborator at large values
 
 Same Peano-explosion class as the entry above, in the *pattern-compilation* path rather than the type-unification path. Symptom: a case arm like

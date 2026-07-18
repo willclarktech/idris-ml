@@ -22,6 +22,7 @@
         test-integration-typegate-int-overflow-cast \
         test-integration-typegate-backend-linked \
         test-integration-typegate-linear-model \
+        test-integration-typegate-seq-shape \
         test-integration-lint-prim-ratchet
 
 rename-headers:
@@ -351,3 +352,11 @@ test-integration-typegate-backend-linked: install
 test-integration-typegate-linear-model: install
 	@chmod +x ./scripts/check-linear-model-gate.sh
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-linear-model-gate.sh
+
+# Verify the Seq shape gate: a chain whose hidden dims don't line up must
+# fail to compile with an error NAMING BOTH DIMS (the ChainFits witness:
+# `Can't find an implementation for ChainFits 256 128`), not the opaque
+# `Module ?l` search failure. Also compiles the well-sized positive twin.
+test-integration-typegate-seq-shape: install
+	@chmod +x ./scripts/check-seq-shape-gate.sh
+	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-seq-shape-gate.sh

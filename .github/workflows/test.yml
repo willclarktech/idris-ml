@@ -777,6 +777,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-typegate-linear-model
 
+      - name: Verify Seq shape gate (mis-sized chain names both dims)
+        # Negative type-check: a Seq chain whose hidden dims don't line up
+        # must fail with the ChainFits error naming both dims
+        # (`ChainFits 256 128`), not the opaque `Module ?l` search failure.
+        # Pairs with the well-sized positive twin that must still compile.
+        if: ${{ !cancelled() }}
+        run: make test-integration-typegate-seq-shape
+
       - name: Verify prim__ ratchet in examples
         # Per-file baseline of raw prim__ FFI occurrences in
         # idris-ml-examples; fails on any increase or any new file.

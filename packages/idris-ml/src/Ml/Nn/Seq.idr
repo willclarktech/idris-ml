@@ -24,23 +24,54 @@ import Ml.Tensor
 
 %default total
 
-||| A sequence of `Module` layers from `i` to `o`. The intermediate width `h`
-||| is hidden by `(::)`; both fields are linear so threaded sub-models re-pack
-||| cleanly.
+||| Chain-compatibility witness: the sole instance requires the layer's
+||| out-dim to equal the next chain element's in-dim. It exists for error
+||| quality only. With a single shared `h` index on `(::)`, a mis-sized chain
+||| surfaces as the opaque `Can't find an implementation for Module ?l`
+||| (higher-order unification postpones the layer-constructor inversion, and
+||| the failed `Module` search wins error reporting — the 256-vs-128 conflict
+||| is never printed). Splitting the index into `h`/`h'` and tying the halves
+||| with this searchable witness makes the same mistake fail as
+||| `Can't find an implementation for ChainFits 256 128` — both dims named.
+||| Gate: `make test-integration-typegate-seq-shape`.
+public export
+interface ChainFits (layerOut : Nat) (nextIn : Nat) where
+  constructor MkChainFits
+  ||| The equality the witness carries (erased; `forwardSeq` rewrites the
+  ||| activation's width across it).
+  0 chainFitsPrf : layerOut = nextIn
+
+||| The sole way to satisfy `ChainFits`: the two dims are equal. Provided as
+||| a `%defaulthint` rather than a plain instance because default hints may
+||| UNIFY an undetermined neighbour dim — identity layers (activations,
+||| dropout, pools) receive their widths through this joint — while a plain
+||| instance search refuses to bind goal metavariables and broke that
+||| inference (`ChainFits (C1 * ConvOutDim ...) ?h'` in SeqClassify). A
+||| genuinely mismatched pair still fails, naming both numbers.
+%defaulthint
+public export
+chainFitsRefl : {n : Nat} -> ChainFits n n
+chainFitsRefl = MkChainFits Refl
+
+||| A sequence of `Module` layers from `i` to `o`. The intermediate width is
+||| hidden by `(::)`; both fields are linear so threaded sub-models re-pack
+||| cleanly. The layer's out-dim `h` and the tail's in-dim `h'` are separate
+||| indices tied by `ChainFits` (see above — error quality only; the sole
+||| instance forces `h = h'`).
 public export
 data Seq : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   Nil  : Seq i i ex dt g
-  (::) : {h : Nat} ->
+  (::) : {h, h' : Nat} ->
          {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
-         Module l =>
-         (1 _ : l i h ex dt g) -> (1 _ : Seq h o ex dt g) -> Seq i o ex dt g
+         Module l => ChainFits h h' =>
+         (1 _ : l i h ex dt g) -> (1 _ : Seq h' o ex dt g) -> Seq i o ex dt g
 
 ||| Right-associative chain alias for `(::)`.
 public export
-(~~>) : {h : Nat} ->
+(~~>) : {h, h' : Nat} ->
         {l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type} ->
-        Module l =>
-        (1 _ : l i h ex dt g) -> (1 _ : Seq h o ex dt g) -> Seq i o ex dt g
+        Module l => ChainFits h h' =>
+        (1 _ : l i h ex dt g) -> (1 _ : Seq h' o ex dt g) -> Seq i o ex dt g
 (~~>) = (::)
 
 public export infixr 5 ~~>
@@ -51,10 +82,12 @@ export
 forwardSeq : {0 ex : Executor} -> Backend ex dt => {i, o, b : Nat} -> {0 g : GradMode} ->
              (1 _ : Seq i o ex dt g) -> Tensor [b, i] ex dt g ->
              L IO {use=1} (LPair (!* (Tensor [b, o] ex dt g)) (Seq i o ex dt g))
-forwardSeq Nil x         = pure1 (MkBang x # Nil)
-forwardSeq (l :: rest) x = do
+forwardSeq Nil x                    = pure1 (MkBang x # Nil)
+forwardSeq ((::) {h} {h'} l rest) x = do
   (MkBang y # l')    <- forward l x
-  (MkBang z # rest') <- forwardSeq rest y
+  -- Carry the activation across the ChainFits-tied width split (h = h').
+  let y' = replace {p = \n => Tensor [b, n] ex dt g} (chainFitsPrf {layerOut=h} {nextIn=h'}) y
+  (MkBang z # rest') <- forwardSeq rest y'
   pure1 (MkBang z # (l' :: rest'))
 
 ||| Concatenated params of the chain (flat read, ω).

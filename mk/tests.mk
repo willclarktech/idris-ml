@@ -444,6 +444,7 @@ test-integration: \
 		test-integration-typegate-int-overflow-cast \
 		test-integration-typegate-backend-linked \
 		test-integration-typegate-linear-model \
+		test-integration-typegate-seq-shape \
 		test-integration-lint-prim-ratchet \
 		test-integration-lint-fmt \
 		test-integration-checkpoint-resume \
