@@ -347,8 +347,11 @@ caffeinate -i nice -n 19 env MAKEFLAGS=-j2 make …
 ```
 
 `caffeinate -i` stops idle-sleep killing the build; `nice -n 19` keeps the host
-responsive (Chez elaboration peaks 17-23 GB); `MAKEFLAGS=-j2` caps the parallel
-C++ compile (the elaboration phase is single-threaded). `scripts/perf-run-quiet.sh`
+responsive; `MAKEFLAGS=-j2` caps the parallel
+C++ compile (the elaboration phase is single-threaded). (Chez elaboration
+historically peaked 17-23 GB; the 2026-07-27 measurement found the current
+stack far lower — see perf-changes.md — but the convention stays for the
+C++ compile fan-out and multi-example runs.) `scripts/perf-run-quiet.sh`
 bakes all three in — default for any perf-style run; inline the trio for
 Make-target gates. Exempt: hot-tree `make install`/`backend`, short debug
 targets, anything finishing in seconds.

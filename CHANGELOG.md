@@ -2,6 +2,44 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+`Nn.Seq` chain shape-mismatch errors now name both dims (2026-07-27).
+Closes the "Improve `Nn.Seq` chain shape-mismatch error message" row.
+A mis-sized chain (`linear {o=256}` feeding `linear {i=128}`) used to
+fail as the opaque `Can't find an implementation for Module ?l` —
+higher-order unification postpones the layer-constructor inversion and
+the failed `Module` search wins error reporting, so the 256-vs-128
+conflict was never printed. Fix: `(::)`/`(~~>)` split the shared
+hidden-width index into `h`/`h'` tied by a new `ChainFits layerOut
+nextIn` witness whose only provider is a `%defaulthint` `ChainFits n n`
+— the same mistake now fails as `Can't find an implementation for
+ChainFits 256 128`. The `%defaulthint` (not a plain instance) is
+load-bearing: plain instance search refuses to bind goal
+metavariables, which broke identity-layer inference (`ChainFits (C1 *
+ConvOutDim ...) ?h'` in SeqClassify); a default hint may unify, so
+activations/dropout/pools still receive their widths through the
+joint. `forwardSeq` carries the activation across the split via the
+witness's erased proof. TDD: RED = the fixture failing with `Module
+?l`; GREEN = `make test-integration-typegate-seq-shape` (new gate:
+neg fixture must fail naming 256/128, pos twin with an inferred
+activation must compile), wired into `test-integration` + CI. Full
+`make install` + `make test` green across the 20+ existing chain call
+sites.
+
+Elaboration-memory row closed as no-longer-reproducible (2026-07-27).
+The "Reduce idris2/Chez elaboration memory peak on heavy-implicit
+examples" row recorded ~17 GB Chez peak for `idris2 -o llama-inference`
+on a 16 GB VM. Measured 2026-07-27 with `/usr/bin/time -l` on cold
+throwaway build-dirs (pack `0.8.0-b2d2cf40d`): fully cold single-process
+`-o` = 6.1 s / 468 MB max RSS; elaboration-only `--check` = 5.6 s /
+443 MB. The pathology belonged to the earlier toolchain and/or the
+pre-`Nn` library surface (consistent with the same-day Data.Nat audit —
+the type-level Peano hangs also no longer reproduce). Lever (a) still
+landed as cheap insurance: `Example/LlamaCacheGen.idr` splits the
+`hfLlamaForwardLmStep` chain into its own idris2 pass (max per-process
+peak 443 → 399 MB). Full numbers: perf-changes.md "LlamaInference
+elaboration split". The TIME half of elaboration cost stays open in the
+"Reduce Idris elaboration time" High row.
+
 Upstream RefC bug report closed as refuted-not-filed (2026-07-27). The
 "Upstream Idris 2 RefC bug report" row is closed WITHOUT filing: the
 2026-07-27 evidence pass re-ran the draft report's minimal repro AND a
