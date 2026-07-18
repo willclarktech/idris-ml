@@ -69,6 +69,8 @@ prim__sdpa2dMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyP
 prim__rmsNorm2dMlx : AnyPtr -> AnyPtr -> Double -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-mlx (foreign-procedure \"tensor_swiglu_2d_mlx\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-mlx) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 prim__swiGlu2dMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-softmax-xent-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-softmax-xent-2d-mlx (foreign-procedure \"tensor_softmax_xent_2d_mlx\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-softmax-xent-2d-mlx) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
+prim__softmaxXent2dMlx : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
 public export
 {s : MlxStream} -> UserExecutorNN (MlxExecutor s) where
@@ -146,10 +148,10 @@ prim__setRequiresGradMlx : AnyPtr -> Int -> PrimIO ()
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-backward-mlx)) (set-top-level-value! 'idris-ffi-tensor-backward-mlx (foreign-procedure \"tensor_backward_mlx\" (void*) void))) ((top-level-value 'idris-ffi-tensor-backward-mlx) (vector-ref a0 2)))"
 export
 prim__backwardMlx : AnyPtr -> PrimIO ()
-%foreign "C:tensor_no_grad_begin_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-no-grad-begin-mlx)) (set-top-level-value! 'idris-ffi-tensor-no-grad-begin-mlx (foreign-procedure \"tensor_no_grad_begin_mlx\" () void))) ((top-level-value 'idris-ffi-tensor-no-grad-begin-mlx) ))"
 export
 prim__noGradBeginMlx : PrimIO ()
-%foreign "C:tensor_no_grad_end_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-no-grad-end-mlx)) (set-top-level-value! 'idris-ffi-tensor-no-grad-end-mlx (foreign-procedure \"tensor_no_grad_end_mlx\" () void))) ((top-level-value 'idris-ffi-tensor-no-grad-end-mlx) ))"
 export
 prim__noGradEndMlx : PrimIO ()
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_detach_mlx_streamed\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
@@ -170,45 +172,45 @@ prim__paramRegisterMlx : String -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-buffer-return-mlx)) (set-top-level-value! 'idris-ffi-param-register-buffer-return-mlx (foreign-procedure \"param_register_buffer_return_mlx\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-buffer-return-mlx) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 export
 prim__paramRegisterBufferMlx : String -> AnyPtr -> AnyPtr
-%foreign "C:param_is_buffer_mlx,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-is-buffer-mlx)) (set-top-level-value! 'idris-ffi-param-is-buffer-mlx (foreign-procedure \"param_is_buffer_mlx\" (int) int))) ((top-level-value 'idris-ffi-param-is-buffer-mlx) a0))"
 export
 prim__paramIsBufferMlx : Int -> PrimIO Int
-%foreign "C:polyak_blend_pair_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-polyak-blend-pair-mlx)) (set-top-level-value! 'idris-ffi-polyak-blend-pair-mlx (foreign-procedure \"polyak_blend_pair_mlx\" (double string string) int))) ((top-level-value 'idris-ffi-polyak-blend-pair-mlx) a0 a1 a2))"
 prim__polyakBlendPairMlx : Double -> String -> String -> PrimIO Int
-%foreign "C:param_count_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-param-count-mlx)) (set-top-level-value! 'idris-ffi-param-count-mlx (foreign-procedure \"param_count_mlx\" () int))) ((top-level-value 'idris-ffi-param-count-mlx) ))"
 export
 prim__paramCountMlx : PrimIO Int
-%foreign "C:param_name_mlx,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-name-mlx)) (set-top-level-value! 'idris-ffi-param-name-mlx (foreign-procedure \"param_name_mlx\" (int) string))) ((top-level-value 'idris-ffi-param-name-mlx) a0))"
 export
 prim__paramNameMlx : Int -> PrimIO String
-%foreign "C:param_grad_item_at_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-grad-item-at-mlx)) (set-top-level-value! 'idris-ffi-param-grad-item-at-mlx (foreign-procedure \"param_grad_item_at_mlx\" (int int) double))) ((top-level-value 'idris-ffi-param-grad-item-at-mlx) a0 a1))"
 export
 prim__paramGradItemAtMlx : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_mlx,libidrisml"
 export
 prim__paramZeroAllMlx : PrimIO ()
-%foreign "C:param_erase_by_prefix_mlx,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-erase-by-prefix-mlx)) (set-top-level-value! 'idris-ffi-param-erase-by-prefix-mlx (foreign-procedure \"param_erase_by_prefix_mlx\" (string) void))) ((top-level-value 'idris-ffi-param-erase-by-prefix-mlx) a0))"
 export
 prim__paramEraseByPrefixMlx : String -> PrimIO ()
-%foreign "C:optimizer_create_sgd_mlx,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-sgd-mlx)) (set-top-level-value! 'idris-ffi-optimizer-create-sgd-mlx (foreign-procedure \"optimizer_create_sgd_mlx\" (double) void*))) ((top-level-value 'idris-ffi-optimizer-create-sgd-mlx) a0))"
 export
 prim__optimizerCreateSgdMlx : Double -> AnyPtr
-%foreign "C:optimizer_create_rmsprop_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-rmsprop-mlx)) (set-top-level-value! 'idris-ffi-optimizer-create-rmsprop-mlx (foreign-procedure \"optimizer_create_rmsprop_mlx\" (double double double double double) void*))) ((top-level-value 'idris-ffi-optimizer-create-rmsprop-mlx) a0 a1 a2 a3 a4))"
 export
 prim__optimizerCreateRmspropMlx : Double -> Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_create_adam_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-adam-mlx)) (set-top-level-value! 'idris-ffi-optimizer-create-adam-mlx (foreign-procedure \"optimizer_create_adam_mlx\" (double double double double) void*))) ((top-level-value 'idris-ffi-optimizer-create-adam-mlx) a0 a1 a2 a3))"
 export
 prim__optimizerCreateAdamMlx : Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_create_adamw_mlx,libidrisml"
 export
 prim__optimizerCreateAdamWMlx : Double -> Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_set_lr_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-set-lr-mlx)) (set-top-level-value! 'idris-ffi-optimizer-set-lr-mlx (foreign-procedure \"optimizer_set_lr_mlx\" (void* double) void))) ((top-level-value 'idris-ffi-optimizer-set-lr-mlx) a0 a1))"
 export
 prim__optimizerSetLrMlx : AnyPtr -> Double -> PrimIO ()
-%foreign "C:optimizer_set_param_lr_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-optimizer-set-param-lr-mlx)) (set-top-level-value! 'idris-ffi-optimizer-set-param-lr-mlx (foreign-procedure \"optimizer_set_param_lr_mlx\" (void* string double) void))) ((top-level-value 'idris-ffi-optimizer-set-param-lr-mlx) a0 a1 a2))"
 export
 prim__optimizerSetParamLrMlx : AnyPtr -> String -> Double -> PrimIO ()
-%foreign "C:optimizer_own_param_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-own-param-mlx)) (set-top-level-value! 'idris-ffi-optimizer-own-param-mlx (foreign-procedure \"optimizer_own_param_mlx\" (void* string) void))) ((top-level-value 'idris-ffi-optimizer-own-param-mlx) a0 a1))"
 export
 prim__optimizerOwnParamMlx : AnyPtr -> String -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-mlx)) (set-top-level-value! 'idris-ffi-native-train-step-mlx (foreign-procedure \"native_train_step_mlx\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-mlx) a0 a1 a2 (vector-ref a3 2) a4))"
@@ -217,31 +219,31 @@ prim__nativeTrainStepMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-mlx)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-mlx (foreign-procedure \"native_train_step_scaled_mlx\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-mlx) a0 a1 a2 (vector-ref a3 2) a4 a5))"
 export
 prim__nativeTrainStepScaledMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
-%foreign "C:param_save_mlx,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-save-mlx)) (set-top-level-value! 'idris-ffi-param-save-mlx (foreign-procedure \"param_save_mlx\" (string) int))) ((top-level-value 'idris-ffi-param-save-mlx) a0))"
 export
 prim__paramSaveMlx : String -> PrimIO Int
-%foreign "C:param_save_by_name_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-param-save-by-name-mlx)) (set-top-level-value! 'idris-ffi-param-save-by-name-mlx (foreign-procedure \"param_save_by_name_mlx\" (string string int) int))) ((top-level-value 'idris-ffi-param-save-by-name-mlx) a0 a1 a2))"
 export
 prim__paramSaveByNameMlx : String -> String -> Int -> PrimIO Int
-%foreign "C:param_save_by_name_renamed_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-param-save-by-name-renamed-mlx)) (set-top-level-value! 'idris-ffi-param-save-by-name-renamed-mlx (foreign-procedure \"param_save_by_name_renamed_mlx\" (string string string int) int))) ((top-level-value 'idris-ffi-param-save-by-name-renamed-mlx) a0 a1 a2 a3))"
 export
 prim__paramSaveByNameRenamedMlx : String -> String -> String -> Int -> PrimIO Int
-%foreign "C:param_load_mlx,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-load-mlx)) (set-top-level-value! 'idris-ffi-param-load-mlx (foreign-procedure \"param_load_mlx\" (string) int))) ((top-level-value 'idris-ffi-param-load-mlx) a0))"
 export
 prim__paramLoadMlx : String -> PrimIO Int
-%foreign "C:param_load_with_policy_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-load-with-policy-mlx)) (set-top-level-value! 'idris-ffi-param-load-with-policy-mlx (foreign-procedure \"param_load_with_policy_mlx\" (string int) int))) ((top-level-value 'idris-ffi-param-load-with-policy-mlx) a0 a1))"
 export
 prim__paramLoadWithPolicyMlx : String -> Int -> PrimIO Int
-%foreign "C:param_load_with_prefix_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-param-load-with-prefix-mlx)) (set-top-level-value! 'idris-ffi-param-load-with-prefix-mlx (foreign-procedure \"param_load_with_prefix_mlx\" (string int string) int))) ((top-level-value 'idris-ffi-param-load-with-prefix-mlx) a0 a1 a2))"
 export
 prim__paramLoadWithPrefixMlx : String -> Int -> String -> PrimIO Int
-%foreign "C:param_load_renamed_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-param-load-renamed-mlx)) (set-top-level-value! 'idris-ffi-param-load-renamed-mlx (foreign-procedure \"param_load_renamed_mlx\" (string int string string int) int))) ((top-level-value 'idris-ffi-param-load-renamed-mlx) a0 a1 a2 a3 a4))"
 export
 prim__paramLoadRenamedMlx : String -> Int -> String -> String -> Int -> PrimIO Int
-%foreign "C:optimizer_save_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-save-mlx)) (set-top-level-value! 'idris-ffi-optimizer-save-mlx (foreign-procedure \"optimizer_save_mlx\" (void* string) int))) ((top-level-value 'idris-ffi-optimizer-save-mlx) a0 a1))"
 export
 prim__optimizerSaveMlx : AnyPtr -> String -> PrimIO Int
-%foreign "C:optimizer_load_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-load-mlx)) (set-top-level-value! 'idris-ffi-optimizer-load-mlx (foreign-procedure \"optimizer_load_mlx\" (void* string) int))) ((top-level-value 'idris-ffi-optimizer-load-mlx) a0 a1))"
 export
 prim__optimizerLoadMlx : AnyPtr -> String -> PrimIO Int
 %foreign "C:backend_profile_reset_mlx,libidrisml"
@@ -250,10 +252,10 @@ prim__profileResetMlx : PrimIO ()
 %foreign "C:backend_profile_report_mlx,libidrisml"
 export
 prim__profileReportMlx : PrimIO ()
-%foreign "C:tensor_epoch_begin_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-epoch-begin-mlx)) (set-top-level-value! 'idris-ffi-tensor-epoch-begin-mlx (foreign-procedure \"tensor_epoch_begin_mlx\" () void))) ((top-level-value 'idris-ffi-tensor-epoch-begin-mlx) ))"
 export
 prim__epochBeginMlx : PrimIO ()
-%foreign "C:tensor_epoch_end_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-epoch-end-mlx)) (set-top-level-value! 'idris-ffi-tensor-epoch-end-mlx (foreign-procedure \"tensor_epoch_end_mlx\" () void))) ((top-level-value 'idris-ffi-tensor-epoch-end-mlx) ))"
 export
 prim__epochEndMlx : PrimIO ()
 %foreign "C:backend_release_all_persistent_mlx,libidrisml"
@@ -262,16 +264,16 @@ prim__releaseAllPersistentMlx : PrimIO ()
 %foreign "C:backend_reset_for_eval_mlx,libidrisml"
 export
 prim__resetForEvalMlx : PrimIO ()
-%foreign "C:tensor_live_count_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-live-count-mlx)) (set-top-level-value! 'idris-ffi-tensor-live-count-mlx (foreign-procedure \"tensor_live_count_mlx\" () int))) ((top-level-value 'idris-ffi-tensor-live-count-mlx) ))"
 export
 prim__liveCountMlx : PrimIO Int
-%foreign "C:tensor_peak_live_count_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-peak-live-count-mlx)) (set-top-level-value! 'idris-ffi-tensor-peak-live-count-mlx (foreign-procedure \"tensor_peak_live_count_mlx\" () int))) ((top-level-value 'idris-ffi-tensor-peak-live-count-mlx) ))"
 export
 prim__peakLiveCountMlx : PrimIO Int
-%foreign "C:tensor_perf_reset_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-perf-reset-mlx)) (set-top-level-value! 'idris-ffi-tensor-perf-reset-mlx (foreign-procedure \"tensor_perf_reset_mlx\" () void))) ((top-level-value 'idris-ffi-tensor-perf-reset-mlx) ))"
 export
 prim__perfResetMlx : PrimIO ()
-%foreign "C:tensor_perf_op_count_mlx,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-perf-op-count-mlx)) (set-top-level-value! 'idris-ffi-tensor-perf-op-count-mlx (foreign-procedure \"tensor_perf_op_count_mlx\" () int))) ((top-level-value 'idris-ffi-tensor-perf-op-count-mlx) ))"
 export
 prim__perfOpCountMlx : PrimIO Int
 
@@ -329,7 +331,7 @@ prim__createParam2dConstStreamedMlx : Int -> Int -> Double -> Int -> Int -> AnyP
 prim__createParam3dConstStreamedMlx : Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-param-4d-const-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-param-4d-const-streamed-mlx (foreign-procedure \"tensor_create_param_4d_const_streamed_mlx\" (int int int int double int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-param-4d-const-streamed-mlx) a0 a1 a2 a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 prim__createParam4dConstStreamedMlx : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
-%foreign "C:tensor_set_init_seed_streamed_mlx,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-set-init-seed-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-set-init-seed-streamed-mlx (foreign-procedure \"tensor_set_init_seed_streamed_mlx\" (int int) void))) ((top-level-value 'idris-ffi-tensor-set-init-seed-streamed-mlx) a0 a1))"
 export
 prim__setInitSeedStreamedMlx : Bits64 -> Int -> PrimIO ()
 
@@ -348,6 +350,7 @@ public export
   primPolyakBlendPair               = prim__polyakBlendPairMlx
   primRmsNorm2d                     = prim__rmsNorm2dMlx
   primSdpa2d                        = prim__sdpa2dMlx
+  primSoftmaxXent2d                 = prim__softmaxXent2dMlx
   primSwiGlu2d                      = prim__swiGlu2dMlx
   primTile2d a0 a1 a2               = prim__tile2dMlxStreamed a0 a1 a2 (streamTag s)
   -- <<< END GENERATED <<<

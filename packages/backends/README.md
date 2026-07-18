@@ -183,7 +183,12 @@ byte-for-byte:
   cross-backend transfer, plus per-op forward + backward and the
   lifted shared TUs.
 - `make example-supervised` at seed=42 yields
-  `loss=0.13801130234059747` (unchanged through every lift).
+  `loss=0.13666947626094297` (re-pinned 2026-07-27: the old pin
+  `0.13801130234059747` predated the documented `Nn`/GradMode-era
+  changes and no longer matched HEAD *before* the fused softmax-xent
+  work; the fused `tnllLossMean` was then verified bit-identical
+  against the decomposed chain at this value — see
+  `nn/loss/softmax_xent.c`'s FP-contraction notes).
 
 When changing a hot path, the regression bar is "test-unit-c +
 example-supervised seed=42 unchanged". Any deviation needs an

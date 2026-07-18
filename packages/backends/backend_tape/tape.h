@@ -88,6 +88,7 @@ enum {
 	OP_CAST_DTYPE,         /* dtype cast — locally linear; identity grad flow back to source */
 	OP_RMS_NORM_2D,        /* row-wise RMS normalization on [m,n] (HF LlamaRMSNorm) */
 	OP_SWIGLU_2D,          /* silu(gate) * up on [m,n]; gate -> arg1, up -> arg2 */
+	OP_SOFTMAX_XENT_2D,    /* -scale * sum(target * log_softmax(input, rows)) -> scalar */
 	OP_COUNT               /* sentinel — must be last */
 };
 
@@ -163,6 +164,17 @@ typedef struct {
 	double* sig_g; /* sigmoid(gate[i,j]) [m*n] */
 	int m, n;
 } SwiGluMeta;
+
+/* SoftmaxXentMeta: fused softmax cross-entropy. Caches the row-wise
+   log-softmax so backward recomputes softmax as exp(ls), mirroring the
+   decomposed log-softmax backward. Target rides the meta (like
+   RmsNormMeta's weight). See nn/loss/softmax_xent.c. */
+typedef struct {
+	Tensor* target; /* soft/one-hot targets [m*n] */
+	double* ls;     /* log_softmax(input) [m*n] */
+	int m, n;
+	double scale; /* caller-chosen reduction scale (e.g. 1/(b*n)) */
+} SoftmaxXentMeta;
 
 /* GruCellMeta: layout shared with nn/recurrent/gru_cell.c.
    Kept here because tape_reset in tape.c frees zG/rG/nG. */

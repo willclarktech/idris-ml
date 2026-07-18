@@ -491,6 +491,47 @@ Test(dtype_scaffolding, tape_f32_non_elementwise_coverage) {
 		param_clear();
 	}
 
+	/* 2026-07-27: fused softmax cross-entropy (OP_SOFTMAX_XENT_2D).
+	   Forward + input-grad F32-vs-F64 paired contract at 1e-5, plus tag
+	   propagation — the T29 rung the RMSNorm/SwiGLU landings skipped
+	   (perf-changes.md follow-up notes). Rank-1 input rides the [1, n]
+	   acceptance; one-hot target so d_in = scale * (softmax - target). */
+	{
+		double wv[] = {0.25, -0.5, 1.0, 0.75};
+		double tv[] = {0.0, 1.0, 0.0, 0.0};
+		double g_f64[4], g_f32[4];
+
+		param_clear();
+		TensorHandle w64 = tensor_create_param_1d_streamed(4, hcopy(wv, 4), 0, 15);
+		TensorHandle t64 = tensor_create_param_1d_streamed(4, hcopy(tv, 4), 0, 15);
+		param_register("w", w64);
+		TensorHandle y64 = tensor_softmax_xent_2d(w64, t64, 0.25);
+		double loss64 = tensor_item(y64);
+		tensor_backward(y64);
+		for (int i = 0; i < 4; i++)
+			g_f64[i] = param_grad_item_at(0, i);
+		param_clear();
+
+		TensorHandle w32 = tensor_create_param_1d_streamed(4, hcopy(wv, 4), 0, 14);
+		TensorHandle t32 = tensor_create_param_1d_streamed(4, hcopy(tv, 4), 0, 14);
+		param_register("w", w32);
+		TensorHandle y32 = tensor_softmax_xent_2d(w32, t32, 0.25);
+		double loss32 = tensor_item(y32);
+		tensor_backward(y32);
+		for (int i = 0; i < 4; i++)
+			g_f32[i] = param_grad_item_at(0, i);
+
+		ASSERT_TRUE("softmax_xent: F32 output propagates F32 tag",
+		            strcmp(tensor_dtype_name(y32), "F32") == 0);
+		ASSERT_NEAR("softmax_xent: loss_f32 ~ loss_f64", loss32, loss64, 1e-5);
+		for (int i = 0; i < 4; i++) {
+			char m[64];
+			snprintf(m, sizeof m, "softmax_xent: w.grad_f32[%d] ~ w.grad_f64", i);
+			ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+		}
+		param_clear();
+	}
+
 	/* Batch 1 Group D: reductions. tensor_sum already routes via
 	   tape_load_d (Phase 3); rest get F32 scalar outputs + tape_load_d
 	   for input reads. tensor_min / tensor_max are non-differentiable

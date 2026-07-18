@@ -234,6 +234,7 @@
 #define tensor_softmax tensor_softmax_mlx
 #define tensor_softmax_2d tensor_softmax_2d_mlx
 #define tensor_softmax_3d tensor_softmax_3d_mlx
+#define tensor_softmax_xent_2d tensor_softmax_xent_2d_mlx
 #define tensor_softplus tensor_softplus_mlx
 #define tensor_sqrt tensor_sqrt_mlx
 #define tensor_squeeze tensor_squeeze_mlx

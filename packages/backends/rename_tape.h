@@ -234,6 +234,7 @@
 #define tensor_softmax tensor_softmax_tape
 #define tensor_softmax_2d tensor_softmax_2d_tape
 #define tensor_softmax_3d tensor_softmax_3d_tape
+#define tensor_softmax_xent_2d tensor_softmax_xent_2d_tape
 #define tensor_softplus tensor_softplus_tape
 #define tensor_sqrt tensor_sqrt_tape
 #define tensor_squeeze tensor_squeeze_tape

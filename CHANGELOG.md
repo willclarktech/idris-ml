@@ -2,6 +2,36 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Fused softmax cross-entropy shipped on all three backends (2026-07-27).
+Closes item (1) of the "Match PyTorch's catalogue of fused ops" epic
+(precedent: `F.cross_entropy`). `tensor_softmax_xent_2d(input, target,
+scale)` = `-scale · Σ target ⊙ log_softmax(input, rows)` with the
+caller-chosen reduction scale; rank-1 accepted as `[1,n]`; soft /
+one-hot / zero-row (MLM padding) targets via the
+`scale·(softmax·rowsum(t) − t)` input gradient. Tape: hand-written
+forward+backward that replicates the decomposed
+`log_softmax_2d → mul → sum → neg → mul_scalar` chain's arithmetic
+BIT-EXACTLY on F64 — same row loops, flat accumulation order, and
+named-statement products to block clang's fma contraction — so
+`tnllLossMean`/`tnllLossMeanL` (reimplemented over the fused prim,
+constraint moved up to `UserExecutorOptimizations`) leave full
+training runs bit-identical: supervised seed=42
+`loss=0.13666947626094297` fused == decomposed. (That check also
+exposed the backends-README pin `0.13801130234059747` as stale from
+the earlier Nn/GradMode era — re-pinned with a dated note.) Torch:
+`at::log_softmax` composition (autograd-tracked); mlx: single tape
+entry + LSE-form vjp replay, scale in `scalar_arg`. One tape node
+replaces five per classification step. Surface: `primSoftmaxXent2d`
+on `UserExecutorOptimizations` + `tsoftmaxXent2d`/`tsoftmaxXent2dL`
+smart constructors. Tests: criterion ops suite
+(`src/ops/nn/loss/test_softmax_xent.c` — value, decomposed-agreement,
+zero-row, scale linearity, rank-1; tape 606 / torch 566 / mlx 643 all
+green) + the T29 F32 gradcheck rung in `test_dtype_scaffolding.c`
+(the rung RMSNorm/SwiGLU had skipped); `test-coverage-gap-probe`
+clean. Follow-up adoption (Gpt2LmFinetune 1/seqLen, BertMlmFinetune
+1/numMasked, 1-D `tnllLoss` sites) noted on the epic row.
+Perf: perf-changes.md "Fused softmax cross-entropy" entry.
+
 `Nn.Seq` chain shape-mismatch errors now name both dims (2026-07-27).
 Closes the "Improve `Nn.Seq` chain shape-mismatch error message" row.
 A mis-sized chain (`linear {o=256}` feeding `linear {i=128}`) used to

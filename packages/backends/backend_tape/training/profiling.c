@@ -84,7 +84,8 @@ static const char* op_name(int op) {
 	    "BATCH_NORM",  "DROPOUT",     "AVGP1D",   "AVGP2D",      "CONV1D",      "MAXP1D",
 	    "CONV2D",      "CONV2D_B",    "MAXP2D",   "MAXP2D_B",    "CUMPROD",     "GATHER",
 	    "SCATTER_ADD", "GATHER_ROWS", "MAX_ROWS", "LEAKY_RELU",  "SILU",        "LINEAR_2D",
-	    "CONCAT_2D",   "SOFTPLUS",    "TILE_2D",  "CAST_DTYPE",  "RMS_NORM_2D", "SWIGLU_2D"};
+	    "CONCAT_2D",   "SOFTPLUS",    "TILE_2D",  "CAST_DTYPE",  "RMS_NORM_2D", "SWIGLU_2D",
+	    "SFTMX_XENT"};
 	/* Compile-time check: names[] must cover every op tag.
 	   Add to BOTH this list and the enum when introducing new ops. */
 	_Static_assert(sizeof(names) / sizeof(names[0]) == OP_COUNT,

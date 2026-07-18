@@ -179,6 +179,12 @@ void tape_reset(void) {
 				meta->x_hat = NULL;
 				meta->rstd = NULL;
 			}
+			/* Free OP_SOFTMAX_XENT_2D heap arrays */
+			if (e->op == OP_SOFTMAX_XENT_2D && e->op_meta) {
+				SoftmaxXentMeta* meta = (SoftmaxXentMeta*)e->op_meta;
+				free(meta->ls);
+				meta->ls = NULL;
+			}
 			/* Free OP_SWIGLU_2D heap arrays */
 			if (e->op == OP_SWIGLU_2D && e->op_meta) {
 				SwiGluMeta* meta = (SwiGluMeta*)e->op_meta;

@@ -69,6 +69,8 @@ prim__sdpa2dTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> An
 prim__rmsNorm2dTorch : AnyPtr -> AnyPtr -> Double -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-torch (foreign-procedure \"tensor_swiglu_2d_torch\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-torch) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__swiGlu2dTorch : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-softmax-xent-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-softmax-xent-2d-torch (foreign-procedure \"tensor_softmax_xent_2d_torch\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-softmax-xent-2d-torch) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__softmaxXent2dTorch : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
 public export
 {d : TorchHwDev} -> UserExecutorNN (TorchExecutor d) where
@@ -147,10 +149,10 @@ prim__setRequiresGradTorch : AnyPtr -> Int -> PrimIO ()
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-backward-torch)) (set-top-level-value! 'idris-ffi-tensor-backward-torch (foreign-procedure \"tensor_backward_torch\" (void*) void))) ((top-level-value 'idris-ffi-tensor-backward-torch) (vector-ref a0 2)))"
 export
 prim__backwardTorch : AnyPtr -> PrimIO ()
-%foreign "C:tensor_no_grad_begin_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-no-grad-begin-torch)) (set-top-level-value! 'idris-ffi-tensor-no-grad-begin-torch (foreign-procedure \"tensor_no_grad_begin_torch\" () void))) ((top-level-value 'idris-ffi-tensor-no-grad-begin-torch) ))"
 export
 prim__noGradBeginTorch : PrimIO ()
-%foreign "C:tensor_no_grad_end_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-no-grad-end-torch)) (set-top-level-value! 'idris-ffi-tensor-no-grad-end-torch (foreign-procedure \"tensor_no_grad_end_torch\" () void))) ((top-level-value 'idris-ffi-tensor-no-grad-end-torch) ))"
 export
 prim__noGradEndTorch : PrimIO ()
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-detach-torch)) (set-top-level-value! 'idris-ffi-tensor-detach-torch (foreign-procedure \"tensor_detach_torch\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-detach-torch) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
@@ -171,45 +173,45 @@ prim__paramRegisterTorch : String -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-buffer-return-torch)) (set-top-level-value! 'idris-ffi-param-register-buffer-return-torch (foreign-procedure \"param_register_buffer_return_torch\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-buffer-return-torch) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 export
 prim__paramRegisterBufferTorch : String -> AnyPtr -> AnyPtr
-%foreign "C:param_is_buffer_torch,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-is-buffer-torch)) (set-top-level-value! 'idris-ffi-param-is-buffer-torch (foreign-procedure \"param_is_buffer_torch\" (int) int))) ((top-level-value 'idris-ffi-param-is-buffer-torch) a0))"
 export
 prim__paramIsBufferTorch : Int -> PrimIO Int
-%foreign "C:polyak_blend_pair_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-polyak-blend-pair-torch)) (set-top-level-value! 'idris-ffi-polyak-blend-pair-torch (foreign-procedure \"polyak_blend_pair_torch\" (double string string) int))) ((top-level-value 'idris-ffi-polyak-blend-pair-torch) a0 a1 a2))"
 prim__polyakBlendPairTorch : Double -> String -> String -> PrimIO Int
-%foreign "C:param_count_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-param-count-torch)) (set-top-level-value! 'idris-ffi-param-count-torch (foreign-procedure \"param_count_torch\" () int))) ((top-level-value 'idris-ffi-param-count-torch) ))"
 export
 prim__paramCountTorch : PrimIO Int
-%foreign "C:param_name_torch,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-name-torch)) (set-top-level-value! 'idris-ffi-param-name-torch (foreign-procedure \"param_name_torch\" (int) string))) ((top-level-value 'idris-ffi-param-name-torch) a0))"
 export
 prim__paramNameTorch : Int -> PrimIO String
-%foreign "C:param_grad_item_at_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-grad-item-at-torch)) (set-top-level-value! 'idris-ffi-param-grad-item-at-torch (foreign-procedure \"param_grad_item_at_torch\" (int int) double))) ((top-level-value 'idris-ffi-param-grad-item-at-torch) a0 a1))"
 export
 prim__paramGradItemAtTorch : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_torch,libidrisml"
 export
 prim__paramZeroAllTorch : PrimIO ()
-%foreign "C:param_erase_by_prefix_torch,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-erase-by-prefix-torch)) (set-top-level-value! 'idris-ffi-param-erase-by-prefix-torch (foreign-procedure \"param_erase_by_prefix_torch\" (string) void))) ((top-level-value 'idris-ffi-param-erase-by-prefix-torch) a0))"
 export
 prim__paramEraseByPrefixTorch : String -> PrimIO ()
-%foreign "C:optimizer_create_sgd_torch,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-sgd-torch)) (set-top-level-value! 'idris-ffi-optimizer-create-sgd-torch (foreign-procedure \"optimizer_create_sgd_torch\" (double) void*))) ((top-level-value 'idris-ffi-optimizer-create-sgd-torch) a0))"
 export
 prim__optimizerCreateSgdTorch : Double -> AnyPtr
-%foreign "C:optimizer_create_rmsprop_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-rmsprop-torch)) (set-top-level-value! 'idris-ffi-optimizer-create-rmsprop-torch (foreign-procedure \"optimizer_create_rmsprop_torch\" (double double double double double) void*))) ((top-level-value 'idris-ffi-optimizer-create-rmsprop-torch) a0 a1 a2 a3 a4))"
 export
 prim__optimizerCreateRmspropTorch : Double -> Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_create_adam_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-adam-torch)) (set-top-level-value! 'idris-ffi-optimizer-create-adam-torch (foreign-procedure \"optimizer_create_adam_torch\" (double double double double) void*))) ((top-level-value 'idris-ffi-optimizer-create-adam-torch) a0 a1 a2 a3))"
 export
 prim__optimizerCreateAdamTorch : Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_create_adamw_torch,libidrisml"
 export
 prim__optimizerCreateAdamWTorch : Double -> Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_set_lr_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-set-lr-torch)) (set-top-level-value! 'idris-ffi-optimizer-set-lr-torch (foreign-procedure \"optimizer_set_lr_torch\" (void* double) void))) ((top-level-value 'idris-ffi-optimizer-set-lr-torch) a0 a1))"
 export
 prim__optimizerSetLrTorch : AnyPtr -> Double -> PrimIO ()
-%foreign "C:optimizer_set_param_lr_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-optimizer-set-param-lr-torch)) (set-top-level-value! 'idris-ffi-optimizer-set-param-lr-torch (foreign-procedure \"optimizer_set_param_lr_torch\" (void* string double) void))) ((top-level-value 'idris-ffi-optimizer-set-param-lr-torch) a0 a1 a2))"
 export
 prim__optimizerSetParamLrTorch : AnyPtr -> String -> Double -> PrimIO ()
-%foreign "C:optimizer_own_param_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-own-param-torch)) (set-top-level-value! 'idris-ffi-optimizer-own-param-torch (foreign-procedure \"optimizer_own_param_torch\" (void* string) void))) ((top-level-value 'idris-ffi-optimizer-own-param-torch) a0 a1))"
 export
 prim__optimizerOwnParamTorch : AnyPtr -> String -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-torch)) (set-top-level-value! 'idris-ffi-native-train-step-torch (foreign-procedure \"native_train_step_torch\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-torch) a0 a1 a2 (vector-ref a3 2) a4))"
@@ -218,31 +220,31 @@ prim__nativeTrainStepTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Doub
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-torch)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-torch (foreign-procedure \"native_train_step_scaled_torch\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-torch) a0 a1 a2 (vector-ref a3 2) a4 a5))"
 export
 prim__nativeTrainStepScaledTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
-%foreign "C:param_save_torch,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-save-torch)) (set-top-level-value! 'idris-ffi-param-save-torch (foreign-procedure \"param_save_torch\" (string) int))) ((top-level-value 'idris-ffi-param-save-torch) a0))"
 export
 prim__paramSaveTorch : String -> PrimIO Int
-%foreign "C:param_save_by_name_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-param-save-by-name-torch)) (set-top-level-value! 'idris-ffi-param-save-by-name-torch (foreign-procedure \"param_save_by_name_torch\" (string string int) int))) ((top-level-value 'idris-ffi-param-save-by-name-torch) a0 a1 a2))"
 export
 prim__paramSaveByNameTorch : String -> String -> Int -> PrimIO Int
-%foreign "C:param_save_by_name_renamed_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-param-save-by-name-renamed-torch)) (set-top-level-value! 'idris-ffi-param-save-by-name-renamed-torch (foreign-procedure \"param_save_by_name_renamed_torch\" (string string string int) int))) ((top-level-value 'idris-ffi-param-save-by-name-renamed-torch) a0 a1 a2 a3))"
 export
 prim__paramSaveByNameRenamedTorch : String -> String -> String -> Int -> PrimIO Int
-%foreign "C:param_load_torch,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-load-torch)) (set-top-level-value! 'idris-ffi-param-load-torch (foreign-procedure \"param_load_torch\" (string) int))) ((top-level-value 'idris-ffi-param-load-torch) a0))"
 export
 prim__paramLoadTorch : String -> PrimIO Int
-%foreign "C:param_load_with_policy_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-load-with-policy-torch)) (set-top-level-value! 'idris-ffi-param-load-with-policy-torch (foreign-procedure \"param_load_with_policy_torch\" (string int) int))) ((top-level-value 'idris-ffi-param-load-with-policy-torch) a0 a1))"
 export
 prim__paramLoadWithPolicyTorch : String -> Int -> PrimIO Int
-%foreign "C:param_load_with_prefix_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-param-load-with-prefix-torch)) (set-top-level-value! 'idris-ffi-param-load-with-prefix-torch (foreign-procedure \"param_load_with_prefix_torch\" (string int string) int))) ((top-level-value 'idris-ffi-param-load-with-prefix-torch) a0 a1 a2))"
 export
 prim__paramLoadWithPrefixTorch : String -> Int -> String -> PrimIO Int
-%foreign "C:param_load_renamed_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-param-load-renamed-torch)) (set-top-level-value! 'idris-ffi-param-load-renamed-torch (foreign-procedure \"param_load_renamed_torch\" (string int string string int) int))) ((top-level-value 'idris-ffi-param-load-renamed-torch) a0 a1 a2 a3 a4))"
 export
 prim__paramLoadRenamedTorch : String -> Int -> String -> String -> Int -> PrimIO Int
-%foreign "C:optimizer_save_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-save-torch)) (set-top-level-value! 'idris-ffi-optimizer-save-torch (foreign-procedure \"optimizer_save_torch\" (void* string) int))) ((top-level-value 'idris-ffi-optimizer-save-torch) a0 a1))"
 export
 prim__optimizerSaveTorch : AnyPtr -> String -> PrimIO Int
-%foreign "C:optimizer_load_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-load-torch)) (set-top-level-value! 'idris-ffi-optimizer-load-torch (foreign-procedure \"optimizer_load_torch\" (void* string) int))) ((top-level-value 'idris-ffi-optimizer-load-torch) a0 a1))"
 export
 prim__optimizerLoadTorch : AnyPtr -> String -> PrimIO Int
 %foreign "C:backend_profile_reset_torch,libidrisml"
@@ -251,10 +253,10 @@ prim__profileResetTorch : PrimIO ()
 %foreign "C:backend_profile_report_torch,libidrisml"
 export
 prim__profileReportTorch : PrimIO ()
-%foreign "C:tensor_epoch_begin_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-epoch-begin-torch)) (set-top-level-value! 'idris-ffi-tensor-epoch-begin-torch (foreign-procedure \"tensor_epoch_begin_torch\" () void))) ((top-level-value 'idris-ffi-tensor-epoch-begin-torch) ))"
 export
 prim__epochBeginTorch : PrimIO ()
-%foreign "C:tensor_epoch_end_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-epoch-end-torch)) (set-top-level-value! 'idris-ffi-tensor-epoch-end-torch (foreign-procedure \"tensor_epoch_end_torch\" () void))) ((top-level-value 'idris-ffi-tensor-epoch-end-torch) ))"
 export
 prim__epochEndTorch : PrimIO ()
 %foreign "C:backend_release_all_persistent_torch,libidrisml"
@@ -263,16 +265,16 @@ prim__releaseAllPersistentTorch : PrimIO ()
 %foreign "C:backend_reset_for_eval_torch,libidrisml"
 export
 prim__resetForEvalTorch : PrimIO ()
-%foreign "C:tensor_live_count_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-live-count-torch)) (set-top-level-value! 'idris-ffi-tensor-live-count-torch (foreign-procedure \"tensor_live_count_torch\" () int))) ((top-level-value 'idris-ffi-tensor-live-count-torch) ))"
 export
 prim__liveCountTorch : PrimIO Int
-%foreign "C:tensor_peak_live_count_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-peak-live-count-torch)) (set-top-level-value! 'idris-ffi-tensor-peak-live-count-torch (foreign-procedure \"tensor_peak_live_count_torch\" () int))) ((top-level-value 'idris-ffi-tensor-peak-live-count-torch) ))"
 export
 prim__peakLiveCountTorch : PrimIO Int
-%foreign "C:tensor_perf_reset_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-perf-reset-torch)) (set-top-level-value! 'idris-ffi-tensor-perf-reset-torch (foreign-procedure \"tensor_perf_reset_torch\" () void))) ((top-level-value 'idris-ffi-tensor-perf-reset-torch) ))"
 export
 prim__perfResetTorch : PrimIO ()
-%foreign "C:tensor_perf_op_count_torch,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-perf-op-count-torch)) (set-top-level-value! 'idris-ffi-tensor-perf-op-count-torch (foreign-procedure \"tensor_perf_op_count_torch\" () int))) ((top-level-value 'idris-ffi-tensor-perf-op-count-torch) ))"
 export
 prim__perfOpCountTorch : PrimIO Int
 
@@ -332,7 +334,7 @@ prim__createParam2dConstStreamedTorch : Int -> Int -> Double -> Int -> Int -> An
 prim__createParam3dConstStreamedTorch : Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-param-4d-const-streamed-torch)) (set-top-level-value! 'idris-ffi-tensor-create-param-4d-const-streamed-torch (foreign-procedure \"tensor_create_param_4d_const_streamed_torch\" (int int int int double int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-param-4d-const-streamed-torch) a0 a1 a2 a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__createParam4dConstStreamedTorch : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
-%foreign "C:tensor_set_init_seed_streamed_torch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-set-init-seed-streamed-torch)) (set-top-level-value! 'idris-ffi-tensor-set-init-seed-streamed-torch (foreign-procedure \"tensor_set_init_seed_streamed_torch\" (int int) void))) ((top-level-value 'idris-ffi-tensor-set-init-seed-streamed-torch) a0 a1))"
 export
 prim__setInitSeedStreamedTorch : Bits64 -> Int -> PrimIO ()
 
@@ -351,6 +353,7 @@ public export
   primPolyakBlendPair             = prim__polyakBlendPairTorch
   primRmsNorm2d                   = prim__rmsNorm2dTorch
   primSdpa2d                      = prim__sdpa2dTorch
+  primSoftmaxXent2d               = prim__softmaxXent2dTorch
   primSwiGlu2d                    = prim__swiGlu2dTorch
   primTile2d                      = prim__tile2dTorch
   -- <<< END GENERATED <<<

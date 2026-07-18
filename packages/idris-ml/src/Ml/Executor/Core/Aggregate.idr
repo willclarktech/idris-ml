@@ -33,9 +33,10 @@ interface (UserExecutorConv ex,
 ||| Inference-only aggregate. Documents the minimum surface a third-
 ||| party backend that ships only forward-pass + checkpoint-load (no
 ||| optimizer, no autograd) needs to implement: `Conv` (transitively
-||| pulls in Core + Linear + NN), `Optimizations` (the fused inference
-||| ops `primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d` + fused param-
-||| init), `TensorCreate` (data loading + dtype-streamed creators),
+||| pulls in Core + Linear + NN), `Optimizations` (the fused ops
+||| `primSdpa2d` / `primRmsNorm2d` / `primSwiGlu2d` /
+||| `primSoftmaxXent2d` + fused param-init), `TensorCreate` (data
+||| loading + dtype-streamed creators),
 ||| `Transfer` (cross-backend handles), and `Quant` (BitNet ternary
 ||| surface). Skipping Autograd / ParamRegistry / Optimizer /
 ||| Serialize is a real reduction — those four sub-slices together

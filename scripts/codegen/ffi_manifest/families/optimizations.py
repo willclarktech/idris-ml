@@ -86,6 +86,13 @@ ENTRIES = {
         idris_method="primSdpa2d",
         mlx="direct",
     ),
+    "tensor_softmax_xent_2d": Entry(
+        args=("T", "T", "d"),
+        ret="T",
+        slice="UserExecutorOptimizations",
+        idris_method="primSoftmaxXent2d",
+        mlx="direct",
+    ),
     "tensor_swi_glu_2d": Entry(
         args=("T", "T"),
         ret="T",

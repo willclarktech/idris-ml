@@ -69,6 +69,8 @@ prim__sdpa2dTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> Any
 prim__rmsNorm2dTape : AnyPtr -> AnyPtr -> Double -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-swiglu-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-swiglu-2d-tape (foreign-procedure \"tensor_swiglu_2d_tape\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-swiglu-2d-tape) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__swiGlu2dTape : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-softmax-xent-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-softmax-xent-2d-tape (foreign-procedure \"tensor_softmax_xent_2d_tape\" (void* void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-softmax-xent-2d-tape) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__softmaxXent2dTape : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
 public export
 UserExecutorNN TapeExecutor where
@@ -147,10 +149,10 @@ prim__setRequiresGradTape : AnyPtr -> Int -> PrimIO ()
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-backward-tape)) (set-top-level-value! 'idris-ffi-tensor-backward-tape (foreign-procedure \"tensor_backward_tape\" (void*) void))) ((top-level-value 'idris-ffi-tensor-backward-tape) (vector-ref a0 2)))"
 export
 prim__backwardTape : AnyPtr -> PrimIO ()
-%foreign "C:tensor_no_grad_begin_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-no-grad-begin-tape)) (set-top-level-value! 'idris-ffi-tensor-no-grad-begin-tape (foreign-procedure \"tensor_no_grad_begin_tape\" () void))) ((top-level-value 'idris-ffi-tensor-no-grad-begin-tape) ))"
 export
 prim__noGradBeginTape : PrimIO ()
-%foreign "C:tensor_no_grad_end_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-no-grad-end-tape)) (set-top-level-value! 'idris-ffi-tensor-no-grad-end-tape (foreign-procedure \"tensor_no_grad_end_tape\" () void))) ((top-level-value 'idris-ffi-tensor-no-grad-end-tape) ))"
 export
 prim__noGradEndTape : PrimIO ()
 %foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-detach-tape)) (set-top-level-value! 'idris-ffi-tensor-detach-tape (foreign-procedure \"tensor_detach_tape\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-detach-tape) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
@@ -171,45 +173,45 @@ prim__paramRegisterTape : String -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-register-buffer-return-tape)) (set-top-level-value! 'idris-ffi-param-register-buffer-return-tape (foreign-procedure \"param_register_buffer_return_tape\" (string void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-param-register-buffer-return-tape) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 export
 prim__paramRegisterBufferTape : String -> AnyPtr -> AnyPtr
-%foreign "C:param_is_buffer_tape,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-is-buffer-tape)) (set-top-level-value! 'idris-ffi-param-is-buffer-tape (foreign-procedure \"param_is_buffer_tape\" (int) int))) ((top-level-value 'idris-ffi-param-is-buffer-tape) a0))"
 export
 prim__paramIsBufferTape : Int -> PrimIO Int
-%foreign "C:polyak_blend_pair_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-polyak-blend-pair-tape)) (set-top-level-value! 'idris-ffi-polyak-blend-pair-tape (foreign-procedure \"polyak_blend_pair_tape\" (double string string) int))) ((top-level-value 'idris-ffi-polyak-blend-pair-tape) a0 a1 a2))"
 prim__polyakBlendPairTape : Double -> String -> String -> PrimIO Int
-%foreign "C:param_count_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-param-count-tape)) (set-top-level-value! 'idris-ffi-param-count-tape (foreign-procedure \"param_count_tape\" () int))) ((top-level-value 'idris-ffi-param-count-tape) ))"
 export
 prim__paramCountTape : PrimIO Int
-%foreign "C:param_name_tape,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-name-tape)) (set-top-level-value! 'idris-ffi-param-name-tape (foreign-procedure \"param_name_tape\" (int) string))) ((top-level-value 'idris-ffi-param-name-tape) a0))"
 export
 prim__paramNameTape : Int -> PrimIO String
-%foreign "C:param_grad_item_at_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-grad-item-at-tape)) (set-top-level-value! 'idris-ffi-param-grad-item-at-tape (foreign-procedure \"param_grad_item_at_tape\" (int int) double))) ((top-level-value 'idris-ffi-param-grad-item-at-tape) a0 a1))"
 export
 prim__paramGradItemAtTape : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_tape,libidrisml"
 export
 prim__paramZeroAllTape : PrimIO ()
-%foreign "C:param_erase_by_prefix_tape,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-erase-by-prefix-tape)) (set-top-level-value! 'idris-ffi-param-erase-by-prefix-tape (foreign-procedure \"param_erase_by_prefix_tape\" (string) void))) ((top-level-value 'idris-ffi-param-erase-by-prefix-tape) a0))"
 export
 prim__paramEraseByPrefixTape : String -> PrimIO ()
-%foreign "C:optimizer_create_sgd_tape,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-sgd-tape)) (set-top-level-value! 'idris-ffi-optimizer-create-sgd-tape (foreign-procedure \"optimizer_create_sgd_tape\" (double) void*))) ((top-level-value 'idris-ffi-optimizer-create-sgd-tape) a0))"
 export
 prim__optimizerCreateSgdTape : Double -> AnyPtr
-%foreign "C:optimizer_create_rmsprop_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-rmsprop-tape)) (set-top-level-value! 'idris-ffi-optimizer-create-rmsprop-tape (foreign-procedure \"optimizer_create_rmsprop_tape\" (double double double double double) void*))) ((top-level-value 'idris-ffi-optimizer-create-rmsprop-tape) a0 a1 a2 a3 a4))"
 export
 prim__optimizerCreateRmspropTape : Double -> Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_create_adam_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-optimizer-create-adam-tape)) (set-top-level-value! 'idris-ffi-optimizer-create-adam-tape (foreign-procedure \"optimizer_create_adam_tape\" (double double double double) void*))) ((top-level-value 'idris-ffi-optimizer-create-adam-tape) a0 a1 a2 a3))"
 export
 prim__optimizerCreateAdamTape : Double -> Double -> Double -> Double -> AnyPtr
 %foreign "C:optimizer_create_adamw_tape,libidrisml"
 export
 prim__optimizerCreateAdamWTape : Double -> Double -> Double -> Double -> Double -> AnyPtr
-%foreign "C:optimizer_set_lr_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-set-lr-tape)) (set-top-level-value! 'idris-ffi-optimizer-set-lr-tape (foreign-procedure \"optimizer_set_lr_tape\" (void* double) void))) ((top-level-value 'idris-ffi-optimizer-set-lr-tape) a0 a1))"
 export
 prim__optimizerSetLrTape : AnyPtr -> Double -> PrimIO ()
-%foreign "C:optimizer_set_param_lr_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-optimizer-set-param-lr-tape)) (set-top-level-value! 'idris-ffi-optimizer-set-param-lr-tape (foreign-procedure \"optimizer_set_param_lr_tape\" (void* string double) void))) ((top-level-value 'idris-ffi-optimizer-set-param-lr-tape) a0 a1 a2))"
 export
 prim__optimizerSetParamLrTape : AnyPtr -> String -> Double -> PrimIO ()
-%foreign "C:optimizer_own_param_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-own-param-tape)) (set-top-level-value! 'idris-ffi-optimizer-own-param-tape (foreign-procedure \"optimizer_own_param_tape\" (void* string) void))) ((top-level-value 'idris-ffi-optimizer-own-param-tape) a0 a1))"
 export
 prim__optimizerOwnParamTape : AnyPtr -> String -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-tape)) (set-top-level-value! 'idris-ffi-native-train-step-tape (foreign-procedure \"native_train_step_tape\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-tape) a0 a1 a2 (vector-ref a3 2) a4))"
@@ -218,31 +220,31 @@ prim__nativeTrainStepTape : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Doubl
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-tape)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-tape (foreign-procedure \"native_train_step_scaled_tape\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-tape) a0 a1 a2 (vector-ref a3 2) a4 a5))"
 export
 prim__nativeTrainStepScaledTape : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
-%foreign "C:param_save_tape,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-save-tape)) (set-top-level-value! 'idris-ffi-param-save-tape (foreign-procedure \"param_save_tape\" (string) int))) ((top-level-value 'idris-ffi-param-save-tape) a0))"
 export
 prim__paramSaveTape : String -> PrimIO Int
-%foreign "C:param_save_by_name_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-param-save-by-name-tape)) (set-top-level-value! 'idris-ffi-param-save-by-name-tape (foreign-procedure \"param_save_by_name_tape\" (string string int) int))) ((top-level-value 'idris-ffi-param-save-by-name-tape) a0 a1 a2))"
 export
 prim__paramSaveByNameTape : String -> String -> Int -> PrimIO Int
-%foreign "C:param_save_by_name_renamed_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-param-save-by-name-renamed-tape)) (set-top-level-value! 'idris-ffi-param-save-by-name-renamed-tape (foreign-procedure \"param_save_by_name_renamed_tape\" (string string string int) int))) ((top-level-value 'idris-ffi-param-save-by-name-renamed-tape) a0 a1 a2 a3))"
 export
 prim__paramSaveByNameRenamedTape : String -> String -> String -> Int -> PrimIO Int
-%foreign "C:param_load_tape,libidrisml"
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-param-load-tape)) (set-top-level-value! 'idris-ffi-param-load-tape (foreign-procedure \"param_load_tape\" (string) int))) ((top-level-value 'idris-ffi-param-load-tape) a0))"
 export
 prim__paramLoadTape : String -> PrimIO Int
-%foreign "C:param_load_with_policy_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-param-load-with-policy-tape)) (set-top-level-value! 'idris-ffi-param-load-with-policy-tape (foreign-procedure \"param_load_with_policy_tape\" (string int) int))) ((top-level-value 'idris-ffi-param-load-with-policy-tape) a0 a1))"
 export
 prim__paramLoadWithPolicyTape : String -> Int -> PrimIO Int
-%foreign "C:param_load_with_prefix_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-param-load-with-prefix-tape)) (set-top-level-value! 'idris-ffi-param-load-with-prefix-tape (foreign-procedure \"param_load_with_prefix_tape\" (string int string) int))) ((top-level-value 'idris-ffi-param-load-with-prefix-tape) a0 a1 a2))"
 export
 prim__paramLoadWithPrefixTape : String -> Int -> String -> PrimIO Int
-%foreign "C:param_load_renamed_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-param-load-renamed-tape)) (set-top-level-value! 'idris-ffi-param-load-renamed-tape (foreign-procedure \"param_load_renamed_tape\" (string int string string int) int))) ((top-level-value 'idris-ffi-param-load-renamed-tape) a0 a1 a2 a3 a4))"
 export
 prim__paramLoadRenamedTape : String -> Int -> String -> String -> Int -> PrimIO Int
-%foreign "C:optimizer_save_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-save-tape)) (set-top-level-value! 'idris-ffi-optimizer-save-tape (foreign-procedure \"optimizer_save_tape\" (void* string) int))) ((top-level-value 'idris-ffi-optimizer-save-tape) a0 a1))"
 export
 prim__optimizerSaveTape : AnyPtr -> String -> PrimIO Int
-%foreign "C:optimizer_load_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-optimizer-load-tape)) (set-top-level-value! 'idris-ffi-optimizer-load-tape (foreign-procedure \"optimizer_load_tape\" (void* string) int))) ((top-level-value 'idris-ffi-optimizer-load-tape) a0 a1))"
 export
 prim__optimizerLoadTape : AnyPtr -> String -> PrimIO Int
 %foreign "C:backend_profile_reset_tape,libidrisml"
@@ -251,10 +253,10 @@ prim__profileResetTape : PrimIO ()
 %foreign "C:backend_profile_report_tape,libidrisml"
 export
 prim__profileReportTape : PrimIO ()
-%foreign "C:tensor_epoch_begin_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-epoch-begin-tape)) (set-top-level-value! 'idris-ffi-tensor-epoch-begin-tape (foreign-procedure \"tensor_epoch_begin_tape\" () void))) ((top-level-value 'idris-ffi-tensor-epoch-begin-tape) ))"
 export
 prim__epochBeginTape : PrimIO ()
-%foreign "C:tensor_epoch_end_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-epoch-end-tape)) (set-top-level-value! 'idris-ffi-tensor-epoch-end-tape (foreign-procedure \"tensor_epoch_end_tape\" () void))) ((top-level-value 'idris-ffi-tensor-epoch-end-tape) ))"
 export
 prim__epochEndTape : PrimIO ()
 %foreign "C:backend_release_all_persistent_tape,libidrisml"
@@ -263,16 +265,16 @@ prim__releaseAllPersistentTape : PrimIO ()
 %foreign "C:backend_reset_for_eval_tape,libidrisml"
 export
 prim__resetForEvalTape : PrimIO ()
-%foreign "C:tensor_live_count_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-live-count-tape)) (set-top-level-value! 'idris-ffi-tensor-live-count-tape (foreign-procedure \"tensor_live_count_tape\" () int))) ((top-level-value 'idris-ffi-tensor-live-count-tape) ))"
 export
 prim__liveCountTape : PrimIO Int
-%foreign "C:tensor_peak_live_count_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-peak-live-count-tape)) (set-top-level-value! 'idris-ffi-tensor-peak-live-count-tape (foreign-procedure \"tensor_peak_live_count_tape\" () int))) ((top-level-value 'idris-ffi-tensor-peak-live-count-tape) ))"
 export
 prim__peakLiveCountTape : PrimIO Int
-%foreign "C:tensor_perf_reset_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-perf-reset-tape)) (set-top-level-value! 'idris-ffi-tensor-perf-reset-tape (foreign-procedure \"tensor_perf_reset_tape\" () void))) ((top-level-value 'idris-ffi-tensor-perf-reset-tape) ))"
 export
 prim__perfResetTape : PrimIO ()
-%foreign "C:tensor_perf_op_count_tape,libidrisml"
+%foreign "scheme:(lambda ()  (when (not (top-level-bound? 'idris-ffi-tensor-perf-op-count-tape)) (set-top-level-value! 'idris-ffi-tensor-perf-op-count-tape (foreign-procedure \"tensor_perf_op_count_tape\" () int))) ((top-level-value 'idris-ffi-tensor-perf-op-count-tape) ))"
 export
 prim__perfOpCountTape : PrimIO Int
 
@@ -333,7 +335,7 @@ prim__createParam2dConstStreamedTape : Int -> Int -> Double -> Int -> Int -> Any
 prim__createParam3dConstStreamedTape : Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-param-4d-const-streamed-tape)) (set-top-level-value! 'idris-ffi-tensor-create-param-4d-const-streamed-tape (foreign-procedure \"tensor_create_param_4d_const_streamed_tape\" (int int int int double int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-param-4d-const-streamed-tape) a0 a1 a2 a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__createParam4dConstStreamedTape : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
-%foreign "C:tensor_set_init_seed_streamed_tape,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-set-init-seed-streamed-tape)) (set-top-level-value! 'idris-ffi-tensor-set-init-seed-streamed-tape (foreign-procedure \"tensor_set_init_seed_streamed_tape\" (int int) void))) ((top-level-value 'idris-ffi-tensor-set-init-seed-streamed-tape) a0 a1))"
 export
 prim__setInitSeedStreamedTape : Bits64 -> Int -> PrimIO ()
 
@@ -352,6 +354,7 @@ UserExecutorOptimizations TapeExecutor where
   primPolyakBlendPair             = prim__polyakBlendPairTape
   primRmsNorm2d                   = prim__rmsNorm2dTape
   primSdpa2d                      = prim__sdpa2dTape
+  primSoftmaxXent2d               = prim__softmaxXent2dTape
   primSwiGlu2d                    = prim__swiGlu2dTape
   primTile2d                      = prim__tile2dTape
   -- <<< END GENERATED <<<

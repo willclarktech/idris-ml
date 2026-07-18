@@ -93,6 +93,7 @@ enum : std::uint8_t {
 	OP_SWIGLU_2D,    /* silu(gate) * up; gate -> arg1, up -> arg2 */
 	OP_EMBEDDING_2D, /* embedding returning [n, embedDim] (no flatten) */
 	OP_BCE_WITH_LOGITS, /* mean(max(p,0) - p*y + log(1+exp(-|p|))); backward = (sigmoid(p)-y)/n */
+	OP_SOFTMAX_XENT_2D, /* -scale * sum(target * log_softmax(input, rows)); scale in scalar_arg */
 	OP_COUNT            /* sentinel — must be last; sizes the replay dispatch table */
 };
 

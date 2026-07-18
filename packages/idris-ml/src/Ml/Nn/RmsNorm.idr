@@ -4,12 +4,13 @@
 |||
 ||| Params-only, NOT a batched `Module`: the differentiable form composes
 ||| `primSum` (a GLOBAL reduction), so it is correct only per-vector (1-D).
-||| A batched `[b,n]` Module would need a per-row differentiable reduction,
-||| which no current prim provides (the fused `primRmsNorm2d` is
-||| inference-only — no tape backward). `rmsNormForward` is the 1-D
-||| differentiable forward; transformers apply it per position. A fused
-||| differentiable `primRmsNorm2d` is the follow-up that would let RmsNorm
-||| become a real `Module`.
+||| `rmsNormForward` is the 1-D differentiable forward; transformers apply
+||| it per position. The fused `primRmsNorm2d` IS differentiable on all
+||| three backends (tape backward registered in
+||| `backend_tape/nn/norm/rms_norm_2d.c`; torch/mlx via their autograd) —
+||| what's missing for RmsNorm to become a real batched `Module` is only
+||| the `Module`-shaped wiring over it (and the T29 F32 gradcheck rung,
+||| still an open follow-up per perf-changes.md).
 module Ml.Nn.RmsNorm
 
 import Control.Linear.LIO

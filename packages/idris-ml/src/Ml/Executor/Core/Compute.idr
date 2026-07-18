@@ -293,6 +293,15 @@ interface UserExecutorNN ex => UserExecutorOptimizations (0 ex : Executor) where
   ||| shape [seqLen, intermediate]; output is [seqLen, intermediate].
   primSwiGlu2d : AnyPtr -> AnyPtr -> AnyPtr
 
+  ||| Fused softmax cross-entropy with logits (soft/one-hot targets).
+  ||| input  : [b, n] logits (rank-1 accepted as [1, n])
+  ||| target : [b, n] targets, same shape/dtype
+  ||| scale  : caller-chosen reduction scale (1/(b*n) for tnllLossMean)
+  ||| out    : scalar -scale * sum(target * log_softmax(input, rows)).
+  ||| One tape node replaces the decomposed logSoftmax->mul->sum->neg->
+  ||| mulScalar chain; backward is scale*(softmax*rowsum(target)-target).
+  primSoftmaxXent2d : AnyPtr -> AnyPtr -> Double -> AnyPtr
+
   ||| Fused cross-attention. Args: Q, K, V, mask (tensor), scale (scalar).
   ||| Runs `(Q·K^T / scale) + mask → softmax → ·V`. Caller provides the
   ||| precomputed Q/K/V + an additive mask tensor; this differs from

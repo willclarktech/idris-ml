@@ -608,6 +608,18 @@ TensorHandle tensor_sdpa_2d(TensorHandle q, TensorHandle k, TensorHandle v, int 
  * mul_scalar / add_scalar / sqrt / div / mul) with one FFI call. */
 TensorHandle tensor_rms_norm_2d(TensorHandle input, TensorHandle weight, double eps);
 
+/* Fused softmax cross-entropy with logits (soft/one-hot targets).
+ *   input  [b, n] logits (rank-1 accepted as [1, n])
+ *   target [b, n] soft or one-hot targets, same shape/dtype
+ *   scale  caller-chosen reduction scale (1/(b*n) for tnllLossMean,
+ *          1/seqLen for LM losses, 1/numMasked for MLM, ...)
+ *   out    scalar: -scale * sum_ij target[i,j] * log_softmax(input, rows)[i,j]
+ * Backward (one node): d input = scale * (softmax * rowsum(target) - target),
+ * d target = -scale * log_softmax(input). Replaces the decomposed
+ * log_softmax_2d -> mul -> sum -> neg -> mul_scalar chain (5 tape
+ * nodes -> 1); the tape F64 forward is bit-identical to that chain. */
+TensorHandle tensor_softmax_xent_2d(TensorHandle input, TensorHandle target, double scale);
+
 /* Fused SwiGLU activation core: silu(gate) * up. Both inputs share
  * shape [M, N]; output is [M, N]. Replaces the tsilu + tmul pair in
  * HfLlama.applyMlp with one FFI call. */

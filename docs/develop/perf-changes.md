@@ -4094,3 +4094,44 @@ so it lands as cheap insurance; the TODO row closes as no-longer-reproducible.
 **Outcome**: landed; TODO row "Reduce idris2/Chez elaboration memory peak"
 closed to CHANGELOG. CLAUDE.md's heavy-command note updated (the 17–23 GB
 figure was the convention's stated rationale).
+
+## Fused softmax cross-entropy (`tensor_softmax_xent_2d`) — epic item (1) (2026-07-27)
+
+**Motivation**: the fused-ops epic's item (1) (PyTorch precedent:
+`F.cross_entropy`). `tnllLossMean`'s decomposed
+`log_softmax_2d → mul → sum → neg → mul_scalar` chain emitted 5 tape nodes per
+classification step; the fused op emits 1.
+
+**Change**: `tensor_softmax_xent_2d(input, target, scale)` on all three
+backends (tape hand-written fwd+bwd; torch `at::` composition; mlx single
+tape entry + LSE-form vjp replay, scale in `scalar_arg`);
+`primSoftmaxXent2d` on `UserExecutorOptimizations`;
+`tnllLossMean`/`tnllLossMeanL` reimplemented over it.
+
+**Impact — correctness is the headline**: the tape F64 path replicates the
+decomposed chain's arithmetic bit-exactly (same row loops, flat accumulation
+order, named-statement products to stop clang's fma contraction in both
+forward and backward) — supervised seed=42 lands `loss=0.13666947626094297`
+fused == decomposed, over a full 1000-epoch run. Getting there took two
+rounds: the naive closed-form backward drifted the final loss by 2 ULPs, and
+fma contraction by 1 more; both are documented in `nn/loss/softmax_xent.c`.
+The check also exposed the backends-README regression pin
+(`0.13801130234059747`) as stale since the Nn/GradMode era (perf-log's
+2026-06-15 supervised entry already recorded `0.136669…`) — re-pinned.
+
+**Measurements** (tape, this commit, perf-log.jsonl): supervised 0.03 ms/ep
+vs PyTorch 0.32 (ratio 0.09); mnist 17.2 s/ep (acc 0.981); seq-classify
+0.665 ms/ep. No pre/post ms-per-epoch claim — on these example sizes the
+1-vs-5-node delta sits below the VM noise floor (`feedback_vm_perf_noise`);
+the op-count reduction is the durable win (matters at LM scale, where the
+Gpt2LmFinetune / BertMlmFinetune chains are the noted follow-up adopters).
+
+**Also fixed while measuring**: the fit epilogue's INFO-gating (76a27a5-era)
+moved `PERF_MS_PER_EP` to stderr, silently breaking marker extraction in
+perf-baseline.sh/perf-sweep.sh direct runs ("missing"); and perf-baseline.sh
+still derived the binary path from the pre-mach/hw BUILD_KEY (same rot as
+perf-sweep's, fixed `810e74e4`). Both repaired.
+
+**Outcome**: landed. Tests: criterion ops suite (tape 606 / torch 566 /
+mlx 643 green), T29 F32 gradcheck rung, coverage-gap-probe clean, full
+`make test` green.
