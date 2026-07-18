@@ -1,6 +1,7 @@
 module Gym.ClassicControl.CartPole
 
 import Data.Vect
+
 import Gym.Env
 
 ----------------------------------------------------------------------

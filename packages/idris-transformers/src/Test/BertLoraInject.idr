@@ -11,15 +11,15 @@ module Test.BertLoraInject
 import Data.List
 import Data.Vect
 
-import Transformers.Bert
-import Transformers.BertLora
-import Test.Harness
-
+import Ml.Array
 import Ml.Executor
 import Ml.Executor.Core
-import Test.Config
 import Ml.Tensor
-import Ml.Array
+import Test.Harness
+import Transformers.Bert
+import Transformers.BertLora
+
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Helpers (mirror Test.HfBertAttentionMask)

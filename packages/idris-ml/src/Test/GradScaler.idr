@@ -6,8 +6,9 @@ import Ml.Executor
 import Ml.GradScaler
 import Ml.Optimizer
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- A3 of #410: GradScaler state-machine. Verifies that the growth /
 -- backoff policy advances correctly across successful steps. We

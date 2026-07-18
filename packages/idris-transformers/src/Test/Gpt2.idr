@@ -22,10 +22,11 @@ import Ml.Executor.Core
 import Ml.Nn.Derive
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Common
-import Test.Config
 import Test.Harness
 import Transformers.Gpt2
+
+import Test.Common
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Reference catalogue (mirrors `sshleifer/tiny-gpt2`'s safetensors header)

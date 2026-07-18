@@ -11,8 +11,9 @@ import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Nn.Recurrent
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Deterministic property checks (gate order is a C-kernel detail): hidden
 -- bounded, state carried, reset restores step-1 output exactly.

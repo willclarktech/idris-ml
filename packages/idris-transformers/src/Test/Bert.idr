@@ -16,10 +16,6 @@ import Data.String
 import Data.Vect
 import System.File
 
-import Transformers.Bert
-import Test.Harness
-import Test.Common
-
 import Ml.Array
 import Ml.Checkpoint
 import Ml.Executor
@@ -27,6 +23,10 @@ import Ml.Executor.Core
 import Ml.Nn.Derive
 import Ml.Nn.Module
 import Ml.Tensor
+import Test.Harness
+import Transformers.Bert
+
+import Test.Common
 import Test.Config
 
 ----------------------------------------------------------------------

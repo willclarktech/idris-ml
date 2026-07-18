@@ -11,8 +11,9 @@ import Ml.DataStream
 import Ml.Dataset
 import Ml.Executor
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Access a dataset at a raw Nat index via natToFin (no compile-time
 -- bound needed; the Fin is built at the dataset's runtime size).

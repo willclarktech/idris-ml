@@ -14,10 +14,11 @@ module Example.TCastDemo
 import Data.Vect
 import System
 
-import BuildConfig
 import Ml.Array
 import Ml.Executor
 import Ml.Tensor
+
+import BuildConfig
 
 -- A fixed test vector. Same shape across builds.
 testValues : Vector 4 Double

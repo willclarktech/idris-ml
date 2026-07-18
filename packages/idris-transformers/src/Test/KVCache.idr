@@ -17,9 +17,10 @@ import Ml.Array
 import Ml.Executor
 import Ml.Executor.Core
 import Ml.Tensor
-import Test.Config
 import Test.Harness
 import Transformers.KVCache
+
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Helpers

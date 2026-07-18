@@ -9,8 +9,9 @@ import Ml.Nn.Linear
 import Ml.Nn.LoraLinear
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- At init B = 0, so the LoRA delta is zero and loraForward == the bare
 -- base linear (1-D tlinear). W[2,3]=0.5, b[2]=1.0, x[3]=2.0 →

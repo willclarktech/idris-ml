@@ -13,11 +13,12 @@ import Data.List
 import Data.Vect
 import System
 
-import BuildConfig
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Simple
 import Ml.Train
+
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Configuration (dims)

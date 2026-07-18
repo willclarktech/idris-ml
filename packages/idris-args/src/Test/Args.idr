@@ -1,8 +1,9 @@
 module Test.Args
 
 import Data.String
-import Test.Harness
+
 import Args
+import Test.Harness
 
 record Cfg where
   constructor MkCfg

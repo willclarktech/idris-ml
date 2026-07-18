@@ -7,7 +7,6 @@ import Data.List
 import Data.Vect
 import System
 
-import BuildConfig
 import Gym.ClassicControl.Acrobot
 import Gym.Env
 import Gym.Vector
@@ -21,6 +20,8 @@ import Ml.RL.Gae
 import Ml.Sampler
 import Ml.Simple
 import Ml.Train
+
+import BuildConfig
 
 -- Actor + critic are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 

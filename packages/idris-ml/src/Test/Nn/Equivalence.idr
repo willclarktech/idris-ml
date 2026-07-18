@@ -12,8 +12,9 @@ import Ml.Nn.Module
 import Ml.Nn.Seq
 import Ml.Optimizer
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- The equivalence oracle (Phase 2 keystone). An MLP [3]→relu[4]→[2] is
 -- expressed two ways and trained identically:

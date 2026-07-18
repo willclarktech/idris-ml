@@ -30,22 +30,22 @@ import Data.List
 import Data.String
 import Data.Vect
 import System
-import Ml.Compat.Random
 
 import Ml.Array
-import BuildConfig
+import Ml.Compat.Random
 import Ml.DataStream
 import Ml.Executor
 import Ml.Fit
-import Generate
 import Ml.Optimizer
 import Ml.Tensor
 import Ml.Train
 import Ml.Train.Freeze
 import Ml.Util
-
 import Transformers.Bert
 import Transformers.BertForClassification
+
+import BuildConfig
+import Generate
 
 ----------------------------------------------------------------------
 -- Config (tiny BERT for fast convergence)

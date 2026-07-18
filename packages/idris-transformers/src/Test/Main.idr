@@ -1,5 +1,7 @@
 module Test.Main
 
+import Test.Harness
+
 import Test.Bert
 import Test.BertAttentionMask
 import Test.BertForClassification
@@ -7,7 +9,6 @@ import Test.BertLoraInject
 import Test.BitNet
 import Test.Dataset
 import Test.Gpt2
-import Test.Harness
 import Test.KVCache
 import Test.Llama
 import Test.LoraIO

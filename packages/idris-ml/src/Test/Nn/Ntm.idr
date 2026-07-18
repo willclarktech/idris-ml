@@ -11,8 +11,9 @@ import Ml.Nn.Module
 import Ml.Nn.Ntm
 import Ml.Nn.Recurrent
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Small NTM: 4 memory slots × width 3, hidden 8, in/out 2.
 mkNtm : IO (Ntm 4 3 8 2 2 TestExecutor TestDType WithGrad)

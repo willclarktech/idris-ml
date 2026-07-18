@@ -20,23 +20,23 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.List
 import Data.List1
-import Data.Vect
 import Data.String
+import Data.Vect
 import System
 import System.File
-import Ml.Compat.Random
 
 import Ml.Array
-import BuildConfig
+import Ml.Checkpoint
+import Ml.Compat.Random
 import Ml.Executor
 import Ml.Executor.Core
-import Generate
 import Ml.Tensor
 import Ml.Train
 import Ml.Util
-
-import Ml.Checkpoint
 import Transformers.Gpt2
+
+import BuildConfig
+import Generate
 
 ----------------------------------------------------------------------
 -- Config (matches distilgpt2)

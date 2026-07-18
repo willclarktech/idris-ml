@@ -1,6 +1,7 @@
 module Gym.ToyText.FrozenLake
 
 import Data.Vect
+
 import Gym.Env
 import Gym.Rng
 

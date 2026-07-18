@@ -25,9 +25,10 @@ import Data.String
 import System
 import System.Clock
 
-import BuildConfig
 import Ml.Executor
 import Ml.Tensor
+
+import BuildConfig
 
 record Config where
   constructor MkConfig

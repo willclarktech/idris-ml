@@ -11,8 +11,9 @@ import Ml.Nn.Lstm
 import Ml.Nn.Module
 import Ml.Nn.Recurrent
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- o=i=1; W_ih=W_hh=1, biases 0, h0=c0=0, x=1. Exact gate values depend on
 -- the C kernel's gate order, so assert deterministic *properties* instead:

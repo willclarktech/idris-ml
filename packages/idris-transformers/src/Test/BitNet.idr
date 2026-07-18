@@ -29,10 +29,11 @@ import Ml.Nn.Derive
 import Ml.Nn.Module
 import Ml.Nn.RoPE
 import Ml.Tensor
-import Test.Common
-import Test.Config
 import Test.Harness
 import Transformers.BitNet
+
+import Test.Common
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Reference catalogue

@@ -11,8 +11,9 @@ import Data.Vect
 import Ml.Array
 import Ml.Executor
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 read4 : Tensor [4] TestExecutor TestDType g -> List Double
 read4 t = map (primItem1d {ex=TestExecutor} t.tensorPtr) [0, 1, 2, 3]

@@ -10,8 +10,9 @@ import Ml.Nn.Group
 import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- A toy single-param layer so groupOf has something to enumerate.
 data Lin : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where

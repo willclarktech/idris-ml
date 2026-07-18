@@ -4,8 +4,9 @@ import Data.Vect
 
 import Ml.Executor
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- weakenGrad round-trip: build a tensor with requires_grad=1, flip
 -- it to 0 via weakenGrad, confirm the C-side flag agrees.

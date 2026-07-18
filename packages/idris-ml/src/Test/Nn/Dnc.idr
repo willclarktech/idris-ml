@@ -11,8 +11,9 @@ import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Nn.Recurrent
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Small DNC: 2 read heads, 4 memory slots × width 3, hidden 8, in/out 2.
 mkDnc : IO (Dnc 2 4 3 8 2 2 TestExecutor TestDType WithGrad)

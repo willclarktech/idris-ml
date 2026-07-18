@@ -10,8 +10,9 @@ import Ml.Nn.Derive
 import Ml.Nn.Linear
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 %language ElabReflection
 

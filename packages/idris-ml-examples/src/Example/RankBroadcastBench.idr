@@ -29,9 +29,10 @@ import Data.String
 import System
 import System.Clock
 
-import BuildConfig
 import Ml.Executor
 import Ml.Tensor
+
+import BuildConfig
 
 -- Shapes mirror Llama-3.2-1B Q projection's RoPE input.
 seqLen : Nat

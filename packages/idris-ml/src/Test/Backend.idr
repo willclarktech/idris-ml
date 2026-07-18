@@ -4,8 +4,9 @@ import Data.Vect
 
 import Ml.Executor
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- The positive probe for the `Backend ex dt` bundle: a helper generic
 -- in (ex, dt) and constrained ONLY by the bundle. Its body needs, via

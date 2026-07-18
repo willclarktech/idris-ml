@@ -9,7 +9,6 @@ import Data.String
 import Data.Vect
 import System
 
-import BuildConfig
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
@@ -21,6 +20,8 @@ import Ml.RL.ReplayBuffer
 import Ml.Simple
 import Ml.Train
 import Ml.Train.Freeze
+
+import BuildConfig
 
 -- The Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 

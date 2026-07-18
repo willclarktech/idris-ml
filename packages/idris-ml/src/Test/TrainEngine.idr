@@ -10,8 +10,9 @@ import Ml.Optimizer
 import Ml.Tensor
 import Ml.Train
 import Ml.Train.Engine
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Early-stop oracle: drives `runEpochLoop` directly with the early-stop

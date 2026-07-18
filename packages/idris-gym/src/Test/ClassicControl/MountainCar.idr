@@ -1,9 +1,10 @@
 module Test.ClassicControl.MountainCar
 
 import Data.Vect
-import Test.Harness
-import Gym.Env
+
 import Gym.ClassicControl.MountainCar
+import Gym.Env
+import Test.Harness
 
 rewardOf : (Double, MCState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r

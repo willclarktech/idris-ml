@@ -7,8 +7,9 @@ import Data.Vect
 import Ml.Executor
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- A trivial identity module (i = o, no params) — exercises the Module +
 -- Params interfaces without depending on a real layer port.

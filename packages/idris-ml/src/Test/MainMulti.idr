@@ -22,11 +22,12 @@ import Test.Hpo.LrFinder
 import Test.Init
 import Test.ManagedHandle
 import Test.Math
-import Test.MultiExecutorRegistry
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
 import Test.Sampler
 import Test.Schedule
+
+import Test.MultiExecutorRegistry
 import Test.Transfer
 
 main : IO ()

@@ -1,9 +1,10 @@
 module Test.ClassicControl.Pendulum
 
 import Data.Vect
-import Test.Harness
-import Gym.Env
+
 import Gym.ClassicControl.Pendulum
+import Gym.Env
+import Test.Harness
 
 rewardOf : (Double, PState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r

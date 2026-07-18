@@ -8,8 +8,9 @@ import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Nn.SwiGLU
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- hidden=2, intermediate=3, all weights 0.5, x=1.0:
 --   gate = up = [1,1,1] (sum_2 0.5*1 = 1 per row)

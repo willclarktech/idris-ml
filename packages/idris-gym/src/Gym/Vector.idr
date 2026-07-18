@@ -1,6 +1,7 @@
 module Gym.Vector
 
 import Data.Vect
+
 import Gym.Env
 import Gym.Rng
 

@@ -1,10 +1,11 @@
 module Test.Vector
 
 import Data.Vect
-import Test.Harness
+
+import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
-import Gym.ClassicControl.CartPole
+import Test.Harness
 
 -- Explicit type witnesses keep the Env instance resolution unambiguous
 -- (the interface has three parameters — state/action/obs — but resetAll

@@ -7,8 +7,9 @@ import Ml.Executor
 import Ml.Nn.BitLinear
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Same PyTorch-verified fixture as Test.BitLinear: ternary weight from
 -- packed bytes 0x71/0x17/0x4C ([3,4]), scale [0.5,0.25,0.75], bias

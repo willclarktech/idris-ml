@@ -1,11 +1,12 @@
 module Test.Main
 
+import Test.Harness
+
 import Test.ClassicControl.Acrobot
 import Test.ClassicControl.CartPole
 import Test.ClassicControl.MountainCar
 import Test.ClassicControl.MountainCarCont
 import Test.ClassicControl.Pendulum
-import Test.Harness
 import Test.Rng
 import Test.Space
 import Test.ToyText.Blackjack

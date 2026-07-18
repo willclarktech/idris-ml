@@ -34,7 +34,6 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
 import Decidable.Equality
-
 import Language.Reflection
 import Language.Reflection.Util
 
@@ -49,6 +48,7 @@ import Ml.Nn.Embedding
 import Ml.Nn.LayerNorm
 import Ml.Sampler
 import Ml.Tensor
+
 import Transformers.Common
 import Transformers.Config
 

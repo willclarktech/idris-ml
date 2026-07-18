@@ -8,7 +8,6 @@ import Data.String
 import Data.Vect
 import System
 
-import BuildConfig
 import Gym.ClassicControl.MountainCarCont
 import Gym.Env
 import Gym.Vector
@@ -22,6 +21,8 @@ import Ml.Sampler
 import Ml.Simple
 import Ml.Train
 import Ml.Train.Freeze
+
+import BuildConfig
 
 -- Actor + Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 

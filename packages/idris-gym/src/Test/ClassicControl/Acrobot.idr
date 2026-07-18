@@ -1,9 +1,10 @@
 module Test.ClassicControl.Acrobot
 
 import Data.Vect
-import Test.Harness
-import Gym.Env
+
 import Gym.ClassicControl.Acrobot
+import Gym.Env
+import Test.Harness
 
 rewardOf : (Double, AState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r

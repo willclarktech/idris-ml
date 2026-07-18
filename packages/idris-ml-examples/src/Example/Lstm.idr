@@ -6,12 +6,13 @@ import Data.List
 import Data.Vect
 import System
 
-import BuildConfig
 import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Simple
 import Ml.Train
+
+import BuildConfig
 
 -- LSTM pattern-prediction example. Single LSTM(1 -> 4) -> Linear(4 -> 1)
 -- network with BCE-with-logits loss, on the v1 Nn/fit surface.

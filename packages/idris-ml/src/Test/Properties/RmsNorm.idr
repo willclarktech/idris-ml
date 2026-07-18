@@ -21,15 +21,15 @@ module Test.Properties.RmsNorm
 
 import Data.Vect
 
-import Test.Property
-import Test.Config
-import Test.Harness as Harness
-
-import Ml.Executor
-import Ml.Tensor
 import Ml.Array
+import Ml.Executor
 import Ml.Nn.Init
 import Ml.Nn.RmsNorm
+import Ml.Tensor
+import Test.Harness as Harness
+import Test.Property
+
+import Test.Config
 
 %default partial
 

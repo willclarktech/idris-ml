@@ -8,8 +8,9 @@ import Ml.Executor
 import Ml.Nn.Module
 import Ml.Nn.Seq
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Trivial identity layer (i = o, no params) — exercises Seq's Nil/(::)
 -- composition + Params concatenation without a real layer port.

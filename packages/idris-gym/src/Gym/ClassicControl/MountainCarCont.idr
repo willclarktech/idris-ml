@@ -1,6 +1,7 @@
 module Gym.ClassicControl.MountainCarCont
 
 import Data.Vect
+
 import Gym.Env
 
 ----------------------------------------------------------------------

@@ -15,17 +15,17 @@ import Data.List
 import Data.String
 import Data.Vect
 
-import Transformers.Bert
-import Transformers.BertForClassification
-import Test.Harness
-
+import Ml.Array
 import Ml.Executor
 import Ml.Executor.Core
 import Ml.Nn.Derive
 import Ml.Nn.Module
-import Test.Config
 import Ml.Tensor
-import Ml.Array
+import Test.Harness
+import Transformers.Bert
+import Transformers.BertForClassification
+
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Reference catalogue

@@ -1,5 +1,7 @@
 module Test.Main
 
+import Test.Harness
+
 import Test.ActivationDump
 import Test.Array
 import Test.Backend
@@ -9,7 +11,6 @@ import Test.Data
 import Test.Fit
 import Test.GradMode
 import Test.GradScaler
-import Test.Harness
 import Test.Hpo.LrFinder
 import Test.Init
 import Test.LoadOpts

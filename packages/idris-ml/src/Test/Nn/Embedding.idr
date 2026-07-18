@@ -8,8 +8,9 @@ import Ml.Nn.Embedding
 import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- weight [3,2] = rows [1,2],[3,4],[5,6]; tokens [0,2] → flattened
 -- [row0, row2] = [1,2,5,6].

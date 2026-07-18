@@ -6,8 +6,9 @@ import Data.Vect
 import Ml.Executor
 import Ml.Nn.RoPE
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Value-pin tests for the `Nn.RoPE` free functions against the Python
 -- oracle. Oracle generator:

@@ -28,22 +28,22 @@ import Data.List
 import Data.String
 import Data.Vect
 import System
-import Ml.Compat.Random
 
 import Ml.Array
-import BuildConfig
+import Ml.Checkpoint
+import Ml.Compat.Random
 import Ml.Executor
 import Ml.Tensor
 import Ml.Train
 import Ml.Train.Freeze
 import Ml.Util
-
-import Ml.Checkpoint
 import Transformers.Bert
 import Transformers.BertForClassification
 import Transformers.BertLora
 import Transformers.Dataset
 import Transformers.LoraIO
+
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Config (matches google/bert_uncased_L-2_H-128_A-2)

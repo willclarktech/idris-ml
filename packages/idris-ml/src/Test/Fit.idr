@@ -12,8 +12,9 @@ import Ml.GradScaler
 import Ml.Optimizer
 import Ml.Tensor
 import Ml.Train
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Registered scalar param (mirrors Test.Optimizer / Test.TrainEngine).
 mkW : String -> Double -> IO (Tensor [] TestExecutor TestDType WithGrad)

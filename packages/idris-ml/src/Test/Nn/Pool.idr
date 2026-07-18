@@ -9,8 +9,9 @@ import Ml.Executor
 import Ml.Nn.Module
 import Ml.Nn.Pool
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- MaxPool2D, c=1 inH=2 inW=2, 2x2 window stride 2 over [[1,2],[3,4]] ->
 -- max = 4. PoolOutDim 2 2 2 = 1, so output is 1 value. Batched b=1:

@@ -31,7 +31,6 @@ module Ml.Nn.Derive
 
 import Data.List
 import Data.Vect
-
 import Language.Reflection.Util
 
 import Ml.Executor

@@ -18,14 +18,14 @@ module Test.CheckpointSubset
 import Data.String
 import Data.Vect
 
-import Test.Harness
-import Test.Config
-
+import Ml.Checkpoint
 import Ml.Executor
 import Ml.Optimizer
 import Ml.Tensor
-import Ml.Checkpoint
 import Ml.Train.Freeze
+import Test.Harness
+
+import Test.Config
 
 -- Read the single element out of a registered 1-D param.
 readScalar1d : Tensor (the (Vect 1 Nat) [1]) TestExecutor TestDType WithGrad -> Double

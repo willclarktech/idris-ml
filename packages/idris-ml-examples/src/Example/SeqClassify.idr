@@ -16,11 +16,12 @@ import Data.List
 import Data.Vect
 import System
 
-import BuildConfig
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Simple
 import Ml.Train
+
+import BuildConfig
 
 -- This example's model is a linear `Seq`; hide the IO `Nn.Seq` constructors
 -- (same `Nil`/`::`/`~~>` names) so the chain builder resolves unambiguously.

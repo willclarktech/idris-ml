@@ -17,8 +17,6 @@ import Data.List
 import Data.Vect
 import System
 
-import BuildConfig
-import Generate
 import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.DataStream
@@ -30,6 +28,9 @@ import Ml.Optimizer
 import Ml.Tensor
 import Ml.Train
 import Ml.Util
+
+import BuildConfig
+import Generate
 
 -- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors
 -- (same `Nil`/`::` names) so the block-stack builder resolves to Seq.

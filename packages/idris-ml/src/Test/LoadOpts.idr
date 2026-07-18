@@ -26,8 +26,9 @@ import System.File
 import Ml.Checkpoint
 import Ml.Executor
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 packBuf : List Double -> AnyPtr -> Int -> AnyPtr
 packBuf [] b _        = b

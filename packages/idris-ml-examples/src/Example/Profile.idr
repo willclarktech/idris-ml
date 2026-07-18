@@ -14,9 +14,10 @@ import Data.Vect
 import System
 import System.Clock
 
-import BuildConfig
 import Ml.Compat.Random
 import Ml.Simple
+
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Timing

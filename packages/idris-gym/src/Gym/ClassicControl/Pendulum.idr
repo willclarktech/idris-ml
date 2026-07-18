@@ -1,6 +1,7 @@
 module Gym.ClassicControl.Pendulum
 
 import Data.Vect
+
 import Gym.Env
 
 ----------------------------------------------------------------------

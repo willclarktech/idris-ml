@@ -18,12 +18,13 @@ module Example.DTypeSerialize
 import Data.Vect
 import System
 
-import BuildConfig
 import Ml.Array
 import Ml.Checkpoint
 import Ml.DType.Core
 import Ml.Executor
 import Ml.Tensor
+
+import BuildConfig
 
 -- Values chosen to be exactly representable in bf16/f16 (binary fractions
 -- and powers of two) and in i32, so the cross-language check is exact.

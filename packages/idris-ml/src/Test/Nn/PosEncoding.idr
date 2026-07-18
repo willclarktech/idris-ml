@@ -6,8 +6,9 @@ import Data.Vect
 import Ml.Executor
 import Ml.Nn.PosEncoding
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Value pins for the sinusoidal positional-encoding table (Vaswani et al
 -- 2017): PE[pos,2i] = sin(pos / 10000^(2i/dModel)),

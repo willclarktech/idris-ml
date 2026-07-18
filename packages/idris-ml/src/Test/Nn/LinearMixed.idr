@@ -11,8 +11,9 @@ import Ml.Nn.LinearMixed
 import Ml.Nn.Module
 import Ml.Optimizer
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- The mixed-precision (master-weights) Linear on the `Nn` surface. The
 -- distinguishing behaviour — a LOSSY paramDt → computeDt cast that still

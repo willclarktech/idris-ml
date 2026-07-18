@@ -40,8 +40,6 @@ import System
 import System.Clock
 import System.File
 
-import BuildConfig
-import Example.Common.InferenceHelper
 import Ml.Array
 import Ml.Checkpoint
 import Ml.Executor
@@ -49,6 +47,9 @@ import Ml.Tensor
 import Ml.Util
 import Transformers.Bert
 import Transformers.Tokenizer
+
+import BuildConfig
+import Example.Common.InferenceHelper
 
 ----------------------------------------------------------------------
 -- Model location (dims come from the file, not from here)

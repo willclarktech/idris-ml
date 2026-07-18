@@ -9,8 +9,9 @@ import Ml.Nn.BatchNorm
 import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Eval mode with running mean=0, var=1, gamma=1, beta=0:
 --   out = (x - 0)/sqrt(1 + 1e-5) * 1 + 0 ≈ x.

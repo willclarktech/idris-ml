@@ -9,8 +9,9 @@ import Ml.Optimizer
 import Ml.Schedule
 import Ml.Tensor
 import Ml.Train.Freeze
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Pinned trajectory tests: driving a scalar param through loss = w*w
 -- with each typed constructor (`sgd`/`rmsprop`/`adam`/`adamW`) must

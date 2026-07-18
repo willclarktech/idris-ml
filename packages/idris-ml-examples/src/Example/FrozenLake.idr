@@ -8,7 +8,6 @@ import Data.Maybe
 import Data.Vect
 import System
 
-import BuildConfig
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.FrozenLake
@@ -19,6 +18,8 @@ import Ml.Executor
 import Ml.Fit
 import Ml.Math
 import Ml.Train
+
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Env dimensions (slippery 4x4 FrozenLake)

@@ -24,7 +24,6 @@ module Transformers.BertForClassification
 import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
-
 import Language.Reflection
 import Language.Reflection.Util
 
@@ -32,6 +31,7 @@ import Ml.Executor
 import Ml.Nn.Derive
 import Ml.Nn.Linear
 import Ml.Tensor
+
 import Transformers.Bert
 
 %language ElabReflection

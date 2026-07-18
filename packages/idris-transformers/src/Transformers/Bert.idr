@@ -20,7 +20,6 @@ module Transformers.Bert
 import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
-
 import Language.Reflection
 import Language.Reflection.Util
 
@@ -37,6 +36,7 @@ import Ml.Nn.Linear
 import Ml.Nn.Module
 import Ml.Sampler
 import Ml.Tensor
+
 import Transformers.Common
 import Transformers.Config
 

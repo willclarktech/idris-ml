@@ -59,7 +59,6 @@
 module Transformers.BitNet
 
 import Data.Vect
-
 import Language.Reflection
 import Language.Reflection.Util
 
@@ -75,6 +74,7 @@ import Ml.Nn.RmsNorm
 import Ml.Nn.RoPE
 import Ml.Sampler
 import Ml.Tensor
+
 import Transformers.Common
 import Transformers.Config
 

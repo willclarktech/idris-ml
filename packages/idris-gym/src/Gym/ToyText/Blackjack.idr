@@ -1,6 +1,7 @@
 module Gym.ToyText.Blackjack
 
 import Data.Vect
+
 import Gym.Env
 import Gym.Rng
 

@@ -26,14 +26,14 @@ import Data.Vect
 import System.Directory
 import System.File
 
-import Test.Harness
-
 import Ml.Checkpoint
 import Ml.Executor
 import Ml.Executor.Core
-import Test.Config
-import Transformers.LoraIO
 import Ml.Tensor
+import Test.Harness
+import Transformers.LoraIO
+
+import Test.Config
 
 ----------------------------------------------------------------------
 -- Test #1 — adapter_config.json round-trip

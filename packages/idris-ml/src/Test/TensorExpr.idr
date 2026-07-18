@@ -6,8 +6,9 @@ import Data.Vect
 import Ml.Array
 import Ml.Executor
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Small fixed tensors for the expression-op suite. ioRerun pins FFI
 -- ordering (pure-typed bulkToTensor* reorders across sibling

@@ -20,8 +20,6 @@ import Data.Vect
 import System
 import System.File
 
-import BuildConfig
-import Generate
 import Ml.Array
 import Ml.Checkpoint
 import Ml.Compat.Random
@@ -36,6 +34,9 @@ import Ml.Schedule
 import Ml.Tensor
 import Ml.Train
 import Ml.Util
+
+import BuildConfig
+import Generate
 
 -- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors.
 

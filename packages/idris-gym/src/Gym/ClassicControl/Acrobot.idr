@@ -1,6 +1,7 @@
 module Gym.ClassicControl.Acrobot
 
 import Data.Vect
+
 import Gym.Env
 
 ----------------------------------------------------------------------

@@ -1,10 +1,11 @@
 module Test.ToyText.Blackjack
 
 import Data.Vect
-import Test.Harness
+
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.Blackjack
+import Test.Harness
 
 rewardOf : (Double, BJState, Outcome, Info) -> Double
 rewardOf (r, _, _, _) = r

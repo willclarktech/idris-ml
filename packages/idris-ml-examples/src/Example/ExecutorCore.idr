@@ -9,9 +9,10 @@
 ||| exercises the interface).
 module Example.ExecutorCore
 
-import BuildConfig
 import Ml.Executor.Core
 import Ml.Executor.Tape
+
+import BuildConfig
 
 ||| Build two scalars, add them, read back. Forces the typechecker
 ||| to resolve `UserExecutorCore TapeExecutor` and the runtime to actually

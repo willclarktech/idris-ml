@@ -10,8 +10,9 @@ import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Nn.Recurrent
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- o=i=1, W_ih=1, W_hh=0.5, biases 0, tanh, x=1, h0=0:
 --   step1: tanh(1·1 + 0.5·0 + 0)          = tanh(1)       ≈ 0.761594

@@ -8,7 +8,6 @@ import Data.Maybe
 import Data.Vect
 import System
 
-import BuildConfig
 import Gym.Env
 import Gym.ToyText.CliffWalking
 import Ml.Array
@@ -18,6 +17,8 @@ import Ml.Executor
 import Ml.Fit
 import Ml.Math
 import Ml.Train
+
+import BuildConfig
 
 ----------------------------------------------------------------------
 -- Env dimensions

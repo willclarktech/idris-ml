@@ -10,8 +10,9 @@ import Ml.Nn.Init
 import Ml.Nn.Linear
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 read4 : Tensor [2, 2] TestExecutor TestDType g -> List Double
 read4 t = [ primItem2d {ex=TestExecutor} t.tensorPtr i j

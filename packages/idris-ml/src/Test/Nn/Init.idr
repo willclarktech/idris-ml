@@ -5,8 +5,9 @@ import Data.Vect
 import Ml.Executor
 import Ml.Nn.Init
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- scoped + freshChild auto-number siblings per (scope, kind); a nested
 -- scope restarts numbering under its own path.

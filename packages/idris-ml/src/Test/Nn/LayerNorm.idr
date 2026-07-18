@@ -10,8 +10,9 @@ import Ml.Nn.Init
 import Ml.Nn.LayerNorm
 import Ml.Nn.Module
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- Row [1, 3]: mean 2, population var 1 → normalised ≈ [-1, +1] (gamma=1,
 -- beta=0). eps=1e-5 makes it ≈ ∓0.999995.

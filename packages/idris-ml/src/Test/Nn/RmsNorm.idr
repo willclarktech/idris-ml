@@ -8,8 +8,9 @@ import Ml.Nn.Init
 import Ml.Nn.Module
 import Ml.Nn.RmsNorm
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- input [3,4], weight 1: mean(x²) = (9+16)/2 = 12.5, rms = sqrt(12.5+eps)
 -- ≈ 3.53553 → out ≈ [0.84853, 1.13137].

@@ -1,9 +1,10 @@
 module Test.ClassicControl.CartPole
 
 import Data.Vect
-import Test.Harness
-import Gym.Env
+
 import Gym.ClassicControl.CartPole
+import Gym.Env
+import Test.Harness
 
 tol : Double
 tol = 1.0e-9

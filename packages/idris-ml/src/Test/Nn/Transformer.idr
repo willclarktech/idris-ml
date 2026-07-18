@@ -11,8 +11,9 @@ import Ml.Nn.Module
 import Ml.Nn.Seq
 import Ml.Nn.Transformer
 import Ml.Tensor
-import Test.Config
 import Test.Harness
+
+import Test.Config
 
 -- dModel=4, numHeads=2, headDim=2 (dModel = numHeads*headDim), seqLen=3.
 read12 : Tensor [3, 4] TestExecutor TestDType g -> List Double

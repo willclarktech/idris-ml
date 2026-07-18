@@ -1,11 +1,12 @@
 module Test.Wrapper
 
 import Data.Vect
-import Test.Harness
+
+import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Space
 import Gym.Wrapper
-import Gym.ClassicControl.CartPole
+import Test.Harness
 
 -- Run the TimeLimited CartPole with action 1 until an outcome fires,
 -- returning (numSteps, finalOutcome).
