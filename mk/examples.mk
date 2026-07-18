@@ -245,7 +245,14 @@ example-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # on a 16 GB VM. Override by setting TORCH_DTYPE=F64 (etc) on the
 # command line if you genuinely want F64 (e.g. for numerical
 # bisection vs the F64 oracle in `save_oracle_llama.py`).
+# The --check pre-pass elaborates Example.LlamaCacheGen (the
+# hfLlamaForwardLmStep implicit chain) in its OWN idris2 process; the
+# -o pass then reads its warm ttc and only elaborates the rest of the
+# example. Splitting the two heavy forward chains across processes
+# caps the per-process Chez elaboration peak (the "Reduce idris2/Chez
+# elaboration memory peak" TODO row, lever (a)).
 example-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.json
+	$(IDRIS2) $(IDRIS_FLAGS) --check $(EXAMPLE_SRC)/Example/LlamaCacheGen.idr
 	$(IDRIS2) $(IDRIS_FLAGS) -o llama-inference $(EXAMPLE_SRC)/Example/LlamaInference.idr
 	cp $(LIB) $(BUILD)/exec/llama-inference_app/
 	./$(BUILD)/exec/llama-inference

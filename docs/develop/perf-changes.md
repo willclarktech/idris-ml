@@ -4056,3 +4056,41 @@ identical pre/post (0.511875 / 0.49367948042991594).
 
 **Commit**: the fit-driver series (baseline `d4998196`, rewire in the runEpochLoop commit).
 **Outcome**: landed — no regression.
+
+## LlamaInference elaboration split — and the ~17 GB peak no longer reproduces (2026-07-27)
+
+**Motivation**: lever (a) of the "Reduce idris2/Chez elaboration memory peak on
+heavy-implicit examples" TODO row — move `genStepCached`/`genLoopCached` (the
+`hfLlamaForwardLmStep` implicit chain) into their own module so each idris2
+process resolves half the chain. The row recorded ~17 GB Chez peak (post-`95adc631`,
+down from ~23 GB) for a single `idris2 -o llama-inference` on a 16 GB VM.
+
+**Change**: new `Example/LlamaCacheGen.idr` (MaxPos + genStepCached + genLoopCached,
+moved verbatim + `export`); `example-llama-inference` gained a `--check
+Example/LlamaCacheGen.idr` pre-pass so the cache-gen chain elaborates in its own
+process and the `-o` pass reuses the warm ttc.
+
+**Impact — measured with `/usr/bin/time -l` on cold throwaway `--build-dir`s
+(tape set, pack `0.8.0-b2d2cf40d`)**:
+
+| Run | wall | max RSS |
+|---|---:|---:|
+| BEFORE, un-split, `--check` (elaboration only, one process) | 5.6 s | 443 MB |
+| BEFORE, un-split, `-o` fully cold (elaboration + codegen, one process) | 6.1 s | 468 MB |
+| AFTER, `--check` LlamaCacheGen (cold) | 2.2 s | 318 MB |
+| AFTER, `--check` LlamaInference (warm CacheGen ttc) | 4.4 s | 399 MB |
+| AFTER, `-o` LlamaInference (warm elaboration, fresh codegen) | 1.3 s | 258 MB |
+
+**The headline is the negative result**: the documented ~17–23 GB / multi-minute
+elaboration peak does NOT reproduce on the current stack in any phase — fully
+cold single-process `-o` is 6.1 s / 468 MB. The pathology belonged to the
+earlier toolchain (nix 0.8.0-release era) and/or the pre-`Nn`/pre-rename library
+surface, consistent with the same-day Data.Nat audit (the type-level Peano
+hangs also no longer reproduce; see gotchas.md's 2026-07-27 update notes). The
+split still reduces the max per-process peak modestly (443 → 399 MB) and keeps
+the two heavy forward chains (LmStep vs plain forward) in separate processes,
+so it lands as cheap insurance; the TODO row closes as no-longer-reproducible.
+
+**Outcome**: landed; TODO row "Reduce idris2/Chez elaboration memory peak"
+closed to CHANGELOG. CLAUDE.md's heavy-command note updated (the 17–23 GB
+figure was the convention's stated rationale).
