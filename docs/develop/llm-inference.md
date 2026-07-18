@@ -1,6 +1,6 @@
 # LLM inference end-to-end: a walkthrough of the Llama example
 
-This doc walks through `Example/HfLlamaInference.idr` — idris-ml's
+This doc walks through `Example/LlamaInference.idr` — idris-ml's
 canonical "this runs an actual LLM" demo. It loads
 `unsloth/Llama-3.2-1B` from a HuggingFace `.safetensors`
 checkpoint, decodes 8 greedy tokens given the prompt "The capital of
@@ -9,7 +9,7 @@ a tour of the moving parts the row "LLM-class example (Llama-7B-shape
 inference)" was about (closed 2026-05-29).
 
 The audience is contributors who already know the codebase's
-backbone (`Tensor`, `Layer/*`, `Network`, `Checkpoint`) and want to
+backbone (`Tensor`, `Nn/*`, `Checkpoint`) and want to
 see how the typed-shape and dependently-typed-Nat machinery composes
 into a real LLM forward pass — i.e. what idris-ml looks like when
 pushed at LLM scale.
@@ -47,24 +47,27 @@ intermediate size 8192, **rotary position embeddings (RoPE)** with
 NTK-aware scaling clamped to maxPos 8192, and **RMSNorm** (ε=1e-5)
 applied pre-norm before attention and MLP. The vocabulary projection
 is tied to the input embedding (`lm_head.weight` is
-`embed_tokens.weight`). All constants live in
-[`Example/HfLlamaInference.idr` lines 65–105](../../packages/idris-ml-examples/src/Example/HfLlamaInference.idr).
+`embed_tokens.weight`). None of these dims are hardcoded:
+`Transformers.Llama.fromPretrained` reads them from the checkpoint's
+`config.json` and returns `(cfg ** model)`, so the model's type
+carries the file's shapes. The driver is
+[`Example/LlamaInference.idr`](../../packages/idris-ml-examples/src/Example/LlamaInference.idr).
 
 Three pieces sit in core idris-ml (`packages/idris-ml/`) because they
 are Llama-family-generic, not HF-specific:
 
-- [`Layer/RmsNorm.idr`](../../packages/idris-ml/src/Layer/RmsNorm.idr)
+- [`Nn/RmsNorm.idr`](../../packages/idris-ml/src/Nn/RmsNorm.idr)
   — root-mean-square normalisation with a learned per-channel gain.
-- [`Layer/RoPE.idr`](../../packages/idris-ml/src/Layer/RoPE.idr) —
+- [`Nn/RoPE.idr`](../../packages/idris-ml/src/Nn/RoPE.idr) —
   rotary position embedding with the Llama-3 NTK frequency rescaling
   (`buildLlamaRoPETables` precomputes the cos/sin tables once at
   model construction; matches the PyTorch reference within 1e-12).
-- [`Layer/SwiGLU.idr`](../../packages/idris-ml/src/Layer/SwiGLU.idr)
+- [`Nn/SwiGLU.idr`](../../packages/idris-ml/src/Nn/SwiGLU.idr)
   — gated MLP `down(gate(x) * silu(up(x)))` with three linear weights.
 
 The HF-specific assembly — param naming, per-block storage shapes,
 the forward pass — lives in
-[`packages/idris-transformers/src/HfLlama.idr`](../../packages/idris-transformers/src/HfLlama.idr).
+[`packages/idris-transformers/src/Transformers/Llama.idr`](../../packages/idris-transformers/src/Transformers/Llama.idr).
 Per [`packages/idris-transformers/CONVENTIONS.md`](../../packages/idris-transformers/CONVENTIONS.md):
 core ships the architectural primitives, the transformers package
 ships the HF-name-aligned adapter. The module IS the adapter
@@ -75,34 +78,32 @@ ships the HF-name-aligned adapter. The module IS the adapter
 The headline forward function:
 
 ```idris
-hfLlamaForwardLm
-  : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
-  => RuntimeDType dt => Linked ex => Compatible ex dt
-  => {seq, vocab, hidden, numLayers, numHeads, numKvHeads,
-      headDim, intermediate, maxPos : Nat}
-  -> (eps : Double)
-  -> LlamaModelState vocab hidden numLayers (numHeads * headDim)
-                     (numKvHeads * headDim) intermediate ex dt g
-  -> RoPETables maxPos headDim ex dt g
-  -> Tensor [seq] ex dt g                -- input token IDs
-  -> IO (Tensor [seq, vocab] ex dt g)    -- per-position logits
+hfLlamaForwardLm : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorCore ex
+                => RuntimeDType dt => Linked ex => Compatible ex dt
+                => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+                -> (eps : Double)
+                -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate ex dt g
+                -> RoPETables maxPos headDim ex dt
+                -> Tensor [seq] ex dt g                -- input token IDs
+                -> IO (Tensor [seq, vocab] ex dt g)    -- per-position logits
 ```
 
 What's load-bearing in that signature:
 
-- **`d : Device`** is the open device kind (any type with a
-  `UserDeviceCore` instance). For Llama, examples bind `d` to
+- **`ex : Executor`** is the open executor kind (any type with a
+  `UserExecutorCore` instance). For Llama, examples bind `ex` to
   `ExampleDevice`, which the Makefile generates per
-  `(BACKEND, *_DEVICE)` cell (`TapeDev`, `TorchDev TMps`, `MlxDev
-  MGpu`, …). See `docs/develop/design-decisions.md` "Open `d`
-  parameter".
+  `(BACKEND, *_DEVICE)` cell (`TapeExecutor`, `TorchExecutor TMps`,
+  `MlxExecutor MGpu`, …). See `docs/develop/design-decisions.md`
+  "Open `d` parameter".
 - **`dt : DType`** is the open dtype kind. `Compatible ex dt` gates
-  admissible pairs at construction — e.g. `Compatible (MlxDev MGpu)
-  F64` deliberately doesn't exist (Metal F32-only).
+  admissible pairs at construction — e.g.
+  `Compatible (MlxExecutor MGpu) F64` deliberately doesn't exist
+  (Metal F32-only).
 - **`Linked ex`** is the compile-time linkage gate: a tape-only build
-  cannot even spell `MlxDev _` here, because no `Linked (MlxDev _)`
-  instance is emitted by that build's `HwConfig`. See
-  `docs/develop/device-availability-gating.md`.
+  cannot even spell `MlxExecutor _` here, because no
+  `Linked (MlxExecutor _)` instance is emitted by that build's
+  `HwConfig`. See `docs/develop/device-availability-gating.md`.
 - **`(numHeads * headDim)`** in the model state's Q-projection size:
   Idris-2 reduces this at the type level for concrete values (32 ×
   64 = 2048), and the caller pins the multiplication once at the
@@ -177,7 +178,7 @@ buildLlamaRoPETables : … -> IO (RoPETables maxPos headDim ex dt g)
 
 builds `[maxPos, headDim/2]` cos/sin tables at model construction
 time (see
-[`Layer/RoPE.idr:212-223`](../../packages/idris-ml/src/Layer/RoPE.idr)).
+[`Nn/RoPE.idr:212-223`](../../packages/idris-ml/src/Nn/RoPE.idr)).
 The tables are reused across every forward, every layer, every
 head. `applyRope` slices `[seq, halfDim]` rows from the tables per
 forward (NOT per layer; the same slice serves all 16 layers in one
@@ -194,53 +195,53 @@ Idris-2 type-checker".
 
 ## Greedy decode
 
-The decode loop in `Example/HfLlamaInference.idr` is just:
+The decode loop in `Example/LlamaInference.idr` is cache-aware
+(`genLoopCached` — the only generation path; the no-cache `genLoop`
+was dropped 2026-06-04 as correctness-equivalent at double the Chez
+elaboration cost). The seed step feeds the full prompt into empty
+per-layer KV caches; each later step feeds only the
+previously-generated token, threading the caches through:
 
 ```idris
-genLoop _ _ tokens Z       = pure tokens
-genLoop model tables tokens (S k) = do
-  perfReset  {ex=ExampleDevice}
-  mNext <- genOneStep model tables tokens
-  ops   <- perfOpCount {ex=ExampleDevice}
-  putStrLn ("[perf] step " ++ show (length tokens) ++ ": " ++ show ops ++ " ops")
+go _      acc _    Z     = pure acc
+go caches acc feed (S k) = do
+  perfReset {ex=ExampleExecutor}
+  (caches', mNext) <- genStepCached cfg model tables caches feed
+  ops <- perfOpCount {ex=ExampleExecutor}
+  putStrLn ("[perf] step " ++ show (length acc) ++ ": " ++ show ops ++ " ops")
   case mNext of
-    Nothing   => …
-    Just next => do
-      resetForEval {ex=ExampleDevice}
-      genLoop model tables (tokens ++ [next]) k
+    Nothing => do
+      putStrLn "  (argmax produced out-of-range token; stopping)"
+      pure acc
+    Just next => go caches' (acc ++ [next]) [next] k
 ```
 
 Two pieces deserve attention:
 
-- **`resetForEval` between tokens** is required on tape because
-  without a KV cache, every token re-runs the full forward over the
-  growing prompt; tape's arena would accumulate ~hundreds of MB per
-  forward and OOM at 4–8 tokens on Llama-1B F32 (this is what TODO
-  #397 was). The C-side `backend_reset_for_eval` drops the
-  arena/autograd-tape entries and re-registers params on a fresh
-  tape. Mild beneficial on torch + mlx; equivalent of a no-op inside
-  `withNoGrad`. **UNSAFE in training** — clobbers any in-flight
-  param grads.
+- **The KV caches** (`Transformers.KVCache`) mean a steady-state
+  step's forward processes one new token, with attention reading the
+  cached K/V for earlier positions, instead of re-running the whole
+  growing sequence. `Nn/RoPE.idr`'s `positionOffset` parameter
+  supplies the absolute position for those single-token steps.
 - **`[perf] step N: K ops`** is the per-forward op-submission counter
-  from TODO #393's diagnostic (commit `e9763d0`). On torch it counts
-  every `from_tensor()` wrap (one per graph node); on tape + mlx
-  it's a no-op stub returning 0. Surfaced through perf-run.sh
-  alongside `[stage]` lines. Used to confirm the torch-mps
-  per-MTLCommandBuffer dispatch ceiling (~19,400 ops × ~1.89 ms/op
-  on Llama-1B = ~36.7 s/forward, matches the measured wall).
+  (commit `e9763d0`). On torch it counts every `from_tensor()` wrap
+  (one per graph node); on tape + mlx it's a no-op stub returning 0.
+  Surfaced through perf-run.sh alongside `[stage]` lines. Used to
+  confirm the torch-mps per-MTLCommandBuffer dispatch ceiling
+  (~19,400 ops × ~1.89 ms/op on the pre-fusion Llama-1B forward,
+  matching the measured wall).
 
-The whole genLoop terminates cleanly: it does NOT use the
-`drainManagedHandles + releaseAllPersistent` exit-cleanup chain
-mid-loop; that runs once after the loop returns, before `main` does.
-The `releaseAllPersistent` (TODO #394 + #398) does the per-backend
-multi-GB free pass inside `main` so the libc/libtorch exit-time
-allocator destructor cascade doesn't run at process exit.
+The loop terminates cleanly: the `drainManagedHandles +
+releaseAllPersistent` exit-cleanup chain runs once after the loop
+returns, before `main` exits, so the per-backend multi-GB free pass
+happens inside `main` rather than in the libc/libtorch exit-time
+allocator destructor cascade.
 
 ## Backend pluggability
 
 The example's only mention of a concrete backend is `ExampleDevice`
-+ `ExampleDType`, both generated per build into
-[`packages/idris-ml-examples/src/BuildConfig.idr`](../../packages/idris-ml-examples/src/BuildConfig.idr.in).
++ `ExampleDType`, both generated per build from the template
+[`packages/idris-ml-examples/src/BuildConfig.idr.in`](../../packages/idris-ml-examples/src/BuildConfig.idr.in).
 Switching backends is just a different `make install`. The same
 source compiles to tape / torch-cpu / torch-mps / torch-cuda /
 mlx-cpu / mlx-gpu via the `(BACKEND, *_DEVICE)` cell table in
@@ -248,26 +249,23 @@ mlx-cpu / mlx-gpu via the `(BACKEND, *_DEVICE)` cell table in
 the env var is observed at build time and baked into the generated
 `BuildConfig.idr` (also why `Linked` instances are similarly
 generated). The model and the forward function are not aware of any
-of this — they take an open `d` parameter and rely on the
-`UserDeviceCore / UserDeviceTraining / Compatible / Linked` instance
-ladder.
+of this — they take an open `ex : Executor` parameter and rely on the
+`UserExecutorCore / UserExecutorTraining / Compatible / Linked`
+instance ladder.
 
 ## What's not done yet (filed separately)
 
-- **KV cache** — the row "HfLlama KV cache + Llama 3.2 1B end-to-end
-  gate" is the next step. Without it, per-token cost scales O(seq²)
-  (every forward re-runs the full sequence). Tolerable for 8-token
-  demos, intolerable for any longer generation. The architectural
-  hook is already in `Layer/RoPE.idr`'s `positionOffset` parameter
-  (added specifically to make KV-cache decode work).
-- **7B-class inference** — out of scope on the current 16 GB Tart VM
+- **7B-class inference** — out of scope on the current 16 GB VM
   (7B × F16 ≈ 14 GB params alone). Re-investigate when running on a
   box with ≥32 GB RAM.
-- **torch-mps deferred-op tape (graph mode)** — TODO #399. The
-  per-op submission counter confirmed torch-mps is dispatch-bound;
-  fusing into a deferred-op tape is the next perf step.
-- **Tape F64 hf-llama OOM** — TODO #400. Default tape (F64) doesn't
-  fit; use `TAPE_DTYPE=F32`.
+- **torch-mps wall vs PyTorch Python** — the per-op submission
+  counter confirmed torch-mps is dispatch-bound; the fix is matching
+  PyTorch's fused-op catalogue (SDPA, RMSNorm, SwiGLU, and the
+  embedding fusion have shipped), tracked in TODO's "Match PyTorch's
+  fused-op catalogue on torch backend" row.
+- **Tape F64 large-LM OOM** — default tape (F64) doesn't fit
+  Llama-1B on a 16 GB VM; use `TAPE_DTYPE=F32`. Tracked in TODO's
+  "Tape F64 large-LM OOM (HfLlama + HfBitNet)" row.
 
 ## References
 
