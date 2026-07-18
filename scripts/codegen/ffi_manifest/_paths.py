@@ -25,11 +25,21 @@ def _glob(*patterns: str) -> list[str]:
 
 
 WRAP_HANDLE_FILES = _glob(
-    "Tensor.idr",
-    "Tensor/*.idr",
-    "Executor/*.idr",
-    "Executor/*/*.idr",
+    "Ml/Tensor.idr",
+    "Ml/Tensor/*.idr",
+    "Ml/Executor/*.idr",
+    "Ml/Executor/*/*.idr",
 )
+
+# Self-check: an empty set means the patterns above have gone stale
+# relative to the source tree (e.g. a module-root rename), which would
+# make every consumer — the wrap-template CI gate included — pass
+# vacuously. Fail loudly instead.
+if not WRAP_HANDLE_FILES:
+    raise RuntimeError(
+        "ffi_manifest: WRAP_HANDLE_FILES glob matched no files under "
+        f"{_SRC} — the patterns are stale relative to the source tree"
+    )
 
 
 # Matches a `%foreign "C:cname,libidrisml"` declaration + its

@@ -57,11 +57,10 @@ test-integration-lint-ci-coverage:
 	@python3 scripts/check-ci-gate-coverage.py
 
 # Verify every Tensor-touching %foreign declaration matches the
-# wrap-on-return Scheme template. See
-# docs/develop/tensor-lifecycle-plan.md "FFI conventions". The single
-# source of truth for which C symbols are Tensor handles is
-# scripts/codegen/ffi_manifest.py — both the converter and the linter
-# read from it.
+# wrap-on-return Scheme template. See docs/develop/tensor-lifecycle.md
+# "FFI conventions". The single source of truth for which C symbols are
+# Tensor handles is the scripts/codegen/ffi_manifest/ package — both
+# the converter and the linter read from it.
 test-integration-lint-ffi-wrap-template:
 	@python3 scripts/codegen/check-ffi-wrap-template.py
 
