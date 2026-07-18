@@ -11,7 +11,8 @@
 # materialises python3 in the nix store on every build regardless of
 # user config (same pattern as the removed mlx fallback above).
 .PHONY: jupyter-install jupyter-lab test-e2e-jupyter \
-        test-integration-jupyter-cellparser test-e2e-notebooks
+        test-integration-jupyter-cellparser test-e2e-notebooks \
+        notebooks-refresh
 
 UV_PYTHON := $(shell uv python find 2>/dev/null)
 VENV_PYTHON := $(shell [ -x "$(UV_PYTHON)" ] && echo "$(UV_PYTHON)" || echo python3)
@@ -77,3 +78,20 @@ test-e2e-notebooks: install-notebook jupyter-install $(HF_MODELS_DIR)/google/ber
 	done; \
 	rm -f /tmp/test_nb_out.ipynb; \
 	[ $$fail -eq 0 ] && echo "All notebooks passed" || { echo "Some notebooks failed"; exit 1; }
+
+# Re-execute every notebook IN PLACE, recording outputs into the committed
+# .ipynb files (that's what GitHub renders). Run after editing any notebook,
+# then commit the result. Deterministic per build (tape RNG seeds implicitly
+# to 0 in each fresh kernel; record_timing=False drops nbclient's per-cell
+# wall-clock metadata), with ONE known exception: 04_training's two
+# checkpoint cells run `fit`, whose epilogue prints wall-clock timing
+# (PERF_MS_PER_EP + the C profile report), so a no-edit re-run dirties just
+# those lines. Same deps and env pins as the gate above.
+notebooks-refresh: install-notebook jupyter-install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
+	@for nb in packages/jupyter/notebooks/tutorials/*.ipynb packages/jupyter/notebooks/models/*.ipynb; do \
+		echo "--- $$nb ---"; \
+		$(JUPYTER_LDPATH)IDRIS_ML_BUILD_DIR=$(CURDIR)/$(BUILD) $(JUPYTER_VENV)/bin/jupyter nbconvert --execute --inplace \
+			--ExecutePreprocessor.timeout=120 \
+			--ExecutePreprocessor.record_timing=False "$$nb" || exit 1; \
+	done; \
+	echo "All notebooks refreshed in place"

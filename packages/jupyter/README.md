@@ -101,7 +101,15 @@ Place cursor on a name and press Shift-Tab to see its type and documentation.
 Two categories in `notebooks/`:
 
 - **`tutorials/`** — Concept-oriented (01-09): tensors & types, building models, data & loss, training, model ownership, sequences, device safety, hyperparameter optimization, precision & devices
-- **`models/`** — Architecture-oriented (9 notebooks): supervised, rnn_lstm, transformer, gpt, ntm, dnc, cnn, reinforce, seq_classify. Each walks through model construction, type queries, and training (interactive where feasible, CLI instructions for heavy models)
+- **`models/`** — Architecture-oriented (10 notebooks): supervised, rnn_lstm, transformer, gpt, ntm, dnc, cnn, reinforce, seq_classify, bert. Each walks through model construction, type queries, and training or inference (interactive where feasible, CLI instructions for heavy models)
+
+Executed outputs are committed in the `.ipynb` files so the notebooks display
+fully rendered on GitHub, including the captured compile errors in the
+expected-failure cells. After editing any notebook, run `make notebooks-refresh`
+(re-executes every notebook in place) and commit the result. Outputs are
+deterministic per build with one exception: the two training cells in
+`tutorials/04_training.ipynb` print wall-clock timing lines from `fit`, so a
+refresh always dirties those — commit them along with your edit.
 
 ## Tests
 
