@@ -33,7 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "codegen"))
 from ffi_manifest import MANIFEST, Entry  # noqa: E402
 
-EXEC_DIR = REPO_ROOT / "packages" / "idris-ml" / "src" / "Executor"
+EXEC_DIR = REPO_ROOT / "packages" / "idris-ml" / "src" / "Ml" / "Executor"
 
 
 def _backend_files(b: str) -> list[Path]:
