@@ -2,6 +2,23 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Fit profile epilogue gated behind the log-level scheme (2026-07-26).
+Closed the Low TODO "Gate `fit`'s profile epilogue behind the log-level
+scheme" the same day it was filed, at the user's request. `Fit.idr`
+called `profileReport` unconditionally and the C-side
+`backend_profile_report` prints regardless of `IDRISML_LOG_LEVEL`, so
+the wall-clock profile block leaked through at WARN even though
+`Util/Log.idr` classifies timing reports as INFO-class output. Fix: an
+Idris-side `getLogLevel >= levelInfo` guard around the call (default
+behavior unchanged — perf scripts still see PERF_MS_PER_EP + the report
+at INFO). Gate: `make test-integration-log-level-profile-gate`
+(scripts/test-log-level-profile-gate.sh runs the supervised example at
+both levels), wired into CI. RED before the fix: the gate's step 2
+failed with "warn-level run printed the profile report". Consumer:
+`make notebooks-refresh` now exports `IDRISML_LOG_LEVEL=warn`, making
+the no-edit refresh a byte-level git no-op (04_training's fit cells
+were the only volatile outputs).
+
 Notebook `1 + 1` Usage-literal collision fixed via kernel retry
 (2026-07-26). Closed the Medium TODO "Notebook REPL: integer literal `1`
 elaborates to linear `Usage`". Root cause: `Control.Linear.LIO` exports

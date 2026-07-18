@@ -106,10 +106,11 @@ Two categories in `notebooks/`:
 Executed outputs are committed in the `.ipynb` files so the notebooks display
 fully rendered on GitHub, including the captured compile errors in the
 expected-failure cells. After editing any notebook, run `make notebooks-refresh`
-(re-executes every notebook in place) and commit the result. Outputs are
-deterministic per build with one exception: the two training cells in
-`tutorials/04_training.ipynb` print wall-clock timing lines from `fit`, so a
-refresh always dirties those — commit them along with your edit.
+(re-executes every notebook in place) and commit the result; outputs are
+deterministic per build, so a refresh with no notebook edits is a git no-op.
+(The refresh runs at `IDRISML_LOG_LEVEL=warn` to keep `fit`'s wall-clock
+timing epilogue out of the recorded outputs; a live kernel at the default
+level prints it.)
 
 ## Tests
 

@@ -816,6 +816,15 @@ jobs:
         # Train.idr / Checkpoint.idr auto-save / resume integration.
         if: ${{ !cancelled() }}
         run: make test-integration-checkpoint-resume
+
+      - name: Fit profile epilogue log-level gate
+        # Runs the supervised example at the default level and under
+        # IDRISML_LOG_LEVEL=warn, asserting the fit epilogue
+        # (PERF_MS_PER_EP + the C profile report) prints only at INFO.
+        # notebooks-refresh depends on the warn-level suppression for
+        # deterministic committed notebook outputs.
+        if: ${{ !cancelled() }}
+        run: make test-integration-log-level-profile-gate
       # <<< END GENERATED (test-integration) <<<
 
       - name: Save caches

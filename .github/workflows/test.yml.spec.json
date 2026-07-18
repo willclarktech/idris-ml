@@ -322,6 +322,17 @@
           "asserts the sidecar epoch + resume log + completion. Gates the",
           "Train.idr / Checkpoint.idr auto-save / resume integration."
         ]
+      },
+      {
+        "name": "Fit profile epilogue log-level gate",
+        "run": "make test-integration-log-level-profile-gate",
+        "comment": [
+          "Runs the supervised example at the default level and under",
+          "IDRISML_LOG_LEVEL=warn, asserting the fit epilogue",
+          "(PERF_MS_PER_EP + the C profile report) prints only at INFO.",
+          "notebooks-refresh depends on the warn-level suppression for",
+          "deterministic committed notebook outputs."
+        ]
       }
     ],
     "test-e2e-examples": [

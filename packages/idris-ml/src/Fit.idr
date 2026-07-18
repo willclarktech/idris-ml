@@ -102,7 +102,10 @@ fitCustom {nanHalts} step s cfg m0 = do
   tEnd <- liftIO1 (clockTime Monotonic)
   liftIO1 (logInfo $ formatTimingSummary tStart tEnd epochsDone)
   liftIO1 (logInfo $ formatPerfMsPerEp tStart tEnd epochsDone)
-  liftIO1 (profileReport {ex})
+  -- The C-side report prints unconditionally, so the INFO gate lives
+  -- here (timing reports are INFO-class output per Util.Log's scheme).
+  liftIO1 (do lvl <- getLogLevel
+              when (lvl >= levelInfo) (profileReport {ex}))
   pure1 (MkBang (epochsDone, loss) # mFin)
 
 ||| Run linear training. The `L IO` analogue of `Fit.fit`: `fitCustom` plus

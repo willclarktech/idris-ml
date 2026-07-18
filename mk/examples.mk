@@ -516,6 +516,15 @@ example-precision-checkpoint:
 	@echo ""
 	@echo "All three steps passed (PrecisionCheckpoint L63 round-trip)."
 
+# The fit epilogue (PERF_MS_PER_EP + C profile report) is INFO-level
+# output; IDRISML_LOG_LEVEL=warn must silence it (notebooks-refresh
+# depends on the suppression for deterministic committed outputs).
+# See scripts/test-log-level-profile-gate.sh.
+test-integration-log-level-profile-gate: install
+	$(IDRIS2) $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
+	cp $(LIB) $(BUILD)/exec/supervised_app/
+	bash scripts/test-log-level-profile-gate.sh ./$(BUILD)/exec/supervised
+
 # Training-loop checkpoint/resume smoke test (tape backend, fast).
 # Trains gpt 10 epochs to a checkpoint dir, resumes to 20, asserts the
 # sidecar epoch + resume log + completion. Gates the Train/Checkpoint

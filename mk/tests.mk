@@ -447,6 +447,7 @@ test-integration: \
 		test-integration-lint-prim-ratchet \
 		test-integration-lint-fmt \
 		test-integration-checkpoint-resume \
+		test-integration-log-level-profile-gate \
 		test-integration-jupyter-cellparser \
 		test-integration-py-scripts
 
