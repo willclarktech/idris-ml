@@ -239,6 +239,8 @@ case decEq (hidden cfg) (numHeads cfg * headDim cfg) of
 
 This is what makes it possible to apply the type-level guarantees to existing repositories of pretrained models: [idris-transformers](users/idris-transformers.md) loads real HuggingFace checkpoints (BERT, GPT-2, Llama) by name, with the same shape checking throughout — see the [Summary](#summary) below.
 
+Run this section live: [`tutorials/01_tensors_and_types.ipynb`](../packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb), and [`models/bert.ipynb`](../packages/jupyter/notebooks/models/bert.ipynb) for the checkpoint loading.
+
 ---
 
 ## 2. Device mismatches
@@ -334,6 +336,8 @@ Can't find an implementation for Compatible (MlxExecutor MGpu) (Float 64).
 ```
 
 One case remains that no compiler can see: hardware that is linked into the build but absent on the machine where the binary eventually runs. That arrives as an ordinary typed error, `Left (DeviceUnavailable …)` from the explicit transfer functions, rather than an abort in the C layer. The rest is uniform: a mismatched device, a backend you didn't build, and a (device, dtype) pair the hardware can't support are all the same compile-time error, a missing instance.
+
+Run this section live: [`tutorials/07_device_safety.ipynb`](../packages/jupyter/notebooks/tutorials/07_device_safety.ipynb).
 
 ---
 
@@ -439,6 +443,8 @@ Note `eval`'s return type: taking a model out of training also moves it to `NoGr
 
 Individual *tensors* are deliberately not linear: reverse-mode autograd needs the same tensor to feed several branches of the graph, so use-exactly-once typing on tensors would reject correct programs. The linear rule applies only to the model handle, the value the stale-reference bug is about.
 
+Run this section live: [`tutorials/05_model_ownership.ipynb`](../packages/jupyter/notebooks/tutorials/05_model_ownership.ipynb).
+
 > [!NOTE]
 > Tensors have one ownership hazard of their own: a handle can outlive the memory scope that backs it. Counting uses is the wrong check for that; the planned mechanism is region types, a scope parameter in the style of Haskell's `runST` (see [the backlog](../TODO.md)).
 
@@ -525,6 +531,8 @@ Can't find an implementation for UpcastableTo (Float 64) (Float 16).
 
 That last one is a conversion you legitimately want (the model that doesn't fit in memory really should be halved), and it isn't forbidden: it goes through `tcastUnsafe`, a separate function whose name states that information is being discarded. That's the difference from `x.half()`: the lossy casts have their own distinguished surface, so every point of precision loss is spelled out in the program, and the lossless ones cost nothing.
 
+Run this section live: [`tutorials/09_precision_devices.ipynb`](../packages/jupyter/notebooks/tutorials/09_precision_devices.ipynb).
+
 ---
 
 ## 5. Multiple backends in one program
@@ -582,6 +590,8 @@ roundtripF64Smoke = do
 ```
 
 Section 2's machinery applies per backend: `Linked` keeps un-built backends out of reach, `Compatible` rules on each backend's (device, dtype) pairs, and hardware absent at runtime is the same typed error. Prototype, train, and deploy across multiple runtimes, in one type-checked program.
+
+Run this section live: the multi-backend cells of [`tutorials/07_device_safety.ipynb`](../packages/jupyter/notebooks/tutorials/07_device_safety.ipynb).
 
 ---
 
