@@ -42,7 +42,7 @@ parseIpkg : String -> IpkgInfo
 parseIpkg src = go False (MkIpkgInfo "." []) (lines src)
   where
     go : (inModules : Bool) -> IpkgInfo -> List String -> IpkgInfo
-    go _ acc [] = acc
+    go _ acc []                = acc
     go inModules acc (l :: ls) =
       let t = trim l in
       if "sourcedir" `isPrefixOf` t
@@ -100,14 +100,14 @@ localModulesFor file = go 10 (parentDir file)
       Nothing => False
 
     go : Nat -> String -> IO (List String)
-    go Z _ = pure []
+    go Z _       = pure []
     go (S k) dir = do
       paths <- ipkgsIn dir
       case paths of
         [] => if dir == "" then pure [] else go k (parentDir dir)
         _  => do
           mInfos <- traverse slurp paths
-          let infos = mapMaybe id mInfos
+          let infos  = mapMaybe id mInfos
           let owners = filter (ownerOf dir) infos
           let chosen = if null owners then infos else owners
           pure (concatMap (\i => i.modules) chosen)
