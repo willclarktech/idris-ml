@@ -100,7 +100,7 @@ Place cursor on a name and press Shift-Tab to see its type and documentation.
 
 Two categories in `notebooks/`:
 
-- **`tutorials/`** — Concept-oriented (01-08): tensors & types, building models, data & loss, training, sequences, device safety, hyperparameter optimization, precision & devices
+- **`tutorials/`** — Concept-oriented (01-09): tensors & types, building models, data & loss, training, model ownership, sequences, device safety, hyperparameter optimization, precision & devices
 - **`models/`** — Architecture-oriented (9 notebooks): supervised, rnn_lstm, transformer, gpt, ntm, dnc, cnn, reinforce, seq_classify. Each walks through model construction, type queries, and training (interactive where feasible, CLI instructions for heavy models)
 
 ## Tests
