@@ -84,9 +84,14 @@ build_idris_binary() {
 		"$IDRIS_VAR=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
 }
 
-# Derive binary path from make target: example-rnn -> ./build/exec/rnn.
+# Derive binary path from make target: example-rnn ->
+# ./build/<BUILD_KEY>/exec/rnn. Ask make for the key (mk/config.mk
+# `print-%`) — replicating it here rotted when BUILD_KEY grew the
+# mach/hw axes (same fix as perf-sweep.sh's build_key_for_cell).
 binary_for_target() {
-	echo "./build/exec/${IDRIS_TGT#example-}"
+	local build_key
+	build_key=$( BACKEND="$BACKEND" make -s --no-print-directory print-BUILD_KEY )
+	echo "./build/${build_key}/exec/${IDRIS_TGT#example-}"
 }
 
 # Run idris example with `--epochs N --seed S`, capture stdout, return
@@ -106,9 +111,15 @@ run_idris() {
 		echo "crashed"
 		return 0
 	fi
-	rm -f "$errlog"
-	perf_extract_marker "$stdout_path"
-	rm -f "$stdout_path"
+	local val
+	val=$( perf_extract_marker "$stdout_path" )
+	if [ "$val" = "missing" ]; then
+		# The Idris fit epilogue prints the marker via logInfo, which goes
+		# to STDERR since the INFO-gating change — fall back to the errlog.
+		val=$( perf_extract_marker "$errlog" )
+	fi
+	rm -f "$errlog" "$stdout_path"
+	echo "$val"
 }
 
 run_pytorch() {

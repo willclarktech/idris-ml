@@ -156,9 +156,15 @@ run_idris_once() {
 		echo "crashed"
 		return 0
 	fi
-	rm -f "$errlog"
-	perf_extract_marker "$stdout_path"
-	rm -f "$stdout_path"
+	local val
+	val=$( perf_extract_marker "$stdout_path" )
+	if [ "$val" = "missing" ]; then
+		# The Idris fit epilogue prints the marker via logInfo, which goes
+		# to STDERR since the INFO-gating change — fall back to the errlog.
+		val=$( perf_extract_marker "$errlog" )
+	fi
+	rm -f "$errlog" "$stdout_path"
+	echo "$val"
 }
 
 run_pytorch_once() {
