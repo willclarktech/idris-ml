@@ -2,6 +2,23 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Upstream RefC bug report closed as refuted-not-filed (2026-07-27). The
+"Upstream Idris 2 RefC bug report" row is closed WITHOUT filing: the
+2026-07-27 evidence pass re-ran the draft report's minimal repro AND a
+faithful `Ml.Array`-shaped repro (rank-indexed GADT + recursive Functor +
+the exact blamed `VArray [SArray 1.5, SArray (-2.7)]` construction +
+nested map + closure dispatch) under the pack toolchain
+(`0.8.0-b2d2cf40d`) — both run correctly. No matching upstream issue
+exists and the `support/refc` history since the 0.8.0 release contains
+no fix that would explain a vanished nested-ADT crash, so the original
+SEGV is attributed to the crash binary's environment (hand-copied
+struct layouts in `refc_shims.c` on the old nix runtime) rather than an
+upstream codegen bug. Evidence + path forward recorded in
+`docs/develop/refc-investigation.md` (2026-07-27 addendum) and a
+do-not-file banner on `docs/develop/refc-upstream-bug.md`; the "RefC
+backend adoption" row re-scoped accordingly. The row's residual item
+(contrib `System.Random` Scheme-only FFI) moved into the adoption row.
+
 User-facing documentation redesign / overhaul (closed 2026-07-27; work
 landed 2026-07-26). Closes the High-priority TODO row. All six
 sub-items shipped: (1) the `docs/users/` tree (why-idris-ml,

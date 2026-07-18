@@ -109,3 +109,40 @@ Even without RefC benchmarks, this investigation delivered:
 2. **Compat.Random module** — C-based random generation, no Chez dependency
 3. **Portable C helpers** on all 3 backends (tape, MLX, torch)
 4. **Clear understanding** of RefC's limitations and what's needed to unblock
+
+## Addendum (2026-07-27): Blocker 3 refuted as an upstream bug
+
+An evidence pass re-tested the trampoline-crash hypothesis on the current pack
+toolchain (`0.8.0-b2d2cf40d`, collection nightly-260604 — a different runtime
+from the nix 0.8.0 release the crash was observed on):
+
+1. The minimal repro from [refc-upstream-bug.md](refc-upstream-bug.md)
+   (`Vect 3 (Wrapper Double)` + Functor map + traverse) builds with
+   `idris2 --cg refc` and runs correctly.
+2. A faithful `Ml.Array`-shaped repro — the rank-indexed GADT with the recursive
+   `Functor` instance, the exact `VArray [SArray 1.5, SArray (-2.7)]`
+   construction Blocker 3 blamed, a rank-2 nested map, and a map-to-String
+   closure through the trampoline — also runs correctly. Neither build needed
+   `refc_shims.c`.
+3. Upstream `support/refc` history between the 0.8.0 release and the pin has no
+   fix that would explain a vanished nested-ADT crash (formatting/renames, the
+   negation-header fix [#3751](https://github.com/idris-lang/Idris2/pull/3751),
+   a WASM32 integer-comparison fix, aligned_alloc portability), and no matching
+   issue was ever reported by anyone else.
+
+Conclusion: the SEGV was almost certainly environmental, with the prime suspect
+being `refc_shims.c`'s hand-copied `_datatypes.h` struct layouts linked into the
+crash binary (a layout mismatch producing a corrupt `Value` matches the
+zero-page pointer in the ASan trace) on the old nix runtime. No upstream issue
+will be filed. Runtime-gap status on the pinned nightly:
+`idris2_cast_String_to_{Double,Integer}` now exist (capital-S spellings);
+`idris2_negate_Double` is still absent from `libidris2_refc.a`, but the test
+programs (which negate and multiply Doubles) no longer reference it — whether a
+full idris-ml build still does is part of the re-validation below.
+
+**Path forward for RefC adoption** (replaces the "file an upstream issue"
+recommendation): retry the full Supervised build on the pack nightly — first
+WITHOUT `refc_shims.c`; if link errors name missing runtime symbols, re-derive
+the shims against the CURRENT `_datatypes.h` (the old hand-copied layouts must
+not be reused — note upstream renamed internals with an `Idris2_` prefix in
+2026-04, commit `d11e2af`).

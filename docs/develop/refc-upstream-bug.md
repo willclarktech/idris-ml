@@ -4,7 +4,26 @@
 > writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
 > module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
 
-**For filing on:** https://github.com/idris-lang/Idris2/issues
+> **DO NOT FILE — refuted 2026-07-27.** The evidence pass re-ran both the minimal
+> repro below and a faithful `Ml.Array`-shaped repro (rank-indexed GADT, recursive
+> Functor, the exact `VArray [SArray 1.5, SArray (-2.7)]` construction, nested map +
+> map-to-String closure dispatch) on the pack toolchain (`0.8.0-b2d2cf40d`,
+> collection nightly-260604): both build and run correctly, no crash. No matching
+> upstream issue exists, and the `support/refc` history between the 0.8.0 release
+> and the pin contains nothing that would have fixed a nested-ADT trampoline crash
+> (only formatting/renames, the negation-header fix
+> [#3751](https://github.com/idris-lang/Idris2/pull/3751), a WASM32 comparison fix,
+> and aligned_alloc portability) — so "was a real bug, silently fixed" is unlikely.
+> The remaining suspect for the original SEGV is environmental: the crash binary
+> linked `refc_shims.c` (hand-copied `_datatypes.h` struct layouts) on the old nix
+> 0.8.0-release runtime; a layout mismatch there producing a corrupt `Value` is
+> exactly consistent with the zero-page pointer in the ASan trace. Two of the three
+> shimmed symbols now exist upstream under capital-S spellings
+> (`idris2_cast_String_to_{Double,Integer}`); only `idris2_negate_Double` remains
+> absent from the pinned runtime. See the addendum in
+> [refc-investigation.md](refc-investigation.md).
+
+**For filing on:** https://github.com/idris-lang/Idris2/issues (superseded — see above)
 
 ## Title
 
