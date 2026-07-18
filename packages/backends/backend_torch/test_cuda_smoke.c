@@ -31,10 +31,9 @@ static TensorHandle cuda_probe(void) {
 	return tensor_to_device(x, "cuda");
 }
 
-#define REQUIRE_CUDA()                                                    \
-	do {                                                                  \
-		if (cuda_probe() == NULL)                                         \
-			cr_skip_test("no CUDA device available (EAFP probe -> NULL)"); \
+#define REQUIRE_CUDA()                                                                             \
+	do {                                                                                           \
+		if (cuda_probe() == NULL) cr_skip_test("no CUDA device available (EAFP probe -> NULL)");   \
 	} while (0)
 
 Test(torch_cuda, placement_reports_cuda_device) {
@@ -61,8 +60,8 @@ Test(torch_cuda, add_on_gpu_roundtrips_values) {
 	TensorHandle g = tensor_to_device(x, "cuda");
 	TensorHandle s = tensor_add(g, g);
 	cr_assert_neq(s, NULL, "add on cuda tensors should succeed");
-	cr_assert(strstr(tensor_device(s), "cuda") != NULL,
-	          "add result should stay on cuda (got %s)", tensor_device(s));
+	cr_assert(strstr(tensor_device(s), "cuda") != NULL, "add result should stay on cuda (got %s)",
+	          tensor_device(s));
 	TensorHandle back = tensor_to_device(s, "cpu");
 	cr_assert_neq(back, NULL, "migration back to cpu should succeed");
 	double buf[4];
@@ -87,17 +86,17 @@ Test(torch_cuda, backward_grad_lands_on_cuda_param) {
 	    tensor_create_f64(hcopy(wd, 1), shape, 1, /*requires_grad=*/1), "cuda");
 	cr_assert_neq(w, NULL, "persistent migration of the param should succeed");
 	param_register("cuda_smoke.w", w);
-	TensorHandle x = tensor_to_device(
-	    tensor_create_f64(hcopy(xd, 1), shape, 1, /*requires_grad=*/0), "cuda");
+	TensorHandle x =
+	    tensor_to_device(tensor_create_f64(hcopy(xd, 1), shape, 1, /*requires_grad=*/0), "cuda");
 	TensorHandle y = tensor_mul(w, x);
-	cr_assert(strstr(tensor_device(y), "cuda") != NULL,
-	          "mul result should stay on cuda (got %s)", tensor_device(y));
+	cr_assert(strstr(tensor_device(y), "cuda") != NULL, "mul result should stay on cuda (got %s)",
+	          tensor_device(y));
 	tensor_backward(y);
 	TensorHandle grad = tensor_grad(w);
 	cr_assert_neq(grad, NULL, "w should carry a grad after backward");
 	TensorHandle grad_cpu = tensor_to_device(grad, "cpu");
-	cr_assert_float_eq(tensor_item(grad_cpu), 3.0, 1e-12,
-	                   "d(w*x)/dw should be x=3.0 (got %.9f)", tensor_item(grad_cpu));
+	cr_assert_float_eq(tensor_item(grad_cpu), 3.0, 1e-12, "d(w*x)/dw should be x=3.0 (got %.9f)",
+	                   tensor_item(grad_cpu));
 }
 
 #endif /* BACKEND_TORCH */
