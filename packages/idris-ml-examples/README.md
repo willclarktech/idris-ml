@@ -53,4 +53,4 @@ Smaller programs exercise specific features: `example-transfer` (multi-backend t
 `Bench.idr` (`make example-bench`) is the end-to-end training microbenchmark timing
 forward/backward/step across model families; `make bench-compare` runs it side by side against the
 PyTorch reference. See the [performance regime in CLAUDE.md](../../CLAUDE.md) and
-[docs/benchmarks.md](../../docs/benchmarks.md).
+[docs/users/benchmarks.md](../../docs/users/benchmarks.md).

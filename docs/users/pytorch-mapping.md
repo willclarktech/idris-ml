@@ -192,7 +192,7 @@ res <- load "model.safetensors" defaultLoadOpts   -- Either LoadError ()
 `.safetensors` is the only on-disk format; `allowCast = False` (the default) rejects any
 dtype mismatch, `only := Just pfx` does a prefix-filtered warm-start. Python interop:
 `safetensors.torch.load_file(...)` / MLX `mx.load(...)`. Loading real HuggingFace
-checkpoints is `fromPretrained` in [`idris-transformers`](users/idris-transformers.md).
+checkpoints is `fromPretrained` in [`idris-transformers`](idris-transformers.md).
 
 ## Evaluation
 

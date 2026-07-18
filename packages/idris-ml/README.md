@@ -6,7 +6,7 @@ checkpoints — all with compile-time shape / device / dtype / grad-mode safety 
 C/C++ backend (tape, libtorch, MLX).
 
 For the *why* — the five compile-time guarantees compared side by side against PyTorch,
-TensorFlow 1.x / JAX, and Haskell — see [**docs/why-idris-ml.md**](../../docs/why-idris-ml.md).
+TensorFlow 1.x / JAX, and Haskell — see [**docs/users/why-idris-ml.md**](../../docs/users/why-idris-ml.md).
 
 ## Single-import surface
 
@@ -119,11 +119,11 @@ choice for the shipped examples.
 ## Performance
 
 NTM-copy runs at ~110 ms/epoch on the C tape backend (Apple M-series), comparable to the PyTorch
-reference (~130 ms/epoch). Full cross-backend comparisons: [docs/benchmarks.md](../../docs/benchmarks.md).
+reference (~130 ms/epoch). Full cross-backend comparisons: [docs/users/benchmarks.md](../../docs/users/benchmarks.md).
 
 ## See also
 
-- [docs/why-idris-ml.md](../../docs/why-idris-ml.md) — the five-guarantee case.
-- [docs/getting-started.md](../../docs/getting-started.md) — first tensor → first trained model.
-- [docs/pytorch-mapping.md](../../docs/pytorch-mapping.md) — concept-by-concept for PyTorch users.
+- [docs/users/why-idris-ml.md](../../docs/users/why-idris-ml.md) — the five-guarantee case.
+- [docs/users/getting-started.md](../../docs/users/getting-started.md) — first tensor → first trained model.
+- [docs/users/pytorch-mapping.md](../../docs/users/pytorch-mapping.md) — concept-by-concept for PyTorch users.
 - [idris-ml-examples](../idris-ml-examples/) — runnable examples; [idris-transformers](../idris-transformers/) — real HF models.

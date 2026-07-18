@@ -137,7 +137,7 @@ PyTorch's silent footgun: a loss tensor that came from inside `with torch.no_gra
 - Clean examples build: 21.78s → 24.41s (+12%, +2.6s absolute). The extra unification work from the 4th type parameter explains it; still small in absolute terms.
 - Runtime: supervised / rnn / lstm wall-clock all within ±6% of pre-refactor — within the documented VM noise floor. Bit-identical loss values. No measurable runtime regression.
 
-See `docs/grad-mode-and-device-typing.md` for the user-facing explainer.
+See `docs/users/grad-mode-and-device-typing.md` for the user-facing explainer.
 
 ## Type-safe device placement
 

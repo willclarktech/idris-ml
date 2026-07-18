@@ -4,7 +4,7 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 
 ## Writing style — user-facing prose (IMPORTANT: read before touching any docs/*.md)
 
-**LLM output drifts into a recognizable house style that this repo's docs must not have.** These rules were extracted from repeated review feedback on `docs/why-idris-ml.md` (2026-07); every one of them was violated more than once before being named. Re-read this section before writing or editing user-facing prose, and sweep your own draft against it before presenting it.
+**LLM output drifts into a recognizable house style that this repo's docs must not have.** These rules were extracted from repeated review feedback on `docs/users/why-idris-ml.md` (2026-07); every one of them was violated more than once before being named. Re-read this section before writing or editing user-facing prose, and sweep your own draft against it before presenting it.
 
 **Voice — the banned patterns (each observed in real drafts):**
 - **No reveal/announcer framing.** Never introduce a point by announcing its significance — "the real cost", "the deeper point", "that's the telling part", "This is worth pausing on", "here's the part hasktorch can't reach", "the deciding fact:". State the significant thing directly; if the sentence's only job is to promise the next sentence matters, delete it.

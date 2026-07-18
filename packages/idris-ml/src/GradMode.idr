@@ -6,7 +6,7 @@
 -- | `runBackward` / `trainStep` can statically reject NoGrad
 -- | inputs instead of silently no-opping.
 -- |
--- | See `docs/grad-mode-and-device-typing.md` for the full design.
+-- | See `docs/users/grad-mode-and-device-typing.md` for the full design.
 
 module GradMode
 

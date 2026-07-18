@@ -1,6 +1,6 @@
 ||| BringYourOwn — worked example of a user-supplied backend.
 |||
-||| Walks through the recipe from `docs/grad-mode-and-device-typing.md`'s
+||| Walks through the recipe from `docs/users/grad-mode-and-device-typing.md`'s
 ||| "Custom devices: user-supplied backends" section: declare your
 ||| own device tag type, bind your dylib's C symbols via `%foreign`,
 ||| implement `UserExecutorCore` for the type, and `Tensor [..] MyDev`

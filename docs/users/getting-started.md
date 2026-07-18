@@ -1,9 +1,9 @@
 # Getting started
 
 A text walkthrough from a first tensor to a trained model — a Jupyter-independent
-companion to the [notebook tutorials](../packages/jupyter/README.md). Every snippet here
+companion to the [notebook tutorials](../../packages/jupyter/README.md). Every snippet here
 is the real current API; the complete, compiling version of the training example is
-[`packages/idris-ml-examples/src/Example/Supervised.idr`](../packages/idris-ml-examples/src/Example/Supervised.idr).
+[`packages/idris-ml-examples/src/Example/Supervised.idr`](../../packages/idris-ml-examples/src/Example/Supervised.idr).
 
 New to the *why*? Read [Why idris-ml](why-idris-ml.md) first.
 
@@ -120,6 +120,6 @@ discard infer'
 - [Why idris-ml](why-idris-ml.md) — the full safety story (shape, device, multi-backend,
   grad-mode, dtype) vs PyTorch / TF1+JAX / Haskell.
 - [PyTorch mapping](pytorch-mapping.md) — concept-by-concept translation table.
-- [idris-transformers](users/idris-transformers.md) — load real HuggingFace BERT / GPT-2 /
+- [idris-transformers](idris-transformers.md) — load real HuggingFace BERT / GPT-2 /
   Llama checkpoints with `fromPretrained`.
-- [Notebook tutorials](../packages/jupyter/README.md) — the same path, interactively.
+- [Notebook tutorials](../../packages/jupyter/README.md) — the same path, interactively.

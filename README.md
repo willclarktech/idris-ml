@@ -36,7 +36,7 @@ ownership) cover the rest:
 | Lossy dtype cast | not caught | not caught | not caught | **compile time** (explicit opt-out) |
 | Mixing multiple backends | unsupported | unsupported | unsupported | **compile time** |
 
-→ [**Why idris-ml**](docs/why-idris-ml.md) makes the full case, side by side against PyTorch,
+→ [**Why idris-ml**](docs/users/why-idris-ml.md) makes the full case, side by side against PyTorch,
 TensorFlow 1.x, and hasktorch (Torch.Typed), with the **literal error each one
 produces**. It also runs real models: [`idris-transformers`](packages/idris-transformers/)
 loads HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches
@@ -123,7 +123,7 @@ The optional libtorch / MLX backends and the full per-backend build matrix are d
 
 ## Documentation
 
-- [**Why idris-ml**](docs/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1 / hasktorch, with literal errors.
+- [**Why idris-ml**](docs/users/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1 / hasktorch, with literal errors.
 - [docs/](docs/README.md) — full user documentation index (getting-started, PyTorch mapping, deep dives, benchmarks).
 - [CLAUDE.md](CLAUDE.md) — architecture, module dependency order, and the contributor guide.
 

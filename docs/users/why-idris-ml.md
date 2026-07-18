@@ -33,7 +33,7 @@ This document guides you through each major feature of idris-ml, demonstrating t
 | Mixing multiple backends | unsupported | unsupported | unsupported | **compile time** |
 
 > [!TIP]
-> Every compile-error demo in this document can be run live: see [Getting Started](getting-started.md) and the [Jupyter notebooks](../packages/jupyter/README.md).
+> Every compile-error demo in this document can be run live: see [Getting Started](getting-started.md) and the [Jupyter notebooks](../../packages/jupyter/README.md).
 
 ---
 
@@ -237,9 +237,9 @@ case decEq (hidden cfg) (numHeads cfg * headDim cfg) of
 
 `decEq` is a runtime check that produces compile-time evidence: in the `Yes` branch the compiler knows `hidden = numHeads * headDim` and lets the model be built; the `No` branch is an ordinary typed error. The model-building code was type-checked once, for *every* possible value of these dimensions — the checkpoint just picks which one this run gets.
 
-This is what makes it possible to apply the type-level guarantees to existing repositories of pretrained models: [idris-transformers](users/idris-transformers.md) loads real HuggingFace checkpoints (BERT, GPT-2, Llama) by name, with the same shape checking throughout — see the [Summary](#summary) below.
+This is what makes it possible to apply the type-level guarantees to existing repositories of pretrained models: [idris-transformers](idris-transformers.md) loads real HuggingFace checkpoints (BERT, GPT-2, Llama) by name, with the same shape checking throughout — see the [Summary](#summary) below.
 
-Run this section live: [`tutorials/01_tensors_and_types.ipynb`](../packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb), and [`models/bert.ipynb`](../packages/jupyter/notebooks/models/bert.ipynb) for the checkpoint loading.
+Run this section live: [`tutorials/01_tensors_and_types.ipynb`](../../packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb), and [`models/bert.ipynb`](../../packages/jupyter/notebooks/models/bert.ipynb) for the checkpoint loading.
 
 ---
 
@@ -337,7 +337,7 @@ Can't find an implementation for Compatible (MlxExecutor MGpu) (Float 64).
 
 One case remains that no compiler can see: hardware that is linked into the build but absent on the machine where the binary eventually runs. That arrives as an ordinary typed error, `Left (DeviceUnavailable …)` from the explicit transfer functions, rather than an abort in the C layer. The rest is uniform: a mismatched device, a backend you didn't build, and a (device, dtype) pair the hardware can't support are all the same compile-time error, a missing instance.
 
-Run this section live: [`tutorials/07_device_safety.ipynb`](../packages/jupyter/notebooks/tutorials/07_device_safety.ipynb).
+Run this section live: [`tutorials/07_device_safety.ipynb`](../../packages/jupyter/notebooks/tutorials/07_device_safety.ipynb).
 
 ---
 
@@ -443,10 +443,10 @@ Note `eval`'s return type: taking a model out of training also moves it to `NoGr
 
 Individual *tensors* are deliberately not linear: reverse-mode autograd needs the same tensor to feed several branches of the graph, so use-exactly-once typing on tensors would reject correct programs. The linear rule applies only to the model handle, the value the stale-reference bug is about.
 
-Run this section live: [`tutorials/05_model_ownership.ipynb`](../packages/jupyter/notebooks/tutorials/05_model_ownership.ipynb).
+Run this section live: [`tutorials/05_model_ownership.ipynb`](../../packages/jupyter/notebooks/tutorials/05_model_ownership.ipynb).
 
 > [!NOTE]
-> Tensors have one ownership hazard of their own: a handle can outlive the memory scope that backs it. Counting uses is the wrong check for that; the planned mechanism is region types, a scope parameter in the style of Haskell's `runST` (see [the backlog](../TODO.md)).
+> Tensors have one ownership hazard of their own: a handle can outlive the memory scope that backs it. Counting uses is the wrong check for that; the planned mechanism is region types, a scope parameter in the style of Haskell's `runST` (see [the backlog](../../TODO.md)).
 
 ---
 
@@ -531,7 +531,7 @@ Can't find an implementation for UpcastableTo (Float 64) (Float 16).
 
 That last one is a conversion you legitimately want (the model that doesn't fit in memory really should be halved), and it isn't forbidden: it goes through `tcastUnsafe`, a separate function whose name states that information is being discarded. That's the difference from `x.half()`: the lossy casts have their own distinguished surface, so every point of precision loss is spelled out in the program, and the lossless ones cost nothing.
 
-Run this section live: [`tutorials/09_precision_devices.ipynb`](../packages/jupyter/notebooks/tutorials/09_precision_devices.ipynb).
+Run this section live: [`tutorials/09_precision_devices.ipynb`](../../packages/jupyter/notebooks/tutorials/09_precision_devices.ipynb).
 
 ---
 
@@ -549,7 +549,7 @@ a = mx.array(t.numpy())    # copied out through numpy into MLX
 
 Nothing records which library a value belongs to, so there is no check to fail; mixing `t` and `a` fails at runtime or silently detours through numpy, depending on the operation. TensorFlow has the same shape: one runtime, with conversion to anything else done by hand at the numpy boundary. And hasktorch is bound to libtorch by construction. Its device phantom from section 2 is a closed enumeration (`CPU | CUDA`); there is no way to say "a tensor belonging to a different tensor library" at all.
 
-In idris-ml the backend is a type parameter like everything else, and the set of backends is *open*: `Executor` is an ordinary kind, and any type with the right interface implementations can inhabit it. That includes yours. Declare a tag type, bind your library's C symbols, implement the executor interfaces, and `Tensor [4] MyBackend` is a working type that dispatches every operation to your code; [`Example/BringYourOwn.idr`](../packages/idris-ml-examples/src/Example/BringYourOwn.idr) walks through the whole recipe against a 100-line stub backend. The three that ship are tape (pure C), libtorch, and MLX, and one build links every backend you name into a single library:
+In idris-ml the backend is a type parameter like everything else, and the set of backends is *open*: `Executor` is an ordinary kind, and any type with the right interface implementations can inhabit it. That includes yours. Declare a tag type, bind your library's C symbols, implement the executor interfaces, and `Tensor [4] MyBackend` is a working type that dispatches every operation to your code; [`Example/BringYourOwn.idr`](../../packages/idris-ml-examples/src/Example/BringYourOwn.idr) walks through the whole recipe against a 100-line stub backend. The three that ship are tape (pure C), libtorch, and MLX, and one build links every backend you name into a single library:
 
 ```bash
 make BACKEND=tape,torch,mlx backend     # tape, libtorch, and MLX in one libidrisml.{so,dylib}
@@ -591,7 +591,7 @@ roundtripF64Smoke = do
 
 Section 2's machinery applies per backend: `Linked` keeps un-built backends out of reach, `Compatible` rules on each backend's (device, dtype) pairs, and hardware absent at runtime is the same typed error. Prototype, train, and deploy across multiple runtimes, in one type-checked program.
 
-Run this section live: the multi-backend cells of [`tutorials/07_device_safety.ipynb`](../packages/jupyter/notebooks/tutorials/07_device_safety.ipynb).
+Run this section live: the multi-backend cells of [`tutorials/07_device_safety.ipynb`](../../packages/jupyter/notebooks/tutorials/07_device_safety.ipynb).
 
 ---
 
@@ -601,7 +601,7 @@ The static-graph era conflated *shape safety* with *graph structure*. You don't 
 
 The costs are real too. idris-ml is young: compile times are longer than you're used to, unification errors take practice to read, the ecosystem is one repository rather than PyTorch's universe of libraries and answers, and performance today trails PyTorch on many workloads (every example trains against a PyTorch reference implementation, which doubles as the benchmark). What you get in exchange is the subject of this document: whole classes of bugs caught before the program runs.
 
-None of this is confined to synthetic demonstrations. [idris-transformers](../packages/idris-transformers/) loads real HuggingFace checkpoints: each supported architecture is one Idris module whose parameters and shapes match the checkpoint on disk, so loading is a single `fromPretrained` call (parse `config.json`, fill the weights from `model.safetensors`) with no remapping layer, and the shapes flow into the model's type exactly as in section 1:
+None of this is confined to synthetic demonstrations. [idris-transformers](../../packages/idris-transformers/) loads real HuggingFace checkpoints: each supported architecture is one Idris module whose parameters and shapes match the checkpoint on disk, so loading is a single `fromPretrained` call (parse `config.json`, fill the weights from `model.safetensors`) with no remapping layer, and the shapes flow into the model's type exactly as in section 1:
 
 ```idris
 fromPretrained : Backend ex dt => KnownGrad g
@@ -611,17 +611,17 @@ fromPretrained : Backend ex dt => KnownGrad g
 
 idris-transformers is one of several packages in the repository alongside the core library:
 
-- [`idris-transformers`](../packages/idris-transformers/): the HuggingFace checkpoint loading above (BERT, GPT-2, Llama, BitNet).
-- [`idris-ml-examples`](../packages/idris-ml-examples/): runnable examples covering supervised training, recurrent and memory architectures (RNN/LSTM/NTM/DNC), reinforcement learning, and section 5's bring-your-own backend.
-- [`idris-gym`](../packages/idris-gym/): reinforcement-learning environments with a Gymnasium-style API, in pure Idris.
-- [`idris-ml-notebook`](../packages/idris-ml-notebook/): a prelude that re-exports the whole library for notebook use.
-- [`jupyter`](../packages/jupyter/): a Jupyter kernel for running Idris interactively, including every compile-error demo in this document.
+- [`idris-transformers`](../../packages/idris-transformers/): the HuggingFace checkpoint loading above (BERT, GPT-2, Llama, BitNet).
+- [`idris-ml-examples`](../../packages/idris-ml-examples/): runnable examples covering supervised training, recurrent and memory architectures (RNN/LSTM/NTM/DNC), reinforcement learning, and section 5's bring-your-own backend.
+- [`idris-gym`](../../packages/idris-gym/): reinforcement-learning environments with a Gymnasium-style API, in pure Idris.
+- [`idris-ml-notebook`](../../packages/idris-ml-notebook/): a prelude that re-exports the whole library for notebook use.
+- [`jupyter`](../../packages/jupyter/): a Jupyter kernel for running Idris interactively, including every compile-error demo in this document.
 
 ---
 
 ## Next steps
 
-- [Getting Started](getting-started.md) / [Jupyter notebooks](../packages/jupyter/README.md): run the compile-error demos from this document live.
+- [Getting Started](getting-started.md) / [Jupyter notebooks](../../packages/jupyter/README.md): run the compile-error demos from this document live.
 - [PyTorch Mapping](pytorch-mapping.md): concept-by-concept translation for PyTorch users.
 - [Static vs Dynamic Graphs](static-vs-dynamic-graphs.md): the dependent-types-for-shapes argument in full, with a worked example threading dimensions through an NTM.
 - [Grad-Mode and Device Typing](grad-mode-and-device-typing.md): what each guarantee requires from a type system, including the "Custom devices" section behind section 5's bring-your-own backend.
