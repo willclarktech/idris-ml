@@ -3,42 +3,48 @@
 [![codecov](https://codecov.io/gh/willclarktech/idris-ml/branch/main/graph/badge.svg)](https://codecov.io/gh/willclarktech/idris-ml)
 
 A dependently-typed deep-learning framework in Idris 2: dynamic-graph ergonomics (define-by-run
-autograd, ordinary `if`/`for`/`while`, normal debugging) with safety guarantees stronger than any
-static graph ever offered — shapes, devices, dtypes, and grad-mode are checked at compile time
-and erased at runtime. This is a **monorepo** of a core library plus RL environments, an
-HF-aligned model library, supporting tools, and the PyTorch oracle it's validated against.
+autograd, ordinary `if`/`for`/`while`, normal debugging) with the constraints (shapes, devices,
+dtypes, grad-mode) checked at compile time and erased at runtime. This is a **monorepo** of a
+core library plus RL environments, an HF-aligned model library, supporting tools, and the
+PyTorch reference implementations it's validated against.
 
 ## Why?
 
-Dynamic frameworks like PyTorch catch shape errors at runtime, devices at runtime, lossy casts
-never. idris-ml makes them compile errors — and one mechanism (dependent + linear types) covers
-all of it. Shape, executor (backend), dtype, and grad-mode all ride on the autograd tensor type:
+Here's a common bug class in PyTorch:
 
-```idris
-record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
-  constructor MkTensor
-  tensorPtr : AnyPtr        -- backend handle (carries the autograd graph)
-  paramId   : Maybe String  -- registry key for the optimizer
+```python
+fc1 = nn.Linear(784, 256)  # this hidden layer size got increased from 128 to 256
+fc2 = nn.Linear(128, 10)   # bug: this value didn't get updated
+some_inputs = torch.randn(64, 784)
+fc2(fc1(some_inputs))
+```
+```
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (64x256 and 128x10)
 ```
 
-**Five guarantees, one type mechanism** — each a compile error here, a runtime error / silent
-bug / outright impossibility elsewhere:
+The error arrives at runtime, possibly hours into a run, and only if that code path executes.
+In idris-ml the same program is rejected by the compiler, because shapes are part of the
+tensor's type. The same two language features (dependent types, plus linear types for model
+ownership) cover the rest:
 
-1. **Shape** mismatches — type-level `Nat` arithmetic threads dimensions through a whole model.
-2. **Device** mismatches — including "CUDA on a Mac" (unspellable in a non-CUDA build) and
-   Metal's F32-only limit (`Compatible (MlxExecutor MGpu) F64` deliberately doesn't exist).
-3. **Grad-mode / model ownership** — models are single-owner linear resources; "freeze then
-   train via the stale handle" (a silent no-op in PyTorch) is a linearity error.
-4. **Lossy dtype casts** — narrowing must be code-visible; `F32 → BF16` won't resolve without an
-   explicit cast.
-5. **Multi-backend in one program** — `tape`, `torch`, and `mlx` tensors coexist in one
-   type-checked program with explicit, checked transfers.
+| Bug class | PyTorch (dynamic) | TF 1.x (static) | hasktorch (Torch.Typed) | idris-ml |
+|---|:---:|:---:|:---:|:---:|
+| Shape mismatch | run time | graph build | **compile time** | **compile time** |
+| Device mismatch | run time | run time | **compile time** | **compile time** |
+| Grad-mode misuse | run time | n/a | not caught | **compile time** |
+| Stale model handle after freeze | not caught | n/a | not caught | **compile time** |
+| Lossy dtype cast | not caught | not caught | not caught | **compile time** (explicit opt-out) |
+| Mixing multiple backends | unsupported | unsupported | unsupported | **compile time** |
 
 → [**Why idris-ml**](docs/why-idris-ml.md) makes the full case, side by side against PyTorch,
 TensorFlow 1.x, and hasktorch (Torch.Typed), with the **literal error each one
 produces**. It also runs real models: [`idris-transformers`](packages/idris-transformers/)
 loads HuggingFace **BERT / GPT-2 / Llama-3.2-1B / BitNet** checkpoints by name and matches
 PyTorch's forward pass to **4e-4**.
+
+idris-ml is young: compile times are longer than you're used to, and performance today trails
+PyTorch on many workloads (every example trains against a PyTorch reference implementation,
+which doubles as the benchmark).
 
 ## Packages
 
@@ -106,6 +112,11 @@ make example-supervised     # run the simplest example
 make test                   # run the Idris test suite
 make jupyter-install && make jupyter-lab   # interactive notebooks
 ```
+
+To try the compile-time guarantees live, start with the notebooks: the tutorial sequence begins
+at [`tutorials/01_tensors_and_types.ipynb`](packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb),
+and every notebook in [`packages/jupyter/notebooks/`](packages/jupyter/notebooks/) is executed
+in CI.
 
 The optional libtorch / MLX backends and the full per-backend build matrix are documented in
 [`packages/idris-ml/README.md`](packages/idris-ml/README.md#backends).
