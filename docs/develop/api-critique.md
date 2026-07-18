@@ -1,5 +1,9 @@
 # API Critique — the user-facing surface of `packages/idris-ml`
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 **Date**: 2026-06-11 · **Commit**: `de5dc612` · **Status**: findings recorded; refactors not yet started.
 **Decision record**: the north-star items were walked through with the user 2026-06-11 and three were
 adjusted (§N3 — no `Num`-on-IO/`share`, operator aliases on plain tensors instead; §N5 — `scoped` +

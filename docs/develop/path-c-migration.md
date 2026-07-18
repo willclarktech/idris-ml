@@ -1,5 +1,9 @@
 # Path C migration
 
+> **Historical record.** Documents the Path-C migration as executed — this file
+> is the V1→V2 name decoder. Later renames (Executor spellings 2026-06-06,
+> `Ml.*` module nesting 2026-07-27) are not reflected in its examples.
+
 The Path C migration moved the autograd value's tensor shape onto the value
 itself, deleted the V1 surface, and renamed the canonical types. Bit-identical
 numerics, ~5,000 fewer lines, single API.

@@ -1,5 +1,9 @@
 # RefC Backend Investigation
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 ## Goal
 
 Determine if Idris 2's RefC backend (`--cg refc`) can replace Chez Scheme for idris-ml, potentially eliminating the 18-40% Chez runtime overhead.

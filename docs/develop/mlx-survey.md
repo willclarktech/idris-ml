@@ -1,5 +1,9 @@
 # mlx internals survey — Job 3 Phase B
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 Survey of mlx 0.31.2's `compile` / `vjp` C++ API and how it could
 compose with our `tensor_backward`'s replay-VJP pattern in
 `backend_mlx.cpp`. Phase B step 1 deliverable per the plan.

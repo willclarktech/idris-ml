@@ -1,5 +1,9 @@
 # NTM / DNC perf attribution (Phase 0)
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 Per-op forward profiling of NTM and DNC on the tape backend, captured
 2026-05-07. Establishes where time is going so Phase 1 can target the
 biggest lever.

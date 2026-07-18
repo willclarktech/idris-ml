@@ -1,5 +1,9 @@
 # Upstream Bug Report: RefC Trampoline Crash on Nested ADTs
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 **For filing on:** https://github.com/idris-lang/Idris2/issues
 
 ## Title

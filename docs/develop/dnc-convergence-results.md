@@ -1,5 +1,9 @@
 # DNC Convergence Results
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 > **2026-04-29 update**: Both Idris and PyTorch reverted to N=32, batch=1, max-len 10 (copy) / batch=1 (recall). The previous N=128 batch=16 alignment proved untenable on the Idris tape backend (~5 min/epoch vs PyTorch's 276 ms/epoch). See `docs/develop/reference-alignment.md` for the alignment-policy rationale and `TODO.md` for the layer-perf work that would re-enable PyTorch's prior config.
 
 ## PyTorch Reference (Oracle)

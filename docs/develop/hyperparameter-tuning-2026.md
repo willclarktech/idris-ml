@@ -1,5 +1,9 @@
 # Hyperparameter tuning log — 2026
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 Per-example record of what `lr_find` recommended, what we tried, and what
 we shipped. Each entry follows the same template so the suite stays
 comparable as we re-tune over time. Tickets B3 and B4 fill this in.

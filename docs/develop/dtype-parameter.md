@@ -1,5 +1,9 @@
 # Dtype type parameter
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 Design memo for adding a dtype type parameter to `Tensor` so that
 `Tensor [4,8] MlxGpu F64` fails to typecheck (Metal GPU does not support
 f64) and `Tensor [4,8] MlxGpu F32` runs end-to-end with f32 storage and
@@ -613,7 +617,7 @@ instances bind to per-dtype C symbols (`tensor_create_scalar_f32` vs
 - `Tensor [..] CPU F64` on mlx → `tensor_create_*_f64` →
   `mx::float64` at allocation, BUT downstream fused-op kernels mix
   fp32 constants → produces wrong math today. Phase 6 audit pending.
-- `Tensor [..] (MlxDev MGpu) F32` still rejected at compile time
+- `Tensor [..] (MlxDev MGpu) F64` still rejected at compile time
   (Metal has no fp64). The reject is the original design intent.
 
 ### Design: `RuntimeDType` as a runtime tag carrier

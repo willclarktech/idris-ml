@@ -1,5 +1,9 @@
 # Idris-2 JIT / JAX backend investigation
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 Date: 2026-06-08. Spike commit: pending.
 
 Two questions, both originally parked under one TODO row ("Investigate

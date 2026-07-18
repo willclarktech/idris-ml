@@ -1,5 +1,11 @@
 # NTM Performance Analysis
 
+> Dated analysis snapshots, most sections from the Path-C era (2026-04/05).
+> Sections keep the identifiers of their day (not updated for the Executor
+> spellings 2026-06-06 or the `Ml.*` nesting 2026-07-27 — decoder:
+> [path-c-migration.md](path-c-migration.md)). New ad-hoc grid analyses are
+> appended as new dated sections.
+
 ## Path C migration result (2026-05-06)
 
 Post-migration `make bench-compare` (Idris vs PyTorch end-to-end):

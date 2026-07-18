@@ -1,5 +1,9 @@
 # NTM Recall Convergence Results
 
+> **Historical record.** Identifiers and paths reflect the tree at the time of
+> writing; not updated for later renames (Executor spellings 2026-06-06, `Ml.*`
+> module nesting 2026-07-27). Name decoder: [path-c-migration.md](path-c-migration.md).
+
 > **Note**: As of the simplification refactor, all ablation flags have been removed from the PyTorch NTM implementation. Experiment J's configuration (all vlgiitr differences combined) is now the only architecture, hardcoded in `bench/bench/ntm/layer.py`. The experiments below are historical records of the investigation that led to this decision.
 
 Experiments run with `bench/bench/scripts/convergence.py` to verify PyTorch NTM recall convergence under different optimizer and curriculum configurations.
