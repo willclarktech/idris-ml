@@ -63,8 +63,8 @@ make install                              # Install core lib + gym (required for
 make example-<name>                       # Build and run an example (all accept --epochs, --lr, --seed)
 
 # Tests — see docs/develop/testing.md for the full layer breakdown
-make test-examples              # Smoke gate: every example × 4 lanes (tape, mlx, mlx-gpu, torch), ~30-60 min
-make test-examples-convergence  # Every example to convergence (hours, tape only)
+make test-e2e-examples          # Smoke gate: every example × 5 lanes (tape, mlx, mlx-gpu, torch, torch-mps), ~30-60 min
+make test-convergence           # Every example to convergence (hours, tape only)
 make test                       # Idris unit tests
 make test-unit-c-{tape,mlx,torch}   # C backend unit tests per backend (criterion)
 
@@ -110,14 +110,14 @@ Scalar       = Array []
 Vector elems = Array [elems]
 Matrix r c   = Array [r, c]
 
--- Device.idr (open device kind — pick a Type with a UserDeviceCore instance)
-0 Device : Type
-Device = Type
+-- Ml.Executor.Core.Kind (open executor kind — pick a Type with a UserExecutorCore instance)
+0 Executor : Type
+Executor = Type
 -- Built-in backend tags:
 --   TapeExecutor               — tape backend (CPU only, no hardware variants)
 --   TorchExecutor d            — libtorch; d : TorchHwDev = TCpu | TMps | TCuda Nat
 --   MlxExecutor s              — mlx; s : MlxStream = MCpu | MGpu
--- `UserDeviceTransfer` makes the generic `toDevice` work between any pair
+-- `UserExecutorTransfer` makes the generic `toExecutor` work between any pair
 -- (matching backendTag → fast intra-backend HW migration; differing → host
 -- round-trip). Declare your own backend via a tag type with these instances
 -- + a unique `backendTag`. See design-decisions.md "Open `d` parameter".
@@ -126,8 +126,8 @@ Device = Type
 -- compile-time linkage via the empty `Linked ex` marker (emitted per build
 -- into `HwConfig`, so a tape-only build can't even spell `MlxExecutor _`),
 -- and runtime EAFP hardware-presence (construction shims → NULL handle;
--- `toDeviceChecked`/`attemptOn` lift NULL → `Left DeviceError`;
--- `availableDevices builtinDevices` probes the build's candidates).
+-- `toExecutorChecked`/`attemptOn` lift NULL → `Left ExecutorError`;
+-- `availableExecutors builtinExecutors` probes the build's candidates).
 
 -- DType.Core (open dtype kind — pick a Type with an IsDType / Compatible instance)
 0 DType : Type
@@ -170,7 +170,7 @@ The sole layer surface (`Layer/` is gone). Models are plain records of layers, a
 
 ### Tensor lifecycle (wrapped-handle ABI)
 
-`tensorPtr` is a Chez vector `#(tensor-handle-v2 tag raw)` (slot 1 = backend tag, slot 2 = raw pointer), not a raw pointer. Every Tensor-touching `%foreign` binds to a Scheme wrapper that unwraps via `(vector-ref a<i> 2)` on Tensor args and wraps + retains + registers with `idris-tensor-guardian` on Tensor returns. The wrap IS the value — Idris-Chez codegen can't elide it without eliding the Tensor. C-side refcount drives freeing on mlx; tape and torch carry no-op retain/release stubs. New FFIs go through `scripts/codegen/ffi_manifest.py` + `ffi-convert-to-scheme.py`; `make check-ffi-wrap-template` (CI preflight) enforces the template. Full model in `docs/develop/tensor-lifecycle.md`.
+`tensorPtr` is a Chez vector `#(tensor-handle-v2 tag raw)` (slot 1 = backend tag, slot 2 = raw pointer), not a raw pointer. Every Tensor-touching `%foreign` binds to a Scheme wrapper that unwraps via `(vector-ref a<i> 2)` on Tensor args and wraps + retains + registers with `idris-tensor-guardian` on Tensor returns. The wrap IS the value — Idris-Chez codegen can't elide it without eliding the Tensor. C-side refcount drives freeing on mlx; tape and torch carry no-op retain/release stubs. New FFIs go through the `scripts/codegen/ffi_manifest/` package + `ffi-convert-to-scheme.py`; `make test-integration-lint-ffi-wrap-template` (CI gate) enforces the template. Full model in `docs/develop/tensor-lifecycle.md`.
 
 ## Key Patterns
 
@@ -244,7 +244,7 @@ namespace collides with `data/` (gitignore × case-insensitive APFS), base `Data
 
 ### Optimizer
 
-`Optimizer.idr`: four IO constructors `sgd` / `rmsprop` / `adam` / `adamW` × `OptimOpts` (beta1/beta2/eps/clip/groups, `defaultOpts` = PyTorch defaults, record-update to override). Algorithm-specific knobs sit on the constructor that owns them — `rmsprop {alpha} {momentum}`, `adamW lr weightDecay opts`. Per-network optimizers are scoped after construction via `Train.Freeze`, not a constructor field. `groups := [("bert.", 0.0)]` sets per-prefix LR overrides at construction (0 freezes; params registered after construction miss the walk — construct optimizers after the networks). Schedules: `withSchedule sched opt` + `tick opt epoch`. Single `trainStep opt loss` runs zero_grad → backward → clip → step; use `NormClip` for recurrent models.
+`Optimizer.idr`: four IO constructors `sgd` / `rmsprop` / `adam` / `adamW` × `OptimOpts` (beta1/beta2/eps/clip, `defaultOpts` = PyTorch defaults, record-update to override). Algorithm-specific knobs sit on the constructor that owns them — `rmsprop {alpha} {momentum}`, `adamW lr weightDecay opts`. Per-network / per-group scoping happens after construction via `Train.Freeze` (`restrictTo opt (groupOf net)` for exact ownership; `freezeGroup` / `setGroupLR` with `namesMatching (isPrefixOf "bert.")` for name-pattern groups) — there is no constructor-level `groups` field. Schedules: `withSchedule sched opt` + `tick opt epoch`. Single `trainStep opt loss` runs zero_grad → backward → clip → step; use `NormClip` for recurrent models.
 
 ### Model serialization
 
@@ -286,7 +286,7 @@ Commit at each step. PyTorch is the correctness oracle.
 - **C unit tests** (criterion `test_*.c`, `make test-unit-c-{tape,torch,mlx}`) — backend dtype/kernel/lifetime work; verify on **all three** backends, not just the primary.
 - **F32 gradcheck oracle** (tape T29 block) — extending F32 routing: paired F32-vs-F64 contract (tag-propagation + forward-tol + grad-tol).
 - **Idris unit tests** (`packages/idris-ml/test`, `make test`) — typed-surface / smart-constructor / training-loop work.
-- **`.expect` outputs** (`make test-examples`) — user-visible example behaviour; author the expected stdout first (`<EXAMPLE>_READY` gates the skip-flag shape).
+- **`.expect` outputs** (`make test-e2e-examples`) — user-visible example behaviour; author the expected stdout first (`<EXAMPLE>_READY` gates the skip-flag shape).
 
 **No "linked = green"** — compile/link coverage alone has shipped broken behaviour here; the behavioural test is the gate.
 
@@ -374,7 +374,7 @@ See [`docs/develop/gotchas.md`](docs/develop/gotchas.md) for the comprehensive l
 - **`paramId` is required for gradient flow** — tensors without paramId are invisible to the optimizer.
 - **ParamId scoping for multi-network examples** (A2C / PPO / SAC) — scope each network's prefix distinctly (`actor_`, `critic_`, `q1_`, `q2_`, `q1tgt_`, `q2tgt_`). The bug class is silent gradient leakage between networks.
 - **`logSoftmax` + `nllLoss`** — apply `tlogSoftmax1d` to raw logits and feed into `tnllLoss`; do NOT put a softmax layer in the network chain (creates 1/pp intermediates up to 1e6).
-- **Elementwise `(*)`** — `Tensor`'s `Num` uses elementwise multiply; use `(<>)` for matmul (PyTorch's `@`).
+- **Elementwise `(*.)`** — the Tensor multiply aliases (`tmul` / `(*.)`) are elementwise; matrix products go through `tmv` / `tlinear2d` (PyTorch's `@`). `Tensor` has no `Num` instance; `(<>)` is `Ml.Math`'s `Array` matmul.
 - **Chez output buffering** — `stdout` is fully buffered when piped. Prefix long-running background commands with `stdbuf -oL`.
 - **Large Nat type-level reduction** — Idris-2 Peano Nats hang the type-checker for dims > ~1000 and choke on multiplicative shape literals. Route through `TVec`/`TMat` aliases; place identity layers (dropout, batch norm) only at smaller dims.
 - **`Data.Nat` stdlib functions are recursive at runtime too** — `Data.Nat.lte`/`divNat`/`modNatNZ` compile to recursive Peano walks even though `Nat` is `Integer` underneath (`div 256 2` = 128 `cond`/`sub1` cycles). Cast to `Int` and use `Int div`/`Int mod` in hot paths; the `Ord_Nat` comparators (`<`, `<=`) are fine. Details + the `posEncVal` incident in `docs/develop/gotchas.md`.

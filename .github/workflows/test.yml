@@ -198,7 +198,7 @@ jobs:
         # Catches: (a) new Tensor-touching %foreign decls written as
         # %foreign "C:..." instead of scheme-wrapped, (b) hand-edited
         # scheme bodies missing the vector-ref unwrap or the wrap/retain
-        # on T return. See docs/develop/tensor-lifecycle-plan.md.
+        # on T return. See docs/develop/tensor-lifecycle.md.
         run: make test-integration-lint-ffi-wrap-template
       - name: Verify %foreign decls are correctly IO-typed
         # Catches the bug class fixed by the IO refactor (commits leading

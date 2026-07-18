@@ -41,7 +41,7 @@ class Idris2REPL:
 
     # The REPL prompt looks like "Notebook.Prelude> " at line start.
     # Must not match layer names in output like "relu> " mid-line.
-    # The module name always contains a dot (Notebook.Prelude, Layer.Core, etc.)
+    # The module name always contains a dot (Notebook.Prelude, Ml.Tensor, etc.)
     # or is "Main" (bare REPL before :module).
     PROMPT_RE = r"(\[scheme\] )?(Main|[A-Za-z][A-Za-z0-9]*\.[A-Za-z0-9.]*)> "
 

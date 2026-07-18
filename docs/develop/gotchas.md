@@ -7,8 +7,10 @@ Comprehensive reference for all known pitfalls in the idris-ml codebase. Organiz
 > `toDoubleNetwork`, `Endofunctor.emap`, `DenseOptimizer`, `NtmMemBuf`, `WeightBuf`, scalar-tape
 > internals, and the V1 `LayerLike` interface are **no longer applicable** post-migration. They are
 > preserved as historical context — see [path-c-migration.md](path-c-migration.md) for what
-> superseded them. Top-of-file sections (Idris 2 / Chez Scheme traps, Training & Numerics, NTM /
-> DNC / MLX-specific gotchas) remain accurate for V2 code.
+> superseded them. Elsewhere the rule is: an entry whose heading carries a `(legacy)` tag describes
+> a removed surface and is kept verbatim as history; every untagged entry is meant to be current
+> for the `Ml.*` / `Nn` code and has its names updated as surfaces are renamed. Captured error
+> output is never edited, so old spellings inside quoted errors are expected.
 
 ## Idris 2 / Chez Scheme Traps
 
@@ -40,7 +42,7 @@ Idris2 requires source files to be in `--source-dir`. Never put test files in `/
 
 ### Elementwise `(*)`
 
-`Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr.
+`Array`'s `Num` instance uses elementwise multiply. For matrix-vector products on the pure-Idris `Array` path, use `matrixVectorMultiply` / `vectorMatrixMultiply` (or the `(<>)` overloads) from Math.idr. The autograd `Tensor` surface has no `Num` instance at all — elementwise arithmetic is the `(+.)` / `(-.)` / `(*.)` aliases on evaluated tensors (`Ml.Tensor.Ops`).
 
 ### Arena chunk size must exceed largest single allocation
 
@@ -107,7 +109,7 @@ case r of
 
 For `divNat n 2` with `n = 256`, this means **128 recursive `(cond ((equal? arg-0 0) ...) (else (let ((e-0 (- arg-0 1))) (divNat e-0 ...))))` calls**, plus an `lte` call per iteration that itself recurses. A single `posEncVal` call with `dim ∈ [0, 256)` doing `div dim 2` + `modNatNZ dim 2` ran ~400 Nat-recursive operations.
 
-**Found 2026-05-14** in `Layer/Transformer.idr`'s positional encoding (`posEncVal`). 32K `posEncVal` calls per forward × 32 forwards/epoch × ~400 Nat ops each = **3.9 billion `Data.Nat.lte`/`divC-39`/`modC-39` calls per epoch** on GptLarge. Came out as the headline hotspot in a Chez source-level profile (`docs/develop/chez-profiling.md`). Cost: ~8 of 9 wall seconds per epoch, depending on backend.
+**Found 2026-05-14** in `Layer/Transformer.idr`'s positional encoding (`posEncVal`, now in `Nn/PosEncoding.idr`). 32K `posEncVal` calls per forward × 32 forwards/epoch × ~400 Nat ops each = **3.9 billion `Data.Nat.lte`/`divC-39`/`modC-39` calls per epoch** on GptLarge. Came out as the headline hotspot in a Chez source-level profile (`docs/develop/chez-profiling.md`). Cost: ~8 of 9 wall seconds per epoch, depending on backend.
 
 **Workaround** — cast to `Int` once at the function entry, use `Int div`/`Int mod` thereafter. Single CPU instructions:
 
@@ -138,7 +140,7 @@ The Ord-instance comparators (`<`, `<=`, etc.) route through `compare_Ord_Intege
 
 If a record carries a polymorphic type-parameter slot (`record Tensor ... (0 dt : DType) ...`) but the interface methods that operate on values of that record hardcode a concrete value in the slot (`applyVar : ... -> Tensor [i] ex F64 g -> ...`), Idris-2's elaborator allocates a fresh unification variable for `dt` at every Tensor reference and keeps it alive across the module to support cross-method elaboration. The variable always unifies to F64 trivially — but the metavar state isn't released until the module compiles.
 
-For a small module this is invisible. For a layer with hundreds of Tensor references (`Layer/Dnc.idr` is the canonical case — DNC's memory + temporal-link matrix + read/write heads = many nested record-update chains), the kept-alive metavars accumulate. Observed on this codebase: 33+ GB resident in Chez Scheme on a single `idris-ml` build, climbing as Layer.Dnc elaboration proceeded. Four parallel idris2 builds during iteration drove the host (iTerm2 + spawned processes) to 99 GB.
+For a small module this is invisible. For a layer with hundreds of Tensor references (the DNC layer is the canonical case — then `Layer/Dnc.idr`, now `Nn/Dnc.idr`; memory + temporal-link matrix + read/write heads = many nested record-update chains), the kept-alive metavars accumulate. Observed on this codebase: 33+ GB resident in Chez Scheme on a single `idris-ml` build, climbing as Layer.Dnc elaboration proceeded. Four parallel idris2 builds during iteration drove the host (iTerm2 + spawned processes) to 99 GB.
 
 **Symptom:** `idris2 --build` builds that exceed ~10 GB resident on a codebase that previously fit in <5 GB, with the slowdown concentrated on the most reference-dense layer files. Examples build fine; the cost is on the library where the polymorphic slot meets the concrete methods.
 
@@ -173,21 +175,11 @@ Idris-2 proof search resolves monomorphic `%hint`s (`Diff MyFn`) and unconstrain
 
 Consequence: any design of the shape "annotate each primitive with a `%hint`-registered derivative/property and let search assemble the chain" does not work in today's Idris 2. TensorType's autodiff core hit exactly this wall; their `Data/Autodiff/Core/SearchIssues.idr` ([bgavran/TensorType](https://github.com/bgavran/TensorType)) is a runnable catalogue of the four cases. Recorded 2026-06-11 during the Glaive survey (`docs/develop/glaive-survey.md`).
 
-### Tensor Foldable reversal
+### `Array` Foldable reversal
 
-The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers, extracting prediction values for argmax).
+The `foldr` instance for `Array` (`Ml.Array`) processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Destructure the `VArray`/`SArray` constructors and recurse over the underlying `Vect` in forward order when element order matters (e.g., packing into C buffers, extracting prediction values for argmax).
 
-Pattern for correct-order extraction:
-```idris
-tensorVals : {n : Nat} -> Vector n Variable -> List Double
-tensorVals (VTensor xs) =
-  let go : Vect k (Scalar Variable) -> List Double
-      go [] = []
-      go (STensor v :: rest) = prim__item v.tensorPtr :: go rest
-  in go xs
-```
-
-This caused a subtle bug in the Transformer example where `toList` reversed prediction logits, making the loss function (which uses `vecStackTensor` in forward order) show near-zero loss while the argmax (which used `toList` in reversed order) gave wrong classes.
+This caused a subtle bug in the V1 Transformer example where `toList` reversed prediction logits, making the loss function (which stacked in forward order) show near-zero loss while the argmax (which used `toList` in reversed order) gave wrong classes.
 
 ### Zero-arg FFI CSE trap
 
@@ -195,19 +187,19 @@ Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated on
 
 ### `PrimIO Bits64` FFI returns corrupt state in tight loops — use `PrimIO Int`
 
-The `primPerfOpCount` FFI (introduced commit `e9763d0` for the #393 op-submission counter) originally declared `PrimIO Bits64`. The C side returns `long`, which is `int64_t` on macOS — fits both `Bits64` and `Int`. Calling the typeclass-routed `perfOpCount {ex=ExampleDevice}` in a tight loop (once per decode step in HfLlama's `genLoop`) reliably crashed tape F32 inference with `Exception: invalid memory reference` / `Illegal instruction: 4` after ~8 iterations (#401). Switching the FFI declaration to `PrimIO Int` (and the `Tensor.idr` wrapper to `IO Int`) eliminated the crash — same C function, same workload, full 13-step decode. The exact failure mode of Idris-2's chez codegen for `unsigned-64` returns in a typeclass-dispatched `PrimIO` is unresolved (the other documented hypotheses — typeclass dispatch, FFI marshalling — weren't independently isolated), but the working code uses `Int`. Lesson: for FFI counters / sizes / handle indices returning values that fit in `Int64`, default to `PrimIO Int` not `PrimIO Bits64`. Reserve `Bits64` for cases where the unsigned semantics genuinely matter and the call frequency is low.
+The `primPerfOpCount` FFI (introduced commit `e9763d0` for the #393 op-submission counter) originally declared `PrimIO Bits64`. The C side returns `long`, which is `int64_t` on macOS — fits both `Bits64` and `Int`. Calling the typeclass-routed `perfOpCount {ex=ExampleExecutor}` in a tight loop (once per decode step in HfLlama's `genLoop`) reliably crashed tape F32 inference with `Exception: invalid memory reference` / `Illegal instruction: 4` after ~8 iterations (#401). Switching the FFI declaration to `PrimIO Int` (and the `Tensor.idr` wrapper to `IO Int`) eliminated the crash — same C function, same workload, full 13-step decode. The exact failure mode of Idris-2's chez codegen for `unsigned-64` returns in a typeclass-dispatched `PrimIO` is unresolved (the other documented hypotheses — typeclass dispatch, FFI marshalling — weren't independently isolated), but the working code uses `Int`. Lesson: for FFI counters / sizes / handle indices returning values that fit in `Int64`, default to `PrimIO Int` not `PrimIO Bits64`. Reserve `Bits64` for cases where the unsigned semantics genuinely matter and the call frequency is low.
 
 ### Wrapped-handle ABI — new Tensor FFIs must use the wrap-on-return template
 
 Every `prim__` FFI that touches Tensor handles binds to a Scheme wrapper, not directly to a C function. The wrapper extracts the raw pointer from each Tensor arg via `(vector-ref a<i> 2)` before the C call, and (for Tensor returns) wraps the C result in a fresh Chez vector + registers it with `idris-tensor-guardian` + retains via `tensor_retain_handle_<backend>`. The vector IS the Tensor's runtime identity — Idris-Chez codegen can't elide it without eliding the value itself. See `docs/develop/tensor-lifecycle.md` for the full model and `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" for the rationale.
 
-**Wrap layout v2** (since 2026-05-19): the wrap is `(vector 'tensor-handle-v2 "TAG" raw_ptr)` — slot 0 is a sentinel symbol, slot 1 is the backend tag string (`"tape"` / `"torch"` / `"mlx"` for per-backend wraps in `Device/*.idr`, or `"primary"` for unsuffixed wraps in `Tensor.idr` that call the link-time-aliased unified C symbol), slot 2 is the raw pointer. Retain is symmetric: per-backend wraps call `tensor_retain_handle_<tag>` (suffixed), primary wraps call unified `tensor_retain_handle` (which aliases to primary's). The drain function in `Tensor.idr` reads slot 1, builds the matching `tensor_release_handle_<tag>` symbol name at runtime, and dispatches — *this is what makes multi-backend builds correct*. Before v2 the drain always used the link-time-aliased unified release (typically the primary's no-op), so mlx-allocated tensors leaked their refcount and tripped SIGSEGV during exit-time mlx static destructor teardown.
+**Wrap layout v2** (since 2026-05-19): the wrap is `(vector 'tensor-handle-v2 "TAG" raw_ptr)` — slot 0 is a sentinel symbol, slot 1 is the backend tag string (`"tape"` / `"torch"` / `"mlx"` for per-backend wraps in `Ml/Executor/{Tape,Torch,Mlx}/*.idr`, or `"primary"` for unsuffixed wraps in the `Ml/Tensor/*.idr` modules that call the link-time-aliased unified C symbol), slot 2 is the raw pointer. Retain is symmetric: per-backend wraps call `tensor_retain_handle_<tag>` (suffixed), primary wraps call unified `tensor_retain_handle` (which aliases to primary's). The drain function in `Ml/Tensor/Handle.idr` reads slot 1, builds the matching `tensor_release_handle_<tag>` symbol name at runtime, and dispatches — *this is what makes multi-backend builds correct*. Before v2 the drain always used the link-time-aliased unified release (typically the primary's no-op), so mlx-allocated tensors leaked their refcount and tripped SIGSEGV during exit-time mlx static destructor teardown.
 
-**For new FFIs**: add the C symbol to `scripts/codegen/ffi_manifest.py`'s `MANIFEST` with arg/return classifiers (`T` = wrapped Tensor handle, `R` = raw AnyPtr, `i`/`d`/`s`/`v` = primitive/void), then run `python3 scripts/codegen/ffi-convert-to-scheme.py <files>` (or hand-edit using its output as a template). The generator derives the backend tag from the C name's suffix (`_tape`/`_torch`/`_mlx`/unsuffixed) — keep the naming convention to get the right tag.
+**For new FFIs**: add the C symbol to the `scripts/codegen/ffi_manifest/` package's `MANIFEST` (entries live in its `families/*.py` modules) with arg/return classifiers (`T` = wrapped Tensor handle, `R` = raw AnyPtr, `i`/`d`/`s`/`v` = primitive/void), then run `python3 scripts/codegen/ffi-convert-to-scheme.py <files>` (or hand-edit using its output as a template). The generator derives the backend tag from the C name's suffix (`_tape`/`_torch`/`_mlx`/unsuffixed) — keep the naming convention to get the right tag.
 
 **Do NOT** pass `tensorPtr` to non-FFI Scheme code that expects a raw pointer — it's a Chez vector. Either route through an FFI (which knows to unwrap) or write your own `(vector-ref ... 2)` extraction.
 
-**Linter**: `make check-ffi-wrap-template` runs structural checks across all 5 wrap-handle files (Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr). It catches missing conversions (raw `%foreign "C:..."` for a manifest symbol), missing `(vector-ref a<i> 2)` unwraps on T args, missing `(vector 'tensor-handle-v2 "TAG" …)` wrap on T returns, mismatched tag (e.g. a `_torch`-suffixed C name wrapped as `"mlx"`), missing `tensor_retain_handle_<tag>` retain calls, and the legacy `'tensor-handle` sentinel anywhere (which would silently corrupt slot-1 readers expecting raw pointers). Wired into the CI `check-paired-defaults` preflight — violations fail the build before the long matrix burns minutes.
+**Linter**: `make check-ffi-wrap-template` runs structural checks across all wrap-handle files (`Ml/Tensor.idr` + `Ml/Tensor/*.idr` + `Ml/Executor/*.idr` + `Ml/Executor/*/*.idr` — the `WRAP_HANDLE_FILES` glob in `scripts/codegen/ffi_manifest/_paths.py`). It catches missing conversions (raw `%foreign "C:..."` for a manifest symbol), missing `(vector-ref a<i> 2)` unwraps on T args, missing `(vector 'tensor-handle-v2 "TAG" …)` wrap on T returns, mismatched tag (e.g. a `_torch`-suffixed C name wrapped as `"mlx"`), missing `tensor_retain_handle_<tag>` retain calls, and the legacy `'tensor-handle` sentinel anywhere (which would silently corrupt slot-1 readers expecting raw pointers). Wired into the CI `check-paired-defaults` preflight — violations fail the build before the long matrix burns minutes.
 
 ### A new device-pinning C shim must `try/catch` → NULL, or it re-opens the SIGABRT
 
@@ -247,7 +239,7 @@ makeVec4 (a, b, c, d) = do
   pure (MkTensor ptr Nothing)
 ```
 
-`primIO` binds the result through the `%World` token, which threads through the rest of the IO chain and prevents the let-hoisting. Now each call to the function re-runs the alloc, fill, create, free sequence cleanly. The fix lives in `packages/idris-ml/test/src/Test/Transfer.idr` and `packages/idris-ml-examples/src/Example/Transfer.idr`; the symptom is a libsystem_malloc abort on the *second* invocation of any code that follows this `let`-chain-with-side-effects pattern. Related: `feedback_typeclass_zero_arg_method_eval.md`, "Zero-arg FFI CSE trap" above.
+`primIO` binds the result through the `%World` token, which threads through the rest of the IO chain and prevents the let-hoisting. Now each call to the function re-runs the alloc, fill, create, free sequence cleanly. The fix lives in `packages/idris-ml/src/Test/Transfer.idr` and `packages/idris-ml-examples/src/Example/Transfer.idr`; the symptom is a libsystem_malloc abort on the *second* invocation of any code that follows this `let`-chain-with-side-effects pattern. Related: `feedback_typeclass_zero_arg_method_eval.md`, "Zero-arg FFI CSE trap" above.
 
 ### FFI side-effect threading
 
@@ -257,9 +249,9 @@ makeVec4 (a, b, c, d) = do
 
 If a function with hidden FFI side effects has a *pure* type, the FFI calls fire during strict argument evaluation — *before* `pure` constructs its IO action, and therefore *before* `noGradBegin` runs. The bracket was effectively a no-op on the eval path.
 
-The library fix (commit `73a5cdc`'s parent and earlier): every Tensor-handle-touching smart constructor + every `applyVar` / `forwardVar` is now `IO`-typed. FFI bodies fire when the IO action is sequenced via `<-`, which happens *inside* the bracket. The helper `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` defers a pure body to IO without using the prelude's private `MkIO` constructor; `Lazy a` was rejected because it memoizes (we need re-evaluation per call).
+The library fix (commit `73a5cdc`'s parent and earlier): every Tensor-handle-touching smart constructor + every layer forward path (then `applyVar` / `forwardVar`, today `forward` / `recurStep`) is `IO`-typed. FFI bodies fire when the IO action is sequenced via `<-`, which happens *inside* the bracket. The helper `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` defers a pure body to IO without using the prelude's private `MkIO` constructor; `Lazy a` was rejected because it memoizes (we need re-evaluation per call).
 
-**Sibling trap — `bulkToTensor`-style returns AnyPtr, not Tensor.** `bulkToTensor` is a pre-tensor *staging* helper (it builds the host buffer, fills it, and hands the raw AnyPtr back to the caller for wrapping). Its return type is `AnyPtr`, not `IO AnyPtr`, so the IO-typed-smart-constructor rule doesn't catch it. When multiple let-bound `bulkToTensor` calls feed sibling fields of a tuple/record/argument list, Idris/Chez can reorder or interleave their FFI side effects so one Tensor ends up wrapping a partially-initialised arena slot (kernel sees `rank=0` or `shape=NULL` for a tensor that should be rank-1; the C oracle test, which constructs scalar/x/bias directly with no Idris-side wrapping, is fine — the reorder only happens when Idris evaluates the chain). Fix at the call site: `raw <- ioRerun (\_ => bulkToTensor xs)` per tensor, then thread the AnyPtr into `MkTensor` / `tinput1d`. Bound in `Test.BitLinear`'s `mkVec` / `mkVecNoGrad`; the same pattern is the right shape for any future helper that returns a `bulkToTensor`-style raw AnyPtr. Caught while wiring `tBitlinearFwd`'s Idris-side oracle test (commit `10a535b`).
+**Sibling trap — `bulkToTensor`-style returns AnyPtr, not Tensor.** `bulkToTensor` is a pre-tensor *staging* helper (it builds the host buffer, fills it, and hands the raw AnyPtr back to the caller for wrapping). Its return type is `AnyPtr`, not `IO AnyPtr`, so the IO-typed-smart-constructor rule doesn't catch it. When multiple let-bound `bulkToTensor` calls feed sibling fields of a tuple/record/argument list, Idris/Chez can reorder or interleave their FFI side effects so one Tensor ends up wrapping a partially-initialised arena slot (kernel sees `rank=0` or `shape=NULL` for a tensor that should be rank-1; the C oracle test, which constructs scalar/x/bias directly with no Idris-side wrapping, is fine — the reorder only happens when Idris evaluates the chain). Fix at the call site: `raw <- ioRerun (\_ => bulkToTensor xs)` per tensor, then thread the AnyPtr into `MkTensor` / `tinput1d`. Bound in the then-`Test.BitLinear` oracle test's `mkVec` / `mkVecNoGrad` (today's `Test.Nn.BitLinear` builds fixtures via the `tensor (FromVect …)` surface instead); the same pattern is the right shape for any future helper that returns a `bulkToTensor`-style raw AnyPtr. Caught while wiring `tBitlinearFwd`'s Idris-side oracle test (commit `10a535b`).
 
 ### Per-FFI `ioRerun` overhead amplifies on mlx small-op training
 
@@ -269,7 +261,7 @@ The `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` helper that 
 
 Inference programs that complete with hundreds of MB of live tensor handles hit a 14-22 minute post-main C-side cleanup tail on the CPU lanes (torch-cpu, mlx-cpu). The work is libtorch's per-`at::Tensor` destructor cascade (`~at::Tensor → ~Storage → CPUAllocator-free`) walking the ~146 params + ~600 forward intermediates accumulated across an 8-token no-cache greedy decode. The GPU lanes (`torch-mps`, `mlx-gpu`) don't show this — MTLBuffer release is async.
 
-Fix: call `releaseAllPersistent {ex=ExampleDevice}` after `runGenerate` and before `pure ()`. On torch this `free_intermediates()` + walks `param_registry_arr` deleting each `at::Tensor*`; cascade runs inside `main` where it's timed + bounded. Measured on HfLlama-1.2B BF16 torch-cpu (commit `84cd1b5`): **wall 23m22s → 1m21s**.
+Fix: call `releaseAllPersistent {ex=ExampleExecutor}` after `runGenerate` and before `pure ()`. On torch this `free_intermediates()` + walks `param_registry_arr` deleting each `at::Tensor*`; cascade runs inside `main` where it's timed + bounded. Measured on HfLlama-1.2B BF16 torch-cpu (commit `84cd1b5`): **wall 23m22s → 1m21s**.
 
 Pair with `drainManagedHandles + forceMajorGc` immediately before (the standard `withNoGrad` cleanup pair) so any guardian-tracked wraps from the run are popped before the explicit release. mlx-cpu's `releaseAllPersistent` is a no-op today — `mlx_sweep_generation` is static-scoped in `autograd.cpp` and the simpler `param_clear + mx::clear_cache` regressed the mlx-cpu wall; exposing the sweep + walking `all_tensors` is the proper fix and a deferred follow-up.
 
@@ -281,7 +273,7 @@ Fix: push `withNoGrad` *inside* the loop. NTM eval: `evalOne dp = withNoGrad $ d
 
 ### Grad-mode per-epoch eval + the mlx generation sweep = use-after-free
 
-A `cfg.metrics` callback that runs `forwardVar` in grad mode (no `withNoGrad`) builds autograd-tape entries during evaluation that are never consumed or reset. On mlx the per-epoch generation sweep (`tensor_epoch_end`) then deletes `rc==1` tensors created since `epoch_begin` — including eval intermediates the lingering tape still references — so the *next* epoch dereferences freed memory. It surfaces non-deterministically as bogus mlx reshape-size aborts (`[reshape] Cannot reshape array of size N into shape …`, where N drifts run-to-run because the corruption lands at whatever op the reused slot hits first), not a clean error at the eval site. tape/torch are immune: their `tensor_epoch_end` is a no-op (no Metal buffer ceiling to bound). This bit transformer + gpt once the per-epoch generation free landed.
+A `cfg.metrics` callback that runs a model forward in grad mode (no `withNoGrad`) builds autograd-tape entries during evaluation that are never consumed or reset. On mlx the per-epoch generation sweep (`tensor_epoch_end`) then deletes `rc==1` tensors created since `epoch_begin` — including eval intermediates the lingering tape still references — so the *next* epoch dereferences freed memory. It surfaces non-deterministically as bogus mlx reshape-size aborts (`[reshape] Cannot reshape array of size N into shape …`, where N drifts run-to-run because the corruption lands at whatever op the reused slot hits first), not a clean error at the eval site. tape/torch are immune: their `tensor_epoch_end` is a no-op (no Metal buffer ceiling to bound). This bit transformer + gpt once the per-epoch generation free landed.
 
 Fix lives in the library: `Train.idr`'s `logEpoch` wraps `cfg.metrics` in `withNoGrad` so eval builds no tape, and `forceMetrics` forces the result strings *inside* that bracket (the metric strings are lazy `show (primItem …)` / `argmaxAtPtr …` thunks that would otherwise dangle when the bracket-exit drain frees the eval tensors — same lazy-FFI footgun as the per-sequence case above). Example `metrics` callbacks therefore need not (and should not) manage no-grad themselves.
 
@@ -295,9 +287,9 @@ Fix: **husk instead of delete.** For an `rc==1` block-local tensor the sweep rel
 
 **The husk must release buffers without *allocating* (fixed 2026-05-22).** The first husk used `t->data = t->grad = mx::array(0.0f)`, which *allocates* two fresh scalars per swept tensor. On Apple Silicon every mlx buffer — even 4–8 bytes — routes through `MetalAllocator` (unified memory), so under the paravirt-Metal per-process MTLBuffer ceiling (Tart/GHA VMs) those per-sweep allocations throw `[malloc] Unable to allocate N bytes` (N=4 f32, N=8 f64 — one scalar) *mid-training*. The throw fires before `main` returns (`g_mlx_past_main == false`), so the post-main `set_terminate` mitigation can't swallow it → `Abort trap: 6`. Hit NTM/DNC/mnist/mountain-car/ppo on mlx + mlx-gpu; the old `delete`-sweep never allocated so never tripped it. Fix: assign a single process-wide `static const mx::array g_husk_empty` instead — mx::array is copy-on-write (a shared_ptr to its buffer), so the assignment is a refcount bump, not an allocation, yet still drops the husk's heavy buffer.
 
-**The husk leaked handles on long grad-mode runs — because the drain pump was never primed (fixed 2026-05-22).** The husk's whole contract is "keep the lightweight object until the wrap drains it to `rc==0`, then the next sweep frees it." But the guardian drain helper `idris-drain-once` was installed *only* by `initManagedHandles`, which production calls **nowhere** (only `test/src/Test/ManagedHandle.idr`). So in every real run the drain epilogues were dormant no-ops: `withNoGrad`'s `drainManagedHandles` returned 0 (its prim guards `(top-level-bound? 'idris-drain-once)` → unbound), and the `(when (top-level-bound? 'idris-drain-once) …)` loop in each `native_train_step_<b>` wrapper never ran. The C sweep still dropped *buffers* (so MTLBuffer count stayed bounded — why `withNoGrad` eval looked fine), but the husk *objects* could never reach `rc==0`, so they accumulated in `all_tensors` forever (~1650/epoch on ntm-copy, linear; the mountain-car DQN run showed `handles=106324` within one episode). Harmless at smoke scale (≤30 epochs) but OOMs 10000-epoch convergence runs.
+**The husk leaked handles on long grad-mode runs — because the drain pump was never primed (fixed 2026-05-22).** The husk's whole contract is "keep the lightweight object until the wrap drains it to `rc==0`, then the next sweep frees it." But the guardian drain helper `idris-drain-once` was installed *only* by `initManagedHandles`, which production calls **nowhere** (only `src/Test/ManagedHandle.idr`). So in every real run the drain epilogues were dormant no-ops: `withNoGrad`'s `drainManagedHandles` returned 0 (its prim guards `(top-level-bound? 'idris-drain-once)` → unbound), and the `(when (top-level-bound? 'idris-drain-once) …)` loop in each `native_train_step_<b>` wrapper never ran. The C sweep still dropped *buffers* (so MTLBuffer count stayed bounded — why `withNoGrad` eval looked fine), but the husk *objects* could never reach `rc==0`, so they accumulated in `all_tensors` forever (~1650/epoch on ntm-copy, linear; the mountain-car DQN run showed `handles=106324` within one episode). Harmless at smoke scale (≤30 epochs) but OOMs 10000-epoch convergence runs.
 
-This reframed the "(a) GC+drain vs (b) generation-tagged wraps" question recorded earlier: the husk is *sound*; the bug was that draining never happened. Fix is **(a)** — make the drain actually run — in two parts. (1) **Prime the drain universally** at first tensor creation: the guardian lazy-init carried by the `INIT_FFI` create wrappers (`GUARDIAN_LAZY_INIT` in `scripts/codegen/ffi_manifest.py`) now also installs `idris-drain-once`, so every entry point (training, eval, notebook, manual loops) drains. (2) **Reclaim epoch-scope intermediates** in `Train.idr`'s `epochEnd`: mlx-gated `forceMajorGc + drainManagedHandles` *before* `primEpochEnd`, mirroring `withNoGrad`. The per-step `(collect 0)` minor GC in `nativeTrainStep` runs *inside* the epoch fn while intermediates are still reachable, so it can't collect them; the post-return major GC + drain makes their dead wraps unreachable and releases them (`rc 1→0`), and the existing sweep frees the husks. **(b)** generation-tagged wraps (v3 layout) is unnecessary — no ABA risk once draining works as the husk was designed to assume; no wrap-layout change. Verified: `handles=` flat across 100 epochs on ntm-copy (was ~1650/epoch). tape/torch skip the per-epoch GC (gated); their `tensor_release_handle_*` are no-op stubs so universal draining there is harmless (and stops the tiny wrap-vectors leaking in the never-drained guardian — a latent all-backend win).
+This reframed the "(a) GC+drain vs (b) generation-tagged wraps" question recorded earlier: the husk is *sound*; the bug was that draining never happened. Fix is **(a)** — make the drain actually run — in two parts. (1) **Prime the drain universally** at first tensor creation: the guardian lazy-init carried by the `INIT_FFI` create wrappers (`GUARDIAN_LAZY_INIT` in `scripts/codegen/ffi_manifest/_skip.py`) now also installs `idris-drain-once`, so every entry point (training, eval, notebook, manual loops) drains. (2) **Reclaim epoch-scope intermediates** in `Train.idr`'s `epochEnd`: mlx-gated `forceMajorGc + drainManagedHandles` *before* `primEpochEnd`, mirroring `withNoGrad`. The per-step `(collect 0)` minor GC in `nativeTrainStep` runs *inside* the epoch fn while intermediates are still reachable, so it can't collect them; the post-return major GC + drain makes their dead wraps unreachable and releases them (`rc 1→0`), and the existing sweep frees the husks. **(b)** generation-tagged wraps (v3 layout) is unnecessary — no ABA risk once draining works as the husk was designed to assume; no wrap-layout change. Verified: `handles=` flat across 100 epochs on ntm-copy (was ~1650/epoch). tape/torch skip the per-epoch GC (gated); their `tensor_release_handle_*` are no-op stubs so universal draining there is harmless (and stops the tiny wrap-vectors leaking in the never-drained guardian — a latent all-backend win).
 
 ### `fst`/`snd` re-evaluation trap
 
@@ -379,26 +371,26 @@ No `believe_me`. The constructor accepts any `g`, the destructure binds `ptr`/`p
 
 ### Polymorphic function fields in records require explicit higher-rank syntax
 
-When a record stores a function value (e.g. `RnnState.activation`) that needs to operate at any `g`, the field type itself must be polymorphic — *not* the record's `g`. Concretely:
+When a record stores a function value (e.g. `Rnn.activation` in `Nn/Recurrent.idr`) that needs to operate at any `g`, the field type itself must be polymorphic — *not* the record's `g`. Concretely:
 
 ```idris
 -- Field is at the record's g; activation fixed once at construction
-record RnnState (i o : Nat) (0 d : Device) (0 g : GradMode) where
+record Rnn (i o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   ...
-  activation : TVec o ex g -> TVec o ex g     -- ❌ fixed
+  activation : TVec o ex dt g -> IO (TVec o ex dt g)     -- ❌ fixed
   ...
 ```
 
 vs.
 
 ```idris
-record RnnState (i o : Nat) (0 d : Device) (0 g : GradMode) where
+record Rnn (i o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   ...
-  activation : {0 g' : GradMode} -> TVec o ex g' -> TVec o ex g'  -- ✓ usable at any g
+  activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')  -- ✓ usable at any g
   ...
 ```
 
-The fixed-`g` version forces `activation` to be specialized at construction, so after `freezeLayer` retypes the state to `NoGrad`, the stored activation function no longer matches. The polymorphic-`g'` version transports unchanged — standard activations like `ttanh` are already polymorphic post-Phase-3, so they unify with this field type automatically.
+The fixed-`g` version forces `activation` to be specialized at construction, so after `freeze` retypes the model to `NoGrad`, the stored activation function no longer matches. The polymorphic-`g'` version transports unchanged — standard activations like `ttanh` are already grad-polymorphic, so they unify with this field type automatically.
 
 ### Higher-order type parameter doesn't propagate erasure annotations
 
@@ -411,7 +403,7 @@ and (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
 
 The natural-looking `LayerLike l => LayerLikeMixed (\i, o, d, _, ct, g => l i o d ct g)` type-level-lambda instance head also doesn't work — the lambda body's argument types lose multiplicity the same way.
 
-Workaround: **wrap the higher-order type through an existing existential**. Instead of `LayerLikeMixed (LambdaOver l)`, define a concrete `data AsMixed` whose constructor takes an `AnyLayer i o ex dt g` (which already has the multiplicity-annotated args bound correctly) and produces an `AsMixed i o ex dt dt g`. Pattern-matching `MkAsMixed (MkAnyLayer l @{dict} layer)` recovers the inner `LayerLike` dict + layer, and your instance methods delegate. See `Layer/MixedCore.idr` (`AsMixed`) and the design-decisions "LayerLikeMixed bridge" section.
+Workaround: **wrap the higher-order type through an existing existential**. Instead of `LayerLikeMixed (LambdaOver l)`, define a concrete `data AsMixed` whose constructor takes an `AnyLayer i o ex dt g` (which already has the multiplicity-annotated args bound correctly) and produces an `AsMixed i o ex dt dt g`. Pattern-matching `MkAsMixed (MkAnyLayer l @{dict} layer)` recovers the inner `LayerLike` dict + layer, and your instance methods delegate. (Historical example: the `AsMixed` bridge in the since-removed `Layer/MixedCore.idr` — `Nn/LinearMixed.idr` deliberately avoids the machinery — but the elaborator limitation stands.)
 
 Take-away: layer-kind-to-layer-kind bridges in Idris-2 default to **concrete wrapper data types**, not type-level lambdas.
 
@@ -436,7 +428,7 @@ applyVarMixed {rdtC} {cmpC} (MkAsMixed (MkAnyLayer l @{dict} layer)) input = do
   ...
 ```
 
-This pins the slots that need disambiguation while letting unconflicted constraints (`UserDeviceTraining`, `UserDeviceCore`, `Linked`) auto-resolve normally. Pattern recurs anywhere a typeclass collapses two type parameters that an inner call disambiguates by type. See `Layer/MixedCore.idr` `LayerLikeMixed AsMixed where`.
+This pins the slots that need disambiguation while letting unconflicted constraints auto-resolve normally. Pattern recurs anywhere a typeclass collapses two type parameters that an inner call disambiguates by type. (Historical example: the `LayerLikeMixed AsMixed` instance in the since-removed `Layer/MixedCore.idr`; the disambiguation technique is general.)
 
 ## Training & Numerics
 
@@ -444,17 +436,17 @@ Gradient flow, numerical stability, and training patterns.
 
 ### `paramId` is required for gradient flow
 
-`Tensor`s without a `paramId` (i.e., `Nothing`) are invisible to the C-side optimizer and won't receive updates. Always pass a paramPrefix to `*LayerAny` constructors:
+`Tensor`s without a `paramId` (i.e., `Nothing`) are invisible to the C-side optimizer and won't receive updates. Parameters get their names from the `Init` monad — `runInit` / `runInitL` registers each param under a name derived from the scope path (`scoped` / `scopedChild` / `named` in `Nn.Init`), so layers built outside `runInit` never reach the optimizer:
 
 ```idris
-ll <- linearLayerAny {i=2} {o=3} "ll0"   -- registers "ll0_weights" + "ll0_bias"
+model <- runInitL (linear {i=2} {o=3})   -- registers "weight" + "bias" under the scope path
 ```
 
-For multi-network examples (A2C / PPO / SAC), pick distinct paramId prefixes per network (`"actor_"`, `"critic_"`, `"q1_"`, `"q1tgt_"`, ...) and create per-network optimizers via `nativeAdamGroup "actor_" ...`. The V1 "double `nameLayer` creates stale handles" bug class is structurally impossible in V2 since each layer is named exactly once, at construction.
+For multi-network examples (A2C / PPO / SAC), build each network under a distinct scope (`scoped "actor" ...`, `scoped "critic" ...`, `scoped "q1" ...`) and scope optimizer treatment per network via `Nn.Group.groupOf` + `Train.Freeze` (`restrictTo` / `setGroupLR` / `freezeGroup`, with `namesMatching` for name-pattern groups — `OptimOpts` has no constructor-level `groups` field). The V1 "double `nameLayer` creates stale handles" bug class is structurally impossible since each layer is named exactly once, at construction.
 
 ### `logSoftmax` + `nllLoss`
 
-Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent training. Use `logSoftmaxLayer` + `nllLoss` instead. Note: the aligned NTM uses sigmoid + BCE instead, which doesn't have this issue.
+Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent training. Apply `tlogSoftmax1d` to the raw logits and feed the result into `tnllLoss`; do NOT put a softmax layer in the network chain. Note: the aligned NTM uses sigmoid + BCE instead, which doesn't have this issue.
 
 ### `pow` zero-base NaN
 
@@ -466,11 +458,11 @@ The max subtraction for numerical stability uses a detached constant (`fromDoubl
 
 ### Gradient clipping
 
-`adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes. Default maxNorm is 50.0 (Collier & Beel); 5.0 was too aggressive.
+Clipping lives on `OptimOpts.clip` (`ClipMode = NoClip | ValueClip x | NormClip maxNorm`), read by every optimizer constructor. `ValueClip` clamps each gradient element; `NormClip` clips by global L2 norm (preserves gradient direction). Use `NormClip` for attention/recurrent models where parameters must coordinate — per-element clipping distorts direction and causes periodic loss spikes. `defaultOpts` is `NoClip`; ntm-copy defaults to `NormClip 10.0` (override via `--clip`).
 
 ### Weight initialization
 
-`linearLayer`/`rnnLayer` default to Xavier uniform. Biases are always zero. Init strategies compose a variance method with a distribution sampler: `xavier uniform` (default), `xavier normal`, `he normal`, `xavierGain 1.4 uniform`, etc. Use `linearLayerWith (fixedRange 1.0)` for the old `U(-1,1)` behavior. Use `linearLayerWithBias initFn biasStd` for custom bias init (normal with given std). NTM head FCs use `xavierGain 1.4 uniform` + `normal(0.01)` bias, output FC uses `he uniform` + `normal(0.01)` bias (matching PyTorch reference). NTM memory initialized to `sigmoid(xavier_random)` ≈ values in [0,1] (matching PyTorch's `sigmoid(FC_bias)`). Read output uses kaiming uniform. `Sampler.idr` provides `uniform` and `normal` (Box-Muller); `Init.idr` provides `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`.
+Layers are built in the `Init` monad. `linear {i} {o}` defaults to weight std `1/sqrt(fanIn)` with zero bias; `linearWith weightStd biasStd` takes explicit stds (bias is normal with the given std, zero when `biasStd = 0`). Strategy helpers still compose a variance method with a distribution sampler: `Ml.Init` provides `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`; `Ml.Sampler` provides `uniform` and `normal` (Box-Muller). NTM head FCs use xavier-gain-1.4 stds + `normal(0.01)` bias, the output FC `1/sqrt(fanIn)` + `normal(0.01)` bias (matching PyTorch reference). The learned NTM memory-init param is xavier-normal and passed through `sigmoid` at the first step ≈ values in [0,1] (matching PyTorch's `sigmoid(FC_bias)`). The fixed read-out uses kaiming uniform. See `ntm` in `Nn/Ntm.idr`.
 
 ### Hyperparameter tuning
 
@@ -478,17 +470,17 @@ Fix algorithmic issues first (bounded activations, correct clipping, efficient b
 
 ### Periodic GC for long training
 
-NTM training (50K+ epochs) OOMs without periodic forced GC. `forceGC` (exported from Variable.idr) calls Chez `(collect (collect-maximum-generation))` with `(heap-reserve-ratio 1.0)` every 10 epochs in NTM training loops. The `heap-reserve-ratio 1.0` minimizes retained heap (default ~2.0 retains 2x live data), and max-generation collection is more thorough. The FFI lambda must take 0 args — `%World` is erased in Chez Scheme's PrimIO calling convention.
+NTM training (50K+ epochs) OOMs without periodic forced GC. In V1, `forceGC` called Chez `(collect (collect-maximum-generation))` with `(heap-reserve-ratio 1.0)` every 10 epochs in NTM training loops. Today `forceGC` is a no-op stub (`forceGC = pure ()` in `Ml/Tensor/Handle.idr`) kept for API compatibility — do not call it expecting a collection. The real major collection is `forceMajorGc` (same module), which `withNoGrad`'s exit runs on every backend and the epoch loop (`Train.Engine` / `Fit`) runs where the mlx generation hygiene needs it.
 
 ### `getRssMB` peak RSS tracking
 
-`getRssMB` (exported from Variable.idr) returns peak RSS in MB via C `get_rss_mb` (`getrusage(RUSAGE_SELF).ru_maxrss`). Takes a dummy `Nat` arg to prevent CSE (pass epoch number at call sites). Returns peak (high-water mark) RSS, not current — it only goes up. Division to MB done in C to avoid 64-bit return value issues. Used in training loop logs and bench output.
+`getRssMB` (exported from `Ml.Tensor.Handle`) returns peak RSS in MB via C `get_rss_mb` (`getrusage(RUSAGE_SELF).ru_maxrss`). Takes a dummy `Nat` arg to prevent CSE (pass epoch number at call sites). Returns peak (high-water mark) RSS, not current — it only goes up. Division to MB done in C to avoid 64-bit return value issues. Used in training loop logs and bench output.
 
 ### `getCurrentRssMB` current RSS
 
-`getCurrentRssMB` (exported from Variable.idr) returns current resident memory in MB via `mach_task_info` on macOS. Unlike `getRssMB` (peak), this reflects actual current usage and can decrease after GC. Returns -1 on non-macOS platforms.
+`getCurrentRssMB` (exported from `Ml.Tensor.Handle`) returns current resident memory in MB via `mach_task_info` on macOS. Unlike `getRssMB` (peak), this reflects actual current usage and can decrease after GC. Returns -1 on non-macOS platforms.
 
-### Curriculum learning
+### Curriculum learning (legacy — the V1 `Curriculum` module was removed; no `Nn`-era port)
 
 Available via the Curriculum module for staged training. The PyTorch-aligned NTM (LSTM controller + RMSprop) does not require curriculum — it converges directly with two-phase training. Curriculum was previously required for feedforward controllers (ajithcodesit finding).
 
@@ -498,11 +490,11 @@ NTM architecture, training protocol, and convergence behavior.
 
 ### NTM dimension calculations
 
-`ReadParamWidth m = (m + ShiftKernelSize) + 3` (key of width m + 3-element shift kernel + 3 dynamic params: β, g, γ). `WriteParamWidth m = ReadParamWidth m + m` (addressing params + add vector of width m). The LSTM controller input is `m + inputSize` (read output + input). The output FC input is `h + m` (hidden + read output). The `ntmLayer` constructor takes `{inputSize, outputSize, n, m, h}` as implicit args.
+`ReadParamWidth m = (m + ShiftKernelSize) + 3` (key of width m + 3-element shift kernel + 3 dynamic params: β, g, γ). `WriteParamWidth m = ReadParamWidth m + m` (addressing params + add vector of width m). The LSTM controller input is `m + i` (read output + input). The output FC input is `h + m` (hidden + read output). The `ntm` constructor (`Nn/Ntm.idr`) takes `{n, m, h, i, o}` as implicit args.
 
 ### NTM head parameters
 
-β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from head FC outputs (fed by LSTM cell state). β uses softplus, g uses sigmoid, γ uses `1 + softplus(x)` (unbounded, [1, ∞)). Add vectors are raw linear (no activation). See `forwardReadHeadUnbounded`/`forwardWriteHeadInterp` in Memory.idr.
+β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from head FC outputs (fed by LSTM cell state). β uses softplus, g uses sigmoid, γ uses `1 + softplus(x)` (unbounded, [1, ∞)). Add vectors are raw linear (no activation). See the param extraction in `ntmStepIO` and the addressing pipeline in `ntmReadHead`, both in `Nn/Ntm.idr`.
 
 ### NTM state flow
 
@@ -514,19 +506,19 @@ Copy task converges well with batch=16 (uniform encode-then-decode structure, co
 
 ### NTM two-phase training
 
-Copy/recall use `epochTwoPhaseDenseBce` — encoding inputs fed with outputs discarded, then zero inputs fed during output phase with loss on targets. The C-backed `bceWithLogitsVar` (tag 26) fuses sigmoid + BCE into a single tape entry per output vector, replacing ~7 scalar ops per element. No output activation layer needed.
+Copy/recall fold both phases into one loss per sequence (`twoPhaseLossL` in `Example/NtmCopy.idr`, driven through `fit`) — encoding inputs fed with outputs discarded, then zero inputs fed during the output phase with loss on targets. The C-backed `tbceLoss` (wraps `primBceWithLogits`) fuses sigmoid + BCE into a single op per output vector. No output activation layer needed.
 
 ### No tanh memory bounding
 
-Interpolation write uses raw interpolation (no tanh) to match the PyTorch reference. The Collier & Beel tanh recommendation was for the original erase+add write mechanism, not interpolation write. Tanh caused cumulative degradation during output phase (near-zero write weights still applied tanh every timestep). `tanhBound` in Layer.idr is only used for LSTM gates, not NTM memory. The C kernel `interp_write_compute` supports both modes via `raw_mode` flag (1=raw, 0=tanh); Idris always sets raw_mode=1.
+Interpolation write uses raw interpolation (no tanh) to match the PyTorch reference. The Collier & Beel tanh recommendation was for the original erase+add write mechanism, not interpolation write. Tanh caused cumulative degradation during output phase (near-zero write weights still applied tanh every timestep). The write path is composed from primitives in `Nn/Ntm.idr` (`ntmWrite`: `w·addVec + (1-w)·memory`, row-wise) and applies no memory bounding; the V1 `tanhBound` helper and the C `interp_write_compute` raw-mode kernel are gone.
 
 ### NTM initial addressing
 
-Read/write addressing weights are initialized to zeros and read output to Kaiming uniform (non-learnable, matching PyTorch reference). `syncLayerBuffers` projects addressing weights onto the probability simplex via `projectWeights` (clamp to [0, epsilon], renormalize) to prevent NaN from `pow(negative, non-integer)` in `focus`.
+Read/write addressing weights are initialized to zeros (the `Maybe` state fields fall back to a zero state tensor until the first step) and read output to Kaiming uniform (non-learnable, matching PyTorch reference). NaN from `pow(negative, non-integer)` during sharpening is prevented in `ntmReadHead` by clamping the shifted weights to `>= 1e-10` (`primClampMin`) before the `pow` (the V1 `projectWeights` simplex projection is gone).
 
 ### NTM early stopping
 
-NTM examples (copy/recall) use windowed-average convergence checking instead of best-loss patience. Parameters: `esThreshold` (default 0.01), `esWindow` (default 1000 epochs), `esPatience` (default 3 consecutive checks). Every 100 accumulated epochs, computes interval average loss, then averages the last `esWindow/100` intervals. Stops when this window average < threshold for `esPatience` consecutive checks. CLI flags: `--es-threshold`, `--es-window`, `--es-patience`. The LSTM example still uses the old best-loss patience mechanism.
+NTM examples (copy/recall) use windowed convergence checking instead of best-loss patience: `windowedPercentileConfig` builds a `WindowedPercentile` early stop (ntm-copy gates on the 10th percentile of the last `esWindow` epochs' losses; a `WindowedAvg` mode also exists — `Train/Engine.idr`). Parameters: `esThreshold` (default 0.01), `esWindow` (default 1000 epochs), `esPatience` (default 3 consecutive checks); stops when the window statistic < threshold for `esPatience` consecutive checks. CLI flags: `--es-threshold`, `--es-window`, `--es-patience`. The LSTM example still uses best-loss patience (`patienceConfig`).
 
 ### Controller output clipping (removed)
 
@@ -573,9 +565,9 @@ is a clean win and not a tradeoff at all.
 
 ### NTM-Copy default seed is per-backend after broadcast adoption
 
-The `Layer/Ntm.idr` `ntmInterpWriteIdris` helper now uses the tape backend's
-numpy-style 2D broadcast (`(n,1)*(n,m)`) directly instead of materialising
-`outer(w, ones_m)`. The change is bit-identical at single-timestep
+The NTM interpolation write (now `ntmWrite` in `Nn/Ntm.idr`) uses the tape
+backend's numpy-style 2D broadcast (`(n,1)*(n,m)`) for the keep term directly
+instead of materialising `outer(w, ones_m)`. The change is bit-identical at single-timestep
 mathematically, but multi-timestep training trajectories diverge in
 ULP-level ways from the workaround chain (different reduction order in
 backward sums). Combined with NTM-Copy's seed sensitivity, this flips
@@ -597,18 +589,19 @@ C kernels, buffer systems, optimizer internals, and the layer system.
 
 ### `__act/` is a reserved paramId prefix (activation-dump scratch space)
 
-`forwardVarTraced` at `IDRISML_LOG_LEVEL=trace` registers per-layer
-activations into the param registry under `__act/<label>/<i>` synthetic
-names, calls `primParamSaveByName` to flush them, then calls
-`primParamEraseByPrefix "__act/<label>/"` to remove them BEFORE
-returning. The whole register-save-erase happens inside a single
-`forwardVarTraced` invocation; outside the function the registry is
-exactly as it was.
+The activation-dump path (the V1 `forwardVarTraced` driver; the
+register-save-erase mechanics live on the executor interface and are
+pinned by `Test/ActivationDump.idr`) registers per-layer activations
+into the param registry under `__act/<label>/<i>` synthetic names at
+TRACE level, calls `primParamSaveByName` to flush them, then calls
+`primParamEraseByPrefix "__act/<label>/"` to remove them BEFORE the
+next backward/step. The whole register-save-erase is one bracket;
+outside it the registry is exactly as it was.
 
 If a user model also uses `__act/...` as a paramId prefix:
 - `saveModelMatching path (isPrefixOf "__act/")` saves everything,
   including the user's "real" weights with that prefix.
-- The flush after a TRACE-level `forwardVarTraced` call would also
+- The flush after a TRACE-level dump would also
   pick up the user's weights.
 - The post-flush erase would drop the user's weights from the
   registry. **This is the corruption case** — the model would lose
@@ -621,7 +614,7 @@ component (`<label>`) is also sanitized (non-`[A-Za-z0-9_-]` →
 `__act/`. Two leading underscores match the broader "internal, not
 user-facing" naming convention.
 
-### `IDRISML_ACTIVATION_DIR` + `IDRISML_ACTIVATION_EVERY_N` env vars
+### `IDRISML_ACTIVATION_DIR` + `IDRISML_ACTIVATION_EVERY_N` env vars (legacy — read by the V1 `forwardVarTraced` driver, which has no `Nn`-era port yet)
 
 Used by `forwardVarTraced` at TRACE level only:
 
@@ -679,8 +672,8 @@ Exception in foreign-procedure: no entry for "my_func_tape"
 
 Fix: add the function declaration to `packages/backends/backend.h`,
 then run `make rename-headers` to regenerate the per-backend rename
-headers. The `make check-rename-headers` CI gate catches drift —
-run it after every backend.h addition.
+headers. The `make test-integration-lint-rename-headers` CI gate
+catches drift — run it after every backend.h addition.
 
 This bit during the #410 A3 work when `native_train_step_scaled`
 was declared in `backend.h` but `rename-headers` wasn't regenerated;
@@ -722,9 +715,10 @@ gate came off.
 Any C function whose Idris-side `%foreign` binding accepts or returns a
 `TensorHandle` (raw `void*` from Idris's perspective, but a Chez
 `tensor-handle-v2` vector after the lifecycle machinery wraps it) MUST
-have an entry in `scripts/codegen/ffi_manifest.py`'s `MANIFEST` dict.
-The entry is the `(arg_types, return_type)` shape that drives the
-auto-generated Scheme wrapper.
+have an entry in the `scripts/codegen/ffi_manifest/` package's
+`MANIFEST` (entries live in its `families/*.py` modules). The entry is
+the `(arg_types, return_type)` shape that drives the auto-generated
+Scheme wrapper.
 
 What goes wrong if you forget: the Idris-side declaration stays as
 `%foreign "C:tensor_xxx_<backend>,libidrisml"`. The Chez codegen wires
@@ -737,8 +731,9 @@ then reads garbage at offset 0 (Chez vector header) and crashes with
 
 How to fix: add the entry, then run
 `python3 scripts/codegen/ffi-convert-to-scheme.py`. The converter
-rewrites the `%foreign` lines in `Device/{Tape,Torch,Mlx}.idr` and
-`Tensor.idr` to the wrap-on-return Scheme template that unwraps each
+rewrites the `%foreign` lines in the wrap-handle files (`Ml/Tensor.idr`,
+`Ml/Tensor/*.idr`, `Ml/Executor/*.idr`, `Ml/Executor/*/*.idr`)
+to the wrap-on-return Scheme template that unwraps each
 `T`-typed input via `(vector-ref a<i> 2)` and re-wraps the return
 value + registers it with `idris-tensor-guardian`. `make
 check-ffi-wrap-template` enforces this and fails CI if it would change
@@ -754,10 +749,12 @@ the symbol resolved correctly on the next build.
 
 All build artifacts (ttc cache, installed library prefix, dylib, example
 executables, stamps) live under `build/$(BUILD_KEY)/` where
-`BUILD_KEY := <backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>` (e.g.
-`tape-mlxcpu-torchcpu`, `torch-mlxcpu-torchmps`,
-`tape-torch-mlxcpu-torchmps`). Each distinct
-`(BACKEND, MLX_DEVICE, TORCH_DEVICE)` tuple gets its own warm cache.
+`BUILD_KEY := <backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>-mach<MACHINE>-hw<HARDWARE>`
+plus opt-in dtype/ASAN suffixes `-tdt<TORCH_DTYPE>` / `-mdt<MLX_DTYPE>` /
+`-tpdt<TAPE_DTYPE>` / `-asan` (mk/config.mk; e.g.
+`tape-mlxcpu-torchcpu-machmac-m-series-hwcpu`,
+`tape-mlx-torch-mlxcpu-torchcpu-machmac-m-series-hwcpu`). Each distinct
+tuple of those knobs gets its own warm cache.
 
 Implications:
 - `make clean` removes ALL backend sets' trees + `build-cov/` + the
@@ -769,24 +766,26 @@ Implications:
   ~200-300 MB; full triple (`tape,torch,mlx`) is larger. Run `du -sh
   build/*` to inspect; `clean-set BACKEND=<key>` to prune a single set.
 - Trees are gitignored (`build/` recursive ignore).
-- The generated `.idr` files (`HwConfig.idr`, `HwDevices.idr`,
-  `BuildConfig.idr`, `TestConfig.idr`) still live at their fixed
+- The generated `.idr` files (`Ml/HwConfig.idr`, `Ml/HwExecutors.idr`,
+  `Ml/Config.idr`, `BuildConfig.idr`, and the per-package
+  `Test/Config.idr`s — see mk/genconfig.mk) still live at their fixed
   `packages/<pkg>/src/...` paths. Cross-set switches *do* rewrite them
   (their content depends on the active set); the per-set ttc cache
-  absorbs the cascade — those four files re-elaborate (~4 s total),
+  absorbs the cascade — those files re-elaborate (seconds),
   but downstream modules with matching interface hashes don't. The
   cmp-then-mv pattern in the recipes avoids unnecessary mtime bumps
   within a single set's reruns.
 - `LIBRARY_SRCS` (the `.library-cache-stamp` dependency list)
-  *excludes* the generated `.idr` files. Including them would defeat
+  *excludes* the generated `Ml/HwConfig.idr` / `Ml/HwExecutors.idr`.
+  Including them would defeat
   the per-set cache: cross-set rewrites would look like "library
   source changed" and wipe the active set's ttc on every switch.
 
 ### Test suite
 
-Run `make test` for Idris unit tests, `make test-c` for C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers.
+Run `make test` for Idris unit tests, `make test-unit-c-{tape,torch,mlx}` for per-backend C tests (criterion). Idris tests live in `src/Test/*.idr` per package, with the shared `packages/idris-test/src/Test/Harness.idr` providing assertion helpers.
 
-### Interface-based layer system
+### Interface-based layer system (legacy — V1 `LayerLike`/`AnyLayer`, replaced by the `Nn` models-as-records surface)
 
 The `LayerLike` interface + `AnyLayer` existential wrapper eliminates all mutual recursion. Each layer type lives in its own module. `AnyLayer` stores the type constructor as a non-erased parameter (`(l : Nat -> Nat -> Type -> Type)`) for interface dispatch after pattern matching. All interface methods need explicit `{i, o : Nat}` because Idris 2 QTT erases Nat type parameters by default. Instance heads for types with extra parameters (e.g., `NtmState n m h`) use `{n, m, h : Nat} -> LayerLike (NtmState n m h)` to make those Nats accessible. Adding a new layer type = one file implementing `LayerLike`, zero edits elsewhere.
 
@@ -868,19 +867,19 @@ Tensor op meta structs store `out_tape_start = idx + 1` (first output gradient i
 
 ### Multi-axis `primNarrow` on torch + mlx was a silent shape lie (fixed in `69a0597`)
 
-`tensor_narrow(handle, dim, start, len)` is supposed to slice along axis `dim`. From the dawn of multi-backend support through 2026-05-26, the torch and mlx kernels did `(void)dim;` and then `flatten().narrow(0, start, len)` — they ignored `dim` and flattened the input before slicing axis 0. A `primNarrow ... 1 ...` on a `[seq, hidden]` tensor that was supposed to return `[seq, len]` instead returned a rank-1 `[len]`, with values from the FIRST row only. Tape always handled rank-2 axis-1 correctly. The bug hid behind BERT's 1e-3 cross-language tolerance: HfBert.idr's per-head Q/K/V split runs `primNarrow ... 1 ...`, but the BERT roundtrip gate ran only on tape (the default backend) and the multi-head numerics happened to land within tolerance even when wrong on torch/mlx. Pinned by `linear_shape_narrow::axis1_correctness_rank2` (forward) + `axis1_backward_scatters_columns` (backward gradient scatter) in the common-backend Criterion suite — they pin a `[3, 6]` tensor, narrow axis=1 start=2 length=3, and assert both rank-2 shape and the exact middle columns. Tape had a real implementation in `backend_tape/linear/shape/narrow.c` since the C tape landed; torch + mlx fixes route through `at::Tensor::narrow(dim, start, len)` (torch) and a multi-axis `mx::slice` start/stop bound builder + shape-comparison `dim` recovery at replay time (mlx).
+`tensor_narrow(handle, dim, start, len)` is supposed to slice along axis `dim`. From the dawn of multi-backend support through 2026-05-26, the torch and mlx kernels did `(void)dim;` and then `flatten().narrow(0, start, len)` — they ignored `dim` and flattened the input before slicing axis 0. A `primNarrow ... 1 ...` on a `[seq, hidden]` tensor that was supposed to return `[seq, len]` instead returned a rank-1 `[len]`, with values from the FIRST row only. Tape always handled rank-2 axis-1 correctly. The bug hid behind BERT's 1e-3 cross-language tolerance: `Transformers/Bert.idr`'s per-head Q/K/V split runs `primNarrow ... 1 ...`, but the BERT roundtrip gate ran only on tape (the default backend) and the multi-head numerics happened to land within tolerance even when wrong on torch/mlx. Pinned by `linear_shape_narrow::axis1_correctness_rank2` (forward) + `axis1_backward_scatters_columns` (backward gradient scatter) in the common-backend Criterion suite — they pin a `[3, 6]` tensor, narrow axis=1 start=2 length=3, and assert both rank-2 shape and the exact middle columns. Tape had a real implementation in `backend_tape/linear/shape/narrow.c` since the C tape landed; torch + mlx fixes route through `at::Tensor::narrow(dim, start, len)` (torch) and a multi-axis `mx::slice` start/stop bound builder + shape-comparison `dim` recovery at replay time (mlx).
 
 ### Per-package param-registry collisions across multi-suite test runs
 
-The C-side param registry accumulates across all tests in a single process. If two test suites each construct a model and assert the registry "has exactly these names", whichever runs second sees the union of both suites' names — by default the second suite's "first N" slice is the FIRST suite's names, not its own. HfBert's FFI test (Bucket 2) runs first, registers 39 BERT names; HfGpt2's FFI test then naively reads `registered = readAllParamNames` and compares against 64 GPT-2 names — the first 39 are BERT names from the prior suite, mismatch on element 0. The fix: snapshot the registry count *before* constructing your model and `drop preCount allNames` so you slice off only what your suite added. Mirrors the `param_clear()` pattern the C-side unit tests use, but works in Idris-land without a clear primitive being exposed.
+The C-side param registry accumulates across all tests in a single process. If two test suites each construct a model and assert the registry "has exactly these names", whichever runs second sees the union of both suites' names — by default the second suite's "first N" slice is the FIRST suite's names, not its own. The BERT FFI test (`Test.Bert` in idris-transformers) runs first, registers 39 BERT names; the GPT-2 FFI test (`Test.Gpt2`) then naively reads `registered = readAllParamNames` and compares against 64 GPT-2 names — the first 39 are BERT names from the prior suite, mismatch on element 0. The fix: snapshot the registry count *before* constructing your model and `drop preCount allNames` so you slice off only what your suite added. Mirrors the `param_clear()` pattern the C-side unit tests use, but works in Idris-land without a clear primitive being exposed.
 
 ### HF GPT-2 stores `c_attn` / `c_proj` / `mlp.*` as `[in, out]`, not `[out, in]`
 
-HuggingFace's GPT-2 wraps its linear projections in `transformers.pytorch_utils.Conv1D` — which is `nn.Linear` with the weight transposed. On-disk shape for `transformer.h.{i}.attn.c_attn.weight` is `[hidden, 3*hidden]` (in×out), not `[3*hidden, hidden]` (out×in) which a normal `nn.Linear` would write. The HfGpt2 module stores the weight HF-natively (matching CONVENTIONS rule 2 — storage shapes match on disk) and computes `y = x @ W + bias` directly via `primMm + primAdd` broadcast, bypassing `tlinear2d` (which expects `[out, in]`). If you accidentally route through `tlinear2d` you'll silently apply an extra transpose; the GPT-2 oracle gate at 1e-6 catches it.
+HuggingFace's GPT-2 wraps its linear projections in `transformers.pytorch_utils.Conv1D` — which is `nn.Linear` with the weight transposed. On-disk shape for `transformer.h.{i}.attn.c_attn.weight` is `[hidden, 3*hidden]` (in×out), not `[3*hidden, hidden]` (out×in) which a normal `nn.Linear` would write. The `Transformers.Gpt2` module stores the weight HF-natively (matching CONVENTIONS rule 2 — storage shapes match on disk) and computes `y = x @ W + bias` directly via `primMm + primAdd` broadcast, bypassing `tlinear2d` (which expects `[out, in]`). If you accidentally route through `tlinear2d` you'll silently apply an extra transpose; the GPT-2 oracle gate at 1e-6 catches it.
 
 ### Fused QKV (`c_attn.weight`) split via axis=1 narrow at forward, not stored split
 
-GPT-2's `attn.c_attn.weight` is one `Tensor [hidden, 3*hidden]` storing Q‖K‖V concatenated along axis=1. HfGpt2's `applySelfAttn` materialises the post-projection `[seq, 3*hidden]` blob, then takes three `primNarrow ... 1 ...` views (`q = narrow blob 1 0 hidden`, `k = narrow blob 1 hidden hidden`, `v = narrow blob 1 (2*hidden) hidden`) — each a `[seq, hidden]` view. The per-head split is a second nested narrow inside the multi-head loop. Both axes=1 narrows exercise the `69a0597` fix; without it torch/mlx would produce wrong-rank tensors and silent garbage attention. Storage matches HF; the splitting work happens at forward.
+GPT-2's `attn.c_attn.weight` is one `Tensor [hidden, 3*hidden]` storing Q‖K‖V concatenated along axis=1. `Transformers.Gpt2`'s `applySelfAttn` materialises the post-projection `[seq, 3*hidden]` blob, then takes three `primNarrow ... 1 ...` views (`q = narrow blob 1 0 hidden`, `k = narrow blob 1 hidden hidden`, `v = narrow blob 1 (2*hidden) hidden`) — each a `[seq, hidden]` view. The per-head split is a second nested narrow inside the multi-head loop. Both axes=1 narrows exercise the `69a0597` fix; without it torch/mlx would produce wrong-rank tensors and silent garbage attention. Storage matches HF; the splitting work happens at forward.
 
 ### transformers 5.9.0 BitNet CPU-load leaves weights as U8 (the ternary view-cast workaround)
 
@@ -888,7 +887,7 @@ HF transformers 5.9.0's `BitNetDeserialize.convert` (`src/transformers/integrati
 
 ### Idris-side `Compatible` admissibility doesn't track HF dtype storage quirks
 
-The Idris-side `Compatible ex dt` typeclass admits storage on a backend (e.g. `Compatible (TorchDev TMps) F32`). What it does NOT track is whether the on-disk HF checkpoint encodes a tensor in some adapter-specific way that needs custom unmarshalling — the BitNet case (uint8 storage of packed ternary, JSON header reporting `U8` but Idris's `loadModel` expecting `Ternary`) is one example. The `safetensors_read_raw_bytes` keystone is the escape hatch: it returns raw bytes, and the per-architecture adapter (e.g. `HfBitNet.loadHfTernaryWeight`) feeds them through whatever decoder fits. If you hit a future HF model whose on-disk dtype differs from what idris-ml wants in memory, look for an existing `tCreate*FromHfPacked*` helper or add one — never try to coerce the standard `param_load*` path; it refuses dtype mismatches by design.
+The Idris-side `Compatible ex dt` typeclass admits storage on a backend (e.g. `Compatible (TorchExecutor TMps) F32`). What it does NOT track is whether the on-disk HF checkpoint encodes a tensor in some adapter-specific way that needs custom unmarshalling — the BitNet case (uint8 storage of packed ternary, JSON header reporting `U8` but Idris's `loadModel` expecting `Ternary`) is one example. The `safetensors_read_raw_bytes` keystone is the escape hatch: it returns raw bytes, and the per-architecture adapter (e.g. `Transformers.BitNet.loadHfTernaryWeight`) feeds them through whatever decoder fits. If you hit a future HF model whose on-disk dtype differs from what idris-ml wants in memory, look for an existing `tCreate*FromHfPacked*` helper or add one — never try to coerce the standard `param_load*` path; it refuses dtype mismatches by design.
 
 ### HF transformers ships two BitLinear classes with different post-quant algebra
 
@@ -901,7 +900,7 @@ The two formulas give different results — they differ by a factor of `weight_s
 
 ### Roundtrip-gate tolerance for BF16-storage LMs: per-element noise vs argmax-match
 
-The HF transformers `microsoft/bitnet-b1.58-2B-4T` model stores all weights in BF16. After loading + a 30-layer forward, individual logit values accumulate BF16 round-off to ~0.7 max-abs-diff (per-element relative ~5%) vs an F64 Idris-side reference. A 1e-1 max-abs-diff tolerance is structurally infeasible — the noise floor is wider. Idris-side runs at F64 give SHARPER numerics than the BF16 oracle, not blurrier, so tightening Idris precision doesn't help. `make test-hf-bitnet-roundtrip` gates on `tol=1.0 + --argmax-match` (in `packages/idris-transformers/scripts/compare_inference.py`); the value tolerance is honest about BF16 noise; the argmax-match assertion catches the actual semantic regression class. Tip when wiring a new BF16-storage adapter's gate: start by *measuring* the noise floor — run the kernel-correct forward, get a max-abs-diff number — then set the tolerance just above that, with `--argmax-match` as the meaningful correctness signal.
+The HF transformers `microsoft/bitnet-b1.58-2B-4T` model stores all weights in BF16. After loading + a 30-layer forward, individual logit values accumulate BF16 round-off to ~0.7 max-abs-diff (per-element relative ~5%) vs an F64 Idris-side reference. A 1e-1 max-abs-diff tolerance is structurally infeasible — the noise floor is wider. Idris-side runs at F64 give SHARPER numerics than the BF16 oracle, not blurrier, so tightening Idris precision doesn't help. `make test-e2e-bitnet-roundtrip` gates on `tol=1.0 + --argmax-match` (in `packages/idris-transformers/scripts/compare_inference.py`); the value tolerance is honest about BF16 noise; the argmax-match assertion catches the actual semantic regression class. Tip when wiring a new BF16-storage adapter's gate: start by *measuring* the noise floor — run the kernel-correct forward, get a max-abs-diff number — then set the tolerance just above that, with `--argmax-match` as the meaningful correctness signal.
 
 ### Tied embeddings (`tie_word_embeddings=true`) — the LM head is NOT on disk
 
@@ -913,19 +912,19 @@ The streamed-creation path (`tensor_create_*_streamed` → `tensor_create_*_{f32
 
 ### Inference-only forwards over many parameter-rich layers must `withNoGrad` on MPS
 
-Each `tensor_bitlinear_fwd_hf_quant` call casts a `[out, in]` int8 weight to float, which materialises a fresh `[out, in]` float tensor on the device. With autograd on, libtorch keeps each of those alive for backward — for the 2B-4T BitNet config (30 layers × 7 BitLinears) that's ~8 GB of dead intermediates on top of the model params, busting MPS's 18 GB watermark with `MPS backend out of memory`. Wrap the example forward in `withNoGradKeep` so each cast tensor drops at matmul return; the resulting logits tensor needs the `Keep` variant because it's created inside the bracket and must survive the exit-drain. The Llama and BERT inference examples don't need this because their weights are already F32 (no per-layer cast intermediate). The pattern generalises: any inference forward whose layers materialise per-layer float intermediates from a smaller-dtype param storage needs the bracket.
+Each `tensor_bitlinear_fwd_hf_quant` call casts a `[out, in]` int8 weight to float, which materialises a fresh `[out, in]` float tensor on the device. With autograd on, libtorch keeps each of those alive for backward — for the 2B-4T BitNet config (30 layers × 7 BitLinears) that's ~8 GB of dead intermediates on top of the model params, busting MPS's 18 GB watermark with `MPS backend out of memory`. Wrap the example forward in `withNoGradKeep` so each cast tensor drops at matmul return; the resulting logits tensor needs the `Keep` variant because it's created inside the bracket and must survive the exit-drain. The Llama and BERT inference examples don't need this because their weights are already F32 (no per-layer cast intermediate). The pattern generalises: any inference forward whose layers materialise per-layer float intermediates from a smaller-dtype param storage needs the bracket. (The BitNet example has since moved to a `{g=NoGrad}` model type — tape-free by construction, so no runtime bracket; `withNoGradKeep` remains the tool when a `WithGrad` model must run such a forward.)
 
 ### Multi-step inference loops on torch-cpu still need `withNoGrad` (same root cause, different watermark)
 
-The `withNoGradKeep` story above was about MPS's 18 GB watermark. On torch-cpu (16 GB RAM), a SINGLE forward fits — but a multi-step greedy decode loop OOMs the kernel after 3–5 forwards. Same root cause (210 per-BitLinear float dequant intermediates × N forward steps × the autograd graph keeping each alive), different victim (Linux kernel OOM killer issuing SIGKILL instead of libtorch's MPS allocator throwing). Wrap the per-step forward in `withNoGrad` (NOT `Keep` — the step's return type is `Maybe (Fin VocabSize)`, no `Tensor` needs to survive the bracket exit). `HfBitNetInference.idr`'s `genOneStep` uses this pattern. Without it, the example exits with `Killed: 9` after the 3rd or 4th token on 16 GB.
+The `withNoGradKeep` story above was about MPS's 18 GB watermark. On torch-cpu (16 GB RAM), a SINGLE forward fits — but a multi-step greedy decode loop OOMs the kernel after 3–5 forwards. Same root cause (210 per-BitLinear float dequant intermediates × N forward steps × the autograd graph keeping each alive), different victim (Linux kernel OOM killer issuing SIGKILL instead of libtorch's MPS allocator throwing). Wrap the per-step forward in `withNoGrad` (NOT `Keep` — the step's return type is `Maybe (Fin VocabSize)`, no `Tensor` needs to survive the bracket exit). `BitNetInference.idr`'s `genOneStep` used this pattern until the model moved to a `{g=NoGrad}` type (no tape means the dequants are never retained, so the bracket became unnecessary — see the comment in its decode loop). Without one or the other, the example exits with `Killed: 9` after the 3rd or 4th token on 16 GB.
 
 ### `applyBitLinearHf2d` row-loop lambdas — lift to top-level when surrounding function has heavy constraints
 
-`applyBitLinearHf2d` originally had two `let`-bound functions (`processRow` + `foldRows`) inside its `ioRerun` body. They closed over the constraint-rich outer scope (`UserDeviceLinear d` + `UserDeviceQuant d` + `Compatible ex dt` + the `BitLinearHf i o ex dt g` record), so every reference inside the lambda body re-instantiated those constraints. At BitNet 2B-4T's 210 call sites of `applyBitLinearHf2d` (and 480 sites of `applyRmsNorm2d` with the same pattern), that's a lot of constraint-resolution work — and was a meaningful contributor to the 26-min elaboration of `Example/HfBitNetInference.idr`. The refactor (`3b23ffa`) lifts each row-loop pair to top-level helpers taking all dependencies as plain `AnyPtr` / `Int` / `Double` args. The helpers elaborate ONCE at module compile, not per call site. Effect: torch-cpu example rebuild dropped from ~26 min to ~22 min (modest but real). Two traps when doing this kind of lift: (i) **picking the right interface for the constraint** — `primNarrow` / `primCat2` / `primReshape*` / `primSum` are on `UserDeviceLinear`, not `UserDeviceCore` (interface hierarchy at `Device/Core.idr:107-336`); the first attempt got it wrong and Idris emitted `Can't find an implementation for UserDeviceLinear d` on every `prim*` call site. (ii) **threading the erased `{0 d : Device}` through recursive calls** — even though `d` is erased, the recursive call body needs an explicit `{ex}` so the elaborator's instance search has a name to bind. Without it: `Can't find an implementation for UserDeviceLinear ?d` at the recursive call site.
+`applyBitLinearHf2d` originally had two `let`-bound functions (`processRow` + `foldRows`) inside its `ioRerun` body. They closed over the constraint-rich outer scope (the executor training/quant constraints — today's `UserExecutorTraining ex` / `UserExecutorQuant ex` — plus `Compatible ex dt` and the `BitLinearHf i o ex dt g` record), so every reference inside the lambda body re-instantiated those constraints. At BitNet 2B-4T's 210 call sites of `applyBitLinearHf2d` (and 480 sites of `applyRmsNorm2d` with the same pattern), that's a lot of constraint-resolution work — and was a meaningful contributor to the 26-min elaboration of `Example/BitNetInference.idr`. The refactor (`3b23ffa`) lifts each row-loop pair to top-level helpers taking all dependencies as plain `AnyPtr` / `Int` / `Double` args. The helpers elaborate ONCE at module compile, not per call site. Effect: torch-cpu example rebuild dropped from ~26 min to ~22 min (modest but real). Two traps when doing this kind of lift: (i) **picking the right interface for the constraint** — `primNarrow` / `primCat2` / `primReshape*` / `primSum` are on `UserExecutorLinear`, not `UserExecutorCore` (interface hierarchy in `Ml/Executor/Core/Compute.idr`); the first attempt got it wrong and Idris emitted `Can't find an implementation for UserDeviceLinear d` (pre-rename spelling, captured verbatim) on every `prim*` call site. (ii) **threading the erased `{0 ex : Executor}` through recursive calls** — even though `ex` is erased, the recursive call body needs an explicit `{ex}` so the elaborator's instance search has a name to bind. Without it: `Can't find an implementation for UserDeviceLinear ?d` at the recursive call site.
 
-### `Example/HfBitNetInference.idr` elaboration takes 22-26 min on torch-cpu
+### `Example/BitNetInference.idr` elaboration takes 22-26 min on torch-cpu
 
-Cold (or near-cold) builds of `Example/HfBitNetInference.idr` take **22 minutes** post-`3b23ffa` refactor; **26 minutes** pre-refactor. The Llama-equivalent (`Example/HfLlamaInference.idr` with the same `genOneStep` / `genLoop` / `runGenerate` pattern) takes 5-7 min on the same machine. The 3-4× gap reflects BitNet's heavier elaboration surface: (a) one extra typeclass constraint (`UserDeviceQuant d`) per `hfBitnetForwardLm` call site; (b) `BitLinearHf.weightT : Tensor [o, i] ex Ternary NoGrad` triggering `LosslessTo Ternary dt` / `UpcastableTo Ternary dt` resolution at every BitLinear use (210 sites for the 2B-4T config); (c) the `applyBitLinearHf2d` body being 25+ lines with multiple FFI calls vs Llama's 2-line `applyLinear2d`. Idris emits zero output during the elaboration — silently appearing to hang. Two earlier attempts to add `genOneStep` / `genLoop` / `runGenerate` to the example were killed at the 45-min and 29-min marks under the assumption that the silence was a true hang; the third attempt (commit `2ae8e15`) was left to run and completed in 22-26 min. Lesson: if a future BitNet-style adapter takes >15 min in `idris2` with no output, give it up to 45 min before assuming a real bug. The `genOneStep` / `genLoop` / `runGenerate` pattern works; it's just slow to elaborate. A potential bigger win is captured on the `idris-transformers` adapter DRY-up TODO row (share the inference scaffolding so it elaborates once, not per adapter).
+Cold (or near-cold) builds of `Example/BitNetInference.idr` take **22 minutes** post-`3b23ffa` refactor; **26 minutes** pre-refactor. The Llama-equivalent (`Example/LlamaInference.idr` with the same `genOneStep` / `genLoop` / `runGenerate` pattern) takes 5-7 min on the same machine. The 3-4× gap reflects BitNet's heavier elaboration surface: (a) one extra typeclass constraint (`UserExecutorQuant ex`) per `hfBitnetForwardLm` call site; (b) `BitLinearHf.weightT : Tensor [o, i] ex Ternary NoGrad` triggering `LosslessTo Ternary dt` / `UpcastableTo Ternary dt` resolution at every BitLinear use (210 sites for the 2B-4T config); (c) the `applyBitLinearHf2d` body being 25+ lines with multiple FFI calls vs Llama's 2-line `applyLinear2d`. Idris emits zero output during the elaboration — silently appearing to hang. Two earlier attempts to add `genOneStep` / `genLoop` / `runGenerate` to the example were killed at the 45-min and 29-min marks under the assumption that the silence was a true hang; the third attempt (commit `2ae8e15`) was left to run and completed in 22-26 min. Lesson: if a future BitNet-style adapter takes >15 min in `idris2` with no output, give it up to 45 min before assuming a real bug. The `genOneStep` / `genLoop` / `runGenerate` pattern works; it's just slow to elaborate. A potential bigger win is captured on the `idris-transformers` adapter DRY-up TODO row (share the inference scaffolding so it elaborates once, not per adapter).
 
 ## C Tape Backend (backend_tape.c)
 
@@ -947,7 +946,7 @@ RMSprop/Adam velocity and momentum buffers must be sized by total parameter ELEM
 
 Any fused C operation that sets `requires_grad=1` on its output MUST also append tape entries and implement backward cases. Without a backward rule, the gradient chain breaks silently — the op's result gets gradient but it's never propagated to inputs.
 
-The corollary: **don't add architecture-specific fused C ops in the first place.** A `tensor_*` op should be something a PyTorch user would expect at the FFI surface (`F.cosine_similarity`, `nn.LSTMCell`, etc.). Per-paper fusions like NTM's read-head pipeline belong in Idris, composed from primitives. The previous `tensor_ntm_read_head` / `tensor_ntm_interp_write` fusion was rolled back; NTM now composes its addressing in `Layer/Ntm.idr` like DNC always did.
+The corollary: **don't add architecture-specific fused C ops in the first place.** A `tensor_*` op should be something a PyTorch user would expect at the FFI surface (`F.cosine_similarity`, `nn.LSTMCell`, etc.). Per-paper fusions like NTM's read-head pipeline belong in Idris, composed from primitives. The previous `tensor_ntm_read_head` / `tensor_ntm_interp_write` fusion was rolled back; NTM now composes its addressing in `Nn/Ntm.idr` like DNC always did.
 
 ### NTM state is not a parameter
 
@@ -1210,7 +1209,7 @@ region to just `j=0` for any `q_seq < kv_seq`. Torch-cpu F64 uses
 the math impl by default, so cache-aware decode on torch-cpu F64
 produces wrong tokens from the first decode step onward.
 
-Symptom observed 2026-06-04 on `test-hf-llama-generate-roundtrip`:
+Symptom observed 2026-06-04 on `test-e2e-llama-generate-roundtrip`:
 seed step (symmetric Q.seq == KV.seq) matches HF oracle exactly,
 first decode step (Q.seq=1, KV.seq=7) diverges at position 7
 producing token 7461 instead of oracle's 13. Subsequent tokens
@@ -1240,7 +1239,7 @@ work's initial Phase C.
 
 The 2026-05-19 device-taxonomy plan originally assumed PyTorch's MPS
 backend silently falls back to CPU for ops without MPS kernels — so
-admitting `Compatible (TorchDev TMps) F64` would let users opt into
+admitting `Compatible (TorchExecutor TMps) F64` would let users opt into
 "slow but correct" F64 on MPS.
 
 Reality: `tensor.to("mps")` on any F64-dtype tensor errors out:
@@ -1254,8 +1253,8 @@ The check is inside libtorch's `at::native::to(...)` for MPS targets
 — it's not an op-level fallback gate, it's a hard rejection at the
 device-bind layer. PyTorch on Apple Silicon is F32-on-MPS, period.
 
-**What this means for the type system**: `Compatible (TorchDev TMps)
-F64` deliberately does NOT exist (mirrors the `(MlxDev MGpu) F64`
+**What this means for the type system**: `Compatible (TorchExecutor TMps)
+F64` deliberately does NOT exist (mirrors the `(MlxExecutor MGpu) F64`
 rejection). Admitting it would let the type system mint a value the
 runtime can't represent.
 
@@ -1420,7 +1419,7 @@ that isn't a parameter or wrapped in `register_buffer` is a
 When an FFI function returns `()` (Idris unit), assigning its result
 to `_` in a `let` is dead-code-eliminated by the Chez codegen. The
 side effect (the C function being called) never fires. Caught
-during the cross-backend `toDevice` work:
+during the cross-backend `toExecutor` work:
 
 ```idris
 -- Looks like it frees the buffer. Doesn't.
@@ -1434,11 +1433,12 @@ forces evaluation:
 primIO (\w => MkIORes (primFreeHost {ex=d1} dataBuf) w)
 ```
 
-Or use `ioRerun` (`Tensor.idr`) inside a `do`-block once it's
-visible. The forward-pass case is the inverse: `forwardVar` returns
-`IO`-typed values so the FFI body fires only on `<-` sequencing — the
-existing pattern. The cleanup-buffer case is the dual: a unit-typed
-FFI call needs explicit IO sequencing to fire at all.
+Or use `ioRerun` (`Ml/Tensor/Core.idr`) inside a `do`-block once it's
+visible. The forward-pass case is the inverse: the forward path's
+smart constructors return `IO`-typed values so the FFI body fires only
+on `<-` sequencing — the existing pattern. The cleanup-buffer case is
+the dual: a unit-typed FFI call needs explicit IO sequencing to fire
+at all.
 
 ### Returning the buffer pointer through FFI Scheme wrappers (`tensor_to_doubles_return`)
 
@@ -1486,7 +1486,7 @@ The `Tensor` record declares `dims : Vect rank Nat` at unrestricted
 quantity:
 
 ```idris
-record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode)
+record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
 ```
 
 But when a function signature mentions `Tensor dims ex dt g` without
@@ -1498,26 +1498,26 @@ not accessible in this context."
 Fix: explicitly bind both at non-zero quantity:
 
 ```idris
-toDevice : {0 d1, d2 : Type} -> ... =>
-           {rank : Nat} -> {dims : Vect rank Nat} ->
-           Tensor dims d1 dt WithGrad -> IO (Tensor dims d2 dt WithGrad)
+toExecutor : {0 d1 : Type} -> (0 d2 : Type) -> ... =>
+             {rank : Nat} -> {dims : Vect rank Nat} ->
+             Tensor dims d1 dt WithGrad -> IO (Tensor dims d2 dt WithGrad)
 ```
 
-Caught while building the cross-backend `toDevice` host-roundtrip
-path — needed `dims` at runtime to compute `product dims` (the
-allocation size) and to marshal the shape array for
-`primCreateFromHost`.
+Caught while building the cross-backend `toExecutor` host-roundtrip
+path (`Ml/Tensor/Core.idr` ~line 200) — needed `dims` at runtime to
+compute `product dims` (the allocation size) and to marshal the shape
+array for `primCreateFromHost`.
 
-The existing `toDevice` signature (pre-Phase-6) bound `dims`
+The original signature bound `dims`
 implicitly because its body only forwarded a single FFI call (no
 shape inspection). Once the body grew shape-dependent code, the
 quantity mismatch surfaced.
 
-### `ioRerun` is forward-declared in `Tensor.idr`
+### `ioRerun` is forward-declared in `Ml/Tensor/Core.idr`
 
-`ioRerun : (() -> a) -> IO a` is defined ~line 1153 in
-`Tensor.idr`. Earlier-defined functions in the same module
-(`toDevice` at ~line 1100) can't reference it — Idris reports
+`ioRerun : (() -> a) -> IO a` is defined ~line 383 in
+`Ml/Tensor/Core.idr`. Earlier-defined functions in the same module
+(`toExecutor` at ~line 200) can't reference it — Idris reports
 "Undefined name ioRerun."
 
 Workaround: inline its body using `primIO`:
@@ -1530,20 +1530,21 @@ Real fix would be to move `ioRerun` earlier in the module, but
 that touches a lot of forward refs in the existing layout. The
 inline pattern is two lines and unambiguous.
 
-### Multi-backend test build is the unblock for cross-backend Test.Transfer
+### Cross-backend Test.Transfer needs the multi-backend test build
 
-`Test.Transfer.idr` exercises `toDevice` over the
-`UserDeviceTransfer` interface. The intra-backend smoke
-(`TapeDev → TapeDev`) works under any single-BACKEND build.
-Cross-backend smokes (`TapeDev → TorchDev TCpu`,
-`TapeDev → MlxDev MCpu`, etc.) need both backends' C symbols
-linked at runtime, which means a `BACKEND=tape,torch` (multi-
-backend) test build — not the current `make test` default.
+`Test.Transfer.idr` exercises `toExecutor` over the
+`UserExecutorTransfer` interface. The intra-backend smoke
+(`TapeExecutor → TapeExecutor`) works under any single-BACKEND build.
+Cross-backend smokes (`TapeExecutor → TorchExecutor TCpu`,
+`TapeExecutor → MlxExecutor MCpu`, etc.) need both backends' C symbols
+linked at runtime, which means a multi-link (`BACKEND=torch,tape,mlx`)
+test build — not the `make test` default.
 
 Symptom of forgetting: `Exception in foreign-procedure: no entry
 for "tensor_to_device_tape"` when running on a torch-only build
-that references `TapeDev`-typed Idris code.
+that references `TapeExecutor`-typed Idris code.
 
-The Transfer test is currently NOT wired into `Main.idr`'s
-default `tests` list for this reason. Multi-backend test target
-is parked in TODO.md.
+The Transfer suite is therefore excluded from `Main.idr`'s default
+`tests` list and wired into `Test/MainMulti.idr` instead, built via
+`idris-ml-tests-multi.ipkg` and run by `make test-unit-multi-backend`
+(mk/tests.mk) under `BACKEND=torch,tape,mlx`.

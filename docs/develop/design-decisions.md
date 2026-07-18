@@ -7,8 +7,12 @@ See [ntm.md](ntm.md) for NTM-specific design decisions (head parameters, memory 
 > machinery that supported it: per-element packing, `autoName`,
 > `applyDeltas`, `toDoubleNetwork`, the V1 13-method `LayerLike`. As of
 > the Path C migration (commits `2cb8af8` … `fe16ce2`), the autograd
-> value is `Tensor (dims : Vect rank Nat) (0 d : Device)` with shape on
-> the value, the structural Vect-of-Vect type was renamed to `Array`,
+> value carries shape on the value — today spelled
+> `Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)`
+> (`Ml/Tensor/Core.idr`; Path C landed the shape-on-value form as
+> `Tensor dims (0 d : Device)`, and the executor/dtype/grad-mode
+> parameters arrived with later migrations) —
+> the structural Vect-of-Vect type was renamed to `Array`,
 > and most V1 scaffolding is gone (`autoName` / `nameLayer` /
 > `applyDeltas` / `toDoubleNetwork` / `Endofunctor.emap` / pure-Idris
 > `Optimizer`). See [path-c-migration.md](path-c-migration.md) for the
@@ -140,6 +144,8 @@ PyTorch's silent footgun: a loss tensor that came from inside `with torch.no_gra
 See `docs/users/grad-mode-and-device-typing.md` for the user-facing explainer.
 
 ## Type-safe device placement
+
+**Superseded (Path C + the 2026-06-06 Executor reshape)**: this entry describes the V1 `Variable d` device phantom. The bug class and the phantom-parameter approach carry over, but the current design is the `(0 ex : Executor)` parameter on `Tensor` (`Ml/Tensor/Core.idr`) with `toExecutor` / `toExecutorChecked` as the only intentional transfer bridge — see the "Pluggable Device" and "Machine / Hardware / Backend / Executor open-kind reshape (2026-06-06)" entries below.
 
 PyTorch's most common footgun: model on CPU, data on GPU, runtime crash. Idris 2's dependent types solve this at compile time.
 
@@ -398,6 +404,17 @@ covered by the FT1 unit test `Test.CheckpointSubset` (6 assertions,
 3 backends). The real-text fine-tune workflow needing the tokenizer
 + attention mask + LoRA / PEFT is parked as follow-up TODO rows.
 
+**Update (2026-06-20, typed optimizer scopes)**: the two entry points this
+section names were replaced. `loadModelPrefix` became the `only` field on
+`LoadOpts` (`load path ({only := Just pfx} defaultLoadOpts)`,
+`Ml/Checkpoint.idr` — see the checkpoint-surface entry below), and
+`freezeByPrefix`/`freezeBySuffix` became the typed scoping surface in
+`Ml/Train/Freeze.idr` (`freezeGroup opt =<< namesMatching (isPrefixOf
+"bert.")`, plus `restrictTo`/`setGroupLR`; structural name sources via
+`Nn.Group.groupOf`). The rationale above carries over — paramId prefixes
+stay the load-bearing axis, but the prefix match is now explicit at the
+call site (`namesMatching`) instead of baked into a dedicated function.
+
 ## LoRA: parallel adapter records threaded into forward (2026-06-07)
 
 Adding LoRA to `HfBert` came down to two architectural choices:
@@ -447,8 +464,11 @@ Adding LoRA to `HfBert` came down to two architectural choices:
    ondisk_nl, count)` FFI extends the L2 save-by-name path with
    override on-disk names; mostly mechanical to add.
 
-The shipped surface (`Layer/LoraLinear.idr` + `HfBert.HfBertLora.idr`
-+ `HfBert.HfLoraIO.idr`) gives the user three composable layers:
+The shipped surface (today `Ml/Nn/LoraLinear.idr` +
+`Transformers.BertLora` + `Transformers.LoraIO`; shipped as
+`Layer/LoraLinear.idr` + `HfBert.HfBertLora` + `HfBert.HfLoraIO`
+before the `Nn` port and the HfBert→Transformers rename) gives the
+user three composable layers:
 (1) the `LoraLinear` primitive that generalises to any
 trained-`Linear`-wrapping case; (2) the per-architecture
 `BertLoraAdapters` + `hfBertForwardWithLora` that fixes the BERT
@@ -502,6 +522,8 @@ Manual hyperparameter tuning is an anti-pattern that wastes hours on random adju
 
 ## Generic debug module
 
+**Superseded (Path C `Layer`/`Network` deletion)**: `Debug.idr` no longer exists anywhere in the tree — it targeted the V1 `Layer` GADT / `Network` / `toDoubleNetwork` surface. The `Nn` models-as-records surface has no equivalent module; preserved as design context.
+
 `Debug.idr` provides reusable forward-pass diagnostics for any layer type.
 
 **Pattern matching on the Layer GADT** (closed dispatch) rather than a typeclass: the set of layer constructors is fixed and known at compile time (LinearLayer, RnnLayer, ActivationLayer, NormalizationLayer, NtmLayer). Adding a `Debuggable` typeclass would require orphan instances and wouldn't provide additional extensibility since new layer types require modifying the `Layer` GADT anyway. This matches how `show`, `emap`, and `applyLayer` already dispatch.
@@ -515,6 +537,8 @@ Manual hyperparameter tuning is an anti-pattern that wastes hours on random adju
 **Per-layer debug entries with key-value pairs**: `DebugEntry` uses `List (String, String)` fields rather than a structured type per layer kind. This is extensible — adding fields to any layer's debug output doesn't change the `DebugEntry` type or break existing printing code
 
 ## Curriculum module extraction
+
+**Superseded (the `fit` driver consolidation)**: `Curriculum.idr` no longer exists anywhere in the tree — the module was retired with the V1 training loop it wrapped. Multi-stage training now composes from the `fit` driver's exported engine pieces (`Ml/Fit.idr` / `Ml/Train/Engine`); see "`fit` driver + `Dataset`/`DataStream` data redesign (2026-06-13)" below.
 
 Curriculum training (multi-stage training with data regeneration, stage advancement thresholds, and two-level early stopping) was extracted from `Example/NtmCopy.idr` into a reusable `Curriculum` module.
 
@@ -702,6 +726,8 @@ Fix: call Chez Scheme's `(collect)` (full GC) every 10 epochs via the `forceGC` 
 FFI note: `%World` is erased in Chez Scheme's PrimIO calling convention, so the foreign lambda must take 0 arguments: `(lambda () (collect) 0)`, not `(lambda (w) (collect) ...)`. Using a 1-arg lambda causes "incorrect argument count" at runtime.
 
 ## Interface-based layer system (LayerLike + AnyLayer)
+
+**Superseded (2026-06-14 `Nn` surface + the example-sweep `Layer/` deletion)**: the `LayerLike` / `AnyLayer` / `Network` surface described here was deleted wholesale. The successor is the models-as-records `Nn` surface (`Ml/Nn/Module.idr`'s `Module`/`Params` over plain layer records, `Nn.Seq` for chaining) — see "models-as-records: the `Nn` surface (2026-06-14)" below. The QTT lessons (erased existential parameters, explicit `{i, o : Nat}` on methods) remain useful context.
 
 Previously, `Layer.idr` was a 1104-line file containing every layer type in a single GADT with 9 `mutual` blocks. Adding a new layer type required editing ~10 places. The `Layer` and `Network` types were mutually recursive because `NtmLayer` contained sub-`Layer`s (controller, head FCs, output FC).
 
@@ -907,17 +933,17 @@ C backend time was **2ms/epoch throughout** — unchanged by any optimization. T
 2. Moving the entire epoch loop into C (eliminating Scheme from the hot path)
 3. Accepting the gap — the C backend itself is fast (2ms), and Chez overhead is constant per epoch regardless of model size
 
-### Pluggable Device — sliced `UserDevice` interfaces + per-backend C-symbol rename (2026-05-13)
+### Pluggable Device — sliced `UserExecutor` interfaces + per-backend C-symbol rename (2026-05-13)
 
 Tracks the TODO row "Pluggable / dependent `Device` for user-supplied backends." Before this refactor, every backend op in `Tensor.idr` was a free `%foreign` declaration bound to one symbol name (e.g. `tensor_add`), and a Makefile symlink picked which dylib backed it. User-supplied backends required forking the codebase.
 
 **Structural choice — sliced typeclasses**. Three candidates were on the table:
 
-1. **One big interface** — single `UserDevice` typeclass with ~160 methods covering every op in `Tensor.idr`.
-2. **Sliced interfaces** — `UserDeviceCore` / `UserDeviceLinear` / `UserDeviceNN` / `UserDeviceConv` / `UserDeviceTraining`, ~30 methods each. A backend that doesn't implement `UserDeviceConv` simply can't be used with conv layers, and that's a *type error*.
+1. **One big interface** — single `UserExecutor` typeclass with ~160 methods covering every op in `Tensor.idr`.
+2. **Sliced interfaces** — `UserExecutorCore` / `UserExecutorLinear` / `UserExecutorNN` / `UserExecutorConv` / `UserExecutorTraining`, ~30 methods each. A backend that doesn't implement `UserExecutorConv` simply can't be used with conv layers, and that's a *type error*.
 3. **Dictionary record** — a 160-field `record DeviceOps` passed explicitly. Cheaper at the typechecker; less ergonomic at call sites.
 
-Variant 2 (sliced) chosen. The "ops depend on device" pitch — which is the whole reason to open `Device` up — only lands cleanly under slicing. A `UserDeviceConv d` constraint on `convLayer` means a backend without conv support is a compile-time error at the layer's use-site, not a runtime crash from a missing method. Variant 1 conflates "any backend" with "every backend implements everything"; variant 3 loses interface coherence (methods become record fields, no implicit resolution).
+Variant 2 (sliced) chosen. The "ops depend on device" pitch — which is the whole reason to open the executor kind up — only lands cleanly under slicing. A `UserExecutorConv d` constraint on `convLayer` means a backend without conv support is a compile-time error at the layer's use-site, not a runtime crash from a missing method. Variant 1 conflates "any backend" with "every backend implements everything"; variant 3 loses interface coherence (methods become record fields, no implicit resolution).
 
 The risk for slicing was Idris-2 instance resolution choking at full width. A throwaway `Device.ProtoWide` module with 5 sliced interfaces × ~30 stub methods each (~150 total) plus a covering instance produced these clean-build times (`rm -rf build/ttc` between runs):
 
@@ -937,9 +963,9 @@ Adopted #2 (commit `06750e5`). `scripts/gen-rename-headers.py` parses `backend.h
 
 **Unified-name aliases kept existing Idris `%foreign` working** (commit `e67fe15`) — **now removed (the per-instance migration, 2026-05-20)**. After the rename, the dylib exports only suffixed names (`_tensor_add_tape`). Idris `%foreign "C:tensor_add,libidrisml"` declarations would fail to resolve, so the original land aliased each suffixed primary-backend symbol back to its unified name at link time (macOS `-Wl,-alias_list,<file>`; Linux `-Wl,--defsym=<unified>=<suffixed>`). This was always a transitional shim: it routed *every* unified-name FFI to the *primary* backend, so in a multi-link build a non-primary device's ops/registry/no-grad-scope silently hit the primary's symbols.
 
-The shim has been retired. Every Tensor-touching `%foreign` now lives in a `UserDevice*` instance method bound to the suffixed name directly, dispatched by the type-level `d`: arithmetic/lifecycle/reductions/shape in `UserDeviceCore`/`Linear`/`NN`/`Conv`; autograd, the param registry (`primParamRegister`/`primParamCount`/…), optimizer creation + `native_train_step`, SafeTensors I/O, profiling, `backend_name` (→ `backendTag`), `withNoGrad`, `polyak_blend`, `mnist_get_image`, `one_hot`, and the dtype-streamed create path (`primCreate*Streamed`, branching on a `RuntimeDType.dtypeTag` of 0=f32/1=f64) all dispatch per-`d`. A repo-wide scan finds zero unified-name references to per-backend-renamed C symbols, so `BACKEND_ALIAS_FILE` / `BACKEND_ALIAS_FLAGS` and the `aliases_<p>.macos.list` rule were deleted from the Makefile.
+The shim has been retired. Every Tensor-touching `%foreign` now lives in a `UserExecutor*` instance method bound to the suffixed name directly, dispatched by the type-level `d`: arithmetic/lifecycle/reductions/shape in `UserExecutorCore`/`Linear`/`NN`/`Conv`; autograd, the param registry (`primParamRegister`/`primParamCount`/…), optimizer creation + `native_train_step`, SafeTensors I/O, profiling, `backend_name` (→ `backendTag`), `withNoGrad`, `polyak_blend`, `mnist_get_image`, `one_hot`, and the dtype-streamed create path (`primCreate*Streamed`, branching on a `RuntimeDType.dtypeTag` of 0=f32/1=f64) all dispatch per-`d`. A repo-wide scan finds zero unified-name references to per-backend-renamed C symbols, so `BACKEND_ALIAS_FILE` / `BACKEND_ALIAS_FLAGS` and the `aliases_<p>.macos.list` rule were deleted from the Makefile.
 
-This fixed a latent multi-device correctness bug: the param registry is a per-TU `static` in each backend, and the old unified-name `param_register_return` (hardcoded wrap tag `"primary"`) registered every param into the primary's registry regardless of device. The acceptance test `Test.MultiDeviceRegistry` (run under `make test-multi`, BACKEND=torch,tape,mlx) registers a `(TorchDev TCpu)` param and asserts torch's `param_count` grows by one while tape's is unchanged — and the mirror — proving the registries are now independent.
+This fixed a latent multi-device correctness bug: the param registry is a per-TU `static` in each backend, and the old unified-name `param_register_return` (hardcoded wrap tag `"primary"`) registered every param into the primary's registry regardless of device. The acceptance test `Test.MultiExecutorRegistry` (run under `make test-multi`, BACKEND=torch,tape,mlx) registers a `(TorchExecutor TCpu)` param and asserts torch's `param_count` grows by one while tape's is unchanged — and the mirror — proving the registries are now independent.
 
 **`BACKEND` as a comma-separated list + symlink retired** (commit `bb3254a`). Makefile refactored to use per-backend property tables (`<b>_SRC` / `<b>_CC` / `<b>_CFLAGS` / `<b>_LDFLAGS_<UNAME>`) plus an `$(eval $(call …))` loop that emits one compile rule per listed backend. Final link uses `c++` if any C++ backend is in the list, else `cc`, with the union of per-backend `LDFLAGS` for the platform. `.backend-stamp` FORCE rule re-links when `BACKEND` changes value (the dylib filename is no longer `BACKEND`-parameterised).
 
@@ -962,44 +988,44 @@ Verified `BACKEND` combinations on macOS (Apple Silicon, libtorch 2.x via uv ven
 
 **test-examples smoke matrix after the multi-link land** (commit `714785a`-ish): 74 of 76 example × backend combinations pass cleanly. Every tape and every torch example passes; both failures are on mlx and pre-existing — `mlx:example-dnc-copy` and `mlx:example-dnc-recall` crash with `[scatter] Cannot calculate VJP with respect to indices` at `--epochs 5 --max-len 3 --batch 1 --seed 99`. Verified pre-existing by checking out the pre-rename Makefile (`6b8c554`) and rebuilding the mlx dylib — same crash reproduces. The TODO row "Re-enable 4 mlx examples on macOS CI" already tracks this class of mlx DNC issues. Convergence-config runs of these examples DID pass historically (`perf-log.jsonl` shows `dnc-copy mlx` exit-0 at `--epochs 3500`+ on commits `88a966a` / `34d8659` / `263d546`), so the smoke-config bug is a narrower mlx flakiness that the long-run config doesn't trip.
 
-### Open `d` parameter: why `Device = Type` instead of a real sub-type (2026-05-13)
+### Open `d` parameter: why `Executor = Type` instead of a real sub-type (2026-05-13)
 
-When the `Tensor` record's `d` parameter was opened from the closed sum (`CPU | CUDA Nat | MPS`) to admit any type with a `UserDeviceCore` instance, the worry surfaced: `Tensor [4] Bool` now type-checks at the record level. The binder is unrestricted; from a documentation perspective `Tensor [4] Bool` looks like a valid type.
+When the `Tensor` record's `d` parameter was opened from the closed sum (`CPU | CUDA Nat | MPS`) to admit any type with a `UserExecutorCore` instance, the worry surfaced: `Tensor [4] Bool` now type-checks at the record level. The binder is unrestricted; from a documentation perspective `Tensor [4] Bool` looks like a valid type.
 
 (Aside on terminology — Idris 2 doesn't have a separate "kind" sort the way Haskell does. `Type` is a value of `Type` (with universe stratification behind the scenes). What Haskell calls "the kind of `d`" is in Idris just "the type at which `d` is bound." Outside this document we'll keep saying "kind" for everyone's sanity, but strictly it's a Haskell-ism.)
 
 **Current safety profile**:
-- *Construction* is closed: every Tensor-producing path goes through one of the `UserDeviceCore` methods (`primCreateScalar`, `primCreate`, etc.). No `UserDeviceCore` instance for `Bool` ⇒ no way to inhabit `Tensor [4] Bool`.
-- *Operations* are closed: `tadd`, `tsub`, …, `forwardVar`, `applyVar` all carry `UserDeviceCore d =>`. No instance ⇒ no operation typechecks.
+- *Construction* is closed: every Tensor-producing path goes through one of the `UserExecutorCore` methods (`primCreateScalar`, `primCreate`, etc.). No `UserExecutorCore` instance for `Bool` ⇒ no way to inhabit `Tensor [4] Bool`.
+- *Operations* are closed: `tadd`, `tsub`, …, `forwardVar`, `applyVar` all carry `UserExecutorCore d =>`. No instance ⇒ no operation typechecks.
 - *Declaration* is open: `the (Tensor [4] Bool) ...` type-checks; you just can't construct the value or call any op on it. It's a phantom that can't be made real.
 
-So in practice, the worst a non-device `d` can do is type-check uselessly. The user gets a "no `UserDeviceCore Bool` instance" error at the first attempt to use the tensor — which is a clear-enough signal, just one step later than "no `Bool` as a device."
+So in practice, the worst a non-device `d` can do is type-check uselessly. The user gets a "no `UserExecutorCore Bool` instance" error at the first attempt to use the tensor — which is a clear-enough signal, just one step later than "no `Bool` as a device."
 
 **Options considered**:
 
-1. **Documentation-only `Device` kind alias** *(chosen)*: `0 Device : Type; Device = Type`. Every kind-binder reads `(0 d : Device)` instead of `(0 d : Type)`. Same kind at runtime, but the call-site documentation says "this is a device tag." No type-system enforcement. ~Zero cost.
+1. **Documentation-only kind alias** *(chosen)*: `0 Executor : Type; Executor = Type` (spelled `Device` at the time; renamed by the 2026-06-06 reshape below). Every kind-binder reads `(0 ex : Executor)` instead of `(0 ex : Type)`. Same kind at runtime, but the call-site documentation says "this is an executor tag." No type-system enforcement. ~Zero cost.
 
-2. **Empty marker interface `IsDevice`** *(deferred)*: Empty interface implemented for each device type. `Tensor`'s `d` stays at `Type`, but every Tensor-producing function takes `IsDevice d =>`. Pushes the error one step earlier than "no `UserDeviceCore` instance"; user gets "no `IsDevice` instance" at type-checking the declaration. Cost: one interface declaration + per-built-in impl + the constraint threaded through alongside `UserDeviceCore`. Mostly redundant with `UserDeviceCore` (any device that supports any op already implements `UserDeviceCore`).
+2. **Empty marker interface `IsDevice`** *(deferred)*: Empty interface implemented for each device type. `Tensor`'s `d` stays at `Type`, but every Tensor-producing function takes `IsDevice d =>`. Pushes the error one step earlier than "no `UserExecutorCore` instance"; user gets "no `IsDevice` instance" at type-checking the declaration. Cost: one interface declaration + per-built-in impl + the constraint threaded through alongside `UserExecutorCore`. Mostly redundant with `UserExecutorCore` (any device that supports any op already implements `UserExecutorCore`).
 
-3. **Hard kind restriction on the record** *(deferred)*: Either constrain `Tensor`'s record params (Idris 2 doesn't support auto-implicit constraints on record params directly) or make `MkTensor` private and add a smart constructor requiring `UserDeviceCore d`. Real restriction. Cost: every `MkTensor` call site in the codebase (~50 places in `Tensor.idr` + smart constructors throughout) needs updating; the existential `AnyLayer` wrapping breaks because you can't smuggle the constraint through it cleanly.
+3. **Hard kind restriction on the record** *(deferred)*: Either constrain `Tensor`'s record params (Idris 2 doesn't support auto-implicit constraints on record params directly) or make `MkTensor` private and add a smart constructor requiring `UserExecutorCore d`. Real restriction. Cost: every `MkTensor` call site in the codebase (~50 places in `Tensor.idr` + smart constructors throughout) needs updating; the existential `AnyLayer` wrapping breaks because you can't smuggle the constraint through it cleanly.
 
-4. **Closed-sum GADT wrapping any device type** *(deferred)*: A `DeviceTag` data type with `MkDeviceTag : (0 d : Type) -> UserDeviceCore d => DeviceTag`. `Tensor` parameterised on `DeviceTag` values. Loses the "user can declare their own type" simplicity (they have to wrap it in `MkDeviceTag`).
+4. **Closed-sum GADT wrapping any device type** *(deferred)*: A `DeviceTag` data type with `MkDeviceTag : (0 d : Type) -> UserExecutorCore d => DeviceTag`. `Tensor` parameterised on `DeviceTag` values. Loses the "user can declare their own type" simplicity (they have to wrap it in `MkDeviceTag`).
 
 **Why option 1 now**: the practical risk of `Tensor [4] Bool` is bounded — nothing can be done with it. The kind alias gives every kind-binder site a meaningful name without forcing constraint propagation through the record or smart-constructor changes. If we later want sharper errors at the declaration site, option 2 (IsDevice marker) is the natural next step and can be added without breaking the interface plumbing for the lifecycle + arithmetic op slice.
 
-**Revisit triggers**: open if users in the wild file confusing "no `UserDeviceCore X` instance" errors traced back to a typo like `Tensor [4] Bool`, OR if we ever want to define library code that's polymorphic in `d` without `UserDeviceCore d` available (currently impossible — every op needs it, so every polymorphic-in-`d` site naturally has it). Option 2 (`IsDevice`) is the cheapest sharper variant; option 3 is the heaviest if we want compile-time rejection at declaration sites.
+**Revisit triggers**: open if users in the wild file confusing "no `UserExecutorCore X` instance" errors traced back to a typo like `Tensor [4] Bool`, OR if we ever want to define library code that's polymorphic in `d` without `UserExecutorCore d` available (currently impossible — every op needs it, so every polymorphic-in-`d` site naturally has it). Option 2 (`IsDevice`) is the cheapest sharper variant; option 3 is the heaviest if we want compile-time rejection at declaration sites.
 
 ### 2026-05-19 follow-up: per-backend hardware parameterisation + cross-backend transfer
 
 Two structural extensions land on top of the open-`d` model:
 
-1. **`TorchDev` parameterised over hardware** — same shape as the existing `MlxDev s`: `data TorchHwDev = TCpu | TMps | TCuda Nat`, `data TorchDev : TorchHwDev -> Type`. Each `(TorchDev d)` cell binds to `*_torch` C symbols; the `d` parameter drives a post-create `tensor_to_device(h, "mps"|"cuda:n")` so the libtorch handle lands on the right hardware variant. `Compatible (TorchDev TMps) F64` deliberately doesn't exist — libtorch's MPS backend errors at F64 *construction*, not just dispatch, so admitting the combination would let the type system mint a runtime-unrepresentable value (mirrors the `MlxDev MGpu F64` rejection).
+1. **`TorchExecutor` parameterised over hardware** — same shape as the existing `MlxExecutor s`: `data TorchHwDev = TCpu | TMps | TCuda Nat`, `data TorchExecutor : TorchHwDev -> Type`. Each `(TorchExecutor d)` cell binds to `*_torch` C symbols; the `d` parameter drives a post-create `tensor_to_device(h, "mps"|"cuda:n")` so the libtorch handle lands on the right hardware variant. `Compatible (TorchExecutor TMps) F64` deliberately doesn't exist — libtorch's MPS backend errors at F64 *construction*, not just dispatch, so admitting the combination would let the type system mint a runtime-unrepresentable value (mirrors the `MlxExecutor MGpu F64` rejection).
 
-2. **`UserDeviceTransfer` interface + backendTag-aware `toDevice`** — every backend declares a globally-unique `backendTag : String` ("tape", "torch", "mlx") plus host-marshalling primitives (`primToHost` / `primAllocHost` / `primFreeHost` / int-buffer helpers / `primCreateFromHost` / `primIntraMigrate`). `toDevice` in `Tensor.idr` compares source and dest tags at runtime: matching → fast intra-backend `primIntraMigrate` (libtorch's `.to()` on torch; stream switch on mlx; no-op on tape); differing → host buffer round-trip. Cross-backend transfer creates a fresh handle on the destination — registry membership doesn't follow, users re-register on the dest side if they need optimizer visibility.
+2. **`UserExecutorTransfer` interface + backendTag-aware `toExecutor`** — every backend declares a globally-unique `backendTag : String` ("tape", "torch", "mlx") plus host-marshalling primitives (`primToHost` / `primAllocHost` / `primFreeHost` / int-buffer helpers / `primCreateFromHost` / `primIntraMigrate`). `toExecutor` (`Ml/Tensor/Core.idr`) compares source and dest tags at runtime: matching → fast intra-backend `primIntraMigrate` (libtorch's `.to()` on torch; stream switch on mlx; no-op on tape); differing → host buffer round-trip. Cross-backend transfer creates a fresh handle on the destination — registry membership doesn't follow, users re-register on the dest side if they need optimizer visibility.
 
-The "open `d`" property is preserved: BYO backends declare their own tag type with `UserDeviceCore` + `UserDeviceTransfer` instances and immediately participate in `toDevice` without modifying core library code. Collision-on-`backendTag` is a runtime concern (would route the intra fast path through a foreign backend's C symbols and crash on handle type mismatch); convention is to namespace as `"user/<name>"`. Built-in tags are reserved.
+The "open `d`" property is preserved: BYO backends declare their own tag type with `UserExecutorCore` + `UserExecutorTransfer` instances and immediately participate in `toExecutor` without modifying core library code. Collision-on-`backendTag` is a runtime concern (would route the intra fast path through a foreign backend's C symbols and crash on handle type mismatch); convention is to namespace as `"user/<name>"`. Built-in tags are reserved.
 
-Phase 7 of the 2026-05-19 refactor collapsed the historical generic-device-tag layer (`CPU` / `CUDA n` / `MPS` top-level types in `Device.idr`, plus their `*_Unified` C-symbol forwarding instances). `Device.idr` is now a barrel re-export only; every Tensor in the codebase carries a specific backend-tagged device (`TapeDev` / `TorchDev d` / `MlxDev s`). The link-time alias machinery that exposed each primary backend's symbols under unified C names still exists but has no Idris consumers — `TODO.md` has a parked row to delete it.
+Phase 7 of the 2026-05-19 refactor collapsed the historical generic-device-tag layer (`CPU` / `CUDA n` / `MPS` top-level types in the then-`Device.idr` barrel, plus their `*_Unified` C-symbol forwarding instances). The barrel (today `Ml/Executor.idr`) is now a re-export only; every Tensor in the codebase carries a specific backend-tagged executor (`TapeExecutor` / `TorchExecutor d` / `MlxExecutor s`). The link-time alias machinery that exposed each primary backend's symbols under unified C names still exists but has no Idris consumers — `TODO.md` has a parked row to delete it.
 
 ### 2026-06-06 follow-up: MLX exposes streams, not a scheduler
 
@@ -1071,11 +1097,11 @@ Gate (1) is link-time, no cost at run. Gate (2) is one syscall + one dlopen at p
 type tag:
 
 ```idris
-record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
 ```
 
 `DType` is the same kind-alias trick (`0 DType : Type; DType = Type`)
-used for `Device`. The dtype tags are `Nat`-parameterized type
+used for `Executor`. The dtype tags are `Nat`-parameterized type
 constructors: `Float n`, `BFloat n`, `IntN n`, `UInt n`, plus an
 unparameterized `Bool`. Aliases for common widths (`F32 = Float 32`,
 `F64 = Float 64`, `I32 = IntN 32`, etc.) ship in `DType.Core`.
@@ -1095,16 +1121,16 @@ Three layered typeclasses sit on top:
   instances — converting `UInt 8 → F16` or `BF16 → F32` requires
   explicit `tcastUnsafe`.
 
-A separate empty `Compatible (0 d : Device) (0 t : DType)` interface
+A separate empty `Compatible (0 ex : Executor) (0 t : DType)` interface
 gates which (device, dtype) pairs are admissible. The deliberately
-missing `Compatible (MlxDev MGpu) F64` instance is what makes
-`Tensor [4] (MlxDev MGpu) F64 WithGrad` fail to typecheck — Metal GPU
+missing `Compatible (MlxExecutor MGpu) F64` instance is what makes
+`Tensor [4] (MlxExecutor MGpu) F64 WithGrad` fail to typecheck — Metal GPU
 dropped float64 support in mlx 0.31, and our `Compatible` table makes
 the constraint compile-time.
 
 **Inference-only dtype scaffolding on torch (2026-05-22).** Beyond
 F32/F64, the torch backend now has a runtime path for `BF16`, `F16`,
-`I8`/`I16`/`I32`/`I64`, `U8`, and `Bool` (`Compatible (TorchDev TCpu)` +
+`I8`/`I16`/`I32`/`I64`, `U8`, and `Bool` (`Compatible (TorchExecutor TCpu)` +
 `(TCuda n)` — MPS excluded as its reduced-precision/int support is
 version-dependent and untestable here; `RuntimeDType` tags reordered to
 the kind-major layout on 2026-05-23, see entry below).
@@ -1131,8 +1157,8 @@ reads bytes into doubles then `param_load_data` narrows to the param's
 storage dtype. So the only new code is per-dtype pack/unpack *inside
 `safetensors.c`* — bf16/f16 bit conversions (bf16 = high 16 bits of f32;
 f16 = IEEE binary16, round-to-nearest-even), integers as plain casts.
-**No backend-interface, `backend.h`, rename-header, or `ffi_manifest.py`
-change** — the dtype knowledge stays in one file. (Tape later gained
+**No backend-interface, `backend.h`, rename-header, or FFI-manifest
+(`scripts/codegen/ffi_manifest/`) change** — the dtype knowledge stays in one file. (Tape later gained
 its own in-process bf16/f16/integer storage via the lingua-franca path
 in `tape_round_to_dtype` — see the tape-dtype-parity entry below — and
 both `safetensors.c` and `tape_round_to_dtype`'s DT_BF16/DT_F16 arms
@@ -1206,7 +1232,7 @@ now materializes `kLong` instead of `.to(kFloat64)` — which also kills a
 latent MPS abort (Metal has no F64) and the >2^53 precision loss; `gather`/
 `scatter_add` already coerce to `kLong`, so the untyped DNC path is
 unaffected. The surface is *torch-only by construction* (an integer tensor
-only exists where `Compatible ex I64` holds — `TorchDev TCpu`/`TCuda`; Metal
+only exists where `Compatible ex I64` holds — `TorchExecutor TCpu`/`TCuda`; Metal
 has no F64/int and mlx stores F32/F64 only; tape has the integer dtypes
 as inference-only storage via the lingua franca, but no integer
 *kernels*, so a typed `I64` index handle is still torch-shaped in
@@ -1242,7 +1268,7 @@ a separate row. The 8 inference-only dtypes (BF16/F16/I8/I16/I32/I64/U8/
 Bool) ship via the `double` lingua franca in `tape_round_to_dtype`,
 with bf16/f16 routed through the bit helpers lifted from `safetensors.c`
 into `shared_utils.{c,h}` so on-disk I/O and in-process casts share one
-rounding implementation. `Compatible TapeDev <dt>` is now open Idris-side
+rounding implementation. `Compatible TapeExecutor <dt>` is now open Idris-side
 for all 10 dtypes; T29 gradcheck ladder + T31 inference matrix + T32
 cast-storage alignment unit blocks gate the contract. Demoed by
 `Example.PrecisionDemo` across all three backends (`make
@@ -1259,13 +1285,15 @@ dtype is now a switch arm, not a symbol fan-out. backend.h went
 290 → 228 exported symbols. Per-backend dispatch: torch handles all
 10 dtags; mlx handles F32/F64 and aborts the rest via
 `mlx_dtype_unsupported` (Metal has no half/int storage); tape handles
-every dtag for which `Compatible TapeDev <dt>` is open (i.e. all of
+every dtag for which `Compatible TapeExecutor <dt>` is open (i.e. all of
 them, after the parity work above). The `Compatible` gate already
 prevents unreachable dtags at construction; the per-backend aborts are
 defence-in-depth. Landed additively (entry points → backend.h decls +
 rename headers → wrapper flip → delete superseded) so every
 intermediate dylib stayed resolvable; the unified streamed bases were
-added to `ffi_manifest.py` MANIFEST + INIT_FFI so `check-ffi-wrap-template`
+added to the FFI manifest (`scripts/codegen/ffi_manifest/`) MANIFEST +
+INIT_FFI so the wrap-template gate
+(`make test-integration-lint-ffi-wrap-template`)
 now lints the previously-exempt create/cast wrappers. See the unified
 create/cast FFI dispatch entry in `CHANGELOG.md`.
 
@@ -1320,7 +1348,7 @@ real constraint is delivered by `Compatible ex dt =>` (and
 can be declared but never inhabited.
 
 **Why a separate `Compatible` interface rather than a method on
-`UserDeviceCore`**: dtype admissibility is per-(device, dtype) pair,
+`UserExecutorCore`**: dtype admissibility is per-(device, dtype) pair,
 not per-device. If MLX-GPU supports F32 add, it supports F32 every
 op; there is no realistic backend with op-specific dtype
 restrictions. So an empty marker interface — one instance per
@@ -1335,10 +1363,10 @@ upcasts are deliberately impossible to derive; the compiler can't
 decide whether a `UInt 8 → F16` is what the user wanted even when the
 bit-pattern fits losslessly.
 
-**MlxDev parameterization** lives in the same PR: `data MlxDev :
+**MlxExecutor parameterization** lives in the same PR: `data MlxExecutor :
 MlxStream -> Type` with `MGpu` / `MCpu` constructors and ergonomic
-aliases `MlxGpu = MlxDev MGpu` / `MlxCpu = MlxDev MCpu`. Mirrors the
-existing `CUDA Nat` shape. One set of `UserDevice*` instances
+aliases `MlxGpu = MlxExecutor MGpu` / `MlxCpu = MlxExecutor MCpu`. Mirrors the
+then-existing `CUDA Nat` shape. One set of `UserExecutor*` instances
 parameterized over `{s : MlxStream}` rather than two opaque siblings.
 
 **Lessons**: the first attempt at threading dt was a "loose
@@ -1381,33 +1409,33 @@ The Chez vector IS the Tensor's Idris-level identity. The `Tensor` record's `ten
 
 - **Allocation cost.** Each FFI now allocates a Chez vector. For ~5K FFIs/epoch that's 5K small vectors — negligible compared to mx::array allocations on the C side, but worth measuring.
 - **Library load timing.** `foreign-procedure` looks up symbols via dlsym in already-loaded libraries. If the first FFI invocation is a `%foreign "scheme:..."` (no implicit library-load hint), `libidrisml` may not be loaded yet. Mitigation: `initManagedHandles` explicitly calls `load-shared-object "libidrisml.dylib"` at first guardian creation, and each converted Scheme primitive does the same load check as a fallback.
-- **Per-FFI mechanical churn.** ~600 Tensor-touching FFIs across Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr each need their Scheme glue generated. Mechanical (driven by `scripts/codegen/ffi-convert-to-scheme.py`), lintable (`make check-ffi-wrap-template` in CI preflight), but real work.
+- **Per-FFI mechanical churn.** ~600 Tensor-touching FFIs across Tensor.idr + the executor barrel + per-backend instance modules (today `Ml/Executor.idr` + `Ml/Executor/{Mlx,Tape,Torch}*.idr`) each need their Scheme glue generated. Mechanical (driven by `scripts/codegen/ffi-convert-to-scheme.py`), lintable (`make test-integration-lint-ffi-wrap-template` in CI preflight), but real work.
 - **Cross-backend symmetry.** The ABI applies on mlx; on tape/torch primary builds, the wrappers still execute (allocate a vector, register with guardian) but `tensor_retain_handle` is a no-op stub, so the lifecycle is inert. Slight overhead on tape/torch (one vector per FFI) without lifecycle benefit. Acceptable until tape/torch want refcount-driven freeing for their own reasons.
 
 **Options considered**:
 
 1. **`prim__wrapHandle` in `MkTensor`** — the dormant Phase 2.2 design. Failed on codegen elision (see above).
 2. **Per-FFI `RetainGuard` (C++ RAII on the C side)** — explored in a session. Failed because a guard's retain-then-release cycle frees Tensors that had refcount=0 entering the FFI, breaking the caller's raw-pointer alias.
-3. **Wrapped-handle ABI** *(chosen)* — the wrap is the value. Verified end-to-end across all 5 wrap-handle files (~600 FFIs) in commit `860c82a`, with the `Test.ManagedHandle` unit tests (drain reclaims 50 dropped wraps after forced major GC) green on tape + mlx. Phase 3'-a (commit `4a38a5f`) retired the `prim__wrapHandle` / `prim__unwrapHandle` / `managedShadow` / smart-constructor layer once the FFI's Scheme glue was doing all the work. Phase 4' (commit `c3460ce`) added a structural linter (`make check-ffi-wrap-template`) with CI gating.
+3. **Wrapped-handle ABI** *(chosen)* — the wrap is the value. Verified end-to-end across all 5 wrap-handle files (~600 FFIs) in commit `860c82a`, with the `Test.ManagedHandle` unit tests (drain reclaims 50 dropped wraps after forced major GC) green on tape + mlx. Phase 3'-a (commit `4a38a5f`) retired the `prim__wrapHandle` / `prim__unwrapHandle` / `managedShadow` / smart-constructor layer once the FFI's Scheme glue was doing all the work. Phase 4' (commit `c3460ce`) added a structural linter (then `make check-ffi-wrap-template`, now `make test-integration-lint-ffi-wrap-template`) with CI gating.
 
 **Revisit triggers**: a future Idris-Chez codegen change that enables actual GC interruption of foreign calls would invalidate property #1 and require re-thinking. If Chez ever exposes a clean way for Idris to inject true module-init code, the per-primitive lib-load fallback could be retired. If the per-FFI allocation cost shows up materially in perf measurement, consider stack-allocating the vector for short-lived intermediates (Chez doesn't expose this, but a future ABI change could).
 
-**Priming the drain in production (2026-05-22).** Property #3 above assumed the guardian drain runs, but the drain *helper* (`idris-drain-once`) was installed only by `initManagedHandles` — called nowhere in production, only in `Test.ManagedHandle`. So in real runs `withNoGrad`'s `drainManagedHandles` and the per-step `native_train_step_<b>` drain epilogues were dormant no-ops (their `(top-level-bound? 'idris-drain-once)` guard was false). On mlx the C sweep still dropped buffers (memory looked bounded), but the husk *objects* never reached `rc==0` → a slow handle leak on long grad-mode runs (see gotchas "The mlx generation sweep must never `delete`…"). Fix: the guardian lazy-init carried by the `INIT_FFI` create wrappers (`GUARDIAN_LAZY_INIT` in `ffi_manifest.py`) now also installs `idris-drain-once` at first tensor creation, so every entry point drains — not just test code. And `Train.idr`'s `epochEnd` does an mlx-gated `forceMajorGc + drainManagedHandles` before the sweep (the per-step minor GC can't reach intermediates still in epoch-fn scope; the post-return major GC + drain can). This makes property #3's "drain reclaims the husk to `rc==0`" actually hold in production. tape/torch draining stays inert (no-op release stubs), but priming there also stops the small wrap-vectors leaking in the otherwise-never-drained guardian.
+**Priming the drain in production (2026-05-22).** Property #3 above assumed the guardian drain runs, but the drain *helper* (`idris-drain-once`) was installed only by `initManagedHandles` — called nowhere in production, only in `Test.ManagedHandle`. So in real runs `withNoGrad`'s `drainManagedHandles` and the per-step `native_train_step_<b>` drain epilogues were dormant no-ops (their `(top-level-bound? 'idris-drain-once)` guard was false). On mlx the C sweep still dropped buffers (memory looked bounded), but the husk *objects* never reached `rc==0` → a slow handle leak on long grad-mode runs (see gotchas "The mlx generation sweep must never `delete`…"). Fix: the guardian lazy-init carried by the `INIT_FFI` create wrappers (`GUARDIAN_LAZY_INIT` in the `scripts/codegen/ffi_manifest/` package) now also installs `idris-drain-once` at first tensor creation, so every entry point drains — not just test code. And `Train.idr`'s `epochEnd` does an mlx-gated `forceMajorGc + drainManagedHandles` before the sweep (the per-step minor GC can't reach intermediates still in epoch-fn scope; the post-return major GC + drain can). This makes property #3's "drain reclaims the husk to `rc==0`" actually hold in production. tape/torch draining stays inert (no-op release stubs), but priming there also stops the small wrap-vectors leaking in the otherwise-never-drained guardian.
 
-Full model + how to add new FFIs: `docs/develop/tensor-lifecycle.md`.
-Plan + phased rollout: `docs/develop/tensor-lifecycle-plan.md`.
+Full model + how to add new FFIs: `docs/develop/tensor-lifecycle.md` (which absorbed
+the phased-rollout plan doc, deleted 2026-07-27).
 
-### `UserDevice` interface inclusion criterion: dispatches on `d` (2026-05-17)
+### `UserExecutor` interface inclusion criterion: dispatches on `d` (2026-05-17)
 
-When trimming `UserDeviceTape` to its useful surface (commit landed 2026-05-17), the question that needed answering was: *which methods are pulling their weight as interface methods?* Some `UserDeviceTape` methods existed as instance bindings that all forwarded to the same `*Unified` C symbol — looking like a dispatch surface but not delivering one. Worse, removing them from the interface mattered for the [Pluggable Device pitch](#pluggable-device--sliced-userdevice-interfaces--per-backend-c-symbol-rename-2026-05-13): every method a BYO author "must implement" should give them actual control over the behaviour, otherwise it's onboarding tax.
+When trimming `UserExecutorTape` (spelled `UserDeviceTape` at the time) to its useful surface (commit landed 2026-05-17), the question that needed answering was: *which methods are pulling their weight as interface methods?* Some of its methods existed as instance bindings that all forwarded to the same `*Unified` C symbol — looking like a dispatch surface but not delivering one. Worse, removing them from the interface mattered for the [Pluggable Device pitch](#pluggable-device--sliced-userexecutor-interfaces--per-backend-c-symbol-rename-2026-05-13): every method a BYO author "must implement" should give them actual control over the behaviour, otherwise it's onboarding tax.
 
-The criterion adopted: **a method belongs on `UserDevice<Slice>` iff three conditions hold**:
+The criterion adopted: **a method belongs on `UserExecutor<Slice>` iff three conditions hold**:
 
 1. **The C state it reads or mutates is per-tensor or per-backend**, not process-global. State that's truly process-wide (the `param_register` registry behind `param_count` / `param_name` / etc., the autograd-flag toggle behind `no_grad_begin`/`end` is borderline — the flag is global but the *interpretation* differs per backend's autograd machinery, so it stays) can't deliver per-`d` dispatch even if the method dispatch looks like it should.
 2. **The Idris consumer of that state uses the interface method**, not a direct `%foreign` symbol. The optimizer (`nativeTrainStep`) calls `param_grad_item_and_zero` etc. via a fixed unaliased `%foreign`, so even a backend that bound `primParamGradItemAndZero` to its own C function would never have that binding called. The Idris-side consumer has to be threaded through the typeclass for the method to deliver dispatch.
-3. **Different `UserDevice<X> d` instances bind it to different C symbols** in practice (or could, given a non-trivial backend implementation). If every built-in forwards to the same `*Unified` symbol, that's a smell — either the underlying state is process-global (fails #1) or the method should be a fixed FFI surface, not an interface method.
+3. **Different `UserExecutor<X> d` instances bind it to different C symbols** in practice (or could, given a non-trivial backend implementation). If every built-in forwards to the same `*Unified` symbol, that's a smell — either the underlying state is process-global (fails #1) or the method should be a fixed FFI surface, not an interface method.
 
-The methods removed from `UserDeviceTape` on 2026-05-17 all failed at least two of the three: `primParamCount` / `primParamName` / `primParamGradItem*` / `primParamZeroAllGrads` / `primParamSubtractDelta` failed #1 (registry is global) and #2 (optimizer bypasses the interface); `primParamClear` / `primWriteDouble` / `primPrint` failed #1 + #3. The surviving methods (autograd flag toggles, tensor-handle shape queries, per-backend allocation + scratch buffers) all pass — they operate on backend-specific state and are the dispatch surface that can grow live as layers gain `UserDeviceTape d =>`.
+The methods removed from `UserExecutorTape` on 2026-05-17 all failed at least two of the three: `primParamCount` / `primParamName` / `primParamGradItem*` / `primParamZeroAllGrads` / `primParamSubtractDelta` failed #1 (registry is global) and #2 (optimizer bypasses the interface); `primParamClear` / `primWriteDouble` / `primPrint` failed #1 + #3. The surviving methods (autograd flag toggles, tensor-handle shape queries, per-backend allocation + scratch buffers) all pass — they operate on backend-specific state and are the dispatch surface that can grow live as layers gain `UserExecutorTape d =>`.
 
 This criterion replaces the looser "is it dead code?" framing the original audit was using. "Dead code" was the wrong question — these methods were dead-as-dispatch, but exported as public interface members. Removing them is an *API improvement*, not a cleanup: BYO authors implement fewer no-op methods, and the interface stops looking like a slice that doesn't deliver.
 
@@ -1415,9 +1443,9 @@ This criterion replaces the looser "is it dead code?" framing the original audit
 
 ### Device-availability gating: `Linked` (compile-time) + EAFP (runtime) (2026-05-21)
 
-Backend-scoping (`TapeDev` / `TorchDev d` / `MlxDev s`) says *which backend* a tensor lives on, but said nothing about *whether that backend is compiled in* or *whether the hardware exists*. A program could spell `TorchDev (TCuda 1)` on a CPU-only host, compile fine, then SIGABRT deep in libtorch. Closed in two gates, each placed where the fact actually lives (full rationale in [`device-availability-gating.md`](device-availability-gating.md)):
+Backend-scoping (`TapeExecutor` / `TorchExecutor d` / `MlxExecutor s`) says *which backend* a tensor lives on, but said nothing about *whether that backend is compiled in* or *whether the hardware exists*. A program could spell `TorchExecutor (TCuda 1)` on a CPU-only host, compile fine, then SIGABRT deep in libtorch. Closed in two gates, each placed where the fact actually lives (full rationale in [`device-availability-gating.md`](device-availability-gating.md)):
 
-1. **Linkage → compile-time.** `Linked ex` is an empty capability marker (sibling to `Compatible (device, dtype)`), wired into the construction + forward path. Its instances are *not* hardcoded — the generated `HwConfig` module emits one per backend in `BACKEND`, so a tape-only build has no `Linked (MlxDev _)` and any constructor naming an mlx device fails to compile. Consequence: inherently-cross-backend modules (Transfer, MlxStreamDemo) can't compile under a single-backend build and live outside the always-compiled examples ipkg.
+1. **Linkage → compile-time.** `Linked ex` is an empty capability marker (sibling to `Compatible (device, dtype)`), wired into the construction + forward path. Its instances are *not* hardcoded — the generated `HwConfig` module emits one per backend in `BACKEND`, so a tape-only build has no `Linked (MlxExecutor _)` and any constructor naming an mlx device fails to compile. Consequence: inherently-cross-backend modules (Transfer, MlxStreamDemo) can't compile under a single-backend build and live outside the always-compiled examples ipkg.
 
 2. **Hardware presence → runtime, EAFP not LBYL.** We answer "is this *linked* device backed by real hardware right now" by *attempting* the allocation and catching, not by a pre-probe. `tensor_to_device` (torch) wraps `.to()` in `try/catch` → NULL handle; `prim__handleIsNull` + `attemptOn` lift NULL → `Left DeviceError`. One source of truth (the real alloc), no TOCTOU, no `is_available` surface to drift. The fear that drove an earlier LBYL draft — "spelling `cuda:1` SIGABRTs" — was an *uncaught*, not *uncatchable*, exception; the guard makes it catchable. `HardwareClass` + `HardwareClassed` recover the cross-backend silicon commonality as runtime data (for grouping/reporting only — never unifying tensor types), and `availableDevices` runs the same EAFP probe over a candidate list.
 
@@ -1462,16 +1490,22 @@ While landing Test/Tokenizer.idr, the elaborator OOM'd on `case (Left (TokVocabM
 
 All build artifacts (Idris ttc, installed library prefix, dylib, example
 executables, stamps) live under `build/$(BUILD_KEY)/` where the key is
-`<backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>` (e.g.
-`tape-mlxcpu-torchcpu`, `torch-mlxcpu-torchmps`,
-`tape-torch-mlxcpu-torchmps`).
+`<backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>-mach<MACHINE>-hw<HARDWARE>`
+plus optional `-tdt<TORCH_DTYPE>` / `-mdt<MLX_DTYPE>` / `-tpdt<TAPE_DTYPE>`
+/ `-asan` discriminators (`mk/config.mk`; e.g.
+`tape-mlxcpu-torchcpu-machmac-m-series-hwcpu`,
+`tape-torch-mlxcpu-torchmps-machmac-m-series-hwmetal`). The
+machine/hardware and dtype axes were appended after this entry landed;
+the rationale below is unchanged.
 
-**Why all three vars in the key:** the four generated `.idr` files —
-`HwConfig.idr`, `HwDevices.idr`, `BuildConfig.idr`, `TestConfig.idr` —
-embed the active build's choices. HwConfig/HwDevices content depends
+**Why all the config vars in the key:** the generated `.idr` files —
+`HwConfig.idr`, `HwExecutors.idr`, `Ml/Config.idr`, the examples'
+`BuildConfig.idr`, and the two `Test/Config.idr`s (idris-ml +
+idris-transformers; see `mk/genconfig.mk`) —
+embed the active build's choices. HwConfig/HwExecutors content depends
 on the full `BACKEND` list (one `Linked` instance per linked backend);
-BuildConfig/TestConfig depend on `(PRIMARY, MLX_DEVICE, TORCH_DEVICE)`
-(F32 on mlx-gpu / torch-mps, F64 elsewhere). All three vars contribute
+BuildConfig/Ml.Config/Test.Config depend on `(PRIMARY, MLX_DEVICE, TORCH_DEVICE)`
+(F32 on mlx-gpu / torch-mps, F64 elsewhere). All the vars contribute
 to *which* installed library + ttc you need to find on disk.
 
 **Why backend ordering matters:** PRIMARY is the first comma-separated
@@ -1480,14 +1514,14 @@ dylibs (tape-primary vs torch-primary, different unified-symbol
 aliases), so they need distinct cache trees. A PRIMARY-only key would
 collide them.
 
-**Why the four generated `.idr` files stay at fixed `packages/<pkg>/src/`
+**Why the generated `.idr` files stay at fixed `packages/<pkg>/src/`
 paths instead of moving under `build/<KEY>/`:** the `.ipkg`
 `sourcedir = "src"` field is fixed; relocating the file would require
 parallel source trees per set. Cross-set switches *do* rewrite their
 content (mtime bumps), but Phase-0 verification at
 `/tmp/idris-mtime-test` confirmed Idris 2 uses **interface-hash
 matching** for downstream cascade (not mtime), so the cost is just the
-four files themselves re-elaborating (~4 s total) — downstream modules
+generated files themselves re-elaborating (~4 s total) — downstream modules
 with matching interface hashes don't cascade.
 
 **Why `LIBRARY_SRCS` excludes the generated `.idr` files:** the
@@ -1498,7 +1532,7 @@ would defeat the per-set cache — a cross-set switch would look like
 "library source changed" and wipe the just-switched-to set's warm
 ttc. Their own per-set ttc + interface-hash check is sufficient.
 
-**Why write-if-different (cmp-then-mv) on the four generated files:**
+**Why write-if-different (cmp-then-mv) on the generated files:**
 within a single set's reruns, a `make` re-evaluation regenerates the
 file but the content is identical. Unconditional `>` would bump the
 mtime, forcing a re-elab of that file + its 1-second cost on every
@@ -1596,8 +1630,8 @@ removal once the new path has soaked.
 
 ### `TORCH_DTYPE` opt-in dtype override + BF16 torch-mps gate (2026-05-28)
 
-The default `(ExampleDevice, ExampleDType)` cell for `BACKEND=torch
-TORCH_DEVICE=mps` is `(TorchDev TMps, F32)` because MPS rejects F64 at
+The default `(ExampleExecutor, ExampleDType)` cell for `BACKEND=torch
+TORCH_DEVICE=mps` is `(TorchExecutor TMps, F32)` because MPS rejects F64 at
 construction (see [`gotchas.md`](gotchas.md) "libtorch MPS rejects F64 at
 tensor construction"). For inference, BF16 is more memory-efficient
 (2× smaller than F32) and libtorch's MPS BF16 kernel coverage is now
@@ -1628,7 +1662,7 @@ keeps the cell mapping at 6 and adds one `if` for the override.
 distinct cache trees. Cross-mode switches stay near-free per the
 per-backend-set cache (above section).
 
-**Compatible instance**: `Compatible (TorchDev TMps) BF16` exists
+**Compatible instance**: `Compatible (TorchExecutor TMps) BF16` exists
 again — the deliberate exclusion at `Device/Torch.idr` lines 618-625
 (comment: "MPS reduced-precision support is version-dependent and
 untestable in this VM") was stale; the VM has libtorch with BF16-MPS
@@ -1648,7 +1682,7 @@ mlx-Metal BF16 + F16 storage are now both wired. The original "mlx
 backend was rejecting BF16 dtags via a defensive abort whose message
 said "Metal has no bf16/f16/int storage", but mlx 0.31's
 `mx::bfloat16` and `mx::float16` types are first-class and work on
-M3+ Metal. `Compatible (MlxDev MGpu) BF16/F16` and `Compatible (MlxDev
+M3+ Metal. `Compatible (MlxExecutor MGpu) BF16/F16` and `Compatible (MlxExecutor
 MCpu) BF16/F16` are now admissible; the dispatch table routes
 dtag 13 → `mx::float16` and dtag 17 → `mx::bfloat16` end-to-end
 (per-shape streamed creators, cast, readback). Supervised converges
@@ -1712,7 +1746,7 @@ Rejected. Reasons:
   general-purpose-library anti-pattern.
 
 - **The fusion targets aren't attention-specific**. RoPE is a layer
-  (we already have `Layer/RoPE.idr`); RmsNorm is a layer; SwiGLU is
+  (we already have `Ml/Nn/RoPE.idr`); RmsNorm is a layer; SwiGLU is
   a layer. They get composed into many architectures (transformer
   variants, future state-space models, mixed designs). Keeping each
   as its own primitive lets a hypothetical "Mamba + Llama-attention
@@ -1746,6 +1780,8 @@ investing in the underlying op dispatch.
 
 
 ## LayerLikeMixed bridge — type-safe mixed precision (#410)
+
+**Superseded (2026-06-14/17, models-as-records)**: the `LayerLikeMixed` / `AsMixed` / `NetworkMixed` / `lift*` apparatus described here was deleted with the legacy `Layer/` surface. The current mixed-precision surface is `Nn.LinearMixed` (`Ml/Nn/LinearMixed.idr`) over the `ModuleMixed`/`ParamsMixed` interfaces (`Ml/Nn/Module.idr`) — see the `ModuleMixed` paragraph and its 2026-06-17 linear-collapse update in "models-as-records: the `Nn` surface (2026-06-14)" below. The static-typing-over-autocast stance and the Idris-2 lessons (concrete wrapper over type-level lambda; named auto-implicits + `@{%search}` slot-pinning) carry over unchanged.
 
 Added 2026-06-01 alongside the type-safe mixed-precision work. The
 question this section answers: when we extend `LayerLike` from a
@@ -2094,6 +2130,16 @@ migration sweep.
   distinguishably. `schedule : Maybe Schedule` rides on `NativeOptimizer` (Tensor.idr imports
   Schedule — a leaf module, no cycle).
 
+**Update (2026-06-20, typed optimizer scopes)**: `OptimOpts.groups` (and the
+constructor-time `setParamLR` walk) was removed — `OptimOpts` now carries
+beta1/beta2/eps/clip only (`Ml/Optimizer.idr`). Prefix/group scoping moved to
+post-construction typed surfaces in `Ml/Train/Freeze.idr` (`restrictTo` /
+`freezeGroup` / `unfreezeGroup` / `setGroupLR` / `namesMatching`), fed exact
+registry names from `Nn.Group.groupOf` / `reflectNames`; `adam`'s `scope` and
+the AdamGroup C prim went with it, and `nativeTrainStep` was renamed
+`trainStep`. The registry-order hazard survives (params registered after
+construction are invisible to the optimizer's walk).
+
 ## Checkpoint surface: `load` / `LoadOpts` / `LoadError` + `saveAll` (2026-06-12)
 
 **Decision**: implements the checkpoint-surface row (api-critique §S6) against the global
@@ -2117,8 +2163,10 @@ IO (Either LoadError ())`, `saveAll` escape hatch.
   the untouched CheckpointSubset + SaveModelMatching suites are the equivalence oracle. They
   and their ~49 call sites are deleted together at the example migration sweep (no
   lifecycle annotations in code — pre-user, no backwards compatibility).
-- **Math.idr**: no demotion annotation either; the module is deleted wholesale at the sweep
-  (`argmax`/`oneHotEncode` relocate to Util.idr then — no Tensor-side `targmax` exists).
+- **Math.idr**: no demotion annotation either; the sweep-time plan was to delete the module
+  wholesale (`argmax`/`oneHotEncode` relocating to Util.idr). That deletion did not happen —
+  `Ml/Math.idr` still ships, with `argmax` and `oneHotEncode` living there (no Tensor-side
+  `targmax` exists).
 
 ## Construction facade: `tensor` / `param` × `InitSpec` + `Tensor.Internal` fence (2026-06-12)
 

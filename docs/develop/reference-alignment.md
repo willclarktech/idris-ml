@@ -10,7 +10,7 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > Historical entries below mention V1 internals (`Variable d`, `forwardVarTensor`, `nameLayer`/`autoName`,
 > `applyDeltas`, V1 epoch runners) — these names are gone post-migration but the *alignment* is
 > preserved bit-identically: every documented multi-seed pass rate matches the V2 branch's smoke gate
-> at seed=42 (`make test-examples`: 76/76 OK, bit-identical). The V1 paramId-scoping bug class
+> at seed=42 (the example smoke gate, now `make test-e2e-examples`: 76/76 OK, bit-identical). The V1 paramId-scoping bug class
 > referenced in the A2C/PPO entries is structurally impossible in V2 (each layer is named at
 > construction). See [path-c-migration.md](path-c-migration.md).
 

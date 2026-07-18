@@ -1,4 +1,4 @@
-||| The models-as-records surface. `import Nn` brings the whole layer library
+||| The models-as-records surface. `import Ml.Nn` brings the whole layer library
 ||| (Module/Params/Seq/Init/Group/Recurrent + all ~19 ported layers). Models are
 ||| single-owner linear resources threaded through `L IO`; see design-decisions.md
 ||| "models-as-records: the `Nn` surface" + docs/develop/linear-types-and-effects.md.
