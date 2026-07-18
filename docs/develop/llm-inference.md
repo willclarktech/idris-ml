@@ -20,18 +20,18 @@ Three lanes work today; pick by `BACKEND` and device:
 
 ```bash
 # mlx-gpu (the fast lane, the "GPU > CPU" showcase)
-BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=F32 make example-hf-llama-inference    # ~46 s
-BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=BF16 make example-hf-llama-inference   # native Metal BF16 (2026-05-31)
-BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=F16  make example-hf-llama-inference   # native Metal F16  (2026-05-31)
+BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=F32 make example-llama-inference    # ~46 s
+BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=BF16 make example-llama-inference   # native Metal BF16 (2026-05-31)
+BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=F16  make example-llama-inference   # native Metal F16  (2026-05-31)
 
 # torch-mps F32 (libtorch + Metal)
-BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference             # ~5 min
+BACKEND=torch TORCH_DEVICE=mps make example-llama-inference             # ~5 min
 
 # torch-mps BF16 (real reduced precision; runtime ≈ F32 on M4 — see perf-changes.md 2026-05-31)
-BACKEND=torch TORCH_DEVICE=mps TORCH_DTYPE=BF16 make example-hf-llama-inference
+BACKEND=torch TORCH_DEVICE=mps TORCH_DTYPE=BF16 make example-llama-inference
 
 # tape F32 (CPU; ~7.5 GB working set; OOMs at default F64 — see TODO row)
-TAPE_DTYPE=F32 make example-hf-llama-inference                             # ~1 m
+TAPE_DTYPE=F32 make example-llama-inference                             # ~1 m
 ```
 
 The checkpoint is downloaded via the `models/` rule the first time
@@ -56,13 +56,13 @@ carries the file's shapes. The driver is
 Three pieces sit in core idris-ml (`packages/idris-ml/`) because they
 are Llama-family-generic, not HF-specific:
 
-- [`Nn/RmsNorm.idr`](../../packages/idris-ml/src/Nn/RmsNorm.idr)
+- [`Nn/RmsNorm.idr`](../../packages/idris-ml/src/Ml/Nn/RmsNorm.idr)
   — root-mean-square normalisation with a learned per-channel gain.
-- [`Nn/RoPE.idr`](../../packages/idris-ml/src/Nn/RoPE.idr) —
+- [`Nn/RoPE.idr`](../../packages/idris-ml/src/Ml/Nn/RoPE.idr) —
   rotary position embedding with the Llama-3 NTK frequency rescaling
   (`buildLlamaRoPETables` precomputes the cos/sin tables once at
   model construction; matches the PyTorch reference within 1e-12).
-- [`Nn/SwiGLU.idr`](../../packages/idris-ml/src/Nn/SwiGLU.idr)
+- [`Nn/SwiGLU.idr`](../../packages/idris-ml/src/Ml/Nn/SwiGLU.idr)
   — gated MLP `down(gate(x) * silu(up(x)))` with three linear weights.
 
 The HF-specific assembly — param naming, per-block storage shapes,
@@ -178,7 +178,7 @@ buildLlamaRoPETables : … -> IO (RoPETables maxPos headDim ex dt g)
 
 builds `[maxPos, headDim/2]` cos/sin tables at model construction
 time (see
-[`Nn/RoPE.idr:212-223`](../../packages/idris-ml/src/Nn/RoPE.idr)).
+[`Nn/RoPE.idr:212-223`](../../packages/idris-ml/src/Ml/Nn/RoPE.idr)).
 The tables are reused across every forward, every layer, every
 head. `applyRope` slices `[seq, halfDim]` rows from the tables per
 forward (NOT per layer; the same slice serves all 16 layers in one

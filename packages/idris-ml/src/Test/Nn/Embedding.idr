@@ -3,11 +3,11 @@ module Test.Nn.Embedding
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Embedding
-import Nn.Init
-import Nn.Module
-import Tensor
+import Ml.Executor
+import Ml.Nn.Embedding
+import Ml.Nn.Init
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

@@ -34,9 +34,9 @@ import Data.String
 import System.Directory
 import System.File
 
-import Checkpoint
-import Executor
-import Tensor
+import Ml.Checkpoint
+import Ml.Executor
+import Ml.Tensor
 
 ----------------------------------------------------------------------
 -- Adapter config (mirror of peft.LoraConfig fields used here)

@@ -16,8 +16,8 @@
 module Example.BringYourOwn
 
 import BuildConfig
-import Executor
-import Executor.Core
+import Ml.Executor
+import Ml.Executor.Core
 
 ----------------------------------------------------------------------
 -- Step 1: declare your device tag type.

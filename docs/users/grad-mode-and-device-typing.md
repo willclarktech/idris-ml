@@ -123,8 +123,8 @@ contrast.
 A complete custom backend looks like (trimmed from that example):
 
 ```idris
-import Executor
-import Executor.Core
+import Ml.Executor
+import Ml.Executor.Core
 
 -- 1. Declare a type to tag tensors that live on this backend.
 public export

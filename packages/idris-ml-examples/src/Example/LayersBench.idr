@@ -28,8 +28,8 @@ import System
 import System.Clock
 
 import BuildConfig
-import Compat.Random
-import ML.Simple
+import Ml.Compat.Random
+import Ml.Simple
 
 %default partial
 

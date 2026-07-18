@@ -1868,7 +1868,7 @@ lossy edges to be code-visible.
 Cross-references: `packages/idris-ml/src/Layer/MixedCore.idr`
 (`LayerLikeMixed`, `AsMixed`, `NetworkMixed`, `liftAnyLayer` /
 `liftNetwork`); `packages/idris-ml/src/Layer/LinearMixed.idr` (first
-concrete user); `packages/idris-ml/src/GradScaler.idr` (the IORef-
+concrete user); `packages/idris-ml/src/Ml/GradScaler.idr` (the IORef-
 based state machine that pairs with `LinearMixed` in
 `epochVarMixed`); `docs/develop/dtype-parameter.md` "FloatPrecision +
 LosslessTo" section.
@@ -1970,7 +1970,7 @@ the nearest framework-native dtype on torch/mlx if engineering cost
 demands it; document the asymmetry in a row here.
 
 Cross-references:
-`packages/idris-ml/src/DType/Core.idr` (`Ternary`, `Binary` types
+`packages/idris-ml/src/Ml/DType/Core.idr` (`Ternary`, `Binary` types
 + `dtypeBytes = 0` sub-byte sentinel);
 `packages/backends/backend_tape/tensor.h` (`DT_TERNARY` enum,
 sub-byte storage docstring);
@@ -2280,7 +2280,7 @@ site, or any elab-util rule, succeeds.
 
 ## models-as-records: the `Nn` surface (2026-06-14)
 
-The models-as-records row landed as `packages/idris-ml/src/Nn/` — 19 layers + a core surface,
+The models-as-records row landed as `packages/idris-ml/src/Ml/Nn/` — 19 layers + a core surface,
 coexisting with the legacy `Layer/` (deleted at the later example sweep). Key decisions, with the
 non-obvious ones first:
 

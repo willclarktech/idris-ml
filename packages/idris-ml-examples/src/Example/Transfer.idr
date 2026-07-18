@@ -32,9 +32,9 @@ import Data.List
 import Data.Vect
 
 import BuildConfig
-import Executor
-import Tensor
-import Util
+import Ml.Executor
+import Ml.Tensor
+import Ml.Util
 
 ----------------------------------------------------------------------
 -- Helpers

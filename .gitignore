@@ -5,13 +5,13 @@
 # own COW-cloned build/models/data trees; never commit them).
 .worktrees/
 
-# Generated per-build from HwConfig.idr.in + the BACKEND list (Makefile
+# Generated per-build from Ml/HwConfig.idr.in + the BACKEND list (Makefile
 # HWCONFIG_IDR rule). The template is tracked; the generated file is not.
-packages/idris-ml/src/HwConfig.idr
+packages/idris-ml/src/Ml/HwConfig.idr
 
-# Generated per-build from HwExecutors.idr.in + the BACKEND list (Makefile
+# Generated per-build from Ml/HwExecutors.idr.in + the BACKEND list (Makefile
 # HWEXECUTORS_IDR rule). The template is tracked; the generated file is not.
-packages/idris-ml/src/HwExecutors.idr
+packages/idris-ml/src/Ml/HwExecutors.idr
 
 # Generated per-build from Config.idr.in + the active PRIMARY × hw envs
 # (Makefile TESTCONFIG_IDR rule). The template is tracked; the generated file
@@ -19,10 +19,10 @@ packages/idris-ml/src/HwExecutors.idr
 packages/idris-ml/src/Test/Config.idr
 packages/idris-transformers/src/Test/Config.idr
 
-# Generated per-build from ML/Config.idr.in + the active PRIMARY × hw envs
+# Generated per-build from Ml/Config.idr.in + the active PRIMARY × hw envs
 # (Makefile MLCONFIG_IDR rule). The `ML.Simple` (Ex, F) pin; template tracked,
 # generated file not.
-packages/idris-ml/src/ML/Config.idr
+packages/idris-ml/src/Ml/Config.idr
 
 build/
 build-cov/

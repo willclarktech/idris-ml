@@ -5,7 +5,7 @@
 ||| one helper still shared across examples is `randomInt`.
 module Generate
 
-import Compat.Random
+import Ml.Compat.Random
 
 ||| Random integer in [lo, hi] inclusive.
 export

@@ -20,22 +20,22 @@ import Data.Vect
 import System
 import System.File
 
-import Array
 import BuildConfig
-import Checkpoint
-import Compat.Random
-import DataStream
-import Executor
-import Fit
-import Floating
 import Generate
-import Nn
-import Optimizer
-import Sampler
-import Schedule
-import Tensor
-import Train
-import Util
+import Ml.Array
+import Ml.Checkpoint
+import Ml.Compat.Random
+import Ml.DataStream
+import Ml.Executor
+import Ml.Fit
+import Ml.Floating
+import Ml.Nn
+import Ml.Optimizer
+import Ml.Sampler
+import Ml.Schedule
+import Ml.Tensor
+import Ml.Train
+import Ml.Util
 
 -- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors.
 

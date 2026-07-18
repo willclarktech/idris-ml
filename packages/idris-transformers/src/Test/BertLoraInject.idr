@@ -15,11 +15,11 @@ import Transformers.Bert
 import Transformers.BertLora
 import Test.Harness
 
-import Executor
-import Executor.Core
+import Ml.Executor
+import Ml.Executor.Core
 import Test.Config
-import Tensor
-import Array
+import Ml.Tensor
+import Ml.Array
 
 ----------------------------------------------------------------------
 -- Helpers (mirror Test.HfBertAttentionMask)

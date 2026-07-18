@@ -18,18 +18,18 @@ import Data.Vect
 import System
 
 import BuildConfig
-import Checkpoint
-import Compat.Random
-import DataStream
-import Executor
-import Fit
 import Generate
-import Hpo.LrFinder
-import Nn
-import Optimizer
-import Tensor
-import Train
-import Util
+import Ml.Checkpoint
+import Ml.Compat.Random
+import Ml.DataStream
+import Ml.Executor
+import Ml.Fit
+import Ml.Hpo.LrFinder
+import Ml.Nn
+import Ml.Optimizer
+import Ml.Tensor
+import Ml.Train
+import Ml.Util
 
 -- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors
 -- (same `Nil`/`::` names) so the block-stack builder resolves to Seq.

@@ -3,12 +3,12 @@ module Test.Nn.BatchNorm
 import Data.List
 import Data.Vect
 
-import Checkpoint
-import Executor
-import Nn.BatchNorm
-import Nn.Init
-import Nn.Module
-import Tensor
+import Ml.Checkpoint
+import Ml.Executor
+import Ml.Nn.BatchNorm
+import Ml.Nn.Init
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

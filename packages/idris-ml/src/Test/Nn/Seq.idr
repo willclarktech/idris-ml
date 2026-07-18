@@ -4,10 +4,10 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
 
-import Executor
-import Nn.Module
-import Nn.Seq
-import Tensor
+import Ml.Executor
+import Ml.Nn.Module
+import Ml.Nn.Seq
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

@@ -5,11 +5,11 @@ import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Group
-import Nn.Init
-import Nn.Module
-import Tensor
+import Ml.Executor
+import Ml.Nn.Group
+import Ml.Nn.Init
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

@@ -1,7 +1,7 @@
 module Test.Log
 
+import Ml.Util.Log
 import Test.Harness
-import Util.Log
 
 -- Smoke checks for the `Util.Log` FFI surface — verifies that the
 -- new `getLogLevel` binding to `idrisml_log_resolve_level` links

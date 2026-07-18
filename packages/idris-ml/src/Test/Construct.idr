@@ -8,9 +8,9 @@ module Test.Construct
 import Data.List
 import Data.Vect
 
-import Array
-import Executor
-import Tensor
+import Ml.Array
+import Ml.Executor
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

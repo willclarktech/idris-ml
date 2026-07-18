@@ -3,9 +3,9 @@ module Test.Nn.RoPE
 import Control.Linear.LIO
 import Data.Vect
 
-import Executor
-import Nn.RoPE
-import Tensor
+import Ml.Executor
+import Ml.Nn.RoPE
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

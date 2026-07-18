@@ -5,12 +5,12 @@ import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Gru
-import Nn.Init
-import Nn.Module
-import Nn.Recurrent
-import Tensor
+import Ml.Executor
+import Ml.Nn.Gru
+import Ml.Nn.Init
+import Ml.Nn.Module
+import Ml.Nn.Recurrent
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

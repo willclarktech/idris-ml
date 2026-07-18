@@ -2,8 +2,8 @@ module Test.Backend
 
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

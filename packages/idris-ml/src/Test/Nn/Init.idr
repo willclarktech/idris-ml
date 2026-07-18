@@ -2,9 +2,9 @@ module Test.Nn.Init
 
 import Data.Vect
 
-import Executor
-import Nn.Init
-import Tensor
+import Ml.Executor
+import Ml.Nn.Init
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

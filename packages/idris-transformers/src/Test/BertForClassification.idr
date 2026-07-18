@@ -19,13 +19,13 @@ import Transformers.Bert
 import Transformers.BertForClassification
 import Test.Harness
 
-import Executor
-import Executor.Core
-import Nn.Derive
-import Nn.Module
+import Ml.Executor
+import Ml.Executor.Core
+import Ml.Nn.Derive
+import Ml.Nn.Module
 import Test.Config
-import Tensor
-import Array
+import Ml.Tensor
+import Ml.Array
 
 ----------------------------------------------------------------------
 -- Reference catalogue

@@ -2,7 +2,7 @@ module Test.Lossless
 
 import Data.Nat
 
-import DType.Core
+import Ml.DType.Core
 import Test.Harness
 
 -- ---------------------------------------------------------------

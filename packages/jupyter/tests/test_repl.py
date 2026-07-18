@@ -34,7 +34,7 @@ def test_doc_query(repl: Idris2REPL) -> None:
 
 
 def test_module_import(repl: Idris2REPL) -> None:
-    result = repl.send(":module Nn.Linear")
+    result = repl.send(":module Ml.Nn.Linear")
     assert "Imported" in result
 
 
@@ -104,6 +104,6 @@ def test_error_handling(repl: Idris2REPL) -> None:
 
 
 def test_browse(repl: Idris2REPL) -> None:
-    result = repl.send(":browse Tensor")
+    result = repl.send(":browse Ml.Tensor")
     assert "MkTensor" in result
     assert "NativeOptimizer" in result

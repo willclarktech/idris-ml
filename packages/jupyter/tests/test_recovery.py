@@ -12,8 +12,8 @@ def test_restart_replays_state():
     repl = Idris2REPL(project_root=PROJECT_ROOT)
     try:
         # Set up state
-        repl.send(":module Nn.Linear")
-        repl.modules.append("Nn.Linear")
+        repl.send(":module Ml.Nn.Linear")
+        repl.modules.append("Ml.Nn.Linear")
 
         repl.send(":let recoveryTest : Int")
         repl.send(":let recoveryTest = 99")

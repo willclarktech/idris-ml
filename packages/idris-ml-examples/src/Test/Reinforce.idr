@@ -6,11 +6,11 @@ import Data.List
 import Data.Vect
 import System
 
-import Compat.Random
 import Example.Reinforce
 import Gym.ClassicControl.CartPole
 import Gym.Vector
-import ML.Simple
+import Ml.Compat.Random
+import Ml.Simple
 import Test.Harness
 
 -- Short step budget so test runs are tape-friendly. 200 steps × N=2

@@ -23,14 +23,14 @@
 ||| `.in` template instead.
 module Test.Config
 
-import public Executor
-import public Executor.Tape
-import public Executor.Torch
-import public Executor.Mlx
-import public BackendLib
-import public Hardware
-import public Machine
-import public Preset
+import public Ml.Executor
+import public Ml.Executor.Tape
+import public Ml.Executor.Torch
+import public Ml.Executor.Mlx
+import public Ml.BackendLib
+import public Ml.Hardware
+import public Ml.Machine
+import public Ml.Preset
 
 ||| The Machine the test build targets, sed-substituted from $(MACHINE).
 public export

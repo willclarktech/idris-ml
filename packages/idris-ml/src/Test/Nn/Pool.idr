@@ -5,10 +5,10 @@ import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Module
-import Nn.Pool
-import Tensor
+import Ml.Executor
+import Ml.Nn.Module
+import Ml.Nn.Pool
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

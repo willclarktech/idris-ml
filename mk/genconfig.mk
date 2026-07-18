@@ -20,24 +20,24 @@ BUILDCONFIG_IN  := packages/idris-ml-examples/src/BuildConfig.idr.in
 # Keyed on the whole BACKEND list. Lives in the core library (the Executor
 # barrel re-exports it); git-ignored, regenerated each build.
 HWCONFIG_KEY := $(BACKEND)
-HWCONFIG_IDR := packages/idris-ml/src/HwConfig.idr
-HWCONFIG_IN  := packages/idris-ml/src/HwConfig.idr.in
+HWCONFIG_IDR := packages/idris-ml/src/Ml/HwConfig.idr
+HWCONFIG_IN  := packages/idris-ml/src/Ml/HwConfig.idr.in
 
 # Generated `builtinExecutors : List SomeExecutor` — the value-level mirror of
 # HwConfig's `Linked` instances (one `someExecutor` candidate per linked
 # backend's admissible (device, dtype) cells). Lives downstream of `Tensor`
 # (where `someExecutor` is defined), unlike HwConfig which the Executor barrel
 # re-exports upstream. Keyed on the BACKEND list; git-ignored, regenerated.
-HWDEVICES_IDR := packages/idris-ml/src/HwExecutors.idr
-HWDEVICES_IN  := packages/idris-ml/src/HwExecutors.idr.in
+HWDEVICES_IDR := packages/idris-ml/src/Ml/HwExecutors.idr
+HWDEVICES_IN  := packages/idris-ml/src/Ml/HwExecutors.idr.in
 
 # Generated library-side `(DefaultExecutor, DefaultDType)` cell — the
-# `ML.Simple` pin (`Ex`/`F`). Same one-cell sed trick as BuildConfig, but
-# lives in the core library so `import ML.Simple` works without depending on
+# `Ml.Simple` pin (`Ex`/`F`). Same one-cell sed trick as BuildConfig, but
+# lives in the core library so `import Ml.Simple` works without depending on
 # the examples package. Keyed on the same tuple as BuildConfig; git-ignored,
 # regenerated each build.
-MLCONFIG_IDR := packages/idris-ml/src/ML/Config.idr
-MLCONFIG_IN  := packages/idris-ml/src/ML/Config.idr.in
+MLCONFIG_IDR := packages/idris-ml/src/Ml/Config.idr
+MLCONFIG_IN  := packages/idris-ml/src/Ml/Config.idr.in
 
 # Generated `TestExecutor` / `TestDType` for the Idris unit test suite. Same
 # template trick as BuildConfig (one cell, sed-substituted from the active
@@ -92,16 +92,16 @@ $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 # `UserExecutorTraining (presetExecutor ...)` unresolvable.
 #
 # These mirror the Preset instances in:
-#   * packages/idris-ml/src/Executor/Tape.idr  (TapeBackend × Cpu)
-#   * packages/idris-ml/src/Executor/Torch.idr (TorchBackend × Cpu/AppleGpu/Cuda)
-#   * packages/idris-ml/src/Executor/Mlx.idr   (MlxBackend × Cpu/AppleGpu)
+#   * packages/idris-ml/src/Ml/Executor/Tape.idr  (TapeBackend × Cpu)
+#   * packages/idris-ml/src/Ml/Executor/Torch.idr (TorchBackend × Cpu/AppleGpu/Cuda)
+#   * packages/idris-ml/src/Ml/Executor/Mlx.idr   (MlxBackend × Cpu/AppleGpu)
 # Adding a new (Backend, Hardware) Preset means updating BOTH here and
 # the Idris instance.
 #
 # Shared shell snippet: resolve (PRIMARY, HARDWARE_RESOLVED) → ETYPE/DTYPE,
 # then apply the per-backend TORCH/MLX/TAPE_DTYPE overrides. Referenced from
 # all four config recipes (BuildConfig / TestConfig / transformers TestConfig /
-# ML.Config) so the case-table lives in exactly one place. Each line ends with
+# Ml.Config) so the case-table lives in exactly one place. Each line ends with
 # `\` so the expansion stays one shell command with the trailing `sed`; the
 # caller appends ` \` after `$(GEN_ETYPE_DTYPE)`. Leaves ETYPE/DTYPE set in the
 # shell environment for the caller's sed.
@@ -248,12 +248,12 @@ $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[HwExecutors] BACKEND=$(BACKEND) → builtinExecutors for: $(BACKEND_LIST)"
 
-# Library-side ML.Config cell — only the (executor, dtype) substitution
-# (no Machine/Hardware/Preset tags; this cell is just the `ML.Simple` pin).
+# Library-side Ml.Config cell — only the (executor, dtype) substitution
+# (no Machine/Hardware/Preset tags; this cell is just the `Ml.Simple` pin).
 # Shares the BuildConfig key + stamp (same active tuple). The ETYPE/DTYPE
 # case mirrors the BuildConfig rule — keep in sync when adding a Preset.
 $(MLCONFIG_IDR): $(MLCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@$(GEN_ETYPE_DTYPE) \
 	sed "s|@EXAMPLE_EXECUTOR_TYPE@|$$ETYPE|g; s|@EXAMPLE_DTYPE_TYPE@|$$DTYPE|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[ML.Config] PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → DefaultExecutor=$$(awk -F' = ' '/^DefaultExecutor = / { print $$2; exit }' $@) / DefaultDType=$$(awk -F' = ' '/^DefaultDType = / { print $$2; exit }' $@)"
+	@echo "[Ml.Config] PRIMARY=$(PRIMARY) HARDWARE=$(HARDWARE_RESOLVED) → DefaultExecutor=$$(awk -F' = ' '/^DefaultExecutor = / { print $$2; exit }' $@) / DefaultDType=$$(awk -F' = ' '/^DefaultDType = / { print $$2; exit }' $@)"

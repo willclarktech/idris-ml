@@ -207,9 +207,9 @@ record BertLayerState (hidden, nHeads, intermediate : Nat)
 
 ## Cross-references
 
-- `packages/idris-ml/src/Checkpoint.idr` — `load` / `saveAll` /
+- `packages/idris-ml/src/Ml/Checkpoint.idr` — `load` / `saveAll` /
   `fromPretrained`; consumed unchanged.
-- `packages/idris-ml/src/Nn/Attention.idr` — the from-scratch
+- `packages/idris-ml/src/Ml/Nn/Attention.idr` — the from-scratch
   per-head transformer (`Nn.Attention` + `TransformerBlock`); stays
   the canonical learning reference, intentionally NOT what this
   package matches.

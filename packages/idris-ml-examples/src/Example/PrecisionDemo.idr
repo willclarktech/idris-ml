@@ -41,8 +41,8 @@ import Data.List
 import Data.Vect
 
 import BuildConfig
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 
 ----------------------------------------------------------------------
 -- Helpers

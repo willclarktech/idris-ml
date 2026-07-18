@@ -1,6 +1,6 @@
 module Test.Schedule
 
-import Schedule
+import Ml.Schedule
 import Test.Harness
 
 tol : Double

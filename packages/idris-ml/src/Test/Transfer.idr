@@ -17,8 +17,8 @@ module Test.Transfer
 import Data.List
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 import Test.Harness
 
 ----------------------------------------------------------------------

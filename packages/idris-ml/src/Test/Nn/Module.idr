@@ -4,9 +4,9 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
 
-import Executor
-import Nn.Module
-import Tensor
+import Ml.Executor
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

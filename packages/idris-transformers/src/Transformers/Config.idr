@@ -20,7 +20,7 @@ import Data.List
 import public Language.JSON
 import System.File
 
-import Checkpoint
+import Ml.Checkpoint
 
 ----------------------------------------------------------------------
 -- Read + parse

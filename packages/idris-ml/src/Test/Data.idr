@@ -7,10 +7,10 @@ import Data.Vect
 import System
 import System.File
 
-import DataStream
-import Dataset
-import Executor
-import Tensor
+import Ml.DataStream
+import Ml.Dataset
+import Ml.Executor
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

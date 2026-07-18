@@ -7,11 +7,11 @@ import System
 import System.Directory
 import System.File
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
+import Ml.Util.Log
 import Test.Config
 import Test.Harness
-import Util.Log
 
 -- Tests for the activation-dump machinery — the C-side
 -- `param_save_by_name` flush the TRACE log level uses to dump

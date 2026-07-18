@@ -5,11 +5,11 @@ import Data.Vect
 import Language.Reflection
 import Language.Reflection.Util
 
-import Executor
-import Nn.Derive
-import Nn.Linear
-import Nn.Module
-import Tensor
+import Ml.Executor
+import Ml.Nn.Derive
+import Ml.Nn.Linear
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

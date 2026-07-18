@@ -25,11 +25,11 @@ import Test.Property
 import Test.Config
 import Test.Harness as Harness
 
-import Executor
-import Tensor
-import Array
-import Nn.Init
-import Nn.RmsNorm
+import Ml.Executor
+import Ml.Tensor
+import Ml.Array
+import Ml.Nn.Init
+import Ml.Nn.RmsNorm
 
 %default partial
 

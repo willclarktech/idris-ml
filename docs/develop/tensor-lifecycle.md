@@ -202,7 +202,7 @@ raw pointer at slot 2 (tag read from slot 1; lookup cached per-tag
 in a Chez hashtable for hot-loop drain).
 
 Drain triggers:
-- **`withNoGrad` exit** (`packages/idris-ml/src/Tensor.idr`): the
+- **`withNoGrad` exit** (`packages/idris-ml/src/Ml/Tensor.idr`): the
   `withNoGrad` combinator force-runs a Chez major GC + drain on its
   way out. This is the primary lifecycle pump for eval-phase
   workloads, where ops bypass `tape_append` and per-op refcount
@@ -270,7 +270,7 @@ there and behaviour is bit-identical; the mechanism is mlx-only.
 
    ```sh
    python3 scripts/codegen/ffi-convert-to-scheme.py \
-     packages/idris-ml/src/Tensor.idr \
+     packages/idris-ml/src/Ml/Tensor.idr \
      packages/idris-ml/src/Device.idr \
      packages/idris-ml/src/Device/{Mlx,Tape,Torch}.idr
    ```

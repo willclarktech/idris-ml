@@ -28,7 +28,7 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-_EXEC = ROOT / "packages/idris-ml/src/Executor"
+_EXEC = ROOT / "packages/idris-ml/src/Ml/Executor"
 # Each backend's instances now live across per-slice modules under
 # Executor/<Backend>/ plus the umbrella Executor/<Backend>.idr; glob and
 # merge so the drift scan sees the full method set per backend.

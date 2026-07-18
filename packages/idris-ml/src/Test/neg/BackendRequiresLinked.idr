@@ -15,8 +15,8 @@ module BackendRequiresLinked
 
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 
 -- A fake executor with believe_me'd capability dictionaries for
 -- everything EXCEPT Linked. (believe_me is fine here: this file never

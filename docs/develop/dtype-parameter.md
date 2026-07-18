@@ -241,7 +241,7 @@ target dtype" property. The two-dimensional structural check —
 mantissa-bits AND exponent-bits both non-decreasing — is enough to
 detect that `BF16 → F32` is lossless (7→23 mantissa, 8→8 exponent)
 while `F32 → BF16` is not (mantissa shrinks 23→7). The witness lives
-in `packages/idris-ml/src/DType/Core.idr`'s `FloatPrecision` typeclass
+in `packages/idris-ml/src/Ml/DType/Core.idr`'s `FloatPrecision` typeclass
 + `LosslessTo` definition; a negative compile-test gate
 (`packages/idris-ml/test/neg/LossyDirectionRejected.idr`, gated by
 `make check-lossy-cast-gate`) confirms F32→BF16 refuses to type-check.

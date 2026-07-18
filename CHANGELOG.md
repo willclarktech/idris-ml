@@ -2,6 +2,25 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Library modules nested under the `Ml.*` root (2026-07-27). Idris 2 has
+one flat module namespace across `-p` packages (no package-qualified
+imports), so idris-ml's generic top-level module names (`Array`,
+`Util`, `Math`, `Tensor`, `Train`, …) were an unresolvable-collision
+hazard for any downstream package set — the pre-publication risk noted
+in the "Publish to package managers" row. All ~100 library modules
+moved from `packages/idris-ml/src/<X>` to `src/Ml/<X>` and renamed
+`X` → `Ml.X`; the former `ML` umbrella module became `Ml` (`import Ml`
+is the single-import surface, `Ml.Simple` pins the build's default
+cell), keeping the `Nn`-style capitalization. The case-only `ML` → `Ml`
+directory rename needed a two-step `git mv` on case-insensitive APFS.
+Qualified value references (`Tensor.splitAt`) keep working via Idris
+suffix resolution; `import` and REPL `:module` lines were rewritten
+across idris-ml, idris-ml-notebook, idris-transformers,
+idris-ml-examples, the test trees, generated-config templates, the
+kernel test suite, and the notebook cells. idris-gym (`Gym.*`) and
+idris-transformers (`Transformers.*`) already had distinctive roots
+and are unchanged.
+
 Fit profile epilogue gated behind the log-level scheme (2026-07-26).
 Closed the Low TODO "Gate `fit`'s profile epilogue behind the log-level
 scheme" the same day it was filed, at the user's request. `Fit.idr`

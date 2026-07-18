@@ -7,11 +7,11 @@ import Data.Vect
 import System
 
 import BuildConfig
-import Checkpoint
-import Compat.Random
-import Fit
-import ML.Simple
-import Train
+import Ml.Checkpoint
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Simple
+import Ml.Train
 
 -- RNN pattern-prediction example. Single RNN(1 -> 4, tanh) -> Linear(4 -> 1)
 -- network with BCE-with-logits loss, on the v1 Nn/fit surface. See

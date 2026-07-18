@@ -5,11 +5,11 @@ import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Init
-import Nn.LayerNorm
-import Nn.Module
-import Tensor
+import Ml.Executor
+import Ml.Nn.Init
+import Ml.Nn.LayerNorm
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

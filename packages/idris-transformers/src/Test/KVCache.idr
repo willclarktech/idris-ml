@@ -13,10 +13,10 @@ module Test.KVCache
 
 import Data.Vect
 
-import Array
-import Executor
-import Executor.Core
-import Tensor
+import Ml.Array
+import Ml.Executor
+import Ml.Executor.Core
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 import Transformers.KVCache

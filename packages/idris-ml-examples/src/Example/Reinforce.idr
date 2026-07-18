@@ -6,17 +6,17 @@ import Data.List
 import Data.Vect
 import System
 
-import Array
 import BuildConfig
-import Compat.Random
-import Fit
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
-import Hpo.LrFinder
-import ML.Simple
-import Sampler
-import Train
+import Ml.Array
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Hpo.LrFinder
+import Ml.Sampler
+import Ml.Simple
+import Ml.Train
 
 -- The policy is a linear `Seq`; hide the IO `Nn.Seq` constructors so the chain
 -- builder + threading resolve to Seq.

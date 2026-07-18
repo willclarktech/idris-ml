@@ -8,20 +8,20 @@ import Data.String
 import Data.Vect
 import System
 
-import Array
 import BuildConfig
-import Compat.Random
-import Fit
-import Floating
 import Gym.ClassicControl.Pendulum
 import Gym.Env
 import Gym.Vector
-import ML.Simple
-import Math
-import RL.ReplayBuffer
-import Sampler
-import Train
-import Train.Freeze
+import Ml.Array
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Floating
+import Ml.Math
+import Ml.RL.ReplayBuffer
+import Ml.Sampler
+import Ml.Simple
+import Ml.Train
+import Ml.Train.Freeze
 
 -- Actor + Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 

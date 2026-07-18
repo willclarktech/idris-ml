@@ -23,10 +23,10 @@ import Test.Property
 import Test.Config
 import Test.Harness as Harness
 
-import Executor
-import Tensor
-import Array
-import Nn.RoPE
+import Ml.Executor
+import Ml.Tensor
+import Ml.Array
+import Ml.Nn.RoPE
 
 %default partial
 

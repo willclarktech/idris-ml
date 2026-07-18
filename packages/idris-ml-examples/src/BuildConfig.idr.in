@@ -23,13 +23,13 @@
 ||| clobbered on the next build. Edit this `.in` file instead.
 module BuildConfig
 
-import public Executor
-import BackendLib
-import Hardware
-import public Machine
-import public Machine.Verify
-import public Machine.BuiltinChecks
-import Preset
+import public Ml.Executor
+import Ml.BackendLib
+import Ml.Hardware
+import public Ml.Machine
+import public Ml.Machine.Verify
+import public Ml.Machine.BuiltinChecks
+import Ml.Preset
 
 ||| The Machine the build targets, sed-substituted from $(MACHINE).
 ||| Declared at kind `Machine` (the kind alias from the `Machine`

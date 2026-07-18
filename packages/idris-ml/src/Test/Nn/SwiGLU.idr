@@ -3,11 +3,11 @@ module Test.Nn.SwiGLU
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Init
-import Nn.Module
-import Nn.SwiGLU
-import Tensor
+import Ml.Executor
+import Ml.Nn.Init
+import Ml.Nn.Module
+import Ml.Nn.SwiGLU
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

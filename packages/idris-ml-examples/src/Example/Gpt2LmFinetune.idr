@@ -24,18 +24,18 @@ import Data.Vect
 import Data.String
 import System
 import System.File
-import Compat.Random
+import Ml.Compat.Random
 
-import Array
+import Ml.Array
 import BuildConfig
-import Executor
-import Executor.Core
+import Ml.Executor
+import Ml.Executor.Core
 import Generate
-import Tensor
-import Train
-import Util
+import Ml.Tensor
+import Ml.Train
+import Ml.Util
 
-import Checkpoint
+import Ml.Checkpoint
 import Transformers.Gpt2
 
 ----------------------------------------------------------------------

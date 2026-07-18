@@ -3,9 +3,9 @@ module Test.Math
 import Data.Fin
 import Data.Vect
 
-import Array
-import Floating
-import Math
+import Ml.Array
+import Ml.Floating
+import Ml.Math
 import Test.Harness
 
 tol : Double

@@ -9,18 +9,18 @@ import Data.String
 import Data.Vect
 import System
 
-import Array
 import BuildConfig
-import Compat.Random
-import Fit
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
-import Hpo.LrFinder
-import ML.Simple
-import RL.ReplayBuffer
-import Train
-import Train.Freeze
+import Ml.Array
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Hpo.LrFinder
+import Ml.RL.ReplayBuffer
+import Ml.Simple
+import Ml.Train
+import Ml.Train.Freeze
 
 -- The Q-nets are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 

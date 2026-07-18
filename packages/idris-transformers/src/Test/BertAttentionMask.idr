@@ -14,11 +14,11 @@ import Data.Vect
 import Transformers.Bert
 import Test.Harness
 
-import Executor
-import Executor.Core
+import Ml.Executor
+import Ml.Executor.Core
 import Test.Config
-import Tensor
-import Array
+import Ml.Tensor
+import Ml.Array
 
 -- Build a Tensor [n] from a Vect of doubles (mirrors Test.Bert).
 -- `ioRerun` defers the C-side allocation per the pure-typed-FFI

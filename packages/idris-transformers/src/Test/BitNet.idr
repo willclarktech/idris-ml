@@ -22,13 +22,13 @@ import Data.String
 import Data.Vect
 import System.File
 
-import Checkpoint
-import Executor
-import Executor.Core
-import Nn.Derive
-import Nn.Module
-import Nn.RoPE
-import Tensor
+import Ml.Checkpoint
+import Ml.Executor
+import Ml.Executor.Core
+import Ml.Nn.Derive
+import Ml.Nn.Module
+import Ml.Nn.RoPE
+import Ml.Tensor
 import Test.Common
 import Test.Config
 import Test.Harness

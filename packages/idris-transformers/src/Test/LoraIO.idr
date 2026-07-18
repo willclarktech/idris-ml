@@ -28,12 +28,12 @@ import System.File
 
 import Test.Harness
 
-import Checkpoint
-import Executor
-import Executor.Core
+import Ml.Checkpoint
+import Ml.Executor
+import Ml.Executor.Core
 import Test.Config
 import Transformers.LoraIO
-import Tensor
+import Ml.Tensor
 
 ----------------------------------------------------------------------
 -- Test #1 — adapter_config.json round-trip

@@ -99,7 +99,7 @@ venvs + `vendored/` + run-output dirs.
 
 ## Architecture
 
-Module dependency order (leaves first): **Device → Floating → Util → Sampler → Init → Array → Math → Schedule → Tensor → Optimizer → DataPoint → DataLoader → Dataset → DataStream → Layer.\* → Hpo → Backprop → Train.Engine → Train → Fit → Curriculum → Checkpoint → Notebook.Prelude**. Single `import Layer` brings in all layer modules (Linear, Activation, LayerNorm, BatchNorm, Conv, Dropout, Embedding, Residual, Rnn/Lstm/Gru, Ntm, Dnc, Transformer).
+**Every library module is nested under the `Ml.*` root** (`Ml.Tensor`, `Ml.Nn.Linear`, `Ml.Executor`, … — renamed 2026-07-27): Idris 2 has one flat module namespace across `-p` packages, so the distinctive root is what makes idris-ml coexist with any downstream package set. `import Ml` is the single-import umbrella surface; `import Ml.Simple` additionally pins the build's default `(Ex, F)` cell. Coarse dependency order (leaves first): **Ml.Executor → Ml.DType → Ml.Tensor → Ml.Optimizer → Ml.Dataset / Ml.DataStream → Ml.Nn.\* → Ml.Train.\* → Ml.Fit → Ml.Checkpoint → Notebook.Prelude**. `import Ml.Nn` brings in all layer modules (Linear, Activation, LayerNorm, BatchNorm, Conv, Dropout, Embedding, Residual, Rnn/Lstm/Gru, Ntm, Dnc, Attention/TransformerBlock). Prose and docs may reference modules by suffix (`Nn.Seq`, `Tensor.idr`) — Idris resolves namespace suffixes — but `import` and REPL `:module` lines need the full `Ml.`-prefixed name.
 
 ### Core type signatures
 

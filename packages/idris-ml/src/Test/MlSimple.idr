@@ -4,10 +4,10 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
 
-import ML.Simple
+import Ml.Simple
 import Test.Harness
 
--- `import ML.Simple` alone brings Tensor + Nn + Init + the build's (Ex, F)
+-- `import Ml.Simple` alone brings Tensor + Nn + Init + the build's (Ex, F)
 -- pin. A Linear is constructed and run with ZERO `{ex=}` spellings — the
 -- types are pinned only by annotating results to `Ex`/`F`. (The raw value
 -- read uses `{ex=Ex}` — that's a test-internal probe, not user API.)
@@ -20,7 +20,7 @@ mlSimpleNoExSpelling = do
            discard m'
            pure o)
   let v = primItem2d {ex=Ex} out.tensorPtr 0 0
-  check "ML.Simple: import + Ex/F build & run a Linear with no {ex=}" (v == v)
+  check "Ml.Simple: import + Ex/F build & run a Linear with no {ex=}" (v == v)
 
 export
 tests : List (IO Bool)

@@ -7,18 +7,18 @@ import Data.List
 import Data.Vect
 import System
 
-import Array
 import BuildConfig
-import Compat.Random
-import Fit
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
-import Hpo.LrFinder
-import ML.Simple
-import RL.Gae
-import Sampler
-import Train
+import Ml.Array
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Hpo.LrFinder
+import Ml.RL.Gae
+import Ml.Sampler
+import Ml.Simple
+import Ml.Train
 
 -- Actor + critic are linear `Seq`s; hide the IO `Nn.Seq` constructors.
 

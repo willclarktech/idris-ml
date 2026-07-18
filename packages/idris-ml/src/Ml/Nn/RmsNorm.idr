@@ -1,0 +1,70 @@
+||| `RmsNorm` — root-mean-square layer norm (Zhang & Sennrich 2019; the
+||| Llama/T5 variant): `out[i] = x[i] / sqrt(mean(x²) + eps) * weight[i]`,
+||| no mean-centring or bias. One learnable param (`weight`).
+|||
+||| Params-only, NOT a batched `Module`: the differentiable form composes
+||| `primSum` (a GLOBAL reduction), so it is correct only per-vector (1-D).
+||| A batched `[b,n]` Module would need a per-row differentiable reduction,
+||| which no current prim provides (the fused `primRmsNorm2d` is
+||| inference-only — no tape backward). `rmsNormForward` is the 1-D
+||| differentiable forward; transformers apply it per position. A fused
+||| differentiable `primRmsNorm2d` is the follow-up that would let RmsNorm
+||| become a real `Module`.
+module Ml.Nn.RmsNorm
+
+import Control.Linear.LIO
+import Data.Linear
+import Data.Vect
+
+import Ml.Executor
+import Ml.Nn.Init
+import Ml.Nn.Module
+import Ml.Tensor
+
+%default total
+
+||| Llama 3 default; Llama 2 / T5 / Falcon used 1e-6. Pass the HF config's
+||| `rms_norm_eps` when matching a specific checkpoint.
+public export
+defaultRmsNormEps : Double
+defaultRmsNormEps = 1.0e-5
+
+||| RMSNorm with a single learnable scale (`i = o = n`).
+public export
+data RmsNorm : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkRmsNorm : TVec n ex dt g -> RmsNorm n n ex dt g
+
+||| The single learnable scale `w` is the ω param field.
+public export
+Params RmsNorm where
+  params (MkRmsNorm w)   = [toParam w]
+  reflect (MkRmsNorm w)  = MkBang [toParam w] # MkRmsNorm w
+  castGrad (MkRmsNorm w) = MkRmsNorm (retypeGrad w)
+  discard (MkRmsNorm _)  = pure ()
+
+||| 1-D differentiable RMSNorm forward (per vector). `primSum` reduces the
+||| whole vector, so this is single-vector only — see the module header.
+export
+rmsNormForward : {0 ex : Executor} -> Backend ex dt => {n : Nat} ->
+                 (eps : Double) -> RmsNorm n n ex dt g -> TVec n ex dt g -> IO (TVec n ex dt g)
+rmsNormForward {n} eps (MkRmsNorm weight) input = ioRerun (\_ =>
+  let sq      = primMul {ex} input.tensorPtr input.tensorPtr
+      tot     = primSum {ex} sq
+      mean    = primMulScalar {ex} tot (1.0 / cast {to=Double} n)
+      meanEps = primAddScalar {ex} mean eps
+      rms     = primSqrt {ex} meanEps
+      normed  = primDiv {ex} input.tensorPtr rms
+      scaled  = primMul {ex} normed weight.tensorPtr
+  in MkTensor scaled Nothing)
+
+||| Construct an `RmsNorm n n` inside an `Init` derivation; registers
+||| `<scope>.rms_norm_<n>.weight` (init 1, HF default).
+export
+rmsNorm : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {n : Nat} -> Init (RmsNorm n n ex dt g)
+rmsNorm = do
+  name   <- freshChild "rms_norm"
+  weight <- liftIO $ tparam1dConst {ex} {dt} {n} (name ++ ".weight") 1.0
+  case sgrad {g} of
+    SWithGrad => pure (MkRmsNorm weight)
+    SNoGrad   => do weight' <- liftIO (weakenGrad weight)
+                    pure (MkRmsNorm weight')

@@ -13,7 +13,7 @@
 
 module LossyDirectionRejected
 
-import DType.Core
+import Ml.DType.Core
 
 -- This proof should fail to typecheck:
 --   `LosslessTo (Float 32) (BFloat 16)` requires `LTE 23 7`, which

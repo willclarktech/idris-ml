@@ -3,7 +3,7 @@ module Test.Hpo.LrFinder
 import Data.List
 import Data.Vect
 
-import Hpo.LrFinder
+import Ml.Hpo.LrFinder
 import Test.Harness
 
 tol : Double

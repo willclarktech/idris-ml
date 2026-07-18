@@ -8,19 +8,19 @@ module SingleUseCompiles
 import Control.Linear.LIO
 import Data.Linear
 
-import Executor
-import GradMode
-import Nn.Activation
-import Nn.Dropout
-import Nn.Gru
-import Nn.LayerNorm
-import Nn.Linear
-import Nn.Lstm
-import Nn.Module
-import Nn.Recurrent
-import Nn.Residual
-import Nn.Seq
-import Tensor
+import Ml.Executor
+import Ml.GradMode
+import Ml.Nn.Activation
+import Ml.Nn.Dropout
+import Ml.Nn.Gru
+import Ml.Nn.LayerNorm
+import Ml.Nn.Linear
+import Ml.Nn.Lstm
+import Ml.Nn.Module
+import Ml.Nn.Recurrent
+import Ml.Nn.Residual
+import Ml.Nn.Seq
+import Ml.Tensor
 
 -- Leaf: consume the trainable model exactly once, return the inference one.
 okSingle : (1 _ : Linear 2 3 TapeExecutor F64 WithGrad) ->

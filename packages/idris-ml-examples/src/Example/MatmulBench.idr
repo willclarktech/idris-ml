@@ -26,8 +26,8 @@ import System
 import System.Clock
 
 import BuildConfig
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 
 record Config where
   constructor MkConfig

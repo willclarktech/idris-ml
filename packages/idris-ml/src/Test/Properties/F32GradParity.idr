@@ -30,8 +30,8 @@ module Test.Properties.F32GradParity
 
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 import Test.Config
 import Test.Harness as Harness
 import Test.Property

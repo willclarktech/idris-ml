@@ -2,10 +2,10 @@ module Test.GradScaler
 
 import Data.Vect
 
-import Executor
-import GradScaler
-import Optimizer
-import Tensor
+import Ml.Executor
+import Ml.GradScaler
+import Ml.Optimizer
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

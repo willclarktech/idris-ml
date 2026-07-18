@@ -57,17 +57,17 @@ import System
 import System.Clock
 import System.File
 
-import Array
 import BuildConfig
-import Checkpoint
 import Example.Common.InferenceHelper
-import Executor
-import Nn.RoPE
-import Tensor
+import Ml.Array
+import Ml.Checkpoint
+import Ml.Executor
+import Ml.Nn.RoPE
+import Ml.Tensor
+import Ml.Util
 import Transformers.KVCache
 import Transformers.Llama
 import Transformers.Tokenizer
-import Util
 
 ----------------------------------------------------------------------
 -- Model location (dims come from the file, not from here)

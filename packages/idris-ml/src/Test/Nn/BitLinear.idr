@@ -3,10 +3,10 @@ module Test.Nn.BitLinear
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.BitLinear
-import Nn.Module
-import Tensor
+import Ml.Executor
+import Ml.Nn.BitLinear
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

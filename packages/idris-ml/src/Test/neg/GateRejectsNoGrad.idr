@@ -11,8 +11,8 @@ module GateRejectsNoGrad
 
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 
 -- A loss tensor materialised as NoGrad (e.g. via `weakenGrad` on
 -- the output of a `withNoGrad`-wrapped forward). The C-side handle

@@ -2,7 +2,7 @@ module Test.Array
 
 import Data.Vect
 
-import Array
+import Ml.Array
 import Test.Harness
 
 export

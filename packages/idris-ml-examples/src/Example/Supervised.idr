@@ -7,11 +7,11 @@ import Data.Vect
 import System
 
 import BuildConfig
-import Compat.Random
-import Fit
-import GradScaler
-import ML.Simple
-import Train
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.GradScaler
+import Ml.Simple
+import Ml.Train
 
 -- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11): a 3-class
 -- (mutually-exclusive) problem, so the loss is multiclass NLL (tnllLossMean),

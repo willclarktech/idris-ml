@@ -23,8 +23,8 @@ module Test.MultiExecutorRegistry
 
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 import Test.Harness
 
 ||| Register one param on `TorchExecutor TCpu` and assert torch's registry

@@ -4,14 +4,14 @@ import Data.IORef
 import Data.Vect
 import System.Clock
 
-import Checkpoint
-import Executor
-import Optimizer
-import Tensor
+import Ml.Checkpoint
+import Ml.Executor
+import Ml.Optimizer
+import Ml.Tensor
+import Ml.Train
+import Ml.Train.Engine
 import Test.Config
 import Test.Harness
-import Train
-import Train.Engine
 
 ----------------------------------------------------------------------
 -- Early-stop oracle: drives `runEpochLoop` directly with the early-stop

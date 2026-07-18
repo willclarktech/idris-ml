@@ -18,10 +18,10 @@ import Data.Vect
 import System
 
 import BuildConfig
-import Compat.Random
-import Fit
-import ML.Simple
-import Train
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Simple
+import Ml.Train
 
 -- This example's model is a linear `Seq`; hide the IO `Nn.Seq` constructors
 -- (same `Nil`/`::`/`~~>` names) so the chain builder resolves unambiguously.

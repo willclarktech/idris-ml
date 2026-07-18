@@ -3,9 +3,9 @@ module Test.Nn.PosEncoding
 import Control.Linear.LIO
 import Data.Vect
 
-import Executor
-import Nn.PosEncoding
-import Tensor
+import Ml.Executor
+import Ml.Nn.PosEncoding
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

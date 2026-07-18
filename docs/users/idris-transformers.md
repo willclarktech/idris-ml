@@ -10,7 +10,7 @@ so the existing `load` / `fromPretrained` from `idris-ml`'s
 
 ```idris
 import Transformers.Bert
-import Checkpoint
+import Ml.Checkpoint
 
 model <- hfBertModel {ex=ExampleDevice} {dt=ExampleDType}
                      {vocab=30522} {hidden=128} {numLayers=2}
@@ -28,7 +28,7 @@ adapter, expressed as type-checked code.
 ## Why is this a separate package?
 
 Core `idris-ml` ships a transformer
-([`Nn.Attention`](../../packages/idris-ml/src/Nn/Attention.idr) + `TransformerBlock`)
+([`Nn.Attention`](../../packages/idris-ml/src/Ml/Nn/Attention.idr) + `TransformerBlock`)
 designed as a from-scratch teaching reference: attention is stored
 as `Vect numHeads (LinearState ...)` — one per head, decomposition
 explicit in types. That makes the math obvious but is a different
@@ -224,14 +224,14 @@ As of 2026-06-07 the fine-tuning surface is in. Three primitives
 work together:
 
 1. **Subset-load** — `load path ({ only := Just pfx } defaultLoadOpts)` in
-   [`packages/idris-ml/src/Checkpoint.idr`](../../packages/idris-ml/src/Checkpoint.idr)
+   [`packages/idris-ml/src/Ml/Checkpoint.idr`](../../packages/idris-ml/src/Ml/Checkpoint.idr)
    loads only the safetensors keys whose name starts with `pfx`,
    leaving every other registered param untouched. Use to warm-start
    a backbone (`"bert."`) while keeping a fresh classification head
    at its random init.
 2. **Freeze-by-prefix** — `freezeByPrefix opt pfx` /
    `unfreezeByPrefix opt pfx` in
-   [`packages/idris-ml/src/Train/Freeze.idr`](../../packages/idris-ml/src/Train/Freeze.idr)
+   [`packages/idris-ml/src/Ml/Train/Freeze.idr`](../../packages/idris-ml/src/Ml/Train/Freeze.idr)
    walks the registry and sets the per-param LR override to 0 for
    every name starting with `pfx`. Composes with a single optimizer
    — no two-optimizer plumbing.
@@ -404,7 +404,7 @@ import Transformers.Bert
 import Transformers.BertForClassification
 import Transformers.BertLora
 import Transformers.LoraIO
-import Train.Freeze
+import Ml.Train.Freeze
 
 -- 1. Construct the model (same as the full-FT path).
 model <- hfBertForSequenceClassification {numClasses=2} "bert" "classifier"

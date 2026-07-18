@@ -33,8 +33,8 @@ module Transformers.KVCache
 
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 
 ----------------------------------------------------------------------
 -- KVCache — Empty / Filled tag union

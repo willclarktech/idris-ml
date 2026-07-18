@@ -39,8 +39,8 @@ via `Notebook.Prelude` — no manual imports needed.
 ```
 :t reluA                  -- type query
 :doc linear               -- documentation
-:browse Tensor            -- list module exports
-:module Nn                -- import a module (persists across cells)
+:browse Ml.Tensor         -- list module exports
+:module Ml.Nn             -- import a module (persists across cells)
 :exec putStrLn "hello"    -- execute an IO expression
 ```
 

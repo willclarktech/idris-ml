@@ -37,9 +37,9 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
 
-import Executor
-import Nn.Linear
-import Tensor
+import Ml.Executor
+import Ml.Nn.Linear
+import Ml.Tensor
 import Transformers.Bert
 import Transformers.BertForClassification
 

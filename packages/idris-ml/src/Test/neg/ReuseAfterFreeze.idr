@@ -13,10 +13,10 @@ module ReuseAfterFreeze
 import Control.Linear.LIO
 import Data.Linear
 
-import Executor
-import GradMode
-import Nn.Linear
-import Nn.Module
+import Ml.Executor
+import Ml.GradMode
+import Ml.Nn.Linear
+import Ml.Nn.Module
 
 -- `m` is passed as a LINEAR resource (`1 _`). The first `eval m` CONSUMES
 -- it; the second use is the bug. The compiler must reject it with a

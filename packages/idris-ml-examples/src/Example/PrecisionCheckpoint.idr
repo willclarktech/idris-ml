@@ -38,11 +38,11 @@ import Data.Vect
 import System
 
 import BuildConfig
-import Checkpoint
-import Compat.Random
-import Fit
-import ML.Simple
-import Train
+import Ml.Checkpoint
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Simple
+import Ml.Train
 
 ----------------------------------------------------------------------
 -- Data (same 5-point classification task as Transfer)

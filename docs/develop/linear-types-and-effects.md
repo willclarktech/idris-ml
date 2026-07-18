@@ -513,21 +513,21 @@ merge at Phase 9).
 > See the CHANGELOG "Linear-model collapse" entry + the gotchas section at the
 > end of this doc.
 
-- `packages/idris-ml/src/Nn/Module.idr` — `ModuleL`, `FrozenL`, generic
+- `packages/idris-ml/src/Ml/Nn/Module.idr` — `ModuleL`, `FrozenL`, generic
   `evalL`/`freezeL`/`unfreezeL`/`trainableL`.
-- `packages/idris-ml/src/Nn/Linear.idr` — leaf exemplar (`ModuleL Linear`).
-- `packages/idris-ml/src/Nn/{Activation,Dropout,LayerNorm}.idr` — leaf Modules.
-- `packages/idris-ml/src/Nn/{Conv,Pool}.idr` — batched 4-D Modules (`ParamsL` +
+- `packages/idris-ml/src/Ml/Nn/Linear.idr` — leaf exemplar (`ModuleL Linear`).
+- `packages/idris-ml/src/Ml/Nn/{Activation,Dropout,LayerNorm}.idr` — leaf Modules.
+- `packages/idris-ml/src/Ml/Nn/{Conv,Pool}.idr` — batched 4-D Modules (`ParamsL` +
   `ModuleL`, inline `ioRerunL` bodies).
-- `packages/idris-ml/src/Nn/{BatchNorm,BitLinear,Embedding,LoraLinear,SwiGLU,RmsNorm}.idr`
+- `packages/idris-ml/src/Ml/Nn/{BatchNorm,BitLinear,Embedding,LoraLinear,SwiGLU,RmsNorm}.idr`
   — leaf `ParamsL`-only layers (1-D forwards, not batched Modules).
-- `packages/idris-ml/src/Nn/{Ntm,Dnc}.idr` — composite recurrent (`ParamsL` +
+- `packages/idris-ml/src/Ml/Nn/{Ntm,Dnc}.idr` — composite recurrent (`ParamsL` +
   `RecurrentL`, consume-match-rebuild-delegate).
-- `packages/idris-ml/src/Nn/{Attention,Transformer}.idr` — the composites
+- `packages/idris-ml/src/Ml/Nn/{Attention,Transformer}.idr` — the composites
   (Attention's plain linear fns spliced by `TransformerBlock`'s `ParamsL`/
   `ModuleL`).
-- `packages/idris-ml/src/Nn/SeqL.idr` — list composite (existential threading).
-- `packages/idris-ml/src/Nn/Residual.idr` — `ResidualL`, one-sublayer composite.
+- `packages/idris-ml/src/Ml/Nn/SeqL.idr` — list composite (existential threading).
+- `packages/idris-ml/src/Ml/Nn/Residual.idr` — `ResidualL`, one-sublayer composite.
 - `packages/idris-ml/src/Test/{neg/ReuseAfterFreeze,pos/SingleUseCompiles}.idr`
   + `scripts/check-linear-model-gate.sh` — the gate.
 
@@ -538,28 +538,28 @@ Parameter-free `PosEncoding`/`RoPE` are free functions, not `Module`s, but
 expose `L IO` twins (`sinusoidalPEL`/`applyRopeL`/`applyRopeAllHeadsL`) for
 seam-free use inside a model `forward`.
 
-- `packages/idris-ml/src/Tensor.idr` — the additive `L IO` op surface
+- `packages/idris-ml/src/Ml/Tensor.idr` — the additive `L IO` op surface
   (`ioRerunL` + `taddL`/`tlinearL`/`tlinear2dL`/`tzeroState1dL`/
   `tlstmGatesPairL`/`tgruCellL` + the six activation twins + `tnllLossMeanL`).
   Plus the `L IO` bracket twins **`withNoGradL`** (no-grad: threads a `WithGrad`
   model through tape-free forwards in eval/rollout) and **`withGenFreeL`**
   (generation bracket: frees a replay step's grad intermediates, autograd ON).
   The `IO` ops are unchanged beside them.
-- `packages/idris-ml/src/Hpo/LrFinder.idr` — `lrFindL` (the `L IO` LR-range
+- `packages/idris-ml/src/Ml/Hpo/LrFinder.idr` — `lrFindL` (the `L IO` LR-range
   test) beside `lrFind`.
-- `packages/idris-ml/src/Nn/{Recurrent,Lstm,Gru}.idr` — `RecurrentL` bodies on
+- `packages/idris-ml/src/Ml/Nn/{Recurrent,Lstm,Gru}.idr` — `RecurrentL` bodies on
   the `L IO` ops (the small recurrent cells; `Ntm`/`Dnc` delegate instead).
-- `packages/idris-ml/src/Nn/Init.idr` — `runInitL` (born-linear construction
+- `packages/idris-ml/src/Ml/Nn/Init.idr` — `runInitL` (born-linear construction
   seam) beside `runInit`.
-- `packages/idris-ml/src/Train/Engine.idr` — `MetricsFnL` (model-free) added;
+- `packages/idris-ml/src/Ml/Train/Engine.idr` — `MetricsFnL` (model-free) added;
   `fmtMetrics`/`forceMetrics` exported for the linear loop to reuse.
-- `packages/idris-ml/src/Train/EngineL.idr` — the `L IO` epoch loop
+- `packages/idris-ml/src/Ml/Train/EngineL.idr` — the `L IO` epoch loop
   (`runEpochLoopL`/`epochLoopGoL`/`withEpochL`/`logEpochL`/`divergedL`); sibling
   to `Train.Engine` (linear-import isolation).
 - `packages/idris-ml/src/FitL.idr` — the `L IO` fit driver
   (`fitSupervisedL`/`fitSupervisedMixedL`/`fitL`/`fitCustomL`/`runPassL`,
   `EpochStepL`); sibling to `Fit.idr`. Hides `Copies.Nil`; `Z`/`S` accumulators.
-- `packages/idris-ml/src/Train.idr` — `TrainConfig` gains a `metricsL` field
+- `packages/idris-ml/src/Ml/Train.idr` — `TrainConfig` gains a `metricsL` field
   (model-free) beside `metrics`.
 - `packages/idris-ml-examples/src/Example/*.idr` — **all 22 training examples**
   are on the fine-grained linear surface (`mk/config.mk` adds `-p linear`):

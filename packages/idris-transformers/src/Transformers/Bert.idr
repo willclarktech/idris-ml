@@ -24,19 +24,19 @@ import Data.Vect
 import Language.Reflection
 import Language.Reflection.Util
 
-import Backend
-import Checkpoint
-import Compat.Random
-import Executor
-import GradMode
-import Init
-import Nn.Derive
-import Nn.Embedding
-import Nn.LayerNorm
-import Nn.Linear
-import Nn.Module
-import Sampler
-import Tensor
+import Ml.Backend
+import Ml.Checkpoint
+import Ml.Compat.Random
+import Ml.Executor
+import Ml.GradMode
+import Ml.Init
+import Ml.Nn.Derive
+import Ml.Nn.Embedding
+import Ml.Nn.LayerNorm
+import Ml.Nn.Linear
+import Ml.Nn.Module
+import Ml.Sampler
+import Ml.Tensor
 import Transformers.Common
 import Transformers.Config
 

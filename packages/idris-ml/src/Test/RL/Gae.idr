@@ -1,6 +1,6 @@
 module Test.RL.Gae
 
-import RL.Gae
+import Ml.RL.Gae
 import Test.Harness
 
 -- Reference values computed by hand.

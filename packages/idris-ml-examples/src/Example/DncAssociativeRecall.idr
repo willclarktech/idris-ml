@@ -15,10 +15,10 @@ import Data.Vect
 import System
 
 import BuildConfig
-import Compat.Random
-import Fit
-import ML.Simple
-import Train
+import Ml.Compat.Random
+import Ml.Fit
+import Ml.Simple
+import Ml.Train
 
 ----------------------------------------------------------------------
 -- Configuration (dims)

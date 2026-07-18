@@ -1,7 +1,7 @@
 module Test.Sampler
 
-import Compat.Random
-import Sampler
+import Ml.Compat.Random
+import Ml.Sampler
 import Test.Harness
 
 tol : Double

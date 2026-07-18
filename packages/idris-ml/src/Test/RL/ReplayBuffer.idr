@@ -3,8 +3,8 @@ module Test.RL.ReplayBuffer
 import Data.List
 import Data.Vect
 
-import Compat.Random
-import RL.ReplayBuffer
+import Ml.Compat.Random
+import Ml.RL.ReplayBuffer
 import Test.Harness
 
 sampleTransition : Double -> Transition 2 1

@@ -5,12 +5,12 @@ import Data.Linear.Notation
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Init
-import Nn.LinearMixed
-import Nn.Module
-import Optimizer
-import Tensor
+import Ml.Executor
+import Ml.Nn.Init
+import Ml.Nn.LinearMixed
+import Ml.Nn.Module
+import Ml.Optimizer
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

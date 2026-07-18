@@ -23,9 +23,9 @@ module Test.LoadOpts
 import Data.Vect
 import System.File
 
-import Checkpoint
-import Executor
-import Tensor
+import Ml.Checkpoint
+import Ml.Executor
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

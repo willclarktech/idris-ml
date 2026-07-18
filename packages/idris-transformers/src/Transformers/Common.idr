@@ -16,8 +16,8 @@ module Transformers.Common
 
 import Data.Vect
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 
 ----------------------------------------------------------------------
 -- 2D RMSNorm (fused C primitive)

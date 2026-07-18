@@ -350,7 +350,7 @@ print-%: ; @echo '$($*)'
 # the next tape install would see the stamp older than HwConfig.idr and wipe
 # `build/tape-…/ttc-*`. Their own staleness tracking via `--build-dir`-keyed
 # ttc + interface-hash check is sufficient.
-LIBRARY_SRCS := $(filter-out packages/idris-ml/src/HwConfig.idr packages/idris-ml/src/HwExecutors.idr, \
+LIBRARY_SRCS := $(filter-out packages/idris-ml/src/Ml/HwConfig.idr packages/idris-ml/src/Ml/HwExecutors.idr, \
                   $(shell find packages/idris-ml/src packages/idris-gym/src packages/idris-transformers/src -name '*.idr' 2>/dev/null)) \
                 packages/idris-ml-examples/src/Generate.idr
 

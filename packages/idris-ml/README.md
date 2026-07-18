@@ -10,16 +10,16 @@ TensorFlow 1.x / JAX, and Haskell — see [**docs/users/why-idris-ml.md**](../..
 
 ## Single-import surface
 
-`import ML` brings the daily toolkit in one line — the autograd `Tensor` (+ operator aliases,
+`import Ml` brings the daily toolkit in one line — the autograd `Tensor` (+ operator aliases,
 losses), the `Nn` model library, optimizers + the typed-scope surface, `Dataset`/`DataStream`,
 the `fit` driver, checkpoints, and the `Backend` constraint bundle:
 
 ```idris
-import ML            -- everything; you pin {ex=} / {dt=} at the leaf
-import ML.Simple     -- ML plus the build's default (executor, dtype) as `Ex` / `F`
+import Ml            -- everything; you pin {ex=} / {dt=} at the leaf
+import Ml.Simple     -- ML plus the build's default (executor, dtype) as `Ex` / `F`
 ```
 
-`ML.Simple` additionally pins the build's default `(executor, dtype)` cell as `Ex` / `F`, so
+`Ml.Simple` additionally pins the build's default `(executor, dtype)` cell as `Ex` / `F`, so
 tutorial and example code writes `Tensor dims Ex F g` and never spells `{ex=}`. Granular imports
 (`import Tensor`, `import Nn`, `import Optimizer`, `import Fit`, …) work too.
 

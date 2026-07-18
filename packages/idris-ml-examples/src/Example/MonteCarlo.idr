@@ -8,17 +8,17 @@ import Data.Maybe
 import Data.Vect
 import System
 
-import Array
 import BuildConfig
-import Compat.Random
-import DataStream
-import Executor
-import Fit
 import Gym.Env
 import Gym.Rng
 import Gym.ToyText.Blackjack
-import Math
-import Train
+import Ml.Array
+import Ml.Compat.Random
+import Ml.DataStream
+import Ml.Executor
+import Ml.Fit
+import Ml.Math
+import Ml.Train
 
 ----------------------------------------------------------------------
 -- Env dimensions

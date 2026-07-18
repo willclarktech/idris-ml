@@ -4,16 +4,16 @@ import Control.Linear.LIO
 import Data.Linear.Notation
 import Data.Vect
 
-import DataStream
-import Dataset
-import Executor
-import Fit
-import GradScaler
-import Optimizer
-import Tensor
+import Ml.DataStream
+import Ml.Dataset
+import Ml.Executor
+import Ml.Fit
+import Ml.GradScaler
+import Ml.Optimizer
+import Ml.Tensor
+import Ml.Train
 import Test.Config
 import Test.Harness
-import Train
 
 -- Registered scalar param (mirrors Test.Optimizer / Test.TrainEngine).
 mkW : String -> Double -> IO (Tensor [] TestExecutor TestDType WithGrad)

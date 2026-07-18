@@ -22,11 +22,11 @@ import Data.Vect
 import System.Clock
 import System.File
 
-import Array
 import BuildConfig
-import Executor
-import Tensor
-import Util
+import Ml.Array
+import Ml.Executor
+import Ml.Tensor
+import Ml.Util
 
 ----------------------------------------------------------------------
 -- Token-id tensor construction

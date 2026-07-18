@@ -27,17 +27,17 @@ import Data.List
 import Data.String
 import Data.Vect
 import System
-import Compat.Random
+import Ml.Compat.Random
 
-import Array
+import Ml.Array
 import BuildConfig
-import Executor
-import Tensor
-import Train
-import Train.Freeze
-import Util
+import Ml.Executor
+import Ml.Tensor
+import Ml.Train
+import Ml.Train.Freeze
+import Ml.Util
 
-import Checkpoint
+import Ml.Checkpoint
 import Transformers.Bert
 import Transformers.BertForClassification
 import Transformers.Dataset

@@ -3,12 +3,12 @@ module Test.Nn.LoraLinear
 import Data.List
 import Data.Vect
 
-import Executor
-import Nn.Init
-import Nn.Linear
-import Nn.LoraLinear
-import Nn.Module
-import Tensor
+import Ml.Executor
+import Ml.Nn.Init
+import Ml.Nn.Linear
+import Ml.Nn.LoraLinear
+import Ml.Nn.Module
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 

@@ -78,8 +78,8 @@ fi
 # cloned build/ ttc trees stay newer than their sources and make
 # treats them as warm.
 for f in \
-	packages/idris-ml/src/HwConfig.idr \
-	packages/idris-ml/src/HwExecutors.idr \
+	packages/idris-ml/src/Ml/HwConfig.idr \
+	packages/idris-ml/src/Ml/HwExecutors.idr \
 	packages/idris-ml/src/Test/Config.idr \
 	packages/idris-transformers/src/Test/Config.idr; do
 	if [ -f "$f" ]; then

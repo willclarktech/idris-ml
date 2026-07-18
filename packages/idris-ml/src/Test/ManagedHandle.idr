@@ -1,7 +1,7 @@
 module Test.ManagedHandle
 
-import Executor
-import Tensor
+import Ml.Executor
+import Ml.Tensor
 import Test.Config
 import Test.Harness
 
