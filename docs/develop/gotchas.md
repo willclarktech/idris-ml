@@ -75,6 +75,8 @@ Idris 2 represents `Nat` as Peano numbers at the type level — `2304` becomes `
 
 **Root cause:** Idris 2 lacks opaque/machine-backed type-level naturals (like GHC's `TypeLits`). This is the single largest practical limitation for type-safe tensor shapes at scale. See the Idris 2 issue tracker for discussion.
 
+**Update (2026-07-27 audit — the thresholds above no longer reproduce standalone).** On the pack toolchain (`0.8.0-b2d2cf40d`, nightly-260604) against the current `Nn` surface, all of these elaborate in under a second: `Dropout 512/2304/9216`, `Dropout (4 * 576)`, a `Seq` chain with existential hidden dim 2304 (`linear {i=8} {o=2304}` → `dropout` → `linear {i=2304} {o=8}`), and even a raw `Tensor [4 * o]` signature with a free variable. The original observations were on the V1 `Layer` surface + an earlier toolchain, and no specific upstream fix was identified — so treat the hazard as *unconfirmed on the current stack* rather than gone: keep the `TVec`/`TMat` routing and identity-layer placement guidance until an in-tree removal experiment (revert one alias, full rebuild) passes. The *pattern-compilation* sibling below is NOT fixed — it still reproduces on the same nightly.
+
 ### Pattern-matching `Nat` literals in a case arm OOMs the elaborator at large values
 
 Same Peano-explosion class as the entry above, in the *pattern-compilation* path rather than the type-unification path. Symptom: a case arm like
@@ -101,11 +103,15 @@ case r of
 
 `(==)` on `Nat` is fast because `Nat` is stored as `Integer` at runtime — the equality check is O(1) integer comparison, not recursive Peano walk. Only the *type-level* / *pattern-compilation* paths suffer.
 
+**Re-verified 2026-07-27** on the pack nightly (`0.8.0-b2d2cf40d`): a two-literal tuple case arm (`(12345, 30522) => True`) still grinds ≥90 s at `--check` (killed by timeout). Unlike the type-*unification* entry above (whose probes now pass), this pattern-compilation path remains pathological — keep the `==` idiom.
+
 **Investigated and ruled out as a nixpkgs build issue (2026-05-26)**: the nixpkgs idris2 v0.8.0 derivation patches `bootstrap-stage2.sh` to replace `MAKE all` with `MAKE idris2-exec`, which seemed (per the now-replaced "Opaque type-level Nats" TODO row) like it might be the binding constraint. It isn't — the stdlib `.ttc` files are built by the *separate* `mkPrelude.nix`-derived `prelude` / `base` / `contrib` / etc. packages, each invoking the stage-2 `idris2-unwrapped` binary via `IDRIS2=...`. Reverting the patch would only add redundant rebuild work; it does NOT change the stdlib quality. The Nat-pattern OOM is an Idris-2-the-language thing in v0.8.0, not a nix packaging defect — wait for v0.9.0 or use the `==` idiom in pattern arms.
 
 ### `Data.Nat` stdlib functions compile to recursive Peano walks at runtime
 
 `Nat` is stored as a GMP `Integer` at runtime (`%builtin Natural`) — checking equality and adding 1 is O(1). But the stdlib `Data.Nat` functions are *defined* by pattern matching on `Z` / `S k` constructors, so the Chez codegen emits recursive decrement code regardless of the underlying representation. Functions affected: `Data.Nat.lte`, `gte`, `lt`, `gt`, `compare`, `divNat`, `modNatNZ`, `divCeilNZ`, and anything that calls them.
+
+**Verified still current upstream (2026-07-27 audit)**: the pinned nightly's `Data/Nat.idr` is byte-identical to `idris-lang/Idris2` `main` — `mod'`/`div'` are fuel-based repeated subtraction with an `lte` per iteration — so no toolchain bump fixes this; it needs an upstream contribution. The standing upstream ask for the comparison half is [Idris2#1182](https://github.com/idris-lang/Idris2/issues/1182) ("Comparison operations on Nat should be O(1)"). Until then: the cast-to-`Int` idiom below.
 
 For `divNat n 2` with `n = 256`, this means **128 recursive `(cond ((equal? arg-0 0) ...) (else (let ((e-0 (- arg-0 1))) (divNat e-0 ...))))` calls**, plus an `lte` call per iteration that itself recurses. A single `posEncVal` call with `dim ∈ [0, 256)` doing `div dim 2` + `modNatNZ dim 2` ran ~400 Nat-recursive operations.
 
