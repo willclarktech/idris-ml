@@ -21,17 +21,16 @@ packages/backends/
 │                              #   methods.
 ├── shared/
 │   └── training/
-│       ├── port.h             # BackendPort dispatch table (39 methods).
+│       ├── port.h             # BackendPort dispatch table (50 slots).
 │       ├── param_registry.c   # FFI param_*. Routes through port.
 │       ├── optimizer.c        # FFI optimizer_*. Trampolines through port
 │       │                      #   for per-backend math; shared helpers
 │       │                      #   (zero_grad / polyak / clip / *_return
-│       │                      #   wrappers) stay genuinely shared.
+│       │                      #   wrappers) stay shared.
 │       ├── ffi_shims.c        # The *_return value-coercion helpers
 │       │                      #   (tensor_backward_return, idrisml_seq, ...).
 │       └── dtype_streamed.c   # 11 dtag-dispatched create + cast wrappers.
-├── backend_tape.c             # Tape backend skeleton (build glue).
-├── backend_tape/              # Per-typeclass-slice modular tree.
+├── backend_tape/              # Tape backend — per-typeclass-slice modular tree.
 │   ├── arena.{c,h}            # Bump allocator + tape_load_d/store_d.
 │   ├── tensor.{c,h}           # Tensor struct + dtype tag.
 │   ├── tape.{c,h}             # TapeEntry + OP_* enum + tape_append.
@@ -42,7 +41,7 @@ packages/backends/
 │   │                          #   attention, recurrent.
 │   ├── conv/                  # Conv1d/2d + pools + transpose + grouped.
 │   └── training/              # Tape's adapter + the bits not shared.
-│       ├── adapter.c          # Binds 39 port methods.
+│       ├── adapter.c          # Binds the port slots.
 │       ├── optimizer.c        # TapeOptimizer + per-element math.
 │       ├── dtype_dispatch.c   # tape_create_*_dtag (port creator impls).
 │       ├── param_create.c     # tensor_create_param_*d.
@@ -52,22 +51,28 @@ packages/backends/
 │       ├── shims.c            # backend_reset_for_eval + mlx_compile stubs.
 │       ├── host_io.c          # tensor_to_doubles + size queries.
 │       └── autograd/          # Backward driver + dispatch table + helpers.
-├── backend_torch.cpp          # Torch backend — monolithic.
-│                              #   Adopts shared param_registry, ffi_shims,
-│                              #   dtype_streamed (three of four shared TUs).
-├── backend_mlx.cpp            # mlx backend — monolithic.
-│                              #   Adopts shared param_registry + ffi_shims.
+├── backend_torch/             # Torch backend — same modular slice tree
+│                              #   (core/linear/nn/conv/training + device.cpp,
+│                              #   mps_init.cpp). Adopts shared param_registry,
+│                              #   ffi_shims, dtype_streamed.
+├── backend_mlx/               # mlx backend — same modular slice tree
+│                              #   (+ init.cpp, stream.h, precision.h,
+│                              #   tape.cpp). Adopts shared param_registry +
+│                              #   ffi_shims.
 ├── safetensors.c              # Serialization (consumes shared registry).
-├── cJSON.{c,h}                # JSON for safetensors metadata.
 ├── refc_shims.c               # RefC compatibility shims.
-├── rename_<b>.h               # Auto-generated symbol-rename header.
-└── test/
-    └── tape/                  # Criterion suites mirroring backend_tape/.
+└── rename_<b>.h               # Auto-generated symbol-rename header.
 ```
+
+cJSON (JSON for safetensors metadata) is vendored at the repo root
+(`vendored/cJSON/`). Criterion tests are colocated with the code they
+test — `backend_<b>/<slice>/test_*.c` for backend-specific suites,
+plus the cross-cutting infra + `backend.h`-contract suites in
+[`packages/idris-test-c/`](../idris-test-c/).
 
 ## The shared training port
 
-`shared/training/port.h` defines `struct BackendPort` — 39 function-pointer
+`shared/training/port.h` defines `struct BackendPort` — 50 function-pointer
 slots covering tensor introspection (numel / requires_grad / has_grad),
 per-element data + grad read/write, bulk zero/load, backward driver, the
 full optimizer surface (5 constructors + free + setters + step + 7
@@ -143,16 +148,17 @@ IDX-format dataset loader).
    per-TU build picks it up via `find`. Add `OP_<X>` to the enum in
    `backend_tape/tape.h` and the entry to `op_name[]` in
    `backend_tape/training/profiling.c`.
-3. Torch / mlx: add the op to the corresponding monolithic file
-   (libtorch / mlx own the autograd, so no backward needed).
-4. Add a Criterion test under `test/<backend>/<slice>/test_<op>.c` —
-   the build's `find` picks it up.
+3. Torch / mlx: add the op to the matching slice in `backend_torch/`
+   / `backend_mlx/` (libtorch / mlx own the autograd, so no backward
+   needed).
+4. Add a Criterion test colocated at `backend_<b>/<slice>/test_<op>.c`
+   — the build's `find` picks it up.
 5. Add the export to `backend.h` and run `make rename-headers` to
    refresh the rename headers.
 
 ## Adding a new backend
 
-1. Create `backend_<name>.<c|cpp>` implementing every FFI function in
+1. Create a `backend_<name>/` tree implementing every FFI function in
    `backend.h`.
 2. Add a section to the Makefile for the new backend's compile rule
    (CC, CFLAGS, LDFLAGS, primary vs secondary symbol handling).
@@ -162,23 +168,24 @@ IDX-format dataset loader).
    in a separate adapter TU) — populate the slots whose shared TUs the
    backend opted into; leave the others `nullptr`.
 5. Run `make rename-headers` to add the backend to the rename script.
-6. Mirror the tape Criterion suite at `test/<name>/` once the backend
-   passes test_backend.c.
+6. Mirror the tape Criterion suites (colocated `test_*.c` files) once
+   the backend passes the `backend.h`-contract suites in
+   `packages/idris-test-c/`.
 
 ## F64 byte-identical regression
 
 Every commit through the modularization preserved F64 numerics
 byte-for-byte:
 
-- `make test-backend-{tape,torch,mlx}` runs ~150 explicit `ASSERT_NEAR`
-  checks against hard-coded expected values for SGD / RMSprop / Adam /
-  Polyak / clip / cross-backend transfer.
+- `make test-unit-c-{tape,torch,mlx}` runs the per-backend Criterion
+  suites: explicit `ASSERT_NEAR`-style checks against hard-coded
+  expected values for SGD / RMSprop / Adam / Polyak / clip /
+  cross-backend transfer, plus per-op forward + backward and the
+  lifted shared TUs.
 - `make example-supervised` at seed=42 yields
   `loss=0.13801130234059747` (unchanged through every lift).
-- The Criterion suite under `test/tape/` covers per-op forward +
-  backward + the lifted shared TUs (84 tests).
 
-When changing a hot path, the regression bar is "test_backend +
+When changing a hot path, the regression bar is "test-unit-c +
 example-supervised seed=42 unchanged". Any deviation needs an
 explicit explanation (and probably a rollback unless the change is a
 documented bug fix).

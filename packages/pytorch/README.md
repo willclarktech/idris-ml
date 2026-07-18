@@ -25,7 +25,7 @@ torch_ref/
 
 ```bash
 make ref-setup              # uv sync --dev (create the venv, install torch/transformers/…)
-make ref-<name>             # run a reference script, e.g. make ref-supervised
+make ref-<name>             # run a reference script, e.g. make ref-hf-bert
 make test-e2e-pytorch-ref   # the cross-language correctness pytest suite
 make ref-lint               # ruff check torch_ref/
 make ref-typecheck          # pyright (strict) over torch_ref/

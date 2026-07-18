@@ -14,10 +14,11 @@ scripts/
 │   ├── __init__.py
 │   ├── perf_log.py                 perf-log Entry hub + writer CLI
 │   ├── header_parser.py            backend.h enum / FFI-symbol parsing
+│   ├── idris_parser.py             Idris-source parsing primitives
 │   └── sweep_grid.py               hyperparameter grid expansion + CSV
 ├── codegen/                        FFI codegen + lint cluster
-│   ├── ffi_manifest.py             single source of truth for Tensor-touching FFIs
-│   ├── gen-executor-instances.py   regenerate Executor/{Tape,Torch,Mlx}.idr blocks
+│   ├── ffi_manifest/               package: single source of truth for Tensor-touching FFIs
+│   ├── gen-executor-instances.py   regenerate Ml/Executor/{Tape,Torch,Mlx} instance blocks
 │   ├── gen-rename-headers.py       regenerate packages/backends/rename_<b>.h
 │   ├── ffi-convert-to-scheme.py    rewrite C %foreign decls into Scheme wrappers
 │   ├── check-ffi-wrap-template.py  lint wrap-handle invariants per FFI
@@ -27,24 +28,35 @@ scripts/
 ├── perf-baseline.sh                kind=baseline (single example, in-script marker)
 ├── perf-sweep.sh                   kind=baseline (Tier 3 cross-backend sweep)
 ├── perf-fast.sh                    kind=op_bench (Tier 1 Axes A/B, ≤ 5 min)
-├── perf-deep.sh                 kind=op_bench (Tier 2 + Axes C/D)
+├── perf-deep.sh                    kind=op_bench (Tier 2 + Axes C/D)
+├── perf-compile.sh                 kind=compile (elaboration wall-clock log)
 ├── perf-run-quiet.sh               caffeinate + nice wrapper around perf-run.sh
 ├── render-benchmarks.py            BENCHMARKS.md from perf-log.jsonl
 ├── check-perf-regression.py        median-window regression gate on perf-log.jsonl
 ├── check-paired-defaults.py        Idris ↔ torch_ref config drift gate
 ├── check-executor-method-drift.py  Executor interface drift gate
+├── check-ci-gate-coverage.py       CI workflow ↔ make-target coverage gate
+├── check-prim-in-examples.py       raw-prim call-site ratchet for examples
 ├── check-result.sh                 example RESULT-line threshold validator
 ├── check-gradmode-gate.sh          type-system negative-test gate
+├── check-linear-model-gate.sh      linear-model reuse negative-test gate
+├── check-backend-bundle-gate.sh    Backend-constraint-bundle negative-test gate
 ├── check-int-overflow-cast-gate.sh
 ├── check-lossy-cast-gate.sh
 ├── coverage-gap-probe.py           OP_* / FFI test-coverage relational join
+├── reach-gap-probe.py              Idris reachability gap-finder (+ reach-exclusions.txt)
 ├── gen-ci-workflow.py              .github/workflows/test.yml regenerator
 ├── sweep.py                        generic hyperparameter sweep harness
 ├── sweeps/                         JSON grid specs for sweep.py
+├── tests/                          pytest suite for the Python tooling above
 ├── dataset_mnist.sh                MNIST download → data/mnist/
 ├── dataset_tinyshakespeare.sh      tinyshakespeare → data/tinyshakespeare/
-├── test-checkpoint-resume.sh       Train.idr resume smoke test
-└── test_cuda_colab.sh              one-off CUDA tester for Colab boxes
+├── test-e2e-examples.sh            the test-e2e-examples smoke-gate body
+├── test-convergence.sh             the convergence-gate body
+├── test-checkpoint-resume.sh       fit checkpoint-resume smoke test
+├── test-log-level-profile-gate.sh  INFO-gated profile epilogue gate
+├── test_cuda_colab.sh              CUDA smoke driver for Colab boxes (drives the make lanes)
+└── worktree.sh                     git-worktree helper with warm-build symlinks
 ```
 
 ## Conventions
@@ -56,7 +68,7 @@ it should be Python. The shared library for that is `mltools/`.
 
 **Single source of truth per concept.**
   - `mltools/perf_log.py` — perf-log Entry construction (read by writers + readers)
-  - `codegen/ffi_manifest.py` — Tensor-touching FFI manifest (read by 4 codegen tools)
+  - `codegen/ffi_manifest/` — Tensor-touching FFI manifest package (read by 4 codegen tools)
   - `mltools/header_parser.py` — backend C/C++ parsing primitives
   - `mltools/sweep_grid.py` — grid expansion + CSV assembly
 

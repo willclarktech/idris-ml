@@ -16,12 +16,13 @@ the `fit` driver, checkpoints, and the `Backend` constraint bundle:
 
 ```idris
 import Ml            -- everything; you pin {ex=} / {dt=} at the leaf
-import Ml.Simple     -- ML plus the build's default (executor, dtype) as `Ex` / `F`
+import Ml.Simple     -- Ml plus the build's default (executor, dtype) as `Ex` / `F`
 ```
 
 `Ml.Simple` additionally pins the build's default `(executor, dtype)` cell as `Ex` / `F`, so
 tutorial and example code writes `Tensor dims Ex F g` and never spells `{ex=}`. Granular imports
-(`import Tensor`, `import Nn`, `import Optimizer`, `import Fit`, …) work too.
+(`import Ml.Tensor`, `import Ml.Nn`, `import Ml.Optimizer`, `import Ml.Fit`, …) work too —
+every module lives under the `Ml.*` root.
 
 ## The tensor type
 
@@ -41,7 +42,7 @@ Construct with one surface over `InitSpec` — `tensor {dims=[2,3]} (Const 0.5)`
 ## Models as records
 
 A model is a record of `Nn` layers or a `Seq` chain (`~~>`, endpoints-only index, hidden dims
-existential), built in the `Init` monad and realised with `runInitL`:
+existential), built in the `Init` monad and realized with `runInitL`:
 
 ```idris
 Model : Type
@@ -62,7 +63,8 @@ train via the stale handle" (a silent no-op against the shared C params) is a co
 linearity error. Tensors stay unrestricted. Train with the `fit` driver:
 
 ```idris
-(trained, epochs, loss) <- fitSupervised opt lossFn (batched stream) (simpleConfig 1000) model
+(MkBang (epochs, loss) # trained) <-
+  fitSupervised opt lossFn (batched stream) (simpleConfig 1000) model
 ```
 
 19 layers are available (Linear, Conv1D/2D, MaxPool, LayerNorm/BatchNorm/RmsNorm, Embedding,

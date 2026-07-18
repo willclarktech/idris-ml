@@ -6,7 +6,7 @@ Python, no FFI, just a typed `Env` interface. Depends only on `contrib`.
 
 ## The `Env` interface
 
-Every environment implements `Gym.Env`, parameterised over its state, action, and observation
+Every environment implements `Gym.Env`, parameterized over its state, action, and observation
 types:
 
 ```idris
@@ -24,7 +24,7 @@ replay buffers; deterministic envs pass it through unchanged. `Outcome` is
 `Continue | Terminated | Truncated` — the Gymnasium v0.26+ split that matters for value-function
 bootstrapping (bootstrap on the next state for `Truncated`, not `Terminated`).
 
-## Environment catalogue
+## Environment catalog
 
 | Family | Environments |
 | --- | --- |

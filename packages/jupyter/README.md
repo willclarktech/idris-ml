@@ -21,8 +21,8 @@ Or manually:
 
 ```bash
 make backend
-idris2 --build idris-ml.ipkg
-cd jupyter
+make install-notebook       # installs idris-ml + the Notebook.Prelude shim (+ transformers)
+cd packages/jupyter
 python3 -m venv .venv
 .venv/bin/pip install -e .
 .venv/bin/python3 -m idris_ml_kernel.install
@@ -82,7 +82,8 @@ Place cursor on a name and press Shift-Tab to see its type and documentation.
 
 ## How it works
 
-1. The kernel spawns `idris2 --source-dir src -p contrib src/Notebook/Prelude.idr`
+1. The kernel spawns `idris2 -p contrib -p linear -p idris-ml -p idris-ml-notebook
+   -p elab-util -p idris-transformers` and loads `:module Notebook.Prelude`
 2. `Notebook.Prelude` re-exports all library modules via `import public`
 3. `libidrisml.dylib` is copied to `build/exec/_tmpchez_app/` so `:exec` can load it
 4. Each cell is parsed and sent to the REPL; output is captured via pexpect

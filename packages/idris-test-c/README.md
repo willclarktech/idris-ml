@@ -26,6 +26,10 @@ Pure C; no Idris source.
 | `src/test_ntm_grad.c` | Criterion (single Test()) | NTM backward chain at realistic scale. |
 | `src/test_ntm_timestep.c` | Criterion (single Test()) | NTM single timestep (LSTM + FC + addressing + output). |
 | `src/test_mlx_compile.c` | Criterion | mlx::compile integration (MLX-only, `#ifdef BACKEND_MLX`). |
+| `src/test_param_checkpoint.c` | Criterion | Param checkpoint save/load path. |
+| `src/test_seeded_index.c` | Criterion | Seeded shuffle / index-engine determinism. |
+| `src/ops/<subsystem>/test_<op>.c` | Criterion (83 files) | Contract tests of the public `backend.h` FFI (core / linear / nn / conv / training), run against whichever backend dylib is primary. |
+| `src/lsan_teardown.c` | Support | Frees tape's by-design persistent allocations before LeakSanitizer's exit check (ASan lanes). |
 | `include/test_helpers.h` | Header | Backend-aware tolerance + readout helpers. |
 | `include/port_assert.h` | Header | `ASSERT_NEAR` / `ASSERT_TRUE` shims + FD/VAL tolerances + `heap_copy` for the split per-area suites. |
 
@@ -33,15 +37,17 @@ Pure C; no Idris source.
 
 Tests with a clean 1:1 source-file pair live next to their source under
 `packages/backends/backend_{tape,torch,mlx}/<subsystem>/` — e.g.
-`backend_tape/core/elementwise/test_add.c` next to `add.c`. Criterion's
-auto-discovery via the Makefile's `find` glob picks them up either way;
+`backend_tape/core/elementwise/test_elementwise_f32.c` next to the
+elementwise ops. Criterion's
+auto-discovery via the Makefile's `find` picks them up either way;
 colocation is the readability default. See
 [`docs/develop/testing-taxonomy.md`](../../docs/develop/testing-taxonomy.md)
 for the hybrid-layout rule.
 
 ## How tests are built
 
-The Makefile globs `src/*.c` and links everything into one Criterion
+The Makefile discovers `src/` recursively (`find src -name '*.c'`, which
+includes the `src/ops/**` tree) and links everything into one Criterion
 binary at `build/<KEY>/test_criterion_smoke`. The former standalone
 main() tests (`test_safetensors`, `test_ntm_*`, `test_mlx_compile`)
 were converted to Criterion suites on 2026-06-05 and ride the same

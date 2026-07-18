@@ -27,7 +27,8 @@ verified on every publication push, not asserted.
 `Transformers.BertForClassification` adds a classification head (`classifier.weight`/`.bias`)
 over the backbone; `Transformers.BertLora` / `Transformers.LoraIO` provide peft-compatible LoRA
 adapters. Combine with `Checkpoint.load {only := Just pfx}` (subset warm-start) and
-`Train.Freeze.freezeByPrefix` (prefix-freeze a backbone). Worked examples:
+`Train.Freeze`'s `freezeGroup opt =<< namesMatching (isPrefixOf "bert.")` (freeze a
+backbone by name group). Worked examples:
 `make example-bert-classify-finetune` and `make example-bert-classify-sst2-lora` (see
 [idris-ml-examples](../idris-ml-examples/)).
 
@@ -42,8 +43,8 @@ adapter).
 ## Build
 
 ```bash
-make transformers-install   # type-check + install to local prefix
-make test-transformers      # run the unit test harness
+make install-transformers          # type-check + install to local prefix
+make test-unit-idris-transformers  # run the unit test harness
 ```
 
 The package is also installed as part of `make install` (after
@@ -52,5 +53,5 @@ The package is also installed as part of `make install` (after
 ## Downloading HF checkpoints
 
 `scripts/hf-download.sh <repo> [filename]` wraps `curl -L --fail`,
-follows the `weight_map` for sharded models, and honours `HF_TOKEN`
+follows the `weight_map` for sharded models, and honors `HF_TOKEN`
 for private/gated models. See the script header for usage.

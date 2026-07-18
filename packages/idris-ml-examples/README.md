@@ -1,13 +1,13 @@
 # idris-ml-examples
 
 Runnable example programs demonstrating [idris-ml](../idris-ml/) across supervised learning,
-sequence modelling, transformers, and reinforcement learning — plus the end-to-end benchmark
+sequence modeling, transformers, and reinforcement learning — plus the end-to-end benchmark
 harness. Depends on `idris-ml`, `idris-gym`, and `idris-transformers`.
 
 Each example is a self-contained `Example/*.idr` module run via `make example-<name>`. Targets
 type-check, link, and execute the program against the active backend. Every example accepts
 `--epochs`, `--lr`, `--seed` and task-specific flags. Examples don't hardcode device or dtype —
-they reference the build's `(ExampleDevice, ExampleDType)` cell, so the same source runs on tape,
+they reference the build's `(ExampleExecutor, ExampleDType)` cell, so the same source runs on tape,
 torch, or mlx by choosing the backend at `make install` time.
 
 ## Supervised & vision
