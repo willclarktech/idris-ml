@@ -23,7 +23,6 @@ import Data.List
 import Data.Maybe
 import Data.String
 import Libraries.Text.Bounded
-
 import Parser.Lexer.Source
 import Parser.Source
 

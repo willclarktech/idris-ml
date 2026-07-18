@@ -11,6 +11,13 @@ Whitespace hygiene, import sorting, `:`/`=`/`=>` alignment, and FC-driven reinde
 pass independently oracle-gated with an identity fallback (if a pass can't prove it preserved
 meaning, the input is returned unchanged).
 
+Import sorting groups imports in blank-line-separated tiers, alphabetical within each:
+external (stdlib + compiler API + curated deps), then cross-package libraries, then
+package-local modules. "Local" is derived per file from the owning `.ipkg`'s `modules` list
+(nearest ancestor directory with ipkg files; the one listing the file's module wins), so the
+tool hardcodes no project names and needs no configuration; the library tier is everything
+neither external nor local. Files outside any ipkg degrade to two tiers.
+
 ## CLI
 
 ```bash

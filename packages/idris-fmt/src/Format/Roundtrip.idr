@@ -23,14 +23,12 @@ module Format.Roundtrip
 
 import Core.Core
 import Core.FC
-import Parser.Source
+import Data.List
 import Idris.Parser
 import Idris.Syntax
-
-import Parser.Lexer.Source
 import Libraries.Text.Bounded
-
-import Data.List
+import Parser.Lexer.Source
+import Parser.Source
 
 tokShow : WithBounds Token -> String
 tokShow t = show t.val
@@ -73,9 +71,49 @@ parseModule src =
 ||| transforms that leave declarations textually intact (import-sort, alignment)
 ||| but is blind to reindentation, which can silently move a clause out of a
 ||| `where` block or a method out of an interface. Use `deepSig` for that.
+-- `Show PTerm` is not FC-clean: postfix projections (`r.field`) render as
+-- `r.((Interactive):l:c--l:c, .field)`, so a transform that only shifts
+-- source positions (an import regroup that adds a blank line, a reindent
+-- that moves a column) would change the "FC-insensitive" signatures below
+-- and be rejected by the oracle. Scrub the leaked FC tokens — every
+-- `(Interactive):l:c--l:c` becomes `<fc>` — before comparison; positions
+-- are exactly what these signatures are documented to ignore.
+scrubFC : String -> String
+scrubFC s = pack (go (unpack s))
+  where
+    marker : List Char
+    marker = unpack "(Interactive):"
+
+    stripPfx : List Char -> List Char -> Maybe (List Char)
+    stripPfx []        ys        = Just ys
+    stripPfx (_ :: _)  []        = Nothing
+    stripPfx (x :: xs) (y :: ys) = if x == y then stripPfx xs ys else Nothing
+
+    -- consume `l:c--l:c` (the span after the origin marker)
+    dropLoc : List Char -> Maybe (List Char)
+    dropLoc cs =
+      case span isDigit cs of
+        (_ :: _, ':' :: r2) => case span isDigit r2 of
+          (_ :: _, '-' :: '-' :: r4) => case span isDigit r4 of
+            (_ :: _, ':' :: r6) => case span isDigit r6 of
+              (_ :: _, r7) => Just r7
+              _            => Nothing
+            _ => Nothing
+          _ => Nothing
+        _ => Nothing
+
+    go : List Char -> List Char
+    go []             = []
+    go cs@(c :: rest) =
+      case stripPfx marker cs of
+        Just afterMarker => case dropLoc afterMarker of
+          Just r  => unpack "<fc>" ++ go (assert_smaller cs r)
+          Nothing => c :: go rest
+        Nothing => c :: go rest
+
 export
 astSig : String -> Maybe (List String)
-astSig src = (\m => map (\d => show d.val) m.decls) <$> parseModule src
+astSig src = (\m => map (\d => scrubFC (show d.val)) m.decls) <$> parseModule src
 
 ||| The module's imports, each rendered via `Show Import` (order-sensitive).
 ||| Compared as a multiset for import-sort (which reorders + dedups).
@@ -172,7 +210,7 @@ mutual
 ||| re-parents a clause/method/field.
 export
 deepSig : String -> Maybe (List String)
-deepSig src = (\m => map (\d => sigDeclNoFC d.val) m.decls) <$> parseModule src
+deepSig src = (\m => map (\d => scrubFC (sigDeclNoFC d.val)) m.decls) <$> parseModule src
 
 ||| Safety gate for the reindentation pass, which changes only leading
 ||| whitespace. `codeSig` is trivially preserved by a whitespace-only edit so it

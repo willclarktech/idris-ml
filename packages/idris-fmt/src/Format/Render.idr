@@ -43,9 +43,9 @@ hygiene src =
 
 ||| Apply the import-sort pass, gated by `safeImportSort`; on any doubt
 ||| (bail, or oracle rejection) return the input unchanged.
-sortImportsSafe : String -> String
-sortImportsSafe src =
-  case sortImports src of
+sortImportsSafe : (localMods : List String) -> String -> String
+sortImportsSafe localMods src =
+  case sortImports localMods src of
     Nothing   => src
     Just cand => if safeImportSort src cand then cand else src
 
@@ -77,15 +77,26 @@ reindentSafe = gatedPass safeReindent reindent
 ||| Reformat a source string: whitespace hygiene, import sort/dedup, column
 ||| alignment, then reindentation. Guaranteed safe — each pass is gated by its
 ||| round-trip oracle and falls back to its input, so the result can never
-||| change the code's meaning.
+||| change the code's meaning. `localMods` is the owning package's module
+||| list for the import grouping's local tier (empty = two tiers).
 export
-format : String -> String
-format src =
+formatWith : (localMods : List String) -> String -> String
+formatWith localMods src =
   let hy = hygiene src
       hy2 = if safeReformat src hy then hy else src
-  in reindentSafe (alignSafe (sortImportsSafe hy2))
+  in reindentSafe (alignSafe (sortImportsSafe localMods hy2))
+
+||| `formatWith` with no known local modules.
+export
+format : String -> String
+format = formatWith []
 
 ||| Is the source already in formatted (fixed-point) form?
 export
+isFormattedWith : (localMods : List String) -> String -> Bool
+isFormattedWith localMods src = formatWith localMods src == src
+
+||| `isFormattedWith` with no known local modules.
+export
 isFormatted : String -> Bool
-isFormatted src = format src == src
+isFormatted = isFormattedWith []

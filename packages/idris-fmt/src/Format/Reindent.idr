@@ -22,11 +22,10 @@
 ||| fall back to the input, never change meaning.
 module Format.Reindent
 
+import Core.FC
 import Data.List
 import Data.Maybe
 import Data.String
-
-import Core.FC
 import Idris.Syntax
 
 import Format.Roundtrip

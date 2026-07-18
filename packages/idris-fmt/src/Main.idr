@@ -11,6 +11,8 @@ import System
 import System.File
 
 import Args
+
+import Format.Ipkg
 import Format.Render
 import Format.Roundtrip
 
@@ -20,7 +22,9 @@ data FmtMode = FStdout | FWrite | FCheck | FParse
 
 ||| CLI flags, parsed by the repo's own idris-args package. The config is
 ||| just the mode; long-form switches select it (last wins) and
-||| positionals are the files. `--help`/`-h` come from idris-args.
+||| positionals are the files. `--help`/`-h` come from idris-args. The
+||| import grouping's local tier is derived per file from the owning ipkg
+||| (`Format.Ipkg`), so there is nothing to configure.
 flags : List (Flag FmtMode)
 flags =
   [ switch "write" "format files in place" (const FWrite)
@@ -42,7 +46,8 @@ slurp fn = do
 checkOne : String -> IO Bool
 checkOne fn = do
   Just s <- slurp fn | Nothing => pure False
-  if isFormatted s
+  locals <- localModulesFor fn
+  if isFormattedWith locals s
     then pure True
     else do putStrLn ("would reformat: " ++ fn); pure False
 
@@ -50,7 +55,8 @@ checkOne fn = do
 writeOne : String -> IO Bool
 writeOne fn = do
   Just s <- slurp fn | Nothing => pure False
-  let out = format s
+  locals <- localModulesFor fn
+  let out = formatWith locals s
   if out == s
     then pure True
     else do
@@ -63,7 +69,8 @@ writeOne fn = do
 stdoutOne : String -> IO Bool
 stdoutOne fn = do
   Just s <- slurp fn | Nothing => pure False
-  putStr (format s)
+  locals <- localModulesFor fn
+  putStr (formatWith locals s)
   pure True
 
 ||| --parse-check: parse only (coverage probe). True iff it parses.

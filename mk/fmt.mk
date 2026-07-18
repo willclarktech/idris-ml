@@ -19,11 +19,13 @@
 
 IDRIS_FMT     := ./packages/idris-fmt/build/exec/idris-fmt
 # Only tracked .idr — git ls-files excludes generated sources
-# (ML/Config.idr, HwConfig.idr, … are .gitignored codegen output) and
+# (Ml/Config.idr, HwConfig.idr, … are .gitignored codegen output) and
 # anything under build/. The formatter never touches generated files.
 FMT_IDR_FILES := $(shell git ls-files '*.idr')
 
-# Build the formatter executable (cheap once warm).
+# Build the formatter executable (cheap once warm). Import grouping's
+# local tier is derived per file from the owning ipkg (Format.Ipkg) —
+# nothing repo-specific to pass.
 idris-fmt-build:
 	cd packages/idris-fmt && pack --no-prompt build idris-fmt.ipkg
 
