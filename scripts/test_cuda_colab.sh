@@ -1,145 +1,125 @@
 #!/usr/bin/env bash
-# test_cuda_colab.sh — Run on Google Colab (or any Linux with CUDA + PyTorch)
+# test_cuda_colab.sh — torch-backend CUDA smoke on Google Colab (or any
+# Linux host with an NVIDIA GPU and a CUDA-enabled PyTorch wheel).
 #
-# Tests the idris-ml torch backend on CUDA GPU.
-# No Idris 2 compiler needed — tests the C backend directly.
+# Drives the repo's own build system — no hand-maintained source lists:
+#   1. preflight: GPU visible, torch importable, versions printed
+#   2. deps: criterion (the C test framework), best-effort via apt
+#   3. make BACKEND=torch TORCH_DEVICE=cuda backend      (C dylib only)
+#   4. make BACKEND=torch TORCH_DEVICE=cuda test-unit-c-torch
 #
-# Usage on Colab:
-#   !git clone https://github.com/<user>/idris-ml.git
-#   !cd idris-ml && bash scripts/test_cuda_colab.sh
+# No Idris 2 toolchain needed — this exercises the C backend directly.
+# The CUDA-specific assertions live in the colocated criterion suite
+# packages/backends/backend_torch/test_cuda_smoke.c (device placement,
+# on-GPU add + CPU round-trip, backward onto a CUDA-resident param).
+# Those tests SKIP on a box without CUDA (EAFP probe -> NULL), so this
+# script's added value is providing the box — it FAILS if the suite
+# skipped where a GPU was expected.
 #
-# Or as a single cell:
-#   !git clone ... && cd idris-ml && bash scripts/test_cuda_colab.sh
+# Usage on Colab (Runtime -> Change runtime type -> GPU):
+#   !git clone <repo-url> idris-ml
+#   %cd idris-ml
+#   !bash scripts/test_cuda_colab.sh
+#
+# Local flow validation without an NVIDIA GPU (macOS/Linux):
+#   CUDA_SMOKE_ALLOW_CPU=1 bash scripts/test_cuda_colab.sh
+# runs the same build + test lane with TORCH_DEVICE=cpu; the cuda
+# suite skips via its probe instead of asserting.
 
-set -e
+set -euo pipefail
+cd "$(dirname "$0")/.."
 
-echo "=== idris-ml CUDA backend test ==="
+ALLOW_CPU="${CUDA_SMOKE_ALLOW_CPU:-0}"
+LOG="$(mktemp)"
+trap 'rm -f "$LOG"' EXIT
+
+echo "=== idris-ml torch-backend CUDA smoke ==="
 echo ""
 
-# 1. Check CUDA availability
-if ! command -v nvidia-smi &>/dev/null; then
-	echo "FAIL: nvidia-smi not found. No CUDA GPU available."
-	echo "On Colab: Runtime -> Change runtime type -> GPU"
+# ---- 1. preflight ----------------------------------------------------
+
+if [ "$ALLOW_CPU" != "1" ]; then
+	if ! command -v nvidia-smi >/dev/null 2>&1; then
+		echo "FAIL: nvidia-smi not found — no NVIDIA GPU visible."
+		echo "On Colab: Runtime -> Change runtime type -> GPU."
+		echo "(CUDA_SMOKE_ALLOW_CPU=1 runs the CPU-degrade flow instead.)"
+		exit 1
+	fi
+	echo "GPU detected:"
+	nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+	echo ""
+fi
+
+# torch interpreter: system python3 (Colab), falling back to the repo's
+# uv venv (local dev) — the same order mk/backends.mk uses for
+# LIBTORCH_PATH detection.
+PY=python3
+if ! $PY -c "import torch" >/dev/null 2>&1; then
+	PY=packages/pytorch/.venv/bin/python3
+fi
+if ! $PY -c "import torch" >/dev/null 2>&1; then
+	echo "FAIL: PyTorch not importable. Install with: pip install torch"
+	echo "(or locally: cd packages/pytorch && uv sync)"
 	exit 1
 fi
-echo "GPU detected:"
-nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+echo "PyTorch:        $($PY -c 'import torch; print(torch.__version__)')"
+echo "libtorch:       $($PY -c 'import torch, os; print(os.path.dirname(torch.__file__))')"
+echo "CUDA available: $($PY -c 'import torch; print(torch.cuda.is_available())')"
+echo "CUDA version:   $($PY -c 'import torch; print(torch.version.cuda)')"
 echo ""
 
-# 2. Find PyTorch/libtorch
-TORCH_DIR=$(python3 -c "import torch, os; print(os.path.dirname(torch.__file__))")
-if [ -z "$TORCH_DIR" ]; then
-	echo "FAIL: PyTorch not found. Install with: pip install torch"
+if [ "$ALLOW_CPU" != "1" ]; then
+	if [ "$($PY -c 'import torch; print(torch.cuda.is_available())')" != "True" ]; then
+		echo "FAIL: torch.cuda.is_available() is False despite nvidia-smi."
+		echo "The installed torch wheel is likely CPU-only; on Colab the"
+		echo "preinstalled wheel is CUDA-enabled — check the runtime type."
+		exit 1
+	fi
+fi
+
+# ---- 2. criterion (C test framework) ---------------------------------
+
+if ! pkg-config --exists criterion 2>/dev/null && [ ! -e /usr/include/criterion/criterion.h ]; then
+	echo "criterion not found; attempting apt install (best-effort)..."
+	APT="apt-get"
+	[ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1 && APT="sudo apt-get"
+	$APT update -qq >/dev/null 2>&1 || true
+	$APT install -y -qq libcriterion-dev pkg-config >/dev/null 2>&1 || true
+fi
+if ! pkg-config --exists criterion 2>/dev/null && [ ! -e /usr/include/criterion/criterion.h ]; then
+	echo "FAIL: criterion still not found. Install it (Debian/Ubuntu:"
+	echo "  apt-get install libcriterion-dev) or set CRITERION_PREFIX."
 	exit 1
 fi
-echo "PyTorch: $TORCH_DIR"
-echo "CUDA available: $(python3 -c 'import torch; print(torch.cuda.is_available())')"
-echo "CUDA version: $(python3 -c 'import torch; print(torch.version.cuda)')"
+echo "criterion: $(pkg-config --modversion criterion 2>/dev/null || echo 'header found')"
 echo ""
 
-# 3. Build the torch backend
-echo "Building torch backend..."
-TORCH_INC="$TORCH_DIR/include"
-TORCH_INC_API="$TORCH_DIR/include/torch/csrc/api/include"
-TORCH_LIB="$TORCH_DIR/lib"
+# ---- 3 + 4. build + test via the repo's own Make lanes ----------------
 
-mkdir -p build
+DEV=cuda
+[ "$ALLOW_CPU" = "1" ] && DEV=cpu
+JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 
-# Shared objects
-cc -O2 -c -o build/safetensors.o csrc/safetensors.c
-cc -O2 -c -o build/cJSON.o csrc/cJSON.c
-cc -O2 -c -o build/mnist.o csrc/mnist.c
-cc -O2 -c -o build/dataloader.o csrc/dataloader.c
-
-# Torch backend (Linux)
-c++ -std=c++17 -O2 -shared -fPIC \
-	-I"$TORCH_INC" -I"$TORCH_INC_API" \
-	-L"$TORCH_LIB" -ltorch -ltorch_cpu -lc10 -ltorch_cuda \
-	-Wl,-rpath,"$TORCH_LIB" \
-	-o build/libidrisml.so \
-	csrc/backend_torch.cpp build/safetensors.o build/cJSON.o build/mnist.o build/dataloader.o
-echo "  build/libidrisml.so OK"
+echo "--- make BACKEND=torch TORCH_DEVICE=$DEV backend (-j$JOBS) ---"
+make -j"$JOBS" BACKEND=torch TORCH_DEVICE="$DEV" backend
 echo ""
 
-# 4. Build and run test_backend
-echo "Running C backend tests..."
-cc -o build/test_backend csrc/test_backend.c -Lbuild -lidrisml -Wl,-rpath,build -lm
-./build/test_backend
+echo "--- make BACKEND=torch TORCH_DEVICE=$DEV test-unit-c-torch ---"
+# --verbose so criterion prints [SKIP] lines — the verdict below greps
+# for the torch_cuda suite's skip message, which is silent by default.
+make TORCH_DEVICE="$DEV" CRITERION_FLAGS=--verbose test-unit-c-torch 2>&1 | tee "$LOG"
 echo ""
 
-# 5. Test CUDA device placement
-echo "Testing CUDA device placement..."
-cat > /tmp/test_cuda_device.c << 'CEOF'
-#include "backend.h"
-#include <stdio.h>
-#include <string.h>
+# ---- verdict ----------------------------------------------------------
 
-int main(void) {
-	printf("=== CUDA Device Tests ===\n");
-
-	/* Create a tensor on CPU */
-	double data[] = {1.0, 2.0, 3.0, 4.0};
-	int shape[] = {4};
-	TensorHandle cpu_t = tensor_create(data, shape, 1, 1);
-	printf("Created on: %s\n", tensor_device(cpu_t));
-
-	/* Move to CUDA */
-	TensorHandle gpu_t = tensor_to_device(cpu_t, "cuda");
-	const char* dev = tensor_device(gpu_t);
-	printf("After to_device('cuda'): %s\n", dev);
-
-	if (strstr(dev, "cuda") == NULL) {
-		printf("FAIL: tensor not on CUDA\n");
-		return 1;
-	}
-
-	/* Arithmetic on GPU */
-	TensorHandle gpu_sum = tensor_add(gpu_t, gpu_t);
-	printf("GPU add device: %s\n", tensor_device(gpu_sum));
-
-	/* Move back to CPU and verify values */
-	TensorHandle result = tensor_to_device(gpu_sum, "cpu");
-	printf("Back on CPU: %s\n", tensor_device(result));
-
-	double out[4];
-	tensor_to_doubles(result, out);
-	int ok = 1;
-	for (int i = 0; i < 4; i++) {
-		printf("  result[%d] = %.1f (expected %.1f)\n", i, out[i], data[i] * 2);
-		if (out[i] != data[i] * 2) ok = 0;
-	}
-
-	/* Test conv2d on GPU */
-	double inp[] = {1,2,3,4, 5,6,7,8, 9,10,11,12, 13,14,15,16};
-	int inp_s[] = {1, 4, 4};
-	TensorHandle inp_t = tensor_to_device(tensor_create(inp, inp_s, 3, 0), "cuda");
-	double ker[] = {1, 0, 0, 1};
-	int ker_s[] = {1, 1, 2, 2};
-	TensorHandle ker_t = tensor_to_device(tensor_create(ker, ker_s, 4, 0), "cuda");
-	TensorHandle conv_out = tensor_conv2d(inp_t, ker_t, NULL, 0, 0, 1, 1);
-	printf("Conv2D on GPU: %s, numel=%d\n", tensor_device(conv_out), tensor_numel(conv_out));
-
-	/* Test backward on GPU */
-	double w_data[] = {2.0};
-	int w_shape[] = {1};
-	TensorHandle w = tensor_to_device(tensor_create(w_data, w_shape, 1, 1), "cuda");
-	double x_data[] = {3.0};
-	TensorHandle x = tensor_to_device(tensor_create(x_data, w_shape, 1, 0), "cuda");
-	TensorHandle y = tensor_mul(w, x);
-	tensor_backward(y);
-	TensorHandle w_grad = tensor_grad(w);
-	TensorHandle w_grad_cpu = tensor_to_device(w_grad, "cpu");
-	double grad_val = tensor_item(w_grad_cpu);
-	printf("GPU backward: d(w*x)/dw = %.1f (expected 3.0)\n", grad_val);
-	if (grad_val != 3.0) ok = 0;
-
-	printf("\n%s\n", ok ? "All CUDA tests PASSED" : "Some CUDA tests FAILED");
-	return ok ? 0 : 1;
-}
-CEOF
-
-cc -o build/test_cuda_device /tmp/test_cuda_device.c -Icsrc -Lbuild -lidrisml -Wl,-rpath,build -lm
-./build/test_cuda_device
-
-echo ""
-echo "=== Done ==="
+if [ "$ALLOW_CPU" != "1" ]; then
+	# The cuda suite's skip message is unique; on a GPU box it must not
+	# appear — a skip here means libtorch never saw the device.
+	if grep -q "no CUDA device available" "$LOG"; then
+		echo "FAIL: the torch_cuda suite SKIPPED — libtorch did not see the GPU."
+		exit 1
+	fi
+	echo "=== CUDA smoke PASSED (torch_cuda suite asserted on the GPU) ==="
+else
+	echo "=== CPU-degrade flow completed (torch_cuda suite skipped by probe) ==="
+fi

@@ -12,6 +12,7 @@
 #   torch      — CPU, libtorch backend
 #   torch-cpu  — alias for torch
 #   torch-mps  — Metal Performance Shaders
+#   torch-cuda — NVIDIA GPU via libtorch (Linux/Colab CUDA boxes)
 #   mlx-cpu    — mlx backend, MLX_DEVICE=cpu (default)
 #   mlx-gpu    — mlx backend, MLX_DEVICE=gpu (Metal)
 #
@@ -79,6 +80,7 @@ cell_to_backend_device() {
 		torch)     echo "torch cpu" ;;
 		torch-cpu) echo "torch cpu" ;;
 		torch-mps) echo "torch mps" ;;
+		torch-cuda) echo "torch cuda" ;;
 		mlx-cpu)   echo "mlx cpu" ;;
 		mlx-gpu)   echo "mlx gpu" ;;
 		*) return 1 ;;
