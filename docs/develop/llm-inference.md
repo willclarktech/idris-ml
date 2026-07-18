@@ -92,7 +92,7 @@ What's load-bearing in that signature:
 
 - **`ex : Executor`** is the open executor kind (any type with a
   `UserExecutorCore` instance). For Llama, examples bind `ex` to
-  `ExampleDevice`, which the Makefile generates per
+  `ExampleExecutor`, which the Makefile generates per
   `(BACKEND, *_DEVICE)` cell (`TapeExecutor`, `TorchExecutor TMps`,
   `MlxExecutor MGpu`, …). See `docs/develop/design-decisions.md`
   "Open `d` parameter".
@@ -173,12 +173,15 @@ What the type system *does* catch:
 ## RoPE: tables built once, applied per layer
 
 ```idris
-buildLlamaRoPETables : … -> IO (RoPETables maxPos headDim ex dt g)
+buildLlamaRoPETables : … -> IO (RoPETables maxPos headDim ex dt)
 ```
 
 builds `[maxPos, headDim/2]` cos/sin tables at model construction
 time (see
-[`Nn/RoPE.idr:212-223`](../../packages/idris-ml/src/Ml/Nn/RoPE.idr)).
+[`Nn/RoPE.idr`](../../packages/idris-ml/src/Ml/Nn/RoPE.idr)). Note
+`RoPETables` carries no `GradMode` index — the tables are precomputed
+non-learnable constants (the vestigial `g` slot was dropped
+2026-06-17).
 The tables are reused across every forward, every layer, every
 head. `applyRope` slices `[seq, halfDim]` rows from the tables per
 forward (NOT per layer; the same slice serves all 16 layers in one
@@ -239,7 +242,7 @@ allocator destructor cascade.
 
 ## Backend pluggability
 
-The example's only mention of a concrete backend is `ExampleDevice`
+The example's only mention of a concrete backend is `ExampleExecutor`
 + `ExampleDType`, both generated per build from the template
 [`packages/idris-ml-examples/src/BuildConfig.idr.in`](../../packages/idris-ml-examples/src/BuildConfig.idr.in).
 Switching backends is just a different `make install`. The same

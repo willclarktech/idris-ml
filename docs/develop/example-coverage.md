@@ -9,15 +9,27 @@ thresholds, (c) gaps to fill, (d) redundancies, (e) wrong-shape problems.
 Maintained by HPO Tracks B1, B2, and B6. Per-example runtime + threshold
 columns are filled in by B2; coverage gaps in §3 drive B6.
 
+> **Scope note (2026-07-27)**: the table and matrix below predate the
+> newer examples (the HF inference + fine-tune family, DoubleDqn, the
+> precision/dtype demos, the bench/diagnostic utilities, …) — they cover
+> 27 of the 50 files in `packages/idris-ml-examples/src/Example/`
+> (`ls packages/idris-ml-examples/src/Example/*.idr | wc -l` is the
+> ground truth). The rows that exist are current; the newer examples are
+> tracked by the smoke table in `scripts/test-e2e-examples.sh` +
+> `test-examples.expect` rather than here.
+
 ## 1. Per-example detail
 
-The training-mode column maps to the epoch function in
-`packages/idris-ml/src/Backprop.idr` (`epochVar`,
-`epochRecurrentVar`, `epochTwoPhaseVar`, `epochVarTensor`,
-`epochVarTensorBatch`) or the example's own custom epoch (RL).
+The training-mode column predates the `fit` driver: every example now
+routes through `Ml.Fit` (`fitSupervised` for the supervised rows, a
+custom `EpochStep` for the recurrent / two-phase / RL rows). The
+`Backprop.idr` `epoch*` family the column originally mapped to was
+deleted with the other old surfaces at the example-migration sweep
+(closed 2026-06-19; see CHANGELOG).
 
-Smoke args come from the per-example `case` block in `Makefile`'s
-`test-examples` recipe. Smoke threshold = `test-examples.expect`,
+Smoke args come from the per-example `smoke_args` table in
+`scripts/test-e2e-examples.sh` (the `test-e2e-examples` recipe body).
+Smoke threshold = `test-examples.expect`,
 convergence threshold = `test-examples-convergence.expect`. Times marked
 **measured** were observed in development; **estimated** numbers are
 derived from documented per-epoch costs × default epoch count, and should

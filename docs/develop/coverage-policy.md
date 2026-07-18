@@ -24,7 +24,7 @@ fourth is **additive** (confidence, not coverage *per se*):
    symbol coverage + W3b's custom-logic-path tests.
 3. **F32 paired oracle** — every op routed through the F32 storage
    path has a paired F32-vs-F64 gradcheck rung in the tape T29 ladder
-   (`packages/backends/test/tape/test_dtype_scaffolding.c`). This axis is
+   (`packages/backends/backend_tape/test_dtype_scaffolding.c`). This axis is
    tape-specific (mlx and torch's F32 paths live in their respective
    frameworks).
 4. **Property-based confidence (additive, not gating).** When a
@@ -49,7 +49,7 @@ fourth is **additive** (confidence, not coverage *per se*):
 
 **Line / region coverage is now a primary, gated metric** (this
 reverses the older "secondary, not chased" stance). It is measured by
-`gcov` + `gcovr` (`make coverage-backend-<b>` → `build-cov/cov-<b>.xml`)
+`gcov` + `gcovr` (`make test-coverage-backend-<b>` → `build-cov-<b>/cov.xml`)
 and gated by **Codecov** (`codecov.yml`): a per-flag + combined
 **project** status with a 1% threshold blocks regressions, and a
 **patch** status at 100% requires new/changed product C to be covered.
@@ -75,15 +75,15 @@ coverage; including them would dilute the signal.
 | `tensor_print`, `tensor_live_count`, `tensor_peak_live_count` | Diagnostic-only; correctness has no operational impact | None |
 | `backend_profile_reset`, `backend_profile_report`, `backend_reset_for_eval`, `backend_epoch_begin`, `backend_name` (and the `_return` RefC variants) | Lifecycle / profiling stubs; no semantic content | None |
 | `get_rss_mb`, `get_current_rss_mb` | Memory introspection; OS-provided value | None |
-| `mnist_load`, `mnist_count`, `mnist_get_image`, `mnist_get_label`, `mnist_free` | File-format-specific I/O; covered by `example-mnist` smoke gate | `make example-mnist` + `make test-examples` |
+| `mnist_load`, `mnist_count`, `mnist_get_image`, `mnist_get_label`, `mnist_free` | File-format-specific I/O; covered by `example-mnist` smoke gate | `make example-mnist` + `make test-e2e-examples` |
 | `tensor_retain_handle`, `tensor_release_handle` | Refcount glue, covered implicitly by every tensor test | None |
 | `idrisml_seq` | Pure pass-through sequencing helper | None |
 | `tensor_mlx_compile_enabled`, `tensor_mlx_compile_invocations` | mlx-only diagnostic counters | None |
 | Torch `at::*` / `torch::F::*` direct passthroughs (~80 of 93 `.cpp` files) | Coverage of `tensor_add` calling `torch::add` verifies plumbing, not kernel correctness; the kernel is libtorch's | Symbol coverage via the common Criterion suite (W3 tests run on torch too); custom-logic paths get W3b |
 | Tape/mlx dispatch-table init (`backend_tape/training/autograd/op_dispatch.c`, `backend_mlx/training/autograd/op_dispatch.cpp`) | Pure initialization; trivially covered by any forward+backward | `test_op_dispatch.c` probes that `tape_dispatch_get(op) != NULL` for every OP_* |
 | `diagnostics.{c,cpp}`, `profiling.{c,cpp}`, `dtype_init.{c,cpp}` (any backend) | Telemetry / pure dispatch-table init — no correctness path (same class as `op_dispatch` init above) | Excluded from the gcovr report via `gcovr.cfg` `exclude =` (mirrored in `codecov.yml` `ignore:`); not counted toward line% |
-| `Compatible` negative paths (F64-on-MPS, I64-on-MPS rejection) | Gated by type system at construction; cannot deterministically test "Metal rejects F64" without Metal hardware on every runner | Type-system enforcement + `check-rename-headers` CI gate |
-| Multi-link unified-dispatch symbol forwarding | Tested implicitly by `example-transfer-demo` (multi-backend build) and the rename-headers CI gate | Existing example + CI gate |
+| `Compatible` negative paths (F64-on-MPS, I64-on-MPS rejection) | Gated by type system at construction; cannot deterministically test "Metal rejects F64" without Metal hardware on every runner | Type-system enforcement + `test-integration-lint-rename-headers` CI gate |
+| Multi-link unified-dispatch symbol forwarding | Tested implicitly by `example-transfer` (multi-backend build) and the rename-headers CI gate | Existing example + CI gate |
 | Dropout RNG output values | Inherently non-deterministic; no value oracle exists | Statistical mean test (already in suite) + example smoke. Per-element assertions are NOT allowed |
 | mlx paravirt-GPU panic paths | Non-deterministic VM-level failure | Documented in `TODO.md` row 44 |
 | `Data.Nat` recursive Peano walks | Performance footgun, not a correctness path | None |
@@ -130,9 +130,9 @@ test-coverage-gap-probe` (`.github/workflows/test.yml`).
 ## Line/region coverage: the gcov + gcovr + Codecov stack
 
 ```bash
-make coverage-backend-tape    # build-cov/cov-tape.xml + html-tape/
-make coverage-backend-torch   # build-cov/cov-torch.xml + html-torch/
-make coverage-backend-mlx     # build-cov/cov-mlx.xml  + html-mlx/
+make test-coverage-backend-tape    # build-cov-tape/cov.xml + build-cov-tape/html/
+make test-coverage-backend-torch   # build-cov-torch/cov.xml + build-cov-torch/html/
+make test-coverage-backend-mlx     # build-cov-mlx/cov.xml  + build-cov-mlx/html/
 ```
 
 The C coverage stack is **gcov-based** (not llvm source-based): the
@@ -143,9 +143,9 @@ XML + an HTML report. This choice is deliberate — gcovr supports
 `GCOVR_EXCL_START/STOP`), which llvm-cov lacks, and they are the
 mechanism for the high-bar exclusions below.
 
-- **HTML** (`build-cov/html-<b>/index.html`) — read this to find the
+- **HTML** (`build-cov-<b>/html/index.html`) — read this to find the
   exact uncovered lines/branches when working a subsystem.
-- **Cobertura** (`build-cov/cov-<b>.xml`) — uploaded to Codecov in CI,
+- **Cobertura** (`build-cov-<b>/cov.xml`) — uploaded to Codecov in CI,
   one flag per backend (see `codecov.yml`). Codecov is the **gate**:
   project status (threshold-tolerant, blocks regressions) + patch
   status (100%, new code must be covered).
@@ -268,7 +268,7 @@ When introducing a new `OP_FOO` to either tape or mlx:
    new `OP_FOO` as MISSING.
 6. **F32 routing**: if `OP_FOO` is routed through tape's F32
    storage path, also add a rung in the T29 ladder
-   (`packages/backends/test/tape/test_dtype_scaffolding.c`). Skip-flag
+   (`packages/backends/backend_tape/test_dtype_scaffolding.c`). Skip-flag
    commit shape per the plan-doc's W5 section.
 7. **Property-based test consideration**: ask whether `OP_FOO`
    has an invariant worth property-testing — round-trip,
@@ -337,8 +337,10 @@ tests are the gate.
 
 - [`coverage-remaining.md`](coverage-remaining.md) — current per-backend gaps + the plan to close them (bug-blocked / excluded / deferred buckets)
 - `scripts/coverage-gap-probe.py` — the probe itself
-- `feedback_tdd_default` (in MEMORY.md) — TDD commit shapes
-- `feedback_test_gates_must_run_in_ci` — CI must run the gates we
-  build
-- `feedback_memory_corruption_is_p1` — when a gap test surfaces a
-  use-after-free or SIGBUS, file as P1 regardless of failure rate
+- `CLAUDE.md` "Test-driven development" — the TDD commit shapes
+  (paired commit / skip-flag) referenced by the checklist above
+- Every coverage gate built here must run in CI
+  (`.github/workflows/test.yml`) — an unrun gate is not a gate
+- When a gap test surfaces a use-after-free or SIGBUS, file it as P1
+  regardless of failure rate — memory-corruption-class flakes are
+  critical

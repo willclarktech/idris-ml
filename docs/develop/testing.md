@@ -9,8 +9,8 @@ when-to-run guidance — that the contract doesn't.
 
 | Command | What it does | Wall time | When |
 |---|---|---|---|
-| `make test-unit` | Idris unit + C-side ops + safetensors round-trip. The pre-commit default. | ~2 min | Every PR |
-| `make test-e2e` | Smoke gate: every example × every available backend, 3–10 epochs each, safety-net thresholds. Catches crashes / NaN / divergence / missing RESULT keys. | ~15 min | PR touching an example or training-loop module |
+| `make test-unit` | Idris unit suites across packages (core, gym, args, transformers, examples, fmt) + the Criterion C suite (ops, lifecycle, safetensors round-trip). The pre-commit default. | ~2 min | Every PR |
+| `make test-e2e` | Smoke gate (every example × every available backend, 3–10 epochs each, safety-net thresholds — catches crashes / NaN / divergence / missing RESULT keys) plus the HF roundtrips, oracle gates, PyTorch-ref suite, and jupyter kernel tests. | ~15 min+ | PR touching an example or training-loop module |
 | `make test-convergence` | Convergence: every example at full default epochs, single seed=42, tape only, tight thresholds. Catches "model trains in the wrong direction" and similar correctness regressions. | hours | Release validation |
 | `make example-<name>` | Run one example with full default config. The standard dev-iteration command. | varies | Dev iteration |
 
@@ -30,9 +30,9 @@ catches:
 |---|---|---|---|
 | `check` | minutes (Idris elaboration of 4 lib packages) | Type errors, missing imports, syntax — Idris library packages only | C-side errors (those come out at `make backend` link time); example-level type errors (those need `check-examples`) |
 | `check-all` | 20-60 min cold | `check` + every example executable builds | Runtime bugs |
-| `test` (`= test-unit`) | a few minutes | Idris-side correctness across packages + C-level op correctness + safetensors round-trip | Anything that requires training a model |
-| `test-integration` | ~5 min | Negative-type gates (`test-integration-typegate-*`), lint drift (`test-integration-lint-*`), checkpoint resume, jupyter cell parser, NTM grad/timestep | Full example training |
-| `test-e2e` | tens of minutes | Example smoke matrix × 5 backend lanes, HF-roundtrip gates, transformer / oracle gates, jupyter notebook execution | Multi-seed sensitivity (single seed=42 only); strict convergence quality |
+| `test` (`= test-unit`) | a few minutes | Idris-side correctness across packages (core, gym, args, transformers, examples, fmt) + C-level op correctness + safetensors round-trip | Anything that requires training a model |
+| `test-integration` | ~5 min | Negative-type gates (`test-integration-typegate-*`), lint drift (`test-integration-lint-*`), checkpoint resume, log-level profile gate, jupyter cell parser, Python-script probes — see the leaf list on the `test-integration` aggregator in `mk/tests.mk` | Full example training |
+| `test-e2e` | tens of minutes | Example smoke matrix × 5 backend lanes, HF-roundtrip gates (bert / gpt2 / bitnet / llama / llama-generate), transformers-oracle + RoPE-oracle gates, PyTorch-ref suite, jupyter kernel tests (notebook *execution* is the separate, heavier `test-e2e-notebooks`) | Multi-seed sensitivity (single seed=42 only); strict convergence quality |
 | `bench` (`= bench-fast`) | ≤5 min | Op-kernel + single-layer fwd+bwd regressions vs PyTorch | E2E training perf, HF inference perf |
 | `bench-deep` | ≤20 min | Tier 1 + e2e training perf + HF inference perf, tape only | Cross-backend perf |
 | `bench-full` | hours | Cross-backend perf — every example × every backend | Correctness (perf signal only) |

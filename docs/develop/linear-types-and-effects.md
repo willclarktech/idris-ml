@@ -1,7 +1,8 @@
 # Linear types & effects: making stale model aliases a compile error
 
 This is a design + learnings doc for the linear-resource model migration
-(the `ModuleL`/`SeqL`/`evalL` surface). It is written to outlive the
+(the `ModuleL`/`SeqL`/`evalL` surface — since collapsed onto the base
+`Module`/`Seq`/`eval` names; see the status banner below). It is written to outlive the
 migration: half of it is reusable knowledge for a future project that builds
 its own linear-typed ML language, so it spells out the *why* behind each
 mechanic, not just the recipe.
@@ -361,7 +362,7 @@ identical across examples; the recipe (verified on `Supervised` + `Rnn`):
 
 1. **Imports.** Add `import Control.Linear.LIO` (`L`, `run`, `pure1`,
    `liftIO1`) and `import Data.Linear.Notation` (`MkBang`, `!*`) and
-   `import FitL` (`fitL`/`fitSupervisedL`/`fitCustomL`). `LPair`/`#` are
+   `import Ml.Fit` (`fit`/`fitSupervised`/`fitCustom`). `LPair`/`#` are
    `Builtin`. Never `import Data.Linear` (Copies — see above). The examples
    build with `-p linear` (added to `IDRIS_FLAGS`).
 2. **Fully-qualify `Control.Linear.LIO.run`.** `import System` (getArgs)
@@ -376,15 +377,15 @@ identical across examples; the recipe (verified on `Supervised` + `Rnn`):
 4. **The loss / step function goes linear — fine-grained (the locked rule).**
    The model is threaded single-owner through **every** forward/step in the loss
    body, *not* dropped to ω and run in IO for the whole epoch. For
-   `fitSupervisedL`, the loss consumes the model, runs `forwardL`/`forwardSeqL`,
-   returns `MkBang loss # model'`. For a custom `fitL` step that reads the model
+   `fitSupervised`, the loss consumes the model, runs `forward`/`forwardSeq`,
+   returns `MkBang loss # model'`. For a custom `fit` step that reads the model
    many times per epoch:
    - **Recurrent** (state changes each timestep): thread the cell through
-     `recurStepL` one timestep at a time (`Rnn`/`Lstm`/`Gru`: a `go` fold
+     `recurStep` one timestep at a time (`Rnn`/`Lstm`/`Gru`: a `go` fold
      threading `(1 _ : cell)`; NTM/DNC: the bare cell threaded through
      `encodeAllL`/`decodeLossesL`). This makes stale-state reuse a compile error.
    - **Feed-forward read many times** (transformer per-sample, RL rollout):
-     thread the (stateless) model through every `forwardSeqL` anyway — a `go`/
+     thread the (stateless) model through every `forwardSeq` anyway — a `go`/
      fold threading `(1 _ : body)` across samples/timesteps. Uniform single-owner
      even though forward is a read (the Option-3 decision: maximum type safety +
      elegance, invasiveness accepted).
@@ -402,21 +403,20 @@ identical across examples; the recipe (verified on `Supervised` + `Rnn`):
    The coarse **consume-match-rebuild-delegate** (match → ω → run the whole body
    in IO) is *rejected at the example level* — it's the lifecycle-seam-only
    guarantee the plan rejected. It survives only as a **library-internal** last
-   resort inside `Ntm`/`Dnc`'s `recurStepL` (controller stored in an ω field
-   while the IO surface coexists — see the section above), never in example code.
-5. **Consume the final model.** `fitL`/`fitSupervisedL` return
+   resort inside `Ntm`/`Dnc`'s `recurStep` (controller stored in an ω field
+   internally — see the section above), never in example code.
+5. **Consume the final model.** `fit`/`fitSupervised` return
    `LPair (!* (Nat, Double)) m`; unwrap `(MkBang (epochs, loss) # trained)`,
-   then `evalL`/`forwardL` it for inference (each consumes + returns), and
-   discard the last handle — `discardL` for a `ParamsL` layer, or a 3-line
+   then `eval`/`forward` it for inference (each consumes + returns), and
+   discard the last handle — `discard` for a `Params` layer, or a 3-line
    `discardModel (MkRec _ _) = pure ()` for a user record (the handles are
    C-managed; dropping the matched ω fields is a no-op discharge).
-6. **`Seq` models become `SeqL`.** The linear sequence is a *distinct type*
-   `Nn.SeqL` (linear `::` fields), not `Nn.Seq` — and both export
-   `Nil`/`(::)`/`(~~>)`. So a Seq-based example sets `Model = SeqL …`, builds
-   the chain with the same `~~>`/`Nil` syntax, and `%hide`s the three
-   `Nn.Seq.{Nil,(::),(~~>)}` constructors so the builder resolves to `SeqL`.
-   `forwardSeqL` / `discardL` (`ParamsL SeqL`) then apply. (`Nn.SeqL` is
-   re-exported from the `Nn` umbrella alongside `Nn.Seq`.)
+6. **`Seq` *is* the linear sequence type.** `Ml.Nn.Seq` has linear `::`
+   fields; a Seq-based example sets `Model = Seq …`, builds the chain with
+   the `~~>`/`Nil` syntax, and `forwardSeq` / `discard` (`Params Seq`)
+   apply. (Pre-collapse this was a *distinct* `Nn.SeqL` beside the IO
+   `Nn.Seq`, and examples `%hide`-disambiguated between them; the collapse
+   promoted `SeqL` to `Nn.Seq` — see gotcha 2 in "The collapse" below.)
 7. **Loss/eval ops not yet on the `L IO` surface** get an `*L` twin added to
    `Tensor.idr` as needed (e.g. `tnllLossMeanL`), same `ioRerunL (\_ => …)`
    shape as the rest.
@@ -445,9 +445,9 @@ The fine-grained guarantee is only real if the model stays linear *through
 training*, not just at a single `forwardL`. The training stack threads it end
 to end:
 
-- **`EpochStepL m batch = (1 _ : m) -> batch -> L IO {use=1} (LPair (!* Double) m)`**
+- **`EpochStep m batch = (1 _ : m) -> batch -> L IO {use=1} (LPair (!* Double) m)`**
   — a step consumes the model and returns it beside the banged loss. The
-  recursive batch pass (`runPassL`) and epoch loop (`runEpochLoopL` /
+  recursive batch pass (`Fit.runPass`) and epoch loop (`runEpochLoopL` /
   `epochLoopGoL`) thread the linear `m` through every recursive call; the
   result carries the model out (`LPair (!* (Nat, Double)) m`). This compiled
   first try — the v0.8 checker handles a linear var threaded through deep
@@ -487,13 +487,16 @@ previously-compiling code*:
   define none). Dodge it by avoiding bare literals in `Nat` arithmetic: `S n`
   instead of `n + 1`, `Z`/`case` instead of `== 0`, `the Nat 1` where unavoidable.
 
-Because the existing `Train.Engine`/`Fit` are dense with such arithmetic, the
-linear loop and driver live in **sibling modules** (`Train.EngineL`, `FitL`)
-that import the linear stack, reusing every model-agnostic piece from their IO
-twins (early-stop machines, checkpoint resume/keep-best, `shouldLog`,
-`isDiverged`, `fmtMetrics`). The IO files stay linear-import-free and unbroken.
-This is the same additive-then-collapse shape used for the layers (`*L` beside,
-merge at Phase 9).
+Because the existing `Train.Engine` is dense with such arithmetic, the linear
+epoch loop lives in a **sibling module** (`Train.EngineL`, still present today)
+that imports the linear stack, reusing every model-agnostic piece from its IO
+twin (early-stop machines, checkpoint resume/keep-best, `shouldLog`,
+`isDiverged`, `fmtMetrics`); `Train.Engine` stays linear-import-free and
+unbroken. The linear fit driver was born the same way as a `FitL` sibling of
+the IO `Fit`; at the collapse it was promoted to *the* driver
+(`Ml/Fit.idr` — dodging the trap by importing `Data.Linear.Notation`, not
+`Data.Linear`, and using `Z`/`S` accumulators). Same additive-then-collapse
+shape as the layers (`*L` beside, merge at the collapse).
 
 ## Status / file map
 
@@ -526,7 +529,8 @@ merge at Phase 9).
 - `packages/idris-ml/src/Ml/Nn/{Attention,Transformer}.idr` — the composites
   (Attention's plain linear fns spliced by `TransformerBlock`'s `ParamsL`/
   `ModuleL`).
-- `packages/idris-ml/src/Ml/Nn/SeqL.idr` — list composite (existential threading).
+- `packages/idris-ml/src/Ml/Nn/Seq.idr` — list composite (existential
+  threading; born `Nn/SeqL.idr`, renamed at the collapse).
 - `packages/idris-ml/src/Ml/Nn/Residual.idr` — `ResidualL`, one-sublayer composite.
 - `packages/idris-ml/src/Test/{neg/ReuseAfterFreeze,pos/SingleUseCompiles}.idr`
   + `scripts/check-linear-model-gate.sh` — the gate.
@@ -545,8 +549,8 @@ seam-free use inside a model `forward`.
   model through tape-free forwards in eval/rollout) and **`withGenFreeL`**
   (generation bracket: frees a replay step's grad intermediates, autograd ON).
   The `IO` ops are unchanged beside them.
-- `packages/idris-ml/src/Ml/Hpo/LrFinder.idr` — `lrFindL` (the `L IO` LR-range
-  test) beside `lrFind`.
+- `packages/idris-ml/src/Ml/Hpo/LrFinder.idr` — `lrFind` (the `L IO` LR-range
+  test; the IO twin died at the collapse).
 - `packages/idris-ml/src/Ml/Nn/{Recurrent,Lstm,Gru}.idr` — `RecurrentL` bodies on
   the `L IO` ops (the small recurrent cells; `Ntm`/`Dnc` delegate instead).
 - `packages/idris-ml/src/Ml/Nn/Init.idr` — `runInitL` (born-linear construction
@@ -556,22 +560,24 @@ seam-free use inside a model `forward`.
 - `packages/idris-ml/src/Ml/Train/EngineL.idr` — the `L IO` epoch loop
   (`runEpochLoopL`/`epochLoopGoL`/`withEpochL`/`logEpochL`/`divergedL`); sibling
   to `Train.Engine` (linear-import isolation).
-- `packages/idris-ml/src/FitL.idr` — the `L IO` fit driver
-  (`fitSupervisedL`/`fitSupervisedMixedL`/`fitL`/`fitCustomL`/`runPassL`,
-  `EpochStepL`); sibling to `Fit.idr`. Hides `Copies.Nil`; `Z`/`S` accumulators.
+- `packages/idris-ml/src/Ml/Fit.idr` — the `L IO` fit driver
+  (`fitSupervised`/`fitSupervisedMixed`/`fit`/`fitCustom`/`runPass`,
+  `EpochStep`); born as the `FitL` sibling of the IO `Fit`, promoted to the
+  sole driver at the collapse. Imports `Data.Linear.Notation` (not
+  `Data.Linear`, dodging the `Copies.Nil` shadow); `Z`/`S` accumulators.
 - `packages/idris-ml/src/Ml/Train.idr` — `TrainConfig` gains a `metricsL` field
   (model-free) beside `metrics`.
 - `packages/idris-ml-examples/src/Example/*.idr` — **all 22 training examples**
   are on the fine-grained linear surface (`mk/config.mk` adds `-p linear`):
   - Feed-forward: Supervised, Mnist, SeqClassify, Checkpoint, PrecisionCheckpoint
-    (`fitSupervisedL` + `forwardL`/`forwardSeqL`).
-  - Recurrent: Rnn, Lstm, Gru (linear `cell` field threaded via `recurStepL`,
+    (`fitSupervised` + `forward`/`forwardSeq`).
+  - Recurrent: Rnn, Lstm, Gru (linear `cell` field threaded via `recurStep`,
     ω `head`).
   - Memory: NtmCopy, NtmAssociativeRecall, DncCopy, DncAssociativeRecall (bare
-    cell threaded via `recurStepL`; eval under `withNoGradL`).
-  - Transformer: Transformer (`SeqL` body + `lrFindL` for `--lr-find`), Gpt
-    (`SeqL` body, generation + bpc eval threaded).
-  - RL: Reinforce (single-net `SeqL` policy); Dqn, MountainCar (two Q-nets via
+    cell threaded via `recurStep`; eval under `withNoGradL`).
+  - Transformer: Transformer (`Seq` body + `lrFind` for `--lr-find`), Gpt
+    (`Seq` body, generation + bpc eval threaded).
+  - RL: Reinforce (single-net `Seq` policy); Dqn, MountainCar (two Q-nets via
     nested `LPair`, `withGenFreeL` replay step); A2c, Ppo (actor+critic nested
     `LPair`); Sac, MountainCarCont (**5-net linear `Nets` bundle** record —
     named-field access instead of a 5-deep nested `LPair`).
@@ -598,17 +604,21 @@ seam-free use inside a model `forward`.
   born-linear seam for the HF *constructors* (which are `IO`, not `Init`).
 - `packages/idris-ml-examples/src/Example/{BertClassifyFinetune,BertMlmFinetune,Gpt2LmFinetune,BertClassifySst2Finetune,BertClassifySst2Lora}.idr`
   — the 5 HF fine-tune examples on the fine-grained linear surface (thread the
-  model/adapters through the `hf*L` forwards; eval under `withNoGradL`). With the
-  4 HF *inference* examples (HfBert/HfGpt2/HfLlama/HfBitNet — forward-only, no
-  lifecycle) these stay IO and fold into the Phase-9 collapse.
+  model/adapters through the `hf*L` forwards; eval under `withNoGradL`). The 4
+  HF *inference* examples (`BertInference`/`Gpt2Inference`/`LlamaInference`/
+  `BitNetInference` — forward-only, no lifecycle) stay IO and fold into the
+  final op-surface collapse.
 
-Coexists with the IO `Module`/`Params`/`Seq`/`Frozen` surface. No `forwardL`/
-`recurStepL` body still uses `liftIO1` for tensor math — the only remaining
-lifts are principled: `Module.idr`'s `evalL`/`freeze`/`unfreeze` flip C
-`requires_grad` via `liftIO1 (primIO …)` (a param-flag side effect, not a
-tensor op), and `Rnn` lifts its user-supplied IO activation field. The IO op
-surface is deleted once every caller (layers → fit → examples → transformers)
-is on `L IO`; that collapse renames `*L` → base.
+The *model* surface is single and linear (per the collapse banner above — no
+IO `Module`/`Params`/`Seq`/`Frozen` twin survives); only the *tensor op*
+surface is still dual (`*L` ops beside the IO ones — no footgun, tensors are
+unrestricted). No `forward`/`recurStep` body still uses `liftIO1` for tensor
+math — the only remaining lifts are principled: `Module.idr`'s
+`eval`/`freeze`/`unfreeze` flip C `requires_grad` via `liftIO1 (primIO …)` (a
+param-flag side effect, not a tensor op), and `Rnn` lifts its user-supplied IO
+activation field. The IO *op* surface is deleted once every caller (layers →
+fit → examples → transformers) is on `L IO`; that final collapse renames the
+`*L` ops → base.
 
 ## The collapse — three gotchas (2026-06-17)
 
@@ -618,7 +628,7 @@ surfaced three traps worth recording for any future from-scratch language:
 1. **Operator fixity does NOT re-export through `import public` chains** (Idris
    2 0.8.0). `Nn.Seq`'s chain operator `~~>` was `export infixr 5 ~~>`, which
    reaches *direct* importers but not transitive ones — and the examples reach
-   it via `ML.Simple → ML → Nn → Nn.Seq`. The *name* `(~~>)` chains fine
+   it via `Ml.Simple → Ml → Ml.Nn → Ml.Nn.Seq`. The *name* `(~~>)` chains fine
    (re-exported as a value), but without the fixity in scope the parser can't
    read `l1 ~~> l2` as infix and reports **`Undefined name ~~>`**. Fix:
    `public export infixr 5 ~~>`. (Before the collapse the fixity happened to

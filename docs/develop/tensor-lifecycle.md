@@ -1,7 +1,6 @@
 # Tensor lifecycle — wrapped-handle FFI ABI
 
 Reference doc for the idris-ml tensor lifecycle model. Companion docs:
-- `tensor-lifecycle-plan.md` — the phased rollout (P0' → P6') with status
 - `design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" — the
   rationale entry
 - `gotchas.md` "Wrapped-handle ABI on mlx" — the operational do/don't
@@ -30,8 +29,9 @@ The wrap is a 3-slot Chez vector:
   pointer would see a string instead and crash obviously rather than
   silently corrupt;
 - slot 1: backend tag string — `"tape"` / `"torch"` / `"mlx"` for
-  per-backend wraps in `Device/*.idr`, or `"primary"` for the
-  unsuffixed wraps in `Tensor.idr` that call link-time-aliased
+  per-backend wraps in `Ml/Executor/{Tape,Torch,Mlx}/*.idr`, or
+  `"primary"` for the
+  unsuffixed wraps in `Ml/Tensor/*.idr` that call link-time-aliased
   unified C symbols (which alias to whichever backend is primary in
   this build);
 - slot 2: the raw C tensor pointer — what `foreign-procedure` calls
@@ -39,7 +39,7 @@ The wrap is a 3-slot Chez vector:
 
 C-level Tensor lifecycle is refcount-driven (where the backend
 supports it — see "Backend asymmetry" below). The drain function
-in `Tensor.idr` reads slot 1, builds the symbol name
+in `Ml/Tensor/Handle.idr` reads slot 1, builds the symbol name
 `tensor_release_handle_<tag>` at runtime (or unified
 `tensor_release_handle` for `"primary"`), and calls it on slot 2.
 The lookup is cached per-tag in a Chez hashtable so the hot-path
@@ -136,7 +136,7 @@ For a per-backend FFI (suffixed C name `_tape` / `_torch` / `_mlx`):
   ((foreign-procedure "tensor_FOO_tape" (void*) double) (vector-ref a0 2)))
 ```
 
-For an unsuffixed FFI in `Tensor.idr` (link-time-aliased to primary):
+For an unsuffixed FFI in `Ml/Tensor/*.idr` (link-time-aliased to primary):
 
 ```scheme
 ;; Tensor -> Tensor (e.g. tensor_add, aliased to primary)
@@ -159,7 +159,7 @@ Rules:
 - The TAG must match the C function's suffix: `_tape` → `"tape"`,
   `_torch` → `"torch"`, `_mlx` (or `_mlx_streamed`) → `"mlx"`,
   unsuffixed → `"primary"`. The generator's `backend_tag_of` in
-  `scripts/codegen/ffi_manifest.py` enforces this.
+  the `scripts/codegen/ffi_manifest/` package enforces this.
 - Raw-pointer arguments (`R`, e.g. malloc'd double buffers) and
   primitive arguments (`int`, `double`, `string`) pass through
   unchanged.
@@ -171,6 +171,11 @@ Rules:
   guardian lazy-init at the head of the lambda. These are the only
   FFIs that might run before any other Tensor allocation has
   initialized the guardian.
+
+The generated form additionally caches each `foreign-procedure` in a
+top-level value (symbol cache, added 2026-05-27) — the templates above
+show the wrap/unwrap/retain/guardian structure; `gen_scheme_wrapper` in
+`scripts/codegen/ffi_manifest/` is the canonical emitter.
 
 ### Three properties that make this work
 
@@ -202,7 +207,7 @@ raw pointer at slot 2 (tag read from slot 1; lookup cached per-tag
 in a Chez hashtable for hot-loop drain).
 
 Drain triggers:
-- **`withNoGrad` exit** (`packages/idris-ml/src/Ml/Tensor.idr`): the
+- **`withNoGrad` exit** (`packages/idris-ml/src/Ml/Tensor/Handle.idr`): the
   `withNoGrad` combinator force-runs a Chez major GC + drain on its
   way out. This is the primary lifecycle pump for eval-phase
   workloads, where ops bypass `tape_append` and per-op refcount
@@ -236,7 +241,8 @@ sidesteps the GC entirely. Three brackets, coarsest to finest:
   intermediates. Bounds eval loops (NTM/DNC/Mnist/RL eval). The result must
   hold no live block tensors; if it does, use `withNoGradKeep` (+ a
   `KeepAlive` instance) to retain them past the sweep.
-- **per-epoch** (`tensor_epoch_begin/end`, wired in `runTrainingIO`) —
+- **per-epoch** (`tensor_epoch_begin/end`, wired in `Train.Engine`'s
+  `withEpoch` bracket, which the unified epoch loop under `fit` runs) —
   frees a training epoch's grad intermediates. Bounds gradual training
   growth (mlx supervised: 14102 → 54 peak handles; bit-identical loss).
 - **per-step** (`withGenFree`, a grad-mode bracket, nestable inside the
@@ -251,12 +257,14 @@ there and behaviour is bit-identical; the mechanism is mlx-only.
 
 ### The two-file workflow
 
-1. **Add the FFI to the manifest.** Open
-   `scripts/codegen/ffi_manifest.py` and add a new `MANIFEST` entry
-   for your C symbol's base name (no `_tape`/`_torch`/`_mlx` suffix):
+1. **Add the FFI to the manifest.** Open the matching family module in
+   `scripts/codegen/ffi_manifest/families/` (e.g. `core.py`) and add an
+   `Entry` for your C symbol's base name (no `_tape`/`_torch`/`_mlx`
+   suffix):
 
    ```python
-   "tensor_my_op": (("T", "T", "i"), "T"),   # (arg classes, return class)
+   "tensor_my_op": Entry(args=("T", "T", "i"), ret="T",
+                         slice="UserExecutorCore", idris_method="primMyOp"),
    ```
 
    Classifiers: `T` = wrapped Tensor handle, `R` = raw AnyPtr (not a
@@ -265,32 +273,34 @@ there and behaviour is bit-identical; the mechanism is mlx-only.
 
 2. **Run the converter (or hand-edit using its output as the
    template).** Existing `%foreign "C:tensor_my_op,libidrisml"`
-   declarations in `Tensor.idr` + `Device.idr` +
-   `Device/{Mlx,Tape,Torch}.idr` will be rewritten in place:
+   declarations in the wrap-handle file set (`Ml/Tensor.idr` +
+   `Ml/Tensor/*.idr` + `Ml/Executor/*.idr` + `Ml/Executor/*/*.idr`,
+   globbed as `WRAP_HANDLE_FILES` in the manifest package) will be
+   rewritten in place:
 
    ```sh
-   python3 scripts/codegen/ffi-convert-to-scheme.py \
-     packages/idris-ml/src/Ml/Tensor.idr \
-     packages/idris-ml/src/Device.idr \
-     packages/idris-ml/src/Device/{Mlx,Tape,Torch}.idr
+   python3 scripts/codegen/ffi-convert-to-scheme.py
    ```
+
+   (No arguments = the whole wrap-handle file set; pass explicit file
+   paths to restrict it.)
 
 3. **Verify with the linter:**
 
    ```sh
-   make check-ffi-wrap-template
+   make test-integration-lint-ffi-wrap-template
    ```
 
-   Or just push — CI runs it in the `check-paired-defaults`
-   preflight before the long matrix burns minutes.
+   Or just push — CI runs it in the `lint` job before the long matrix
+   burns minutes.
 
 ### What the linter catches
 
 - `%foreign "C:cname,libidrisml"` where `cname`'s base is in MANIFEST
   → "should have been converted to wrap-on-return scheme template."
 - `%foreign "scheme:..."` whose body's `foreign-procedure` call is in
-  MANIFEST but is missing `(vector-ref a<i> 1)` for a T arg, missing
-  the `(vector 'tensor-handle ...)` wrap on a T return, missing the
+  MANIFEST but is missing `(vector-ref a<i> 2)` for a T arg, missing
+  the `(vector 'tensor-handle-v2 ...)` wrap on a T return, missing the
   `tensor_retain_handle` call, or missing the
   `idris-tensor-guardian` registration.
 - Foreign-procedure typespec mismatches against the manifest's
@@ -305,7 +315,7 @@ auto-exempt — no annotation needed.
 - **Don't pass `tensorPtr` to non-FFI Scheme code that expects a raw
   pointer.** On mlx primary builds, `t.tensorPtr` is a Chez vector,
   not a raw pointer. Either route through an FFI (which knows to
-  unwrap) or write your own `(vector-ref ... 1)` extraction.
+  unwrap) or write your own `(vector-ref ... 2)` extraction.
 
 - **Don't introduce a parallel "raw pointer" field.** This was the
   failure mode of every earlier attempt. The `Tensor` record has one
@@ -347,15 +357,18 @@ across an `optimizer_step` that called `tape_reset` internally).
 
 ### Test-harness implication: read grads before `param_clear`
 
-`param_clear` on mlx is part of the refcount lifecycle: it releases
-the per-param retain and runs `tape_reset` (which itself sweeps
-refcount=0 tensors). The vector backing `param_registry` is actually
-emptied. So any code path that reads `param_grad_item_at(...)` after
-`param_clear` on mlx hits an empty vector — historically undefined,
-in practice "got 0.000000" or worse.
+`param_clear` (shared across backends —
+`packages/backends/shared/training/param_registry.c`) is part of the
+refcount lifecycle: it releases each entry's per-param retain and
+zeroes the registry count. On mlx the release is real refcount
+bookkeeping — a param whose count hits 0 is deleted — so any code
+path that reads `param_grad_item_at(...)` after `param_clear` on mlx
+hits freed state: historically undefined, in practice "got 0.000000"
+or worse.
 
-Tape's `param_clear` is count-only (`param_count_val = 0` — see
-`backend_tape.c`) and leaves the registry array intact. Reads after
+On tape the same `param_clear` is effectively count-only:
+`tensor_release_handle` is a no-op stub there and the arena still owns
+the storage, so the registry array's tensors survive. Reads after
 clear accidentally still work on tape, masking the bug class.
 
 The fix lives at the test layer, not the backend. Capture analytical
@@ -390,7 +403,8 @@ left commits and a learning that's worth not re-discovering.
 ### Attempt 1: state-only refcount (commit `0c0cfe5`)
 
 Surgical refcount for per-sequence transient state Tensors only —
-the ones produced by `Layer/Ntm.idr` and `Layer/Dnc.idr`'s
+the ones produced by the then-`Layer/Ntm.idr` and `Layer/Dnc.idr`
+(now `Ml/Nn/Ntm.idr` / `Ml/Nn/Dnc.idr`)
 `zeroState1d`/`zeroState2d` helpers. A new `is_state` flag on
 the mlx `Tensor` struct gated `tensor_retain_handle` /
 `tensor_release_handle` (no-op when `is_state == 0`). Per-FFI
@@ -409,7 +423,7 @@ macOS runners) before `no_grad_end`'s sweep fired.
 
 ### Attempt 2: wrap-everywhere via `prim__wrapHandle` in `MkTensor` (reverted)
 
-The dormant Phase 2.2 design: `MkTensor` (smart constructor)
+The dormant earlier design: `MkTensor` (smart constructor)
 called `prim__wrapHandle` to register a shadow with the
 guardian and retain. Every Tensor record carried a parallel
 `managedShadow : AnyPtr` field aliasing the wrap.
@@ -452,14 +466,16 @@ field. No conditional wrapping based on `is_state`.
 Rolled out in phases:
 - P0' (commit `c1f4d6b`): 4 FFIs converted, unit tests green
 - P1' (commit `860c82a`): mechanical sweep across all 5 wrap-handle
-  files (~600 FFIs total — Tensor.idr + Device.idr +
-  Device/{Mlx,Tape,Torch}.idr)
+  files of that era (~600 FFIs total — Tensor.idr + Device.idr +
+  Device/{Mlx,Tape,Torch}.idr; the set now lives at `Ml/Tensor/*.idr`
+  + `Ml/Executor/{Tape,Torch,Mlx}/*.idr`)
 - P3'-a (commit `4a38a5f`): retire `prim__wrapHandle` /
   `prim__unwrapHandle` / `managedShadow` field / smart-constructor
   function — the wrap doing all the work means the parallel layer
   was redundant
-- P4' (commit `c3460ce`): structural linter +
-  `scripts/codegen/ffi_manifest.py` as single source of truth
+- P4' (commit `c3460ce`): structural linter + the FFI manifest
+  (since split into the `scripts/codegen/ffi_manifest/` package) as
+  single source of truth
 - P5' (commit `b63dc06`): perf baselines (within VM noise of
   pre-sweep) + drain-cadence tuning declined (memory bounded at
   ~49MB on the originally-failing mlx examples without mid-block

@@ -43,9 +43,9 @@ are much faster.
 | Target | Scope | Wall (warm) |
 |---|---|---|
 | `test` (= `test-unit`) | all unit suites — Idris + C | a few minutes |
-| `test-unit-idris` | Idris-side unit suites across packages (core, gym, args, transformers, examples) | a few minutes |
+| `test-unit-idris` | Idris-side unit suites across packages (core, gym, args, transformers, examples, fmt) | a few minutes |
 | `test-unit-c` | Criterion C-side suite | a minute |
-| `test-unit-{idris-ml,gym,args,idris-transformers,examples}` | per-package | shortest |
+| `test-unit-{idris-ml,gym,args,idris-transformers,examples,fmt}` | per-package (`test-unit-fmt` is the idris-fmt round-trip-oracle + render suite, `mk/fmt.mk`) | shortest |
 | `test-unit-c-{tape,mlx,torch}` | C suite with that backend forced | a minute each |
 | `test-unit-multi-backend` | cross-backend Idris suite (requires BACKEND=tape,torch,mlx) | a few minutes |
 | `test-integration` | negative-type gates, linters, multi-module probes | ~5 min |
@@ -196,8 +196,7 @@ module-path-mirrors-file-path rule blocks literal adjacency (you
 can't have `Tensor.idr` and `Test.Tensor.idr` in the same directory
 since `Test.Tensor` *must* live at `Test/Tensor.idr` per the
 dot-namespace convention), so this is the closest pattern Idris-2
-permits. Documented separately in
-[`testing.md`](testing.md#dual-ipkg-pattern).
+permits.
 
 ## Perf layer — coverage axes
 
@@ -225,17 +224,20 @@ sweep; it does *not* regenerate the doc (it covers the same axes
 but across all backends, producing the deeper apples-to-apples
 table elsewhere in `docs/develop/perf-baseline.md`).
 
-**Current implementation status**: Axis A is landed
-(`scripts/perf-fast.sh` drives `make bench-ops` + `make bench-ops-py`,
-parses output, appends `kind: "op_bench"` entries to
-`perf-log.jsonl`, regenerates `BENCHMARKS.md` via
-`scripts/render-benchmarks.py`). Today's Axis A panel covers
-matmul, matvec, elementwise, softmax, conv2d (PyTorch-only —
-disabled on tape pending fix), train-step, SDPA (GQA),
-embedding gather, RMSNorm. Axes B/C/D are placeholders; the
-renderer emits an "No entries yet" stub per missing axis. The
-selection rule + the planned B/C/D inventories are tracked in
-the relevant `TODO.md` rows.
+**Current implementation status**: all four axes are landed and
+populated in `BENCHMARKS.md`. Axis A (`scripts/perf-fast.sh` drives
+`make bench-ops` + `make bench-ops-py`, parses output, appends
+`kind: "op_bench"` entries to `perf-log.jsonl`, regenerates
+`BENCHMARKS.md` via `scripts/render-benchmarks.py`) covers matmul,
+matvec, elementwise, softmax, conv2d, train-step, SDPA (GQA),
+embedding gather, RMSNorm. Axis B (`bench-layers` /
+`bench-layers-py`) covers Linear, LstmCell, Conv2dBlock,
+TransformerBlock, Ntm. Axis C covers one end-to-end training
+workload per training mode (supervised / lstm / transformer /
+ntm-copy / reinforce); Axis D covers HF inference (bert, gpt2,
+llama-generate). Tier 2 (`bench-deep`, `scripts/perf-deep.sh`)
+captures C+D. The renderer emits a "No entries yet" stub only for
+an axis with no log entries.
 
 ## Current → new target rename table
 
@@ -351,14 +353,18 @@ inference). Three cadence tiers + a handful of axis drivers:
 |---|---|
 | `test-examples-convergence` | `test-convergence` |
 
-### Removed aggregators
+### Reworked convenience aggregators
 
-| Old | Why removed |
+The old partial-aggregator *semantics* died in the rename wave, but
+the four names survive as thin conveniences over the layer
+aggregators (see `Makefile` / `mk/e2e.mk`):
+
+| Name | What it is now |
 |---|---|
-| `test` (partial agg of unit + criterion + safetensors) | Replaced by `test-unit` (true unit aggregator). The old `test` did *not* aggregate everything fast; the new `test-unit` does. |
-| `test-all` | Replaced by `test-unit && test-integration && test-e2e`. The "everything" target is not a coherent layer. |
-| `all` | Replaced by `check-all && test-unit && test-integration && test-e2e`. |
-| `all-backends` | Replaced by `test-e2e` (which already iterates available backends). |
+| `test` | Alias for `test-unit`. (The old `test` was a partial aggregate of unit + criterion + safetensors; the new `test-unit` is the true unit aggregator.) |
+| `test-all` | Convenience chain: `test-unit`, `test-unit-c` per backend, `test-integration`, `test-e2e-examples`, plus the PyTorch-ref / jupyter / notebook suites when their tooling is present. Multi-hour; not a CI gate (CI runs the layer aggregators directly). |
+| `all` | `check-all` + `test-all`. |
+| `all-backends` | Alias for `test-e2e-examples` (which iterates available backends). |
 
 ### Preserved as-is (preflight type-checks)
 
