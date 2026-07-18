@@ -95,9 +95,10 @@ def test_error_handling(repl: Idris2REPL) -> None:
     """Type error should return error text, not crash."""
     result = repl.send(":t nonexistentName")
     assert "Error" in result or "Undefined" in result
-    # REPL should still be alive. (Not `1 + 1`: with the prelude loaded,
-    # the literal 1 elaborates to the linear Usage type, which has no Num —
-    # see the TODO row on the Usage-literal collision.)
+    # REPL should still be alive. (Not `1 + 1`: at the raw-REPL layer the
+    # literal 1 elaborates to the linear Usage type, which has no Num. The
+    # kernel layer retries that collision — see test_kernel_exec.py — but
+    # this suite talks to the REPL directly, below the retry.)
     result2 = repl.send("3 + 4")
     assert "7" in result2
 

@@ -2,6 +2,21 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Notebook `1 + 1` Usage-literal collision fixed via kernel retry
+(2026-07-26). Closed the Medium TODO "Notebook REPL: integer literal `1`
+elaborates to linear `Usage`". Root cause: `Control.Linear.LIO` exports
+`fromInteger : (x : Integer) -> Either (x = 0) (x = 1) => Usage`, so bare
+0/1 literals in open-typed expressions commit to `Usage` and fail with
+missing `Num Usage` (or `Show Usage` under `printLn`). `%hide` cannot fix
+it interactively — verified that a loaded module's hide list does not
+reach the REPL's interactive context — but Idris's `with Prelude.fromInteger`
+disambiguation does. The kernel now retries exactly the missing-
+implementation-for-Usage failures with the `with`-wrapped command,
+keeping the original error whenever the retry also fails (so genuine
+Usage misuse still reports). RED before the fix: kernel-layer tests
+`1 + 1` (Num Usage) and `:exec printLn (1 + 1)` (Show Usage) both
+returned status error. Kernel suite 55/55; full notebook gate green.
+
 Jupyter kernel error-classification hole closed + kernel suite CI-wired
 (2026-07-26). Closed the High TODO "Jupyter kernel treats Idris parse
 errors (and module-load failures) as SUCCESS". `kernel.py` now classifies

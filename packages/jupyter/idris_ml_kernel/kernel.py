@@ -37,6 +37,37 @@ def _extract_word(code: str, cursor_pos: int) -> str:
     return match.group(0) if match else ""
 
 
+def usage_retry_command(cmd: str) -> str | None:
+    """Rewrite a command that hit the linear-Usage literal collision.
+
+    `Control.Linear.LIO` (in scope via Notebook.Prelude) exports
+    `fromInteger : (x : Integer) -> Either (x = 0) (x = 1) => Usage`, so a
+    bare `0`/`1` literal in an open-typed expression can commit elaboration
+    to `Usage`, and the surrounding code then fails with a missing
+    `Num Usage` / `Show Usage` implementation. A `%hide` can't fix this
+    interactively (the REPL resets a loaded module's hide list), but
+    Idris's `with`-disambiguation can: prefer `Prelude.fromInteger` for
+    the whole expression. Returns None for command forms the rewrite
+    can't target (`:let`, `:t`, other colon commands).
+    """
+    if cmd.startswith(":exec "):
+        return ":exec with Prelude.fromInteger (" + cmd[len(":exec ") :] + ")"
+    if cmd.startswith(":"):
+        return None
+    return "with Prelude.fromInteger (" + cmd + ")"
+
+
+def is_usage_collision(result: str) -> bool:
+    """True when output shows the Usage literal collision (see above).
+
+    Broad on purpose: any missing-implementation error mentioning Usage
+    triggers a retry, and the retry result only replaces the original
+    when it succeeds — a genuine Usage misuse fails the retry too and
+    the original error is reported unchanged.
+    """
+    return "Can't find an implementation for" in result and "Usage" in result
+
+
 def is_error_output(result: str) -> bool:
     """Classify REPL output as a failed cell.
 
@@ -115,6 +146,17 @@ class Idris2Kernel(Kernel):
                 self.repl.restart()
                 result = "REPL restarted (crash recovery). Re-run this cell."
                 has_error = True
+
+            if result and is_usage_collision(result):
+                retry = usage_retry_command(cmd)
+                if retry is not None:
+                    try:
+                        retried = self.repl.send(retry)
+                    except (pexpect.EOF, pexpect.TIMEOUT):
+                        self.repl.restart()
+                        retried = None
+                    if retried is not None and not is_error_output(retried):
+                        result = retried
 
             if result:
                 if is_error_output(result):
