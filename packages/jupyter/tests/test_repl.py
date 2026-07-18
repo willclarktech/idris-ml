@@ -34,7 +34,7 @@ def test_doc_query(repl: Idris2REPL) -> None:
 
 
 def test_module_import(repl: Idris2REPL) -> None:
-    result = repl.send(":module Layer.Core")
+    result = repl.send(":module Nn.Linear")
     assert "Imported" in result
 
 
@@ -95,9 +95,11 @@ def test_error_handling(repl: Idris2REPL) -> None:
     """Type error should return error text, not crash."""
     result = repl.send(":t nonexistentName")
     assert "Error" in result or "Undefined" in result
-    # REPL should still be alive
-    result2 = repl.send("1 + 1")
-    assert "2" in result2
+    # REPL should still be alive. (Not `1 + 1`: with the prelude loaded,
+    # the literal 1 elaborates to the linear Usage type, which has no Num —
+    # see the TODO row on the Usage-literal collision.)
+    result2 = repl.send("3 + 4")
+    assert "7" in result2
 
 
 def test_browse(repl: Idris2REPL) -> None:

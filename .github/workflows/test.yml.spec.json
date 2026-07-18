@@ -521,6 +521,17 @@
     ],
     "test-e2e-notebooks": [
       {
+        "name": "Kernel pytest suite",
+        "comment": [
+          "Cell parser, REPL integration/FFI, crash recovery, and the",
+          "error-output classification (parse failures and module-load",
+          "failures must report status error, or broken notebooks pass",
+          "the nbconvert gate below). Previously not CI-wired, which let",
+          "a stale :module target in test_repl.py sit red unnoticed."
+        ],
+        "run": "make test-e2e-jupyter"
+      },
+      {
         "name": "Execute all Jupyter notebooks",
         "comment": [
           "Runs every tutorial + model notebook headless via nbconvert",

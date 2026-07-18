@@ -37,6 +37,28 @@ def _extract_word(code: str, cursor_pos: int) -> str:
     return match.group(0) if match else ""
 
 
+def is_error_output(result: str) -> bool:
+    """Classify REPL output as a failed cell.
+
+    The markers cover every failure shape the Idris 2 REPL emits without a
+    uniform prefix: typed errors ("Error: ..."), runtime exceptions
+    ("Exception: ..."), parse failures ("Couldn't parse any alternatives"),
+    module-load failures ("Error loading module X: ..." — note: no colon
+    directly after "Error", so the "Error:" marker misses it), and
+    scheme-level crashes ("Uncaught error: ..."). Missing a marker here
+    means a broken cell reports status "ok", nbconvert keeps going, and
+    `make test-e2e-notebooks` passes a rotted notebook.
+    """
+    markers = (
+        "Error:",
+        "Exception:",
+        "Couldn't parse",
+        "Error loading module",
+        "Uncaught error",
+    )
+    return any(m in result for m in markers)
+
+
 class Idris2Kernel(Kernel):
     implementation = "idris-ml"
     implementation_version = "0.1.0"
@@ -95,7 +117,7 @@ class Idris2Kernel(Kernel):
                 has_error = True
 
             if result:
-                if "Error:" in result or "Exception:" in result:
+                if is_error_output(result):
                     has_error = True
                 output_parts.append(result)
 

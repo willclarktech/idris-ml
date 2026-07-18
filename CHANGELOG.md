@@ -2,6 +2,20 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Jupyter kernel error-classification hole closed + kernel suite CI-wired
+(2026-07-26). Closed the High TODO "Jupyter kernel treats Idris parse
+errors (and module-load failures) as SUCCESS". `kernel.py` now classifies
+cell output via `is_error_output` with markers for parse failures
+("Couldn't parse"), module-load failures ("Error loading module"), and
+scheme-level crashes ("Uncaught error") alongside the original "Error:" /
+"Exception:". RED before the fix: 3 of 6 new classification tests failed
+(parse / module-load / uncaught outputs asserted as ok). The kernel pytest
+suite (`make test-e2e-jupyter`) was not CI-wired at all — it now runs as
+the first step of the test-e2e-notebooks job (spec + regenerated
+workflow), which surfaced and fixed a stale `:module Layer.Core` target in
+test_repl.py and the `1 + 1`-vs-`Usage` literal wart (filed as a Medium
+row). Full notebook gate re-verified green under the stricter markers.
+
 HF_TOKEN secret added → HfLlama CI gates re-enabled (2026-06-28). Closed
 the TODO "Add HF_TOKEN secret to CI". The five `HF_TOKEN`-guarded steps in
 the `test-e2e-transformers-large` job (oracle-gen + oracle-generate

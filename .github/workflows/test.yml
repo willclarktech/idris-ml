@@ -923,6 +923,15 @@ jobs:
           ttc-job: test-e2e-notebooks
 
       # >>> GENERATED (test-e2e-notebooks) FROM test.yml.spec.json >>>
+      - name: Kernel pytest suite
+        # Cell parser, REPL integration/FFI, crash recovery, and the
+        # error-output classification (parse failures and module-load
+        # failures must report status error, or broken notebooks pass
+        # the nbconvert gate below). Previously not CI-wired, which let
+        # a stale :module target in test_repl.py sit red unnoticed.
+        if: ${{ !cancelled() }}
+        run: make test-e2e-jupyter
+
       - name: Execute all Jupyter notebooks
         # Runs every tutorial + model notebook headless via nbconvert
         # through the idris-ml kernel (dep-chains install + jupyter-install).
