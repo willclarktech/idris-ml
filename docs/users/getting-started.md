@@ -110,7 +110,7 @@ optimizer constructors; `defaultOpts` carries PyTorch's defaults (record-update 
 ## 4. Evaluate
 
 `eval` consumes the trained model and retypes it `WithGrad → NoGrad`, so the result runs
-genuinely tape-free and can't be fed back into training (compile error):
+tape-free and can't be fed back into training (compile error):
 
 ```idris
 infer <- eval trained

@@ -15,7 +15,7 @@ How fast is idris-ml compared to PyTorch? This page gives you a quick answer.
 | Element-wise (100k, add+mul) | 4x slower | 3.7x slower | **1.2x (fast!)** | Per-op allocation vs PyTorch pools. MLX wins at large sizes (GPU) |
 | Softmax | ~parity | ~1.6x slower | varies | vDSP-accelerated exp. MLX slow at small sizes (GPU launch) |
 
-**Bottom line**: For typical small-to-medium models (the kind you'd prototype in a research setting), the tape and torch backends are competitive with PyTorch. The overhead is in element-wise ops and small tensor allocation, not BLAS.
+For typical small-to-medium models (the kind you'd prototype in a research setting), the tape and torch backends are competitive with PyTorch. The overhead is in element-wise ops and small tensor allocation, not BLAS.
 
 ## Test Setup
 

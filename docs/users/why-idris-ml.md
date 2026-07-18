@@ -529,7 +529,7 @@ Error: While processing right hand side of halfIt.
 Can't find an implementation for UpcastableTo (Float 64) (Float 16).
 ```
 
-That last one is a conversion you legitimately want (the model that doesn't fit in memory really should be halved), and it isn't forbidden: it goes through `tcastUnsafe`, a separate function whose name states that information is being discarded. That's the difference from `x.half()`: the lossy casts have their own distinguished surface, so every point of precision loss is spelled out in the program, and the lossless ones cost nothing.
+That last one is a conversion you legitimately want (the model that doesn't fit in memory should be halved), and it isn't forbidden: it goes through `tcastUnsafe`, a separate function whose name states that information is being discarded. That's the difference from `x.half()`: the lossy casts have their own distinguished surface, so every point of precision loss is spelled out in the program, and the lossless ones cost nothing.
 
 Run this section live: [`tutorials/09_precision_devices.ipynb`](../../packages/jupyter/notebooks/tutorials/09_precision_devices.ipynb).
 

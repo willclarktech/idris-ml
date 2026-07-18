@@ -118,7 +118,7 @@ PyTorch's three orthogonal joints map directly: `Dataset` (indexed access), `Shu
 | PyTorch | idris-ml | Notes |
 |---------|----------|-------|
 | `Dataset.__getitem__` | `Dataset { size : Nat; item : Fin size -> IO sample }` | `Fin` ⇒ out-of-bounds unrepresentable |
-| in-memory dataset | `fromVect` / `fromVectIO` | hold host values, materialise fresh tensors per access |
+| in-memory dataset | `fromVect` / `fromVectIO` | hold host values, materialize fresh tensors per access |
 | file / IO dataset | `fromIndexed size cb` | MNIST-family via `idxDataset` |
 | `DataLoader` | `stream spec ds` + `batched` | shuffle via Fisher-Yates C engine; collation C-side |
 | a sample | `(Tensor [i] …, Tensor [o] …)` | `batched` collates into `([b,i], [b,o])` |

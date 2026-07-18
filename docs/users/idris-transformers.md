@@ -3,10 +3,10 @@
 `idris-transformers` is a separate package that lets you load
 HuggingFace `.safetensors` checkpoints into typed Idris models —
 without writing rename tables or fiddling with per-head reshape
-logic. The trick: each HF architecture is one Idris module whose
-param names and storage shapes match HF's on-disk format exactly,
-so the existing `load` / `fromPretrained` from `idris-ml`'s
-`Checkpoint` work out of the box.
+logic. Each HF architecture is one Idris module whose param names
+and storage shapes match HF's on-disk format exactly, so the
+existing `load` / `fromPretrained` from `idris-ml`'s `Checkpoint`
+work out of the box.
 
 ```idris
 import Transformers.Bert
@@ -22,7 +22,7 @@ Right () <- load {ex=ExampleExecutor}
   | Left err => putStrLn ("load failed: " ++ show err)
 ```
 
-That's it. No remap table. No shape adapter. The module IS the
+There is no remap table and no shape adapter. The module IS the
 adapter, expressed as type-checked code.
 
 ## Why is this a separate package?
@@ -37,7 +37,7 @@ splits them differently per architecture). Bridging the gap at the
 loader layer (a generic rename + shape-split machinery) was
 considered and rejected: the per-head ↔ fused split would carry C
 state forever, encode architectural decisions in lookup tables,
-and doesn't generalise across HF families (Llama / GPT-2 / BERT /
+and doesn't generalize across HF families (Llama / GPT-2 / BERT /
 T5 all use different name schemes).
 
 HuggingFace's own Python `transformers` library doesn't do that
@@ -98,7 +98,7 @@ case decEq (hidden cfg) (nHeads * hDim) of
 
 The shared `config.json` plumbing (read + parse + integer-field
 extraction) lives in `Transformers.Config`; each adapter owns only its
-field set, beside its param-name catalogue.
+field set, beside its param-name catalog.
 
 **All four architectures expose `fromPretrained`** with the same shape —
 `Transformers.Gpt2.fromPretrained` (`(cfg : Gpt2Config ** Gpt2Model cfg

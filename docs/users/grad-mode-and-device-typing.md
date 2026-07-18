@@ -10,8 +10,7 @@ tracked.
 These three guarantees look similar on the surface. They aren't —
 they sit at different levels of the type-system hierarchy. This doc
 explains where each one fits, what Python's static type system could
-in principle do here, and which guarantees genuinely need
-dependent types.
+in principle do here, and which guarantees need dependent types.
 
 ## TL;DR
 
@@ -24,10 +23,10 @@ dependent types.
   enforce them. PyTorch chose not to for ergonomic reasons, not
   type-system reasons.
 
-The interesting payoff of dependent types here isn't that they're
-the *only* way to track grad-mode or device. It's that once the
-compiler is already computing on shapes, the same machinery
-applies uniformly to grad-mode, device, and precision — no extra
+Dependent types are not the only way to track grad-mode or device;
+their payoff here is uniformity. Once the compiler is already
+computing on shapes, the same machinery
+applies to grad-mode, device, and precision — no extra
 language features, no overload tables.
 
 ## Phantom-type enums vs. dependent types
@@ -35,7 +34,7 @@ language features, no overload tables.
 **Phantom-type enum**: a type parameter whose value is drawn from a
 fixed, finite set known at the type system level. The parameter
 appears in types but isn't used in the runtime representation. The
-classic example is a file handle parameterised over a finite set of
+classic example is a file handle parameterized over a finite set of
 states:
 
 ```idris
@@ -79,8 +78,8 @@ The current tensor type is
 Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode)
 ```
 
-- `dims` is genuinely dependent — `Nat`-valued, arithmetic happens
-  during type checking. This is where `matmul`-shape-safety and
+- `dims` is dependent in the full sense — `Nat`-valued, arithmetic
+  happens during type checking. This is where `matmul`-shape-safety and
   conv-output-dim safety come from.
 - `0 ex : Executor` is the executor (backend) tag. `Executor` is a
   0-quantity alias for `Type`, so any type with a `UserExecutorCore`
@@ -302,10 +301,11 @@ ships without it are practical:
    PyTorch users want type safety, they reach for shape annotations
    first. Grad-mode and device statics are seen as a smaller win.
 
-None of these are *type-system* obstacles. They're real but
-contingent.
+None of these are *type-system* obstacles; they are adoption
+constraints, and each could change without any change to Python's
+type system.
 
-## Where dependent types are actually required
+## Where dependent types are required
 
 Three classes of guarantee that Python's type system can't reach:
 
@@ -377,7 +377,7 @@ compile-time error.
 The grad-mode operations on models:
 
 ```idris
--- take the whole model out of training (genuinely tape-free inference):
+-- take the whole model out of training (tape-free inference):
 eval      : (1 _ : l i o ex dt WithGrad) -> L IO {use=1} (l i o ex dt NoGrad)
 trainable : (1 _ : l i o ex dt NoGrad)   -> L IO {use=1} (l i o ex dt WithGrad)  -- inverse
 
@@ -430,11 +430,11 @@ False`. The capability is the same; the safety guarantees differ:
 | Compile-time rejection of "trained via the stale handle after freeze/eval" | no | **yes (linear types)** |
 | Compile-time rejection of `NoGrad` loss in training | no | **yes** |
 
-Tensors stay *unrestricted* (reverse-mode AD shares them freely) — the
-linear discipline applies only at model granularity, exactly where the
-aliasing footgun lives. Per-parameter / per-prefix freezing for
-fancier fine-tuning (`freezeGroup`, optimizer LR-0 groups) composes on
-top.
+Tensors stay *unrestricted* (reverse-mode AD shares them freely); the
+linear discipline applies only at model granularity, the level where
+the stale-handle bug class occurs. Per-parameter / per-prefix freezing
+for fancier fine-tuning (`freezeGroup`, optimizer LR-0 groups)
+composes on top.
 
 ## Big picture
 
@@ -446,8 +446,7 @@ shape is checked statically, and grad-mode is checked statically
 (device too, via the existing phantom parameter).
 
 The one that *requires* dependent types is shape. The others come
-along for free because the machinery is already there. That's the
-honest distinction: dependent types aren't the only path to
-grad-mode or device safety, but they are the only path to shape
-safety, and they make uniform discipline across all four cheap
-enough to be idiomatic.
+along for free because the machinery is already there: dependent
+types aren't the only path to grad-mode or device safety, but they
+are the only path to shape safety, and they make uniform discipline
+across all four cheap enough to be idiomatic.

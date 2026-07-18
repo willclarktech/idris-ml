@@ -64,11 +64,11 @@ Standard Python control flow works naturally — `if`, `for`, `while` all just e
 
 ## Why dynamic graphs won
 
-Dynamic graphs won decisively. TensorFlow 2.0 switched to eager execution by default. Every major framework adopted define-by-run.
+Dynamic graphs won: TensorFlow 2.0 switched to eager execution by default, and every major framework adopted define-by-run.
 
-The core reason: **research moves faster when the framework gets out of the way.** Static graphs imposed a framework-specific programming model on top of the host language. Researchers had to learn `tf.cond` instead of `if`, `tf.while_loop` instead of `for`, `tf.print` instead of `print`. Every debugging session meant translating between two mental models — the Python code that built the graph and the graph nodes where errors actually occurred.
+The core reason: static graphs imposed a framework-specific programming model on top of the host language. Researchers had to learn `tf.cond` instead of `if`, `tf.while_loop` instead of `for`, `tf.print` instead of `print`. Every debugging session meant translating between two mental models — the Python code that built the graph and the graph nodes where the error occurred.
 
-Dynamic graphs eliminated this friction. The model *is* the code. When something goes wrong, the error points to the line that caused it. When you need a conditional architecture, you write an `if` statement.
+Dynamic graphs removed that translation layer: the model and the code are the same artifact. When something goes wrong, the error points to the line that caused it. When you need a conditional architecture, you write an `if` statement.
 
 For architectures with variable-length or data-dependent structure — RNNs over sequences of different lengths, tree-structured networks, NTMs with dynamic memory access — dynamic graphs are natural. Static graphs require encoding these patterns as graph-level operations, which is awkward and error-prone.
 
@@ -186,7 +186,7 @@ record Ntm (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat)
   readFc     : Linear h (ReadParamWidth m) ex dt g  -- hidden → addressing params
   writeFc    : Linear h (WriteParamWidth m) ex dt g  -- hidden → addressing + add vector
   outputFc   : Linear (h + m) o ex dt g             -- hidden + read output → data output
-  memInitT   : TVec (m * n) ex dt g                 -- learned memory initialisation
+  memInitT   : TVec (m * n) ex dt g                 -- learned memory initialization
   -- ... per-sequence state (memT, read/write addresses, last read-out)
 ```
 
@@ -268,4 +268,4 @@ This gives you:
 
 idris-ml's computation graph is dynamic — each forward pass builds a fresh autograd tape, control flow is standard Idris, variable-length sequences work naturally. But the *shape constraints, device-dtype admissibility, and lossless-upcast partial order* are static, verified at compile time by the type system. You get the ergonomics of PyTorch with stronger safety guarantees than TensorFlow 1.x ever provided.
 
-The key insight: static graphs conflated two concerns — **shape safety** and **graph structure**. You don't need a static graph to get static shape checking. You need a type system that can express dimensional constraints. Dependent types provide exactly this: shapes (and devices, and dtypes, and grad-modes) live in types, checked at compile time, erased at runtime.
+Static graphs conflated two concerns — **shape safety** and **graph structure**. You don't need a static graph to get static shape checking. You need a type system that can express dimensional constraints. Dependent types provide exactly this: shapes (and devices, and dtypes, and grad-modes) live in types, checked at compile time, erased at runtime.
