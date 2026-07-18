@@ -22,7 +22,8 @@ optimizer.step()                # weights updated in-place
 
 ```idris
 -- idris-ml: thread the linear model; fit owns zero_grad + backward + clip + step
-(trained, epochs, loss) <- fitSupervised opt lossFn (batched stream) (simpleConfig 1000) model
+(MkBang (epochs, loss) # trained) <-
+  fitSupervised opt lossFn (batched stream) (simpleConfig 1000) model
 ```
 
 No mutation, no manual `zero_grad` / backward / step. The `fit` driver runs the full train
@@ -37,10 +38,10 @@ step; if you need a custom loop, you consume-and-thread the model yourself throu
 | `torch.zeros(3,4)` | `tensor {dims=[3,4]} Zeros` | `InitSpec`: `Zeros`/`Const x`/`Normal μ σ`/`Uniform`/`FromVect` |
 | a learnable parameter | `param "w" (Normal 0.0 0.02)` | registers in the optimizer registry |
 | `x.shape` | no runtime query — shape is in the type | `Tensor [3] …` *is* shape `[3]`, always |
-| `x + y` | `x + y` (or `tadd x y`) | elementwise, same as PyTorch |
-| `x * y` | `x * y` (or `tmul x y`) | **elementwise** — not matmul |
-| `x @ y` | `x <> y` | matmul, dimension-checked at compile time |
-| `x.reshape(...)` | `Tensor.splitAt` / shape-proof reshape | needs a proof the element counts match |
+| `x + y` | `!(x +. y)` (or `tadd x y`) | elementwise; ops are `IO`-typed, use bang notation |
+| `x * y` | `!(x *. y)` (or `tmul x y`) | **elementwise** — not matmul |
+| `W @ x` | `tmv w x` / `tlinear2d w x b` | matrix–vector / fused linear, dimension-checked at compile time |
+| `x.reshape(...)` | shape lives in the type | `Array.splitAt` for structural splits; `TVec`/`TMat` aliases for multiplicative shapes |
 | Runtime `RuntimeError: shape mismatch` | Compile error: `Mismatch between: 8 and 5` | the point of the library |
 
 Smart constructors are `IO`-typed (`tadd`, `tmul`, `ttanh`, …); elementwise infix aliases
@@ -134,7 +135,7 @@ PyTorch's three orthogonal joints map directly: `Dataset` (indexed access), `Shu
 ## Optimizers
 
 Four IO constructors over `OptimOpts` (`defaultOpts` = PyTorch defaults; record-update to
-override `beta1`/`beta2`/`eps`/`clip`/`groups`):
+override `beta1`/`beta2`/`eps`/`clip`):
 
 | PyTorch | idris-ml |
 |---------|----------|
@@ -143,9 +144,10 @@ override `beta1`/`beta2`/`eps`/`clip`/`groups`):
 | `optim.AdamW(lr, …, wd)` | `adamW lr weightDecay defaultOpts` |
 | `optim.RMSprop(lr, alpha, momentum)` | `rmsprop lr {alpha} {momentum} defaultOpts` |
 
-Per-network LR scoping (`actor`/`critic`) is done after construction via `Train.Freeze`
-(`groups := [("bert.", 0.0)]` freezes a prefix). Schedules: `withSchedule sched opt` +
-`tick opt epoch`.
+Per-network scoping (`actor`/`critic`) is done after construction via `Train.Freeze`:
+`restrictTo opt (groupOf net)` limits an optimizer's step to one network's exact param
+set, and `freezeGroup opt =<< namesMatching (isPrefixOf "bert.")` freezes a name group
+(LR override 0). Schedules: `withSchedule sched opt` + `tick opt epoch`.
 
 ## Training loop
 
@@ -159,7 +161,7 @@ for epoch in range(1000):
 
 ```idris
 -- idris-ml — one driver for everything
-(trained, epochs, finalLoss) <-
+(MkBang (epochs, finalLoss) # trained) <-
   fitSupervised opt lossFn (batched stream) (simpleConfig 1000) model
 ```
 

@@ -2,8 +2,11 @@
 
 A text walkthrough from a first tensor to a trained model — a Jupyter-independent
 companion to the [notebook tutorials](../../packages/jupyter/README.md). Every snippet here
-is the real current API; the complete, compiling version of the training example is
-[`packages/idris-ml-examples/src/Example/Supervised.idr`](../../packages/idris-ml-examples/src/Example/Supervised.idr).
+is the real current API; the closest complete, compiling counterpart is
+[`packages/idris-ml-examples/src/Example/Supervised.idr`](../../packages/idris-ml-examples/src/Example/Supervised.idr)
+(its model is a single `Linear` threaded with `forward`; for a `Seq` chain like the one
+below, see
+[`Example/Mnist.idr`](../../packages/idris-ml-examples/src/Example/Mnist.idr)).
 
 New to the *why*? Read [Why idris-ml](why-idris-ml.md) first.
 
@@ -20,9 +23,11 @@ make example-supervised  # train the 3-class classifier end-to-end
 examples and tests can link. For the optional backends: `make BACKEND=torch backend` /
 `make BACKEND=mlx backend`.
 
-Examples don't hardcode device or dtype — they reference `ExampleDevice` / `ExampleDType`
-(aliased `Ex` / `F` below) from the build-generated `BuildConfig.idr`. A `tape` build
-gives you `TapeExecutor` + `F64`; switching backends is just a different `make install`.
+Code doesn't hardcode executor or dtype. The `Ex` / `F` written below come from
+`import Ml.Simple`, which pins the build's default `(executor, dtype)` cell from the
+generated `Ml.Config`; examples use the same mechanism via `BuildConfig.idr`'s
+`ExampleExecutor` / `ExampleDType`. A `tape` build gives you `TapeExecutor` + `F64`;
+switching backends is just a different `make install`.
 
 ## 1. A first tensor
 

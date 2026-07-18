@@ -12,12 +12,12 @@ so the existing `load` / `fromPretrained` from `idris-ml`'s
 import Transformers.Bert
 import Ml.Checkpoint
 
-model <- hfBertModel {ex=ExampleDevice} {dt=ExampleDType}
+model <- hfBertModel {ex=ExampleExecutor} {dt=ExampleDType}
                      {vocab=30522} {hidden=128} {numLayers=2}
                      {numHeads=2}  {intermediate=512}
                      {maxPos=512}  {typeVocab=2}
                      "bert"
-Right () <- load {ex=ExampleDevice}
+Right () <- load {ex=ExampleExecutor}
               "model.safetensors" ({ allowCast := True } defaultLoadOpts)
   | Left err => putStrLn ("load failed: " ++ show err)
 ```
@@ -29,9 +29,9 @@ adapter, expressed as type-checked code.
 
 Core `idris-ml` ships a transformer
 ([`Nn.Attention`](../../packages/idris-ml/src/Ml/Nn/Attention.idr) + `TransformerBlock`)
-designed as a from-scratch teaching reference: attention is stored
-as `Vect numHeads (LinearState ...)` — one per head, decomposition
-explicit in types. That makes the math obvious but is a different
+designed as a from-scratch teaching reference: attention weights are
+stored as `Vect numHeads (TMat headDim dModel ...)` — one projection
+per head, decomposition explicit in types. That makes the math obvious but is a different
 storage convention from any HF checkpoint, which fuses Q/K/V (or
 splits them differently per architecture). Bridging the gap at the
 loader layer (a generic rename + shape-split machinery) was
@@ -51,7 +51,8 @@ mirrors that.
 | --- | --- | --- |
 | `Transformers.Bert` | `google/bert_uncased_L-2_H-128_A-2` (and BERT-family checkpoints sharing the same naming) | ready |
 | `Transformers.Gpt2` | `hf-internal-testing/tiny-random-gpt2` (and GPT-2 family) | ready |
-| `Transformers.Llama` | `unsloth/Llama-3.2-1B` (public mirror of Meta's weights; no `HF_TOKEN`) | ready (forward pass; KV cache follow-up) |
+| `Transformers.Llama` | `unsloth/Llama-3.2-1B` (public mirror of Meta's weights; no `HF_TOKEN`) | ready (forward pass + KV-cache decode) |
+| `Transformers.BitNet` | `microsoft/bitnet-b1.58-2B-4T` (ternary weights; not gated) | ready |
 
 ## Loading a checkpoint: fromPretrained
 
@@ -162,7 +163,7 @@ answer (independent of the MLM head — exercises the encoder + pooler
 on the same path):
 
 ```bash
-make test-hf-bert-roundtrip
+make test-e2e-bert-roundtrip
 ```
 
 This regenerates a Python oracle (`scripts/save_oracle.py`) and runs
@@ -202,17 +203,17 @@ Short version:
    `bert.encoder.layer.0.attention.self.query.weight` literally,
    not `..._weights` or `..._weight`.
 2. **Storage shapes match HF on disk.** If HF fuses Q/K/V into one
-   tensor, you store it fused too; the per-head reshape happens at
-   forward time as a `Tensor.reshape` view, not as a different
-   storage choice.
+   tensor, you store it fused too; the per-head split happens at
+   forward time, not as a different storage choice.
 3. **No new layer primitives in this package.** Composed from core
-   `idris-ml`'s `Layer.*` (Embedding, LayerNorm, Linear, GELU,
-   Residual, …). Anything missing goes into core first.
-4. **One model per file** — `Transformers/Bert.idr` is BERT; `Transformers/Gpt2.idr`
-   will be GPT-2; etc. No cross-imports between `Transformers.*` modules.
+   `idris-ml`'s `Ml.Nn.*` surface (Embedding, LayerNorm, Linear,
+   Activation, Residual, …). Anything missing goes into core first.
+4. **One model per file** — `Transformers/Bert.idr` is BERT;
+   `Transformers/Gpt2.idr` is GPT-2; etc. No cross-imports between
+   `Transformers.*` modules.
 5. **One smart constructor** per module
-   (`hfBertModel : … -> IO (BertModelState …)`), matching core's
-   `*LayerAny` pattern.
+   (`hfBertModel : … -> IO (BertModelState …)`), which registers
+   every param under its HF-canonical name.
 6. **The module IS the rename adapter.** If your forward output
    disagrees with the upstream Python reference by a meaningful
    amount, the bug is in the module — there's no separate
@@ -229,12 +230,14 @@ work together:
    leaving every other registered param untouched. Use to warm-start
    a backbone (`"bert."`) while keeping a fresh classification head
    at its random init.
-2. **Freeze-by-prefix** — `freezeByPrefix opt pfx` /
-   `unfreezeByPrefix opt pfx` in
+2. **Freeze by name group** — `freezeGroup opt names` /
+   `unfreezeGroup opt names` in
    [`packages/idris-ml/src/Ml/Train/Freeze.idr`](../../packages/idris-ml/src/Ml/Train/Freeze.idr)
-   walks the registry and sets the per-param LR override to 0 for
-   every name starting with `pfx`. Composes with a single optimizer
-   — no two-optimizer plumbing.
+   set the per-param LR override to 0 (or back to the base LR) for
+   each named param. For HF checkpoint prefixes the name source is
+   `namesMatching (isPrefixOf "bert.")`; for structural model subsets
+   prefer `Nn.Group.groupOf`. Composes with a single optimizer — no
+   two-optimizer plumbing.
 3. **Classification head** —
    `hfBertForSequenceClassification bertPfx classifierPfx` in
    [`Transformers/BertForClassification.idr`](../../packages/idris-transformers/src/Transformers/BertForClassification.idr)
@@ -250,7 +253,8 @@ Putting it together:
 model <- hfBertForSequenceClassification {numClasses=3} "bert" "classifier"
 _     <- load "models/google/bert_uncased_L-2_H-128_A-2/model.safetensors" ({ only := Just "bert." } defaultLoadOpts)
 opt   <- adamW lr 0.01 defaultOpts
-freezeByPrefix opt "bert."  -- optional: head-only training
+-- optional: head-only training
+freezeGroup opt =<< namesMatching (isPrefixOf "bert.")
 
 -- fit with a custom (linear) EpochStep — HF models are records, not a Seq
 -- chain. See Example/BertClassifySst2Finetune.idr for the exact threading.
@@ -419,9 +423,9 @@ Right () <- load ckptPath ({ allowCast := True, only := Just "bert." } defaultLo
 adapters <- loraInjectBert "bert" 2 8 16.0  -- numLayers, rank, alpha
 
 -- 4. Freeze backbone, then unfreeze adapters (classifier stays trainable).
-freezeByPrefix   opt "bert."
-unfreezeBySuffix opt "lora_A"
-unfreezeBySuffix opt "lora_B"
+freezeGroup   opt =<< namesMatching (isPrefixOf "bert.")
+unfreezeGroup opt =<< namesMatching (isSuffixOf "lora_A")
+unfreezeGroup opt =<< namesMatching (isSuffixOf "lora_B")
 
 -- 5. Forward through the LoRA-aware variant.
 logits <- hfBertSeqClassifyForwardWithLora
@@ -455,7 +459,7 @@ uses HF `peft.LoraConfig` with matching hyperparameters.
 
 - **LoRA dropout.** `peft` defaults to `lora_dropout=0.05`; the MVP
   uses 0.0 for clean numerical comparison. Trivially added later
-  via the existing `Layer.Dropout`.
+  via the existing `Nn.Dropout`.
 - **LoRA on bias terms** (`bias="all"` / `bias="lora_only"`). MVP
   uses `bias="none"` (peft's canonical default for BERT).
 - **LoRA merge-into-base inference.** `W ← W + (α/r)·B·A` at deploy

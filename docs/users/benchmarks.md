@@ -93,7 +93,10 @@ These measure the **full Idris training pipeline**: Idris → Chez Scheme → C 
 
 Run: `make bench-compare`
 
-See `docs/performance-analysis.md` for detailed end-to-end results including NTM, RNN, and Transformer models.
+The auto-generated ratio tables (every example × backend, regenerated from
+`perf-log.jsonl`) live in [`BENCHMARKS.md`](../../BENCHMARKS.md) at the repo root. See
+`docs/develop/performance-analysis.md` for detailed end-to-end results including NTM,
+RNN, and Transformer models.
 
 ## Running Benchmarks
 
@@ -123,7 +126,7 @@ make bench-compare
 
 ### Scheme→C FFI Portability (all backends)
 
-**Change**: Replaced all 23 `%foreign "scheme:..."` inline Scheme lambda FFI bindings with portable `%foreign "C:...,libidrisml"` calls. Added ~15 small C helper functions (e.g., `tensor_backward_return`, `native_train_step`, `idrisml_seq`) to all three backends. Also replaced `System.Random` (contrib, Scheme-only) with `Compat.Random` (C FFI via libc `srand`/`rand`).
+**Change**: Replaced all 23 `%foreign "scheme:..."` inline Scheme lambda FFI bindings with portable `%foreign "C:...,libidrisml"` calls. Added ~15 small C helper functions (e.g., `tensor_backward_return`, `native_train_step`, `idrisml_seq`) to all three backends. Also replaced `System.Random` (contrib, Scheme-only) with `Ml.Compat.Random` (C FFI via libc `srand`/`rand`).
 
 **Motivation**: Required for RefC backend compatibility. The inline Scheme lambdas were interpreted by Chez at each call; direct C calls have lower per-call overhead.
 

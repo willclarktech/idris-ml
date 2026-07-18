@@ -224,7 +224,7 @@ okMlxGpuF32 = compatOK {ex=MlxExecutor MGpu} {dt = F32}   -- ✓ Compatible inst
 
 The error fires at the construction site, with a name the user wrote (`MlxExecutor MGpu`, `F64`) and a concept the user can act on (`Compatible`).
 
-A *derived* partial order extends the same machinery to lossless casts. Each parametric dtype family (`Float n`, `BFloat n`, `IntN n`, `UInt n`) declares a `Precision` instance with `precisionRank = n`, and an `UpcastableTo from to` instance per family that requires `LTE m n` on the bit-widths. Idris's auto-search synthesises the `LTE` proof from `Nat` constructors at the call site:
+A *derived* partial order extends the same machinery to lossless casts. The integer families (`IntN n`, `UInt n`) each declare an `UpcastableTo from to` instance requiring `LTE m n` on the bit-widths. Float upcasts are derived structurally: `FloatPrecision` records each float type's (mantissa, exponent) layout, `LosslessTo` admits exactly the conversions where every value stays exactly representable (both fields non-decreasing; integer→float when the mantissa covers the integer range), and a bridge instance turns every `LosslessTo` edge into an `UpcastableTo`. Idris's auto-search synthesizes the `LTE` proofs at the call site:
 
 ```idris
 demoUpcast : UpcastableTo from to => ()
@@ -235,7 +235,7 @@ okF32ToF64 = demoUpcast {from = F32} {to = F64}    -- ✓ LTE 32 64 is provable
 -- failF64ToF32 = demoUpcast {from = F64} {to = F32}  -- ✗ LTE 64 32 is not provable
 ```
 
-Cross-family conversions (`UInt 8 → F16`, `BF16 → F32`) have no instance and require an explicit `tcastUnsafe` — even when the bit-pattern fits, the compiler can't decide whether that's what the user wanted.
+Conversions that can lose information (`F64 → F32`; `F16 → BF16`, whose mantissa shrinks from 10 to 7 bits even though the width stays 16) have no instance and require an explicit `tcastUnsafe` — the compiler can't decide whether the loss is what the user wanted.
 
 This is exactly the kind of guarantee a dynamic graph can't give you. PyTorch's `Tensor` is a single runtime type with a dtype field; the dtype isn't visible to the type system, so the "this can't run on Metal" check happens when the kernel launches. Static graphs in TensorFlow 1.x knew the dtype at graph-construction time but didn't enforce device-dtype admissibility either; you found out at session-run. Dependent types put the (device, dtype) pair into the tensor's type, and the `Compatible` table makes the per-pair check a one-line interface declaration.
 

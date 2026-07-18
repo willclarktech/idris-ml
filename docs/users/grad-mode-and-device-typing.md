@@ -59,7 +59,7 @@ from an open, potentially-infinite set, *and* on which the type
 system can compute (proofs, arithmetic, etc.).
 
 ```idris
-matmul : Tensor [m, k] ex -> Tensor [k, n] ex -> Tensor [m, n] ex
+matmul : Tensor [m, k] ex dt g -> Tensor [k, n] ex dt g -> Tensor [m, n] ex dt g
 ```
 
 Here `m`, `k`, `n` are arbitrary `Nat`s and the type system has to
