@@ -2,6 +2,21 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+User-facing documentation redesign / overhaul (closed 2026-07-27; work
+landed 2026-07-26). Closes the High-priority TODO row. All six
+sub-items shipped: (1) the `docs/users/` tree (why-idris-ml,
+getting-started, pytorch-mapping, static-vs-dynamic-graphs,
+grad-mode-and-device-typing, idris-transformers, benchmarks) with the
+audience split the row asked for; (2) the 9-tutorial + 10-model-notebook
+Jupyter progression (executed outputs committed for GitHub rendering);
+(3) checkpointing, (4) device+dtype selection, and (5) the
+Tensor/Nn/fit narrative are covered across getting-started +
+pytorch-mapping + the tutorials; (6) README front page rewritten
+(guarantee table, quick start, doc links). Main commits `7593e6230`,
+`86d02b6db`, `2ec54274c`, `b4ada8ef5`; notebook output recording
+`6127dd2c`. The docs/users tree was then accuracy- and style-swept in
+the 2026-07-27 documentation sweep.
+
 Library modules nested under the `Ml.*` root (2026-07-27). Idris 2 has
 one flat module namespace across `-p` packages (no package-qualified
 imports), so idris-ml's generic top-level module names (`Array`,
