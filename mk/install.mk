@@ -48,7 +48,7 @@ install-transformers: install-core
 	  fi
 
 # Install notebook prelude to local prefix
-install-notebook: install-core
+install-notebook: install-core install-transformers
 	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --install idris-ml-notebook.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook-install.log; exit 1; }
 
 # Install idris-ml-examples as a library (needed by its test harness)

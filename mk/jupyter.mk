@@ -64,7 +64,9 @@ test-integration-jupyter-cellparser: $(JUPYTER_VENV)/bin/activate
 # (the cache path is all of `build/`), so the kernel loads a dylib that needs
 # libtorch.so and dies "libtorch.so: cannot open shared object file" (run
 # 28335335187). Same pin test-e2e-jupyter already uses.
-test-e2e-notebooks: install-notebook jupyter-install
+# The bert notebook loads the cached HF checkpoint; the file target is the
+# existing download-once pattern rule in mk/examples.mk.
+test-e2e-notebooks: install-notebook jupyter-install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	@fail=0; \
 	for nb in packages/jupyter/notebooks/tutorials/*.ipynb packages/jupyter/notebooks/models/*.ipynb; do \
 		echo "--- $$nb ---"; \

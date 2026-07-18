@@ -142,6 +142,14 @@ class Idris2REPL:
                 "idris-ml",
                 "-p",
                 "idris-ml-notebook",
+                # HF model loading (models/bert.ipynb does an explicit
+                # `:module Transformers.Bert`); installed by install-notebook's
+                # install-transformers dependency. elab-util is its transitive
+                # dependency (Transformers.* fails to load without it).
+                "-p",
+                "elab-util",
+                "-p",
+                "idris-transformers",
                 "--no-banner",
                 "--no-colour",
             ],
