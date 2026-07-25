@@ -195,6 +195,14 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "transformer",
+        # The batch is RNG-driven (16 samples x 5 token draws), so the
+        # reference records the raw tokens and Idris rebuilds the identical
+        # batch by replaying them — sample construction included.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 6.4e-11
+        # (block_0.ff2_0.weight) — Adam + global-norm clip, as on a2c.
+        "tolerance": 1e-9,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

@@ -8,18 +8,24 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 from typing import cast
 
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
 from torch_ref.models.multi_head_transformer import (
     MultiHeadTransformer,
     eval_reversal_accuracy,
     generate_sorting_data,
     train_reversal_epoch,
 )
+from torch_ref.replay import write_replay
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
 
@@ -33,6 +39,60 @@ D_MODEL = 16
 NUM_HEADS = 4
 HEAD_DIM = 4
 BATCH_SIZE = 16
+
+# Idris registry name -> this script's parameter name, model-index prefixed.
+# Mirrors the entry in scripts/paired_examples.py, which check-step-oracle.py
+# cross-checks.
+PAIRED_PARAMS = {
+    "block_0.attn_0.key_0.weight": "0.blocks.0.key_ws.0.weight",
+    "block_0.attn_0.key_1.weight": "0.blocks.0.key_ws.1.weight",
+    "block_0.attn_0.key_2.weight": "0.blocks.0.key_ws.2.weight",
+    "block_0.attn_0.key_3.weight": "0.blocks.0.key_ws.3.weight",
+    "block_0.attn_0.out_proj_0.weight": "0.blocks.0.out_proj_ws.0.weight",
+    "block_0.attn_0.out_proj_1.weight": "0.blocks.0.out_proj_ws.1.weight",
+    "block_0.attn_0.out_proj_2.weight": "0.blocks.0.out_proj_ws.2.weight",
+    "block_0.attn_0.out_proj_3.weight": "0.blocks.0.out_proj_ws.3.weight",
+    "block_0.attn_0.query_0.weight": "0.blocks.0.query_ws.0.weight",
+    "block_0.attn_0.query_1.weight": "0.blocks.0.query_ws.1.weight",
+    "block_0.attn_0.query_2.weight": "0.blocks.0.query_ws.2.weight",
+    "block_0.attn_0.query_3.weight": "0.blocks.0.query_ws.3.weight",
+    "block_0.attn_0.value_0.weight": "0.blocks.0.value_ws.0.weight",
+    "block_0.attn_0.value_1.weight": "0.blocks.0.value_ws.1.weight",
+    "block_0.attn_0.value_2.weight": "0.blocks.0.value_ws.2.weight",
+    "block_0.attn_0.value_3.weight": "0.blocks.0.value_ws.3.weight",
+    "block_0.ff1_0.weight": "0.blocks.0.ff1.weight",
+    "block_0.ff2_0.weight": "0.blocks.0.ff2.weight",
+    "block_0.norm1.bias": "0.blocks.0.norm1.bias",
+    "block_0.norm1.weight": "0.blocks.0.norm1.weight",
+    "block_0.norm2.bias": "0.blocks.0.norm2.bias",
+    "block_0.norm2.weight": "0.blocks.0.norm2.weight",
+    "block_1.attn_0.key_0.weight": "0.blocks.1.key_ws.0.weight",
+    "block_1.attn_0.key_1.weight": "0.blocks.1.key_ws.1.weight",
+    "block_1.attn_0.key_2.weight": "0.blocks.1.key_ws.2.weight",
+    "block_1.attn_0.key_3.weight": "0.blocks.1.key_ws.3.weight",
+    "block_1.attn_0.out_proj_0.weight": "0.blocks.1.out_proj_ws.0.weight",
+    "block_1.attn_0.out_proj_1.weight": "0.blocks.1.out_proj_ws.1.weight",
+    "block_1.attn_0.out_proj_2.weight": "0.blocks.1.out_proj_ws.2.weight",
+    "block_1.attn_0.out_proj_3.weight": "0.blocks.1.out_proj_ws.3.weight",
+    "block_1.attn_0.query_0.weight": "0.blocks.1.query_ws.0.weight",
+    "block_1.attn_0.query_1.weight": "0.blocks.1.query_ws.1.weight",
+    "block_1.attn_0.query_2.weight": "0.blocks.1.query_ws.2.weight",
+    "block_1.attn_0.query_3.weight": "0.blocks.1.query_ws.3.weight",
+    "block_1.attn_0.value_0.weight": "0.blocks.1.value_ws.0.weight",
+    "block_1.attn_0.value_1.weight": "0.blocks.1.value_ws.1.weight",
+    "block_1.attn_0.value_2.weight": "0.blocks.1.value_ws.2.weight",
+    "block_1.attn_0.value_3.weight": "0.blocks.1.value_ws.3.weight",
+    "block_1.ff1_0.weight": "0.blocks.1.ff1.weight",
+    "block_1.ff2_0.weight": "0.blocks.1.ff2.weight",
+    "block_1.norm1.bias": "0.blocks.1.norm1.bias",
+    "block_1.norm1.weight": "0.blocks.1.norm1.weight",
+    "block_1.norm2.bias": "0.blocks.1.norm2.bias",
+    "block_1.norm2.weight": "0.blocks.1.norm2.weight",
+    "embed.embedding_0.weight": "0.token_embed.weight",
+    "head_0.weight": "0.vocab_proj.weight",
+    "layer_norm_0.bias": "0.norm_final.bias",
+    "layer_norm_0.weight": "0.norm_final.weight",
+}
 
 
 def _int_list(t: torch.Tensor) -> list[int]:
@@ -95,6 +155,20 @@ def main() -> None:
         f"Model: Transformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} blocks={args.blocks} v={VOCAB_SIZE}>"
     )
     print()
+
+    # Oracle run: publish the parameters and the batch's raw token draws (a
+    # sample's tokens are the first INPUT_LEN ids of its input; recorded
+    # sample-major, the order the Idris side draws them), take exactly one
+    # update and publish the result. Idris replays the tokens through
+    # --replay and rebuilds the same batch — sample construction, forward,
+    # masked CE, clip and Adam are all under test.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        data = generate_sorting_data(BATCH_SIZE, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
+        tokens = [t for inp, _tgt in data for t in _int_list(inp.argmax(dim=-1))[:INPUT_LEN]]
+        maybe_dump_oracle((model,), PAIRED_PARAMS)
+        write_replay(os.environ["IDRISML_ORACLE_DUMP"] + ".replay", choices=tokens)
+        train_reversal_epoch(model, data, optimizer, reversal_start=INPUT_LEN)
+        maybe_dump_after_step((model,), PAIRED_PARAMS)
 
     def epoch_fn() -> float:
         data = generate_sorting_data(BATCH_SIZE, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)

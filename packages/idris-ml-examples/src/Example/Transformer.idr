@@ -25,12 +25,12 @@ import Ml.Fit
 import Ml.Hpo.LrFinder
 import Ml.Nn
 import Ml.Optimizer
+import Ml.Rng
 import Ml.Tensor
 import Ml.Train
 import Ml.Util
 
 import BuildConfig
-import Generate
 
 -- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors
 -- (same `Nil`/`::` names) so the block-stack builder resolves to Seq.
@@ -170,9 +170,9 @@ TfmSample : Type
 TfmSample = ( Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad
             , Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad )
 
-sortingSample : IO TfmSample
-sortingSample = do
-  tokens <- sequence (replicate InputLen (randomInt 0 (minus VocabSize 3)))
+sortingSample : Rng -> IO TfmSample
+sortingSample rng = do
+  tokens <- sequence (replicate InputLen (rng.natRange 0 (minus VocabSize 3)))
   let sorted = Data.List.sort tokens
       fullSeq    = tokens ++ [SepToken] ++ sorted ++ [EosToken]
       inputToks  = map (cast {to=Int} . cast {to=Integer}) (Data.List.take SeqLen fullSeq)
@@ -185,11 +185,11 @@ sortingSample = do
       tgt2d      = primReshape2d {ex=ExampleExecutor} tgtFlat sI vI
   pure (MkTensor inT Nothing, MkTensor tgt2d Nothing)
 
-sortingBatch : (n : Nat) -> IO (Vect n TfmSample)
-sortingBatch Z     = pure []
-sortingBatch (S k) = do
-  s    <- sortingSample
-  rest <- sortingBatch k
+sortingBatch : Rng -> (n : Nat) -> IO (Vect n TfmSample)
+sortingBatch _   Z     = pure []
+sortingBatch rng (S k) = do
+  s    <- sortingSample rng
+  rest <- sortingBatch rng k
   pure (s :: rest)
 
 ----------------------------------------------------------------------
@@ -290,9 +290,10 @@ record Config where
   lrFind          : Bool
   checkpointDir   : String
   checkpointEvery : Nat
+  replay          : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 1000 300 42 False "" 50
+defaultConfig = MkConfig 0.001 1000 300 42 False "" 50 ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -302,7 +303,11 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
         , Arg "--resume" (\v, c => { checkpointDir := v } c)
-        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
+        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c)
+        -- Replay recorded draws (`Ml.Rng.loadReplay` format) instead of
+        -- sampling: the training data's token draws come from the file's
+        -- decision channel, so the run reproduces a recorded data stream.
+        , Arg "--replay" (\v, c => { replay := v } c) ]
 
 ----------------------------------------------------------------------
 -- Final eval (consumes the trained linear model)
@@ -312,9 +317,9 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 -- ω), thread the body through one eval forward (tfmForwardL), discard it, then
 -- decode + RESULT-report from the (ω) logits.
 partial
-evalReportL : List Nat -> Config -> Nat -> (1 _ : Model) -> L IO ()
-evalReportL positions cfg epochsDone (MkTfmModel emb body headW pe) = do
-  inIdsTgt <- liftIO1 sortingSample
+evalReportL : Rng -> List Nat -> Config -> Nat -> (1 _ : Model) -> L IO ()
+evalReportL rng positions cfg epochsDone (MkTfmModel emb body headW pe) = do
+  inIdsTgt <- liftIO1 (sortingSample rng)
   let (inIds, tgt) = inIdsTgt
   (MkBang predV # body') <- tfmForwardL emb pe headW body inIds
   discard body'
@@ -365,27 +370,27 @@ finishLrFind (MkBang _ # m') = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
 
 partial
-runLrFind : Config -> Optimizer ExampleExecutor -> IO ()
-runLrFind cfg opt = Control.Linear.LIO.run $ do
+runLrFind : Rng -> Config -> Optimizer ExampleExecutor -> IO ()
+runLrFind rng cfg opt = Control.Linear.LIO.run $ do
   -- lrFind on the linear surface (lrFind): the model is threaded through
   -- the sweep by stepL, then discarded.
   model <- runInitL mkModelInit
   (LIO.(>>=))
     (lrFind {ex = ExampleExecutor} {model = Model} {dp = Vect BatchSize TfmSample} lrFindCfg
-       (stepL opt) (sortingBatch BatchSize) opt model)
+       (stepL opt) (sortingBatch rng BatchSize) opt model)
     finishLrFind
 
 partial
-runTrain : List Nat -> Config -> Optimizer ExampleExecutor ->
+runTrain : Rng -> List Nat -> Config -> Optimizer ExampleExecutor ->
            TrainConfig Model -> IO ()
-runTrain positions cfg opt trainCfg = Control.Linear.LIO.run $ do
+runTrain rng positions cfg opt trainCfg = Control.Linear.LIO.run $ do
   -- Linear surface end to end: model born linear (runInitL), threaded
   -- through fitSupervised (batchLossL consumes-and-returns it each step),
   -- final eval via evalReportL (which consumes the trained handle).
   model <- runInitL mkModelInit
   (MkBang (epochsDone, _) # trained) <-
-    fitSupervised {ex=ExampleExecutor} opt batchLossL (generate (sortingBatch BatchSize)) trainCfg model
-  evalReportL positions cfg epochsDone trained
+    fitSupervised {ex=ExampleExecutor} opt batchLossL (generate (sortingBatch rng BatchSize)) trainCfg model
+  evalReportL rng positions cfg epochsDone trained
 
 partial
 main : IO ()
@@ -421,4 +426,7 @@ main = do
                             (fileCheckpoint dir cfg.checkpointEvery True opt)
                             trainCfgBase
 
-  if cfg.lrFind then runLrFind cfg opt else runTrain positions cfg opt trainCfg
+  rng <- case cfg.replay of
+           "" => liveRng
+           p  => (.rng) <$> loadReplay p
+  if cfg.lrFind then runLrFind rng cfg opt else runTrain rng positions cfg opt trainCfg
