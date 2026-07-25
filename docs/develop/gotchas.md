@@ -71,6 +71,44 @@ suspect the last thing you *did* edit inside that block, not the indentation at
 the arrow. Observed 2026-07-31 while chunking the mnist eval; not established
 whether the linear `L IO` context is required to trigger it.
 
+### A tuple-pattern `let` bound to an `if` leaves the scrutinee's type unsolved
+
+Binding a pair pattern to an `if` expression inside a `let` block fails to
+elaborate, even when both branches obviously have the same type:
+
+```idris
+      let (nextS, seedNext) =
+            if isDone
+              then reset {state=PState} {action=Double} {obs=Vect ObsDim Double} seed
+              else (s', seed)
+```
+
+```text
+Error: While processing right hand side of stepAllAutoResetP. Can't infer type for case scrutinee
+
+Example.Sac:416:11--419:30
+ 416 |           (nextS, seedNext) =
+ 417 |             if isDone
+ 418 |               then reset {state=PState} {action=Double} {obs=Vect ObsDim Double} seed
+ 419 |               else (s', seed)
+```
+
+`if` desugars to a `case`, and the pattern binding gives the elaborator nothing
+to solve the result type against — the interface method's return type
+(`(state, Seed)`) does not propagate inward through the branch. Pinning it with
+`the` fixes it:
+
+```idris
+      let (nextS, seedNext) = the (PState, Seed)
+            (if isDone
+               then reset {state=PState} {action=Double} {obs=Vect ObsDim Double} seed
+               else (s', seed))
+```
+
+A single-name binding (`let x = if …`) does not trip this; it is specific to
+destructuring the result. Observed 2026-08-01 in all three examples that
+auto-reset on a per-env step counter (Sac, Ppo, MountainCarCont).
+
 ### A `Dataset` record update over an existential size spins the elaborator
 
 Wrapping a `Dataset` to transform each sample looks like the obvious way to add

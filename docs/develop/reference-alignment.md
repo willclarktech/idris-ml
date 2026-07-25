@@ -16,6 +16,63 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Alignment Changes (2026-08-01) — environment reset and evaluation protocol
+
+Every Idris deep-RL example constructed its environment's reset state by hand
+instead of calling `Env.reset`, in two places: the rollout's auto-reset when an
+episode ends, and the start of each evaluation episode.
+
+| Example | Idris pinned start | Gymnasium / reference draw |
+|---|---|---|
+| reinforce, a2c, dqn, double-dqn | CartPole `(0, 0, 0, 0)` | U(-0.05, 0.05)^4 |
+| mountain-car, mountain-car-cont | `(-0.5, 0)` | position U(-0.6, -0.4), velocity 0 |
+| ppo | Acrobot all-zero | U(-0.1, 0.1)^4 |
+| sac | Pendulum `(pi, 0)`, the downward equilibrium | theta U(-pi, pi), thetadot U(-1, 1) |
+
+Greedy evaluation from a fixed start is deterministic, so all N episodes were
+the same trajectory reported as an N-episode mean. Every Idris CartPole result
+in `convergence-campaign.tsv` before this change is a whole number (141.0,
+122.0, 13.0) where the reference reports 194.1. It also flattered Idris on
+Pendulum, where the downward equilibrium is a strictly easier start than a
+uniformly random angle, so the pre-2026-08-01 "Idris 5/5, reference 2/5" on sac
+compared two different tasks.
+
+`Gym.Vector.stepAutoReset` already implemented the wanted semantics (step every
+env, reset the terminated ones through a threaded `Seed`) and had no callers.
+A2c, Dqn, DoubleDqn and MountainCar now use it. Ppo, Sac and MountainCarCont
+keep a local loop, because they also truncate on a per-env step count the
+environment does not know about, but reset through `Env.reset`.
+
+On the reference side, `reset_to_zero` stopped mutating on 2026-06-08 (when
+idris-gym's `Env.reset` started randomizing and this side followed) but kept
+its name. Three call sites still read as though a reset happened there, and
+a2c's and dqn's `collect_rollout` then forced `next_obs_np[i] = 0.0` while the
+sub-env sat at a random state — so the policy acted on `obs = 0` for one step
+per episode. Renamed to `current_obs`; the dead zeroing is gone.
+
+Two smaller items in the same pass: `nEval` 30 -> 50 on a2c/dqn/double-dqn to
+match their references (reinforce, ppo, mountain-car, mountain-car-cont and sac
+already agreed), and the advantage-normalization std in `Example.A2c` /
+`Example.Ppo` moved to the `n-1` denominator `Tensor.std()` uses by default on
+the reference side, with the epsilon outside the root.
+
+`make test-integration-lint-env-reset-literals` now fails on a hand-written
+env-state literal in an example, reading the forbidden constructors out of
+idris-gym so a new environment is covered when it lands.
+
+## Alignment Changes (2026-08-01) — RNN-family reference precision
+
+`torch_ref/models/rnn.py` built its cells, learned initial states and dataset
+tensors without `dtype=get_dtype()`, so `LinearRNNCell`, `LinearLSTMCell` and
+`LinearGRUCell` trained in torch's default float32 against the Idris side's
+F64. Every other reference model passes the dtype explicitly.
+
+Found by extending the step oracle to lstm: post-step weights diverged by
+1.4e-8 relative against a 1e-9 tolerance, which is float32 round-off and eight
+orders above the 2.2e-19 `supervised` reaches. Pinning the dtype takes it to
+agreement. No other gate could see it — shapes and init moments are identical
+either way, and the convergence bars are far above the difference.
+
 ## Multi-seed pass rates after the alignment work (2026-08-01)
 
 First campaign run where both sides share init, data, metrics and eval
@@ -23,13 +80,22 @@ protocol, so the two rates finally answer the same question. Seeds 42/1/2/3/4,
 tape backend; thresholds from `test-examples-convergence.expect` and
 `test-refs-convergence.expect`.
 
-Both campaigns are complete: 125 Idris cells
+Both campaigns were complete at commit `a3744bcb`: 125 Idris cells
 (`convergence-campaign.tsv`, 25 examples) and 115 reference cells
 (`convergence-campaign-ref.tsv`, 23 modules; gpt and transformer have no seeded
 reference bar).
 
-20 of 25 Idris examples are 5/5, as are 19 of 23 reference modules. Every row
-where the two sides differ, or where either falls short of 5/5:
+> [!IMPORTANT]
+> **The eight deep-RL rows below are superseded.** Reading this table is what
+> turned up the reset divergence documented above, and fixing that changed what
+> both sides measure for reinforce, a2c, dqn, double-dqn, mountain-car,
+> mountain-car-cont, ppo and sac. Their cells were cleared and re-run; the old
+> numbers are preserved in `a3744bcb`. The rnn/lstm/gru reference rows are
+> superseded too, by the F64 fix. The non-RL rows (supervised, mnist,
+> seq-classify, transformer, gpt, NTM/DNC, tabular) are unaffected.
+
+20 of 25 Idris examples were 5/5, as were 19 of 23 reference modules. Every row
+where the two sides differed, or where either fell short of 5/5:
 
 | Example | Idris | Reference | Note |
 |---------|-------|-----------|------|
@@ -48,14 +114,17 @@ the ones carrying signal.
 Both sides now sit at 4/5 and fail on *different* seeds, which places the
 failure in the algorithm's seed sensitivity rather than in the Idris port.
 
-`example-a2c` is the row to investigate. It is the only example where the
-reference is solid and Idris is not, and A2C is where a paramId-scoping bug
+`example-a2c` was the row to investigate. It was the only example where the
+reference was solid and Idris was not, and A2C is where a paramId-scoping bug
 previously let seed 42 "converge" while the actor received no updates at all
-(see "A2C real bug surfaced by multi-seed alignment" below).
+(see "A2C real bug surfaced by multi-seed alignment" below). Investigating it
+is what surfaced the reset divergence.
 
-SAC runs the comparison the other way: 5/5 in Idris against 2/5 in the
+SAC ran the comparison the other way: 5/5 in Idris against 2/5 in the
 reference. `torch_ref/correctness/test_sac.py` only ever asserted seed 42, so
-the reference's fragility here had never been measured.
+the reference's fragility here had never been measured — but the Idris 5/5 was
+measured from the downward equilibrium, an easier task than the reference's
+random start, so the gap was not a like-for-like comparison.
 
 The NTM pair is seed-fragile on **both** implementations, and seed 4 fails on
 both sides of both tasks. Idris sits one seed below the reference on each.

@@ -87,6 +87,15 @@ coverage; including them would dilute the signal.
 | Dropout RNG output values | Inherently non-deterministic; no value oracle exists | Statistical mean test (already in suite) + example smoke. Per-element assertions are NOT allowed |
 | mlx paravirt-GPU panic paths | Non-deterministic VM-level failure | Documented in `TODO.md` row 44 |
 | `Data.Nat` recursive Peano walks | Performance footgun, not a correctness path | None |
+| Step-oracle coverage of dropout-bearing examples (`example-mnist`, `example-seq-classify`) | The oracle asserts two implementations produce identical post-step weights; an active dropout layer draws its mask from each side's own RNG, so the step cannot be made to agree | Init/data/metric gates + `test-e2e-examples`; the dropout kernel itself has the statistical mean test above |
+
+`example-mnist` is the only campaign example whose epoch is more than one
+batch (`generate`-backed streams carry no `epochLen`, so `Ml.Fit.fitCustom`
+takes a single step per epoch for every other example). It is also the only
+conv2d example, so excluding it leaves conv2d forward/backward without a
+step-level cross-check. Closing that needs both sides to disable dropout for
+the oracle step — Idris has `Nn.Params.setTraining False`, which keeps the
+`WithGrad` type — and is tracked in `TODO.md`.
 
 ## Categories of FFI symbol that the probe flags but exclusion is debatable
 

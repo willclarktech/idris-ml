@@ -2,6 +2,31 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Environment reset through the `Env` interface (2026-08-01). Every Idris
+deep-RL example wrote its environment's reset state as a literal instead of
+calling `Env.reset` — CartPole at (0,0,0,0), MountainCar at (-0.5, 0), Acrobot
+all-zero, Pendulum at the downward equilibrium — while every PyTorch reference
+called Gymnasium's randomized `env.reset()`. Greedy evaluation from a fixed
+start is deterministic, so all N episodes were one trajectory reported as an
+N-episode mean; that is why every pre-fix Idris CartPole result in the campaign
+TSV is a whole number where the reference reports 194.1. `Gym.Vector.
+stepAutoReset` already did the right thing and had no callers. On the reference
+side `reset_to_zero` had stopped mutating on 2026-06-08 but kept its name, and
+a2c's and dqn's rollouts still forced the observation to zero while the env sat
+at a random state. New gate `make test-integration-lint-env-reset-literals`
+reads the forbidden constructors out of idris-gym. Full detail in
+`reference-alignment.md`.
+
+RNN-family reference precision (2026-08-01). `torch_ref/models/rnn.py` built
+its cells, learned initial states and dataset tensors without
+`dtype=get_dtype()`, so the RNN, LSTM and GRU references trained in torch's
+default float32 against the Idris side's F64. Found by extending the step
+oracle to lstm, which reported a 1.4e-8 relative post-step divergence against a
+1e-9 tolerance — float32 round-off, eight orders above the 2.2e-19 `supervised`
+reaches. Step-oracle coverage went 1 -> 4 of 20 in the same change, via a
+weights-only dump (`Ml.Checkpoint.maybeDumpOracleWeights`) for examples whose
+data is generated identically on both sides.
+
 One dense init on both sides (2026-07-29). Idris has a single dense-layer
 constructor, `Ml.Nn.Linear.linear`, so every reference model mapping onto it
 has to init the same way or the comparison measures init noise instead of the
