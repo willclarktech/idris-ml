@@ -343,17 +343,18 @@ tmseLoss p t = ioRerun (\_ =>
   let sqDiff = primMul {ex} diff diff in
   MkTensor (primSum {ex} sqDiff) Nothing)
 
-||| NLL loss against a one-hot target. Mirrors
-||| `Example.Supervised.nllLossTensor` (divide by n to match the
-||| reference's mean reduction).
+||| NLL loss against a one-hot target (divide by n to match the
+||| reference's mean reduction). Since 2026-07-28 this is the fused
+||| `primSoftmaxXent2d` at `scale = 1/n` — rank-1 logits are accepted as
+||| `[1, n]` by all three backends, so this is one tape node instead of
+||| the old five-op logSoftmax → mul → sum → neg → mulScalar chain, with
+||| a bit-identical F64 forward on tape (the 1-D log-softmax kernel and
+||| the fused kernel's row loop share the same max-subtract arithmetic).
 export
-tnllLoss : {0 ex : Executor} -> UserExecutorNN ex => IsFloating dt => {n : Nat} ->
+tnllLoss : {0 ex : Executor} -> UserExecutorOptimizations ex => IsFloating dt => {n : Nat} ->
            Tensor [n] ex dt g -> Tensor [n] ex dt g -> IO (Tensor [] ex dt g)
 tnllLoss {n} p t = ioRerun (\_ =>
-  let logP = primLogSoftmax {ex} p.tensorPtr 0 in
-  let prod = primMul {ex} logP t.tensorPtr in
-  let neg  = primNeg {ex} (primSum {ex} prod) in
-  MkTensor (primMulScalar {ex} neg (1.0 / cast n)) Nothing)
+  MkTensor (primSoftmaxXent2d {ex} p.tensorPtr t.tensorPtr (1.0 / cast n)) Nothing)
 
 ||| Fused softmax cross-entropy with logits against soft/one-hot targets:
 ||| `-scale * (target * logSoftmax(pred, axis=1)).sum()` as ONE tape node
