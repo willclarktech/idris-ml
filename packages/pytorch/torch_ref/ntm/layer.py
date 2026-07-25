@@ -84,13 +84,15 @@ class NTMLayer(nn.Module):
         nn.init.xavier_uniform_(self.memory_init.data.view(n, m))
         self.memory: Tensor = torch.full((n, m), 1e-6)
 
-        # Fixed read output init (kaiming, non-learnable, set once).
-        # Registered as a buffer so model.to(device) moves it alongside
-        # the parameters.
+        # Learned read-output init (kaiming). A plain buffer until
+        # 2026-08-03: unregistered state can neither travel through a
+        # checkpoint nor the step-oracle fixture, so a save/load round trip
+        # (and the cross-implementation comparison) ran from a different
+        # draw. A parameter travels, and learns — as upstream pytorch-ntm's
+        # read bias does.
         read_out = torch.empty(1, self.m)
         nn.init.kaiming_uniform_(read_out)
-        self.register_buffer("_init_read_output", read_out.squeeze(0))
-        self._init_read_output: Tensor
+        self.read_init = nn.Parameter(read_out.squeeze(0))
 
         self._diag: dict[str, Tensor] = {}
         self.stash_diagnostics: bool = False
@@ -106,8 +108,11 @@ class NTMLayer(nn.Module):
         self._current_read_addr = torch.zeros(self.n, device=device)
         self._current_write_addr = torch.zeros(self.n, device=device)
 
-        # Read head output: fixed kaiming init
-        self._current_read_output = self._init_read_output
+        # Read head output: the learned init. Sliced to a view — assigning
+        # the Parameter itself would register it under this attribute name,
+        # and the later plain-tensor assignment in forward() would be
+        # rejected by nn.Module.
+        self._current_read_output = self.read_init[:]
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward pass for one timestep.

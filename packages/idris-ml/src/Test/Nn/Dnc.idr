@@ -55,9 +55,10 @@ resetRestores = do
 paramsCompose : IO Bool
 paramsCompose = do
   d0 <- mkDnc
-  -- controller LSTM (6) + 11 head FCs (2 each = 22) + memory_init (1) = 29.
-  check ("Params (Dnc) composes 11 heads + controller + memInit (got " ++ show (length (params d0)) ++ ")")
-        (length (params d0) == 29)
+  -- controller LSTM (6) + 11 head FCs (2 each = 22) + memory_init (1)
+  -- + read_init (1) = 30.
+  check ("Params (Dnc) composes 11 heads + controller + memInit + readInit (got " ++ show (length (params d0)) ++ ")")
+        (length (params d0) == 30)
 
 smartCtorNames : IO Bool
 smartCtorNames = do

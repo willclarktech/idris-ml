@@ -225,12 +225,15 @@ ntm = scopedChild "ntm" $ do
                                     (sqrt (6.0 / cast {to=Double} (h + m))) 0.01))
   mname <- freshChild "memory_init"
   memInit <- liftIO $ tparam1dNormal {ex} {dt} {n = m * n} mname 0.0 memStd
+  -- Learned read-output init, registered like memory_init. An unregistered
+  -- state tensor until 2026-08-03: it could neither travel through a
+  -- checkpoint nor the step-oracle fixture, so a save/load round trip ran
+  -- from a different draw. Kaiming bound, matching the reference's
+  -- `kaiming_uniform_` at fan_in = m (the old bound was 1/sqrt m).
+  iname <- freshChild "read_init"
   iro <- liftIO $ do
-    let iroBound = 1.0 / sqrt (cast {to=Double} m)
-    iroVals <- traverse (\_ => randomRIO (-iroBound, iroBound)) (Vect.replicate m ())
-    let buf = packDoubles (prim__allocDoubles (cast m)) 0 iroVals
-    pure (the (TVec m ex dt WithGrad)
-              (MkTensor (dtCreateState1d {ex} {t=dt} (cast m) buf (deviceStreamTag {ex})) Nothing))
+    let iroBound = sqrt (6.0 / cast {to=Double} m)
+    param {ex} {dt} {dims = [m]} iname (Uniform (negate iroBound) iroBound)
   case sgrad {g} of
     SWithGrad => pure (MkNtm ctrl rfc wfc ofc memInit iro Nothing Nothing Nothing Nothing)
     SNoGrad   => do memInit' <- liftIO (weakenGrad memInit)

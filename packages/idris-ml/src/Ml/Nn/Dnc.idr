@@ -52,6 +52,17 @@ packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
 packDoubles buf _ []            = buf
 packDoubles buf off (x :: rest) = packDoubles (prim__setDouble buf off x) (off + 1) rest
 
+-- Slice the flat learned read-init [r * m] into r per-head [m] rows.
+readInitSlices : {0 ex : Executor} -> Backend ex dt => (r, m : Nat) -> AnyPtr -> Vect r AnyPtr
+readInitSlices {ex} r m flat = go r
+  where
+    go : (k : Nat) -> Vect k AnyPtr
+    go Z     = []
+    go (S j) =
+      let idx = cast {to=Int} (natToInteger (minus r (S j)))
+          mI  = cast {to=Int} (natToInteger m)
+      in primNarrow {ex} flat 0 (idx * mI) mI :: go j
+
 mkZeroVect : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVect Z _     = []
 mkZeroVect (S k) n = zeroState1d {ex} {dt} n :: mkZeroVect {ex} {dt} k n
@@ -123,10 +134,10 @@ fcApply cellPtr fc = primLinear {ex} fc.weightT.tensorPtr cellPtr fc.biasT.tenso
 -- The layer
 ----------------------------------------------------------------------
 
-||| DNC cell. Controller + 11 heads + learned memory-init are params;
-||| memory / usage / write-weights / precedence / link / per-head read
-||| weights + outputs are per-sequence state. `initReadOutsT` (fixed
-||| Kaiming) + `nonDiagMaskT` (precomputed 1−I) are non-param buffers.
+||| DNC cell. Controller + 11 heads + learned memory-init + learned
+||| read-output init are params; memory / usage / write-weights /
+||| precedence / link / per-head read weights + outputs are per-sequence
+||| state. `nonDiagMaskT` (precomputed 1−I) is the one non-param buffer.
 public export
 record Dnc (r : Nat) (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : Executor) (0 dt : DType) (0 g : GradMode) where
   constructor MkDnc
@@ -143,7 +154,7 @@ record Dnc (r : Nat) (n : Nat) (m : Nat) (h : Nat) (i : Nat) (o : Nat) (0 ex : E
   readModesFc   : Linear h (r * 3) ex dt g
   outputFc      : Linear (DncOutputInput h r m) o ex dt g
   memInitT      : TVec (m * n) ex dt g
-  initReadOutsT : Vect r AnyPtr
+  readInitT     : TVec (r * m) ex dt g
   nonDiagMaskT  : AnyPtr
   memT          : Maybe (Tensor [n, m] ex dt g)
   usageT        : Maybe (TVec n ex dt g)
@@ -173,7 +184,7 @@ dncStepIO {i} {o} st input = assert_total $ do
         precPtr    = maybe (zeroState1d {ex} {dt} n) (.tensorPtr) st.precedenceT
         linkPtr    = maybe (zeroState2d {ex} {dt} n n) (.tensorPtr) st.linkT
         rwTsPtrs   = maybe (mkZeroVect {ex} {dt} r n) id st.readWtsT
-        roTsPtrs   = maybe st.initReadOutsT id st.readOutsT
+        roTsPtrs   = maybe (readInitSlices {ex} {dt} r m st.readInitT.tensorPtr) id st.readOutsT
         lstmInputV = the (TVec (DncControllerInput r m i) ex dt WithGrad)
                          (MkTensor (catReadOutsAndInput {ex} roTsPtrs input.tensorPtr) Nothing)
     -- Step the LSTM controller via `lstmStepIO` (ω in/out; controller threaded
@@ -242,7 +253,7 @@ public export
   params (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
     params ctrl ++ params wk ++ params wb ++ params er ++ params ad ++ params fg
       ++ params ag ++ params wg ++ params rk ++ params rb ++ params rm ++ params outFc
-      ++ [toParam mi]
+      ++ [toParam mi, toParam iros]
   reflect (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
     let (MkBang pc # ctrl')  = reflect ctrl
         (MkBang pwk # wk')    = reflect wk
@@ -258,12 +269,12 @@ public export
         (MkBang pof # outFc') = reflect outFc in
     MkBang (pc ++ pwk ++ pwb ++ per ++ pad ++ pfg
               ++ pag ++ pwg ++ prk ++ prb ++ prm ++ pof
-              ++ [toParam mi])
+              ++ [toParam mi, toParam iros])
       # MkDnc ctrl' wk' wb' er' ad' fg' ag' wg' rk' rb' rm' outFc' mi iros ndm memS usS wwS prS lkS rwS roS
   castGrad (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm memS usS wwS prS lkS rwS roS) =
     MkDnc (castGrad ctrl) (castGrad wk) (castGrad wb) (castGrad er) (castGrad ad)
           (castGrad fg) (castGrad ag) (castGrad wg) (castGrad rk) (castGrad rb)
-          (castGrad rm) (castGrad outFc) (retypeGrad mi) iros ndm
+          (castGrad rm) (castGrad outFc) (retypeGrad mi) (retypeGrad iros) ndm
           (map retypeGrad memS) (map retypeGrad usS) (map retypeGrad wwS)
           (map retypeGrad prS) (map retypeGrad lkS) rwS roS
   discard (MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = pure ()
@@ -285,16 +296,6 @@ public export
   recurReset (MkDnc ctrl wk wb er ad fg ag wg rk rb rm outFc mi iros ndm _ _ _ _ _ _ _) =
     MkDnc (recurReset ctrl) wk wb er ad fg ag wg rk rb rm outFc mi iros ndm
           Nothing Nothing Nothing Nothing Nothing Nothing Nothing
-
--- Build r fixed Kaiming-uniform read-output buffers (non-learnable).
-mkKaimingReadOuts : {0 ex : Executor} -> Backend ex dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
-mkKaimingReadOuts Z _ _         = pure []
-mkKaimingReadOuts (S k) m bound = do
-  vals <- traverse (\_ => randomRIO (-bound, bound)) (Vect.replicate m ())
-  let buf = packDoubles (prim__allocDoubles (cast m)) 0 vals
-      ptr = dtCreateState1d {ex} {t=dt} (cast m) buf (deviceStreamTag {ex})
-  rest <- mkKaimingReadOuts {ex} {dt} k m bound
-  pure (ptr :: rest)
 
 ||| Construct a `Dnc` inside an `Init` derivation, mirroring the PyTorch
 ||| reference inits (LSTM default; head FCs xavier-1.4 + bias N(0,0.01);
@@ -333,12 +334,20 @@ dnc = scopedChild "dnc" $ do
                                  biasStd))
   mname <- freshChild "memory_init"
   memInit <- liftIO $ tparam1dNormal {ex} {dt} {n = m * n} mname 0.0 (sqrt (2.0 / cast {to=Double} (m + n)))
-  iros <- liftIO $ mkKaimingReadOuts {ex} {dt} r m (1.0 / sqrt (cast {to=Double} m))
+  -- Learned read-output init, registered like memory_init and flat like it
+  -- ([r * m]). Unregistered buffers until 2026-08-03: they could neither
+  -- travel through a checkpoint nor the step-oracle fixture. Kaiming bound
+  -- at fan_in = m, matching the reference (the old bound was 1/sqrt m).
+  iname <- freshChild "read_init"
+  iros <- liftIO $ do
+    let iroBound = sqrt (6.0 / cast {to=Double} m)
+    param {ex} {dt} {dims = [r * m]} iname (Uniform (negate iroBound) iroBound)
   case sgrad {g} of
     SWithGrad => pure (MkDnc ctrl wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                              memInit iros (buildNonDiagMask {ex} {dt} n)
                              Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
     SNoGrad   => do memInit' <- liftIO (weakenGrad memInit)
+                    iros'    <- liftIO (weakenGrad iros)
                     pure (MkDnc ctrl wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-                                memInit' iros (buildNonDiagMask {ex} {dt} n)
+                                memInit' iros' (buildNonDiagMask {ex} {dt} n)
                                 Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
