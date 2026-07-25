@@ -46,7 +46,7 @@ check() { # <file>  -> echoes idris2 output, returns idris2 exit code
 	local f="$1"
 	( cd "$(dirname "$f")" && \
 		IDRIS2_PACKAGE_PATH="$PKG_PATH" \
-			"$IDRIS2" --check "$(basename "$f")" -p idris-ml -p linear -p contrib 2>&1 )
+			"$IDRIS2" --check "$(basename "$f")" -p idris-ml -p idris-random -p linear -p contrib 2>&1 )
 }
 
 # ---- NEG: must fail, naming both mismatched dims ----

@@ -32,7 +32,7 @@ fi
 
 cd "$(dirname "$NEG_FILE")"
 OUTPUT="$(IDRIS2_PACKAGE_PATH="$IDRIS_LOCAL/idris2-0.8.0${PACK_PKG_PATH:+:$PACK_PKG_PATH}" \
-					"$IDRIS2" --check "$(basename "$NEG_FILE")" -p idris-ml 2>&1 || true)"
+					"$IDRIS2" --check "$(basename "$NEG_FILE")" -p idris-ml -p idris-random 2>&1 || true)"
 
 # Success path: instance SEARCH failed naming the missing LEAF —
 # Idris 0.8.0 walks through the blanket implementation and reports

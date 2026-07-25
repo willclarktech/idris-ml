@@ -276,7 +276,7 @@ example-llama-inference: install $(HF_MODELS_DIR)/unsloth/Llama-3.2-1B/config.js
 # gate) already elaborated in this build set, and the --check ttc
 # warms the later `-o` build in turn.
 test-integration-lint-llama-inference: install
-	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-random -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/LlamaInference.idr
 
@@ -285,7 +285,7 @@ test-integration-lint-llama-inference: install
 # this gates the typed surface (incl. the NoGrad inference path) without
 # fetching the checkpoint — the cheapest CI proof for this example.
 test-integration-lint-bitnet-inference: install
-	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
+	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-random -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/BitNetInference.idr
 
@@ -300,7 +300,7 @@ HF_FINETUNE_EXAMPLES := BertClassifyFinetune BertClassifySst2Finetune \
 
 test-integration-lint-hf-finetune: install
 	for ex in $(HF_FINETUNE_EXAMPLES); do \
-		IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
+		IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-random -p idris-ml -p idris-gym -p idris-transformers \
 			--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 			--check $(EXAMPLE_SRC)/Example/$$ex.idr || exit 1; \
 	done

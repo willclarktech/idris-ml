@@ -96,7 +96,7 @@ measure_one() {  # <target> <label-override>
 		rundir="$pkgdir"
 	else
 		run=( "$IDRIS2" --build-dir "$tmp" --source-dir "$EXAMPLE_SRC"
-		      -p contrib -p linear -p idris-ml -p idris-gym -p idris-transformers
+		      -p contrib -p linear -p idris-random -p idris-ml -p idris-gym -p idris-transformers
 		      -o "$name" "$target" )
 		rundir="."
 	fi
