@@ -97,6 +97,7 @@ def train_epoch(
     loss = F.nll_loss(output, target)
     # torch's Tensor.backward stub leaves its params unannotated.
     loss.backward()  # pyright: ignore[reportUnknownMemberType]
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     return loss.item()
 

@@ -44,6 +44,20 @@ these rates; the single-seed splits on dqn/sac/mountain-car-cont point in
 both directions and read as RL seed noise, not a systematic gap. No Idris
 rate sits below its reference rate except mountain-car-cont's one seed.
 
+## Alignment Changes (2026-08-04) — seq-classify reference gains the gradient clip
+
+Found by inspection while wiring the dropout-mask step oracle: the Idris side
+has always trained seq-classify with `NormClip 1.0`
+(`SeqClassify.idr`: `adam cfg.lr ({ clip := NormClip 1.0 } defaultOpts)`),
+but the reference's `train_epoch` (`torch_ref/models/seq_classify.py`) took
+raw Adam steps. The mnist pair — the sibling this example was modeled on —
+clips at 1.0 on both sides, so the reference adopted the clip
+(`clip_grad_norm_(model.parameters(), 1.0)`). Reference convergence
+spot-checked at 5/5 (seeds 42/1/2/3/4) with the clip in place; the committed
+campaign TSV rows are refreshed together with the explicit-mask dropout
+change (same date, below the step-oracle entry when it lands). The
+seq-classify step oracle pins this term from now on.
+
 ## Alignment Changes (2026-08-03) — mountain-car-cont mirrored the SAC alignments, plus a pinned-reset remnant
 
 mountain-car-cont is SAC-shaped and carried every divergence the sac oracle
