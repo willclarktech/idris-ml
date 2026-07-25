@@ -235,7 +235,7 @@ runs:
     #
     # SOUNDNESS — cross-commit restore is incremental-safe only because the
     # "Reconcile mtimes" step below force-rebuilds whatever changed since the
-    # restored tree's build commit (build/.cache-commit). Bump -v4 to flush a
+    # restored tree's build commit (build/.cache-commit). Bump -v5 to flush a
     # wedged tree.
     - name: Restore TTC cache
       if: inputs.restore-ttc == 'true'
@@ -250,10 +250,10 @@ runs:
           packages/idris-ml/src/HwExecutors.idr
           packages/idris-ml/src/Test/Config.idr
           packages/idris-transformers/src/Test/Config.idr
-        key: ttc-${{ inputs.os-label }}-v4-${{ github.sha }}-${{ inputs.ttc-job }}
+        key: ttc-${{ inputs.os-label }}-v5-${{ github.sha }}-${{ inputs.ttc-job }}
         restore-keys: |
-          ttc-${{ inputs.os-label }}-v4-${{ github.sha }}-
-          ttc-${{ inputs.os-label }}-v4-
+          ttc-${{ inputs.os-label }}-v5-${{ github.sha }}-
+          ttc-${{ inputs.os-label }}-v5-
 
     # Make cross-commit cache restore sound: touch every path that changed
     # between the restored tree's build commit (build/.cache-commit) and HEAD
@@ -267,7 +267,16 @@ runs:
         cached=""
         [ -f build/.cache-commit ] && cached="$(cat build/.cache-commit)"
         if [ -z "$cached" ]; then
-          echo "No build/.cache-commit (cold or pre-v4 tree) — nothing to reconcile."
+          # A restored tree with no stamp cannot be reconciled, and trusting it
+          # is unsound: the mtime restore above back-dates sources to their
+          # commit dates, so every restored .ttc looks newer than its source and
+          # is kept even when the source moved on. That is how the idris-fmt
+          # tree wedged (Format/Render.ttc predating `formatWith`, kept across
+          # every later run because each failed run re-saved it under a fresh
+          # stamp). Force the rebuild; on a genuinely cold tree it costs
+          # nothing, since those sources have no .ttc to skip.
+          echo "No build/.cache-commit (cold or unstamped tree) — forcing full rebuild."
+          find packages \( -name '*.idr' -o -name '*.ipkg' \) -print0 | xargs -0r touch
           exit 0
         fi
         if ! git cat-file -e "${cached}^{commit}" 2>/dev/null; then

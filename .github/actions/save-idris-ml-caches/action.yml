@@ -77,7 +77,7 @@ runs:
           packages/idris-ml/src/HwExecutors.idr
           packages/idris-ml/src/Test/Config.idr
           packages/idris-transformers/src/Test/Config.idr
-        key: ttc-${{ inputs.os-label }}-v4-${{ github.sha }}-${{ inputs.ttc-job }}
+        key: ttc-${{ inputs.os-label }}-v5-${{ github.sha }}-${{ inputs.ttc-job }}
 
     - name: Save dataset cache
       if: inputs.save-datasets == 'true'
