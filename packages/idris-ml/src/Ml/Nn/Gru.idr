@@ -52,17 +52,21 @@ Recurrent Gru where
     pure1 (MkBang newH # MkGru iw ib hw hb (Just newH))
   recurReset (MkGru iw ib hw hb _) = MkGru iw ib hw hb Nothing
 
-||| Construct a `Gru i o` inside an `Init` derivation. Xavier-ish weight
-||| init (3 stacked gates → fan_out 3·o), zero biases, empty state.
-||| Registers `<scope>.gru_<n>.{weight,bias}_{ih,hh}`.
+||| Construct a `Gru i o` inside an `Init` derivation. Xavier-uniform
+||| weights `U(±√(6/(fan_in+fan_out)))` (3 stacked gates → fan_out 3·o),
+||| zero biases, empty state. Registers
+||| `<scope>.gru_<n>.{weight,bias}_{ih,hh}`.
+|||
+||| Matches `nn.init.xavier_uniform_` on the reference's `GRUCell`; see
+||| `Nn.rnn` for the 2026-07-31 normal-to-uniform note.
 export
 gru : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Gru i o ex dt g)
 gru = do
   name <- freshChild "gru"
-  let iwStd = sqrt (2.0 / cast {to=Double} (i + 3 * o))
-      hwStd = sqrt (2.0 / cast {to=Double} (o + 3 * o))
-  iw  <- liftIO $ tparam2dNormal {ex} {dt} {o = 3 * o} {i}     (name ++ ".weight_ih") 0.0 iwStd
-  hw  <- liftIO $ tparam2dNormal {ex} {dt} {o = 3 * o} {i = o} (name ++ ".weight_hh") 0.0 hwStd
+  let iwB = sqrt (6.0 / cast {to=Double} (i + 3 * o))
+      hwB = sqrt (6.0 / cast {to=Double} (o + 3 * o))
+  iw  <- liftIO $ param {ex} {dt} {dims=[3 * o, i]} (name ++ ".weight_ih") (Uniform (-iwB) iwB)
+  hw  <- liftIO $ param {ex} {dt} {dims=[3 * o, o]} (name ++ ".weight_hh") (Uniform (-hwB) hwB)
   ihB <- liftIO $ tparam1dConst  {ex} {dt} {n = 3 * o} (name ++ ".bias_ih") 0.0
   hhB <- liftIO $ tparam1dConst  {ex} {dt} {n = 3 * o} (name ++ ".bias_hh") 0.0
   case sgrad {g} of

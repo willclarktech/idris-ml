@@ -71,6 +71,25 @@ smartCtorNames = do
   check "rnn registers enc.rnn_0.{weight,bias}_{ih,hh}"
         (("enc.rnn_0.weight_ih" `elem` names) && ("enc.rnn_0.bias_hh" `elem` names))
 
+-- Init contract: every recurrent weight matrix is Xavier-*uniform*,
+-- `U(±√(6/(fan_in+fan_out)))`, matching the reference's
+-- `nn.init.xavier_uniform_`. The Idris side used a normal of the same
+-- variance until 2026-07-31, which is why the check is on the tail rather
+-- than the spread: at equal variance only a uniform keeps every draw inside
+-- the bound. Over 1024 elements a normal clears it with probability
+-- 0.9167^1024, i.e. never.
+rnnInitIsXavierUniform : IO Bool
+rnnInitIsXavierUniform = do
+  m <- runInit $ scoped "ri" (rnn {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=32} {o=32} ttanh)
+  let bound = sqrt (6.0 / cast {to=Double} (32 + 32))
+      ws    = case params m of
+                (p :: _) => [ primItem1d {ex=TestExecutor} p.paramPtr k
+                            | k <- map (cast {to=Int}) [the Nat 0 .. 1023] ]
+                []       => []
+  check ("rnn weight_ih ~ U(±√(6/(fan_in+fan_out))) (bound " ++ show bound
+         ++ ", max " ++ show (foldl (\a, w => max a (abs w)) 0.0 ws) ++ ")")
+        (all (\w => abs w <= bound) ws && any (\w => w /= 0.0) ws)
+
 export
 tests : List (IO Bool)
-tests = [stepCarriesState, resetClearsState, paramsExposed, smartCtorNames]
+tests = [stepCarriesState, resetClearsState, paramsExposed, smartCtorNames, rnnInitIsXavierUniform]

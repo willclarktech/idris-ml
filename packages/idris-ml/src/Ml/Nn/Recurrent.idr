@@ -82,20 +82,27 @@ Recurrent Rnn where
     pure1 (MkBang out # MkRnn iw rw ib hb act (Just out))
   recurReset (MkRnn iw rw ib hb act _) = MkRnn iw rw ib hb act Nothing
 
-||| Construct an `Rnn i o` inside an `Init` derivation. Xavier-ish weight
-||| init (W_ih std √(2/(i+o)), W_hh std 1/√o), zero biases, hidden state
-||| empty. Registers PyTorch RNNCell names
+||| Construct an `Rnn i o` inside an `Init` derivation. Xavier-uniform
+||| weights, `U(±√(6/(fan_in+fan_out)))`, zero biases, hidden state empty.
+||| Registers PyTorch RNNCell names
 ||| `<scope>.rnn_<n>.{weight_ih,weight_hh,bias_ih,bias_hh}`.
+|||
+||| Matches `nn.init.xavier_uniform_` on the paired reference's
+||| `LinearRNNCell`. Until 2026-07-31 these were normals of the same
+||| variance (`√(2/(fan_in+fan_out))` is exactly the uniform's std), so the
+||| tails diverged even though the spreads agreed. `Uniform` also routes
+||| through the host-buffer fill, making the init identical across tape /
+||| torch / mlx by construction.
 export
 rnn : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
       (activation : {0 g' : GradMode} -> TVec o ex dt g' -> IO (TVec o ex dt g')) ->
       Init (Rnn i o ex dt g)
 rnn activation = do
   name <- freshChild "rnn"
-  let iwStd = sqrt (2.0 / cast {to=Double} (i + o))
-      rwStd = 1.0 / sqrt (cast {to=Double} o)
-  iw <- liftIO $ tparam2dNormal {ex} {dt} {o} {i}     (name ++ ".weight_ih") 0.0 iwStd
-  rw <- liftIO $ tparam2dNormal {ex} {dt} {o} {i=o}   (name ++ ".weight_hh") 0.0 rwStd
+  let iwB = sqrt (6.0 / cast {to=Double} (i + o))
+      rwB = sqrt (6.0 / cast {to=Double} (o + o))
+  iw <- liftIO $ param {ex} {dt} {dims=[o, i]} (name ++ ".weight_ih") (Uniform (-iwB) iwB)
+  rw <- liftIO $ param {ex} {dt} {dims=[o, o]} (name ++ ".weight_hh") (Uniform (-rwB) rwB)
   ib <- liftIO $ tparam1dConst  {ex} {dt} {n=o}       (name ++ ".bias_ih")   0.0
   hb <- liftIO $ tparam1dConst  {ex} {dt} {n=o}       (name ++ ".bias_hh")   0.0
   case sgrad {g} of

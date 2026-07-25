@@ -75,18 +75,22 @@ lstmStepIO st input = run (do
   (MkBang hv # MkLstm iw rw ib hb h0 c0 hid cell) <- recurStep st input
   pure (MkLstm iw rw ib hb h0 c0 hid cell, hv))
 
-||| Construct an `Lstm i o` inside an `Init` derivation. Xavier-ish weight
-||| init (4 stacked gates → fan_out 4·o), zero biases + learned h0/c0,
-||| empty state. Registers `<scope>.lstm_<n>.{weight,bias}_{ih,hh}` +
-||| `.h0` / `.c0`.
+||| Construct an `Lstm i o` inside an `Init` derivation. Xavier-uniform
+||| weights `U(±√(6/(fan_in+fan_out)))` (4 stacked gates → fan_out 4·o),
+||| zero biases + learned h0/c0, empty state. Registers
+||| `<scope>.lstm_<n>.{weight,bias}_{ih,hh}` + `.h0` / `.c0`.
+|||
+||| Matches `nn.init.xavier_uniform_` on the reference's `LSTMCell`; see
+||| `Nn.rnn` for why the 2026-07-31 normal-to-uniform move matters when the
+||| variances were already equal.
 export
 lstm : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Lstm i o ex dt g)
 lstm = do
   name <- freshChild "lstm"
-  let iwStd = sqrt (2.0 / cast {to=Double} (i + 4 * o))
-      rwStd = sqrt (2.0 / cast {to=Double} (o + 4 * o))
-  iw <- liftIO $ tparam2dNormal {ex} {dt} {o = 4 * o} {i}     (name ++ ".weight_ih") 0.0 iwStd
-  rw <- liftIO $ tparam2dNormal {ex} {dt} {o = 4 * o} {i = o} (name ++ ".weight_hh") 0.0 rwStd
+  let iwB = sqrt (6.0 / cast {to=Double} (i + 4 * o))
+      rwB = sqrt (6.0 / cast {to=Double} (o + 4 * o))
+  iw <- liftIO $ param {ex} {dt} {dims=[4 * o, i]} (name ++ ".weight_ih") (Uniform (-iwB) iwB)
+  rw <- liftIO $ param {ex} {dt} {dims=[4 * o, o]} (name ++ ".weight_hh") (Uniform (-rwB) rwB)
   ib <- liftIO $ tparam1dConst  {ex} {dt} {n = 4 * o} (name ++ ".bias_ih") 0.0
   hb <- liftIO $ tparam1dConst  {ex} {dt} {n = 4 * o} (name ++ ".bias_hh") 0.0
   h0 <- liftIO $ tparam1dConst  {ex} {dt} {n = o}     (name ++ ".h0") 0.0

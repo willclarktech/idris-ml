@@ -73,6 +73,25 @@ smartCtorNames = do
   check "gru registers enc.gru_0.weight_ih + .weight_hh"
         (("enc.gru_0.weight_ih" `elem` names) && ("enc.gru_0.weight_hh" `elem` names))
 
+-- Init contract: every recurrent weight matrix is Xavier-*uniform*,
+-- `U(±√(6/(fan_in+fan_out)))`, matching the reference's
+-- `nn.init.xavier_uniform_`. The Idris side used a normal of the same
+-- variance until 2026-07-31, which is why the check is on the tail rather
+-- than the spread: at equal variance only a uniform keeps every draw inside
+-- the bound. Over 1536 elements a normal clears it with probability
+-- 0.9167^1536, i.e. never.
+gruInitIsXavierUniform : IO Bool
+gruInitIsXavierUniform = do
+  m <- runInit $ scoped "gi" (gru {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=32} {o=16})
+  let bound = sqrt (6.0 / cast {to=Double} (32 + 48))
+      ws    = case params m of
+                (p :: _) => [ primItem1d {ex=TestExecutor} p.paramPtr k
+                            | k <- map (cast {to=Int}) [the Nat 0 .. 1535] ]
+                []       => []
+  check ("gru weight_ih ~ U(±√(6/(fan_in+fan_out))) (bound " ++ show bound
+         ++ ", max " ++ show (foldl (\a, w => max a (abs w)) 0.0 ws) ++ ")")
+        (all (\w => abs w <= bound) ws && any (\w => w /= 0.0) ws)
+
 export
 tests : List (IO Bool)
-tests = [stepCarriesState, resetRestores, paramsExposed, smartCtorNames]
+tests = [stepCarriesState, resetRestores, paramsExposed, smartCtorNames, gruInitIsXavierUniform]

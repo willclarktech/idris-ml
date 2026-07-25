@@ -77,6 +77,25 @@ smartCtorNames = do
   check "lstm registers enc.lstm_0.{weight_ih,c0}"
         (("enc.lstm_0.weight_ih" `elem` names) && ("enc.lstm_0.c0" `elem` names))
 
+-- Init contract: every recurrent weight matrix is Xavier-*uniform*,
+-- `U(±√(6/(fan_in+fan_out)))`, matching the reference's
+-- `nn.init.xavier_uniform_`. The Idris side used a normal of the same
+-- variance until 2026-07-31, which is why the check is on the tail rather
+-- than the spread: at equal variance only a uniform keeps every draw inside
+-- the bound. Over 2048 elements a normal clears it with probability
+-- 0.9167^2048, i.e. never.
+lstmInitIsXavierUniform : IO Bool
+lstmInitIsXavierUniform = do
+  m <- runInit $ scoped "li" (lstm {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=32} {o=16})
+  let bound = sqrt (6.0 / cast {to=Double} (32 + 64))
+      ws    = case params m of
+                (p :: _) => [ primItem1d {ex=TestExecutor} p.paramPtr k
+                            | k <- map (cast {to=Int}) [the Nat 0 .. 2047] ]
+                []       => []
+  check ("lstm weight_ih ~ U(±√(6/(fan_in+fan_out))) (bound " ++ show bound
+         ++ ", max " ++ show (foldl (\a, w => max a (abs w)) 0.0 ws) ++ ")")
+        (all (\w => abs w <= bound) ws && any (\w => w /= 0.0) ws)
+
 export
 tests : List (IO Bool)
-tests = [stepCarriesState, resetRestores, paramsExposed, smartCtorNames]
+tests = [stepCarriesState, resetRestores, paramsExposed, smartCtorNames, lstmInitIsXavierUniform]
