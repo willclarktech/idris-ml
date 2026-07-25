@@ -187,10 +187,6 @@ main = do
   -- that otherwise blow the elaborator's ambiguity-depth limit in this block.
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
-    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
-    -- Weights only: `patternSeqs` is generated identically on both sides, so
-    -- nothing but the parameters travels. See scripts/check-step-oracle.py.
-    _ <- liftIO1 (maybeLoadOracle {ex = ExampleExecutor})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
       fit (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model

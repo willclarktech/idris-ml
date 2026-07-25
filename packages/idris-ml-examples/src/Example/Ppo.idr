@@ -512,7 +512,6 @@ buildStateL : L IO {use = 1} PPOState
 buildStateL = do
   actor  <- runInitL mkActor
   critic <- runInitL mkCritic
-  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs AState
       initEnvs = fst (resetAll {state=AState} {action=Nat} {obs=Vect 6 Double}

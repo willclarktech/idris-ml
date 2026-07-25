@@ -232,7 +232,6 @@ main = do
   -- arena_reset would dangle a batch pre-fetched before the loop.
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
-    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
       fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model

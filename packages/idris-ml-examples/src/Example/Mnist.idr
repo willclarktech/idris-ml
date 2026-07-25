@@ -263,7 +263,6 @@ main = do
   -- pre-fetched before the loop (a use-after-free at eval).
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
-    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     (MkBang (epochsDone, finalLoss) # trained) <-
       fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
     liftIO1 (putStrLn "")

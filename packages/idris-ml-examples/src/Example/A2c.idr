@@ -520,7 +520,6 @@ buildStateL : L IO {use = 1} A2CState
 buildStateL = do
   actor  <- runInitL mkActor
   critic <- runInitL mkCritic
-  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   resetSeedI <- liftIO1 randomInt32
   let (initEnvs, seed0) = resetAll {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
                                    (Seeded (cast resetSeedI))

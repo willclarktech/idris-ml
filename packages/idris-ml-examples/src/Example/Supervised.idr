@@ -159,7 +159,6 @@ reportResult cfg epochsDone finalLoss correct =
 runDefault : Config -> Optimizer Ex -> IO ()
 runDefault cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
-  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   bs0 <- liftIO1 buildStream
   liftIO1 (maybeDumpBatch {ex = ExampleExecutor} bs0)
   -- Replays the reference's weights and batch under IDRISML_ORACLE_LOAD;
@@ -190,7 +189,6 @@ runMixedGeneric : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
                   String -> IO ()
 runMixedGeneric cfg opt mkModel modeLabel = Control.Linear.LIO.run $ do
   model <- runInitL mkModel
-  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   gs <- liftIO1 (defaultGradScaler {ex=Ex} {dt=F})
   bs <- liftIO1 buildStream
   liftIO1 (putStrLn modeLabel)

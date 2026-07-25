@@ -545,7 +545,6 @@ main = do
       -- final eval + generation via finalReportL (consumes the trained handle).
       Control.Linear.LIO.run $ do
         model <- runInitL mkModelInit
-        liftIO1 (maybeDumpInit {ex = ExampleExecutor})
         (MkBang (epochsDone, _) # trained) <-
           fitSupervised {ex=ExampleExecutor} opt batchLossL
                          (generate (gptBatch trainIndices trainLen BatchSize)) trainCfg model

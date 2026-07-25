@@ -260,7 +260,6 @@ main = do
   -- Linear surface end to end (see Example.NtmCopy).
   Control.Linear.LIO.run $ do
     model <- runInitL (ntm {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
-    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, _) # trained) <-
       fit (recurEpochL opt) opt dataStream

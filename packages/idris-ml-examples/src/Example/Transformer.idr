@@ -383,7 +383,6 @@ runTrain positions cfg opt trainCfg = Control.Linear.LIO.run $ do
   -- through fitSupervised (batchLossL consumes-and-returns it each step),
   -- final eval via evalReportL (which consumes the trained handle).
   model <- runInitL mkModelInit
-  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   (MkBang (epochsDone, _) # trained) <-
     fitSupervised {ex=ExampleExecutor} opt batchLossL (generate (sortingBatch BatchSize)) trainCfg model
   evalReportL positions cfg epochsDone trained

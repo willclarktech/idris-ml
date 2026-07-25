@@ -85,6 +85,16 @@ fitCustom : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer
              EpochStep m batch -> DataStream batch -> TrainConfig m -> (1 _ : m) ->
              L IO {use = 1} (LPair (!* (Nat, Double)) m)
 fitCustom {nanHalts} step s cfg m0 = do
+  -- Both inert unless their env var is set, and both belong here rather than
+  -- in the examples: this is the last point before any parameter is stepped,
+  -- and every example that has parameters to dump or load reaches training
+  -- through this function. Keeping them out of example bodies matters —
+  -- examples are read to learn the library, and alignment-harness plumbing is
+  -- not part of that. `runInitL` would be the more obvious home but is
+  -- executor-agnostic, so hooking it would force an `{ex = ...}` annotation
+  -- at every construction site.
+  liftIO1 (maybeDumpInit {ex})
+  _ <- liftIO1 (maybeLoadOracle {ex})
   tStart  <- liftIO1 (clockTime Monotonic)
   liftIO1 (logInfo $ "Fitting... [backend=" ++ backendName {ex} ++ "]")
   bestRef <- liftIO1 (newIORef (the Double (1.0 / 0.0)))
