@@ -27,6 +27,8 @@ fixtureText = unlines
   , "choice 0"
   , "normal -1.5"
   , "uniform 0.125"
+  , "normal -0.25"
+  , "uniform 3.2e-05"
   ]
 
 drawEnv : Source -> (Double, Source)
@@ -65,6 +67,24 @@ tests =
        n1 <- replay.rng.natRange 0 5
        c1 <- replay.rng.choice [0.9, 0.1]
        check "natRange replays from the choice channel" (n1 == 1 && c1 == 0)
+
+  -- The stdlib parseDouble drops the sign when the integer part is zero
+  -- ("-0.25" parses as +0.25 on the pinned toolchain, "-1.5" is fine), so
+  -- loadReplay handles the sign itself. A normal draw is the one channel
+  -- where negatives are routine.
+  , do replay <- loadReplay fixture
+       _  <- replay.rng.normal
+       n2 <- replay.rng.normal
+       checkClose "negative zero-integer-part draw keeps its sign" n2 (-0.25) tol
+
+  -- parseDouble's exponent path can land one ulp off the correctly
+  -- rounded double, so exponent-form draws replay to parser rounding, not
+  -- bit-for-bit (see loadReplay's doc).
+  , do replay <- loadReplay fixture
+       _  <- replay.rng.uniform
+       _  <- replay.rng.uniform
+       u3 <- replay.rng.uniform
+       checkClose "exponent-form draw parses" u3 3.2e-5 1.0e-18
 
   , do rng <- liveRng
        ns <- sequence (List.replicate 20 (rng.natRange 3 7))

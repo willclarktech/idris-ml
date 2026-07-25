@@ -126,6 +126,12 @@ liveReplay = do
 ||| it draws 0.0 past the end of the recording — a replayed run is only
 ||| meaningful over the span the recording covers.
 |||
+||| Values come back exact to parser rounding: the stdlib parseDouble's
+||| exponent path can land one ulp off the correctly-rounded double, so a
+||| replayed draw agrees with the recorded one to ~1e-16 relative rather
+||| than bit-for-bit. Every step-oracle tolerance sits orders of magnitude
+||| above that.
+|||
 ||| Any unreadable file or unparseable line is a hard error: a replay that
 ||| silently dropped draws would compare two different runs and report them
 ||| as one.
@@ -142,10 +148,19 @@ loadReplay path = do
     bad : String -> a
     bad msg = assert_total $ idris_crash ("Ml.Rng.loadReplay: " ++ msg)
 
+    parseDMag : String -> Double
+    parseDMag s = case parseDouble s of
+                    Just d  => d
+                    Nothing => bad ("not a double in " ++ path ++ ": " ++ s)
+
+    -- The stdlib's parseDouble drops the sign when the integer part is zero
+    -- ("-0.25" parses as +0.25 on the pinned toolchain; "-1.5" is fine), so
+    -- the sign is split off here and only the magnitude goes through it.
+    -- Normal draws are the one channel where negatives are routine.
     parseD : String -> Double
-    parseD s = case parseDouble s of
-                 Just d  => d
-                 Nothing => bad ("not a double in " ++ path ++ ": " ++ s)
+    parseD s = case unpack s of
+                 ('-' :: rest) => negate (parseDMag (pack rest))
+                 _             => parseDMag s
 
     parseN : String -> Nat
     parseN s = case parsePositive s of

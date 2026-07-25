@@ -4,7 +4,9 @@ One draw per line, `<channel> <value>`; blank lines and `#` lines are
 ignored by the reader. Channels interleave freely — only the order within
 a channel matters, and it is the consumption order of the run being
 recorded. `repr()` prints the shortest decimal that round-trips to the
-same IEEE double, so the reader recovers each draw bit-exactly.
+same IEEE double; the Idris reader recovers each draw to parser rounding
+(its parseDouble exponent path can land one ulp off), far below every
+step-oracle tolerance.
 """
 
 from __future__ import annotations
