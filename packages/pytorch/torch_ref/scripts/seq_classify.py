@@ -11,6 +11,7 @@ import time
 
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.seq_classify import SeqClassifyCNN, evaluate, train_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_result, get_dtype, set_device
@@ -47,6 +48,7 @@ def main() -> None:
     )
 
     model = SeqClassifyCNN().to(args.device, dtype=get_dtype())
+    maybe_dump_init(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     param_count = sum(p.numel() for p in model.parameters())

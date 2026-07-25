@@ -5,6 +5,7 @@ module Ml.Checkpoint
 import Data.Either
 import Data.List
 import Data.String
+import System
 import System.Clock
 import System.Directory
 import System.File
@@ -390,3 +391,34 @@ fileCheckpoint dir everyN keepBest opt =
   MkCheckpointPolicy dir everyN keepBest Nothing
     (saveCheckpointFiles opt dir)
     (loadCheckpointFiles opt)
+
+----------------------------------------------------------------------
+-- Init-manifest dump (alignment tooling)
+----------------------------------------------------------------------
+
+||| If `IDRISML_DUMP_INIT` names a path, write every registered parameter to
+||| it as safetensors and exit. Call it straight after model construction:
+||| the file then holds the model's *initial* state, which
+||| `scripts/check-init-manifest.py` diffs against the paired reference's
+||| `state_dict` to compare shapes and init moments.
+|||
+||| An env var rather than a flag so it costs one line per example and no
+||| CLI surface. Exiting rather than returning keeps the dump honest — a run
+||| that continued to train could report a manifest taken after the first
+||| optimizer step.
+|||
+||| Names are the registry's, which follow the PyTorch `state_dict`
+||| convention but are scope-derived (`conv2d_0.weight`), so they do not
+||| match the reference's hand-chosen attribute names (`conv1.weight`). The
+||| gate compares the ordered shape/moment sequence and reports names for
+||| diagnosis only.
+export
+maybeDumpInit : UserExecutorTraining ex => IO ()
+maybeDumpInit = do
+  Just path <- getEnv "IDRISML_DUMP_INIT"
+    | Nothing => pure ()
+  Right () <- saveAll {ex} path
+    | Left err => do putStrLn ("IDRISML_DUMP_INIT: save failed: " ++ show err)
+                     exitFailure
+  putStrLn ("IDRISML_DUMP_INIT: wrote " ++ path)
+  exitSuccess

@@ -11,7 +11,8 @@
         test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects \
         test-integration-lint-paired-defaults test-integration-lint-example-pairing \
-        test-integration-lint-paired-metrics test-integration-py-scripts \
+        test-integration-lint-paired-metrics test-integration-lint-init-manifest \
+        test-integration-py-scripts \
         test-integration-lint-convergence-expect-coverage \
         lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
@@ -95,6 +96,16 @@ test-integration-lint-example-pairing:
 # held-out accuracy, and the Idris side turned out to evaluate nothing at all.
 test-integration-lint-paired-metrics:
 	@python3 scripts/check-paired-metrics.py
+
+# Verify paired examples build the same parameter shapes with the same init
+# distribution. Runs both sides under IDRISML_DUMP_INIT, which makes each dump
+# its freshly-constructed parameters to safetensors and exit before training,
+# then diffs shapes exactly and init moments within a band. Four init
+# divergences reached main before this existed (dense 2026-07-29; conv,
+# recurrent and attention 2026-07-31), each found by a human reading two files.
+# Needs the uv venv for safetensors, hence the cd.
+test-integration-lint-init-manifest:
+	@cd packages/pytorch && uv run --no-sync python ../../scripts/check-init-manifest.py
 
 # Verify every convergence-campaign example has a threshold row in the
 # convergence expect file. check-result.sh treats a missing row as

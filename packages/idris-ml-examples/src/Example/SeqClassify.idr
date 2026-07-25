@@ -17,6 +17,7 @@ import Data.List
 import Data.Vect
 import System
 
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Sampler
@@ -230,6 +231,7 @@ main = do
   -- arena_reset would dangle a batch pre-fetched before the loop.
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
+    liftIO1 (maybeDumpInit {ex = Ex})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
       fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
