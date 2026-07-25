@@ -42,7 +42,13 @@ TensorHandle tensor_softmax_xent_2d(TensorHandle hinput, TensorHandle htarget, d
 	int n = (t->rank == 1) ? t->shape[0] : t->shape[1];
 	int rg = t->requires_grad || target->requires_grad;
 
-	double* ls = malloc((size_t)m * n * sizeof(double));
+	/* calloc, not malloc: the fill loop below writes every element, but it
+	 * is bounded by `m` while the accumulation loop is bounded by `m * n`,
+	 * and clang's analyzer cannot relate the two — it posits m <= 0 with
+	 * m * n > 0 and reports a garbage read. Zero-initialised memory closes
+	 * that path; large blocks come back as fresh zero pages, so the cost is
+	 * not a memset. */
+	double* ls = calloc((size_t)m * n, sizeof(double));
 	for (int i = 0; i < m; i++) {
 		double max_val = tape_load_d(t, i * n);
 		for (int j = 1; j < n; j++) {
