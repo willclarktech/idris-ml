@@ -2,6 +2,25 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Fused softmax-xent adoption completed across the example surface
+(2026-07-28). `tnllLoss` (1-D classify NLL) reimplemented over
+`primSoftmaxXent2d` at scale 1/n via the rank-1-as-`[1,n]` acceptance
+(constraint widened to `UserExecutorOptimizations`, the `tnllLossMean`
+move); `Gpt2LmFinetune.gpt2LmLoss` (scale 1/SeqLen) and
+`BertMlmFinetune.bertMlmLoss` (scale 1/numMasked, zero target rows at
+unmasked positions) now call `tsoftmaxXent2d` — each one tape node
+instead of five. All verified bit-identical on tape F64 by full
+pre/post trajectory diffs (bert-classify-finetune all 1905 epochs incl.
+early-stop epoch; both LM finetunes all 100 AdamW steps; gpt2 also
+torch == tape per-step). En route, the four adamW call sites in the HF
+finetune examples turned out to have been uncompilable since `2c752d59`
+(missing `Ml.Optimizer` import, five weeks undetected — they are outside
+the ipkg and every CI lane): fixed, and a new
+`test-integration-lint-hf-finetune` `--check` gate over all five
+finetune examples now runs in the test-e2e-transformers-large CI job.
+The one remaining decomposed CE chain is `Gpt.idr`'s `lmLoss`, kept as
+the measurement vehicle for the gpt grad-divergence row.
+
 Fused softmax cross-entropy shipped on all three backends (2026-07-27).
 Closes item (1) of the "Match PyTorch's catalogue of fused ops" epic
 (precedent: `F.cross_entropy`). `tensor_softmax_xent_2d(input, target,

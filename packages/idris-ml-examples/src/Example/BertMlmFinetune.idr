@@ -263,21 +263,17 @@ mkMaskedTargetOneHot targetIds maskFlags = do
 
 -- Per-position masked CE loss. Sum of cross-entropy contributions
 -- across positions, normalized by the number of masked positions
--- (so the loss magnitude is comparable to a per-position mean).
--- maskedTarget already has zeros at unmasked rows, so those rows
--- contribute zero to the sum.
+-- (so the loss magnitude is comparable to a per-position mean): the
+-- fused `tsoftmaxXent2d` at scale 1/numMasked. maskedTarget already
+-- has zeros at unmasked rows, so those rows contribute zero to the
+-- sum (the fused kernel's zero-target-row case).
 bertMlmLoss : Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad
            -> Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad
            -> (numMasked : Double)
            -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-bertMlmLoss logits maskedTarget numMasked = ioRerun (\_ =>
-  let logProbs = primLogSoftmax2d {ex=ExampleExecutor} logits.tensorPtr
-      prod   = primMul {ex=ExampleExecutor} logProbs maskedTarget.tensorPtr
-      summed = primSum {ex=ExampleExecutor} prod
-      neg    = primNeg {ex=ExampleExecutor} summed
-      denom  = if numMasked < 1.0 then 1.0 else numMasked
-      loss   = primMulScalar {ex=ExampleExecutor} neg (1.0 / denom)
-  in MkTensor loss Nothing)
+bertMlmLoss logits maskedTarget numMasked =
+  let denom = if numMasked < 1.0 then 1.0 else numMasked
+  in tsoftmaxXent2d (1.0 / denom) logits maskedTarget
 
 ----------------------------------------------------------------------
 -- Training loop

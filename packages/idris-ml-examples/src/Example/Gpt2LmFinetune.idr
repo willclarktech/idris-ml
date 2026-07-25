@@ -198,18 +198,15 @@ mkTargetOneHot xs = do
       packIdx (prim__setInt b off (cast {to=Int} (cast {to=Integer} v))) (off + 1) rs
 
 -- Per-position CE loss between [seqLen, vocab] logits and [seqLen, vocab]
--- one-hot target. Mirrors Example/Gpt's `allPositionsCELoss` but starts
--- from a 2D tensor (no reshape needed).
+-- one-hot target, mean-reduced over positions: the fused
+-- `tsoftmaxXent2d` at scale 1/seqLen (one tape node; bit-identical F64
+-- forward to the old logSoftmax2d -> mul -> sum -> neg -> mulScalar
+-- chain this replaced).
 gpt2LmLoss : Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad
           -> Tensor [SeqLen, Vocab] ExampleExecutor ExampleDType WithGrad
           -> IO (Tensor [] ExampleExecutor ExampleDType WithGrad)
-gpt2LmLoss logits targets = ioRerun (\_ =>
-  let logProbs = primLogSoftmax2d {ex=ExampleExecutor} logits.tensorPtr
-      prod   = primMul {ex=ExampleExecutor} logProbs targets.tensorPtr
-      summed = primSum {ex=ExampleExecutor} prod
-      neg    = primNeg {ex=ExampleExecutor} summed
-      loss   = primMulScalar {ex=ExampleExecutor} neg (1.0 / cast {to=Double} SeqLen)
-  in MkTensor loss Nothing)
+gpt2LmLoss logits targets =
+  tsoftmaxXent2d (1.0 / cast {to=Double} SeqLen) logits targets
 
 ----------------------------------------------------------------------
 -- Training loop
