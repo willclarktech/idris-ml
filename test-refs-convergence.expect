@@ -43,3 +43,11 @@ sarsa                    avg_return   >=  -120
 monte_carlo              win_rate     >=  0.3
 frozen_lake              avg_return   >=  0.4
 taxi                     avg_return   >=  5
+
+# ---- Memory-augmented (NTM/DNC) ----
+# Same bars as the Idris side. `acc_full` is the 1-20 length split for copy;
+# `acc` is the mixed 2-6 protocol for recall, which both sides now report.
+ntm_copy                 acc_full     >=  0.9
+ntm_recall               acc          >=  0.8
+dnc_copy                 acc          >=  0.8
+dnc_recall               acc          >=  0.6

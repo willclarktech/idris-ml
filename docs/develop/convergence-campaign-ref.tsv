@@ -1,0 +1,9 @@
+ntm_recall	42	fail	6m52s	epochs=30000	acc=0.6872222222222222	seq_acc=0.02	acc_k2=0.8777777777777778	acc_k4=0.665	acc_k6=0.6166666666666667	seq_acc_k2=0.15	seq_acc_k4=0.0	seq_acc_k6=0.0	seed=42
+ntm_recall	1	pass	2m16s	epochs=9600	acc=0.9955555555555555	seq_acc=0.99	acc_k2=0.9955555555555555	acc_k4=0.9938888888888889	acc_k6=0.9861111111111112	seq_acc_k2=0.99	seq_acc_k4=0.98	seq_acc_k6=0.95	seed=1
+ntm_recall	2	pass	1m59s	epochs=8500	acc=0.9711111111111111	seq_acc=0.94	acc_k2=1.0	acc_k4=0.9861111111111112	acc_k6=0.9444444444444444	seq_acc_k2=1.0	seq_acc_k4=0.96	seq_acc_k6=0.88	seed=2
+ntm_recall	3	pass	2m8s	epochs=9100	acc=0.9694444444444444	seq_acc=0.92	acc_k2=0.9805555555555555	acc_k4=0.9505555555555556	acc_k6=0.9766666666666667	seq_acc_k2=0.94	seq_acc_k4=0.86	seq_acc_k6=0.91	seed=3
+ntm_recall	4	fail	6m56s	epochs=30000	acc=0.7222222222222222	seq_acc=0.01	acc_k2=0.8633333333333333	acc_k4=0.7244444444444444	acc_k6=0.6783333333333333	seq_acc_k2=0.06	seq_acc_k4=0.01	seq_acc_k6=0.01	seed=4
+ntm_copy	42	pass	1m1s	epochs=4600	acc_short=0.9955929487179487	acc_full=0.999885004599816	seq_acc_short=0.99	seq_acc_full=0.99	seed=42
+ntm_copy	1	pass	1m27s	epochs=6600	acc_short=1.0	acc_full=1.0	seq_acc_short=1.0	seq_acc_full=1.0	seed=1
+ntm_copy	2	pass	1m11s	epochs=5400	acc_short=1.0	acc_full=1.0	seq_acc_short=1.0	seq_acc_full=1.0	seed=2
+ntm_copy	3	pass	1m8s	epochs=5200	acc_short=0.9753401360544217	acc_full=0.9921003717472119	seq_acc_short=0.96	seq_acc_full=0.89	seed=3

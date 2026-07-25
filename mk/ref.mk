@@ -141,15 +141,15 @@ ref-convergence-recall:
 # resumable TSV shape, so the two pass-rate tables answer the same question
 # and sit side by side in reference-alignment.md.
 #
-# Deliberately absent: the memory (ntm/dnc) and transformer models, whose Idris
-# counterparts init from a normal distribution — a separate alignment axis from
-# the dense-init contract this campaign was built to measure (see
-# reference-alignment.md "one dense init on both sides"). Tabular RL carries no
-# dense layer at all, but it is cheap and shares every hyperparameter default,
-# so it stays in as a free cross-check.
+# The memory models joined on 2026-07-31, when their init was aligned; they run
+# in ~30s-2min per seed, not the grind their reputation suggests. Tabular RL
+# carries no dense layer at all, but it is cheap and shares every hyperparameter
+# default, so it stays in as a free cross-check. Only the transformer pair is
+# absent, and only because its reference has no seeded convergence bar.
 CONVERGENCE_REF_MODULES := supervised rnn lstm gru mnist seq_classify \
 	reinforce dqn double_dqn mountain_car mountain_car_cont a2c ppo sac \
-	q_learning sarsa monte_carlo frozen_lake taxi
+	q_learning sarsa monte_carlo frozen_lake taxi \
+	ntm_copy ntm_recall dnc_copy dnc_recall
 CONVERGENCE_REF_EXPECT  := test-refs-convergence.expect
 CONVERGENCE_REF_OUT     ?= docs/develop/convergence-campaign-ref.tsv
 
