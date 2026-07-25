@@ -19,11 +19,22 @@ Moments are compared within a band, because the two sides draw from the same
 discriminating one — the conv divergence was a 2.45x ratio, dense was 1.73x,
 and both sit far outside any sampling noise at these sizes.
 
-Names are reported but NOT compared: the Idris registry derives them from the
-init scope (`conv2d_0.weight`) while the reference uses attribute names
-(`conv1.weight`). Making those agree is a bigger change than this gate needs.
+Parameters pair by NAME, through the `params` map in `paired_examples.py`. The
+two sides name things differently and neither is wrong — Idris derives names
+from the init scope (`conv1d_0.weight`), PyTorch from the attribute you
+assigned (`conv1.weight`) — so the correspondence is a property of the pairing,
+not of either side, and it lives with the other pairing facts. The map is
+verified, not trusted: every Idris name a key exactly once, every reference
+name a value exactly once, shapes equal per pair. That makes it strictly
+stronger than matching sorted shapes, which cannot see two same-shaped layers
+swapped.
 
-Usage: scripts/check-init-manifest.py [--only <name>] [--tolerance 0.25]
+`--propose` prints a candidate map for an example that has none yet, pairing
+unique shapes directly and same-shaped parameters in registration order. Review
+it before pasting: that ordering is a guess, and it is exactly the guess this
+map exists to replace.
+
+Usage: scripts/check-init-manifest.py [--only <name>] [--propose] [--tolerance 0.25]
 Exit 0 = aligned, 1 = divergence, 2 = a side failed to dump.
 """
 
@@ -61,18 +72,6 @@ def std_band(elems: int, tolerance: float) -> float:
     meaningful check.
     """
     return math.log1p(tolerance) + 3.0 / math.sqrt(2.0 * elems)
-
-
-def _multiset_diff(a: list[tuple[int, ...]], b: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
-    """Shapes in `a` that `b` does not also have, counting duplicates."""
-    remaining = list(b)
-    out = []
-    for shape in a:
-        if shape in remaining:
-            remaining.remove(shape)
-        else:
-            out.append(shape)
-    return out
 
 
 def load_manifest(path: Path) -> list[tuple[str, tuple[int, ...], float, float, float, float]]:
@@ -129,33 +128,149 @@ def dump_python(module: str, out_path: Path) -> str | None:
     return None
 
 
+def propose_map(
+    idris: list[tuple[str, tuple[int, ...], float, float, float, float]],
+    python: list[tuple[str, tuple[int, ...], float, float, float, float]],
+) -> tuple[dict[str, str], list[str]]:
+    """Candidate {idris_name: reference_name}, plus warnings about guesses.
+
+    Pairs on (leaf name, shape) first: both sides follow the PyTorch
+    `state_dict` leaf convention, so `lstm_0.bias_ih` and `0.lstm.bias_ih`
+    agree on `bias_ih` even though the prefixes never will. Only where that
+    leaves several candidates does it fall back to registration order, and
+    every such pair is flagged — that ordering is exactly the guess this map
+    exists to replace.
+    """
+
+    def leaf(name: str) -> str:
+        return name.rsplit(".", 1)[-1]
+
+    def skeleton(name: str) -> tuple[tuple[str, ...], tuple[int, ...]]:
+        """(kind tokens, index sequence), with the dump's model-index prefix dropped.
+
+        `block_0.attn_0.key_2.weight` and `0.blocks.0.key_ws.2.weight` both
+        reduce to kinds ('block','attn','key','weight') / ('blocks','key_ws',
+        'weight') with indices (0, 0, 2). Indices are what actually
+        disambiguate the per-head projections; kinds are compared by prefix
+        because the two sides pluralise differently.
+        """
+        parts = name.split(".")
+        if parts and parts[0].isdigit():
+            parts = parts[1:]
+        kinds: list[str] = []
+        idxs: list[int] = []
+        for part in parts:
+            if part.isdigit():
+                idxs.append(int(part))
+                continue
+            head, sep, tail = part.rpartition("_")
+            if sep and tail.isdigit():
+                kinds.append(head)
+                idxs.append(int(tail))
+            else:
+                kinds.append(part)
+        return tuple(kinds), tuple(idxs)
+
+    def kinds_compatible(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+        """Same number of kind tokens, each a prefix of its counterpart."""
+        if len(a) != len(b):
+            return False
+        return all(x.startswith(y) or y.startswith(x) for x, y in zip(a, b))  # noqa: B905
+
+    buckets: dict[tuple[str, tuple[int, ...]], list[str]] = {}
+    by_shape: dict[tuple[int, ...], list[str]] = {}
+    for name, shape, *_ in python:
+        buckets.setdefault((leaf(name), shape), []).append(name)
+        by_shape.setdefault(shape, []).append(name)
+
+    mapping: dict[str, str] = {}
+    warnings: list[str] = []
+    taken: set[str] = set()
+    for name, shape, *_ in idris:
+        key = (leaf(name), shape)
+        pool = [c for c in buckets.get(key, []) if c not in taken]
+        ikinds, iidx = skeleton(name)
+        exact = [
+            c for c in pool if skeleton(c)[1] == iidx and kinds_compatible(skeleton(c)[0], ikinds)
+        ]
+        if exact:
+            chosen = exact[0]
+            if len(exact) > 1:
+                warnings.append(
+                    f"{name} -> {chosen} {shape}: {len(exact)} share leaf+shape+indices"
+                )
+        elif pool:
+            chosen = pool[0]
+            if len(pool) > 1:
+                warnings.append(f"{name} -> {chosen} {shape}: {len(pool)} share this leaf+shape")
+        else:
+            fallback = [c for c in by_shape.get(shape, []) if c not in taken]
+            if not fallback:
+                warnings.append(f"{name} {shape}: no reference parameter left of this shape")
+                continue
+            chosen = fallback[0]
+            warnings.append(f"{name} -> {chosen} {shape}: shape-only guess, leaf names differ")
+        taken.add(chosen)
+        mapping[name] = chosen
+
+    for name, shape, *_ in python:
+        if name not in taken:
+            warnings.append(f"reference {name} {shape}: unmatched")
+    return mapping, warnings
+
+
+def check_map(
+    mapping: dict[str, str],
+    idris: list[tuple[str, tuple[int, ...], float, float, float, float]],
+    python: list[tuple[str, tuple[int, ...], float, float, float, float]],
+) -> list[str]:
+    """Verify the params map is a shape-consistent bijection. Never trust it.
+
+    A map that silently rots is the failure mode this whole gate exists to
+    kill, so every way it can be wrong is an error: a parameter it forgets, one
+    it invents, two Idris names claiming the same reference parameter, or a
+    pair whose shapes disagree.
+    """
+    problems: list[str] = []
+    ishapes = {name: shape for name, shape, *_ in idris}
+    pshapes = {name: shape for name, shape, *_ in python}
+
+    for missing in sorted(set(ishapes) - set(mapping)):
+        problems.append(f"params map has no entry for idris {missing} {ishapes[missing]}")
+    for extra in sorted(set(mapping) - set(ishapes)):
+        problems.append(f"params map names idris {extra}, which the model does not register")
+
+    seen: dict[str, str] = {}
+    for iname, pname in sorted(mapping.items()):
+        if pname in seen:
+            problems.append(f"params map points {seen[pname]} and {iname} at the same {pname}")
+        seen[pname] = iname
+        if pname not in pshapes:
+            problems.append(f"params map names reference {pname}, which the model does not have")
+            continue
+        if iname in ishapes and ishapes[iname] != pshapes[pname]:
+            problems.append(
+                f"{iname} {ishapes[iname]} maps to {pname} {pshapes[pname]}: shapes differ"
+            )
+    for unmapped in sorted(set(pshapes) - set(mapping.values())):
+        problems.append(f"reference {unmapped} {pshapes[unmapped]} is not in the params map")
+    return problems
+
+
 def compare(
+    mapping: dict[str, str],
     idris: list[tuple[str, tuple[int, ...], float, float, float, float]],
     python: list[tuple[str, tuple[int, ...], float, float, float, float]],
     tolerance: float,
 ) -> list[str]:
-    problems: list[str] = []
+    problems = check_map(mapping, idris, python)
+    if problems:
+        return problems  # comparing moments through a broken map says nothing
 
-    # Sorted, not positional: the two sides register in their own construction
-    # orders (Idris walks the init scope, torch walks `state_dict()`), and an
-    # rnn cell that lists weight_out before weight_ih on one side is not a
-    # divergence. What matters is that the same multiset of parameters exists.
-    ishapes = sorted(row[1] for row in idris)
-    pshapes = sorted(row[1] for row in python)
-    if ishapes != pshapes:
-        only_i = _multiset_diff(ishapes, pshapes)
-        only_p = _multiset_diff(pshapes, ishapes)
-        detail = []
-        if only_i:
-            detail.append(f"only idris:  {only_i}")
-        if only_p:
-            detail.append(f"only python: {only_p}")
-        problems.append("parameter shapes differ\n    " + "\n    ".join(detail))
-        return problems  # moment comparison is meaningless once shapes disagree
-
-    # Same multiset, so pair by sorted shape to compare moments.
-    idris = sorted(idris, key=lambda r: (r[1], r[0]))
-    python = sorted(python, key=lambda r: (r[1], r[0]))
+    irows = {row[0]: row for row in idris}
+    prows = {row[0]: row for row in python}
+    idris = [irows[i] for i in mapping]
+    python = [prows[mapping[i]] for i in mapping]
 
     # no strict=: lengths are equal by the shape check above, and strict= is
     # unavailable on the macOS system python 3.9 the other gates run under.
@@ -213,6 +328,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", help="check a single example by table name")
     parser.add_argument(
+        "--propose",
+        action="store_true",
+        help="print a candidate params map instead of checking (review before pasting)",
+    )
+    parser.add_argument(
         "--tolerance",
         type=float,
         default=0.25,
@@ -241,7 +361,20 @@ def main() -> int:
                 failed = True
                 continue
 
-            problems = compare(load_manifest(ipath), load_manifest(ppath), args.tolerance)
+            imanifest, pmanifest = load_manifest(ipath), load_manifest(ppath)
+
+            if args.propose:
+                mapping, warnings = propose_map(imanifest, pmanifest)
+                print(f"        # {name}")
+                print('        "params": {')
+                for k, v in mapping.items():
+                    print(f'            "{k}": "{v}",')
+                print("        },")
+                for warning in warnings:
+                    print(f"        # REVIEW: {warning}")
+                continue
+
+            problems = compare(spec.get("params", {}), imanifest, pmanifest, args.tolerance)
             if problems:
                 failed = True
                 print(f"{name:<20} [{len(problems)} divergence(s)]")
