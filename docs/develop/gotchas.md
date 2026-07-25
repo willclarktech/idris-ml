@@ -459,6 +459,42 @@ This pins the slots that need disambiguation while letting unconflicted constrai
 
 Gradient flow, numerical stability, and training patterns.
 
+### Parameter init RNG differs per backend — same seed does NOT mean same weights
+
+Random parameter initialization happens C-side, in each backend's own
+`training/dtype_init.{c,cpp}`, using three unrelated generators:
+
+| Backend | Generator | Seeded by |
+|---|---|---|
+| tape | `fill_normal_buf` → hand-written Box-Muller (`normal01`) | `ensure_seeded` |
+| torch | `torch::nn::init::normal_` | `torch::manual_seed` |
+| mlx | `mx::random::normal` | `mx::random::seed` |
+
+The same `--seed 42` therefore produces three *different* weight tensors, so a
+from-scratch run of one example is a different experiment on each backend.
+Measured 2026-07-28 (1 epoch, seed 42): `example-supervised` epoch-0 loss is
+`0.8479759204519675` on tape and `0.7119292274904563` on torch (a handful of
+params); `example-gpt` epoch-0 loss is `4.786383` / `4.749708` / `4.363687`
+(tape / torch / mlx) and a `DEBUG_PARAM_GRADS=1` dump after one backward has
+all 48 real params 10–256% apart.
+
+**This is not a kernel bug.** The HF roundtrip gates load identical weights
+from safetensors and match the Python oracle to 4e-4 on every backend, so the
+forward and backward kernels agree when fed the same inputs.
+
+**How to apply:**
+- Never compare absolute losses, gradient norms, or convergence metrics across
+  backends for a from-scratch run, and never treat such a gap as a bug without
+  first ruling this out (a two-month TODO row chased a phantom libtorch
+  backward bug because of exactly this).
+- To compare backends numerically, load the *same* checkpoint into both (the
+  roundtrip-gate pattern) or compare statistically over ≥5 seeds.
+- Per-backend `.expect` thresholds are per-backend seed luck; widen rather than
+  tune them tight.
+- Introduced 2026-05-23 by `3e2a1b95` / `56b06f48` (migration to the fused
+  C-side `tparam2dNormal` in-place init primitives). Whether to offer a
+  portable host-side init mode is an open decision on the TODO row.
+
 ### `paramId` is required for gradient flow
 
 `Tensor`s without a `paramId` (i.e., `Nothing`) are invisible to the C-side optimizer and won't receive updates. Parameters get their names from the `Init` monad — `runInit` / `runInitL` registers each param under a name derived from the scope path (`scoped` / `scopedChild` / `named` in `Nn.Init`), so layers built outside `runInit` never reach the optimizer:

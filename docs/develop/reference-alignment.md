@@ -6,6 +6,14 @@ Idris examples and their PyTorch references must use **identical defaults** for 
 
 When adding or changing an example, always update both Idris and PyTorch to match.
 
+> **Note (2026-07-28): per-backend numbers in this file are not comparable to each other.**
+> Random parameter init runs C-side in each backend's own generator (tape's Box-Muller,
+> `torch::nn::init::normal_`, `mx::random::normal`), so the same seed yields different
+> initial weights per backend — a tape-vs-torch loss gap in the tables below is a
+> different-experiment artifact, not an implementation difference. Compare backends only
+> by loading identical checkpoints (the HF roundtrip pattern) or statistically over ≥5
+> seeds. See gotchas.md "Parameter init RNG differs per backend".
+
 > **Note: Path C migration is alignment-preserving.**
 > Historical entries below mention V1 internals (`Variable d`, `forwardVarTensor`, `nameLayer`/`autoName`,
 > `applyDeltas`, V1 epoch runners) — these names are gone post-migration but the *alignment* is
