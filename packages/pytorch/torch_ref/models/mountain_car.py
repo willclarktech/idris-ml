@@ -31,6 +31,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.init import init_linear_
 from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem_suffix
 
 MAX_STEPS = 200  # gymnasium MountainCar-v0 default TimeLimit
@@ -75,6 +76,7 @@ class QNetwork(nn.Module):
         self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
         self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
         self.fc3 = nn.Linear(hidden, num_actions, dtype=get_dtype())
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))

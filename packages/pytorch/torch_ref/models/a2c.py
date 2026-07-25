@@ -26,6 +26,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.init import init_linear_
 from torch_ref.models.reinforce import (
     MAX_STEPS,
     CartPoleEnv,
@@ -53,6 +54,7 @@ class Actor(nn.Module):
         self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
         self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
         self.head = nn.Linear(hidden, num_actions, dtype=get_dtype())
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))
@@ -65,6 +67,7 @@ class Critic(nn.Module):
         self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
         self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
         self.head = nn.Linear(hidden, 1, dtype=get_dtype())
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))

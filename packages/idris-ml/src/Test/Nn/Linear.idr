@@ -62,6 +62,24 @@ linearWithZeroBias = do
   check ("linearWith biasStd=0 → zero bias (got [" ++ show b0 ++ ", " ++ show b1 ++ "])")
         (b0 == 0.0 && b1 == 0.0)
 
+-- The default `linear` init contract, matched on the reference side by
+-- `torch_ref.init.init_linear_`: weight ~ U(±1/√fan_in), bias exactly zero.
+defaultWeightInRange : IO Bool
+defaultWeightInRange = do
+  lyr <- runInit $ scoped "dw" (linear {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=3} {o=2})
+  let bound = 1.0 / sqrt 3.0
+      ws    = [ primItem2d {ex=TestExecutor} lyr.weightT.tensorPtr i j
+              | (i, j) <- the (List (Int, Int)) [(0,0),(0,1),(0,2),(1,0),(1,1),(1,2)] ]
+  -- Bound alone would admit an all-zero weight, so require a nonzero draw too.
+  check ("linear weight ~ U(±1/√fan_in) (got " ++ show ws ++ ", bound " ++ show bound ++ ")")
+        (all (\w => abs w <= bound) ws && any (\w => w /= 0.0) ws)
+
+defaultBiasIsZero : IO Bool
+defaultBiasIsZero = do
+  lyr <- runInit $ scoped "db" (linear {ex=TestExecutor} {dt=TestDType} {g=WithGrad} {i=3} {o=2})
+  let bs = [ primItem1d {ex=TestExecutor} lyr.biasT.tensorPtr k | k <- the (List Int) [0, 1] ]
+  check ("linear bias is exactly zero (got " ++ show bs ++ ")") (all (== 0.0) bs)
+
 -- NoGrad-from-birth: constructing `linear {g=NoGrad}` yields params that are
 -- genuinely tape-free (C `requires_grad == 0`) with no post-construction
 -- `eval` flip — the core-layer parity with the HF adapters' grad-poly
@@ -87,4 +105,5 @@ withGradFromBirth = do
 export
 tests : List (IO Bool)
 tests = [ forwardComputes, paramsExposed, smartCtorNames, linearWithZeroBias
+        , defaultWeightInRange, defaultBiasIsZero
         , noGradFromBirth, withGradFromBirth ]

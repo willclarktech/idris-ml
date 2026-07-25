@@ -12,7 +12,53 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > initial weights per backend — a tape-vs-torch loss gap in the tables below is a
 > different-experiment artifact, not an implementation difference. Compare backends only
 > by loading identical checkpoints (the HF roundtrip pattern) or statistically over ≥5
-> seeds. See gotchas.md "Parameter init RNG differs per backend".
+> seeds. See gotchas.md "Parameter init RNG differs per backend". Dense layers built
+> with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
+> host buffer from libc `rand`, which is the same everywhere.
+
+## Alignment Changes (2026-07-29) — one dense init on both sides
+
+Idris has one dense-layer constructor, `Ml.Nn.Linear.linear`, so every reference
+model that maps onto it has to init the same way or the comparison measures init
+noise rather than the implementation. The references disagreed with each other on
+both axes: nine models took `nn.Linear`'s defaults (Kaiming-uniform weight,
+uniform bias), `supervised` and `rnn` set Xavier weights with zero biases
+explicitly, and Idris used `N(0, 1/√fan_in)` with a zero bias (1.73× wider than
+`nn.Linear`, since the std of `U(±b)` is `b/√3`).
+
+Both sides now apply one contract: **weight ~ `U(±1/√fan_in)`, bias = 0**.
+
+| Side | Mechanism |
+|------|-----------|
+| PyTorch | `torch_ref.init.init_linear_(self)`, one call per model `__init__` |
+| Idris | `Ml.Nn.Linear.linear` (`Uniform (-bound) bound` weight, `Zeros` bias) |
+
+The weight half is `kaiming_uniform_(w, a=√5)`, which is what
+`nn.Linear.reset_parameters` already does; spelling it out keeps the contract
+readable from the Idris side, which cannot see a framework default. The bias half
+departs from `nn.Linear`, whose uniform bias is a legacy artifact: symmetry
+breaking is the weight's job, bias gradients neither vanish nor explode with
+depth, and the Kaiming/Xavier variance derivations assume a zero bias.
+HuggingFace's `_init_weights` overrides it to zero and LLaMA/PaLM-style models
+drop the bias entirely.
+
+Scope is the set of reference layers whose Idris counterpart is `Nn.linear`:
+`supervised`, `mnist_cnn`, `seq_classify`, `reinforce`, `dqn` (and `double_dqn`,
+which reuses its `QNetwork`), `mountain_car`, `mountain_car_cont`, `sac`, `ppo`,
+`a2c`, plus the output projections in `rnn.py`'s three cells.
+
+Deliberately **out of scope**, because their Idris counterparts init from a normal
+distribution and are a separate alignment axis:
+
+| Reference | Idris counterpart |
+|-----------|-------------------|
+| `multi_head_transformer`'s nine `nn.Linear` (Xavier) | `Nn.Attention` (normal) |
+| `rnn.py` recurrent weight matrices (Xavier) | `Nn.Recurrent` / `Lstm` / `Gru` (normal) |
+| `mnist_cnn` / `seq_classify` conv kernels | `Nn.Conv` (normal) |
+
+Gates: `torch_ref/correctness/test_init.py` pins the reference contract and the
+out-of-scope exclusions; `Test.Nn.Linear`'s `defaultWeightInRange` /
+`defaultBiasIsZero` pin the Idris side.
 
 > **Note: Path C migration is alignment-preserving.**
 > Historical entries below mention V1 internals (`Variable d`, `forwardVarTensor`, `nameLayer`/`autoName`,

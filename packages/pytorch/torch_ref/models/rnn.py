@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from torch_ref.init import init_linear_, init_linear_weight_
 from torch_ref.training.losses import bce_with_logits
 from torch_ref.training.runner import get_device
 
@@ -52,7 +53,10 @@ class LinearRNNCell(nn.Module):
 
         nn.init.xavier_uniform_(self.weight_ih)
         nn.init.xavier_uniform_(self.weight_hh)
-        nn.init.xavier_uniform_(self.weight_out)
+        # The output projection is an Idris `Nn.linear`, so it takes the
+        # shared dense init; the recurrent weights above are `Nn.Recurrent`
+        # (normal), a separate alignment axis.
+        init_linear_weight_(self.weight_out)
 
     def reset_state(self) -> None:
         self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device)
@@ -92,8 +96,7 @@ class LinearLSTMCell(nn.Module):
         nn.init.xavier_uniform_(self.lstm.weight_hh)
         nn.init.zeros_(self.lstm.bias_ih)
         nn.init.zeros_(self.lstm.bias_hh)
-        nn.init.xavier_uniform_(self.output_proj.weight)
-        nn.init.zeros_(self.output_proj.bias)
+        init_linear_(self.output_proj)
 
     def reset_state(self) -> None:
         self._h = self.h0.clone()
@@ -139,8 +142,7 @@ class LinearGRUCell(nn.Module):
 
         nn.init.xavier_uniform_(self.weight_ih)
         nn.init.xavier_uniform_(self.weight_hh)
-        nn.init.xavier_uniform_(self.output_proj.weight)
-        nn.init.zeros_(self.output_proj.bias)
+        init_linear_(self.output_proj)
 
     def reset_state(self) -> None:
         self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device)

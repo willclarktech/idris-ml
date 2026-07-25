@@ -1,6 +1,6 @@
 """Supervised model: Linear(2->3) outputting raw logits, multiclass NLL loss.
 
-Xavier uniform init, zero bias. Matches Idris Example/Bench.idr (and
+Kaiming-uniform weight, zero bias (torch_ref.init). Matches Idris Example/Bench.idr (and
 Example/Supervised.idr) — raw logits in the model, loss applies log_softmax
 then negative-log-likelihood. The task is argmax over 3 mutually-exclusive
 classes, so multiclass NLL (softmax-coupled) is the correct loss, matching
@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.init import init_linear_
 from torch_ref.training.losses import nll_loss
 from torch_ref.training.runner import get_device, get_dtype
 
@@ -21,8 +22,7 @@ class SupervisedModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.linear = nn.Linear(2, 3)
-        nn.init.xavier_uniform_(self.linear.weight)
-        nn.init.zeros_(self.linear.bias)
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.linear(x)

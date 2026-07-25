@@ -10,9 +10,8 @@
 |||   * `Params` is the hand-written 2-liner (the spike's verdict).
 |||   * `linear` is the `Init` smart constructor: it derives its module name
 |||     with `freshChild` and registers `<name>.weight` / `<name>.bias`,
-|||     matching the legacy `linearLayer` init (weight ~ N(0, 1/√fan_in),
-|||     zero bias) so an `Nn.Seq` MLP and the old `Network` MLP are
-|||     numerically identical given the same RNG stream.
+|||     with Kaiming-uniform weight and zero bias, the same contract
+|||     `torch_ref.init.init_linear_` applies on the reference side.
 module Ml.Nn.Linear
 
 import Control.Linear.LIO
@@ -76,30 +75,35 @@ linearWith weightStd biasStd = do
                     b' <- liftIO (weakenGrad b)
                     pure (MkLinear w' b')
 
-||| Construct a `Linear i o` with PyTorch's `nn.Linear` default init:
-||| weight AND bias ~ `U(-1/√fan_in, +1/√fan_in)`.
+||| Construct a `Linear i o` with Kaiming-uniform weight
+||| `U(-1/√fan_in, +1/√fan_in)` and zero bias.
 |||
-||| That bound is exactly what `nn.Linear.reset_parameters` produces:
-||| `kaiming_uniform_(weight, a=√5)` has gain `√(2/(1+a²)) = √(1/3)`, so
-||| `bound = √3 · gain/√fan_in = 1/√fan_in`, and the bias uses the same
-||| bound explicitly. The common case of `linearWith`, which stays the
-||| normal-init escape hatch for layers that want one (NTM's xavier-1.4
-||| heads).
+||| That bound is what `nn.Linear.reset_parameters` produces for the
+||| weight: `kaiming_uniform_(weight, a=√5)` has gain `√(2/(1+a²)) =
+||| √(1/3)`, so `bound = √3 · gain/√fan_in = 1/√fan_in`. The matching
+||| reference-side helper is `torch_ref.init.init_linear_`. This is the
+||| common case of `linearWith`, which stays the normal-init escape hatch
+||| for layers that want one (NTM's xavier-1.4 heads).
 |||
-||| Until 2026-07-29 this was a *normal* approximation, `N(0, 1/√fan_in)`
-||| with zero bias, inherited from the legacy `linearLayer`. That is 1.73×
-||| wider than the reference (the std of `U(±b)` is `b/√3`) and drops the
-||| bias spread entirely, so every from-scratch example diverged from its
-||| PyTorch twin at step zero. `Uniform` also routes through the
-||| host-buffer fill rather than a fused per-backend RNG, which makes init
-||| identical across tape / torch / mlx by construction.
+||| The bias departs from `nn.Linear`, whose uniform bias is a legacy
+||| artifact: symmetry breaking is the weight's job, bias gradients
+||| neither vanish nor explode with depth, and the Kaiming/Xavier variance
+||| derivations assume a zero bias.
+|||
+||| Until 2026-07-29 the weight was a *normal* approximation,
+||| `N(0, 1/√fan_in)`, inherited from the legacy `linearLayer`. That is
+||| 1.73× wider than the reference (the std of `U(±b)` is `b/√3`), so
+||| every from-scratch example diverged from its PyTorch twin at step
+||| zero. `Uniform` also routes through the host-buffer fill rather than a
+||| fused per-backend RNG, which makes init identical across tape / torch
+||| / mlx by construction.
 export
 linear : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} -> Init (Linear i o ex dt g)
 linear = do
   name <- freshChild "linear"
   let bound = 1.0 / sqrt (cast {to=Double} i)
   w <- liftIO $ param {ex} {dt} {dims=[o, i]} (name ++ ".weight") (Uniform (-bound) bound)
-  b <- liftIO $ param {ex} {dt} {dims=[o]}    (name ++ ".bias")   (Uniform (-bound) bound)
+  b <- liftIO $ param {ex} {dt} {dims=[o]}    (name ++ ".bias")   Zeros
   case sgrad {g} of
     SWithGrad => pure (MkLinear w b)
     SNoGrad   => do w' <- liftIO (weakenGrad w)

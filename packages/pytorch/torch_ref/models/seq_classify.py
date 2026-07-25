@@ -20,6 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.init import init_linear_
 from torch_ref.training.runner import get_device, get_dtype
 
 SEQ_LEN = 32
@@ -33,6 +34,7 @@ class SeqClassifyCNN(nn.Module):
         self.conv2 = nn.Conv1d(4, 8, kernel_size=3)
         self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(48, NUM_CLASSES)
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         x = F.max_pool1d(F.relu(self.conv1(x)), 2)  # [B,4,15]

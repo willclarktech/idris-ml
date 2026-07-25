@@ -30,6 +30,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.init import init_linear_
 from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem_suffix
 
 MAX_ACTION = 2.0  # Pendulum torque range
@@ -92,6 +93,7 @@ class Actor(nn.Module):
         self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
         self.mean_head = nn.Linear(hidden, 1, dtype=get_dtype())
         self.log_std = nn.Parameter(torch.zeros(1, dtype=get_dtype()))
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         h = F.relu(self.fc2(F.relu(self.fc1(x))))
@@ -132,6 +134,7 @@ class QNet(nn.Module):
         self.fc1 = nn.Linear(obs_dim + act_dim, hidden, dtype=get_dtype())
         self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
         self.head = nn.Linear(hidden, 1, dtype=get_dtype())
+        init_linear_(self)
 
     def forward(self, obs: Tensor, action: Tensor) -> Tensor:
         a = action.unsqueeze(-1) if action.dim() == obs.dim() - 1 else action

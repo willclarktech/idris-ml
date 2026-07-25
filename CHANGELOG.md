@@ -2,6 +2,31 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+One dense init on both sides (2026-07-29). Idris has a single dense-layer
+constructor, `Ml.Nn.Linear.linear`, so every reference model mapping onto it
+has to init the same way or the comparison measures init noise instead of the
+implementation. The references disagreed with each other on both axes: nine
+models took `nn.Linear`'s defaults (Kaiming-uniform weight, uniform bias),
+`supervised` and `rnn` set Xavier weights with zero biases explicitly. Idris,
+meanwhile, used `N(0, 1/√fan_in)` — 1.73× wider than `nn.Linear`, since the std
+of `U(±b)` is `b/√3` — with a zero bias. Both sides now apply one contract,
+weight ~ `U(±1/√fan_in)` and bias = 0, through the new
+`torch_ref.init.init_linear_` (one call per model `__init__`) and `linear`'s
+`Uniform`/`Zeros` pair. The weight half is `kaiming_uniform_(w, a=√5)`, which is
+what `nn.Linear.reset_parameters` already does; the bias half departs from
+`nn.Linear`, whose uniform bias is a legacy artifact that HuggingFace's
+`_init_weights` overrides and LLaMA/PaLM-style models drop. `multi_head_transformer`
+and the recurrent/conv weights stay out of scope — their Idris counterparts
+(`Nn.Attention`, `Nn.Recurrent`/`Lstm`/`Gru`, `Nn.Conv`) init from a normal
+distribution, a separate axis. A side effect worth noting: `linear` now fills
+entirely through the Idris-side host-buffer path (libc `rand`), so dense init is
+identical across tape / torch / mlx without `IDRISML_PORTABLE_INIT`. RED before
+the Idris half: `Test.Nn.Linear.defaultBiasIsZero` reported `linear bias is
+exactly zero (got [-0.006955125093099146, -0.27003306341269007])`. Gates: 9 new
+tests in `torch_ref/correctness/test_init.py` (which also pins the out-of-scope
+exclusions) plus `defaultWeightInRange` / `defaultBiasIsZero` in
+`Test.Nn.Linear`; the full reference suite stays green at 116 passed.
+
 Opt-in portable parameter init (2026-07-29). Closes the cross-backend
 init-RNG divergence root-caused the day before: tape filled normal-init
 params from its own xoshiro256++/Box-Muller, torch called

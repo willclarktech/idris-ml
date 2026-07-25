@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from torch_ref.init import init_linear_
 from torch_ref.training.runner import (
     format_elapsed,
     get_device,
@@ -68,6 +69,7 @@ class PolicyNetwork(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(4, hidden, dtype=get_dtype())
         self.fc2 = nn.Linear(hidden, 2, dtype=get_dtype())
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.fc2(torch.tanh(self.fc1(x)))

@@ -24,6 +24,7 @@ from torch import Tensor
 # is loaded by the DataLoader construction anyway.
 from torch.utils.data import DataLoader, Dataset  # noqa: TC002
 
+from torch_ref.init import init_linear_
 from torch_ref.training.runner import get_device
 
 # Batch type yielded by the MNIST loaders: (images [B,1,28,28], labels [B]).
@@ -43,6 +44,7 @@ class MnistCNN(nn.Module):
         self.conv2 = nn.Conv2d(16, 32, kernel_size=5, bias=True)
         self.drop = nn.Dropout(0.5)
         self.fc = nn.Linear(512, 10)
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         # x: [B, 1, 28, 28]
