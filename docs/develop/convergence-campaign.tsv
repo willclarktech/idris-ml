@@ -1,120 +1,84 @@
-example-supervised	42	pass	4s	epochs=1000	loss=0.13666947626094297	seed=42	correct=5/5
-example-supervised	1	pass	5s	epochs=1000	loss=0.1366868044007123	seed=1	correct=5/5
-example-supervised	2	pass	4s	epochs=1000	loss=0.13702333593037008	seed=2	correct=5/5
-example-supervised	3	pass	4s	epochs=1000	loss=0.13530670140650666	seed=3	correct=5/5
+example-supervised	42	pass	3m57s	epochs=1000	loss=0.13666947626094297	seed=42	correct=5/5
+example-supervised	1	pass	3m58s	epochs=1000	loss=0.1366868044007123	seed=1	correct=5/5
+example-supervised	2	pass	6s	epochs=1000	loss=0.13702333593037008	seed=2	correct=5/5
+example-supervised	3	pass	5s	epochs=1000	loss=0.13530670140650666	seed=3	correct=5/5
 example-supervised	4	pass	5s	epochs=1000	loss=0.13462403470204745	seed=4	correct=5/5
-example-rnn	42	pass	11s	epochs=1199	loss=6.846408751292547e-4	seed=42
-example-rnn	1	pass	9s	epochs=1166	loss=8.883210432100606e-4	seed=1
-example-rnn	2	pass	11s	epochs=1199	loss=6.875754285716509e-4	seed=2
-example-rnn	3	pass	13s	epochs=1576	loss=7.686869729092025e-4	seed=3
-example-rnn	4	pass	9s	epochs=1045	loss=9.864375768891505e-4	seed=4
-example-lstm	42	pass	10s	epochs=1598	loss=0.0010708967534968673	seed=42
-example-lstm	1	pass	9s	epochs=1746	loss=0.0010975640187873754	seed=1
-example-lstm	2	pass	9s	epochs=1644	loss=0.0011787557099069608	seed=2
-example-lstm	3	pass	9s	epochs=1678	loss=0.0010463559495439538	seed=3
-example-lstm	4	pass	10s	epochs=1726	loss=0.0015100510828221286	seed=4
-example-gru	42	pass	9s	epochs=1389	loss=9.703833953618452e-4	seed=42
-example-gru	1	pass	8s	epochs=1441	loss=0.0012745647019758407	seed=1
-example-gru	2	pass	8s	epochs=1325	loss=7.858497426790545e-4	seed=2
-example-gru	3	pass	8s	epochs=1156	loss=8.532648294051891e-4	seed=3
-example-gru	4	pass	9s	epochs=1612	loss=7.493357407574953e-4	seed=4
-example-transformer	42	pass	56s	epochs=1000	sort_acc=6/6	seed=42
-example-transformer	1	pass	6s	epochs=1000	sort_acc=5/6	seed=1
-example-transformer	2	pass	7s	epochs=1000	sort_acc=6/6	seed=2
-example-transformer	3	pass	7s	epochs=1000	sort_acc=6/6	seed=3
-example-transformer	4	pass	7s	epochs=1000	sort_acc=6/6	seed=4
-example-seq-classify	42	pass	14s	loss=0.09761879761468202	epochs=1000	seed=42
-example-seq-classify	1	pass	7s	loss=0.31578968042750494	epochs=316	seed=1
-example-seq-classify	2	pass	14s	loss=0.1107263395307159	epochs=1000	seed=2
-example-seq-classify	3	pass	14s	loss=0.08204715964716272	epochs=1000	seed=3
-example-seq-classify	4	pass	12s	loss=0.16566517902746808	epochs=962	seed=4
-example-gpt	42	pass	1m10s	bpc=4.439380834192972	epochs=30	seed=42
-example-gpt	1	pass	7s	bpc=4.376909045742844	epochs=30	seed=1
-example-gpt	2	pass	7s	bpc=4.394891764522332	epochs=30	seed=2
-example-gpt	3	pass	7s	bpc=4.475242969762061	epochs=30	seed=3
-example-gpt	4	pass	6s	bpc=4.4531171593960215	epochs=30	seed=4
-example-q-learning	42	pass	5s	avg_return=-13.0	epochs=500	seed=42
-example-q-learning	1	pass	3s	avg_return=-13.0	epochs=500	seed=1
-example-q-learning	2	pass	3s	avg_return=-13.0	epochs=500	seed=2
-example-q-learning	3	pass	4s	avg_return=-13.0	epochs=500	seed=3
-example-q-learning	4	pass	3s	avg_return=-13.0	epochs=500	seed=4
-example-sarsa	42	pass	4s	avg_return=-19.0	epochs=1000	seed=42
-example-sarsa	1	pass	4s	avg_return=-100.0	epochs=1000	seed=1
-example-sarsa	2	pass	3s	avg_return=-100.0	epochs=1000	seed=2
-example-sarsa	3	pass	4s	avg_return=-100.0	epochs=1000	seed=3
-example-sarsa	4	pass	3s	avg_return=-17.0	epochs=1000	seed=4
-example-monte-carlo	42	pass	9s	win_rate=0.4282	epochs=50000	seed=42
-example-monte-carlo	1	pass	6s	win_rate=0.4084	epochs=50000	seed=1
-example-monte-carlo	2	pass	6s	win_rate=0.43	epochs=50000	seed=2
-example-monte-carlo	3	pass	6s	win_rate=0.4178	epochs=50000	seed=3
-example-monte-carlo	4	pass	6s	win_rate=0.4202	epochs=50000	seed=4
-example-frozen-lake	42	pass	5s	avg_return=0.74	epochs=10000	seed=42
-example-frozen-lake	1	pass	5s	avg_return=0.68	epochs=10000	seed=1
-example-frozen-lake	2	pass	5s	avg_return=0.66	epochs=10000	seed=2
-example-frozen-lake	3	pass	5s	avg_return=0.7	epochs=10000	seed=3
-example-frozen-lake	4	pass	5s	avg_return=0.8	epochs=10000	seed=4
-example-taxi	42	pass	11s	avg_return=8.0	epochs=20000	seed=42
-example-taxi	1	pass	10s	avg_return=8.0	epochs=20000	seed=1
-example-taxi	2	pass	10s	avg_return=8.0	epochs=20000	seed=2
-example-taxi	3	pass	10s	avg_return=8.0	epochs=20000	seed=3
-example-taxi	4	pass	9s	avg_return=8.0	epochs=20000	seed=4
-example-mnist	42	pass	1m33s	accuracy=0.981	epochs=5	loss=0.0056296764877379404	seed=42
-example-mnist	1	pass	1m25s	accuracy=0.983	epochs=5	loss=0.005685038618919308	seed=1
-example-mnist	2	pass	1m25s	accuracy=0.988	epochs=5	loss=0.006323430818939827	seed=2
-example-mnist	3	pass	1m26s	accuracy=0.983	epochs=5	loss=0.005189752326432387	seed=3
-example-mnist	4	pass	1m24s	accuracy=0.978	epochs=5	loss=0.005227432645650522	seed=4
-example-reinforce	42	pass	2m25s	avg_return=200.0	epochs=2000	seed=42
-example-reinforce	1	pass	2m18s	avg_return=200.0	epochs=2000	seed=1
-example-reinforce	2	pass	2m24s	avg_return=200.0	epochs=2000	seed=2
-example-reinforce	3	pass	2m26s	avg_return=175.0	epochs=2000	seed=3
-example-reinforce	4	pass	2m23s	avg_return=200.0	epochs=2000	seed=4
-example-dqn	42	pass	3m22s	avg_return=128.0	epochs=300	seed=42
-example-dqn	1	pass	3m58s	avg_return=162.0	epochs=300	seed=1
-example-dqn	2	pass	3m47s	avg_return=137.0	epochs=300	seed=2
-example-dqn	3	pass	3m44s	avg_return=101.0	epochs=300	seed=3
-example-dqn	4	pass	3m47s	avg_return=161.0	epochs=300	seed=4
-example-mountain-car	42	pass	16m25s	avg_return=-120.0	epochs=1000	seed=42
-example-mountain-car	1	pass	17m18s	avg_return=-110.0	epochs=1000	seed=1
-example-mountain-car	2	pass	17m52s	avg_return=-149.0	epochs=1000	seed=2
-example-mountain-car	3	pass	16m8s	avg_return=-110.0	epochs=1000	seed=3
-example-mountain-car	4	pass	17m30s	avg_return=-107.0	epochs=1000	seed=4
-example-mountain-car-cont	42	pass	2m40s	avg_return=95.32677662540071	epochs=8900	seed=42
-example-mountain-car-cont	1	pass	1m22s	avg_return=93.64913885819627	epochs=5200	seed=1
-example-mountain-car-cont	2	pass	2m57s	avg_return=97.15740474359997	epochs=10000	seed=2
-example-mountain-car-cont	3	pass	3m13s	avg_return=94.34136130767637	epochs=10700	seed=3
-example-mountain-car-cont	4	pass	1m27s	avg_return=93.10948901864886	epochs=5400	seed=4
-example-a2c	42	pass	41s	avg_return=200.0	epochs=5000	seed=42
-example-a2c	1	pass	39s	avg_return=200.0	epochs=5000	seed=1
-example-a2c	2	pass	39s	avg_return=200.0	epochs=5000	seed=2
-example-a2c	3	fail	39s	avg_return=107.0	epochs=5000	seed=3
-example-a2c	4	pass	39s	avg_return=200.0	epochs=5000	seed=4
-example-ppo	42	pass	1m24s	avg_return=-77.0	epochs=100	seed=42
-example-ppo	1	pass	1m23s	avg_return=-77.0	epochs=100	seed=1
-example-ppo	2	pass	1m22s	avg_return=-72.0	epochs=100	seed=2
-example-ppo	3	pass	1m22s	avg_return=-76.0	epochs=100	seed=3
-example-ppo	4	pass	1m22s	avg_return=-78.0	epochs=100	seed=4
-example-sac	42	pass	9m35s	avg_return=-373.9448771377874	epochs=22700	seed=42
-example-sac	1	pass	10m17s	avg_return=-372.49462337932613	epochs=24300	seed=1
-example-sac	2	pass	3h23m	avg_return=-367.211695985844	epochs=27500	seed=2
-example-sac	3	pass	3h27m	avg_return=-374.27824928532544	epochs=25700	seed=3
-example-sac	4	pass	11m38s	avg_return=-374.9960817014508	epochs=25200	seed=4
-example-ntm-associative-recall	42	pass	1m17s	epochs=11500	acc=0.9938888888888889	seq_acc=0.98	seed=42
-example-ntm-associative-recall	1	fail	3m2s	epochs=30000	acc=0.7238888888888889	seq_acc=0.09	seed=1
-example-ntm-associative-recall	2	pass	1m17s	epochs=11800	acc=0.9566666666666667	seq_acc=0.91	seed=2
-example-ntm-associative-recall	3	pass	1m4s	epochs=10000	acc=0.9305555555555556	seq_acc=0.71	seed=3
-example-ntm-associative-recall	4	pass	1m22s	epochs=13200	acc=0.9833333333333333	seq_acc=0.96	seed=4
-example-dnc-copy	42	pass	20s	epochs=3000	acc=0.9995652173913043	seq_acc=0.98	seed=42
-example-dnc-copy	1	pass	19s	epochs=2800	acc=0.9914510166358595	seq_acc=0.96	seed=1
-example-dnc-copy	2	pass	17s	epochs=4000	acc=0.9977396021699819	seq_acc=0.91	seed=2
-example-dnc-copy	3	pass	15s	epochs=3100	acc=0.9986933797909407	seq_acc=0.99	seed=3
-example-dnc-copy	4	pass	13s	epochs=2700	acc=0.9995361781076066	seq_acc=0.98	seed=4
-example-dnc-recall	42	pass	1m36s	epochs=15700	acc=0.7794444444444445	seq_acc=0.23	seed=42
-example-dnc-recall	1	pass	1m35s	epochs=16100	acc=0.8511111111111112	seq_acc=0.41	seed=1
-example-dnc-recall	2	pass	1m38s	epochs=15800	acc=0.83	seq_acc=0.38	seed=2
-example-dnc-recall	3	pass	1m42s	epochs=17700	acc=0.8122222222222222	seq_acc=0.29	seed=3
-example-dnc-recall	4	pass	1m25s	epochs=15200	acc=0.7438888888888889	seq_acc=0.19	seed=4
-example-ntm-copy	42	pass	47s	epochs=6700	acc=0.9901838966202783	seq_acc=0.98	seed=42
-example-ntm-copy	1	pass	57s	epochs=7800	acc=0.9955571565802114	seq_acc=0.99	seed=1
-example-ntm-copy	2	fail	1m9s	epochs=10000	acc=0.663417951042611	seq_acc=0.07	seed=2
-example-ntm-copy	3	fail	1m10s	epochs=10000	acc=0.6843657817109144	seq_acc=0.08	seed=3
-example-ntm-copy	4	fail	1m11s	epochs=10000	acc=0.6842629482071713	seq_acc=0.14	seed=4
+example-rnn	42	pass	10s	epochs=1199	loss=6.846408751292547e-4	seed=42
+example-rnn	1	pass	8s	epochs=1166	loss=8.883210432100606e-4	seed=1
+example-rnn	2	pass	8s	epochs=1199	loss=6.875754285716509e-4	seed=2
+example-rnn	3	pass	10s	epochs=1576	loss=7.686869729092025e-4	seed=3
+example-rnn	4	pass	8s	epochs=1045	loss=9.864375768891505e-4	seed=4
+example-lstm	42	pass	7s	epochs=1598	loss=0.0010708967534968673	seed=42
+example-lstm	1	pass	7s	epochs=1746	loss=0.0010975640187873754	seed=1
+example-lstm	2	pass	6s	epochs=1644	loss=0.0011787557099069608	seed=2
+example-lstm	3	pass	5s	epochs=1678	loss=0.0010463559495439538	seed=3
+example-lstm	4	pass	6s	epochs=1726	loss=0.0015100510828221286	seed=4
+example-gru	42	pass	6s	epochs=1389	loss=9.703833953618452e-4	seed=42
+example-gru	1	pass	6s	epochs=1441	loss=0.0012745647019758407	seed=1
+example-gru	2	pass	5s	epochs=1325	loss=7.858497426790545e-4	seed=2
+example-gru	3	pass	5s	epochs=1156	loss=8.532648294051891e-4	seed=3
+example-gru	4	pass	5s	epochs=1612	loss=7.493357407574953e-4	seed=4
+example-transformer	42	pass	1m0s	epochs=1000	sort_acc=6/6	seed=42
+example-transformer	1	pass	9s	epochs=1000	sort_acc=6/6	seed=1
+example-transformer	2	pass	9s	epochs=1000	sort_acc=6/6	seed=2
+example-transformer	3	pass	9s	epochs=1000	sort_acc=6/6	seed=3
+example-transformer	4	pass	9s	epochs=1000	sort_acc=6/6	seed=4
+example-seq-classify	42	pass	10s	loss=0.09761879761468202	epochs=1000	seed=42
+example-seq-classify	1	pass	5s	loss=0.31578968042750494	epochs=316	seed=1
+example-seq-classify	2	pass	6s	loss=0.1107263395307159	epochs=1000	seed=2
+example-seq-classify	3	pass	6s	loss=0.08204715964716272	epochs=1000	seed=3
+example-seq-classify	4	pass	6s	loss=0.16566517902746808	epochs=962	seed=4
+example-gpt	42	pass	1m24s	bpc=4.439364303679103	epochs=30	seed=42
+example-gpt	1	pass	10s	bpc=4.376897555288188	epochs=30	seed=1
+example-gpt	2	pass	10s	bpc=4.3948783745231115	epochs=30	seed=2
+example-gpt	3	pass	9s	bpc=4.475217013037532	epochs=30	seed=3
+example-gpt	4	pass	10s	bpc=4.453100489989583	epochs=30	seed=4
+example-q-learning	42	pass	6s	avg_return=-13.0	epochs=500	seed=42
+example-q-learning	1	pass	6s	avg_return=-13.0	epochs=500	seed=1
+example-q-learning	2	pass	5s	avg_return=-13.0	epochs=500	seed=2
+example-q-learning	3	pass	5s	avg_return=-13.0	epochs=500	seed=3
+example-q-learning	4	pass	5s	avg_return=-13.0	epochs=500	seed=4
+example-sarsa	42	pass	7s	avg_return=-19.0	epochs=1000	seed=42
+example-sarsa	1	pass	5s	avg_return=-100.0	epochs=1000	seed=1
+example-sarsa	2	pass	5s	avg_return=-100.0	epochs=1000	seed=2
+example-sarsa	3	pass	5s	avg_return=-100.0	epochs=1000	seed=3
+example-sarsa	4	pass	6s	avg_return=-17.0	epochs=1000	seed=4
+example-monte-carlo	42	pass	11s	win_rate=0.4282	epochs=50000	seed=42
+example-monte-carlo	1	pass	8s	win_rate=0.4084	epochs=50000	seed=1
+example-monte-carlo	2	pass	8s	win_rate=0.43	epochs=50000	seed=2
+example-monte-carlo	3	pass	8s	win_rate=0.4178	epochs=50000	seed=3
+example-monte-carlo	4	pass	7s	win_rate=0.4202	epochs=50000	seed=4
+example-frozen-lake	42	pass	7s	avg_return=0.74	epochs=10000	seed=42
+example-frozen-lake	1	pass	7s	avg_return=0.68	epochs=10000	seed=1
+example-frozen-lake	2	pass	7s	avg_return=0.66	epochs=10000	seed=2
+example-frozen-lake	3	pass	7s	avg_return=0.7	epochs=10000	seed=3
+example-frozen-lake	4	pass	7s	avg_return=0.8	epochs=10000	seed=4
+example-taxi	42	pass	15s	avg_return=8.0	epochs=20000	seed=42
+example-taxi	1	pass	14s	avg_return=8.0	epochs=20000	seed=1
+example-taxi	2	pass	13s	avg_return=8.0	epochs=20000	seed=2
+example-taxi	3	pass	14s	avg_return=8.0	epochs=20000	seed=3
+example-taxi	4	pass	13s	avg_return=8.0	epochs=20000	seed=4
+example-mnist	42	pass	1m57s	accuracy=0.981	epochs=5	loss=0.0056296764877379404	seed=42
+example-mnist	1	pass	1m36s	accuracy=0.983	epochs=5	loss=0.005685038618919308	seed=1
+example-mnist	2	pass	1m41s	accuracy=0.988	epochs=5	loss=0.006323430818939827	seed=2
+example-mnist	3	pass	1m37s	accuracy=0.983	epochs=5	loss=0.005189752326432387	seed=3
+example-mnist	4	pass	1m30s	accuracy=0.978	epochs=5	loss=0.005227432645650522	seed=4
+example-reinforce	42	pass	34s	avg_return=200.0	epochs=2000	seed=42
+example-reinforce	1	pass	34s	avg_return=200.0	epochs=2000	seed=1
+example-reinforce	2	pass	31s	avg_return=200.0	epochs=2000	seed=2
+example-reinforce	3	pass	31s	avg_return=175.0	epochs=2000	seed=3
+example-reinforce	4	pass	33s	avg_return=200.0	epochs=2000	seed=4
+example-dqn	42	pass	2m42s	avg_return=128.0	epochs=300	seed=42
+example-dqn	1	pass	1m42s	avg_return=162.0	epochs=300	seed=1
+example-dqn	2	pass	1m44s	avg_return=137.0	epochs=300	seed=2
+example-dqn	3	pass	1m46s	avg_return=101.0	epochs=300	seed=3
+example-dqn	4	pass	1m41s	avg_return=161.0	epochs=300	seed=4
+example-mountain-car	42	pass	25m15s	avg_return=-120.0	epochs=1000	seed=42
+example-mountain-car	1	pass	16m11s	avg_return=-110.0	epochs=1000	seed=1
+example-mountain-car	2	pass	15m55s	avg_return=-149.0	epochs=1000	seed=2
+example-mountain-car	3	pass	17m41s	avg_return=-110.0	epochs=1000	seed=3
+example-mountain-car	4	pass	15m49s	avg_return=-107.0	epochs=1000	seed=4
+example-mountain-car-cont	42	pass	2m21s	avg_return=95.32677662540071	epochs=8900	seed=42
+example-mountain-car-cont	1	pass	51s	avg_return=93.64913885819627	epochs=5200	seed=1
+example-mountain-car-cont	2	pass	1m19s	avg_return=97.15740474359997	epochs=10000	seed=2
+example-mountain-car-cont	3	pass	4m7s	avg_return=94.34136130767637	epochs=10700	seed=3
