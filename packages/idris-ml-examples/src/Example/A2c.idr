@@ -11,7 +11,6 @@ import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
 import Ml.Array
-import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Hpo.LrFinder
@@ -328,9 +327,10 @@ record Config where
   valueCoef   : Double
   seed        : Bits64
   lrFind      : Bool
+  replay      : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 7.0e-4 5000 0.99 0.95 0.01 0.5 42 False
+defaultConfig = MkConfig 7.0e-4 5000 0.99 0.95 0.01 0.5 42 False ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -341,6 +341,10 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--value-coef" (\v, c => { valueCoef := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
+        -- Replay recorded draws (`Ml.Rng.loadReplay` format) instead of
+        -- sampling: actions come from the file's choice channel and env
+        -- resets from its env channel, so the rollout reproduces exactly.
+        , Arg "--replay" (\v, c => { replay := v } c)
         ]
 
 -- Per-env bootstrap: critic forward on each env's final state. Skips
@@ -358,78 +362,6 @@ computeBootstrapsBatchedL critic stepLists v = batchOver critic stepLists v.envs
       (MkBang bs # critic'') <- batchOver critic' rest ss
       pure1 (MkBang (b :: bs) # critic'')
 
-||| Dump the rollout the update is about to consume, then exit — the RL half of
-||| the step oracle (`scripts/check-step-oracle.py`). The rollout is driven by
-||| the environment and the action sampler, whose RNG streams differ across the
-||| two languages by design, so it has to travel rather than be regenerated.
-||| Everything downstream is then under test: GAE, advantage normalization, the
-||| policy/value/entropy loss, the gradient clip and Adam.
-|||
-||| Laid out per env ([NumEnvs, RolloutLen]) so the reference can transpose to
-||| the [T, N] its `compute_advantages` wants. Rows are 1-wide for the scalar
-||| series because `bulkToTensor2d` is the shared constructor.
-maybeLoadRollout : {n : Nat} -> Vect n (List RollStep) -> Vect n Double ->
-                   IO (Vect n (List RollStep), Vect n Double)
-maybeLoadRollout stepLists bootstraps = do
-  let flat = Data.Vect.fromList (concat (toList stepLists))
-  -- One `ioRerun` per handle, bound before the list is assembled: the bulk
-  -- constructors are pure-typed FFIs and reorder otherwise. These carry this
-  -- side's own rollout, which is only ever used for its shape — `load`
-  -- overwrites the contents with the reference's.
-  obsP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                           (map (\s => obsTensor s.obs) flat))
-  actP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                           (map (\s => scalarRow (cast (natToInteger s.action))) flat))
-  rewP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                           (map (\s => scalarRow s.reward) flat))
-  valP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                           (map (\s => scalarRow s.value) flat))
-  doneP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                           (map (\s => scalarRow (if s.isDone then 1.0 else 0.0)) flat))
-  bootP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F} (map scalarRow bootstraps))
-  loaded <- maybeLoadOracleTensors {ex=Ex}
-              [ ("__oracle.obs", obsP)
-              , ("__oracle.actions", actP)
-              , ("__oracle.rewards", rewP)
-              , ("__oracle.values", valP)
-              , ("__oracle.dones", doneP)
-              , ("__oracle.bootstraps", bootP)
-              ]
-  if not loaded
-    then pure (stepLists, bootstraps)
-    else do
-      -- Rebuild by walking this side's structure and replacing each entry, so
-      -- the per-env grouping is right by construction. Both sides flatten
-      -- env-major over the same NumEnvs x RolloutLen grid.
-      let readStep : Int -> RollStep
-          readStep i =
-            MkRS (map (\k => primItem2d {ex=Ex} obsP i (cast (finToNat k)))
-                      (Data.Vect.Fin.range {len = ObsDim}))
-                 (natFromDouble (primItem2d {ex=Ex} actP i 0))
-                 (primItem2d {ex=Ex} rewP i 0)
-                 (primItem2d {ex=Ex} valP i 0)
-                 (primItem2d {ex=Ex} doneP i 0 > 0.5)
-
-          readSeq : Int -> List RollStep -> List RollStep
-          readSeq _ []        = []
-          readSeq i (_ :: xs) = readStep i :: readSeq (i + 1) xs
-
-          readAll : Int -> Vect k (List RollStep) -> Vect k (List RollStep)
-          readAll _ []           = []
-          readAll i (xs :: rest) =
-            readSeq i xs :: readAll (i + cast (natToInteger (length xs))) rest
-
-          readBoots : Int -> Vect k Double -> Vect k Double
-          readBoots _ []        = []
-          readBoots i (_ :: xs) = primItem2d {ex=Ex} bootP i 0 :: readBoots (i + 1) xs
-      pure (readAll 0 stepLists, readBoots 0 bootstraps)
-  where
-    scalarRow : Double -> Vector 1 Double
-    scalarRow v = VArray [SArray v]
-
-    natFromDouble : Double -> Nat
-    natFromDouble v = cast {to=Nat} (cast {to=Integer} (cast {to=Int} v))
-
 a2cEpochL : Optimizer Ex -> Config -> (1 _ : A2CState) -> L IO {use = 1} (LPair (!* Double) A2CState)
 a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef rng) = do
   startEnvs <- liftIO1 (readIORef envRef)
@@ -442,11 +374,8 @@ a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef rng) = do
   liftIO1 (writeIORef seedRef finalSeed)
   (MkBang bootstraps # critic'') <-
     withNoGradL {ex=Ex} (computeBootstrapsBatchedL critic' stepLists finalEnvs)
-  -- Returns its arguments unchanged unless IDRISML_ORACLE_LOAD is set, in
-  -- which case the reference's rollout replaces this one.
-  (stepLists', bootstraps') <- liftIO1 (maybeLoadRollout stepLists bootstraps)
   (MkBang loss # (actor'' # critic''')) <-
-    buildLossBatchedL actor' critic'' cfg.gamma cfg.lam cfg.entropyCoef cfg.valueCoef stepLists' bootstraps'
+    buildLossBatchedL actor' critic'' cfg.gamma cfg.lam cfg.entropyCoef cfg.valueCoef stepLists bootstraps
   _ <- liftIO1 (trainStep opt loss)
   -- Per-env running returns (ω bookkeeping).
   reported <- liftIO1 $ do
@@ -516,18 +445,21 @@ evalNL actor seed (S k) acc = do
 -- State construction / eval / discard (linear)
 ----------------------------------------------------------------------
 
-buildStateL : L IO {use = 1} A2CState
-buildStateL = do
+buildStateL : (replayPath : String) -> L IO {use = 1} A2CState
+buildStateL replayPath = do
   actor  <- runInitL mkActor
   critic <- runInitL mkCritic
-  resetSeedI <- liftIO1 randomInt32
+  -- All stochastic input comes through one `Replay`: live draws normally,
+  -- the recorded channels of `--replay <file>` otherwise.
+  replay <- liftIO1 (case replayPath of
+                       "" => liveReplay
+                       p  => loadReplay p)
   let (initEnvs, seed0) = resetAll {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
-                                   (Seeded (cast resetSeedI))
+                                   replay.envSource
   envRef  <- liftIO1 (newIORef initEnvs)
   retRef  <- liftIO1 (newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0)))
   seedRef <- liftIO1 (newIORef seed0)
-  rng     <- liftIO1 liveRng
-  pure1 (MkA2C actor critic envRef retRef seedRef rng)
+  pure1 (MkA2C actor critic envRef retRef seedRef replay.rng)
 
 discardStateL : (1 _ : A2CState) -> L IO ()
 discardStateL (MkA2C actor critic _ _ _ _) = do
@@ -571,7 +503,7 @@ finishLrFind (MkBang _ # st') = do
 
 runLrFind : Config -> IO ()
 runLrFind cfg = Control.Linear.LIO.run $ do
-  st0 <- buildStateL
+  st0 <- buildStateL cfg.replay
   opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
   (LIO.(>>=))
     (lrFind {ex = Ex} {model = A2CState} {dp = ()} lrFindCfg
@@ -580,7 +512,7 @@ runLrFind cfg = Control.Linear.LIO.run $ do
 
 runTrain : Config -> IO ()
 runTrain cfg = Control.Linear.LIO.run $ do
-  st0 <- buildStateL
+  st0 <- buildStateL cfg.replay
   -- Single Adam over both actor + critic (all params registered).
   opt <- liftIO1 (adam cfg.lr ({ clip := NormClip 0.5 } defaultOpts))
   metrics <- liftIO1 (newRLMetricsState 50)

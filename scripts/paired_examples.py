@@ -44,6 +44,9 @@ if TYPE_CHECKING:
         params: NotRequired[dict[str, str]]
         step_oracle: NotRequired[bool]
         tolerance: NotRequired[float]
+        # The reference's oracle run writes <fixture>.replay (recorded
+        # draws); the Idris run receives it via its --replay flag.
+        replay: NotRequired[bool]
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -457,14 +460,16 @@ EXAMPLES: list[ExampleSpec] = [
     },  # Job 4 Phase B; py doesn't have it
     {
         "name": "a2c",
-        # Step-oracle bound, measured with `--tolerance 0`:
-        # worst 1.9e-11: global-norm clipping spreads one scalar's rounding
-        # across every parameter, and Adam's first step divides by
-        # sqrt(v)+1e-8
+        # Step-oracle bound, measured with `--tolerance 0`: worst 2.4e-11
+        # with the rollout regenerated from replayed draws over exact-state
+        # obs. Global-norm clipping spreads one scalar's rounding across
+        # every parameter, and Adam's first step divides by sqrt(v)+1e-8.
         "tolerance": 1e-9,
-        # The rollout is RNG-driven and cannot be regenerated on the other
-        # side, so it travels as buffers and the reference recomputes GAE.
+        # The rollout is RNG-driven, so the reference records its draws
+        # (action choices; reset states as the uniforms that produced them)
+        # and Idris regenerates the identical rollout by replaying them.
         "step_oracle": True,
+        "replay": True,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

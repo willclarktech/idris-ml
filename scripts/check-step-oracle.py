@@ -16,14 +16,18 @@ updated one of two networks. Each was found by a human, late.
 This one compares arithmetic. Two runs:
 
   1. The reference runs its own code path unmodified, writing the fixture it
-     started from — parameters plus every random value it drew — and then its
-     own post-step parameters.
-  2. Idris loads that fixture, replays those inputs instead of generating its
-     own, takes one step and dumps.
+     started from — its parameters, plus (for RNG-driven examples) every draw
+     it made, recorded to a `.replay` sidecar — and then its own post-step
+     parameters.
+  2. Idris loads that fixture, replays the recorded draws through the
+     example's own --replay flag instead of sampling, takes one step and
+     dumps.
 
 Both sides started from identical numbers on identical inputs, so the
 post-step parameters must agree to floating-point round-off. Any difference is
-forward, backward or optimizer semantics.
+forward, backward or optimizer semantics — and for the RL examples the
+regenerated rollout additionally covers the env dynamics and the value
+channel, since Idris recomputes both from the replayed draws.
 
 The fixture travels reference -> Idris, and is keyed by Idris registry names
 so `Ml.Checkpoint.load` needs no remap. That direction matters: the reference
@@ -31,7 +35,9 @@ is the ground truth and the thing written first when a new architecture lands,
 so it should never be bent to consume the implementation's output. It also
 removes the need for the two sides' RNGs to agree — replaying the reference's
 draws gets identical inputs without requiring the generators, the consumption
-order and the sampling algorithms to match.
+order and the sampling algorithms to match (recorded *decisions* for the
+categorical channel; this library's inverse CDF and torch.multinomial would
+never map the same uniform to the same index).
 
 Post-step weights rather than gradients: it needs no hook between `backward`
 and the step, and it covers the optimizer too.
@@ -205,8 +211,20 @@ def main() -> int:
                 continue
 
             # Idris replays that fixture rather than generating its own.
+            make_cmd = ["make", target]
+            if spec.get("replay", False):
+                # The reference wrote its recorded draws beside the fixture;
+                # hand them to the example through its own --replay flag
+                # (the per-example make args var, e.g. A2C_ARGS).
+                replay_path = Path(f"{oracle}.replay")
+                if not replay_path.exists():
+                    print(f"{name:<20} [FAILED] reference did not write {replay_path.name}")
+                    failed = True
+                    continue
+                args_var = name.upper().replace("-", "_") + "_ARGS"
+                make_cmd.append(f"{args_var}=--replay {replay_path}")
             _rc, out = run(
-                ["make", target],
+                make_cmd,
                 REPO_ROOT,
                 {"IDRISML_ORACLE_LOAD": str(oracle), "IDRISML_ONE_STEP": str(idris_after)},
             )

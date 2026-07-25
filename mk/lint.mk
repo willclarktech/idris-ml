@@ -129,12 +129,14 @@ test-integration-lint-data-manifest:
 	@cd packages/pytorch && uv run --no-sync python ../../scripts/check-data-manifest.py
 
 # Verify paired examples compute the same step from the same starting point.
-# Idris dumps its init weights and first batch; the reference loads both, takes
-# one optimizer step and dumps; Idris takes one step and dumps; the two
-# post-step parameter sets must agree to round-off. The only gate that compares
-# arithmetic rather than descriptions — the others all pass while the two sides
-# compute different things, which is how dropout-at-inference, a double
-# log-softmax and a never-updated actor all shipped here.
+# The reference writes the fixture it started from (parameters, plus — for
+# RL — its recorded draws in a .replay sidecar) and its own post-step
+# parameters; Idris loads the fixture, replays the draws via the example's
+# --replay flag, takes one step and dumps. The two post-step parameter sets
+# must agree to round-off. The only gate that compares arithmetic rather
+# than descriptions — the others all pass while the two sides compute
+# different things, which is how dropout-at-inference, a double log-softmax
+# and a never-updated actor all shipped here.
 test-integration-lint-step-oracle:
 	@cd packages/pytorch && uv run --no-sync python ../../scripts/check-step-oracle.py
 

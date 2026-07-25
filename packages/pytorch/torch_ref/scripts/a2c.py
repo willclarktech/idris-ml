@@ -16,9 +16,12 @@ import argparse
 import os
 import sys
 import time
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+from torch import Tensor
 
 from torch_ref.init_manifest import (
     maybe_dump_after_step,
@@ -36,13 +39,18 @@ from torch_ref.models.a2c import (
     make_cartpole_vec_env,
 )
 from torch_ref.models.reinforce import obs_tensor
+from torch_ref.replay import write_replay
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
     format_elapsed,
     format_result,
     mem_suffix,
+    multinomial_safe,
     set_device,
 )
+
+if TYPE_CHECKING:
+    import gymnasium as gym
 
 # Idris registry name -> this script's parameter name, model-index prefixed
 # (0 = actor, 1 = critic). Mirrors the entry in scripts/paired_examples.py,
@@ -63,30 +71,76 @@ PAIRED_PARAMS = {
 }
 
 
-# The rollout travels env-major ([NumEnvs * RolloutLen, ...]), which is the
-# order Idris' `buildLossBatchedL` concatenates its per-env GAE chains in.
-# Everything here is [T, N] or [T, N, obs], so each one transposes first.
-def _rollout_fixture(
-    obs: torch.Tensor,
-    actions: torch.Tensor,
-    rewards: torch.Tensor,
-    values: torch.Tensor,
-    dones: torch.Tensor,
-    bootstraps: torch.Tensor,
-) -> dict[str, torch.Tensor]:
-    def env_major(t: torch.Tensor) -> torch.Tensor:
-        """[T, N] -> [N*T, 1], or [T, N, k] -> [N*T, k]."""
-        moved = t.transpose(0, 1).contiguous()
-        return moved.reshape(-1, moved.shape[-1] if moved.dim() > 2 else 1)
+def _internal_states(vec: gym.vector.SyncVectorEnv) -> np.ndarray:
+    """The sub-envs' exact float64 states, [N, 4].
 
-    return {
-        "__oracle.obs": env_major(obs),
-        "__oracle.actions": env_major(actions.double()),
-        "__oracle.rewards": env_major(rewards),
-        "__oracle.values": env_major(values),
-        "__oracle.dones": env_major(dones),
-        "__oracle.bootstraps": bootstraps.reshape(-1, 1),
-    }
+    The oracle rollout feeds these to the networks instead of Gymnasium's
+    observations: the observation pipeline rounds through float32, idris-gym's
+    does not, and that rounding would put a noise floor under the comparison
+    well above the ~1e-11 the replayed rollout otherwise reaches."""
+    return np.array(
+        [np.asarray(e.unwrapped.state, dtype=np.float64) for e in cast("Any", vec).envs]
+    )
+
+
+def _reset_uniforms(states: np.ndarray) -> list[float]:
+    """Invert CartPole's U(-0.05, 0.05) start draw: the uniform that produces
+    `state` under `Random.Dist.uniform` (`lo + u * (hi - lo)`). Exact up to
+    one rounding of the division."""
+    return [float(u) for u in (np.asarray(states).reshape(-1) + 0.05) / 0.1]
+
+
+def _oracle_rollout(
+    actor: Actor, critic: Critic, vec: gym.vector.SyncVectorEnv, rollout_len: int
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, np.ndarray, list[float]]:
+    """`collect_rollout`'s oracle twin: obs come from the exact internal
+    states, and every reset draw (initial and same-step auto-reset) is logged
+    as the uniform that produced it, in the order the Idris side consumes its
+    env `Source`. Returns the [T, N] rollout, the final states and the logged
+    uniforms."""
+    states = _internal_states(vec)
+    env_uniforms = _reset_uniforms(states)
+    obs_list: list[Tensor] = []
+    act_list: list[Tensor] = []
+    rew_list: list[Tensor] = []
+    val_list: list[Tensor] = []
+    done_list: list[Tensor] = []
+    for _ in range(rollout_len):
+        obs_t = obs_tensor(states)  # [N, 4]
+        with torch.no_grad():
+            logits = actor(obs_t)
+            values = critic(obs_t)
+        probs = F.softmax(logits, dim=-1)
+        actions_t = multinomial_safe(probs, 1).squeeze(-1)
+        actions_np = actions_t.cpu().numpy().astype(np.int64)
+        # SyncVectorEnv.step's stub returns unsolved TypeVars (Unknown).
+        _, rewards_np, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec.step(actions_np),
+        )
+        dones_np = np.logical_or(terms_np, truncs_np)
+        # Same-step autoreset: a terminated sub-env's internal state is
+        # already its fresh reset draw. Log those draws env-ascending, the
+        # order Gym.Vector.stepAutoReset consumes them.
+        new_states = _internal_states(vec)
+        for i in np.flatnonzero(dones_np):
+            env_uniforms += _reset_uniforms(new_states[int(i)])
+        dtype = obs_t.dtype
+        obs_list.append(obs_t)
+        act_list.append(actions_t.long())
+        rew_list.append(torch.tensor(rewards_np, dtype=dtype))
+        val_list.append(values.detach().to(dtype))
+        done_list.append(torch.tensor(dones_np.astype(np.float64), dtype=dtype))
+        states = new_states
+    return (
+        torch.stack(obs_list),  # [T, N, 4]
+        torch.stack(act_list),  # [T, N]
+        torch.stack(rew_list),  # [T, N]
+        torch.stack(val_list),  # [T, N]
+        torch.stack(done_list),  # [T, N]
+        states,  # [N, 4]
+        env_uniforms,
+    )
 
 
 def main() -> None:
@@ -133,19 +187,30 @@ def main() -> None:
     print()
 
     # Oracle run: collect one rollout, publish the fixture this side started
-    # from — parameters plus that rollout — then take exactly one update and
-    # publish the result. Idris replays the rollout rather than sampling its
-    # own, so the environment and the action sampler stay out of the
-    # comparison (their RNG streams differ by design) while GAE, the advantage
-    # normalization, the policy/value/entropy loss, the clip and Adam are all
-    # under test.
+    # from — the parameters, plus every draw the rollout made, recorded to a
+    # replay file — then take exactly one update and publish the result. The
+    # Idris side replays the draws through `--replay`: actions land on its
+    # `Rng.choice` channel and reset states on its env `Source` (as the
+    # uniforms that produced them), so its own physics and forward passes
+    # regenerate the identical rollout, and GAE, the advantage normalization,
+    # the policy/value/entropy loss, the clip and Adam are all under test.
     if os.environ.get("IDRISML_ORACLE_DUMP"):
-        vec0, obs0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
-        o, a, r, v, d, new_obs = collect_rollout(actor, critic, vec0, obs0, args.rollout)
+        vec0, _obs0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
+        o, a, r, v, d, final_states, env_uniforms = _oracle_rollout(
+            actor, critic, vec0, args.rollout
+        )
         with torch.no_grad():
-            boot_v = critic(obs_tensor(new_obs))
+            boot_v = critic(obs_tensor(final_states))
             boots = torch.where(d[-1] > 0.5, torch.zeros_like(boot_v), boot_v)
-        maybe_dump_oracle((actor, critic), PAIRED_PARAMS, _rollout_fixture(o, a, r, v, d, boots))
+        maybe_dump_oracle((actor, critic), PAIRED_PARAMS)
+        write_replay(
+            os.environ["IDRISML_ORACLE_DUMP"] + ".replay",
+            env=env_uniforms,
+            # [T, N] flattened row-major = the order sampleActionFromBatch
+            # consumes choices: per timestep, env 0..N-1. (tolist is
+            # list[Unknown] in the torch stub.)
+            choices=[int(x) for x in cast("list[int]", a.reshape(-1).tolist())],  # pyright: ignore[reportUnknownMemberType]
+        )
         adv, ret = compute_advantages(r, v, d, boots, args.gamma, args.lam)
 
         def env_major_flat(t: torch.Tensor) -> torch.Tensor:

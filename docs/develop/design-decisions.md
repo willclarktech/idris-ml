@@ -323,6 +323,36 @@ must coexist with arbitrary downstream package sets needs a distinctive root;
 a package whose entire job is pseudorandom generation is entitled to the
 obvious one.
 
+## The RL step oracle replays draws through `--replay` (2026-08-03)
+
+An RL example's rollout is RNG-driven, so the two sides cannot regenerate it
+independently. The first a2c oracle shipped the rollout itself — six tensors
+of obs/actions/rewards/values/dones/bootstraps, marshalled by a 63-line
+function inside the example. That taxed the example's teaching role with
+harness plumbing, and it also excluded the environment and the value channel
+from the comparison.
+
+Now the reference records what it *drew* rather than what it *computed*: the
+action decisions, and each reset state converted back to the uniform that
+produced it (`Random.Dist.uniformInverse` — the affine draw inverts to ~1
+ULP). The recording is a plain text file (`<channel> <value>` per line,
+`Ml.Rng.loadReplay`), and the Idris side consumes it through the example's own
+`--replay` flag — deterministic replay is a user feature, so the example
+carries a feature flag instead of oracle plumbing. Replaying the draws makes
+Idris regenerate the identical rollout through its own physics, its own
+forwards and its own GAE, which puts idris-gym's env dynamics and the critic's
+value channel inside the comparison instead of outside it.
+
+Two prerequisites made the regeneration bit-tight. The reference's vec envs
+must use same-step autoreset (gymnasium 1.x defaults to NEXT_STEP, whose
+filler transitions the Idris rollout cannot produce), and the oracle rollout
+reads the sub-envs' exact float64 states instead of Gymnasium's float32-rounded
+observations — idris-gym observes full-precision states, and the rounding
+would put a noise floor under the comparison well above the signal. Measured
+with `--tolerance 0`: worst parameter difference 2.4e-11 (the same floor the
+shipped-rollout design had), against 3.6e-07 for a planted 1% entropy-coefficient
+error — four orders of separation, actor-only, critic untouched.
+
 ## Early stopping
 
 Training for a fixed number of epochs wastes compute when the model has already converged and risks overfitting. Early stopping monitors the training loss and halts when improvement stalls:

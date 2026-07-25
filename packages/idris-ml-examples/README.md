@@ -10,6 +10,12 @@ type-check, link, and execute the program against the active backend. Every exam
 they reference the build's `(ExampleExecutor, ExampleDType)` cell, so the same source runs on tape,
 torch, or mlx by choosing the backend at `make install` time.
 
+RNG-driven examples (currently a2c) also accept `--replay <file>`: instead of sampling, the run
+draws from a recorded file of `Ml.Rng.loadReplay` lines — action decisions on the choice channel,
+environment resets on the env channel — so it reproduces a recorded run's trajectory exactly. The
+step-oracle gate uses the same flag to replay the PyTorch reference's draws
+(`scripts/check-step-oracle.py`).
+
 ## Supervised & vision
 
 | Example | Description | Command |
