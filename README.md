@@ -17,7 +17,7 @@ Here's a common bug class in PyTorch:
 fc1 = nn.Linear(784, 256)  # this hidden layer size got increased from 128 to 256
 fc2 = nn.Linear(128, 10)   # bug: this value didn't get updated
 some_inputs = torch.randn(64, 784)
-fc2(fc1(some_inputs))
+fc2(F.relu(fc1(some_inputs)))
 ```
 ```text
 RuntimeError: mat1 and mat2 shapes cannot be multiplied (64x256 and 128x10)
@@ -27,9 +27,6 @@ The error arrives at runtime, possibly hours into a run, and only if that code p
 Here is the same model in idris-ml, with the same bug:
 
 ```idris
-Batch : Nat
-Batch = 64
-
 Model : Type
 Model = Seq 784 10 Ex F WithGrad
 
@@ -42,12 +39,12 @@ mkModel = do
 ```text
 Error: While processing right hand side of mkModel. Can't find an implementation for ChainFits 256 128.
 
-ShapeBug:21:16--21:36
- 17 | mkModel : Init Model
- 18 | mkModel = do
- 19 |   l1 <- linear {i = 784} {o = 256}
- 20 |   l2 <- linear {i = 128} {o = 10}
- 21 |   pure (l1 ~~> reluA ~~> l2 ~~> Nil)
+ShapeBug:18:16--18:36
+ 14 | mkModel : Init Model
+ 15 | mkModel = do
+ 16 |   l1 <- linear {i = 784} {o = 256}
+ 17 |   l2 <- linear {i = 128} {o = 10}
+ 18 |   pure (l1 ~~> reluA ~~> l2 ~~> Nil)
                      ^^^^^^^^^^^^^^^^^^^^
 ```
 
@@ -56,6 +53,9 @@ had to run, and no data was needed. Fix the `128` to `256` and the rest is ordin
 model is a record of layers, training is a function call:
 
 ```idris
+Batch : Nat
+Batch = 64
+
 loss : (1 _ : Model) ->
        (Tensor [Batch, 784] Ex F NoGrad, Tensor [Batch, 10] Ex F NoGrad) ->
        L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) Model)
@@ -64,9 +64,9 @@ loss model (x, tgt) = do
   l <- tnllLossMeanL {b = Batch} {n = 10} out (retypeGrad tgt)
   pure1 (MkBang l # model')
 
-train : DataStream (Tensor [Batch, 784] Ex F NoGrad, Tensor [Batch, 10] Ex F NoGrad) -> IO ()
-train batches = run $ do
-  opt   <- liftIO1 (adam 0.001 defaultOpts)
+train : Optimizer Ex ->
+        DataStream (Tensor [Batch, 784] Ex F NoGrad, Tensor [Batch, 10] Ex F NoGrad) -> IO ()
+train opt batches = run $ do
   model <- runInitL mkModel
   (MkBang (epochs, finalLoss) # trained) <-
     fitSupervised opt loss batches (simpleConfig 20) model
