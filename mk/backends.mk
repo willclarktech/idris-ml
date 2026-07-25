@@ -250,7 +250,7 @@ endif
 # tape TUs otherwise.
 $(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_tape.h $(BUILD)/.backends-cache-stamp | $(BUILD)
 	@mkdir -p $(dir $@)
-	$(tape_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
+	$(tape_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) $(IDRISML_LOG_CFLAG) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
 
 # Per-TU compile for backend_torch/**/*.cpp and backend_mlx/**/*.cpp.
 # Mirrors tape's pattern but uses each backend's C++ compiler + CFLAGS
