@@ -35,7 +35,6 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <math.h>
 #include "../../backend.h"
 #include "../../shared_utils.h"
 
