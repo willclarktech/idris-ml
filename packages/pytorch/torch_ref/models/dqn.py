@@ -93,7 +93,11 @@ class ReplayBuffer:
         self.buf.append((obs, action, reward, next_obs, done))
 
     def sample(self, n: int, rng: random.Random) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-        batch = rng.sample(self.buf, n)
+        # Uniform iid draws WITH replacement (Mnih-classic; cleanrl's buffers
+        # do the same), matching Idris `Ml.RL.ReplayBuffer.sampleN`. Was
+        # `rng.sample` (without replacement) until 2026-08-03; see
+        # reference-alignment.md.
+        batch = [self.buf[rng.randrange(len(self.buf))] for _ in range(n)]
         device, dtype = get_device(), get_dtype()
         obs = torch.tensor([b[0] for b in batch], dtype=dtype, device=device)
         actions = torch.tensor([b[1] for b in batch], dtype=torch.long, device=device)

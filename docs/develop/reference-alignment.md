@@ -16,6 +16,19 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Alignment Changes (2026-08-03) — replay-buffer sampling unified to with-replacement
+
+The four reference `ReplayBuffer.sample` copies (dqn, mountain_car,
+mountain_car_cont, sac) drew minibatches with `rng.sample` — without
+replacement — while Idris `Ml.RL.ReplayBuffer.sampleN` draws each slot
+independently, with replacement. Uniform iid with replacement is the classic
+DQN scheme (Mnih et al. 2015; cleanrl's buffers sample the same way), so the
+references adopted the Idris shape: `self.buf[rng.randrange(len(self.buf))]`
+per slot. The step oracle cannot see this difference (it replays the drawn
+indices either way), which is why it is recorded here rather than caught by a
+gate; the distribution-level effect is small (duplicate probability within a
+64-of-N batch) and covered by the pending multi-seed convergence campaign.
+
 ## Alignment Changes (2026-08-03) — PPO update composition unified (reference adopted Idris' shape)
 
 The two sides composed the PPO update differently. Idris (`Example.Ppo.runBatchL`)
