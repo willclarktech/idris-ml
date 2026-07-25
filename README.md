@@ -140,6 +140,7 @@ The backends, the PyTorch oracle, the formatter, and the test harnesses are
 
 - [**Why idris-ml**](docs/users/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1 / hasktorch, with literal errors.
 - [Getting Started](docs/users/getting-started.md) — first tensor to trained model, in text.
+- [Notebook tutorials](packages/jupyter/notebooks/) — the same ground interactively, against a live kernel; every notebook is executed in CI.
 - [PyTorch Mapping](docs/users/pytorch-mapping.md) — concept translation for PyTorch users.
 - [idris-transformers](docs/users/idris-transformers.md) — HuggingFace checkpoints, fine-tuning, LoRA.
 - [Benchmarks](docs/users/benchmarks.md) — performance vs PyTorch across the tape, MLX, and torch backends.
