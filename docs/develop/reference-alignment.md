@@ -16,6 +16,36 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Alignment Changes (2026-08-03) — SAC update aligned in four places
+
+The sac step oracle surfaced four disagreements; the reference moved once,
+Idris three times.
+
+1. **Reference noise draws** (reference moved): the rng-armed
+   `Actor.sample` drew ONE scalar eps broadcast across the batch — all four
+   parallel envs shared one noise value per step — and `sac_update` /
+   `train_sac`'s collect ignored the seeded python rng entirely, drawing
+   from torch's generator. All sample sites now draw per-element from the
+   one seeded rng, the shape the Idris side has always drawn.
+2. **Shared TD target** (Idris moved): the reference computes `target` once
+   and reuses it for both Q losses; Idris ran a second target fold for q2
+   with fresh actor noise, so q2 trained against different targets than q1
+   (and drew twice the noise). Measured as a replay channel exhaustion.
+3. **Squash-correction gradient** (Idris moved): the reference's actor
+   `log_prob` flows gradient through `log(1 - tanh(u)^2 + 1e-6)`; Idris
+   built that term as a constant, silently dropping the whole gradient
+   contribution. Measured at full-Adam-step sign flips (6.0e-04) on actor
+   parameters. The term is now a tensor graph.
+4. **log_std clamp + no grad clip** (Idris moved): the reference clamps
+   log_std to [-5, 2] at every read and takes raw Adam steps (canonical
+   SAC — cleanrl, spinning-up); Idris clamped nowhere and norm-clipped all
+   three optimizers at 1.0 (measured ~2e-5 on the Q nets). Idris now clamps
+   at every read (a host-side branch reproduces torch.clamp's piecewise
+   gradient exactly) and the `--clip` flag is gone.
+
+Post-alignment oracle floor: 2.8e-10 (actor_log_std); all network weights
+at or below 5.6e-17.
+
 ## Alignment Changes (2026-08-03) — DQN-family episode boundaries got per-env TimeLimit clocks (Idris adopted the reference's shape)
 
 The reference's envs run under Gymnasium's `TimeLimit`, which counts steps
