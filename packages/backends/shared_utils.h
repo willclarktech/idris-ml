@@ -96,6 +96,36 @@ uint16_t double_to_f16_bits(double d);
 int ternary_pack(const int8_t* values, int n, uint8_t* out);
 void ternary_unpack(const uint8_t* packed, int n, int8_t* out);
 
+/* Portable parameter-init RNG — opt-in cross-backend reproducibility.
+ *
+ * Random *parameter* init is the one construction path that historically
+ * differed per backend: tape filled a host buffer from its own
+ * xoshiro256++ + Box-Muller, torch called `torch::nn::init::normal_`
+ * under `torch::manual_seed`, and mlx called `mx::random::normal` under
+ * `mx::random::seed`. Three unrelated generators means the same seed
+ * produced different weights on each backend, so no from-scratch run
+ * could be compared across backends (this is what let a two-month TODO
+ * row misread divergent init as a libtorch backward bug).
+ *
+ * Only *normal* init needed fixing: `Uniform` is filled Idris-side via
+ * `randomRIO` (libc `rand`, identical everywhere), and Const/Zeros/
+ * FromVect are deterministic.
+ *
+ * These symbols are compile-once and unified (no rename header), so
+ * every backend in a multi-link dylib shares one generator and one
+ * state. The generator is xoshiro256++ seeded through splitmix64, with
+ * paired Box-Muller normals — the algorithm tape has always used, so
+ * tape's numerics are unchanged by routing through it.
+ *
+ * `idrisml_portable_init_enabled()` reads the `IDRISML_PORTABLE_INIT`
+ * env var once and caches it: unset/0/false/no/off → 0, anything else →
+ * 1. Backends whose native init is faster (torch, mlx use fused
+ * in-place kernels) consult it and only take the host-buffer path when
+ * it is on; tape always uses this generator. */
+int idrisml_portable_init_enabled(void);
+void idrisml_portable_init_seed(unsigned long long seed);
+void idrisml_portable_fill_normal(double* out, int n, double mean, double std);
+
 #ifdef __cplusplus
 }
 #endif

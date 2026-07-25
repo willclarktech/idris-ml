@@ -482,11 +482,23 @@ all 48 real params 10–256% apart.
 from safetensors and match the Python oracle to 4e-4 on every backend, so the
 forward and backward kernels agree when fed the same inputs.
 
+**Opt-in fix (2026-07-29):** set `IDRISML_PORTABLE_INIT=1` and all three
+backends fill normal-init params from one shared host-side generator
+(`idrisml_portable_fill_normal` in `shared_utils.c`), giving bit-identical
+weights for the same seed. Verified end to end: `example-supervised --epochs 1
+--seed 42` gives `loss=0.8479759204519675` on tape and `0.7119292274904563` on
+torch by default, and `0.8479759204519675` on **both** with the flag set. It is
+off by default because torch and mlx use fused in-place init kernels that are
+faster than a host buffer upload; tape always uses this generator, so its
+numerics are unaffected either way. Only *normal* init needed this — `Uniform`
+is filled Idris-side through `randomRIO` (libc `rand`, identical everywhere)
+and Const/Zeros/FromVect are deterministic.
+
 **How to apply:**
 - Never compare absolute losses, gradient norms, or convergence metrics across
-  backends for a from-scratch run, and never treat such a gap as a bug without
-  first ruling this out (a two-month TODO row chased a phantom libtorch
-  backward bug because of exactly this).
+  backends for a from-scratch run *without* `IDRISML_PORTABLE_INIT=1`, and never
+  treat such a gap as a bug without first ruling this out (a two-month TODO row
+  chased a phantom libtorch backward bug because of exactly this).
 - To compare backends numerically, load the *same* checkpoint into both (the
   roundtrip-gate pattern) or compare statistically over ≥5 seeds.
 - Per-backend `.expect` thresholds are per-backend seed luck; widen rather than

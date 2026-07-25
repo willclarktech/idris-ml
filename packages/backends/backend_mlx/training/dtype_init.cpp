@@ -30,6 +30,8 @@
  */
 
 #include "../tensor.h"
+#include "../../shared_utils.h"
+#include <vector>
 #include "../tape.h"
 #include "../stream.h"
 #include "../../backend.h"
@@ -73,9 +75,37 @@ TensorHandle wrap_param(mx::array arr) {
 } // namespace
 
 /* ---- Normal(mean, std) initialisation ---- */
+
+/* Portable-init path: with IDRISML_PORTABLE_INIT set, take the values
+   from the shared host-side generator (shared_utils.c) and upload via the
+   existing from-buffer creator, instead of mlx's own KeySequence. Makes
+   mlx's weights identical to tape's and torch's for the same seed, at the
+   cost of the fused device-side init. Off by default. */
+static TensorHandle portable_normal_param(const std::vector<int>& shape, double mean, double std,
+                                          int stream_tag, int dtag) {
+	int n = 1;
+	for (int d : shape) n *= d;
+	std::vector<double> buf((size_t)n);
+	idrisml_portable_fill_normal(buf.data(), n, mean, std);
+	switch (shape.size()) {
+	case 1:
+		return tensor_create_param_1d_streamed(shape[0], buf.data(), stream_tag, dtag);
+	case 2:
+		return tensor_create_param_2d_streamed(shape[0], shape[1], buf.data(), stream_tag, dtag);
+	case 3:
+		return tensor_create_param_3d_streamed(shape[0], shape[1], shape[2], buf.data(), stream_tag,
+		                                       dtag);
+	default:
+		return tensor_create_param_4d_streamed(shape[0], shape[1], shape[2], shape[3], buf.data(),
+		                                       stream_tag, dtag);
+	}
+}
+
 extern "C" TensorHandle tensor_create_param_1d_normal_streamed(int n, double mean, double std,
                                                                int stream_tag, int dtag) {
 	WITH_STREAM(stream_tag);
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({n}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_1d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{n}, dt, (float)mean, (float)std));
 }
@@ -84,6 +114,8 @@ extern "C" TensorHandle tensor_create_param_2d_normal_streamed(int rows, int col
                                                                double std, int stream_tag,
                                                                int dtag) {
 	WITH_STREAM(stream_tag);
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({rows, cols}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_2d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{rows, cols}, dt, (float)mean, (float)std));
 }
@@ -92,6 +124,8 @@ extern "C" TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, i
                                                                double std, int stream_tag,
                                                                int dtag) {
 	WITH_STREAM(stream_tag);
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({d0, d1, d2}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_3d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2}, dt, (float)mean, (float)std));
 }
@@ -100,6 +134,8 @@ extern "C" TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, i
                                                                double mean, double std,
                                                                int stream_tag, int dtag) {
 	WITH_STREAM(stream_tag);
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({d0, d1, d2, d3}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_4d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2, d3}, dt, (float)mean, (float)std));
 }
@@ -141,4 +177,7 @@ extern "C" TensorHandle tensor_create_param_4d_const_streamed(int d0, int d1, in
 extern "C" void tensor_set_init_seed_streamed(unsigned long long seed, int stream_tag) {
 	(void)stream_tag;
 	mx::random::seed((uint64_t)seed);
+	/* Also seed the shared portable generator so IDRISML_PORTABLE_INIT
+	   runs from the same seed as tape and torch. */
+	idrisml_portable_init_seed(seed);
 }

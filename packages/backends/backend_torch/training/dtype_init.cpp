@@ -29,8 +29,10 @@
 
 #include <torch/torch.h>
 #include <cstdint>
+#include <vector>
 #include "dtype_dispatch.h"
 #include "../tensor.h"
+#include "../../shared_utils.h"
 
 namespace {
 
@@ -56,28 +58,63 @@ TensorHandle make_param_leaf_empty(c10::IntArrayRef dims, torch::ScalarType dt, 
 	return from_tensor_persistent(std::move(t));
 }
 
+/* Portable-init path: when IDRISML_PORTABLE_INIT is set, fill the values
+   from the shared host-side generator (shared_utils.c) and upload them,
+   instead of libtorch's own RNG. That makes torch's weights identical to
+   tape's and mlx's for the same seed, at the cost of the fused in-place
+   init. Off by default — the native path stays the fast one. The buffer
+   is ours to free: torch_create_param_*_dtag copies into the tensor. */
+static TensorHandle portable_normal_param(std::vector<int64_t> shape, double mean, double std,
+                                          int dtag) {
+	int64_t n = 1;
+	for (int64_t d : shape) n *= d;
+	std::vector<double> buf((size_t)n);
+	idrisml_portable_fill_normal(buf.data(), (int)n, mean, std);
+	switch (shape.size()) {
+	case 1:
+		return torch_create_param_1d_dtag((int)shape[0], buf.data(), dtag);
+	case 2:
+		return torch_create_param_2d_dtag((int)shape[0], (int)shape[1], buf.data(), dtag);
+	case 3:
+		return torch_create_param_3d_dtag((int)shape[0], (int)shape[1], (int)shape[2], buf.data(),
+		                                  dtag);
+	default:
+		return torch_create_param_4d_dtag((int)shape[0], (int)shape[1], (int)shape[2],
+		                                  (int)shape[3], buf.data(), dtag);
+	}
+}
+
 } // namespace
 
 /* ---- Normal(mean, std) initialisation ---- */
 TensorHandle torch_create_param_1d_normal_dtag(int n, double mean, double std, int dtag) {
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({(int64_t)n}, mean, std, dtag);
 	return make_param_leaf_empty({(int64_t)n}, st_for_dtag(dtag),
 	                             [=](torch::Tensor& t) { torch::nn::init::normal_(t, mean, std); });
 }
 
 TensorHandle torch_create_param_2d_normal_dtag(int rows, int cols, double mean, double std,
                                                int dtag) {
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({(int64_t)rows, (int64_t)cols}, mean, std, dtag);
 	return make_param_leaf_empty({(int64_t)rows, (int64_t)cols}, st_for_dtag(dtag),
 	                             [=](torch::Tensor& t) { torch::nn::init::normal_(t, mean, std); });
 }
 
 TensorHandle torch_create_param_3d_normal_dtag(int d0, int d1, int d2, double mean, double std,
                                                int dtag) {
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({(int64_t)d0, (int64_t)d1, (int64_t)d2}, mean, std, dtag);
 	return make_param_leaf_empty({(int64_t)d0, (int64_t)d1, (int64_t)d2}, st_for_dtag(dtag),
 	                             [=](torch::Tensor& t) { torch::nn::init::normal_(t, mean, std); });
 }
 
 TensorHandle torch_create_param_4d_normal_dtag(int d0, int d1, int d2, int d3, double mean,
                                                double std, int dtag) {
+	if (idrisml_portable_init_enabled())
+		return portable_normal_param({(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, mean,
+		                             std, dtag);
 	return make_param_leaf_empty({(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3},
 	                             st_for_dtag(dtag),
 	                             [=](torch::Tensor& t) { torch::nn::init::normal_(t, mean, std); });
@@ -112,4 +149,7 @@ TensorHandle torch_create_param_4d_const_dtag(int d0, int d1, int d2, int d3, do
    migrates, the CPU seed is what governs determinism here. */
 void torch_set_init_seed(uint64_t seed) {
 	torch::manual_seed((uint64_t)seed);
+	/* Also seed the shared portable generator so IDRISML_PORTABLE_INIT
+	   runs from the same seed as tape and mlx. */
+	idrisml_portable_init_seed((unsigned long long)seed);
 }

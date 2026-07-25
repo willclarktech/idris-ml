@@ -8,6 +8,8 @@
 #include "shared_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <sys/time.h>
@@ -372,4 +374,103 @@ void ternary_unpack(const uint8_t* packed, int n, int8_t* out) {
 			abort();
 		}
 	}
+}
+
+/* ----------------------------------------------------------------------
+   Portable parameter-init RNG (see shared_utils.h for the why).
+
+   xoshiro256++ over a process-global state seeded through splitmix64,
+   with paired Box-Muller normals. This is the generator tape has always
+   used for param init, relocated here verbatim so all three backends can
+   share one definition — tape's numerics are therefore unchanged, and
+   torch/mlx can opt into identical weights via IDRISML_PORTABLE_INIT.
+
+   Not thread-local: param construction happens once at model build time,
+   before any forward pass.
+   ---------------------------------------------------------------------- */
+
+static uint64_t pi_state[4];
+static int pi_seeded = 0;
+static double pi_bm_cached_z1 = 0.0;
+static int pi_bm_cached_has = 0;
+
+static uint64_t pi_splitmix64(uint64_t* x) {
+	uint64_t z = (*x += 0x9E3779B97F4A7C15ULL);
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+	return z ^ (z >> 31);
+}
+
+static inline uint64_t pi_rotl(uint64_t x, int k) {
+	return (x << k) | (x >> (64 - k));
+}
+
+static uint64_t pi_next(void) {
+	const uint64_t r = pi_rotl(pi_state[0] + pi_state[3], 23) + pi_state[0];
+	const uint64_t t = pi_state[1] << 17;
+	pi_state[2] ^= pi_state[0];
+	pi_state[3] ^= pi_state[1];
+	pi_state[1] ^= pi_state[2];
+	pi_state[0] ^= pi_state[3];
+	pi_state[2] ^= t;
+	pi_state[3] = pi_rotl(pi_state[3], 45);
+	return r;
+}
+
+void idrisml_portable_init_seed(unsigned long long seed) {
+	uint64_t sm = (uint64_t)seed;
+	pi_state[0] = pi_splitmix64(&sm);
+	pi_state[1] = pi_splitmix64(&sm);
+	pi_state[2] = pi_splitmix64(&sm);
+	pi_state[3] = pi_splitmix64(&sm);
+	pi_seeded = 1;
+	/* Drop any cached Box-Muller half so a re-seed is visible on the next
+	   sample rather than after one stale value. */
+	pi_bm_cached_has = 0;
+}
+
+static void pi_ensure_seeded(void) {
+	if (!pi_seeded) idrisml_portable_init_seed(0);
+}
+
+/* Uniform in (0, 1). Top 53 bits → [0, 2^53); resamples on exact zero so
+   Box-Muller's log() is always safe. */
+static double pi_uniform01(void) {
+	for (;;) {
+		uint64_t r = pi_next() >> 11;
+		if (r != 0) return (double)r * (1.0 / 9007199254740992.0);
+	}
+}
+
+static double pi_normal01(void) {
+	if (pi_bm_cached_has) {
+		pi_bm_cached_has = 0;
+		return pi_bm_cached_z1;
+	}
+	double u1 = pi_uniform01();
+	double u2 = pi_uniform01();
+	double r = sqrt(-2.0 * log(u1));
+	double th = 6.283185307179586 * u2;
+	pi_bm_cached_z1 = r * sin(th);
+	pi_bm_cached_has = 1;
+	return r * cos(th);
+}
+
+void idrisml_portable_fill_normal(double* out, int n, double mean, double std) {
+	pi_ensure_seeded();
+	for (int i = 0; i < n; i++)
+		out[i] = mean + std * pi_normal01();
+}
+
+int idrisml_portable_init_enabled(void) {
+	static int cached = -1;
+	if (cached >= 0) return cached;
+	const char* s = getenv("IDRISML_PORTABLE_INIT");
+	if (!s || !*s || strcmp(s, "0") == 0 || strcasecmp(s, "false") == 0 ||
+	    strcasecmp(s, "no") == 0 || strcasecmp(s, "off") == 0) {
+		cached = 0;
+	} else {
+		cached = 1;
+	}
+	return cached;
 }

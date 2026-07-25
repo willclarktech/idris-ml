@@ -2,6 +2,27 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Opt-in portable parameter init (2026-07-29). Closes the cross-backend
+init-RNG divergence root-caused the day before: tape filled normal-init
+params from its own xoshiro256++/Box-Muller, torch called
+`torch::nn::init::normal_`, and mlx called `mx::random::normal`, so the
+same seed produced different weights on every backend and no from-scratch
+run could be compared across them. Tape's generator moves to
+`shared_utils.c` as `idrisml_portable_fill_normal` (compile-once, unified
+symbols — one definition and one state for the whole dylib); with
+`IDRISML_PORTABLE_INIT=1` torch and mlx fill a host buffer from it and
+upload rather than using their native RNG, and every backend's
+`set_init_seed` seeds it. Off by default, so torch's and mlx's fused
+in-place init stays the fast path; tape's numerics are unchanged because
+it already used this generator. Only *normal* init diverged — `Uniform`
+is filled Idris-side via `randomRIO` (libc `rand`) and
+Const/Zeros/FromVect are deterministic. Verified end to end:
+`example-supervised --epochs 1 --seed 42` gives tape
+`0.8479759204519675` / torch `0.7119292274904563` by default and
+`0.8479759204519675` on **both** with the flag set; six criterion tests
+in `test_portable_init.c` pin same-seed determinism, re-seed cache
+clearing, the affine mean/std map, and the default-off gate.
+
 DQN-family bootstrap targets batched (2026-07-29). `Example/Dqn.idr` and
 `Example/DoubleDqn.idr` computed their bootstrap targets with a
 per-transition fold that ran `forwardSeq {b=1}` once per sample — 64
