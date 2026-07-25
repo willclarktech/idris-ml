@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.init import init_linear_
-from torch_ref.training.runner import get_device
+from torch_ref.training.runner import get_device, get_dtype
 
 
 class TransformerBlock(nn.Module):
@@ -38,21 +38,33 @@ class TransformerBlock(nn.Module):
         self.causal_mask: Tensor
 
         self.query_ws = nn.ModuleList(
-            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
+            [
+                nn.Linear(d_model, self.head_dim, bias=False, dtype=get_dtype())
+                for _ in range(num_heads)
+            ]
         )
         self.key_ws = nn.ModuleList(
-            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
+            [
+                nn.Linear(d_model, self.head_dim, bias=False, dtype=get_dtype())
+                for _ in range(num_heads)
+            ]
         )
         self.value_ws = nn.ModuleList(
-            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
+            [
+                nn.Linear(d_model, self.head_dim, bias=False, dtype=get_dtype())
+                for _ in range(num_heads)
+            ]
         )
         self.out_proj_ws = nn.ModuleList(
-            [nn.Linear(self.head_dim, d_model, bias=False) for _ in range(num_heads)]
+            [
+                nn.Linear(self.head_dim, d_model, bias=False, dtype=get_dtype())
+                for _ in range(num_heads)
+            ]
         )
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.ff1 = nn.Linear(d_model, ff_dim, bias=False)
-        self.ff2 = nn.Linear(ff_dim, d_model, bias=False)
+        self.norm1 = nn.LayerNorm(d_model, dtype=get_dtype())
+        self.norm2 = nn.LayerNorm(d_model, dtype=get_dtype())
+        self.ff1 = nn.Linear(d_model, ff_dim, bias=False, dtype=get_dtype())
+        self.ff2 = nn.Linear(ff_dim, d_model, bias=False, dtype=get_dtype())
 
     def forward(self, h: Tensor) -> Tensor:
         # Pre-LN Multi-Head Attention
@@ -105,7 +117,7 @@ class MultiHeadTransformer(nn.Module):
         # same thing, but Linear stores its weight [d_model, vocab] while
         # Embedding (and Idris `Nn.Embedding`) stores [vocab, d_model]. The
         # transposed layout made the two sides' parameters incomparable.
-        self.token_embed = nn.Embedding(vocab_size, d_model)
+        self.token_embed = nn.Embedding(vocab_size, d_model, dtype=get_dtype())
         self.register_buffer("pos_enc", self._sinusoidal_pe(seq_len, d_model))
 
         mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1)
@@ -119,18 +131,18 @@ class MultiHeadTransformer(nn.Module):
             ]
         )
 
-        self.norm_final = nn.LayerNorm(d_model)
-        self.vocab_proj = nn.Linear(d_model, vocab_size, bias=False)
+        self.norm_final = nn.LayerNorm(d_model, dtype=get_dtype())
+        self.vocab_proj = nn.Linear(d_model, vocab_size, bias=False, dtype=get_dtype())
 
         self._init_weights()
 
     @staticmethod
     def _sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
         """Standard sinusoidal positional encoding [seq_len, d_model]."""
-        pe = torch.zeros(seq_len, d_model)
-        position = torch.arange(seq_len, dtype=torch.float).unsqueeze(1)
+        pe = torch.zeros(seq_len, d_model, dtype=get_dtype())
+        position = torch.arange(seq_len, dtype=get_dtype()).unsqueeze(1)
         div_term = torch.exp(
-            torch.arange(0, d_model, 2, dtype=torch.float) * -(math.log(10000.0) / d_model)
+            torch.arange(0, d_model, 2, dtype=get_dtype()) * -(math.log(10000.0) / d_model)
         )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
@@ -212,7 +224,7 @@ def generate_sorting_data(
         )
         inp = seq[:-1]
         tgt = seq[1:]
-        inp_onehot = F.one_hot(inp.long(), vocab_size).float()
+        inp_onehot = F.one_hot(inp.long(), vocab_size).to(get_dtype())
         data.append((inp_onehot, tgt.long()))
     return data
 
@@ -247,7 +259,7 @@ def generate_reversal_data(
         )
         inp = seq[:-1]
         tgt = seq[1:]
-        inp_onehot = F.one_hot(inp.long(), vocab_size).float()
+        inp_onehot = F.one_hot(inp.long(), vocab_size).to(get_dtype())
         data.append((inp_onehot, tgt.long()))
     return data
 
