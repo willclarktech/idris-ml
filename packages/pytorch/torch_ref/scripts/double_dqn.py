@@ -14,14 +14,19 @@ from __future__ import annotations
 
 import argparse
 import copy
+import os
 import random
 import sys
 import time
 
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
-from torch_ref.models.double_dqn import double_dqn_episode_batched
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
+from torch_ref.models.double_dqn import double_dqn_episode_batched, double_dqn_update
 from torch_ref.models.dqn import (
     NUM_ENVS,
     QNetwork,
@@ -29,8 +34,28 @@ from torch_ref.models.dqn import (
     evaluate,
     make_cartpole_vec_env,
 )
+from torch_ref.replay import write_replay
+from torch_ref.scripts.dqn import RecordingRandom, oracle_episode
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix, set_device
+
+# Idris registry name -> this script's parameter name, model-index prefixed
+# (0 = online, 1 = target). Mirrors the entry in scripts/paired_examples.py,
+# which check-step-oracle.py cross-checks.
+PAIRED_PARAMS = {
+    "online.linear_0.bias": "0.fc1.bias",
+    "online.linear_0.weight": "0.fc1.weight",
+    "online.linear_1.bias": "0.fc2.bias",
+    "online.linear_1.weight": "0.fc2.weight",
+    "online.linear_2.bias": "0.fc3.bias",
+    "online.linear_2.weight": "0.fc3.weight",
+    "target.linear_0.bias": "1.fc1.bias",
+    "target.linear_0.weight": "1.fc1.weight",
+    "target.linear_1.bias": "1.fc2.bias",
+    "target.linear_1.weight": "1.fc2.weight",
+    "target.linear_2.bias": "1.fc3.bias",
+    "target.linear_2.weight": "1.fc3.weight",
+}
 
 
 def main() -> None:
@@ -71,6 +96,35 @@ def main() -> None:
     maybe_dump_init(q, target)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
+
+    # Oracle run: identical to dqn.py's (shared `oracle_episode` twin) with
+    # the Double DQN update — the online net selects the bootstrap action,
+    # the target net evaluates it — so exactly that decoupling is what the
+    # replayed comparison pins beyond vanilla DQN's coverage.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        vec0, _obs0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
+        maybe_dump_oracle((q, target), PAIRED_PARAMS)
+        rec = RecordingRandom(args.seed)
+        env_uniforms = oracle_episode(
+            q,
+            target,
+            optimizer,
+            buffer,
+            vec0,
+            rec,
+            args.batch,
+            args.gamma,
+            args.target_sync,
+            update_fn=double_dqn_update,
+        )
+        write_replay(
+            os.environ["IDRISML_ORACLE_DUMP"] + ".replay",
+            env=env_uniforms,
+            choices=rec.decisions,
+            uniforms=rec.uniforms,
+        )
+        maybe_dump_after_step((q, target), PAIRED_PARAMS)
+
     vec_env, obs0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
     obs_state = [obs0]
     step_count = [0]

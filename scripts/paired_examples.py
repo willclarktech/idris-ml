@@ -594,6 +594,17 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "dqn",
+        # The episode is RNG-driven, so the reference records its draws
+        # (explore gates as uniforms; explored actions and minibatch indices
+        # as decisions; reset states as the uniforms that produced them) and
+        # Idris regenerates the identical episode by replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 2.1e-17
+        # (online.linear_1.weight) across one episode's replay updates; the
+        # target net comes out bit-identical. Planted gamma x1.01 probe lands
+        # 1.2e-08..1.3e-05, online only.
+        "tolerance": 1e-14,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
@@ -617,6 +628,19 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "mountain-car",
+        # The episode is RNG-driven, so the reference records its draws
+        # (explore gates as uniforms; explored actions and minibatch indices
+        # as decisions; reset states as the uniforms that produced them) and
+        # Idris regenerates the identical episode by replaying them. The
+        # episode always ends by 200-step truncation, so the TimeLimit
+        # done-flag semantics are pinned here in every run.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 6.7e-16
+        # (both fc1.weights — the step-200 sync copies online into target)
+        # across a full 200-step truncated episode with 185 replay updates.
+        # Planted shaping x1.01 probe lands 4.9e-06..1.4e-04 on both nets.
+        "tolerance": 1e-12,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
@@ -721,6 +745,18 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "double-dqn",
+        # The episode is RNG-driven, so the reference records its draws
+        # (explore gates as uniforms; explored actions and minibatch indices
+        # as decisions; reset states as the uniforms that produced them) and
+        # Idris regenerates the identical episode by replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 2.8e-17
+        # (online.linear_0.weight); the target net comes out bit-identical.
+        # Planted probe: running the reference with the VANILLA dqn update
+        # lands 8.8e-09..3.0e-07 online-only — the oracle tells the two
+        # algorithms apart.
+        "tolerance": 1e-14,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

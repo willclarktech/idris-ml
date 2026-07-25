@@ -10,23 +10,133 @@ from __future__ import annotations
 
 import argparse
 import copy
+import os
 import random
 import sys
 import time
+from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
 from torch_ref.models.mountain_car import (
     NUM_ENVS,
     QNetwork,
     ReplayBuffer,
     dqn_episode_batched,
+    dqn_update,
+    eps_greedy_batched,
     evaluate,
+    linear_epsilon,
     make_mountaincar_vec_env,
+    obs_tensor,
 )
+from torch_ref.replay import write_replay
+from torch_ref.scripts.dqn import RecordingRandom
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix, set_device
+
+if TYPE_CHECKING:
+    import gymnasium as gym
+
+# Idris registry name -> this script's parameter name, model-index prefixed
+# (0 = online, 1 = target). Mirrors the entry in scripts/paired_examples.py,
+# which check-step-oracle.py cross-checks.
+PAIRED_PARAMS = {
+    "online.linear_0.bias": "0.fc1.bias",
+    "online.linear_0.weight": "0.fc1.weight",
+    "online.linear_1.bias": "0.fc2.bias",
+    "online.linear_1.weight": "0.fc2.weight",
+    "online.linear_2.bias": "0.fc3.bias",
+    "online.linear_2.weight": "0.fc3.weight",
+    "target.linear_0.bias": "1.fc1.bias",
+    "target.linear_0.weight": "1.fc1.weight",
+    "target.linear_1.bias": "1.fc2.bias",
+    "target.linear_1.weight": "1.fc2.weight",
+    "target.linear_2.bias": "1.fc3.bias",
+    "target.linear_2.weight": "1.fc3.weight",
+}
+
+
+def _internal_states(vec: gym.vector.SyncVectorEnv) -> np.ndarray:
+    """The sub-envs' exact float64 states [N, 2] (position, velocity).
+
+    The oracle episode feeds these to the networks and the buffer instead of
+    Gymnasium's observations: the observation pipeline rounds through
+    float32, idris-gym's does not, and that rounding would put a noise floor
+    under the comparison well above what the replayed episode reaches."""
+    return np.array(
+        [np.asarray(e.unwrapped.state, dtype=np.float64) for e in cast("Any", vec).envs]
+    )
+
+
+def _reset_uniforms(states: np.ndarray) -> list[float]:
+    """Invert MountainCar's start draw — position ~ U(-0.6, -0.4), velocity
+    fixed at 0 — so each reset is ONE uniform: the one that produces the
+    position under `Random.Dist.uniform` (`lo + u * (hi - lo)`)."""
+    return [float(u) for u in (np.asarray(states).reshape(-1, 2)[:, 0] + 0.6) / 0.2]
+
+
+def _oracle_episode(
+    q: QNetwork,
+    target: QNetwork,
+    optimizer: torch.optim.Optimizer,
+    buffer: ReplayBuffer,
+    vec: gym.vector.SyncVectorEnv,
+    rec: RecordingRandom,
+    batch_size: int,
+    gamma: float,
+    target_sync_every: int,
+    eps_start: float,
+    eps_end: float,
+    eps_decay: int,
+    shaping: float,
+) -> list[float]:
+    """`dqn_episode_batched`'s oracle twin: exact-state obs, shaped-reward
+    pushes, every reset draw logged as the uniform that produced it (initial
+    and same-step auto-reset, env-ascending), the real `eps_greedy_batched`
+    and `dqn_update` drawing through the recording rng. Returns the logged
+    env uniforms; the gate/action/index draws land on `rec`."""
+    states = _internal_states(vec)
+    env_uniforms = _reset_uniforms(states)
+    step_count = 0
+    while True:
+        obs_t = obs_tensor(states)  # [N, 2]
+        epsilon = linear_epsilon(step_count, eps_start, eps_end, eps_decay)
+        actions_np = eps_greedy_batched(q, obs_t, epsilon, rec)
+        # SyncVectorEnv.step's stub returns unsolved TypeVars (Unknown).
+        _, raw_rewards, terms_np, truncs_np, _ = cast(
+            "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]",
+            vec.step(actions_np),
+        )
+        dones_np = np.logical_or(terms_np, truncs_np)
+        new_states = _internal_states(vec)
+        for i in np.flatnonzero(dones_np):
+            env_uniforms += _reset_uniforms(new_states[int(i)])
+        for i in range(NUM_ENVS):
+            # Both sides shape with the post-step velocity — for a done env
+            # that is the fresh reset state's (0.0), same-step autoreset.
+            shaped_r = float(raw_rewards[i]) + shaping * abs(float(new_states[i, 1]))
+            buffer.push(
+                states[i].tolist(),
+                int(actions_np[i]),
+                shaped_r,
+                new_states[i].tolist(),
+                bool(dones_np[i]),
+            )
+        states = new_states
+        step_count += 1
+        if len(buffer) >= batch_size:
+            dqn_update(q, target, optimizer, buffer, batch_size, gamma, rec)
+        if step_count % target_sync_every == 0:
+            target.load_state_dict(q.state_dict())
+        if dones_np[0]:
+            return env_uniforms
 
 
 def main() -> None:
@@ -73,6 +183,41 @@ def main() -> None:
     maybe_dump_init(q, target)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
+
+    # Oracle run: publish the fixture this side started from — both nets'
+    # parameters, plus every draw one full episode makes, recorded to a
+    # replay file — then run exactly that episode (collection interleaved
+    # with replay updates) and publish the post-episode parameters. Same
+    # protocol as dqn.py's, with MountainCar's one-uniform resets and
+    # shaped-reward pushes; the episode always ends by the 200-step
+    # truncation, so the truncation done-flag semantics are under test too.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        vec0, _obs0 = make_mountaincar_vec_env(args.seed, NUM_ENVS)
+        maybe_dump_oracle((q, target), PAIRED_PARAMS)
+        rec = RecordingRandom(args.seed)
+        env_uniforms = _oracle_episode(
+            q,
+            target,
+            optimizer,
+            buffer,
+            vec0,
+            rec,
+            args.batch,
+            args.gamma,
+            args.target_sync,
+            args.eps_start,
+            args.eps_end,
+            args.eps_decay,
+            args.shaping,
+        )
+        write_replay(
+            os.environ["IDRISML_ORACLE_DUMP"] + ".replay",
+            env=env_uniforms,
+            choices=rec.decisions,
+            uniforms=rec.uniforms,
+        )
+        maybe_dump_after_step((q, target), PAIRED_PARAMS)
+
     vec_env, obs0 = make_mountaincar_vec_env(args.seed, NUM_ENVS)
     obs_state = [obs0]
     step_count = [0]
