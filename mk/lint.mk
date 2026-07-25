@@ -11,6 +11,7 @@
         test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects \
         test-integration-lint-paired-defaults test-integration-py-scripts \
+        test-integration-lint-convergence-expect-coverage \
         lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
         lint-py-jupyter typecheck-py typecheck-py-pytorch \
@@ -78,6 +79,14 @@ test-integration-lint-non-io-side-effects:
 # Catches the "I changed Idris's default but forgot the matching ref" drift class.
 test-integration-lint-paired-defaults:
 	@python3 scripts/check-paired-defaults.py
+
+# Verify every convergence-campaign example has a threshold row in the
+# convergence expect file. check-result.sh treats a missing row as
+# presence-only (exit 0), so a listed example without one records `pass`
+# without asserting anything — example-double-dqn did exactly that from
+# 2026-06-19 until 2026-07-29.
+test-integration-lint-convergence-expect-coverage:
+	@bash scripts/check-convergence-expect-coverage.sh
 
 # Lint the Python surface — split per-package: each Python-bearing
 # package owns its own `lint-py-<pkg>` target. The top-level

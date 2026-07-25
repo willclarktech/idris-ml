@@ -302,6 +302,18 @@
         ]
       },
       {
+        "name": "Verify convergence-campaign expect coverage",
+        "run": "make test-integration-lint-convergence-expect-coverage",
+        "comment": [
+          "Every example in CONVERGENCE_CAMPAIGN_EXAMPLES must have a",
+          "threshold row in test-examples-convergence.expect.",
+          "check-result.sh treats a missing row as presence-only (exit 0),",
+          "so a listed example without one records `pass` while asserting",
+          "nothing \u2014 example-double-dqn did that from 2026-06-19 until",
+          "2026-07-29, hiding an avg_return below every example-dqn seed."
+        ]
+      },
+      {
         "name": "Run typed index-op round-trip (torch, Ubuntu)",
         "run": "make example-index-ops",
         "os": "ubuntu",
