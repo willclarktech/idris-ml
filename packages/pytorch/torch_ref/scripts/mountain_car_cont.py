@@ -22,14 +22,12 @@ from torch_ref.models.mountain_car_cont import (
     MAX_ACTION,
     NUM_ENVS,
     Actor,
-    MountainCarContEnv,
     QNet,
     ReplayBuffer,
     evaluate,
     make_mountaincarcont_vec_env,
     obs_tensor,
     polyak_update,
-    reset_to_center,
     sac_update,
 )
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix, set_device
@@ -92,8 +90,6 @@ def main() -> None:
     print()
     history: list[float] = []
     vec_env, obs_np = make_mountaincarcont_vec_env(args.seed, NUM_ENVS)
-    # SyncVectorEnv.envs is untyped upstream (bare `Env`).
-    envs = cast("list[MountainCarContEnv]", vec_env.envs)  # pyright: ignore[reportUnknownMemberType]
     ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     t_start = time.monotonic()
     for step in range(args.epochs):
@@ -105,7 +101,7 @@ def main() -> None:
         else:
             obs_t = obs_tensor(obs_np)
             with torch.no_grad():
-                a_t, _ = actor.sample(obs_t)
+                a_t, _ = actor.sample(obs_t, rng)
                 actions_np = a_t.cpu().numpy().astype(np.float64)
         # SyncVectorEnv is unparameterized upstream; narrow its step() products.
         next_obs_np, raw_rewards, terms_np, truncs_np, _ = cast(
@@ -128,8 +124,11 @@ def main() -> None:
             if is_dones[i]:
                 history.append(float(ep_returns_running[i]))
                 ep_returns_running[i] = 0.0
-                reset_to_center(envs[i])
-                next_obs_np[i] = np.array([-0.5, 0.0], dtype=np.float64)
+                # SyncVectorEnv (SAME_STEP) already auto-reset this sub-env
+                # through its own randomized start distribution and returned
+                # the fresh obs in next_obs_np[i]. Until 2026-08-03 this loop
+                # overwrote that with the pinned (-0.5, 0) center reset — the
+                # remnant this file missed in the 2026-08-01 reset alignment.
         obs_np = next_obs_np
         if len(buffer) >= max(args.batch, args.warmup):
             sac_update(

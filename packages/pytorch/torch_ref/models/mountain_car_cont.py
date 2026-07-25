@@ -117,7 +117,14 @@ class Actor(nn.Module):
         if rng is None:
             eps = torch.randn_like(mean)
         else:
-            eps = torch.tensor(rng.gauss(0.0, 1.0), dtype=get_dtype(), device=get_device())
+            # One draw PER ELEMENT, in row order — the shape the Idris side
+            # draws (one eps per env / per batch sample). Until 2026-08-03
+            # this drew a single scalar broadcast across the batch.
+            eps = torch.tensor(
+                [rng.gauss(0.0, 1.0) for _ in range(mean.numel())],
+                dtype=get_dtype(),
+                device=get_device(),
+            ).reshape(mean.shape)
         u = mean + std * eps
         a_squashed = torch.tanh(u)
         action = a_squashed * MAX_ACTION
@@ -185,7 +192,7 @@ def sac_update(
 ) -> float:
     obs, actions, rewards, next_obs, dones = buffer.sample(batch_size, rng)
     with torch.no_grad():
-        next_action, next_logp = actor.sample(next_obs)
+        next_action, next_logp = actor.sample(next_obs, rng)
         # nn.Module.__call__ returns Any, so torch.min's overload result is
         # unknown — pin the Tensor type.
         target_q = cast(
@@ -202,7 +209,7 @@ def sac_update(
     q2_opt.zero_grad()
     q2_loss.backward()  # pyright: ignore[reportUnknownMemberType]
     q2_opt.step()
-    sampled_action, logp = actor.sample(obs)
+    sampled_action, logp = actor.sample(obs, rng)
     q_min = cast("Tensor", torch.min(q1(obs, sampled_action), q2(obs, sampled_action)))
     actor_loss = (alpha * logp - q_min).mean()
     actor_opt.zero_grad()
