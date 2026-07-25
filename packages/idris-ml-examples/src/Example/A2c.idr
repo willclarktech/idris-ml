@@ -366,36 +366,67 @@ computeBootstrapsBatchedL critic stepLists v = batchOver critic stepLists v.envs
 ||| Laid out per env ([NumEnvs, RolloutLen]) so the reference can transpose to
 ||| the [T, N] its `compute_advantages` wants. Rows are 1-wide for the scalar
 ||| series because `bulkToTensor2d` is the shared constructor.
-maybeDumpRollout : {n : Nat} -> Vect n (List RollStep) -> Vect n Double -> IO ()
-maybeDumpRollout stepLists bootstraps = do
-  Nothing <- getEnv "IDRISML_ORACLE_DUMP"
-    | Just _ => do
-        let flat = Data.Vect.fromList (concat (toList stepLists))
-        -- One `ioRerun` per handle, bound before the list is assembled: the
-        -- bulk constructors are pure-typed FFIs and reorder otherwise.
-        obsP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                                 (map (\s => obsTensor s.obs) flat))
-        actP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                                 (map (\s => scalarRow (cast (natToInteger s.action))) flat))
-        rewP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                                 (map (\s => scalarRow s.reward) flat))
-        valP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                                 (map (\s => scalarRow s.value) flat))
-        doneP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
-                                 (map (\s => scalarRow (if s.isDone then 1.0 else 0.0)) flat))
-        bootP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F} (map scalarRow bootstraps))
-        maybeDumpOracleTensors {ex=Ex}
-          [ ("__oracle.obs", obsP)
-          , ("__oracle.actions", actP)
-          , ("__oracle.rewards", rewP)
-          , ("__oracle.values", valP)
-          , ("__oracle.dones", doneP)
-          , ("__oracle.bootstraps", bootP)
-          ]
-  pure ()
+maybeLoadRollout : {n : Nat} -> Vect n (List RollStep) -> Vect n Double ->
+                   IO (Vect n (List RollStep), Vect n Double)
+maybeLoadRollout stepLists bootstraps = do
+  let flat = Data.Vect.fromList (concat (toList stepLists))
+  -- One `ioRerun` per handle, bound before the list is assembled: the bulk
+  -- constructors are pure-typed FFIs and reorder otherwise. These carry this
+  -- side's own rollout, which is only ever used for its shape — `load`
+  -- overwrites the contents with the reference's.
+  obsP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                           (map (\s => obsTensor s.obs) flat))
+  actP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                           (map (\s => scalarRow (cast (natToInteger s.action))) flat))
+  rewP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                           (map (\s => scalarRow s.reward) flat))
+  valP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                           (map (\s => scalarRow s.value) flat))
+  doneP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                           (map (\s => scalarRow (if s.isDone then 1.0 else 0.0)) flat))
+  bootP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F} (map scalarRow bootstraps))
+  loaded <- maybeLoadOracleTensors {ex=Ex}
+              [ ("__oracle.obs", obsP)
+              , ("__oracle.actions", actP)
+              , ("__oracle.rewards", rewP)
+              , ("__oracle.values", valP)
+              , ("__oracle.dones", doneP)
+              , ("__oracle.bootstraps", bootP)
+              ]
+  if not loaded
+    then pure (stepLists, bootstraps)
+    else do
+      -- Rebuild by walking this side's structure and replacing each entry, so
+      -- the per-env grouping is right by construction. Both sides flatten
+      -- env-major over the same NumEnvs x RolloutLen grid.
+      let readStep : Int -> RollStep
+          readStep i =
+            MkRS (map (\k => primItem2d {ex=Ex} obsP i (cast (finToNat k)))
+                      (Data.Vect.Fin.range {len = ObsDim}))
+                 (natFromDouble (primItem2d {ex=Ex} actP i 0))
+                 (primItem2d {ex=Ex} rewP i 0)
+                 (primItem2d {ex=Ex} valP i 0)
+                 (primItem2d {ex=Ex} doneP i 0 > 0.5)
+
+          readSeq : Int -> List RollStep -> List RollStep
+          readSeq _ []        = []
+          readSeq i (_ :: xs) = readStep i :: readSeq (i + 1) xs
+
+          readAll : Int -> Vect k (List RollStep) -> Vect k (List RollStep)
+          readAll _ []           = []
+          readAll i (xs :: rest) =
+            readSeq i xs :: readAll (i + cast (natToInteger (length xs))) rest
+
+          readBoots : Int -> Vect k Double -> Vect k Double
+          readBoots _ []        = []
+          readBoots i (_ :: xs) = primItem2d {ex=Ex} bootP i 0 :: readBoots (i + 1) xs
+      pure (readAll 0 stepLists, readBoots 0 bootstraps)
   where
     scalarRow : Double -> Vector 1 Double
     scalarRow v = VArray [SArray v]
+
+    natFromDouble : Double -> Nat
+    natFromDouble v = cast {to=Nat} (cast {to=Integer} (cast {to=Int} v))
 
 a2cEpochL : Optimizer Ex -> Config -> (1 _ : A2CState) -> L IO {use = 1} (LPair (!* Double) A2CState)
 a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef) = do
@@ -409,10 +440,11 @@ a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef) = do
   liftIO1 (writeIORef seedRef finalSeed)
   (MkBang bootstraps # critic'') <-
     withNoGradL {ex=Ex} (computeBootstrapsBatchedL critic' stepLists finalEnvs)
-  -- Inert unless IDRISML_ORACLE_DUMP is set; exits when it is.
-  liftIO1 (maybeDumpRollout stepLists bootstraps)
+  -- Returns its arguments unchanged unless IDRISML_ORACLE_LOAD is set, in
+  -- which case the reference's rollout replaces this one.
+  (stepLists', bootstraps') <- liftIO1 (maybeLoadRollout stepLists bootstraps)
   (MkBang loss # (actor'' # critic''')) <-
-    buildLossBatchedL actor' critic'' cfg.gamma cfg.lam cfg.entropyCoef cfg.valueCoef stepLists bootstraps
+    buildLossBatchedL actor' critic'' cfg.gamma cfg.lam cfg.entropyCoef cfg.valueCoef stepLists' bootstraps'
   _ <- liftIO1 (trainStep opt loss)
   -- Per-env running returns (ω bookkeeping).
   reported <- liftIO1 $ do

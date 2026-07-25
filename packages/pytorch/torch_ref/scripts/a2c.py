@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
@@ -22,7 +23,7 @@ import torch
 from torch_ref.init_manifest import (
     maybe_dump_after_step,
     maybe_dump_init,
-    maybe_load_oracle_tensors,
+    maybe_dump_oracle,
 )
 from torch_ref.models.a2c import (
     NUM_ENVS,
@@ -61,17 +62,31 @@ PAIRED_PARAMS = {
     "critic.linear_2.weight": "1.head.weight",
 }
 
-# What Example.A2c registers under IDRISML_ORACLE_DUMP. Laid out per env
-# ([NumEnvs, RolloutLen]) because that is the order the Idris side flattens in;
-# `compute_advantages` wants [T, N], hence the transpose below.
-ORACLE_ROLLOUT = (
-    "__oracle.obs",
-    "__oracle.actions",
-    "__oracle.rewards",
-    "__oracle.values",
-    "__oracle.dones",
-    "__oracle.bootstraps",
-)
+
+# The rollout travels env-major ([NumEnvs * RolloutLen, ...]), which is the
+# order Idris' `buildLossBatchedL` concatenates its per-env GAE chains in.
+# Everything here is [T, N] or [T, N, obs], so each one transposes first.
+def _rollout_fixture(
+    obs: torch.Tensor,
+    actions: torch.Tensor,
+    rewards: torch.Tensor,
+    values: torch.Tensor,
+    dones: torch.Tensor,
+    bootstraps: torch.Tensor,
+) -> dict[str, torch.Tensor]:
+    def env_major(t: torch.Tensor) -> torch.Tensor:
+        """[T, N] -> [N*T, 1], or [T, N, k] -> [N*T, k]."""
+        moved = t.transpose(0, 1).contiguous()
+        return moved.reshape(-1, moved.shape[-1] if moved.dim() > 2 else 1)
+
+    return {
+        "__oracle.obs": env_major(obs),
+        "__oracle.actions": env_major(actions.double()),
+        "__oracle.rewards": env_major(rewards),
+        "__oracle.values": env_major(values),
+        "__oracle.dones": env_major(dones),
+        "__oracle.bootstraps": bootstraps.reshape(-1, 1),
+    }
 
 
 def main() -> None:
@@ -117,45 +132,38 @@ def main() -> None:
     )
     print()
 
-    # Oracle run: take Idris' init weights and the rollout it just collected,
-    # recompute advantages, take exactly one update, dump. The environment and
-    # the action sampler are never touched — their two RNG streams differ by
-    # design — so what is under test is GAE, the advantage normalization, the
-    # policy/value/entropy loss, the clip and Adam.
-    rollout = maybe_load_oracle_tensors((actor, critic), PAIRED_PARAMS, ORACLE_ROLLOUT)
-    if rollout is not None:
-        n_envs = rollout["__oracle.bootstraps"].shape[0]
+    # Oracle run: collect one rollout, publish the fixture this side started
+    # from — parameters plus that rollout — then take exactly one update and
+    # publish the result. Idris replays the rollout rather than sampling its
+    # own, so the environment and the action sampler stay out of the
+    # comparison (their RNG streams differ by design) while GAE, the advantage
+    # normalization, the policy/value/entropy loss, the clip and Adam are all
+    # under test.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        vec0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
+        obs0 = np.zeros((NUM_ENVS, 4), dtype=np.float64)
+        o, a, r, v, d, new_obs = collect_rollout(actor, critic, vec0, obs0, args.rollout)
+        with torch.no_grad():
+            boot_v = critic(obs_tensor(new_obs))
+            boots = torch.where(d[-1] > 0.5, torch.zeros_like(boot_v), boot_v)
+        maybe_dump_oracle((actor, critic), PAIRED_PARAMS, _rollout_fixture(o, a, r, v, d, boots))
+        adv, ret = compute_advantages(r, v, d, boots, args.gamma, args.lam)
 
-        def per_env(name: str) -> torch.Tensor:
-            """[N*T, 1] in env-major order -> [T, N], which GAE wants."""
-            return rollout[name].reshape(n_envs, -1).t().contiguous()
-
-        adv, ret = compute_advantages(
-            per_env("__oracle.rewards"),
-            per_env("__oracle.values"),
-            per_env("__oracle.dones"),
-            rollout["__oracle.bootstraps"].reshape(-1),
-            args.gamma,
-            args.lam,
-        )
-
-        # Back to the Idris side's env-major flattening so every row of the
-        # batch still lines up with its observation.
-        def flat(t: torch.Tensor) -> torch.Tensor:
+        def env_major_flat(t: torch.Tensor) -> torch.Tensor:
             return t.t().contiguous().reshape(-1)
 
         a2c_update(
             actor,
             critic,
             optimizer,
-            rollout["__oracle.obs"],
-            rollout["__oracle.actions"].reshape(-1).long(),
-            flat(adv),
-            flat(ret),
+            o.transpose(0, 1).contiguous().reshape(-1, 4),
+            env_major_flat(a).long(),
+            env_major_flat(adv),
+            env_major_flat(ret),
             args.entropy,
             args.value_coef,
         )
-        maybe_dump_after_step(actor, critic)
+        maybe_dump_after_step((actor, critic), PAIRED_PARAMS)
 
     # Stateful epoch context: NUM_ENVS parallel envs + per-env running
     # episodic returns. Matches Idris-side `A2CState.{envRef, retRef}`.

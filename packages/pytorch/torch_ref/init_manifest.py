@@ -15,9 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import TYPE_CHECKING, cast
-
-import torch
+from typing import TYPE_CHECKING
 
 # safetensors ships no py.typed marker, so pyright sees the signature as
 # partially unknown. The call below is fully annotated on our side.
@@ -89,106 +87,60 @@ def maybe_dump_batch(x: Tensor, y: Tensor) -> None:
     sys.exit(0)
 
 
-ORACLE_LOAD_VAR = "IDRISML_ORACLE_LOAD"
+ORACLE_DUMP_VAR = "IDRISML_ORACLE_DUMP"
 ORACLE_STEP_VAR = "IDRISML_ORACLE_STEP"
 ORACLE_INPUT = "__oracle.input"
 ORACLE_TARGET = "__oracle.target"
 
 
-def _load_oracle(
-    models: tuple[nn.Module, ...], params: dict[str, str], extras: tuple[str, ...]
-) -> dict[str, Tensor] | None:
-    """Copy the dumped parameters into `models`, and read back `extras`.
+def _idris_keyed(models: tuple[nn.Module, ...], params: dict[str, str]) -> dict[str, Tensor]:
+    """This side's parameters, keyed by the Idris registry names in `params`.
 
-    Returns None when no oracle path is set, otherwise the named extra tensors
-    (empty when none were asked for). Weights flow Idris -> reference only for
-    the oracle run: the point is that both sides start from *identical*
-    numbers, and this is the one direction that needs no rename machinery on
-    the Idris side. Which side authored them is irrelevant once they are equal.
-
-    Reference names carry a leading model index, as `maybe_dump_init` writes
-    them, so an actor/critic pair with identically-named layers stays
-    distinguishable.
+    The fixture travels reference -> Idris, so it is written in the consumer's
+    vocabulary and `Ml.Checkpoint.load` needs no remap. `params` maps Idris
+    name -> this side's model-index-prefixed name, which is the direction
+    `scripts/paired_examples.py` records; this reads it backwards.
     """
-    path = os.environ.get(ORACLE_LOAD_VAR)
-    if not path:
-        return None
-
-    from safetensors import safe_open
-
     own = [dict(m.named_parameters()) for m in models]
-    # safetensors ships no py.typed marker, so everything off `safe_open` is
-    # Unknown to pyright; cast at the boundary rather than sprinkle ignores.
-    with safe_open(path, framework="pt") as handle:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-
-        def read(key: str) -> Tensor:
-            return cast("Tensor", handle.get_tensor(key))  # pyright: ignore[reportUnknownMemberType]
-
-        for idris_name, ref_name in params.items():
-            index, attr = ref_name.split(".", 1)
-            target = own[int(index)][attr]
-            src = read(idris_name)
-            if tuple(src.shape) != tuple(target.shape):
-                raise ValueError(
-                    f"oracle load: {idris_name} is {tuple(src.shape)} but "
-                    f"{ref_name} is {tuple(target.shape)}"
-                )
-            with torch.no_grad():
-                target.copy_(src.to(target.dtype))
-        return {name: read(name) for name in extras}
+    out: dict[str, Tensor] = {}
+    for idris_name, ref_name in params.items():
+        index, attr = ref_name.split(".", 1)
+        out[idris_name] = own[int(index)][attr].detach().cpu().contiguous().clone()
+    return out
 
 
-def maybe_load_oracle_weights(model: nn.Module, params: dict[str, str]) -> bool:
-    """Load Idris' dumped init weights into `model`. Returns whether it ran.
+def maybe_dump_oracle(
+    models: tuple[nn.Module, ...],
+    params: dict[str, str],
+    extras: dict[str, Tensor] | None = None,
+) -> None:
+    """Write the oracle fixture, if asked to: this side's current parameters
+    plus every random input it drew, all keyed for the Idris registry.
 
-    The weights-only variant, for examples whose training data is generated
-    identically on both sides (the RNN family's fixed pattern sequences): only
-    the parameters have to travel, and the reference builds its own batch.
-    Pairs with Idris' `Ml.Checkpoint.maybeDumpOracleWeights`.
+    Call it after construction and before the first step. Unlike the dump
+    helpers it does NOT exit — the same run goes on to take the step and write
+    the post-step parameters via `maybe_dump_after_step`, so one reference
+    invocation produces the whole comparison.
     """
-    return _load_oracle((model,), params, ()) is not None
+    path = os.environ.get(ORACLE_DUMP_VAR)
+    if not path:
+        return
+    tensors = _idris_keyed(models, params)
+    for name, value in (extras or {}).items():
+        tensors[name] = value.detach().cpu().contiguous().double().clone()
+    save_file(tensors, path)
+    print(f"{ORACLE_DUMP_VAR}: wrote {path} ({len(tensors)} tensors)")
 
 
-def maybe_load_oracle(model: nn.Module, params: dict[str, str]) -> tuple[Tensor, Tensor] | None:
-    """Load Idris' dumped init weights and batch. Returns (input, target).
-
-    `params` maps Idris registry names to this side's parameter names, as in
-    `scripts/paired_examples.py`. For examples whose data is drawn from an RNG,
-    where the batch has to travel too.
-    """
-    result = _load_oracle((model,), params, (ORACLE_INPUT, ORACLE_TARGET))
-    if result is None:
-        return None
-    return result[ORACLE_INPUT], result[ORACLE_TARGET]
-
-
-def maybe_load_oracle_tensors(
-    models: tuple[nn.Module, ...], params: dict[str, str], names: tuple[str, ...]
-) -> dict[str, Tensor] | None:
-    """Load Idris' dumped init weights into several models, plus named tensors.
-
-    For examples whose training input is not an `(input, target)` pair — an RL
-    rollout, which the reference cannot regenerate because the environment and
-    the action sampler run on each side's own RNG. Pairs with Idris'
-    `Ml.Checkpoint.maybeDumpOracleTensors`.
-    """
-    return _load_oracle(models, params, names)
-
-
-def maybe_dump_after_step(*models: nn.Module) -> None:
+def maybe_dump_after_step(models: tuple[nn.Module, ...], params: dict[str, str]) -> None:
     """Write the post-step parameters and exit, if asked to.
 
-    Keys carry the model index, matching `maybe_dump_init`, so an actor/critic
-    pair with identically-named layers does not collide.
+    Keyed by Idris registry name like the fixture, so the comparison is
+    key-for-key and needs no map of its own.
     """
     path = os.environ.get(ORACLE_STEP_VAR)
     if not path:
         return
-    tensors: dict[str, Tensor] = {
-        f"{i}.{k}": v.detach().cpu().contiguous().clone()
-        for i, model in enumerate(models)
-        for k, v in model.named_parameters()
-    }
-    save_file(tensors, path)
+    save_file(_idris_keyed(models, params), path)
     print(f"{ORACLE_STEP_VAR}: wrote {path}")
     sys.exit(0)

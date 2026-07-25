@@ -4,16 +4,19 @@ Output format matches Idris Example.Supervised.
 """
 
 import argparse
+import os
 import sys
 from typing import cast
 
 import torch
 
 from torch_ref.init_manifest import (
+    ORACLE_INPUT,
+    ORACLE_TARGET,
     maybe_dump_after_step,
     maybe_dump_batch,
     maybe_dump_init,
-    maybe_load_oracle,
+    maybe_dump_oracle,
 )
 from torch_ref.models.supervised import (
     SupervisedModel,
@@ -75,21 +78,25 @@ def main() -> None:
 
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
 
-    # Oracle run: take Idris' init weights and its batch, do exactly one step,
-    # dump the result. Both sides then started from identical numbers on
-    # identical inputs, so any difference afterwards is forward, backward or
-    # optimizer semantics — the class no shape or moment check can see.
-    oracle = maybe_load_oracle(model, PAIRED_PARAMS)
-    if oracle is not None:
-        ox, oy = oracle
-        data = [(ox[i], oy[i]) for i in range(ox.shape[0])]
+    # Oracle run: publish what this side started from — its parameters and the
+    # batch it built — then take exactly one step and publish the result. Idris
+    # replays the same fixture, so any difference afterwards is forward,
+    # backward or optimizer semantics, the class no shape or moment check sees.
+    maybe_dump_oracle(
+        (model,),
+        PAIRED_PARAMS,
+        {
+            ORACLE_INPUT: torch.stack([x for x, _ in data]),
+            ORACLE_TARGET: torch.stack([y for _, y in data]),
+        },
+    )
 
     def epoch_fn() -> float:
         return train_supervised_epoch(model, data, optimizer)
 
-    if oracle is not None:
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
         epoch_fn()
-        maybe_dump_after_step(model)
+        maybe_dump_after_step((model,), PAIRED_PARAMS)
 
     if args.lr_find:
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)

@@ -13,21 +13,28 @@ that has happened repeatedly here: dropout left on during inference, a
 `log_softmax` applied to an already-softmaxed output, an optimizer that never
 updated one of two networks. Each was found by a human, late.
 
-This one compares arithmetic. Three runs:
+This one compares arithmetic. Two runs:
 
-  1. Idris dumps its init weights and its first batch to one file.
-  2. The reference loads both, takes exactly one optimizer step, and dumps.
-  3. Idris takes exactly one step on the same batch and dumps.
+  1. The reference runs its own code path unmodified, writing the fixture it
+     started from — parameters plus every random value it drew — and then its
+     own post-step parameters.
+  2. Idris loads that fixture, replays those inputs instead of generating its
+     own, takes one step and dumps.
 
 Both sides started from identical numbers on identical inputs, so the
 post-step parameters must agree to floating-point round-off. Any difference is
 forward, backward or optimizer semantics.
 
+The fixture travels reference -> Idris, and is keyed by Idris registry names
+so `Ml.Checkpoint.load` needs no remap. That direction matters: the reference
+is the ground truth and the thing written first when a new architecture lands,
+so it should never be bent to consume the implementation's output. It also
+removes the need for the two sides' RNGs to agree — replaying the reference's
+draws gets identical inputs without requiring the generators, the consumption
+order and the sampling algorithms to match.
+
 Post-step weights rather than gradients: it needs no hook between `backward`
-and the step, and it covers the optimizer too. Weights flow Idris -> reference
-for the transfer, which is the direction that needs no rename machinery on the
-Idris side; once both sides hold the same numbers it does not matter who
-authored them.
+and the step, and it covers the optimizer too.
 
 Bit-identity is not the bar and could not be: the two sides run different
 sequences of floating-point operations for the same expression (FMA
@@ -94,10 +101,12 @@ def compare_step(
     ):
         i_handle: Any = i_raw
         r_handle: Any = r_raw
-        for idris_name, ref_name in params.items():
+        for idris_name in params:
+            # Both post-step dumps are keyed by Idris registry name — the
+            # reference translates when it writes, so nothing maps here.
             a = i_handle.get_tensor(idris_name).double()
-            # Both dumps key by the reference's model-index-prefixed name.
-            b = r_handle.get_tensor(ref_name).double()
+            b = r_handle.get_tensor(idris_name).double()
+            ref_name = params[idris_name]
             if tuple(a.shape) != tuple(b.shape):
                 problems.append(f"{idris_name}: {tuple(a.shape)} vs {ref_name} {tuple(b.shape)}")
                 continue
@@ -178,23 +187,29 @@ def main() -> int:
             ref_after = Path(tmp) / f"{name}-ref-after.safetensors"
             idris_after = Path(tmp) / f"{name}-idris-after.safetensors"
 
-            _rc, out = run(["make", target], REPO_ROOT, {"IDRISML_ORACLE_DUMP": str(oracle)})
-            if not oracle.exists():
-                print(f"{name:<20} [FAILED] idris did not dump the oracle\n{tail(out)}")
-                failed = True
-                continue
-
+            # One reference run writes both halves: the fixture it started
+            # from (parameters plus every random input it drew, keyed for the
+            # Idris registry) and its own post-step parameters.
             _rc, out = run(
                 ["uv", "run", "python", "-u", "-m", f"torch_ref.scripts.{module}"],
                 REPO_ROOT / "packages" / "pytorch",
-                {"IDRISML_ORACLE_LOAD": str(oracle), "IDRISML_ORACLE_STEP": str(ref_after)},
+                {"IDRISML_ORACLE_DUMP": str(oracle), "IDRISML_ORACLE_STEP": str(ref_after)},
             )
+            if not oracle.exists():
+                print(f"{name:<20} [FAILED] reference did not write the fixture\n{tail(out)}")
+                failed = True
+                continue
             if not ref_after.exists():
                 print(f"{name:<20} [FAILED] reference did not take the oracle step\n{tail(out)}")
                 failed = True
                 continue
 
-            _rc, out = run(["make", target], REPO_ROOT, {"IDRISML_ONE_STEP": str(idris_after)})
+            # Idris replays that fixture rather than generating its own.
+            _rc, out = run(
+                ["make", target],
+                REPO_ROOT,
+                {"IDRISML_ORACLE_LOAD": str(oracle), "IDRISML_ONE_STEP": str(idris_after)},
+            )
             if not idris_after.exists():
                 print(f"{name:<20} [FAILED] idris did not dump after one step\n{tail(out)}")
                 failed = True

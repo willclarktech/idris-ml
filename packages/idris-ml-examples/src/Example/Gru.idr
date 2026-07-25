@@ -170,8 +170,8 @@ main = do
     model <- runInitL mkModel
     liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     -- Weights only: `patternSeqs` is generated identically on both sides, so
-    -- the reference builds its own batch. See scripts/check-step-oracle.py.
-    liftIO1 (maybeDumpOracleWeights {ex = ExampleExecutor})
+    -- nothing but the parameters travels. See scripts/check-step-oracle.py.
+    _ <- liftIO1 (maybeLoadOracle {ex = ExampleExecutor})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
       fit (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model

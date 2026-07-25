@@ -160,8 +160,11 @@ runDefault : Config -> Optimizer Ex -> IO ()
 runDefault cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
   liftIO1 (maybeDumpInit {ex = ExampleExecutor})
-  bs <- liftIO1 buildStream
-  liftIO1 (maybeDumpBatch {ex = ExampleExecutor} bs)
+  bs0 <- liftIO1 buildStream
+  liftIO1 (maybeDumpBatch {ex = ExampleExecutor} bs0)
+  -- Replays the reference's weights and batch under IDRISML_ORACLE_LOAD;
+  -- returns `bs0` untouched otherwise. See scripts/check-step-oracle.py.
+  bs <- liftIO1 (oracleBatchStream {ex = ExampleExecutor} bs0)
   liftIO1 (putStrLn "")
   (MkBang (epochsDone, finalLoss) # trained) <-
     fitSupervised opt nllLossDefaultL bs (simpleConfig cfg.epochs) model

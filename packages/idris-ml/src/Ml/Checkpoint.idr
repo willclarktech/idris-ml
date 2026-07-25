@@ -452,7 +452,7 @@ tensorMoments ptr n =
     head' (x :: _) = x
     head' []       = 0.0
 
-||| The names the oracle batch is registered under. Double-underscored so they
+||| The names the oracle batch travels under. Double-underscored so they
 ||| cannot collide with a layer's scope-derived parameter name.
 export
 oracleInputName : String
@@ -478,34 +478,12 @@ maybeDumpBatch : {0 ex : Executor} -> UserExecutorTraining ex =>
                  {0 dt : DType} -> {0 g : GradMode} ->
                  DataStream (Tensor dimsX ex dt g, Tensor dimsY ex dt g) -> IO ()
 maybeDumpBatch stream = do
-  oracle <- getEnv "IDRISML_ORACLE_DUMP"
-  dump   <- getEnv "IDRISML_DUMP_DATA"
-  case (oracle, dump) of
-    (Nothing, Nothing) => pure ()
-    (Just path, _)     => do
-      -- Oracle mode: write the init weights AND this batch to one file, so
-      -- the reference can start from identical weights on identical inputs.
-      -- Registered as BUFFERS: they ride the same table `saveAll` walks, and
-      -- the optimizer skips buffers, so nothing here can be stepped.
-      (x, y) <- stream.next
-      -- `ioRerun`, not a bare call: these are pure-typed FFIs with a side
-      -- effect, and the compiler reorders or drops those across sibling
-      -- bindings (docs/develop/gotchas.md). Threading the returned handles
-      -- through `<-` pins the ordering.
-      xr <- ioRerun (\_ => primParamRegisterBuffer {ex} oracleInputName x.tensorPtr)
-      yr <- ioRerun (\_ => primParamRegisterBuffer {ex} oracleTargetName y.tensorPtr)
-      when (prim__nullAnyPtr xr /= 0 || prim__nullAnyPtr yr /= 0) $
-        putStrLn "IDRISML_ORACLE_DUMP: batch registration returned null"
-      Right () <- saveAll {ex} path
-        | Left err => do putStrLn ("IDRISML_ORACLE_DUMP: save failed: " ++ show err)
-                         exitFailure
-      putStrLn ("IDRISML_ORACLE_DUMP: wrote " ++ path)
-      exitSuccess
-    (Nothing, Just _) => do
-      (x, y) <- stream.next
-      report "input"  (foldl (*) 1 dimsX) dimsX x.tensorPtr
-      report "target" (foldl (*) 1 dimsY) dimsY y.tensorPtr
-      exitSuccess
+  Just _ <- getEnv "IDRISML_DUMP_DATA"
+    | Nothing => pure ()
+  (x, y) <- stream.next
+  report "input"  (foldl (*) 1 dimsX) dimsX x.tensorPtr
+  report "target" (foldl (*) 1 dimsY) dimsY y.tensorPtr
+  exitSuccess
   where
     report : String -> Nat -> Vect r Nat -> AnyPtr -> IO ()
     report tag n dims ptr =
@@ -514,64 +492,85 @@ maybeDumpBatch stream = do
                    ++ show mean ++ "\t" ++ show sd ++ "\t" ++ show d1 ++ "\t"
                    ++ show lo ++ "\t" ++ show hi)
 
-||| The general oracle dump: if `IDRISML_ORACLE_DUMP` names a path, register
-||| each named tensor as a buffer alongside every parameter, write the lot and
-||| exit.
+||| The general oracle load: if `IDRISML_ORACLE_LOAD` names a path, overwrite
+||| every registered parameter from it and fill each named tensor in place,
+||| returning True.
 |||
-||| For examples whose training input is not an `(input, target)` pair. An RL
-||| rollout is the case in hand: it is driven by the environment and the action
-||| sampler, whose RNG streams legitimately differ across the two languages, so
-||| unlike a dataset batch it cannot be regenerated on the reference side and
-||| has to travel. Register what the update consumes (observations, actions,
-||| rewards, values, done flags, bootstrap values) and the reference can
-||| recompute advantages and take the step from there.
+||| The fixture travels reference -> Idris. The reference runs its own code
+||| path unmodified, writes what it started from and every random value it
+||| drew, and this side replays that instead of generating its own. The
+||| alternative — Idris dumping and the reference replaying — makes the ground
+||| truth consume the implementation's output, and inverts the order examples
+||| are actually authored in.
 |||
-||| Names should carry the `__oracle.` prefix so they cannot collide with a
-||| layer's scope-derived parameter name. Build each handle with its own
-||| `ioRerun` *before* assembling the list: the bulk constructors are
-||| pure-typed FFIs with a side effect, and the compiler reorders those across
-||| sibling bindings (docs/develop/gotchas.md).
+||| The file is keyed by *this* side's registry names (the reference translates
+||| when it writes), so `load` needs no remap. Names in `named` carry the
+||| `__oracle.` prefix so they cannot collide with a layer's scope-derived
+||| parameter name; they are registered as buffers, which `load` fills and the
+||| optimizer skips.
+|||
+||| The tensors passed in must already have the right shape — `load` writes
+||| into the existing C buffers and rejects a size mismatch. Passing the ones
+||| the example just generated is the intended use: same shape by
+||| construction, and they keep their own values when the oracle is inactive.
+||| Call after the model is built; the registry is empty until `runInit`
+||| populates it.
 export
-maybeDumpOracleTensors : {0 ex : Executor} -> UserExecutorTraining ex =>
-                         List (String, AnyPtr) -> IO ()
-maybeDumpOracleTensors named = do
-  Just path <- getEnv "IDRISML_ORACLE_DUMP"
-    | Nothing => pure ()
+maybeLoadOracleTensors : {0 ex : Executor} -> UserExecutorTraining ex =>
+                         List (String, AnyPtr) -> IO Bool
+maybeLoadOracleTensors named = do
+  Just path <- getEnv "IDRISML_ORACLE_LOAD"
+    | Nothing => pure False
   ok <- registerAll named
   when (not ok) $
-    putStrLn "IDRISML_ORACLE_DUMP: buffer registration returned null"
-  Right () <- saveAll {ex} path
-    | Left err => do putStrLn ("IDRISML_ORACLE_DUMP: save failed: " ++ show err)
+    putStrLn "IDRISML_ORACLE_LOAD: buffer registration returned null"
+  Right () <- load {ex} path defaultLoadOpts
+    | Left err => do putStrLn ("IDRISML_ORACLE_LOAD: load failed: " ++ show err)
                      exitFailure
-  putStrLn ("IDRISML_ORACLE_DUMP: wrote " ++ path)
-  exitSuccess
+  putStrLn ("IDRISML_ORACLE_LOAD: read " ++ path)
+  pure True
   where
     registerAll : List (String, AnyPtr) -> IO Bool
     registerAll []               = pure True
     registerAll ((k, p) :: rest) = do
+      -- `ioRerun`, not a bare call: these are pure-typed FFIs with a side
+      -- effect, and the compiler reorders or drops those across sibling
+      -- bindings (docs/develop/gotchas.md). Threading the returned handles
+      -- through `<-` pins the ordering.
       r    <- ioRerun (\_ => primParamRegisterBuffer {ex} k p)
       rest <- registerAll rest
       pure (prim__nullAnyPtr r == 0 && rest)
 
-||| The weights-only half of the oracle dump: if `IDRISML_ORACLE_DUMP` names a
-||| path, write every registered parameter to it and exit.
-|||
-||| For examples whose training data is generated identically on both sides
-||| (the RNN family's fixed pattern sequences), so the reference needs the
-||| weights but can build its own batch. `maybeDumpBatch` is the variant for
-||| examples whose data is drawn from an RNG, where the batch has to travel
-||| too. Call it after the model is built — the registry is empty before
-||| `runInit` populates it, and a dump taken there holds nothing.
+||| The weights-only oracle load, for examples whose training data is generated
+||| identically on both sides (the RNN family's fixed pattern sequences): only
+||| the parameters have to travel.
 export
-maybeDumpOracleWeights : UserExecutorTraining ex => IO ()
-maybeDumpOracleWeights = do
-  Just path <- getEnv "IDRISML_ORACLE_DUMP"
-    | Nothing => pure ()
-  Right () <- saveAll {ex} path
-    | Left err => do putStrLn ("IDRISML_ORACLE_DUMP: save failed: " ++ show err)
-                     exitFailure
-  putStrLn ("IDRISML_ORACLE_DUMP: wrote " ++ path)
-  exitSuccess
+maybeLoadOracle : UserExecutorTraining ex => IO Bool
+maybeLoadOracle = maybeLoadOracleTensors {ex} []
+
+||| Swap `stream` for one yielding the reference's batch when the oracle is
+||| active, and load its weights at the same time. Returns `stream` unchanged
+||| otherwise, having consumed nothing from it.
+|||
+||| The batch-carrying counterpart of `maybeLoadOracle`, for examples whose
+||| data is drawn from an RNG and so cannot be regenerated on this side.
+export
+oracleBatchStream : {0 ex : Executor} -> UserExecutorTraining ex =>
+                    {rankX, rankY : Nat} ->
+                    {dimsX : Vect rankX Nat} -> {dimsY : Vect rankY Nat} ->
+                    {0 dt : DType} -> {0 g : GradMode} ->
+                    DataStream (Tensor dimsX ex dt g, Tensor dimsY ex dt g) ->
+                    IO (DataStream (Tensor dimsX ex dt g, Tensor dimsY ex dt g))
+oracleBatchStream stream = do
+  Just _ <- getEnv "IDRISML_ORACLE_LOAD"
+    | Nothing => pure stream
+  -- Pull one batch purely for its shape; `load` then overwrites its contents
+  -- with the reference's. Only reached in oracle mode, so a stream whose
+  -- position matters is not disturbed on a normal run.
+  (x, y) <- stream.next
+  _ <- maybeLoadOracleTensors {ex}
+         [(oracleInputName, x.tensorPtr), (oracleTargetName, y.tensorPtr)]
+  pure (generate (pure (x, y)))
 
 ||| If `IDRISML_ONE_STEP` names a path, write every registered parameter to it
 ||| and exit. `Ml.Fit.fit` calls this at the top of epoch 1, i.e. after exactly
