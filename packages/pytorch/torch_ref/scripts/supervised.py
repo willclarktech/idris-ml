@@ -9,7 +9,7 @@ from typing import cast
 
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import maybe_dump_batch, maybe_dump_init
 from torch_ref.models.supervised import (
     SupervisedModel,
     _make_supervised_data,  # pyright: ignore[reportPrivateUsage]  # shared with the paired script
@@ -53,6 +53,11 @@ def main() -> None:
     model = SupervisedModel().to(args.device, dtype=get_dtype())
     maybe_dump_init(model)
     data = _make_supervised_data()  # rebuilt under active device/dtype
+    # The whole 5-sample dataset as one batch, matching Idris `batched {b=5}`.
+    maybe_dump_batch(
+        torch.stack([x for x, _ in data]),
+        torch.stack([y for _, y in data]),
+    )
     print("Model: Linear<2:3> -> softmax")
     print()
 

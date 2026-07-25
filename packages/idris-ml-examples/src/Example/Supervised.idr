@@ -161,6 +161,7 @@ runDefault cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
   liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   bs <- liftIO1 buildStream
+  liftIO1 (maybeDumpBatch {ex = ExampleExecutor} bs)
   liftIO1 (putStrLn "")
   (MkBang (epochsDone, finalLoss) # trained) <-
     fitSupervised opt nllLossDefaultL bs (simpleConfig cfg.epochs) model

@@ -5,11 +5,13 @@ module Ml.Checkpoint
 import Data.Either
 import Data.List
 import Data.String
+import Data.Vect
 import System
 import System.Clock
 import System.Directory
 import System.File
 
+import Ml.DataStream
 import Ml.Executor
 import Ml.Tensor
 
@@ -134,7 +136,7 @@ load path opts = do
           Nothing => case opts.only of
             Nothing  => primIO (primParamLoadWithPolicy {ex} path castFlag)
             Just pfx => primIO (primParamLoadWithPrefix {ex} path castFlag pfx)
-  pure (if rc == 0 then Right () else Left (decodeLoadError rc))
+  pure (if rc == the Int 0 then Right () else Left (decodeLoadError rc))
 
 ||| Save all registered parameters to a .safetensors file — the
 ||| registry-wide escape hatch. Model-scoped saves arrive with the
@@ -422,3 +424,60 @@ maybeDumpInit = do
                      exitFailure
   putStrLn ("IDRISML_DUMP_INIT: wrote " ++ path)
   exitSuccess
+
+----------------------------------------------------------------------
+-- Data-manifest dump (alignment tooling)
+----------------------------------------------------------------------
+
+-- Flat moments of a tensor, read through the backend-agnostic `primItem1d`
+-- (a flat reader on all three backends — see each `core/lifecycle/item1d`).
+tensorMoments : {0 ex : Executor} -> UserExecutorCore ex =>
+                AnyPtr -> Nat -> (Double, Double, Double, Double, Double)
+tensorMoments ptr n =
+  let xs   = [ primItem1d {ex} ptr (cast i) | i <- [the Nat 0 .. n `minus` 1] ]
+      cnt  = cast {to=Double} n
+      mean = sum xs / cnt
+      var  = sum [ (x - mean) * (x - mean) | x <- xs ] / cnt
+      -- Lag-1 difference std. Batch-level mean/std barely move when iid noise
+      -- is added to a structured signal (N(0, 0.1) on a waveform of std 0.82
+      -- shifts the std by 0.7%), but the successive difference does: it is
+      -- small for a smooth signal and inflated by sqrt(2)*sigma by the noise.
+      ds   = zipWith (-) (drop 1 xs) xs
+      dcnt = max 1.0 (cast {to=Double} (n `minus` 1))
+      dmu  = sum ds / dcnt
+      dvar = sum [ (d - dmu) * (d - dmu) | d <- ds ] / dcnt
+  in (mean, sqrt var, sqrt dvar, foldl min (head' xs) xs, foldl max (head' xs) xs)
+  where
+    head' : List Double -> Double
+    head' (x :: _) = x
+    head' []       = 0.0
+
+||| If `IDRISML_DUMP_DATA` is set, pull one batch from `stream`, print the
+||| moments of its input and target tensors, and exit.
+|||
+||| The data generators are the one part of a paired example that no other
+||| gate looks at: `Example.SeqClassify` generated noise-free waveforms while
+||| its reference added N(0, 0.1) per timestep, so the two sides trained on
+||| different difficulties for months with every init and metric check
+||| passing. Values cannot be compared (the RNGs differ), so this reports
+||| shape and moments, which is what distinguishes those two distributions.
+export
+maybeDumpBatch : {0 ex : Executor} -> UserExecutorCore ex =>
+                 {rankX, rankY : Nat} ->
+                 {dimsX : Vect rankX Nat} -> {dimsY : Vect rankY Nat} ->
+                 {0 dt : DType} -> {0 g : GradMode} ->
+                 DataStream (Tensor dimsX ex dt g, Tensor dimsY ex dt g) -> IO ()
+maybeDumpBatch stream = do
+  Just _ <- getEnv "IDRISML_DUMP_DATA"
+    | Nothing => pure ()
+  (x, y) <- stream.next
+  report "input"  (foldl (*) 1 dimsX) dimsX x.tensorPtr
+  report "target" (foldl (*) 1 dimsY) dimsY y.tensorPtr
+  exitSuccess
+  where
+    report : String -> Nat -> Vect r Nat -> AnyPtr -> IO ()
+    report tag n dims ptr =
+      let (mean, sd, d1, lo, hi) = tensorMoments {ex} ptr n
+      in putStrLn ("DATA_MANIFEST\t" ++ tag ++ "\t" ++ show (toList dims) ++ "\t"
+                   ++ show mean ++ "\t" ++ show sd ++ "\t" ++ show d1 ++ "\t"
+                   ++ show lo ++ "\t" ++ show hi)

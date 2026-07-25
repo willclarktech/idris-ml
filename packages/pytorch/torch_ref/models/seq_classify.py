@@ -21,6 +21,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.init import init_conv_, init_linear_
+from torch_ref.init_manifest import maybe_dump_batch
 from torch_ref.training.runner import get_device, get_dtype
 
 SEQ_LEN = 32
@@ -88,6 +89,9 @@ def train_epoch(
 ) -> float:
     model.train()
     data, target = generate_batch(batch_size)
+    # One-hot the integer labels so the dumped target matches the Idris side's
+    # [b, NumClasses]; inert unless IDRISML_DUMP_DATA is set.
+    maybe_dump_batch(data, F.one_hot(target, NUM_CLASSES).to(data.dtype))
     optimizer.zero_grad()
     output = model(data)
     loss = F.nll_loss(output, target)

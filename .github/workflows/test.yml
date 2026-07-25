@@ -827,6 +827,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-lint-init-manifest
 
+      - name: Verify paired examples share a data distribution
+        # Runs both sides under IDRISML_DUMP_DATA, which makes each print one
+        # batch's shape and moments and exit before training. Example.SeqClassify
+        # generated noise-free waveforms against its reference's N(0, 0.1), and
+        # example-mnist fed raw [0,1] pixels against the reference's normalised
+        # ones — the data generators are the one part of a paired example no
+        # other gate looks at.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-data-manifest
+
       - name: Verify convergence-campaign expect coverage
         # Every example in CONVERGENCE_CAMPAIGN_EXAMPLES must have a
         # threshold row in test-examples-convergence.expect.

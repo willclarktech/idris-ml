@@ -57,3 +57,31 @@ def maybe_dump_init(*models: nn.Module) -> None:
     save_file(tensors, path)
     print(f"{ENV_VAR}: wrote {path} ({len(tensors)} tensors from {len(models)} model(s))")
     sys.exit(0)
+
+
+DATA_ENV_VAR = "IDRISML_DUMP_DATA"
+
+
+def maybe_dump_batch(x: Tensor, y: Tensor) -> None:
+    """Print one batch's shape and moments and exit, if asked to.
+
+    The reference half of the data-generator gate. Values cannot be compared
+    across the two sides (the RNGs differ), so this reports what can be:
+    shape, mean, std, min, max. `Example.SeqClassify` generated noise-free
+    waveforms while this side added N(0, 0.1) per timestep — the two trained
+    on different difficulties for months, and no init or metric check could
+    see it.
+    """
+    if not os.environ.get(DATA_ENV_VAR):
+        return
+    for tag, t in (("input", x), ("target", y)):
+        f = t.detach().cpu().double().flatten()
+        # Lag-1 difference std: see Ml.Checkpoint.tensorMoments for why the
+        # batch mean/std alone cannot see additive noise on a structured
+        # signal.
+        d1 = float((f[1:] - f[:-1]).std(unbiased=False)) if f.numel() > 1 else 0.0
+        print(
+            f"DATA_MANIFEST\t{tag}\t{list(t.shape)}\t{float(f.mean())}\t"
+            f"{float(f.std(unbiased=False))}\t{d1}\t{float(f.min())}\t{float(f.max())}"
+        )
+    sys.exit(0)

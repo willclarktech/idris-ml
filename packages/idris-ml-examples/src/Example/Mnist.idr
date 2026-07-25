@@ -83,6 +83,38 @@ EvalChunk = 1000
 EvalChunks : Nat
 EvalChunks = 10
 
+-- Standard MNIST normalisation, `transforms.Normalize((0.1307,), (0.3081,))`
+-- on the reference. `idxDataset` yields raw [0, 1] pixels; without this the
+-- two sides trained on inputs of std 0.32 and 1.04 respectively — found by
+-- `scripts/check-data-manifest.py`, invisible to every other gate.
+MnistMean : Double
+MnistMean = 0.1307
+
+MnistStd : Double
+MnistStd = 0.3081
+
+-- Applied to an already-collated [b, InputDim] batch rather than per-sample:
+-- wrapping the `Dataset` with a record update over its existential `size`
+-- sent the elaborator into a >40 minute spin (gotchas.md).
+normalizeBatch : {b : Nat} -> Tensor [b, InputDim] Ex F NoGrad ->
+                 IO (Tensor [b, InputDim] Ex F NoGrad)
+normalizeBatch x = do
+  scaled <- tmulScalar x (1.0 / MnistStd)
+  shift  <- tensor {dims = [b, InputDim]} (Const (MnistMean / MnistStd))
+  scaled -. shift
+
+-- Wrap a batched stream so every pull is normalised. Direct record
+-- construction rather than a `Dataset` record update: the latter, over an
+-- existentially-sized dataset, sent the elaborator into a >40 minute spin.
+normalizedStream : {b : Nat} ->
+                   DataStream (Tensor [b, InputDim] Ex F NoGrad, Tensor [b, NumClasses] Ex F NoGrad) ->
+                   DataStream (Tensor [b, InputDim] Ex F NoGrad, Tensor [b, NumClasses] Ex F NoGrad)
+normalizedStream st =
+  MkDataStream (do (x, y) <- st.next
+                   nx <- normalizeBatch {b} x
+                   pure (nx, y))
+               st.epochLen
+
 ----------------------------------------------------------------------
 -- Model + loss
 ----------------------------------------------------------------------
@@ -213,7 +245,9 @@ main = do
 
   opt <- adam cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
   trainStream <- stream (Shuffle cfg.seed) trainDs
-  let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} trainStream
+  let bs = normalizedStream {b = BatchSize}
+             (batched {b = BatchSize} {i = InputDim} {o = NumClasses} trainStream)
+  maybeDumpBatch {ex = ExampleExecutor} bs
   testStream <- stream (Shuffle cfg.seed) testDs
   putStrLn ""
 
@@ -236,7 +270,8 @@ main = do
     infer <- eval trained
     (MkBang hits # infer') <-
       evalChunks infer
-                 (batched {b = EvalChunk} {i = InputDim} {o = NumClasses} testStream)
+                 (normalizedStream {b = EvalChunk}
+                    (batched {b = EvalChunk} {i = InputDim} {o = NumClasses} testStream))
                  EvalChunks 0
     discard infer'
     liftIO1 $ do

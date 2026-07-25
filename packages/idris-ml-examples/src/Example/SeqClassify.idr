@@ -221,6 +221,7 @@ main = do
 
   opt <- adam cfg.lr ({ clip := NormClip 1.0 } defaultOpts)
   let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} (generate mkSample)
+  maybeDumpBatch {ex = ExampleExecutor} bs
 
   -- Linear surface: model born linear (runInitL), threaded through
   -- fitSupervised, converted to an inference model (eval — this chain has a

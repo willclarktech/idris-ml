@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         metrics_only_python: NotRequired[list[str]]
         init_manifest: NotRequired[bool]
         target: NotRequired[str]
+        data_manifest: NotRequired[bool]
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +56,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES: list[ExampleSpec] = [
     {
         "name": "supervised",
+        # Fixed 5-sample dataset, generated identically on both sides.
+        "data_manifest": True,
         "idris": "packages/idris-ml-examples/src/Example/Supervised.idr",
         "python": "packages/pytorch/torch_ref/scripts/supervised.py",
         "python_only": ["--lr-find"],
@@ -80,6 +83,8 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "mnist",
+        # Same idx files on both sides; the gate pins the loader/normalisation.
+        "data_manifest": True,
         "idris": "packages/idris-ml-examples/src/Example/Mnist.idr",
         "python": "packages/pytorch/torch_ref/scripts/mnist.py",
         "idris_only": ["--data"],  # idris loads from local path; py uses torchvision
@@ -87,6 +92,9 @@ EXAMPLES: list[ExampleSpec] = [
     },  # py exposes batch knob; idris bakes it
     {
         "name": "seq-classify",
+        # Synthetic waveform generator on both sides — the case that motivated
+        # the data gate.
+        "data_manifest": True,
         "idris": "packages/idris-ml-examples/src/Example/SeqClassify.idr",
         "python": "packages/pytorch/torch_ref/scripts/seq_classify.py",
         "idris_only": ["--patience"],

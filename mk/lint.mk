@@ -12,6 +12,7 @@
         test-integration-lint-non-io-side-effects \
         test-integration-lint-paired-defaults test-integration-lint-example-pairing \
         test-integration-lint-paired-metrics test-integration-lint-init-manifest \
+        test-integration-lint-data-manifest \
         test-integration-py-scripts \
         test-integration-lint-convergence-expect-coverage \
         lint-py lint-py-pytorch \
@@ -106,6 +107,14 @@ test-integration-lint-paired-metrics:
 # Needs the uv venv for safetensors, hence the cd.
 test-integration-lint-init-manifest:
 	@cd packages/pytorch && uv run --no-sync python ../../scripts/check-init-manifest.py
+
+# Verify paired examples train on the same data distribution. Runs both sides
+# under IDRISML_DUMP_DATA, which makes each print one batch's shape and moments
+# and exit before training. Example.SeqClassify generated noise-free waveforms
+# against its reference's N(0, 0.1), and example-mnist fed raw [0,1] pixels
+# against the reference's normalised ones — neither visible to any other gate.
+test-integration-lint-data-manifest:
+	@cd packages/pytorch && uv run --no-sync python ../../scripts/check-data-manifest.py
 
 # Verify every convergence-campaign example has a threshold row in the
 # convergence expect file. check-result.sh treats a missing row as

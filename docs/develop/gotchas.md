@@ -71,6 +71,40 @@ suspect the last thing you *did* edit inside that block, not the indentation at
 the arrow. Observed 2026-07-31 while chunking the mnist eval; not established
 whether the linear `L IO` context is required to trigger it.
 
+### A `Dataset` record update over an existential size spins the elaborator
+
+Wrapping a `Dataset` to transform each sample looks like the obvious way to add
+a preprocessing step:
+
+```idris
+normalized : Dataset (Tensor [InputDim] Ex F NoGrad, ...) -> Dataset (...)
+normalized ds = { item := \i => do (x, y) <- ds.item i
+                                   ...
+                                   pure (x', y) } ds
+```
+
+`make install` then ran for **41 minutes without finishing** (normally ~5) and
+had to be killed. `Dataset` is `{ size : Nat; item : Fin size -> IO sample }`
+and `fromIndexed`/`idxDataset` produce it with `size` known only at runtime, so
+the record update has to unify a lambda's `Fin size` against an existential.
+
+Transform the *batched stream* instead — a direct `MkDataStream` construction
+over an already-collated batch, with no existential in play:
+
+```idris
+normalizedStream : {b : Nat} -> DataStream (Tensor [b, InputDim] ..., ...) -> DataStream (...)
+normalizedStream st =
+  MkDataStream (do (x, y) <- st.next; nx <- normalizeBatch {b} x; pure (nx, y)) st.epochLen
+```
+
+That builds in the usual time. It is also the better place for it: one wrap
+covers training, eval and the data-manifest dump, so all three see the same
+values. (`Example.Mnist`, 2026-07-31, adding the standard MNIST normalisation.)
+
+Watch for the shape of the failure — a build that neither errors nor finishes,
+with output buffered so the log looks frozen at the last flush. Check
+`pgrep -f idris2` and elapsed time rather than the log.
+
 ### Temporary test files
 
 Idris2 requires source files to be in `--source-dir`. Never put test files in `/tmp` — they won't compile. Instead, add temporary test files to `src/Example/` and remove them after debugging.
