@@ -436,6 +436,7 @@ test-integration: \
 		test-integration-lint-paired-defaults \
 		test-integration-lint-llama-inference \
 		test-integration-lint-bitnet-inference \
+		test-integration-lint-hf-finetune \
 		test-integration-lint-ci-workflow \
 		test-integration-lint-benchmarks \
 		test-integration-lint-perf-regression \

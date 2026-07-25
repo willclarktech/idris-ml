@@ -1235,6 +1235,16 @@ jobs:
         # the roundtrip's build set (tape F64 OOMs the runner).
         if: ${{ !cancelled() }}
         run: make BACKEND=torch test-integration-lint-bitnet-inference
+
+      - name: Type-check the five HF finetune examples (torch)
+        # `idris2 --check` over the five HF finetune examples
+        # (BertClassify*/BertMlm/Gpt2Lm). Like the two inference lint
+        # gates above they depend on idris-transformers so no ipkg or
+        # e2e lane compiles them; the adamW import rot (2c752d59, five
+        # weeks undetected) is the incident this gate prevents. No
+        # checkpoint/dataset download needed.
+        if: ${{ !cancelled() }}
+        run: make BACKEND=torch test-integration-lint-hf-finetune
       # <<< END GENERATED (test-e2e-transformers-large) <<<
 
       - name: Save caches

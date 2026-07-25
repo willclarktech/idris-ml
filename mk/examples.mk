@@ -18,6 +18,7 @@
         example-llama-inference \
         test-integration-lint-llama-inference \
         test-integration-lint-bitnet-inference \
+        test-integration-lint-hf-finetune \
         example-bitnet-inference test-e2e-bitnet-roundtrip \
         test-e2e-gpt2-roundtrip test-e2e-llama-roundtrip \
         test-e2e-llama-generate-roundtrip \
@@ -287,6 +288,22 @@ test-integration-lint-bitnet-inference: install
 	IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/BitNetInference.idr
+
+# --check gate for the five HF finetune examples. Like the two inference
+# examples above they depend on idris-transformers, so they are NOT in
+# idris-ml-examples.ipkg and no other target compiles them — all four
+# adamW call sites rotted for five weeks (Undefined name adamW, broken
+# by 2c752d59) before this gate existed. Type-check only: no checkpoint
+# or dataset download needed.
+HF_FINETUNE_EXAMPLES := BertClassifyFinetune BertClassifySst2Finetune \
+	BertClassifySst2Lora BertMlmFinetune Gpt2LmFinetune
+
+test-integration-lint-hf-finetune: install
+	for ex in $(HF_FINETUNE_EXAMPLES); do \
+		IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) -p contrib -p elab-util -p linear -p idris-ml -p idris-gym -p idris-transformers \
+			--build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) \
+			--check $(EXAMPLE_SRC)/Example/$$ex.idr || exit 1; \
+	done
 
 # Build + run Example/BitNetInference. Fetches microsoft/bitnet-b1.58-2B-4T
 # once via the pattern rule (1.18 GB, not gated). Default mode runs the
