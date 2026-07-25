@@ -18,6 +18,7 @@ import Data.Vect
 import System
 
 import Ml.Compat.Random
+import Ml.DataStream
 import Ml.Fit
 import Ml.Simple
 import Ml.Train
@@ -70,8 +71,16 @@ NumClasses = 10
 BatchSize : Nat
 BatchSize = 64
 
-EvalSize : Nat
-EvalSize = 1000
+-- The full 10k test set, in chunks: a single [10000, 784] batch would push
+-- the first conv's [10000, 16, 24, 24] intermediate past 700 MB on F64, so
+-- the eval loops instead. The reference walks its test DataLoader the same
+-- way; evaluating a 1000-image slice (as this did until 2026-07-31) reported
+-- a different measurement under the same `accuracy` key.
+EvalChunk : Nat
+EvalChunk = 1000
+
+EvalChunks : Nat
+EvalChunks = 10
 
 ----------------------------------------------------------------------
 -- Model + loss
@@ -106,7 +115,7 @@ nllLossL model (x, tgt) = do
   pure1 (MkBang loss # model')
 
 ----------------------------------------------------------------------
--- Evaluation: argmax accuracy over one EvalSize batch of test images
+-- Evaluation: argmax accuracy over the full test set, EvalChunk at a time
 ----------------------------------------------------------------------
 
 -- argmax over the NumClasses entries of row r of a [b, NumClasses] tensor.
@@ -120,16 +129,26 @@ argmaxRow t r = go 1 0 (primItem2d {ex=Ex} t r 0)
            in if v > bestV then assert_total (go (j + 1) j v)
                            else assert_total (go (j + 1) best bestV)
 
--- Argmax accuracy over the already-forwarded [EvalSize, NumClasses] logits.
--- Pure (primItem2d reads are pure FFI); the forward itself happens in the
--- linear block via forwardSeq.
-accuracyFrom : Tensor [EvalSize, NumClasses] Ex F NoGrad ->
-               Tensor [EvalSize, NumClasses] Ex F NoGrad -> Double
-accuracyFrom pred tgt =
-  let correct = length $ filter id
-        [ argmaxRow pred.tensorPtr r == argmaxRow tgt.tensorPtr r
-        | r <- map (cast {to=Int}) [the Nat 0 .. EvalSize `minus` 1] ]
-  in cast {to=Double} correct / cast {to=Double} EvalSize
+-- Argmax hits in one already-forwarded [EvalChunk, NumClasses] chunk. Pure
+-- (primItem2d reads are pure FFI); the forward happens in the linear block.
+correctIn : Tensor [EvalChunk, NumClasses] Ex F NoGrad ->
+            Tensor [EvalChunk, NumClasses] Ex F NoGrad -> Nat
+correctIn pred tgt =
+  length $ filter id
+    [ argmaxRow pred.tensorPtr r == argmaxRow tgt.tensorPtr r
+    | r <- map (cast {to=Int}) [the Nat 0 .. EvalChunk `minus` 1] ]
+
+-- Fold argmax hits over `n` chunks, threading the inference model linearly.
+evalChunks : (1 _ : Seq InputDim NumClasses Ex F NoGrad) ->
+             DataStream (Tensor [EvalChunk, InputDim] Ex F NoGrad,
+                         Tensor [EvalChunk, NumClasses] Ex F NoGrad) ->
+             Nat -> Nat ->
+             L IO {use = 1} (LPair (!* Nat) (Seq InputDim NumClasses Ex F NoGrad))
+evalChunks m _  Z     hits = pure1 (MkBang hits # m)
+evalChunks m st (S k) hits = do
+  batch <- liftIO1 st.next
+  (MkBang predB # m') <- forwardSeq {b = EvalChunk} m (fst batch)
+  evalChunks m' st k (hits + correctIn predB (snd batch))
 
 ----------------------------------------------------------------------
 -- Config & Main
@@ -213,12 +232,15 @@ main = do
       fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
     liftIO1 (putStrLn "")
     infer <- eval trained
-    evalBatch <- liftIO1 (batched {b = EvalSize} {i = InputDim} {o = NumClasses} testStream).next
-    (MkBang predB # infer') <- forwardSeq {b = EvalSize} infer (fst evalBatch)
+    (MkBang hits # infer') <-
+      evalChunks infer
+                 (batched {b = EvalChunk} {i = InputDim} {o = NumClasses} testStream)
+                 EvalChunks 0
     discard infer'
     liftIO1 $ do
-      let acc = accuracyFrom predB (snd evalBatch)
-      putStrLn $ "Final accuracy (" ++ show EvalSize ++ " test samples): " ++ show (acc * 100.0) ++ "%"
+      let acc = cast {to=Double} hits / cast {to=Double} (EvalChunk * EvalChunks)
+      putStrLn $ "Final accuracy (" ++ show (EvalChunk * EvalChunks)
+               ++ " test samples): " ++ show (acc * 100.0) ++ "%"
       putStrLn ""
       putStrLn $ formatResult [("accuracy", show acc),
                                ("epochs", show epochsDone),

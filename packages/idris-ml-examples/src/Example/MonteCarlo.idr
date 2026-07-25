@@ -259,10 +259,10 @@ main = do
       (generate genInput)
       trainCfg zeroModel
 
-    (winRate, avgReward) <- liftIO1 (evalN q 5000 0 0.0 0.0 0.0)
+    (winRate, avgReward) <- liftIO1 (evalN q 10000 0 0.0 0.0 0.0)
     liftIO1 $ do
       putStrLn ""
-      putStrLn $ "Eval (5000 hands, greedy): win_rate=" ++ show winRate
+      putStrLn $ "Eval (10000 hands, greedy): win_rate=" ++ show winRate
                ++ " avg_reward=" ++ show avgReward
       putStrLn ""
       putStrLn $ formatResult [("win_rate", show winRate),
