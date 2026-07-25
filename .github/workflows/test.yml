@@ -800,6 +800,23 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-lint-fmt
 
+      - name: Verify every campaign example is paired with a reference
+        # Every example in CONVERGENCE_CAMPAIGN_EXAMPLES must have an entry
+        # in scripts/paired_examples.py. The defaults and metrics gates only
+        # check the pairs they are handed, so an example missing from that
+        # table is exempt from both — example-double-dqn and example-sac
+        # were, from the day each landed until 2026-07-31.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-example-pairing
+
+      - name: Verify paired examples report the same metric keys
+        # A metric one side reports and the other does not means no
+        # threshold can compare them. Example.SeqClassify reported training
+        # loss while its reference reported held-out accuracy, and the Idris
+        # side turned out to evaluate nothing at all.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-paired-metrics
+
       - name: Verify convergence-campaign expect coverage
         # Every example in CONVERGENCE_CAMPAIGN_EXAMPLES must have a
         # threshold row in test-examples-convergence.expect.

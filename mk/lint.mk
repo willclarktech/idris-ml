@@ -10,7 +10,8 @@
         test-integration-lint-ci-coverage \
         test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects \
-        test-integration-lint-paired-defaults test-integration-py-scripts \
+        test-integration-lint-paired-defaults test-integration-lint-example-pairing \
+        test-integration-lint-paired-metrics test-integration-py-scripts \
         test-integration-lint-convergence-expect-coverage \
         lint-py lint-py-pytorch \
         lint-py-scripts lint-py-transformers lint-py-examples \
@@ -79,6 +80,21 @@ test-integration-lint-non-io-side-effects:
 # Catches the "I changed Idris's default but forgot the matching ref" drift class.
 test-integration-lint-paired-defaults:
 	@python3 scripts/check-paired-defaults.py
+
+# Verify every convergence-campaign example is paired with a PyTorch reference
+# in scripts/paired_examples.py. The defaults and metrics gates only check the
+# pairs they are handed, so an example missing from that table is exempt from
+# both — example-double-dqn and example-sac were, from the day each landed
+# until 2026-07-31.
+test-integration-lint-example-pairing:
+	@python3 scripts/check-example-pairing.py
+
+# Verify paired examples report the same RESULT metric keys. A metric one side
+# reports and the other does not means no threshold can compare them:
+# Example.SeqClassify reported training loss while its reference reported
+# held-out accuracy, and the Idris side turned out to evaluate nothing at all.
+test-integration-lint-paired-metrics:
+	@python3 scripts/check-paired-metrics.py
 
 # Verify every convergence-campaign example has a threshold row in the
 # convergence expect file. check-result.sh treats a missing row as

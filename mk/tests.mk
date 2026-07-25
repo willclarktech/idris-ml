@@ -434,6 +434,8 @@ test-integration: \
 		test-integration-lint-ffi-wrap-template \
 		test-integration-lint-non-io-side-effects \
 		test-integration-lint-paired-defaults \
+		test-integration-lint-example-pairing \
+		test-integration-lint-paired-metrics \
 		test-integration-lint-convergence-expect-coverage \
 		test-integration-lint-llama-inference \
 		test-integration-lint-bitnet-inference \
