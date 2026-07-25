@@ -41,16 +41,25 @@ record Rng where
   normal : IO Double
   ||| An index sampled from a categorical, given its probabilities.
   choice : List Double -> IO Nat
+  ||| Uniform integer on [lo, hi], both ends inclusive. A recorded run
+  ||| replays these as decisions, on the same channel as `choice` — both are
+  ||| discrete outcomes, and sharing the channel keeps a recording's
+  ||| consumption order whole.
+  natRange : (lo, hi : Nat) -> IO Nat
 
 ||| The ordinary run: draws from the process-global generator, so a program
 ||| that threads `liveRng` behaves exactly as one calling `Ml.Compat.Random`
-||| and `Ml.Sampler` directly.
+||| and `Ml.Sampler` directly. `natRange` draws exactly as the examples'
+||| shared `Generate.randomInt` always has (one `Int32` bounded draw).
 export
 liveRng : IO Rng
 liveRng = pure $ MkRng
   (randomRIO (0.0, 1.0))
   normalSample
   (\ps => (\u => categoricalSample ps u) <$> randomRIO (0.0, 1.0))
+  (\lo, hi => do
+     n <- randomRIO (cast {to = Int32} (natToInteger lo), cast {to = Int32} (natToInteger hi))
+     pure (fromInteger (cast {to = Integer} n)))
 
 ||| Replay recorded draws in order. Exhausting any channel is a bug in
 ||| whatever produced the recording, so it fails loudly rather than silently
@@ -64,7 +73,7 @@ replayRng uniforms normals choices = do
   nRef <- newIORef normals
   cRef <- newIORef choices
   pure $ MkRng (popDouble uRef "uniform") (popDouble nRef "normal")
-               (\_ => popNat cRef)
+               (\_ => popNat cRef) (\_, _ => popNat cRef)
   where
     exhausted : String -> a
     exhausted channel =

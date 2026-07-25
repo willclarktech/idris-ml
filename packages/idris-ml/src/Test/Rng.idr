@@ -1,5 +1,6 @@
 module Test.Rng
 
+import Data.List
 import Data.String
 import System.File
 
@@ -57,4 +58,15 @@ tests =
            (e3, _)  = drawEnv s2
        checkClose "env channel is a Recorded Source (0.0 past the end)"
                   (e1 * 100 + e2 * 10 + e3) 32.5 tol
+
+  -- natRange shares the recorded decision channel with choice, so a
+  -- recording's discrete outcomes replay in one consumption order.
+  , do replay <- loadReplay fixture
+       n1 <- replay.rng.natRange 0 5
+       c1 <- replay.rng.choice [0.9, 0.1]
+       check "natRange replays from the choice channel" (n1 == 1 && c1 == 0)
+
+  , do rng <- liveRng
+       ns <- sequence (List.replicate 20 (rng.natRange 3 7))
+       check "live natRange stays in [lo, hi]" (all (\n => n >= 3 && n <= 7) ns)
   ]
