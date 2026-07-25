@@ -400,18 +400,29 @@ runBatchUpdateL q1Opt q2Opt actorOpt nets logStdV cfg {n} batch = do
 -- Step every env with its action; auto-reset on per-env EpisodeLen.
 -- Pendulum has no termination (continuous task), so isDone is purely the
 -- per-env step counter hitting EpisodeLen.
-stepAllAutoResetP : Vect n PState -> Vect n Double -> Vect n Nat ->
-                    (Vect n PState, Vect n Double, Vect n Bool, Vect n Nat)
-stepAllAutoResetP [] [] []                      = ([], [], [], [])
-stepAllAutoResetP (s :: ss) (a :: as) (l :: ls) =
+--
+-- Not `Gym.Vector.stepAutoReset`: the reset here is driven by a per-env step
+-- count the env does not know about, not by its Outcome. The reset itself
+-- still goes through `Env.reset`, so a restarted env draws from Pendulum's
+-- theta ~ U(-pi, pi), thetadot ~ U(-1, 1) start distribution rather than
+-- always beginning at the downward equilibrium.
+stepAllAutoResetP : Seed -> Vect n PState -> Vect n Double -> Vect n Nat ->
+                    (Vect n PState, Vect n Double, Vect n Bool, Vect n Nat, Seed)
+stepAllAutoResetP seed [] [] []                      = ([], [], [], [], seed)
+stepAllAutoResetP seed (s :: ss) (a :: as) (l :: ls) =
   case pStep s a of
     (r, s', _, _) =>
       let isDone = (l + 1) >= EpisodeLen
-          nextS = if isDone then MkP 3.141592653589793 0.0 else s'
+          -- `the` pins the pair type: an `if` in a let-pattern binding leaves
+          -- the scrutinee's type unsolved otherwise (docs/develop/gotchas.md).
+          (nextS, seedNext) = the (PState, Seed)
+            (if isDone
+               then reset {state=PState} {action=Double} {obs=Vect ObsDim Double} seed
+               else (s', seed))
           nextL = the Nat (if isDone then 0 else l + 1)
-      in case stepAllAutoResetP ss as ls of
-           (rest, rs, ds, restL) =>
-             (nextS :: rest, r :: rs, isDone :: ds, nextL :: restL)
+      in case stepAllAutoResetP seedNext ss as ls of
+           (rest, rs, ds, restL, seedEnd) =>
+             (nextS :: rest, r :: rs, isDone :: ds, nextL :: restL, seedEnd)
 
 -- Action selection (warmup random vs policy sample), threading Nets. Extracted
 -- so the call site binds a function result, not an inline `case` (a `<- case`
@@ -462,8 +473,10 @@ sacStepBatchedL q1Opt q2Opt actorOpt cfg
 
   (MkBang actions # nets1) <- selectActionsL cfg logStdV stepCount envs0.envs nets
 
-  case stepAllAutoResetP envs0.envs actions epLens of
-    (envs', rewards, isDones, newEpLens) => do
+  -- Seeded by `srand cfg.seed` in main, so auto-resets stay reproducible.
+  stepSeedI <- liftIO1 randomInt32
+  case stepAllAutoResetP (cast stepSeedI) envs0.envs actions epLens of
+    (envs', rewards, isDones, newEpLens, _) => do
       liftIO1 $ do
         pushAll buffer envs0.envs actions rewards envs' isDones
         writeIORef envRef (MkVecEnv envs')
@@ -519,10 +532,19 @@ evalEpL actor st (S k) acc = do
   case pStep st a of
     (r, st', _, _) => evalEpL actor' st' k (acc + r)
 
+-- Each episode starts from a fresh `reset` draw, as the reference's
+-- `env.reset()` does. A fixed start would make every greedy episode the same
+-- trajectory, so the mean over N of them would carry one sample's worth of
+-- information — and for Pendulum specifically, starting always at the
+-- downward equilibrium is a strictly easier task than the reference's
+-- uniformly random angle.
 evalNL : (1 _ : ActorNet) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) ActorNet)
 evalNL actor Z acc     = pure1 (MkBang acc # actor)
 evalNL actor (S k) acc = do
-  (MkBang v # actor') <- withNoGradL {ex=Ex} (evalEpL actor (MkP 3.141592653589793 0.0) EpisodeLen 0.0)
+  resetSeedI <- liftIO1 randomInt32
+  let (st0, _) = reset {state=PState} {action=Double} {obs=Vect ObsDim Double}
+                       (cast resetSeedI)
+  (MkBang v # actor') <- withNoGradL {ex=Ex} (evalEpL actor st0 EpisodeLen 0.0)
   evalNL actor' k (acc + v)
 
 ----------------------------------------------------------------------

@@ -49,12 +49,15 @@ def make_cartpole_env(seed: int) -> CartPoleEnv:
     return env
 
 
-def reset_to_zero(env: CartPoleEnv) -> np.ndarray:
-    """Return the obs of the env's current (just-reset) state as float64.
+def current_obs(env: CartPoleEnv) -> np.ndarray:
+    """Return the obs of the env's current state as float64.
 
-    Previously pinned env state to (0, 0, 0, 0) to match idris-gym's
-    deterministic reset; idris-gym now randomizes per Gymnasium and the
-    PyTorch side follows suit. Function name kept for call-site stability.
+    Named `reset_to_zero` until 2026-08-01, when it still pinned the state to
+    (0, 0, 0, 0). It stopped mutating on 2026-06-08 (idris-gym's `Env.reset`
+    started randomizing per Gymnasium and this side followed), but the old
+    name kept three call sites reading as though a reset happened there — one
+    of which then forced the *observation* to zero while the env sat at a
+    random state.
     """
     # `state` isn't on the Env stub (CartPole-specific attribute).
     return np.asarray(env.unwrapped.state, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
@@ -80,7 +83,7 @@ def collect_episode(
 ) -> tuple[list[Tensor], list[float]]:
     """Run one episode, return (log_probs, rewards)."""
     env.reset()
-    obs_np = reset_to_zero(env)
+    obs_np = current_obs(env)
     log_probs: list[Tensor] = []
     rewards: list[float] = []
     for _ in range(max_steps):
@@ -184,7 +187,7 @@ def evaluate(policy: PolicyNetwork, n_episodes: int = 100) -> float:
     total = 0.0
     for _ in range(n_episodes):
         env.reset()
-        obs_np = reset_to_zero(env)
+        obs_np = current_obs(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
             obs = obs_tensor(obs_np)

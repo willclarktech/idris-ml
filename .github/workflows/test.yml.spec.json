@@ -293,6 +293,19 @@
         ]
       },
       {
+        "name": "Verify examples reset envs through the Env interface",
+        "run": "make test-integration-lint-env-reset-literals",
+        "comment": [
+          "Fails on a hand-written env-state literal in an example.",
+          "Every deep-RL example pinned its rollout auto-reset and every",
+          "eval episode to one fixed state while its reference called",
+          "Gymnasium's randomized env.reset() (found 2026-08-01), so a",
+          "greedy eval replayed one trajectory N times and reported it",
+          "as an N-episode mean. Forbidden constructors are read out of",
+          "idris-gym, so a new environment is covered when it lands."
+        ]
+      },
+      {
         "name": "Verify .idr formatting (idris-fmt --check)",
         "run": "make test-integration-lint-fmt",
         "comment": [

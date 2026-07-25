@@ -241,16 +241,15 @@ trainIfReadyL opt buffer cfgBatch gamma online target = do
 -- Reward shaping is applied per-env using each env's old / new state.
 ----------------------------------------------------------------------
 
-stepAllAutoResetMC : Vect n MCState -> Vect n Nat ->
-                     (Vect n MCState, Vect n Double, Vect n Bool)
-stepAllAutoResetMC [] []               = ([], [], [])
-stepAllAutoResetMC (s :: ss) (a :: as) =
-  case mcStep s a of
-    (r, s', outcome, _) =>
-      let isDone = done outcome
-          nextS  = if isDone then MkMC (-0.5) 0.0 else s'
-      in case stepAllAutoResetMC ss as of
-           (rest, rs, ds) => (nextS :: rest, r :: rs, isDone :: ds)
+-- Step every env with its action; auto-reset envs that terminate, drawing the
+-- new state from MountainCar's own U(-0.6, -0.4) start distribution
+-- (`Gym.Vector.stepAutoReset` threads the Seed through those sub-resets).
+stepAllAutoResetMC : {n : Nat} -> Seed -> Vect n MCState -> Vect n Nat ->
+                     (Vect n MCState, Vect n Double, Vect n Bool, Seed)
+stepAllAutoResetMC seed envs acts =
+  case stepAutoReset {state=MCState} {action=Nat} {obs=Vect ObsDim Double}
+                     seed (MkVecEnv envs) acts of
+    (v', rewards, _, outcomes, seed') => (v'.envs, rewards, map done outcomes, seed')
 
 pushAllTransitionsMC : ReplayBuffer ObsDim 1 -> Double ->
                        Vect n MCState -> Vect n Nat -> Vect n Double ->
@@ -264,15 +263,20 @@ pushAllTransitionsMC buf shaping (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d ::
 runEpisodeBatchedL : Optimizer Ex -> (1 _ : DqnState) -> L IO {use = 1} (LPair (!* Double) DqnState)
 runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping onNames tgtNames) = do
   startEnvs <- liftIO1 (readIORef envsRef)
-  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs MaxSteps 0.0
+  -- One Seed per epoch, threaded through the rollout's auto-resets and the
+  -- end-of-epoch full reset. Seeded by `srand cfg.seed` in main, so the run
+  -- stays reproducible.
+  epochSeedI <- liftIO1 randomInt32
+  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs (cast epochSeedI) MaxSteps 0.0
   pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping onNames tgtNames)
   where
-    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs MCState -> Nat -> Double ->
+    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs MCState -> Seed -> Nat -> Double ->
          L IO {use = 1} (LPair (!* Double) (LPair QNet QNet))
-    go qNet target _ Z ret = do
-      liftIO1 (writeIORef envsRef (MkVecEnv (replicate NumEnvs (MkMC (-0.5) 0.0))))
+    go qNet target _ seed Z ret = do
+      liftIO1 (writeIORef envsRef
+                 (fst (resetAll {state=MCState} {action=Nat} {obs=Vect ObsDim Double} seed)))
       pure1 (MkBang ret # (qNet # target))
-    go qNet target envs (S steps) ret = do
+    go qNet target envs seed (S steps) ret = do
       stepCount <- liftIO1 (readIORef stepRef)
       let eps = epsilonAt stepCount epsStart epsEnd epsDecay
       stateV <- liftIO1 (ioRerun (\_ =>
@@ -282,8 +286,8 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
         (MkBang qB # qNet') <- forwardSeq {b=NumEnvs} qNet stateV
         acts <- liftIO1 (epsGreedyBatched qB envs eps)
         pure1 (MkBang acts # qNet')
-      case stepAllAutoResetMC envs actions of
-        (envs', rewards, dones) => do
+      case stepAllAutoResetMC seed envs actions of
+        (envs', rewards, dones, seed') => do
           liftIO1 (pushAllTransitionsMC buffer shaping envs actions rewards envs' dones)
           liftIO1 (writeIORef stepRef (stepCount + 1))
           let ret0  = head rewards
@@ -297,7 +301,7 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
             then do
               liftIO1 (writeIORef envsRef (MkVecEnv envs'))
               pure1 (MkBang ret' # (qNet'' # target'))
-            else go qNet'' target' envs' steps ret'
+            else go qNet'' target' envs' seed' steps ret'
 
 ----------------------------------------------------------------------
 -- Config & main
@@ -350,10 +354,17 @@ evalEpL q st (S k) acc = do
       if done outcome then pure1 (MkBang (acc + reward) # q')
       else evalEpL q' st' k (acc + reward)
 
+-- Each episode starts from a fresh `reset` draw, as the reference's
+-- `env.reset()` does. A fixed start would make every greedy episode the same
+-- trajectory, so the mean over N of them would carry one sample's worth of
+-- information.
 evalNL : (1 _ : QNet) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) QNet)
 evalNL q Z acc     = pure1 (MkBang acc # q)
 evalNL q (S k) acc = do
-  (MkBang ep # q') <- evalEpL q (MkMC (-0.5) 0.0) MaxSteps 0.0
+  resetSeedI <- liftIO1 randomInt32
+  let (st0, _) = reset {state=MCState} {action=Nat} {obs=Vect ObsDim Double}
+                       (cast resetSeedI)
+  (MkBang ep # q') <- evalEpL q st0 MaxSteps 0.0
   evalNL q' k (acc + ep)
 
 ----------------------------------------------------------------------

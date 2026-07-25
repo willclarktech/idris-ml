@@ -27,7 +27,8 @@
         test-integration-typegate-backend-linked \
         test-integration-typegate-linear-model \
         test-integration-typegate-seq-shape \
-        test-integration-lint-prim-ratchet
+        test-integration-lint-prim-ratchet \
+        test-integration-lint-env-reset-literals
 
 rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py
@@ -38,6 +39,17 @@ rename-headers:
 # the baseline to zero.
 test-integration-lint-prim-ratchet:
 	@python3 scripts/check-prim-in-examples.py
+
+# Gate: examples must reset environments through the Env interface, not by
+# writing the state literal. Every Idris deep-RL example pinned its rollout
+# auto-reset and every evaluation episode to one fixed state while its
+# reference called Gymnasium's randomized `env.reset()` (found 2026-08-01) —
+# so a greedy eval replayed one trajectory N times and reported it as an
+# N-episode mean, and Pendulum was being evaluated from the downward
+# equilibrium against the reference's uniformly random angle. No metric or
+# init check can see this; the constructor names can.
+test-integration-lint-env-reset-literals:
+	@python3 scripts/check-env-reset-literals.py
 
 test-integration-lint-rename-headers:
 	@python3 scripts/codegen/gen-rename-headers.py --check

@@ -192,7 +192,12 @@ computeLossL gamma pol randomBatch = do
               L IO {use = 1} (LPair (!* (List (List StepRec))) Policy)
     foldEps pol []          acc  = pure1 (MkBang (reverse acc) # pol)
     foldEps pol (rs :: rest) acc = do
-      (MkBang ep # pol') <- rolloutEpL pol (MkCP 0 0 0 0) rs MaxSteps []
+      -- Fresh `reset` draw per episode, as the batched path above already does
+      -- and as the reference's `env.reset()` does.
+      resetSeedI <- liftIO1 randomInt32
+      let (st0, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double}
+                           (cast resetSeedI)
+      (MkBang ep # pol') <- rolloutEpL pol st0 rs MaxSteps []
       foldEps pol' rest (ep :: acc)
 
 computeLossBatchedL : {n : Nat} -> Double -> (1 _ : Policy) -> Vect n (List Double) ->
@@ -263,10 +268,17 @@ evalEpL pol st (S k) acc = do
       if done outcome then pure1 (MkBang (acc + reward) # pol')
       else evalEpL pol' st' k (acc + reward)
 
+-- Each episode starts from a fresh `reset` draw, as the reference's
+-- `env.reset()` does. A fixed start would make every greedy episode the same
+-- trajectory, so the mean over N of them would carry one sample's worth of
+-- information.
 evalNL : (1 _ : Policy) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Policy)
 evalNL pol Z acc     = pure1 (MkBang acc # pol)
 evalNL pol (S k) acc = do
-  (MkBang v # pol') <- evalEpL pol (MkCP 0 0 0 0) MaxSteps 0.0
+  resetSeedI <- liftIO1 randomInt32
+  let (st0, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double}
+                       (cast resetSeedI)
+  (MkBang v # pol') <- evalEpL pol st0 MaxSteps 0.0
   evalNL pol' k (acc + v)
 
 ----------------------------------------------------------------------

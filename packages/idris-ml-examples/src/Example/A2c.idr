@@ -104,17 +104,15 @@ sampleActionFromBatch logProbsB envs = go 0 envs
       (acts, lpVals) <- go (i + 1) rest
       pure (a :: acts, (if a == 0 then lp0 else lp1) :: lpVals)
 
--- Step every env with its action; auto-reset envs that terminate.
-stepAllAutoReset : Vect n CPState -> Vect n Nat ->
-                   (Vect n CPState, Vect n Double, Vect n Bool)
-stepAllAutoReset [] []               = ([], [], [])
-stepAllAutoReset (s :: ss) (a :: as) =
-  case cpStep s a of
-    (r, s', outcome, _) =>
-      let isDone = done outcome
-          nextS          = if isDone then MkCP 0 0 0 0 else s'
-          (rest, rs, ds) = stepAllAutoReset ss as
-      in (nextS :: rest, r :: rs, isDone :: ds)
+-- Step every env with its action; auto-reset envs that terminate, drawing
+-- the new state from CartPole's own U(-0.05, 0.05)^4 start distribution
+-- (`Gym.Vector.stepAutoReset` threads the Seed through those sub-resets).
+stepAllAutoReset : {n : Nat} -> Seed -> Vect n CPState -> Vect n Nat ->
+                   (Vect n CPState, Vect n Double, Vect n Bool, Seed)
+stepAllAutoReset seed envs acts =
+  case stepAutoReset {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
+                     seed (MkVecEnv envs) acts of
+    (v', rewards, _, outcomes, seed') => (v'.envs, rewards, map done outcomes, seed')
 
 mkRollSteps : Vect n (Vect ObsDim Double) -> Vect n Nat -> Vect n Double ->
               Vect n Double -> Vect n Bool -> Vect n RollStep
@@ -127,20 +125,24 @@ mkRollSteps (o :: os) (a :: as) (r :: rs) (v :: vs) (d :: ds) =
 ||| Idris-side per-op overhead across NumEnvs samples. Done envs
 ||| auto-reset so the [NumEnvs, ObsDim] shape stays constant.
 rolloutBatchedL : {n : Nat} -> (1 _ : Actor) -> (1 _ : Critic) -> VecEnv n CPState ->
-                  Nat -> L IO {use = 1} (LPair (!* (Vect n (List RollStep), VecEnv n CPState))
-                                              (LPair Actor Critic))
-rolloutBatchedL actor critic v0 rolloutLen = do
-  (MkBang (envs', stepLists) # (actor' # critic')) <- go rolloutLen actor critic v0.envs (replicate n [])
-  pure1 (MkBang (map reverse stepLists, MkVecEnv envs') # (actor' # critic'))
+                  Seed -> Nat ->
+                  L IO {use = 1} (LPair (!* (Vect n (List RollStep), VecEnv n CPState, Seed))
+                                        (LPair Actor Critic))
+rolloutBatchedL actor critic v0 seed0 rolloutLen = do
+  (MkBang (envs', stepLists, seedEnd) # (actor' # critic')) <-
+    go rolloutLen actor critic v0.envs seed0 (replicate n [])
+  pure1 (MkBang (map reverse stepLists, MkVecEnv envs', seedEnd) # (actor' # critic'))
   where
     mapIdx : (Nat -> a -> b) -> Vect k a -> Vect k b
     mapIdx _ []        = []
     mapIdx f (x :: xs) = f 0 x :: mapIdx (\i, v => f (S i) v) xs
 
-    go : Nat -> (1 _ : Actor) -> (1 _ : Critic) -> Vect n CPState -> Vect n (List RollStep) ->
-         L IO {use = 1} (LPair (!* (Vect n CPState, Vect n (List RollStep))) (LPair Actor Critic))
-    go Z actor critic envs accs     = pure1 (MkBang (envs, accs) # (actor # critic))
-    go (S k) actor critic envs accs = do
+    go : Nat -> (1 _ : Actor) -> (1 _ : Critic) -> Vect n CPState -> Seed ->
+         Vect n (List RollStep) ->
+         L IO {use = 1} (LPair (!* (Vect n CPState, Vect n (List RollStep), Seed))
+                               (LPair Actor Critic))
+    go Z actor critic envs seed accs     = pure1 (MkBang (envs, accs, seed) # (actor # critic))
+    go (S k) actor critic envs seed accs = do
       stateV <- liftIO1 (ioRerun (\_ =>
         the (Tensor [n, ObsDim] Ex F WithGrad)
             (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\s => obsTensor (observeVec s)) envs)) Nothing)))
@@ -153,11 +155,11 @@ rolloutBatchedL actor critic v0 rolloutLen = do
           valueRows = mapIdx (\i, _ => primItem2d {ex=Ex} valuesV.tensorPtr (cast i) 0) envs
           obsVects : Vect n (Vect ObsDim Double)
           obsVects = map observeVec envs
-      case stepAllAutoReset envs acts of
-        (envs', rewards, dones) =>
+      case stepAllAutoReset seed envs acts of
+        (envs', rewards, dones, seed') =>
           let newSteps = mkRollSteps obsVects acts rewards valueRows dones
               accs' = zipWith (\acc, s => s :: acc) accs newSteps
-          in go k actor' critic' envs' accs'
+          in go k actor' critic' envs' seed' accs'
 
 ----------------------------------------------------------------------
 -- GAE helpers (pure Double — no autograd)
@@ -189,14 +191,16 @@ flattenTriple (sRec, (a, r)) = (sRec, a, r)
 tripleAdv : (RollStep, Double, Double) -> Double
 tripleAdv (_, a, _) = a
 
+-- Denominator n-1, matching `Tensor.std()`'s PyTorch default on the reference
+-- side, and the epsilon outside the root for the same reason.
 normAdvs : List (RollStep, Double, Double) -> List (RollStep, Double, Double)
 normAdvs triples =
   let advs   = map tripleAdv triples
       nN     = the Double (cast (natToInteger (length advs)))
       mu     = if nN > 0.0 then sum advs / nN else 0.0
       sqDevs = map (\a => (a - mu) * (a - mu)) advs
-      vr     = if nN > 0.0 then sum sqDevs / nN else 1.0
-      sd     = sqrt (vr + 1.0e-8)
+      vr     = if nN > 1.0 then sum sqDevs / (nN - 1.0) else 1.0
+      sd     = sqrt vr + 1.0e-8
       renorm : (RollStep, Double, Double) -> (RollStep, Double, Double)
       renorm (s, a, r) = (s, (a - mu) / sd, r)
   in map renorm triples
@@ -308,8 +312,9 @@ record A2CState where
   constructor MkA2C
   1 actor  : Actor
   1 critic : Critic
-  envRef : IORef (VecEnv NumEnvs CPState)
-  retRef : IORef (Vect NumEnvs Double)
+  envRef  : IORef (VecEnv NumEnvs CPState)
+  retRef  : IORef (Vect NumEnvs Double)
+  seedRef : IORef Seed
 
 record Config where
   constructor MkConfig
@@ -352,13 +357,15 @@ computeBootstrapsBatchedL critic stepLists v = batchOver critic stepLists v.envs
       pure1 (MkBang (b :: bs) # critic'')
 
 a2cEpochL : Optimizer Ex -> Config -> (1 _ : A2CState) -> L IO {use = 1} (LPair (!* Double) A2CState)
-a2cEpochL opt cfg (MkA2C actor critic envRef retRef) = do
+a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef) = do
   startEnvs <- liftIO1 (readIORef envRef)
+  startSeed <- liftIO1 (readIORef seedRef)
   -- Rollout-phase forward only extracts logits/values as Doubles (no grad);
   -- the grad path is rebuilt fresh in buildLossBatchedL's batched forward.
-  (MkBang (stepLists, finalEnvs) # (actor' # critic')) <-
-    withNoGradL {ex=Ex} (rolloutBatchedL actor critic startEnvs RolloutLen)
+  (MkBang (stepLists, finalEnvs, finalSeed) # (actor' # critic')) <-
+    withNoGradL {ex=Ex} (rolloutBatchedL actor critic startEnvs startSeed RolloutLen)
   liftIO1 (writeIORef envRef finalEnvs)
+  liftIO1 (writeIORef seedRef finalSeed)
   (MkBang bootstraps # critic'') <-
     withNoGradL {ex=Ex} (computeBootstrapsBatchedL critic' stepLists finalEnvs)
   (MkBang loss # (actor'' # critic''')) <-
@@ -376,7 +383,7 @@ a2cEpochL opt cfg (MkA2C actor critic envRef retRef) = do
         pure (if nEp > 0
               then sum epReturns / cast (natToInteger nEp)
               else sumRew / cast (natToInteger NumEnvs))
-  pure1 (MkBang (negate reported) # MkA2C actor'' critic''' envRef retRef)
+  pure1 (MkBang (negate reported) # MkA2C actor'' critic''' envRef retRef seedRef)
   where
     walkOne : Double -> List RollStep -> (Double, List Double)
     walkOne run []        = (run, [])
@@ -417,11 +424,16 @@ evalEpL actor st (S k) acc = do
       if done outcome then pure1 (MkBang (acc + r) # actor')
       else evalEpL actor' st' k (acc + r)
 
-evalNL : (1 _ : Actor) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Actor)
-evalNL actor Z acc     = pure1 (MkBang acc # actor)
-evalNL actor (S k) acc = do
-  (MkBang ep # actor') <- evalEpL actor (MkCP 0 0 0 0) MaxSteps 0.0
-  evalNL actor' k (acc + ep)
+-- Each episode starts from a fresh `reset` draw, as the reference's
+-- `env.reset()` does. A fixed start would make every greedy episode the same
+-- trajectory, so the mean over N of them would carry one sample's worth of
+-- information.
+evalNL : (1 _ : Actor) -> Seed -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Actor)
+evalNL actor _ Z acc        = pure1 (MkBang acc # actor)
+evalNL actor seed (S k) acc = do
+  let (st0, seed') = reset {state=CPState} {action=Nat} {obs=Vect ObsDim Double} seed
+  (MkBang ep # actor') <- evalEpL actor st0 MaxSteps 0.0
+  evalNL actor' seed' k (acc + ep)
 
 ----------------------------------------------------------------------
 -- State construction / eval / discard (linear)
@@ -433,22 +445,23 @@ buildStateL = do
   critic <- runInitL mkCritic
   liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   resetSeedI <- liftIO1 randomInt32
-  let initEnvs : VecEnv NumEnvs CPState
-      initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
-                              (cast resetSeedI))
-  envRef <- liftIO1 (newIORef initEnvs)
-  retRef <- liftIO1 (newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0)))
-  pure1 (MkA2C actor critic envRef retRef)
+  let (initEnvs, seed0) = resetAll {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
+                                   (cast resetSeedI)
+  envRef  <- liftIO1 (newIORef initEnvs)
+  retRef  <- liftIO1 (newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0)))
+  seedRef <- liftIO1 (newIORef seed0)
+  pure1 (MkA2C actor critic envRef retRef seedRef)
 
 discardStateL : (1 _ : A2CState) -> L IO ()
-discardStateL (MkA2C actor critic _ _) = do
+discardStateL (MkA2C actor critic _ _ _) = do
   discard actor
   discard critic
 
 finalReportL : Config -> Nat -> (1 _ : A2CState) -> L IO ()
-finalReportL cfg epochsDone (MkA2C actor critic _ _) = do
-  let nEval = the Nat 30
-  (MkBang evalSum # actor') <- withNoGradL {ex=Ex} (evalNL actor nEval 0.0)
+finalReportL cfg epochsDone (MkA2C actor critic _ _ seedRef) = do
+  let nEval = the Nat 50
+  evalSeed <- liftIO1 (readIORef seedRef)
+  (MkBang evalSum # actor') <- withNoGradL {ex=Ex} (evalNL actor evalSeed nEval 0.0)
   discard actor'
   discard critic
   liftIO1 $ do

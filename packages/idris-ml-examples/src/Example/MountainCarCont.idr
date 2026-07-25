@@ -394,11 +394,16 @@ runBatchUpdateL q1Opt q2Opt actorOpt nets logStdV cfg {n} batch = do
 
 -- Step every env with its action; auto-reset on Terminated OR per-env
 -- EpisodeLen truncation. Bootstrap-done uses Terminated only.
-stepAllAutoResetMCC : Vect n MCCState -> Vect n Double -> Vect n Nat ->
+--
+-- Not `Gym.Vector.stepAutoReset`: that resets on the env's own Outcome, and
+-- this loop also truncates on a per-env step count the env does not know
+-- about. The reset itself still goes through `Env.reset`, so a restarted env
+-- draws from MountainCar's U(-0.6, -0.4) start distribution.
+stepAllAutoResetMCC : Seed -> Vect n MCCState -> Vect n Double -> Vect n Nat ->
                       (Vect n MCCState, Vect n Double, Vect n Bool,
-                       Vect n Bool, Vect n Nat)
-stepAllAutoResetMCC [] [] []                      = ([], [], [], [], [])
-stepAllAutoResetMCC (s :: ss) (a :: as) (l :: ls) =
+                       Vect n Bool, Vect n Nat, Seed)
+stepAllAutoResetMCC seed [] [] []                      = ([], [], [], [], [], seed)
+stepAllAutoResetMCC seed (s :: ss) (a :: as) (l :: ls) =
   case mccStep s a of
     (r, s', outcome, _) =>
       let terminated = case outcome of
@@ -406,11 +411,16 @@ stepAllAutoResetMCC (s :: ss) (a :: as) (l :: ls) =
                          _          => False
           truncated = (l + 1) >= EpisodeLen
           isDone    = terminated || truncated
-          nextS     = if isDone then MkMCC (-0.5) 0.0 else s'
+          -- `the` pins the pair type: an `if` in a let-pattern binding leaves
+          -- the scrutinee's type unsolved otherwise (docs/develop/gotchas.md).
+          (nextS, seedNext) = the (MCCState, Seed)
+            (if isDone
+               then reset {state=MCCState} {action=Double} {obs=Vect ObsDim Double} seed
+               else (s', seed))
           nextL     = the Nat (if isDone then 0 else l + 1)
-      in case stepAllAutoResetMCC ss as ls of
-           (rest, rs, bds, ds, restL) =>
-             (nextS :: rest, r :: rs, terminated :: bds, isDone :: ds, nextL :: restL)
+      in case stepAllAutoResetMCC seedNext ss as ls of
+           (rest, rs, bds, ds, restL, seedEnd) =>
+             (nextS :: rest, r :: rs, terminated :: bds, isDone :: ds, nextL :: restL, seedEnd)
 
 -- Extracted so the call sites bind a function result (a `<- (inline case)` of
 -- a linear result trips the L IO bind elaborator).
@@ -458,8 +468,10 @@ sacStepBatchedL q1Opt q2Opt actorOpt cfg
 
   (MkBang actions # nets1) <- selectActionsL cfg logStdV stepCount envs0.envs nets
 
-  case stepAllAutoResetMCC envs0.envs actions epLens of
-    (envs', rewards, bufferDones, isDones, newEpLens) => do
+  -- Seeded by `srand cfg.seed` in main, so auto-resets stay reproducible.
+  stepSeedI <- liftIO1 randomInt32
+  case stepAllAutoResetMCC (cast stepSeedI) envs0.envs actions epLens of
+    (envs', rewards, bufferDones, isDones, newEpLens, _) => do
       liftIO1 $ do
         pushAll buffer cfg.shaping envs0.envs actions rewards envs' bufferDones
         writeIORef envRef (MkVecEnv envs')
@@ -519,10 +531,17 @@ evalEpL actor st (S k) acc = do
         Terminated => pure1 (MkBang (acc + r) # actor')
         _          => evalEpL actor' st' k (acc + r)
 
+-- Each episode starts from a fresh `reset` draw, as the reference's
+-- `env.reset()` does. A fixed start would make every greedy episode the same
+-- trajectory, so the mean over N of them would carry one sample's worth of
+-- information.
 evalNL : (1 _ : ActorNet) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) ActorNet)
 evalNL actor Z acc     = pure1 (MkBang acc # actor)
 evalNL actor (S k) acc = do
-  (MkBang v # actor') <- withNoGradL {ex=Ex} (evalEpL actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
+  resetSeedI <- liftIO1 randomInt32
+  let (st0, _) = reset {state=MCCState} {action=Double} {obs=Vect ObsDim Double}
+                       (cast resetSeedI)
+  (MkBang v # actor') <- withNoGradL {ex=Ex} (evalEpL actor st0 EpisodeLen 0.0)
   evalNL actor' k (acc + v)
 
 ----------------------------------------------------------------------

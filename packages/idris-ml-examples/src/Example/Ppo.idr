@@ -132,10 +132,15 @@ sampleActionFromBatch logProbsB envs = go 0 envs
 
 -- Step every env with its action; auto-reset envs that terminate OR hit
 -- the EpisodeLen truncation cap.
-stepAllAutoResetTrunc : Vect n AState -> Vect n Nat -> Vect n Nat ->
-                        (Vect n AState, Vect n Double, Vect n Bool, Vect n Nat)
-stepAllAutoResetTrunc [] [] []                        = ([], [], [], [])
-stepAllAutoResetTrunc (s :: ss) (a :: as) (sl :: sls) =
+--
+-- Not `Gym.Vector.stepAutoReset`: that resets on the env's own Outcome, and
+-- this loop also truncates on a per-env step count the env does not know
+-- about. The reset itself still goes through `Env.reset`, so a restarted env
+-- draws from Acrobot's U(-0.1, 0.1)^4 start distribution.
+stepAllAutoResetTrunc : Seed -> Vect n AState -> Vect n Nat -> Vect n Nat ->
+                        (Vect n AState, Vect n Double, Vect n Bool, Vect n Nat, Seed)
+stepAllAutoResetTrunc seed [] [] []                        = ([], [], [], [], seed)
+stepAllAutoResetTrunc seed (s :: ss) (a :: as) (sl :: sls) =
   case aStep s a of
     (r, s', outcome, _) =>
       let natTerm = case outcome of
@@ -143,10 +148,16 @@ stepAllAutoResetTrunc (s :: ss) (a :: as) (sl :: sls) =
                       _          => False
           truncate = sl == 1
           isDone   = natTerm || truncate
-          nextS    = if isDone then MkA 0.0 0.0 0.0 0.0 else s'
+          -- `the` pins the pair type: an `if` in a let-pattern binding leaves
+          -- the scrutinee's type unsolved otherwise (docs/develop/gotchas.md).
+          (nextS, seedNext) = the (AState, Seed)
+            (if isDone
+               then reset {state=AState} {action=Nat} {obs=Vect ObsDim Double} seed
+               else (s', seed))
           nextSl   = if isDone then EpisodeLen else sl `minus` 1
-      in case stepAllAutoResetTrunc ss as sls of
-           (rest, rs, ds, sls') => (nextS :: rest, r :: rs, isDone :: ds, nextSl :: sls')
+      in case stepAllAutoResetTrunc seedNext ss as sls of
+           (rest, rs, ds, sls', seedEnd) =>
+             (nextS :: rest, r :: rs, isDone :: ds, nextSl :: sls', seedEnd)
 
 mkRollSteps : Vect n (Vect ObsDim Double) -> Vect n Nat -> Vect n Double ->
               Vect n Double -> Vect n Double -> Vect n Bool ->
@@ -187,8 +198,9 @@ rolloutBatchedL actor critic v0 sl0 rolloutLen = do
           valueRows = mapIdx (\i, _ => primItem2d {ex=Ex} valuesV.tensorPtr (cast i) 0) envs
           obsVects : Vect n (Vect ObsDim Double)
           obsVects = map observeVec envs
-      case stepAllAutoResetTrunc envs acts sls of
-        (envs', rewards, dones, sls') =>
+      stepSeedI <- liftIO1 randomInt32
+      case stepAllAutoResetTrunc (cast stepSeedI) envs acts sls of
+        (envs', rewards, dones, sls', _) =>
           let newSteps = mkRollSteps obsVects acts lps valueRows rewards dones
               accs' = zipWith (\acc, s => s :: acc) accs newSteps
           in go k actor' critic' envs' sls' accs'
@@ -215,14 +227,16 @@ flattenTriple (sRec, (a, r)) = (sRec, a, r)
 tripleAdv : (RollStep, Double, Double) -> Double
 tripleAdv (_, a, _) = a
 
+-- Denominator n-1, matching `Tensor.std()`'s PyTorch default on the reference
+-- side, and the epsilon outside the root for the same reason.
 normAdvs : List (RollStep, Double, Double) -> List (RollStep, Double, Double)
 normAdvs triples =
   let advs   = map tripleAdv triples
       nN     = the Double (cast (natToInteger (length advs)))
       mu     = if nN > 0.0 then sum advs / nN else 0.0
       sqDevs = map (\a => (a - mu) * (a - mu)) advs
-      vr     = if nN > 0.0 then sum sqDevs / nN else 1.0
-      sd     = sqrt (vr + 1.0e-8)
+      vr     = if nN > 1.0 then sum sqDevs / (nN - 1.0) else 1.0
+      sd     = sqrt vr + 1.0e-8
       renorm : (RollStep, Double, Double) -> (RollStep, Double, Double)
       renorm (s, a, r) = (s, (a - mu) / sd, r)
   in map renorm triples
@@ -476,10 +490,17 @@ evalEpL actor st (S k) acc = do
         Terminated => pure1 (MkBang (acc + r) # actor')
         _          => evalEpL actor' st' k (acc + r)
 
+-- Each episode starts from a fresh `reset` draw, as the reference's
+-- `env.reset()` does. A fixed start would make every greedy episode the same
+-- trajectory, so the mean over N of them would carry one sample's worth of
+-- information.
 evalNL : (1 _ : Actor) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Actor)
 evalNL actor Z acc     = pure1 (MkBang acc # actor)
 evalNL actor (S k) acc = do
-  (MkBang v # actor') <- evalEpL actor (MkA 0.0 0.0 0.0 0.0) EpisodeLen 0.0
+  resetSeedI <- liftIO1 randomInt32
+  let (st0, _) = reset {state=AState} {action=Nat} {obs=Vect ObsDim Double}
+                       (cast resetSeedI)
+  (MkBang v # actor') <- evalEpL actor st0 EpisodeLen 0.0
   evalNL actor' k (acc + v)
 
 ----------------------------------------------------------------------

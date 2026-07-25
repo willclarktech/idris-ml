@@ -49,7 +49,9 @@ fakeRandomness n = go n 0
     go Z      _ = []
     go (S k)  i = pick i :: go k (S i)
 
-||| Initial CartPole state. `MkCP 0 0 0 0` is the standard reset.
+||| Fixed CartPole start state for the parity comparison. Not a reset draw
+||| (`cpReset` randomizes per Gymnasium): the two rollout paths have to begin
+||| from the same state for their returns to be comparable at all.
 initState : CPState
 initState = MkCP 0 0 0 0
 

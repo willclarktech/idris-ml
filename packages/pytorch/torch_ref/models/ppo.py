@@ -56,7 +56,7 @@ def make_acrobot_env(seed: int) -> AcrobotEnv:
     return env
 
 
-def reset_to_zero(env: AcrobotEnv) -> np.ndarray:
+def current_obs(env: AcrobotEnv) -> np.ndarray:
     """Return obs [cos(th1), sin(th1), cos(th2), sin(th2), dth1, dth2]
     derived from the env's current (just-reset) state, as float64.
 
@@ -431,7 +431,7 @@ def evaluate(actor: Actor, n_episodes: int = 20, max_ep_len: int = MAX_STEPS) ->
     total = 0.0
     for _ in range(n_episodes):
         env.reset()
-        obs_np = reset_to_zero(env)
+        obs_np = current_obs(env)
         ep_return = 0.0
         for _ in range(max_ep_len):
             obs = obs_tensor(obs_np)

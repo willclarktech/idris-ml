@@ -26,7 +26,6 @@ import torch.nn.functional as F
 
 from torch_ref.models.dqn import (
     NUM_ENVS,
-    CartPoleEnv,
     QNetwork,
     ReplayBuffer,
     eps_greedy_batched,
@@ -34,7 +33,7 @@ from torch_ref.models.dqn import (
     linear_epsilon,
     make_cartpole_vec_env,
 )
-from torch_ref.models.reinforce import MAX_STEPS, obs_tensor, reset_to_zero
+from torch_ref.models.reinforce import MAX_STEPS, obs_tensor
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
 if TYPE_CHECKING:
@@ -92,8 +91,6 @@ def double_dqn_episode_batched(
 
     Returns (new_step_count, env-0's episode return, new obs_np)."""
     ep_return = 0.0
-    # SyncVectorEnv.envs is untyped upstream (bare `Env`).
-    envs = cast("list[CartPoleEnv]", vec_env.envs)  # pyright: ignore[reportUnknownMemberType]
     for _ in range(MAX_STEPS):
         obs_t = obs_tensor(obs_np)  # [N, 4]
         epsilon = linear_epsilon(step_count)
@@ -114,11 +111,11 @@ def double_dqn_episode_batched(
                 bool(dones_np[i]),
             )
         ep_return += float(rewards_np[0])
-        # Auto-reset terminated envs back to zero state.
-        for i in range(NUM_ENVS):
-            if dones_np[i]:
-                reset_to_zero(envs[i])
-                next_obs_np[i] = 0.0
+        # SyncVectorEnv auto-resets a terminated sub-env itself, and the obs it
+        # returns is the restarted state. Until 2026-08-01 this loop overwrote
+        # that with zeros to match the Idris side's pinned reset, which left the
+        # policy acting on obs = 0 for one step while the env sat elsewhere.
+        # Both sides now reset through the env's own distribution.
         obs_np = next_obs_np
         step_count += 1
 

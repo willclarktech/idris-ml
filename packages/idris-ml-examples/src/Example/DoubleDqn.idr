@@ -277,16 +277,15 @@ trainIfReadyL opt buffer cfgBatch gamma online target = do
 -- a training epoch.
 ----------------------------------------------------------------------
 
-stepAllAutoResetDqn : Vect n CPState -> Vect n Nat ->
-                     (Vect n CPState, Vect n Double, Vect n Bool)
-stepAllAutoResetDqn [] []               = ([], [], [])
-stepAllAutoResetDqn (s :: ss) (a :: as) =
-  case cpStep s a of
-    (r, s', outcome, _) =>
-      let isDone = done outcome
-          nextS  = if isDone then MkCP 0 0 0 0 else s'
-      in case stepAllAutoResetDqn ss as of
-           (rest, rs, ds) => (nextS :: rest, r :: rs, isDone :: ds)
+-- Step every env with its action; auto-reset envs that terminate, drawing the
+-- new state from CartPole's own U(-0.05, 0.05)^4 start distribution
+-- (`Gym.Vector.stepAutoReset` threads the Seed through those sub-resets).
+stepAllAutoResetDqn : {n : Nat} -> Seed -> Vect n CPState -> Vect n Nat ->
+                      (Vect n CPState, Vect n Double, Vect n Bool, Seed)
+stepAllAutoResetDqn seed envs acts =
+  case stepAutoReset {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
+                     seed (MkVecEnv envs) acts of
+    (v', rewards, _, outcomes, seed') => (v'.envs, rewards, map done outcomes, seed')
 
 pushAllTransitions : ReplayBuffer ObsDim 1 ->
                      Vect n CPState -> Vect n Nat -> Vect n Double ->
@@ -299,17 +298,22 @@ pushAllTransitions buf (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d :: ds) = do
 runEpisodeBatchedL : Optimizer Ex -> (1 _ : DqnState) -> L IO {use = 1} (LPair (!* Double) DqnState)
 runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames) = do
   startEnvs <- liftIO1 (readIORef envsRef)
-  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs MaxSteps 0.0
+  -- One Seed per epoch, threaded through the rollout's auto-resets and the
+  -- end-of-epoch full reset. Seeded by `srand cfg.seed` in main, so the run
+  -- stays reproducible.
+  epochSeedI <- liftIO1 randomInt32
+  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs (cast epochSeedI) MaxSteps 0.0
   pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames)
   where
     -- Thread BOTH nets (nested LPair) through the lockstep rollout; the ω
     -- buffer / IORefs / config are captured from the outer match.
-    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs CPState -> Nat -> Double ->
+    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs CPState -> Seed -> Nat -> Double ->
          L IO {use = 1} (LPair (!* Double) (LPair QNet QNet))
-    go qNet target _ Z ret = do
-      liftIO1 (writeIORef envsRef (MkVecEnv (replicate NumEnvs (MkCP 0 0 0 0))))
+    go qNet target _ seed Z ret = do
+      liftIO1 (writeIORef envsRef
+                 (fst (resetAll {state=CPState} {action=Nat} {obs=Vect ObsDim Double} seed)))
       pure1 (MkBang ret # (qNet # target))
-    go qNet target envs (S steps) ret = do
+    go qNet target envs seed (S steps) ret = do
       stepCount <- liftIO1 (readIORef stepRef)
       let eps = epsilonAt stepCount epsStart epsEnd epsDecay
       stateV <- liftIO1 (ioRerun (\_ =>
@@ -321,8 +325,8 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
         (MkBang qB # qNet') <- forwardSeq {b=NumEnvs} qNet stateV
         acts <- liftIO1 (epsGreedyBatched qB envs eps)
         pure1 (MkBang acts # qNet')
-      case stepAllAutoResetDqn envs actions of
-        (envs', rewards, dones) => do
+      case stepAllAutoResetDqn seed envs actions of
+        (envs', rewards, dones, seed') => do
           liftIO1 (pushAllTransitions buffer envs actions rewards envs' dones)
           liftIO1 (writeIORef stepRef (stepCount + 1))
           let ret0  = head rewards
@@ -336,7 +340,7 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
             then do
               liftIO1 (writeIORef envsRef (MkVecEnv envs'))
               pure1 (MkBang ret' # (qNet'' # target'))
-            else go qNet'' target' envs' steps ret'
+            else go qNet'' target' envs' seed' steps ret'
 
 ----------------------------------------------------------------------
 -- Config & epoch
@@ -386,10 +390,17 @@ evalEpL q st (S k) acc = do
       if done outcome then pure1 (MkBang (acc + reward) # q')
       else evalEpL q' st' k (acc + reward)
 
+-- Each episode starts from a fresh `reset` draw, as the reference's
+-- `env.reset()` does. A fixed start would make every greedy episode the same
+-- trajectory, so the mean over N of them would carry one sample's worth of
+-- information.
 evalNL : (1 _ : QNet) -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) QNet)
 evalNL q Z acc     = pure1 (MkBang acc # q)
 evalNL q (S k) acc = do
-  (MkBang ep # q') <- evalEpL q (MkCP 0 0 0 0) MaxSteps 0.0
+  resetSeedI <- liftIO1 randomInt32
+  let (st0, _) = reset {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
+                       (cast resetSeedI)
+  (MkBang ep # q') <- evalEpL q st0 MaxSteps 0.0
   evalNL q' k (acc + ep)
 
 ----------------------------------------------------------------------
@@ -433,7 +444,7 @@ discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _) = do
 -- under withNoGradL, discard both nets, report.
 finalReportL : Config -> Nat -> (1 _ : DqnState) -> L IO ()
 finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _) = do
-  let nEval = the Nat 30
+  let nEval = the Nat 50
   (MkBang totalReturn # qNet') <- withNoGradL {ex=Ex} (evalNL qNet nEval 0.0)
   discard qNet'
   discard target

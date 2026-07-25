@@ -10,7 +10,8 @@ lockstep via `gym.vector.SyncVectorEnv`, mirroring Idris'
 per timestep amortises per-op overhead across the N samples. Both sides
 use the same N to keep the cross-backend reference comparable.
 
-Reset state pinned to (0, 0, 0, 0) to mirror idris-gym's
+Episodes start from Gymnasium's U(-0.05, 0.05)^4 draw, in the rollout's
+auto-reset and in evaluation alike, matching idris-gym's
 `Gym.ClassicControl.CartPole.reset`.
 """
 
@@ -29,10 +30,9 @@ from torch import Tensor
 from torch_ref.init import init_linear_
 from torch_ref.models.reinforce import (
     MAX_STEPS,
-    CartPoleEnv,
     make_cartpole_env,
     obs_tensor,
-    reset_to_zero,
+    current_obs,
 )
 from torch_ref.training.runner import (
     format_elapsed,
@@ -75,8 +75,9 @@ class Critic(nn.Module):
 
 
 def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
-    """N independent CartPole envs in a SyncVectorEnv, each reset to all-zero
-    to mirror idris-gym's `Gym.ClassicControl.CartPole.reset`."""
+    """N independent CartPole envs in a SyncVectorEnv, each reset through
+    Gymnasium's U(-0.05, 0.05)^4 start distribution — the draw idris-gym's
+    `Gym.Vector.resetAll` makes."""
 
     def _make(idx: int):
         def _f():
@@ -86,9 +87,6 @@ def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
 
     vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
     vec.reset()
-    # SyncVectorEnv.envs is list[Env[Unknown, Unknown]] in gymnasium's stubs.
-    for sub in cast("list[CartPoleEnv]", vec.envs):  # pyright: ignore[reportUnknownMemberType]
-        reset_to_zero(sub)
     return vec
 
 
@@ -100,15 +98,14 @@ def collect_rollout(
     rollout_len: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, np.ndarray]:
     """Batched rollout of `rollout_len` steps across NUM_ENVS parallel envs
-    with auto-reset on done (each terminated sub-env resets to all-zero).
-    Returned tensors are shaped [T, N, ...]; new_obs is [N, 4]. Mirrors
-    Idris-side `rolloutBatched`."""
+    with auto-reset on done (SyncVectorEnv draws the restarted sub-env from
+    CartPole's own start distribution). Returned tensors are shaped
+    [T, N, ...]; new_obs is [N, 4]. Mirrors Idris-side `rolloutBatchedL`."""
     obs_list: list[Tensor] = []
     act_list: list[Tensor] = []
     rew_list: list[Tensor] = []
     val_list: list[Tensor] = []
     done_list: list[Tensor] = []
-    n = NUM_ENVS
     for _ in range(rollout_len):
         obs_t = obs_tensor(obs_np)  # [N, 4]
         with torch.no_grad():
@@ -129,15 +126,12 @@ def collect_rollout(
         rew_list.append(torch.tensor(rewards_np, dtype=dtype, device=device))
         val_list.append(values.detach().to(dtype))
         done_list.append(torch.tensor(dones_np.astype(np.float64), dtype=dtype, device=device))
-        # Auto-reset: SyncVectorEnv auto-resets on its own but to a
-        # uniform-random state. Override each terminated sub-env back to
-        # all-zero so the Idris-side reset semantics match.
-        next_obs_np = next_obs_np.astype(np.float64)
-        for i in range(n):
-            if dones_np[i]:
-                reset_to_zero(cast("CartPoleEnv", vec_env.envs[i]))  # pyright: ignore[reportUnknownMemberType]
-                next_obs_np[i] = 0.0
-        obs_np = next_obs_np
+        # SyncVectorEnv auto-resets a terminated sub-env itself, and the obs it
+        # returns is the restarted state. Until 2026-08-01 this loop overwrote
+        # that with zeros to match the Idris side's pinned reset, which left
+        # the policy acting on obs = 0 for one step while the env sat
+        # elsewhere. Both sides now reset through the env's own distribution.
+        obs_np = next_obs_np.astype(np.float64)
     return (
         torch.stack(obs_list),  # [T, N, 4]
         torch.stack(act_list),  # [T, N]
@@ -287,7 +281,7 @@ def evaluate(actor: Actor, n_episodes: int = 50) -> float:
     total = 0.0
     for _ in range(n_episodes):
         env.reset()
-        obs_np = reset_to_zero(env)
+        obs_np = current_obs(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
             obs = obs_tensor(obs_np)
