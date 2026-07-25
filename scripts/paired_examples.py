@@ -331,6 +331,18 @@ EXAMPLES: list[ExampleSpec] = [
     # Same values used on both sides (verified at call site).
     {
         "name": "ntm-copy",
+        # The batch is RNG-driven (sequence length + random bits), so the
+        # reference records each sequence's draws and Idris rebuilds the
+        # identical batch by replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 2.2e-7
+        # (read_fc.weight). Looser than the dense examples because RMSprop's
+        # first step is ill-conditioned where a gradient sits near its
+        # epsilon: read_fc's median |g| is 2.4e-7, and those entries are
+        # sums of cancelling terms, so cross-side rounding lands at the
+        # term scale rather than the sum scale.
+        "tolerance": 1e-5,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
@@ -383,6 +395,14 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "dnc-copy",
+        # The batch is RNG-driven (sequence length + random bits), so the
+        # reference records each sequence's draws and Idris rebuilds the
+        # identical batch by replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 3.4e-10
+        # (memory_init).
+        "tolerance": 1e-8,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

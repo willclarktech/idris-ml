@@ -4,22 +4,30 @@ Output format matches Idris Example.NtmCopy.
 """
 
 import argparse
+import os
 import random
 import sys
+from typing import cast
 
 import torch
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.copy_task import generate_copy_batch
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
 from torch_ref.metrics import bit_and_sequence_accuracy
 from torch_ref.models.ntm import NtmConfig, NtmModel
+from torch_ref.replay import write_replay
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
     TrainConfig,
     format_result,
     get_device,
+    get_dtype,
     run_training,
     set_device,
 )
@@ -29,6 +37,27 @@ W = 8
 N, M, H = 128, 20, 100
 INPUT_W = W + 1
 OUTPUT_W = W
+
+
+# Idris registry name -> this script's parameter name, model-index prefixed.
+# Mirrors the entry in scripts/paired_examples.py, which check-step-oracle.py
+# cross-checks.
+PAIRED_PARAMS = {
+    "ntm_0.controller.bias_hh": "0.ntm.controller.lstm.bias_hh",
+    "ntm_0.controller.bias_ih": "0.ntm.controller.lstm.bias_ih",
+    "ntm_0.controller.c0": "0.ntm.controller.c0",
+    "ntm_0.controller.h0": "0.ntm.controller.h0",
+    "ntm_0.controller.weight_hh": "0.ntm.controller.lstm.weight_hh",
+    "ntm_0.controller.weight_ih": "0.ntm.controller.lstm.weight_ih",
+    "ntm_0.memory_init_0": "0.ntm.memory_init",
+    "ntm_0.output_fc.bias": "0.ntm.output_fc.bias",
+    "ntm_0.read_init_0": "0.ntm.read_init",
+    "ntm_0.output_fc.weight": "0.ntm.output_fc.weight",
+    "ntm_0.read_fc.bias": "0.ntm.read_fc.bias",
+    "ntm_0.read_fc.weight": "0.ntm.read_fc.weight",
+    "ntm_0.write_fc.bias": "0.ntm.write_fc.bias",
+    "ntm_0.write_fc.weight": "0.ntm.write_fc.weight",
+}
 
 
 def _train_ntm_epoch(
@@ -114,6 +143,9 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
+    # The ntm/dnc module trees build bare (default-dtype) tensors throughout;
+    # pin the process default so they construct in the training dtype.
+    torch.set_default_dtype(get_dtype())  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
     # torch's manual_seed stub leaves `seed` unannotated.
     torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
@@ -131,6 +163,23 @@ def main() -> None:
     optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr, alpha=0.95, momentum=0.9)
     print(f"Model: NTM<N={N} M={M} H={H}>")
     print()
+
+    # Oracle run: publish the parameters and the batch's draws — each
+    # sequence's length, then its bits row-major, recovered from the target
+    # (the order the Idris side draws them) — take exactly one update and
+    # publish the result. Idris replays the draws through --replay and
+    # rebuilds the identical batch; sequence construction, the encode/decode
+    # recurrence, BCE, the value clip and RMSprop are all under test.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        batch = generate_copy_batch(args.batch, args.min_len, args.max_len, seq_width=W)
+        choices: list[int] = []
+        for _inp, tgt in batch:
+            choices.append(int(tgt.shape[0]))
+            choices.extend(int(b) for b in cast("list[float]", tgt.reshape(-1).tolist()))  # pyright: ignore[reportUnknownMemberType]
+        maybe_dump_oracle((model,), PAIRED_PARAMS)
+        write_replay(os.environ["IDRISML_ORACLE_DUMP"] + ".replay", choices=choices)
+        _train_ntm_epoch(model, batch, optimizer, args.clip)
+        maybe_dump_after_step((model,), PAIRED_PARAMS)
 
     def epoch_fn() -> float:
         batch = generate_copy_batch(args.batch, args.min_len, args.max_len, seq_width=W)

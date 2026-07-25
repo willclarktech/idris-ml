@@ -16,6 +16,7 @@ import System
 import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
+import Ml.Rng
 import Ml.Simple
 import Ml.Train
 
@@ -56,28 +57,23 @@ Model = Dnc R N M H InputW OutputW Ex F WithGrad
 Seq : Type
 Seq = (List (Vect InputW Double), List (Vect OutputW Double))
 
-randomInt : (lo, hi : Nat) -> IO Nat
-randomInt lo hi = do
-  n <- randomRIO (cast {to=Int32} (natToInteger lo), cast {to=Int32} (natToInteger hi))
-  pure (fromInteger (cast {to=Integer} n))
+randomBitVec : Rng -> (w : Nat) -> IO (Vect w Double)
+randomBitVec rng w = traverse (\_ => do b <- rng.natRange 0 1
+                                        pure (if b == 1 then 1.0 else 0.0))
+                              (Vect.replicate w ())
 
-randomBitVec : (w : Nat) -> IO (Vect w Double)
-randomBitVec w = traverse (\_ => do b <- randomRIO (the Int32 0, 1)
-                                    pure (if b == 1 then 1.0 else 0.0))
-                          (Vect.replicate w ())
-
-genCopySeq : (seqLen : Nat) -> IO Seq
-genCopySeq seqLen = do
-  dataRows <- sequence (List.replicate seqLen (randomBitVec W))
+genCopySeq : Rng -> (seqLen : Nat) -> IO Seq
+genCopySeq rng seqLen = do
+  dataRows <- sequence (List.replicate seqLen (randomBitVec rng W))
   let inputRows = map (\r => r ++ [0.0]) dataRows ++ [Vect.replicate W 0.0 ++ [1.0]]
   pure (inputRows, dataRows)
 
-genBatch : (n, minLen, maxLen : Nat) -> IO (List Seq)
-genBatch Z _ _               = pure []
-genBatch (S k) minLen maxLen = do
-  len <- randomInt minLen maxLen
-  dp <- genCopySeq len
-  rest <- genBatch k minLen maxLen
+genBatch : Rng -> (n, minLen, maxLen : Nat) -> IO (List Seq)
+genBatch _ Z _ _                 = pure []
+genBatch rng (S k) minLen maxLen = do
+  len <- rng.natRange minLen maxLen
+  dp <- genCopySeq rng len
+  rest <- genBatch rng k minLen maxLen
   pure (dp :: rest)
 
 ----------------------------------------------------------------------
@@ -198,9 +194,10 @@ record Config where
   minLen      : Nat
   maxLen      : Nat
   batch       : Nat
+  replay      : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 0.9 50000 0.01 1000 3 42 1 10 1
+defaultConfig = MkConfig 0.0001 10.0 0.95 0.9 50000 0.01 1000 3 42 1 10 1 ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -214,7 +211,11 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--min-len" (\v, c => { minLen := castNat v } c)
         , Arg "--max-len" (\v, c => { maxLen := castNat v } c)
-        , Arg "--batch" (\v, c => { batch := castNat v } c) ]
+        , Arg "--batch" (\v, c => { batch := castNat v } c)
+        -- Replay recorded draws (`Ml.Rng.loadReplay` format) instead of
+        -- sampling: sequence lengths and bits come from the file's decision
+        -- channel, so the run reproduces a recorded data stream.
+        , Arg "--replay" (\v, c => { replay := v } c) ]
 
 %default partial
 
@@ -236,7 +237,10 @@ main = do
 
   opt <- rmsprop cfg.lr {alpha = cfg.alpha} {momentum = cfg.momentum}
                  ({ clip := ValueClip cfg.clipVal } defaultOpts)
-  let dataStream = generate (genBatch cfg.batch cfg.minLen cfg.maxLen)
+  rng <- case cfg.replay of
+           "" => liveRng
+           pth => (.rng) <$> loadReplay pth
+  let dataStream = generate (genBatch rng cfg.batch cfg.minLen cfg.maxLen)
 
   -- Linear surface end to end (see Example.NtmCopy).
   Control.Linear.LIO.run $ do
@@ -250,11 +254,11 @@ main = do
     -- Three splits, matching the reference: `short` (1-5) is the easy end,
     -- `acc` is the trained range and the gated metric, `full` (1-20) is the
     -- length-generalization test that runs past what training saw.
-    shortBatch <- liftIO1 (genBatch 100 1 5)
+    shortBatch <- liftIO1 (genBatch rng 100 1 5)
     (MkBang (accShort, seqShort) # trained1) <- bitAccuracyL trained shortBatch
-    trainBatch <- liftIO1 (genBatch 100 1 10)
+    trainBatch <- liftIO1 (genBatch rng 100 1 10)
     (MkBang (acc, seqAcc) # trained2) <- bitAccuracyL trained1 trainBatch
-    fullBatch <- liftIO1 (genBatch 100 1 20)
+    fullBatch <- liftIO1 (genBatch rng 100 1 20)
     (MkBang (accFull, seqFull) # trained3) <- bitAccuracyL trained2 fullBatch
     discard trained3
     liftIO1 $ do
