@@ -21,7 +21,7 @@ import Ml.Train
 import BuildConfig
 
 ----------------------------------------------------------------------
--- Env dimensions (Taxi-v3, deterministic 5x5 grid)
+-- Env dimensions (Taxi-v4, deterministic 5x5 grid)
 ----------------------------------------------------------------------
 
 NumStates  : Nat; NumStates = 500
@@ -179,7 +179,7 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
 
-  putStrLn "=== Q-learning on Taxi-v3 ==="
+  putStrLn "=== Q-learning on Taxi-v4 ==="
   putStrLn $ "Config: alpha=" ++ show cfg.alpha
            ++ " gamma=" ++ show cfg.gamma
            ++ " epsilon=" ++ show cfg.epsilon

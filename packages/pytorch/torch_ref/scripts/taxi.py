@@ -1,8 +1,6 @@
 """Q-learning on Taxi training script.
 
-Output format matches the Idris Example.Taxi, except for the banner: this side
-calls `gym.make("Taxi-v4")` and says so, while the Idris example still prints
-"Taxi-v3". The RESULT keys are what the campaign reads, and those match.
+Output format matches the Idris Example.Taxi exactly.
 
 Usage:
     python -m torch_ref.scripts.taxi [--alpha 0.1] [--epochs 20000] [--seed 42]

@@ -6,7 +6,12 @@ import Gym.Env
 import Gym.Rng
 
 ----------------------------------------------------------------------
--- Taxi-v3 (Gymnasium-compatible)
+-- Taxi-v4 (Gymnasium-compatible)
+--
+-- v4 is v3 plus fixed `is_rainy` / `fickle_passenger` implementations
+-- (Gymnasium 1.3.0). Both default to False and neither is modelled here,
+-- so the dynamics below are the shared default behaviour of v3 and v4;
+-- the name tracks the id Gymnasium registers today.
 --
 -- 5x5 grid with 4 designated locations R(0,0), G(0,4), Y(4,0), B(4,3).
 -- Taxi must pick up passenger from their location and drop them at
@@ -49,7 +54,7 @@ export
 defaultStart : TState
 defaultStart = MkT 2 2 0 3
 
-||| Randomized reset matching Gymnasium's Taxi-v3: taxi uniform over the
+||| Randomized reset matching Gymnasium's Taxi-v4: taxi uniform over the
 ||| 5x5 grid, passenger uniform over {R, G, Y, B}, destination uniform
 ||| over the 3 non-passenger locations.
 export
