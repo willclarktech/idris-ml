@@ -2,13 +2,20 @@
 """The paired Idris/PyTorch example table — the single source of truth for
 which reference belongs to which example.
 
-Three gates read it, so a pair declared here is checked from three angles:
+Six gates read it, so a pair declared here is checked from six angles:
 
   * `check-example-pairing.py`  — every campaign example HAS an entry, and the
     files it names exist. Stops a new example shipping without a reference.
   * `check-paired-defaults.py`  — the two sides' CLI flag defaults agree.
   * `check-paired-metrics.py`   — the two sides' RESULT lines carry the same
     metric keys.
+  * `check-init-manifest.py`    — parameter names/shapes pair through the
+    `params` map (entries with `init_manifest`).
+  * `check-data-manifest.py`    — the two sides generate matching batches
+    (entries with `data_manifest`).
+  * `check-step-oracle.py`      — one recorded optimizer step lands on the
+    same post-step params, within the entry's measured `tolerance`
+    (entries with `step_oracle`).
 
 Kept in one module because a second copy of this list is exactly the drift the
 gates exist to catch. `example-<name>` is the make target; the Idris source

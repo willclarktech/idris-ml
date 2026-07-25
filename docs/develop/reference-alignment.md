@@ -6,6 +6,14 @@ Idris examples and their PyTorch references must use **identical defaults** for 
 
 When adding or changing an example, always update both Idris and PyTorch to match.
 
+Since 2026-08-03 alignment is machine-checked one level below convergence: every
+paired example runs one recorded optimizer step through
+`scripts/check-step-oracle.py` (the reference dumps a pre-step fixture + its
+recorded draws; the Idris side replays them via `--replay`), with a per-example
+measured tolerance in `scripts/paired_examples.py`. The dated entries below
+record what alignment work found — since that date, mostly what the step oracle
+caught.
+
 > **Note (2026-07-28): per-backend numbers in this file are not comparable to each other.**
 > Random parameter init runs C-side in each backend's own generator (tape's Box-Muller,
 > `torch::nn::init::normal_`, `mx::random::normal`), so the same seed yields different

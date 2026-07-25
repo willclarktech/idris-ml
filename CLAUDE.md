@@ -271,9 +271,12 @@ The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it t
 
 1. Find paper/implementation for ground truth, add to References.
 2. Port to `packages/pytorch/torch_ref/models/`, add tests + benchmark. Verify `make test-e2e-pytorch-ref && make ref-lint && make ref-typecheck`.
-3. Implement in `packages/idris-ml-examples/src/Example/`, add to `Bench.idr` + Makefile. Verify `make test && make bench-compare`.
+3. Implement in `packages/idris-ml-examples/src/Example/`, add to `Bench.idr` + Makefile (`mk/examples.mk` target + `<NAME>_ARGS`), author the `.expect` file for `test-e2e-examples`, and wire a `perf-run.sh` case arm. Verify `make test && make bench-compare`.
+4. Register the pair in `scripts/paired_examples.py` — mandatory, not bookkeeping: `check-example-pairing.py` fails CI for a campaign example with no entry, and the same row drives the flag-default, metric-key, init-manifest and data-manifest parity gates.
+5. Wire the step oracle (every paired example carries one). Reference side: `PAIRED_PARAMS` + a branch under `IDRISML_ORACLE_DUMP` that dumps the pre-step fixture, runs exactly one recorded optimizer step, writes the `.replay` draws (`write_replay`), and dumps post-step. Idris side: a `--replay` flag feeding `loadReplay`, plus `oracleBatchStream` when the batch can't be regenerated cross-side and must travel in the fixture. Then measure the floor at `--tolerance 0`, pin the entry's `tolerance` ~1000× above it, and plant two probes — a corrupted replay draw and reference lr×1.01 must both diverge. Record floor + probe values in the entry comment.
+6. Run both sides to convergence on ≥ 5 seeds; add the rows to `docs/develop/convergence-campaign.tsv` / `convergence-campaign-ref.tsv`.
 
-Commit at each step. PyTorch is the correctness oracle.
+Commit at each step. PyTorch is the correctness oracle at two levels: `check-step-oracle.py` proves both sides compute the same optimizer step; the multi-seed campaign proves the shared experiment converges.
 
 ### Test-driven development (cross-cutting — governs all new capability work)
 
@@ -288,6 +291,7 @@ Commit at each step. PyTorch is the correctness oracle.
 - **F32 gradcheck oracle** (tape T29 block) — extending F32 routing: paired F32-vs-F64 contract (tag-propagation + forward-tol + grad-tol).
 - **Idris unit tests** (`packages/idris-ml/test`, `make test`) — typed-surface / smart-constructor / training-loop work.
 - **`.expect` outputs** (`make test-e2e-examples`) — user-visible example behaviour; author the expected stdout first (`<EXAMPLE>_READY` gates the skip-flag shape).
+- **Step-oracle parity** (`make test-integration-lint-step-oracle`) — Idris-vs-reference agreement on one recorded optimizer step, at the per-example measured tolerance in `scripts/paired_examples.py` (procedure under **Alignment policy**). The red is a measured divergence (planted probe, or the floor moving), never a load failure.
 
 **No "linked = green"** — compile/link coverage alone has shipped broken behaviour here; the behavioural test is the gate.
 
@@ -306,6 +310,8 @@ Commit at each step. PyTorch is the correctness oracle.
 ### Alignment policy (cross-cutting — governs all example work)
 
 **Identical defaults**: Idris examples and PyTorch references MUST share all hyperparameter defaults (lr, batch, epochs, seed, architecture, init). On a discrepancy, adopt the better practice in BOTH, same commit. See `docs/develop/reference-alignment.md`.
+
+**Step-oracle parity required**: every paired example is wired into `scripts/check-step-oracle.py` (`make test-integration-lint-step-oracle`) — the reference dumps a pre-step fixture plus its recorded draws, the Idris side replays them via `--replay`, and post-step params must agree within the entry's `tolerance` in `scripts/paired_examples.py`. Tolerances are measured, not guessed: record the `--tolerance 0` floor, pin ~1000× above it, and verify two planted probes (corrupted draw, reference lr×1.01) diverge. This gate sits below convergence and has caught defects accuracy metrics absorbed (a 10×/3× loss-scale error, a float32 reference, unclipped gradients) — on any alignment question, run it before arguing from convergence numbers.
 
 **Multi-seed convergence required**: a single-seed pass is not a convergence claim — validate on ≥ 5 seeds and report the pass rate (e.g. "5/5 REINFORCE on CartPole"). Single-seed at seed=42 has hidden real bugs here (A2C "converged" on one seed while the Idris optimizer wasn't updating the actor at all). RL is noisy; use PyTorch's pass rate as the target.
 
