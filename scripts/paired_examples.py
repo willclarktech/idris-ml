@@ -368,6 +368,14 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "ntm-recall",
+        # The batch is RNG-driven (item count, item bits, query index), so
+        # the reference records each sample's draws and Idris rebuilds the
+        # identical batch by replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 8.1e-8
+        # (read_fc.weight) — the same RMSprop eps-regime floor as ntm-copy.
+        "tolerance": 1e-5,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
@@ -444,6 +452,14 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "dnc-recall",
+        # The batch is RNG-driven (item count, item bits, query index), so
+        # the reference records each sample's draws and Idris rebuilds the
+        # identical batch by replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 9.2e-11
+        # (alloc_gate.weight).
+        "tolerance": 1e-8,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

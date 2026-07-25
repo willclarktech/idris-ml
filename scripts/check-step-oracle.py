@@ -221,7 +221,10 @@ def main() -> int:
                     print(f"{name:<20} [FAILED] reference did not write {replay_path.name}")
                     failed = True
                     continue
-                args_var = name.upper().replace("-", "_") + "_ARGS"
+                # The recipe's args variable is named after the make target
+                # (which can differ from the table name — ntm-recall builds
+                # example-ntm-associative-recall).
+                args_var = target.removeprefix("example-").upper().replace("-", "_") + "_ARGS"
                 make_cmd.append(f"{args_var}=--replay {replay_path}")
             _rc, out = run(
                 make_cmd,

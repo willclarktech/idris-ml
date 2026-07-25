@@ -4,6 +4,7 @@ Output format matches Idris example conventions.
 """
 
 import argparse
+import os
 import random
 import sys
 
@@ -12,14 +13,20 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.recall_task import generate_recall_batch
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
 from torch_ref.metrics import bit_and_sequence_accuracy
 from torch_ref.models.dnc import DncConfig, DncModel
+from torch_ref.replay import write_replay
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import (
     TrainConfig,
     format_result,
     get_device,
+    get_dtype,
     run_training,
     set_device,
 )
@@ -31,6 +38,43 @@ N, M, H = 32, 20, 100
 R = 1  # read heads
 INPUT_W = W + 2
 OUTPUT_W = W
+
+
+# Idris registry name -> this script's parameter name, model-index prefixed.
+# Mirrors the entry in scripts/paired_examples.py, which check-step-oracle.py
+# cross-checks.
+PAIRED_PARAMS = {
+    "dnc_0.add.bias": "0.dnc.add_fc.bias",
+    "dnc_0.add.weight": "0.dnc.add_fc.weight",
+    "dnc_0.alloc_gate.bias": "0.dnc.alloc_gate_fc.bias",
+    "dnc_0.alloc_gate.weight": "0.dnc.alloc_gate_fc.weight",
+    "dnc_0.controller.bias_hh": "0.dnc.controller.lstm.bias_hh",
+    "dnc_0.controller.bias_ih": "0.dnc.controller.lstm.bias_ih",
+    "dnc_0.controller.c0": "0.dnc.controller.c0",
+    "dnc_0.controller.h0": "0.dnc.controller.h0",
+    "dnc_0.controller.weight_hh": "0.dnc.controller.lstm.weight_hh",
+    "dnc_0.controller.weight_ih": "0.dnc.controller.lstm.weight_ih",
+    "dnc_0.erase.bias": "0.dnc.erase_fc.bias",
+    "dnc_0.erase.weight": "0.dnc.erase_fc.weight",
+    "dnc_0.free_gates.bias": "0.dnc.free_gates_fc.bias",
+    "dnc_0.free_gates.weight": "0.dnc.free_gates_fc.weight",
+    "dnc_0.memory_init_0": "0.dnc.memory_init",
+    "dnc_0.output.bias": "0.dnc.output_fc.bias",
+    "dnc_0.read_init_0": "0.dnc.read_init",
+    "dnc_0.output.weight": "0.dnc.output_fc.weight",
+    "dnc_0.read_betas.bias": "0.dnc.read_betas_fc.bias",
+    "dnc_0.read_betas.weight": "0.dnc.read_betas_fc.weight",
+    "dnc_0.read_keys.bias": "0.dnc.read_keys_fc.bias",
+    "dnc_0.read_keys.weight": "0.dnc.read_keys_fc.weight",
+    "dnc_0.read_modes.bias": "0.dnc.read_modes_fc.bias",
+    "dnc_0.read_modes.weight": "0.dnc.read_modes_fc.weight",
+    "dnc_0.write_beta.bias": "0.dnc.write_beta_fc.bias",
+    "dnc_0.write_beta.weight": "0.dnc.write_beta_fc.weight",
+    "dnc_0.write_gate.bias": "0.dnc.write_gate_fc.bias",
+    "dnc_0.write_gate.weight": "0.dnc.write_gate_fc.weight",
+    "dnc_0.write_key.bias": "0.dnc.write_key_fc.bias",
+    "dnc_0.write_key.weight": "0.dnc.write_key_fc.weight",
+}
 
 
 def _train_dnc_epoch(
@@ -113,6 +157,9 @@ def main() -> None:
     args = parser.parse_args()
 
     set_device(args.device)
+    # The ntm/dnc module trees build bare (default-dtype) tensors throughout;
+    # pin the process default so they construct in the training dtype.
+    torch.set_default_dtype(get_dtype())  # pyright: ignore[reportUnknownMemberType]
     random.seed(args.seed)
     # torch's manual_seed stub leaves `seed` unannotated.
     torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType]
@@ -138,6 +185,23 @@ def main() -> None:
     optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr, alpha=0.95, momentum=0.9)
     print(f"Model: DNC<N={N} M={M} H={H} R={args.num_reads}>")
     print()
+
+    # Oracle run: publish the parameters and the batch's draws — per sample
+    # the item count, the item bits and the query index, logged by the
+    # generator in the order the Idris side consumes them — take exactly one
+    # update and publish the result. Idris replays the draws through --replay
+    # and rebuilds the identical batch; sequence construction, the
+    # encode/decode recurrence, BCE, the value clip and RMSprop are all under
+    # test.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        choices: list[int] = []
+        batch = generate_recall_batch(
+            args.batch, args.min_items, args.max_items, SEQ_LEN, W, choices_log=choices
+        )
+        maybe_dump_oracle((model,), PAIRED_PARAMS)
+        write_replay(os.environ["IDRISML_ORACLE_DUMP"] + ".replay", choices=choices)
+        _train_dnc_epoch(model, batch, optimizer, args.clip)
+        maybe_dump_after_step((model,), PAIRED_PARAMS)
 
     def epoch_fn() -> float:
         batch = generate_recall_batch(args.batch, args.min_items, args.max_items, SEQ_LEN, W)

@@ -17,6 +17,7 @@ import System
 import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
+import Ml.Rng
 import Ml.Simple
 import Ml.Train
 
@@ -60,26 +61,21 @@ Model = Dnc R N M H InputW OutputW Ex F WithGrad
 Seq : Type
 Seq = (List (Vect InputW Double), List (Vect OutputW Double))
 
-randomInt : (lo, hi : Nat) -> IO Nat
-randomInt lo hi = do
-  n <- randomRIO (cast {to=Int32} (natToInteger lo), cast {to=Int32} (natToInteger hi))
-  pure (fromInteger (cast {to=Integer} n))
-
-randomBitVec : (w : Nat) -> IO (Vect w Double)
-randomBitVec w = traverse (\_ => do b <- randomRIO (the Int32 0, 1)
-                                    pure (if b == 1 then 1.0 else 0.0))
-                          (Vect.replicate w ())
+randomBitVec : Rng -> (w : Nat) -> IO (Vect w Double)
+randomBitVec rng w = traverse (\_ => do b <- rng.natRange 0 1
+                                        pure (if b == 1 then 1.0 else 0.0))
+                              (Vect.replicate w ())
 
 nth : Nat -> List a -> Maybe a
 nth _ []            = Nothing
 nth Z (x :: _)      = Just x
 nth (S k) (_ :: xs) = nth k xs
 
-genRecallSeq : (numItems : Nat) -> IO Seq
-genRecallSeq numItems = do
+genRecallSeq : Rng -> (numItems : Nat) -> IO Seq
+genRecallSeq rng numItems = do
   items <- sequence (List.replicate numItems
-             (sequence (List.replicate SeqLen (randomBitVec W))))
-  queryIdx <- randomInt 0 (numItems `minus` 2)
+             (sequence (List.replicate SeqLen (randomBitVec rng W))))
+  queryIdx <- rng.natRange 0 (numItems `minus` 2)
   let itemDelim  = Vect.replicate W 0.0 ++ [1.0, 0.0]
       queryDelim = Vect.replicate W 0.0 ++ [0.0, 1.0]
       padRow : Vect W Double -> Vect InputW Double
@@ -90,12 +86,12 @@ genRecallSeq numItems = do
       encQuery   = queryDelim :: (map padRow queryItem ++ [queryDelim])
   pure (encItems ++ encQuery, targetItem)
 
-genBatch : (n, minItems, maxItems : Nat) -> IO (List Seq)
-genBatch Z _ _                   = pure []
-genBatch (S k) minItems maxItems = do
-  ni <- randomInt (max 2 minItems) (max 2 maxItems)
-  dp <- genRecallSeq ni
-  rest <- genBatch k minItems maxItems
+genBatch : Rng -> (n, minItems, maxItems : Nat) -> IO (List Seq)
+genBatch _ Z _ _                     = pure []
+genBatch rng (S k) minItems maxItems = do
+  ni <- rng.natRange (max 2 minItems) (max 2 maxItems)
+  dp <- genRecallSeq rng ni
+  rest <- genBatch rng k minItems maxItems
   pure (dp :: rest)
 
 ----------------------------------------------------------------------
@@ -216,9 +212,10 @@ record Config where
   minItems    : Nat
   maxItems    : Nat
   batch       : Nat
+  replay      : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 0.9 30000 0.01 1000 3 42 2 6 1
+defaultConfig = MkConfig 0.0001 10.0 0.95 0.9 30000 0.01 1000 3 42 2 6 1 ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -232,7 +229,12 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--min-items" (\v, c => { minItems := castNat v } c)
         , Arg "--max-items" (\v, c => { maxItems := castNat v } c)
-        , Arg "--batch" (\v, c => { batch := castNat v } c) ]
+        , Arg "--batch" (\v, c => { batch := castNat v } c)
+        -- Replay recorded draws (`Ml.Rng.loadReplay` format) instead of
+        -- sampling: item counts, item bits and query indices come from the
+        -- file's decision channel, so the run reproduces a recorded data
+        -- stream.
+        , Arg "--replay" (\v, c => { replay := v } c) ]
 
 %default partial
 
@@ -254,7 +256,10 @@ main = do
 
   opt <- rmsprop cfg.lr {alpha = cfg.alpha} {momentum = cfg.momentum}
                  ({ clip := ValueClip cfg.clipVal } defaultOpts)
-  let dataStream = generate (genBatch cfg.batch cfg.minItems cfg.maxItems)
+  rng <- case cfg.replay of
+           ""  => liveRng
+           pth => (.rng) <$> loadReplay pth
+  let dataStream = generate (genBatch rng cfg.batch cfg.minItems cfg.maxItems)
 
   -- Linear surface end to end (see Example.NtmCopy / Example.DncCopy).
   Control.Linear.LIO.run $ do
@@ -267,13 +272,13 @@ main = do
     liftIO1 (putStrLn "" >> putStrLn "Eval:")
     -- Mixed 2-6 (the gated metric) plus the per-K split the reference
     -- reports, which shows where along the difficulty curve a run breaks.
-    mixedBatch <- liftIO1 (genBatch 100 2 6)
+    mixedBatch <- liftIO1 (genBatch rng 100 2 6)
     (MkBang (acc, seqAcc) # trained1) <- bitAccuracyL trained mixedBatch
-    k2Batch <- liftIO1 (genBatch 100 2 2)
+    k2Batch <- liftIO1 (genBatch rng 100 2 2)
     (MkBang (accK2, seqK2) # trained2) <- bitAccuracyL trained1 k2Batch
-    k4Batch <- liftIO1 (genBatch 100 4 4)
+    k4Batch <- liftIO1 (genBatch rng 100 4 4)
     (MkBang (accK4, seqK4) # trained3) <- bitAccuracyL trained2 k4Batch
-    k6Batch <- liftIO1 (genBatch 100 6 6)
+    k6Batch <- liftIO1 (genBatch rng 100 6 6)
     (MkBang (accK6, seqK6) # trained4) <- bitAccuracyL trained3 k6Batch
     discard trained4
     liftIO1 $ do

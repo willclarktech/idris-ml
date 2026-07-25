@@ -16,6 +16,7 @@ Output is produced during the query_item timesteps (seq_len outputs).
 """
 
 import random
+from typing import cast
 
 import torch
 from torch import Tensor
@@ -27,6 +28,7 @@ def generate_recall_sequence(
     num_items: int,
     seq_len: int = 3,
     seq_width: int = 6,
+    choices_log: list[int] | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Generate a single associative recall sequence.
 
@@ -65,6 +67,15 @@ def generate_recall_sequence(
 
     # Choose query: random item that is NOT the last one
     query_idx = random.randint(0, num_items - 2)
+    # The step oracle records the sample's draws in the order the Idris
+    # side consumes them: the item bits (item-major, row-major), then the
+    # query index. (The item count is logged by generate_recall_batch.)
+    if choices_log is not None:
+        for item in items:
+            # tolist is list[Unknown] in the torch stub.
+            bits = cast("list[float]", item.reshape(-1).tolist())  # pyright: ignore[reportUnknownMemberType]
+            choices_log.extend(int(b) for b in bits)
+        choices_log.append(query_idx)
     query_item = items[query_idx]
     target_item = items[query_idx + 1]  # the item after the query
 
@@ -93,10 +104,13 @@ def generate_recall_batch(
     max_items: int,
     seq_len: int = 3,
     seq_width: int = 6,
+    choices_log: list[int] | None = None,
 ) -> list[tuple[Tensor, Tensor]]:
     """Generate a batch of associative recall sequences."""
     batch: list[tuple[Tensor, Tensor]] = []
     for _ in range(batch_size):
         num_items = random.randint(min_items, max_items)
-        batch.append(generate_recall_sequence(num_items, seq_len, seq_width))
+        if choices_log is not None:
+            choices_log.append(num_items)
+        batch.append(generate_recall_sequence(num_items, seq_len, seq_width, choices_log))
     return batch
