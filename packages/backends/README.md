@@ -183,25 +183,26 @@ byte-for-byte:
   cross-backend transfer, plus per-op forward + backward and the
   lifted shared TUs.
 - `make example-supervised` at seed=42 yields
-  `loss=0.13722991189103767` (re-pinned 2026-07-29, `c98fed55`, when
-  `Nn.linear` moved to a Kaiming-uniform weight `U(±1/√fan_in)` with a
-  zero bias, replacing `N(0, 1/√fan_in)`; that necessarily changes every
-  from-scratch run's starting weights. Two earlier pins in the same day's
-  history: `0.1380880098682826` from the intermediate uniform-bias state
-  (`ffdf8a9b`), and `0.13666947626094297` for the pre-init-change tree,
-  which is what the fused softmax-xent work was verified bit-identical
-  against; see `nn/loss/softmax_xent.c`'s FP-contraction notes.)
+  `loss=0.13524526083036773` (re-pinned 2026-08-04 after the libc-rand →
+  SplitMix64 host-generator move (`b6501e32`) shifted every from-scratch
+  draw stream. Prior pins, each tied to its own init change:
+  `0.13722991189103767` from the 2026-07-29 Kaiming-uniform switch
+  (`c98fed55`), `0.1380880098682826` from the intermediate uniform-bias
+  state (`ffdf8a9b`), and `0.13666947626094297` for the pre-init-change
+  tree, which is what the fused softmax-xent work was verified
+  bit-identical against; see `nn/loss/softmax_xent.c`'s FP-contraction
+  notes.)
 
-  Cross-backend, measured the same day at seed=42 without
-  `IDRISML_PORTABLE_INIT` (dense init now fills through the Idris-side
+  Cross-backend, re-measured 2026-08-04 at seed=42 without
+  `IDRISML_PORTABLE_INIT` (dense init fills through the Idris-side
   host-buffer `Uniform`/`Zeros` path on every backend):
 
   | lanes | probe | result |
   |---|---|---|
-  | tape vs torch | 5 epochs | bit-identical, `0.8344664639612825` |
-  | tape vs mlx | 1 epoch | `1.1170590143291745` vs `1.11705901547963` (~1e-9) |
-  | tape vs mlx | 1000 epochs | `0.13722991189103767` vs `0.13722991394788778` (~2e-9) |
-  | torch-mps (F32) | 5 epochs | `0.8344664573669434`, agrees with torch F64 to F32 precision |
+  | tape vs torch | 5 epochs | bit-identical, `1.0158200192774` |
+  | tape vs mlx | 1 epoch | `1.2524471717464745` vs `1.2524471727525017` (~1e-9) |
+  | tape vs mlx | 1000 epochs | `0.13524526083036773` vs `0.13524526028887185` (~5e-10) |
+  | torch-mps (F32) | 5 epochs | `1.015820026397705`, agrees with torch F64 to F32 precision |
 
   The residual tape-vs-mlx gap is present after a single forward + backward
   + step, so it is not attributable to init on this evidence alone; mlx runs
