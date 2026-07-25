@@ -84,7 +84,7 @@ TensorHandle wrap_param(mx::array arr) {
 static TensorHandle portable_normal_param(const std::vector<int>& shape, double mean, double std,
                                           int stream_tag, int dtag) {
 	int n = 1;
-	for (int d : shape)
+	for (const int d : shape)
 		n *= d;
 	std::vector<double> buf((size_t)n);
 	idrisml_portable_fill_normal(buf.data(), n, mean, std);
@@ -105,7 +105,7 @@ static TensorHandle portable_normal_param(const std::vector<int>& shape, double 
 extern "C" TensorHandle tensor_create_param_1d_normal_streamed(int n, double mean, double std,
                                                                int stream_tag, int dtag) {
 	WITH_STREAM(stream_tag);
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({n}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_1d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{n}, dt, (float)mean, (float)std));
@@ -115,7 +115,7 @@ extern "C" TensorHandle tensor_create_param_2d_normal_streamed(int rows, int col
                                                                double std, int stream_tag,
                                                                int dtag) {
 	WITH_STREAM(stream_tag);
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({rows, cols}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_2d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{rows, cols}, dt, (float)mean, (float)std));
@@ -125,7 +125,7 @@ extern "C" TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, i
                                                                double std, int stream_tag,
                                                                int dtag) {
 	WITH_STREAM(stream_tag);
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({d0, d1, d2}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_3d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2}, dt, (float)mean, (float)std));
@@ -135,7 +135,7 @@ extern "C" TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, i
                                                                double mean, double std,
                                                                int stream_tag, int dtag) {
 	WITH_STREAM(stream_tag);
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({d0, d1, d2, d3}, mean, std, stream_tag, dtag);
 	auto dt = dt_for_dtag("tensor_create_param_4d_normal_streamed", dtag);
 	return wrap_param(mx::random::normal(mx::Shape{d0, d1, d2, d3}, dt, (float)mean, (float)std));

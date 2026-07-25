@@ -64,10 +64,9 @@ TensorHandle make_param_leaf_empty(c10::IntArrayRef dims, torch::ScalarType dt, 
    tape's and mlx's for the same seed, at the cost of the fused in-place
    init. Off by default — the native path stays the fast one. The buffer
    is ours to free: torch_create_param_*_dtag copies into the tensor. */
-static TensorHandle portable_normal_param(std::vector<int64_t> shape, double mean, double std,
-                                          int dtag) {
+TensorHandle portable_normal_param(std::vector<int64_t> shape, double mean, double std, int dtag) {
 	int64_t n = 1;
-	for (int64_t d : shape)
+	for (const int64_t d : shape)
 		n *= d;
 	std::vector<double> buf((size_t)n);
 	idrisml_portable_fill_normal(buf.data(), (int)n, mean, std);
@@ -89,7 +88,7 @@ static TensorHandle portable_normal_param(std::vector<int64_t> shape, double mea
 
 /* ---- Normal(mean, std) initialisation ---- */
 TensorHandle torch_create_param_1d_normal_dtag(int n, double mean, double std, int dtag) {
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({(int64_t)n}, mean, std, dtag);
 	return make_param_leaf_empty({(int64_t)n}, st_for_dtag(dtag),
 	                             [=](torch::Tensor& t) { torch::nn::init::normal_(t, mean, std); });
@@ -97,7 +96,7 @@ TensorHandle torch_create_param_1d_normal_dtag(int n, double mean, double std, i
 
 TensorHandle torch_create_param_2d_normal_dtag(int rows, int cols, double mean, double std,
                                                int dtag) {
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({(int64_t)rows, (int64_t)cols}, mean, std, dtag);
 	return make_param_leaf_empty({(int64_t)rows, (int64_t)cols}, st_for_dtag(dtag),
 	                             [=](torch::Tensor& t) { torch::nn::init::normal_(t, mean, std); });
@@ -105,7 +104,7 @@ TensorHandle torch_create_param_2d_normal_dtag(int rows, int cols, double mean, 
 
 TensorHandle torch_create_param_3d_normal_dtag(int d0, int d1, int d2, double mean, double std,
                                                int dtag) {
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({(int64_t)d0, (int64_t)d1, (int64_t)d2}, mean, std, dtag);
 	return make_param_leaf_empty({(int64_t)d0, (int64_t)d1, (int64_t)d2}, st_for_dtag(dtag),
 	                             [=](torch::Tensor& t) { torch::nn::init::normal_(t, mean, std); });
@@ -113,7 +112,7 @@ TensorHandle torch_create_param_3d_normal_dtag(int d0, int d1, int d2, double me
 
 TensorHandle torch_create_param_4d_normal_dtag(int d0, int d1, int d2, int d3, double mean,
                                                double std, int dtag) {
-	if (idrisml_portable_init_enabled())
+	if (idrisml_portable_init_enabled() != 0)
 		return portable_normal_param({(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, mean,
 		                             std, dtag);
 	return make_param_leaf_empty({(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3},
