@@ -79,12 +79,24 @@ withWarmup warmupEpochs startLR base epoch =
 -- Cosine with warmup (standard transformer recipe)
 ----------------------------------------------------------------------
 
-||| Cosine annealing with linear warmup. The standard modern transformer LR schedule.
+||| Cosine annealing with linear warmup, in the nanoGPT/PyTorch shape the
+||| reference implementations use: warmup ramps `lrMax * (epoch+1) /
+||| (warmupEpochs+1)`, and the cosine decays over the *post-warmup* span,
+||| `(epoch - warmup) / (total - warmup)`, from lrMax down to lrMin.
+||| (`withWarmup . cosineAnnealing` computes neither: it starts the ramp at
+||| lrMin and anneals over the unshifted epoch — the gpt step oracle caught
+||| the two sides applying different LRs at every epoch.)
 export
 cosineWithWarmup : (lrMax : Double) -> (lrMin : Double)
                 -> (warmupEpochs : Nat) -> (totalEpochs : Nat) -> Schedule
-cosineWithWarmup lrMax lrMin warmupEpochs =
-  withWarmup warmupEpochs lrMin . cosineAnnealing lrMax lrMin
+cosineWithWarmup lrMax lrMin warmupEpochs totalEpochs epoch =
+  if epoch < warmupEpochs
+    then lrMax * cast (S epoch) / cast (S warmupEpochs)
+    else if epoch >= totalEpochs then lrMin
+    else
+      let denom = max 1 (minus totalEpochs warmupEpochs)
+          r     = cast (minus epoch warmupEpochs) / cast denom
+      in lrMin + 0.5 * (1.0 + cos (r * pi)) * (lrMax - lrMin)
 
 ----------------------------------------------------------------------
 -- Step LR

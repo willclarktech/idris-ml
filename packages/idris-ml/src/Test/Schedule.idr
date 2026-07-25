@@ -19,6 +19,18 @@ tests =
   -- cosineAnnealing: epoch total = lrMin
   , checkClose "cosine epoch total = lrMin" 0.001 (cosineAnnealing 0.1 0.001 1000 1000) tol
 
+  -- cosineWithWarmup: pinned against the reference's nanoGPT-verbatim
+  -- cosine_lr (torch_ref/scripts/gpt.py) at lr=0.001 min=0.0001
+  -- warmup=3 total=30 — the gpt example's defaults, which the step
+  -- oracle compares one update under.
+  , checkClose "cosineWithWarmup epoch 0" 0.00025 (cosineWithWarmup 0.001 0.0001 3 30 0) tol
+  , checkClose "cosineWithWarmup epoch 2" 0.00075 (cosineWithWarmup 0.001 0.0001 3 30 2) tol
+  , checkClose "cosineWithWarmup warmup end = lrMax" 0.001 (cosineWithWarmup 0.001 0.0001 3 30 3) tol
+  , checkClose "cosineWithWarmup mid-decay epoch 16" 0.0005761651730097141
+               (cosineWithWarmup 0.001 0.0001 3 30 16) tol
+  , checkClose "cosineWithWarmup epoch total = lrMin" 0.0001 (cosineWithWarmup 0.001 0.0001 3 30 30) tol
+  , checkClose "cosineWithWarmup past total = lrMin" 0.0001 (cosineWithWarmup 0.001 0.0001 3 30 45) tol
+
   -- oneCycle: epoch 0 = lrMax / div
   , checkClose "oneCycle epoch 0" (0.001 / 25.0) (oneCycle 0.001 25.0 1.0e5 0.25 6000 0) tol
 
