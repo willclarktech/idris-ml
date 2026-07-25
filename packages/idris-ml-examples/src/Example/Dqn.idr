@@ -106,27 +106,10 @@ epsGreedyBatched qB envs eps = go 0 envs
       pure (a :: as)
 
 ----------------------------------------------------------------------
--- DQN loss (batched online Q; target Q forwarded per-sample, read back
--- as a Double — no autograd chain into the target's params, the
--- optimizer is scoped to "online" only).
+-- DQN loss (batched online Q; target Q forwarded once for the whole
+-- batch and read back as Doubles — no autograd chain into the target's
+-- params, the optimizer is scoped to "online" only).
 ----------------------------------------------------------------------
-
--- Max over row 0 of a [1, NumActions] tensor pointer.
-rowMax2d : AnyPtr -> Double
-rowMax2d t =
-  let v0 = primItem2d {ex=Ex} t 0 0
-      v1 = primItem2d {ex=Ex} t 0 1
-  in if v0 >= v1 then v0 else v1
-
-computeTargetValL : (1 _ : QNet) -> Double -> Transition ObsDim 1 ->
-                    L IO {use = 1} (LPair (!* Double) QNet)
-computeTargetValL target gamma t = do
-  stateV <- liftIO1 (ioRerun (\_ =>
-    the (Tensor [1, ObsDim] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [obsTensor t.nextObs]) Nothing)))
-  (MkBang qV # target') <- forwardSeq {b=1} target stateV
-  let nextMax = rowMax2d qV.tensorPtr
-      bootstrap = if t.done then 0.0 else gamma * nextMax
-  pure1 (MkBang (t.reward + bootstrap) # target')
 
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
@@ -147,23 +130,44 @@ meanScalarLoss n losses = do
   let summed = foldl (\a, b => MkTensor (primAdd {ex=Ex} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
--- Thread the (linear) target net across the batch, collecting bootstrap
--- target values in order.
-foldTargetsL : (1 _ : QNet) -> Double -> List (Transition ObsDim 1) -> List Double ->
-               L IO {use = 1} (LPair (!* (List Double)) QNet)
-foldTargetsL target _     []          acc = pure1 (MkBang (reverse acc) # target)
-foldTargetsL target gamma (t :: rest) acc = do
-  (MkBang tv # target') <- computeTargetValL target gamma t
-  foldTargetsL target' gamma rest (tv :: acc)
+-- Bootstrap targets for the whole batch in ONE target-net forward, then a
+-- row-wise max — mirroring the reference's
+-- `target(next_obs).max(dim=1).values` (torch_ref/models/dqn.py). This
+-- replaces a per-transition fold that ran `forwardSeq {b=1}` once per
+-- sample, i.e. `batchSize` (default 64) single-row forwards per training
+-- step where one batched forward does.
+--
+-- The per-row readbacks are sequenced through `ioRerun` rather than a
+-- lazy `let`: `primItem1d` is pure-typed, so an unforced binding is free
+-- to be evaluated after the tensor it reads from has gone.
+computeTargetsBatchedL : (n : Nat) -> (1 _ : QNet) -> Double ->
+                         Vect n (Transition ObsDim 1) ->
+                         L IO {use = 1} (LPair (!* (List Double)) QNet)
+computeTargetsBatchedL n target gamma batch = do
+  nextBV <- liftIO1 (ioRerun (\_ =>
+    the (Tensor [n, ObsDim] Ex F WithGrad)
+        (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\t => obsTensor t.nextObs) batch)) Nothing)))
+  (MkBang qNextB # target') <- forwardSeq {b=n} target nextBV
+  vals <- liftIO1 (do maxes <- tmaxRows qNextB
+                      readBootstraps maxes.tensorPtr (toList batch) 0)
+  pure1 (MkBang vals # target')
+  where
+    readBootstraps : AnyPtr -> List (Transition ObsDim 1) -> Int -> IO (List Double)
+    readBootstraps _  []          _ = pure []
+    readBootstraps mp (t :: rest) k = do
+      nextMax <- ioRerun (\_ => primItem1d {ex=Ex} mp k)
+      let bootstrap = if t.done then 0.0 else gamma * nextMax
+      rs <- readBootstraps mp rest (k + 1)
+      pure ((t.reward + bootstrap) :: rs)
 
--- DQN loss: thread the target net (per-sample bootstrap values) and the online
+-- DQN loss: thread the target net (batched bootstrap values) and the online
 -- net (batched Q forward), then the per-sample squared TD error (pure on the ω
 -- forward output) → mean. Returns the loss beside BOTH nets (nested LPair).
 batchLossBatchedL : (n : Nat) -> (1 _ : QNet) -> (1 _ : QNet) -> Double ->
                     Vect n (Transition ObsDim 1) ->
                     L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) (LPair QNet QNet))
 batchLossBatchedL n online target gamma batch = do
-  (MkBang targetVals # target') <- foldTargetsL target gamma (toList batch) []
+  (MkBang targetVals # target') <- computeTargetsBatchedL n target gamma batch
   obsBV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [n, ObsDim] Ex F WithGrad)
         (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} (map (\t => obsTensor t.obs) batch)) Nothing)))

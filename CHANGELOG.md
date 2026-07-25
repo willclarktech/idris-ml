@@ -2,6 +2,24 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+DQN-family bootstrap targets batched (2026-07-29). `Example/Dqn.idr` and
+`Example/DoubleDqn.idr` computed their bootstrap targets with a
+per-transition fold that ran `forwardSeq {b=1}` once per sample — 64
+single-row forwards per training step on DQN, 128 on Double DQN (online
+selection plus target evaluation) — where the paired PyTorch references
+have always used one batched forward (`target(next_obs).max(dim=1).values`).
+Replaced by `computeTargetsBatchedL`: one batched target forward plus
+`tmaxRows` for DQN, and one online (no-grad) plus one target forward for
+Double DQN. **This was the root cause of the double-dqn slowdown** that
+`030ed719` had worked around by capping smoke epochs in June: seed 42 goes
+from ≥58 min (it never completed a convergence cell) to **3m51s**, with
+`avg_return` 85.0 → **160.0**, clearing the `>= 100` bar added the same
+day. `example-dqn` seed 42 holds ~1m39s while `avg_return` rises 128 →
+200 — there the batching win is spent on longer surviving episodes. Purely
+an Idris-side change; the references already batched, so no paired edit.
+Numerics shift (batched matmul vs per-sample matvec), so the pre-change
+`example-dqn` cells were dropped from `convergence-campaign.tsv` to re-run.
+
 Fused softmax-xent adoption completed across the example surface
 (2026-07-28). `tnllLoss` (1-D classify NLL) reimplemented over
 `primSoftmaxXent2d` at scale 1/n via the rank-1-as-`[1,n]` acceptance
