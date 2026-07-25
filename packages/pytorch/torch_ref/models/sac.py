@@ -67,7 +67,7 @@ def _obs_tensor(obs: np.ndarray) -> Tensor:
     return torch.tensor(obs, dtype=get_dtype(), device=get_device())
 
 
-def make_pendulum_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+def make_pendulum_vec_env(seed: int, num_envs: int) -> tuple[gym.vector.SyncVectorEnv, np.ndarray]:
     """N Pendulum-v1 envs in a SyncVectorEnv, seeded once at construction
     and randomized per Gymnasium on each reset."""
 
@@ -84,8 +84,9 @@ def make_pendulum_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
         [_make(i) for i in range(num_envs)],
         autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
-    vec.reset(seed=seed)
-    return vec
+    # SyncVectorEnv.reset's stub returns unsolved TypeVars (Unknown).
+    obs0, _info = cast("tuple[np.ndarray, dict[str, Any]]", vec.reset(seed=seed))
+    return vec, np.asarray(obs0, dtype=np.float64)
 
 
 # ---------------------------------------------------------------------------
@@ -277,11 +278,7 @@ def train_sac(
     q2_opt = torch.optim.Adam(q2.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
 
-    vec_env = make_pendulum_vec_env(seed, NUM_ENVS)
-    obs_np = np.tile(
-        np.array([math.cos(math.pi), math.sin(math.pi), 0.0], dtype=np.float64),
-        (NUM_ENVS, 1),
-    )
+    vec_env, obs_np = make_pendulum_vec_env(seed, NUM_ENVS)
     ep_lens = np.zeros(NUM_ENVS, dtype=np.int64)
     ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     history: list[float] = []

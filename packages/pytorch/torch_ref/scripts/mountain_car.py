@@ -14,7 +14,6 @@ import random
 import sys
 import time
 
-import numpy as np
 import torch
 
 from torch_ref.init_manifest import maybe_dump_init
@@ -74,8 +73,8 @@ def main() -> None:
     maybe_dump_init(q, target)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
-    vec_env = make_mountaincar_vec_env(args.seed, NUM_ENVS)
-    obs_state = [np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))]
+    vec_env, obs0 = make_mountaincar_vec_env(args.seed, NUM_ENVS)
+    obs_state = [obs0]
     step_count = [0]
     print()
 

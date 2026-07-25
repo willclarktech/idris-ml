@@ -93,8 +93,8 @@ def main() -> None:
     critic_opt = torch.optim.Adam(critic.parameters(), lr=args.lr)
     print()
 
-    vec_env = make_acrobot_vec_env(args.seed, NUM_ENVS)
-    obs_state = [np.tile(np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1))]
+    vec_env, obs0 = make_acrobot_vec_env(args.seed, NUM_ENVS)
+    obs_state = [obs0]
     ep_lens_state = [np.zeros(NUM_ENVS, dtype=np.int64)]
 
     def epoch_fn() -> float:

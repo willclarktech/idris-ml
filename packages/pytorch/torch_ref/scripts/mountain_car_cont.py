@@ -91,10 +91,9 @@ def main() -> None:
 
     print()
     history: list[float] = []
-    vec_env = make_mountaincarcont_vec_env(args.seed, NUM_ENVS)
+    vec_env, obs_np = make_mountaincarcont_vec_env(args.seed, NUM_ENVS)
     # SyncVectorEnv.envs is untyped upstream (bare `Env`).
     envs = cast("list[MountainCarContEnv]", vec_env.envs)  # pyright: ignore[reportUnknownMemberType]
-    obs_np = np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))
     ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     t_start = time.monotonic()
     for step in range(args.epochs):

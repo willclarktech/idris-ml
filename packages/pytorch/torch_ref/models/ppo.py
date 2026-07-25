@@ -182,7 +182,7 @@ def gae_batched(
     return advantages, returns
 
 
-def make_acrobot_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+def make_acrobot_vec_env(seed: int, num_envs: int) -> tuple[gym.vector.SyncVectorEnv, np.ndarray]:
     """N independent Acrobot envs in a SyncVectorEnv, seeded once at
     construction and randomized per Gymnasium on each reset (mirrors
     idris-gym's `Gym.Vector.resetAll`)."""
@@ -200,8 +200,9 @@ def make_acrobot_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
         [_make(i) for i in range(num_envs)],
         autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
-    vec.reset()
-    return vec
+    # SyncVectorEnv.reset's stub returns unsolved TypeVars (Unknown).
+    obs0, _info = cast("tuple[np.ndarray, dict[str, Any]]", vec.reset())
+    return vec, np.asarray(obs0, dtype=np.float64)
 
 
 def collect_rollout(
@@ -377,8 +378,7 @@ def train_ppo(
     critic = Critic().to(get_device())
     actor_opt = torch.optim.Adam(actor.parameters(), lr=lr)
     critic_opt = torch.optim.Adam(critic.parameters(), lr=lr)
-    vec_env = make_acrobot_vec_env(seed, NUM_ENVS)
-    obs_np = np.tile(np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64), (NUM_ENVS, 1))
+    vec_env, obs_np = make_acrobot_vec_env(seed, NUM_ENVS)
     ep_lens = np.zeros(NUM_ENVS, dtype=np.int64)
     history: list[float] = []
     t_start = time.monotonic()

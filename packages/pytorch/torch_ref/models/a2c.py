@@ -74,14 +74,16 @@ class Critic(nn.Module):
         return self.head(h).squeeze(-1)
 
 
-def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+def make_cartpole_vec_env(seed: int, num_envs: int) -> tuple[gym.vector.SyncVectorEnv, np.ndarray]:
     """N independent CartPole envs in a SyncVectorEnv, each reset through
     Gymnasium's U(-0.05, 0.05)^4 start distribution — the draw idris-gym's
     `Gym.Vector.resetAll` makes. Same-step autoreset: a terminated sub-env
     is reset within the same `step` call and its returned obs is the fresh
     start state, matching idris-gym's `Gym.Vector.stepAutoReset` (gymnasium
     1.x defaults to NEXT_STEP, which inserts a filler transition whose
-    action is ignored and whose reward is 0)."""
+    action is ignored and whose reward is 0). Returns the vec env and the
+    reset observation as float64 — the first rollout must start from it,
+    as the Idris side starts from its own reset draw."""
 
     def _make(idx: int):
         def _f():
@@ -93,8 +95,9 @@ def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
         [_make(i) for i in range(num_envs)],
         autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
-    vec.reset()
-    return vec
+    # SyncVectorEnv.reset's stub returns unsolved TypeVars (Unknown).
+    obs0, _info = cast("tuple[np.ndarray, dict[str, Any]]", vec.reset())
+    return vec, np.asarray(obs0, dtype=np.float64)
 
 
 def collect_rollout(
@@ -229,8 +232,7 @@ def train_a2c(
         list(actor.parameters()) + list(critic.parameters()),
         lr=lr,
     )
-    vec_env = make_cartpole_vec_env(seed, NUM_ENVS)
-    obs_np = np.zeros((NUM_ENVS, 4), dtype=np.float64)
+    vec_env, obs_np = make_cartpole_vec_env(seed, NUM_ENVS)
     history: list[float] = []
     ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     t_start = time.monotonic()

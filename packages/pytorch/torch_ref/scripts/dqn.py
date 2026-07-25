@@ -18,7 +18,6 @@ import random
 import sys
 import time
 
-import numpy as np
 import torch
 
 from torch_ref.init_manifest import maybe_dump_init
@@ -72,8 +71,8 @@ def main() -> None:
     maybe_dump_init(q, target)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
-    vec_env = make_cartpole_vec_env(args.seed, NUM_ENVS)
-    obs_state = [np.zeros((NUM_ENVS, 4), dtype=np.float64)]
+    vec_env, obs0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
+    obs_state = [obs0]
     step_count = [0]
     print()
 

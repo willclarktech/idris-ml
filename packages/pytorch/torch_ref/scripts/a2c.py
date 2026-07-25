@@ -140,8 +140,7 @@ def main() -> None:
     # normalization, the policy/value/entropy loss, the clip and Adam are all
     # under test.
     if os.environ.get("IDRISML_ORACLE_DUMP"):
-        vec0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
-        obs0 = np.zeros((NUM_ENVS, 4), dtype=np.float64)
+        vec0, obs0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
         o, a, r, v, d, new_obs = collect_rollout(actor, critic, vec0, obs0, args.rollout)
         with torch.no_grad():
             boot_v = critic(obs_tensor(new_obs))
@@ -167,8 +166,8 @@ def main() -> None:
 
     # Stateful epoch context: NUM_ENVS parallel envs + per-env running
     # episodic returns. Matches Idris-side `A2CState.{envRef, retRef}`.
-    vec_env = make_cartpole_vec_env(args.seed, NUM_ENVS)
-    obs_state = [np.zeros((NUM_ENVS, 4), dtype=np.float64)]
+    vec_env, obs0 = make_cartpole_vec_env(args.seed, NUM_ENVS)
+    obs_state = [obs0]
     running_returns = [np.zeros(NUM_ENVS, dtype=np.float64)]
 
     def epoch_fn() -> float:

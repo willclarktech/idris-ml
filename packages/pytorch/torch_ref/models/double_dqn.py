@@ -147,8 +147,7 @@ def train_double_dqn(
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
-    vec_env = make_cartpole_vec_env(seed, NUM_ENVS)
-    obs_np = np.zeros((NUM_ENVS, 4), dtype=np.float64)
+    vec_env, obs_np = make_cartpole_vec_env(seed, NUM_ENVS)
     history: list[float] = []
     step_count = 0
     t_start = time.monotonic()

@@ -117,7 +117,7 @@ def eps_greedy_action(q: QNetwork, obs: Tensor, epsilon: float, rng: random.Rand
         return int(torch.argmax(q(obs)).item())
 
 
-def make_mountaincar_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+def make_mountaincar_vec_env(seed: int, num_envs: int) -> tuple[gym.vector.SyncVectorEnv, np.ndarray]:
     """N MountainCar-v0 envs in a SyncVectorEnv, seeded once at construction
     and randomized per Gymnasium on each reset."""
 
@@ -134,8 +134,9 @@ def make_mountaincar_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorE
         [_make(i) for i in range(num_envs)],
         autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
-    vec.reset()
-    return vec
+    # SyncVectorEnv.reset's stub returns unsolved TypeVars (Unknown).
+    obs0, _info = cast("tuple[np.ndarray, dict[str, Any]]", vec.reset())
+    return vec, np.asarray(obs0, dtype=np.float64)
 
 
 def eps_greedy_batched(
@@ -311,8 +312,7 @@ def train_dqn(
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
-    vec_env = make_mountaincar_vec_env(seed, NUM_ENVS)
-    obs_np = np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))
+    vec_env, obs_np = make_mountaincar_vec_env(seed, NUM_ENVS)
     history: list[float] = []
     step_count = 0
     t_start = time.monotonic()

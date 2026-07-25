@@ -6,8 +6,6 @@ collecting transitions in lockstep (matches Idris-side
 `Gym.Vector.VecEnv NumEnvs CPState`). Each "epoch" = env-0's primary
 episode; the other envs auto-reset and continue feeding the buffer.
 
-Reset state pinned to (0, 0, 0, 0) to mirror idris-gym.
-
 Convergence target: greedy-evaluation return >= 150 on CartPole in 500
 episodes.
 """
@@ -44,12 +42,14 @@ NUM_ENVS = 4
 type CartPoleEnv = gym.Env[np.ndarray, int]
 
 
-def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+def make_cartpole_vec_env(seed: int, num_envs: int) -> tuple[gym.vector.SyncVectorEnv, np.ndarray]:
     """N independent CartPole envs in a SyncVectorEnv, each reset through
     Gymnasium's U(-0.05, 0.05)^4 start distribution. Same-step autoreset,
     matching idris-gym's `Gym.Vector.stepAutoReset` (gymnasium 1.x defaults
     to NEXT_STEP, which inserts a filler transition whose action is ignored
-    and whose reward is 0)."""
+    and whose reward is 0). Returns the vec env and the reset observation
+    as float64 — the first rollout must start from it, as the Idris side
+    starts from its own reset draw."""
 
     def _make(idx: int):
         def _f() -> CartPoleEnv:
@@ -61,8 +61,9 @@ def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
         [_make(i) for i in range(num_envs)],
         autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
-    vec.reset()
-    return vec
+    # SyncVectorEnv.reset's stub returns unsolved TypeVars (Unknown).
+    obs0, _info = cast("tuple[np.ndarray, dict[str, Any]]", vec.reset())
+    return vec, np.asarray(obs0, dtype=np.float64)
 
 
 class QNetwork(nn.Module):
@@ -279,8 +280,7 @@ def train_dqn(
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
-    vec_env = make_cartpole_vec_env(seed, NUM_ENVS)
-    obs_np = np.zeros((NUM_ENVS, 4), dtype=np.float64)
+    vec_env, obs_np = make_cartpole_vec_env(seed, NUM_ENVS)
     history: list[float] = []
     step_count = 0
     t_start = time.monotonic()

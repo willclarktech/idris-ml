@@ -70,7 +70,7 @@ def obs_tensor(obs: np.ndarray) -> Tensor:
     return torch.tensor(obs, dtype=get_dtype(), device=get_device())
 
 
-def make_mountaincarcont_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
+def make_mountaincarcont_vec_env(seed: int, num_envs: int) -> tuple[gym.vector.SyncVectorEnv, np.ndarray]:
     """N MountainCarContinuous-v0 envs in a SyncVectorEnv, seeded once at
     construction and randomized per Gymnasium on each reset (mirrors
     Idris-side `Gym.Vector.resetAll`)."""
@@ -88,8 +88,9 @@ def make_mountaincarcont_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVec
         [_make(i) for i in range(num_envs)],
         autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
-    vec.reset()
-    return vec
+    # SyncVectorEnv.reset's stub returns unsolved TypeVars (Unknown).
+    obs0, _info = cast("tuple[np.ndarray, dict[str, Any]]", vec.reset())
+    return vec, np.asarray(obs0, dtype=np.float64)
 
 
 class Actor(nn.Module):
@@ -240,8 +241,7 @@ def train_sac(
     q2_opt = torch.optim.Adam(q2.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
 
-    vec_env = make_mountaincarcont_vec_env(seed, NUM_ENVS)
-    obs_np = np.tile(np.array([-0.5, 0.0], dtype=np.float64), (NUM_ENVS, 1))
+    vec_env, obs_np = make_mountaincarcont_vec_env(seed, NUM_ENVS)
     ep_returns_running = np.zeros(NUM_ENVS, dtype=np.float64)
     history: list[float] = []
     t_start = time.monotonic()
