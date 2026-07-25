@@ -195,16 +195,24 @@ def main() -> None:
     test_size = 20
     short_batch = generate_copy_batch(test_size, 1, 5, seq_width=W)
     full_batch = generate_copy_batch(test_size, 1, 20, seq_width=W)
+    # Trained range, the split the Idris example gates on. Reported beside the
+    # 1-5 / 1-20 pair so one threshold can compare the two sides while the
+    # generalization split still shows how far past training the model holds.
+    train_batch = generate_copy_batch(test_size, 1, 10, seq_width=W)
+    train_acc, train_seq = _accuracies(model, train_batch)
     short_acc, short_seq = _accuracies(model, short_batch)
     full_acc, full_seq = _accuracies(model, full_batch)
 
     print(f"  Short (len 1-5):  {short_acc * 100:.1f}% bit, {short_seq * 100:.1f}% seq")
+    print(f"  Trained (1-10):   {train_acc * 100:.1f}% bit, {train_seq * 100:.1f}% seq")
     print(f"  Full  (len 1-20): {full_acc * 100:.1f}% bit, {full_seq * 100:.1f}% seq")
     print()
     print(
         format_result(
             [
                 ("epochs", str(epochs_done)),
+                ("acc", f"{train_acc}"),
+                ("seq_acc", f"{train_seq}"),
                 ("acc_short", f"{short_acc}"),
                 ("acc_full", f"{full_acc}"),
                 ("seq_acc_short", f"{short_seq}"),

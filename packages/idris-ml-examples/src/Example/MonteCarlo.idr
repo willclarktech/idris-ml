@@ -221,13 +221,16 @@ evalHand q st (S k) =
            Continue => evalHand q st' k
            _        => reward
 
-evalN : QTable -> Nat -> Bits64 -> Double -> Double -> IO Double
-evalN _ Z _ wins played           = pure (wins / played)
-evalN q (S k) envSeed wins played = do
+-- Returns (win rate, mean reward). The reference reports both, and they say
+-- different things: a policy that trades wins for pushes moves one and not
+-- the other.
+evalN : QTable -> Nat -> Bits64 -> Double -> Double -> Double -> IO (Double, Double)
+evalN _ Z _ wins reward played           = pure (wins / played, reward / played)
+evalN q (S k) envSeed wins reward played = do
   s <- genSeed
   let r = evalHand q (fst (initBJ s)) MaxSteps
       wins' = if r > 0.0 then wins + 1.0 else wins
-  evalN q k envSeed wins' (played + 1.0)
+  evalN q k envSeed wins' (reward + r) (played + 1.0)
 
 ----------------------------------------------------------------------
 -- Main
@@ -256,11 +259,13 @@ main = do
       (generate genInput)
       trainCfg zeroModel
 
-    winRate <- liftIO1 (evalN q 5000 0 0.0 0.0)
+    (winRate, avgReward) <- liftIO1 (evalN q 5000 0 0.0 0.0 0.0)
     liftIO1 $ do
       putStrLn ""
       putStrLn $ "Eval (5000 hands, greedy): win_rate=" ++ show winRate
+               ++ " avg_reward=" ++ show avgReward
       putStrLn ""
       putStrLn $ formatResult [("win_rate", show winRate),
+                               ("avg_reward", show avgReward),
                                ("epochs", show epochsDone),
                                ("seed", show cfg.seed)]

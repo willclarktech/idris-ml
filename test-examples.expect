@@ -44,7 +44,7 @@ example-matmul-bench             gflops       >   0.1
 # ---- Memory-augmented nets: safety-net (5 epochs) ----
 # At 5 epochs none of these have learned past random (~0.5 for binary tasks).
 # Threshold 0.3 catches "totally diverged" without flaking on init/seed noise.
-example-ntm-copy                 acc          >=  0.3
+example-ntm-copy                 acc_full     >=  0.3
 example-ntm-associative-recall   acc          >=  0.3
 example-dnc-copy                 acc          >=  0.3
 example-dnc-recall               acc          >=  0.3

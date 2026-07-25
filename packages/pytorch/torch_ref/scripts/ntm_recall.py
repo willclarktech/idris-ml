@@ -161,12 +161,18 @@ def main() -> None:
     k2_batch = generate_recall_batch(test_size, 2, 2, SEQ_LEN, W)
     k4_batch = generate_recall_batch(test_size, 4, 4, SEQ_LEN, W)
     k6_batch = generate_recall_batch(test_size, 6, 6, SEQ_LEN, W)
+    # Mixed 2-6, the protocol the Idris example gates on. Reported alongside
+    # the per-K split so a single threshold can compare the two sides while
+    # the split still shows the difficulty curve.
+    mixed_batch = generate_recall_batch(test_size, 2, 6, SEQ_LEN, W)
+    mixed_acc, mixed_seq = _accuracies(model, mixed_batch)
     k2_acc, k2_seq = _accuracies(model, k2_batch)
     k4_acc, k4_seq = _accuracies(model, k4_batch)
     k6_acc, k6_seq = _accuracies(model, k6_batch)
 
     print()
     print("Eval:")
+    print(f"  mixed 2-6: {mixed_acc * 100:.1f}% bit, {mixed_seq * 100:.1f}% seq")
     print(f"  K=2 items: {k2_acc * 100:.1f}% bit, {k2_seq * 100:.1f}% seq")
     print(f"  K=4 items: {k4_acc * 100:.1f}% bit, {k4_seq * 100:.1f}% seq")
     print(f"  K=6 items: {k6_acc * 100:.1f}% bit, {k6_seq * 100:.1f}% seq")
@@ -175,6 +181,8 @@ def main() -> None:
         format_result(
             [
                 ("epochs", str(epochs_done)),
+                ("acc", f"{mixed_acc}"),
+                ("seq_acc", f"{mixed_seq}"),
                 ("acc_k2", f"{k2_acc}"),
                 ("acc_k4", f"{k4_acc}"),
                 ("acc_k6", f"{k6_acc}"),

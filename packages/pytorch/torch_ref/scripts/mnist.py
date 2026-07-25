@@ -92,6 +92,7 @@ def main() -> None:
     print("Training...")
     t0 = time.time()
     best_loss = float("inf")
+    loss = float("nan")
     stale = 0
     patience = args.patience
     epochs_done = 0
@@ -126,6 +127,7 @@ def main() -> None:
             [
                 ("accuracy", f"{accuracy:.4f}"),
                 ("epochs", str(epochs_done)),
+                ("loss", f"{loss:.6f}"),
                 ("seed", str(args.seed)),
             ]
         )

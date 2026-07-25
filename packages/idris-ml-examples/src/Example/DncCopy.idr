@@ -246,13 +246,28 @@ main = do
            (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
            model
     liftIO1 (putStrLn "" >> putStrLn "Eval:")
-    testBatch <- liftIO1 (genBatch 100 1 10)
-    (MkBang (acc, seqAcc) # trained') <- bitAccuracyL trained testBatch
-    discard trained'
+    -- Three splits, matching the reference: `short` (1-5) is the easy end,
+    -- `acc` is the trained range and the gated metric, `full` (1-20) is the
+    -- length-generalization test that runs past what training saw.
+    shortBatch <- liftIO1 (genBatch 100 1 5)
+    (MkBang (accShort, seqShort) # trained1) <- bitAccuracyL trained shortBatch
+    trainBatch <- liftIO1 (genBatch 100 1 10)
+    (MkBang (acc, seqAcc) # trained2) <- bitAccuracyL trained1 trainBatch
+    fullBatch <- liftIO1 (genBatch 100 1 20)
+    (MkBang (accFull, seqFull) # trained3) <- bitAccuracyL trained2 fullBatch
+    discard trained3
     liftIO1 $ do
-      putStrLn $ "  Bit accuracy (len 1-10): " ++ show (acc * 100.0) ++ "%"
-      putStrLn $ "  Seq accuracy (len 1-10): " ++ show (seqAcc * 100.0) ++ "%"
+      putStrLn $ "  Short (len 1-5):  " ++ show (accShort * 100.0) ++ "% bit, "
+               ++ show (seqShort * 100.0) ++ "% seq"
+      putStrLn $ "  Trained (1-10):   " ++ show (acc * 100.0) ++ "% bit, "
+               ++ show (seqAcc * 100.0) ++ "% seq"
+      putStrLn $ "  Full  (len 1-20): " ++ show (accFull * 100.0) ++ "% bit, "
+               ++ show (seqFull * 100.0) ++ "% seq"
       putStrLn ""
       putStrLn $ formatResult [("epochs", show epochsDone),
                                ("acc", show acc), ("seq_acc", show seqAcc),
+                               ("acc_short", show accShort),
+                               ("acc_full", show accFull),
+                               ("seq_acc_short", show seqShort),
+                               ("seq_acc_full", show seqFull),
                                ("seed", show cfg.seed)]

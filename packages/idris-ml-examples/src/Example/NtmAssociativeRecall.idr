@@ -265,13 +265,31 @@ main = do
            (windowedPercentileConfig cfg.epochs 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
            model
     liftIO1 (putStrLn "" >> putStrLn "Eval:")
-    testBatch <- liftIO1 (genBatch 100 2 6)
-    (MkBang (acc, seqAcc) # trained') <- bitAccuracyL trained testBatch
-    discard trained'
+    -- Mixed 2-6 (the gated metric) plus the per-K split the reference
+    -- reports, which shows where along the difficulty curve a run breaks.
+    mixedBatch <- liftIO1 (genBatch 100 2 6)
+    (MkBang (acc, seqAcc) # trained1) <- bitAccuracyL trained mixedBatch
+    k2Batch <- liftIO1 (genBatch 100 2 2)
+    (MkBang (accK2, seqK2) # trained2) <- bitAccuracyL trained1 k2Batch
+    k4Batch <- liftIO1 (genBatch 100 4 4)
+    (MkBang (accK4, seqK4) # trained3) <- bitAccuracyL trained2 k4Batch
+    k6Batch <- liftIO1 (genBatch 100 6 6)
+    (MkBang (accK6, seqK6) # trained4) <- bitAccuracyL trained3 k6Batch
+    discard trained4
     liftIO1 $ do
-      putStrLn $ "  Bit accuracy (2-6 items): " ++ show (acc * 100.0) ++ "%"
-      putStrLn $ "  Seq accuracy (2-6 items): " ++ show (seqAcc * 100.0) ++ "%"
+      putStrLn $ "  mixed 2-6: " ++ show (acc * 100.0) ++ "% bit, "
+               ++ show (seqAcc * 100.0) ++ "% seq"
+      putStrLn $ "  K=2 items: " ++ show (accK2 * 100.0) ++ "% bit, "
+               ++ show (seqK2 * 100.0) ++ "% seq"
+      putStrLn $ "  K=4 items: " ++ show (accK4 * 100.0) ++ "% bit, "
+               ++ show (seqK4 * 100.0) ++ "% seq"
+      putStrLn $ "  K=6 items: " ++ show (accK6 * 100.0) ++ "% bit, "
+               ++ show (seqK6 * 100.0) ++ "% seq"
       putStrLn ""
       putStrLn $ formatResult [("epochs", show epochsDone),
                                ("acc", show acc), ("seq_acc", show seqAcc),
+                               ("acc_k2", show accK2), ("acc_k4", show accK4),
+                               ("acc_k6", show accK6),
+                               ("seq_acc_k2", show seqK2), ("seq_acc_k4", show seqK4),
+                               ("seq_acc_k6", show seqK6),
                                ("seed", show cfg.seed)]

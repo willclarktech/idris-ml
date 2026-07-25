@@ -80,11 +80,13 @@ def main() -> None:
         eval_loss = losses.mean().item()
     print(f"  Loss: {eval_loss}")
 
+    correct = 0
     with torch.no_grad():
         for x, y in data:
             pred = model(x)
             pred_class = pred.argmax().item()
             target_class = y.argmax().item()
+            correct += int(pred_class == target_class)
             ok = "ok" if pred_class == target_class else "WRONG"
             # tolist() returns list[Unknown] in torch's stubs.
             x_vals = cast("list[float]", x.tolist())  # pyright: ignore[reportUnknownMemberType]
@@ -97,6 +99,7 @@ def main() -> None:
                 ("epochs", str(epochs_done)),
                 ("loss", f"{eval_loss}"),
                 ("seed", str(args.seed)),
+                ("correct", f"{correct}/{len(data)}"),
             ]
         )
     )

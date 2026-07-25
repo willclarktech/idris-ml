@@ -28,7 +28,10 @@ example-gpt                      bpc          <   5.0
 example-transfer                 loss         <   0.5
 
 # ---- Memory-augmented (NTM/DNC at full default 50K-100K epochs) ----
-example-ntm-copy                 acc          >=  0.9
+# ntm-copy gates on `acc_full` (len 1-20), which is the trained range and is
+# exactly what the row measured as plain `acc` before 2026-07-31 — the key was
+# renamed to match the reference's short/full split, not the measurement.
+example-ntm-copy                 acc_full     >=  0.9
 example-ntm-associative-recall   acc          >=  0.8
 example-dnc-copy                 acc          >=  0.8
 example-dnc-recall               acc          >=  0.6
