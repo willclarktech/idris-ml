@@ -262,7 +262,7 @@ batchLossL : (1 _ : Model) -> Vect BatchSize GptSample ->
 batchLossL (MkGptModel emb body headW pe) batch = do
   (MkBang losses # body') <- foldSamples emb headW pe body (toList batch) []
   loss <- liftIO1 $ do
-            zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "gpt.epoch_zero" 0.0
+            zero   <- tconstScalar {ex=ExampleExecutor} {dt=ExampleDType} 0.0
             summed <- foldlM (\acc, l => tadd acc l) zero losses
             tmulScalar summed (1.0 / cast {to=Double} BatchSize)
   pure1 (MkBang loss # MkGptModel emb body' headW pe)

@@ -234,7 +234,7 @@ batchLossL : (1 _ : Model) -> Vect BatchSize FtExample
           -> L IO {use = 1} (LPair (!* (Tensor [] ExampleExecutor ExampleDType WithGrad)) Model)
 batchLossL model batch = do
   (MkBang losses # model') <- foldExamples model (toList batch) []
-  loss <- liftIO1 (do zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "ftcls.epoch_zero" 0.0
+  loss <- liftIO1 (do zero   <- tconstScalar {ex=ExampleExecutor} {dt=ExampleDType} 0.0
                       summed <- sumScalars tadd zero losses
                       tmulScalar summed (1.0 / cast {to=Double} BatchSize))
   pure1 (MkBang loss # model')

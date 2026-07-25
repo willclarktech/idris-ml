@@ -263,7 +263,7 @@ epochLoraL opt batchSize model adapters items = go adapters 0.0 0 items
     go adapters accLoss nBatches all@(_ :: _) = do
       let (batch, rest) = splitAt batchSize all
       (MkBang losses # adapters') <- foldBatch adapters batch []
-      v <- liftIO1 (do zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "sst2lora.epoch_zero" 0.0
+      v <- liftIO1 (do zero   <- tconstScalar {ex=ExampleExecutor} {dt=ExampleDType} 0.0
                        summed <- sumScalars zero losses
                        let denom = cast {to=Double} (cast {to=Integer} (length batch))
                        meanLoss <- tmulScalar summed (1.0 / denom)

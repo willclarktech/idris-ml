@@ -250,7 +250,7 @@ epochSst2L opt batchSize model items = go model 0.0 0 items
     go model accLoss nBatches all@(_ :: _) = do
       let (batch, rest) = splitAt batchSize all
       (MkBang losses # model') <- foldBatch model batch []
-      v <- liftIO1 (do zero   <- tparamScalar {ex=ExampleExecutor} {dt=ExampleDType} "sst2.epoch_zero" 0.0
+      v <- liftIO1 (do zero   <- tconstScalar {ex=ExampleExecutor} {dt=ExampleDType} 0.0
                        summed <- sumScalars zero losses
                        let denom = cast {to=Double} (cast {to=Integer} (length batch))
                        meanLoss <- tmulScalar summed (1.0 / denom)
