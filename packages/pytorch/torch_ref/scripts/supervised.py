@@ -9,7 +9,12 @@ from typing import cast
 
 import torch
 
-from torch_ref.init_manifest import maybe_dump_batch, maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_batch,
+    maybe_dump_init,
+    maybe_load_oracle,
+)
 from torch_ref.models.supervised import (
     SupervisedModel,
     _make_supervised_data,  # pyright: ignore[reportPrivateUsage]  # shared with the paired script
@@ -23,6 +28,13 @@ from torch_ref.training.runner import (
     run_training,
     set_device,
 )
+
+# Idris registry name -> this script's parameter name. Mirrors the entry in
+# scripts/paired_examples.py, which is what the alignment gates verify.
+PAIRED_PARAMS = {
+    "linear_0.bias": "0.linear.bias",
+    "linear_0.weight": "0.linear.weight",
+}
 
 
 def main() -> None:
@@ -63,8 +75,21 @@ def main() -> None:
 
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
 
+    # Oracle run: take Idris' init weights and its batch, do exactly one step,
+    # dump the result. Both sides then started from identical numbers on
+    # identical inputs, so any difference afterwards is forward, backward or
+    # optimizer semantics — the class no shape or moment check can see.
+    oracle = maybe_load_oracle(model, PAIRED_PARAMS)
+    if oracle is not None:
+        ox, oy = oracle
+        data = [(ox[i], oy[i]) for i in range(ox.shape[0])]
+
     def epoch_fn() -> float:
         return train_supervised_epoch(model, data, optimizer)
+
+    if oracle is not None:
+        epoch_fn()
+        maybe_dump_after_step(model)
 
     if args.lr_find:
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)

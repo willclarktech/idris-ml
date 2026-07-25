@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         target: NotRequired[str]
         data_manifest: NotRequired[bool]
         params: NotRequired[dict[str, str]]
+        step_oracle: NotRequired[bool]
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +58,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES: list[ExampleSpec] = [
     {
         "name": "supervised",
+        # One optimizer step per epoch and a two-parameter model, so a wrong
+        # post-step weight is unambiguous. See check-step-oracle.py.
+        "step_oracle": True,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

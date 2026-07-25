@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+import torch
 
 # safetensors ships no py.typed marker, so pyright sees the signature as
 # partially unknown. The call below is fully annotated on our side.
@@ -84,4 +86,60 @@ def maybe_dump_batch(x: Tensor, y: Tensor) -> None:
             f"DATA_MANIFEST\t{tag}\t{list(t.shape)}\t{float(f.mean())}\t"
             f"{float(f.std(unbiased=False))}\t{d1}\t{float(f.min())}\t{float(f.max())}"
         )
+    sys.exit(0)
+
+
+ORACLE_LOAD_VAR = "IDRISML_ORACLE_LOAD"
+ORACLE_STEP_VAR = "IDRISML_ORACLE_STEP"
+ORACLE_INPUT = "__oracle.input"
+ORACLE_TARGET = "__oracle.target"
+
+
+def maybe_load_oracle(model: nn.Module, params: dict[str, str]) -> tuple[Tensor, Tensor] | None:
+    """Load Idris' dumped init weights and batch. Returns (input, target).
+
+    `params` maps Idris registry names to this side's parameter names, as in
+    `scripts/paired_examples.py`. Weights flow Idris -> reference only for the
+    oracle run: the point is that both sides start from *identical* numbers,
+    and this is the one direction that needs no rename machinery on the Idris
+    side. Which side authored them is irrelevant once they are equal.
+    """
+    path = os.environ.get(ORACLE_LOAD_VAR)
+    if not path:
+        return None
+
+    from safetensors import safe_open
+
+    own = dict(model.named_parameters())
+    # safetensors ships no py.typed marker, so everything off `safe_open` is
+    # Unknown to pyright; cast at the boundary rather than sprinkle ignores.
+    with safe_open(path, framework="pt") as handle:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+
+        def read(key: str) -> Tensor:
+            return cast("Tensor", handle.get_tensor(key))  # pyright: ignore[reportUnknownMemberType]
+
+        for idris_name, ref_name in params.items():
+            # The dump prefixes by model index; a single-model script is "0.".
+            target = own[ref_name.split(".", 1)[1]]
+            src = read(idris_name)
+            if tuple(src.shape) != tuple(target.shape):
+                raise ValueError(
+                    f"oracle load: {idris_name} is {tuple(src.shape)} but "
+                    f"{ref_name} is {tuple(target.shape)}"
+                )
+            with torch.no_grad():
+                target.copy_(src.to(target.dtype))
+        return read(ORACLE_INPUT), read(ORACLE_TARGET)
+
+
+def maybe_dump_after_step(model: nn.Module) -> None:
+    """Write the post-step parameters and exit, if asked to."""
+    path = os.environ.get(ORACLE_STEP_VAR)
+    if not path:
+        return
+    tensors: dict[str, Tensor] = {
+        k: v.detach().cpu().contiguous().clone() for k, v in model.named_parameters()
+    }
+    save_file(tensors, path)
+    print(f"{ORACLE_STEP_VAR}: wrote {path}")
     sys.exit(0)

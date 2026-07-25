@@ -837,6 +837,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: make test-integration-lint-data-manifest
 
+      - name: Verify paired examples compute the same step
+        # Idris dumps its init weights and first batch; the reference loads
+        # both, takes one optimizer step and dumps; Idris takes one step and
+        # dumps. The post-step parameters must agree to round-off. The only
+        # gate that compares arithmetic rather than descriptions — a planted
+        # sum-for-mean loss reduction leaves the init and data gates green and
+        # moves a weight by 1.1e-01 here.
+        if: ${{ !cancelled() }}
+        run: make test-integration-lint-step-oracle
+
       - name: Verify convergence-campaign expect coverage
         # Every example in CONVERGENCE_CAMPAIGN_EXAMPLES must have a
         # threshold row in test-examples-convergence.expect.

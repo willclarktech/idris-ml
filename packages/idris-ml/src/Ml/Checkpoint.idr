@@ -452,6 +452,16 @@ tensorMoments ptr n =
     head' (x :: _) = x
     head' []       = 0.0
 
+||| The names the oracle batch is registered under. Double-underscored so they
+||| cannot collide with a layer's scope-derived parameter name.
+export
+oracleInputName : String
+oracleInputName = "__oracle.input"
+
+export
+oracleTargetName : String
+oracleTargetName = "__oracle.target"
+
 ||| If `IDRISML_DUMP_DATA` is set, pull one batch from `stream`, print the
 ||| moments of its input and target tensors, and exit.
 |||
@@ -462,18 +472,40 @@ tensorMoments ptr n =
 ||| passing. Values cannot be compared (the RNGs differ), so this reports
 ||| shape and moments, which is what distinguishes those two distributions.
 export
-maybeDumpBatch : {0 ex : Executor} -> UserExecutorCore ex =>
+maybeDumpBatch : {0 ex : Executor} -> UserExecutorTraining ex =>
                  {rankX, rankY : Nat} ->
                  {dimsX : Vect rankX Nat} -> {dimsY : Vect rankY Nat} ->
                  {0 dt : DType} -> {0 g : GradMode} ->
                  DataStream (Tensor dimsX ex dt g, Tensor dimsY ex dt g) -> IO ()
 maybeDumpBatch stream = do
-  Just _ <- getEnv "IDRISML_DUMP_DATA"
-    | Nothing => pure ()
-  (x, y) <- stream.next
-  report "input"  (foldl (*) 1 dimsX) dimsX x.tensorPtr
-  report "target" (foldl (*) 1 dimsY) dimsY y.tensorPtr
-  exitSuccess
+  oracle <- getEnv "IDRISML_ORACLE_DUMP"
+  dump   <- getEnv "IDRISML_DUMP_DATA"
+  case (oracle, dump) of
+    (Nothing, Nothing) => pure ()
+    (Just path, _)     => do
+      -- Oracle mode: write the init weights AND this batch to one file, so
+      -- the reference can start from identical weights on identical inputs.
+      -- Registered as BUFFERS: they ride the same table `saveAll` walks, and
+      -- the optimizer skips buffers, so nothing here can be stepped.
+      (x, y) <- stream.next
+      -- `ioRerun`, not a bare call: these are pure-typed FFIs with a side
+      -- effect, and the compiler reorders or drops those across sibling
+      -- bindings (docs/develop/gotchas.md). Threading the returned handles
+      -- through `<-` pins the ordering.
+      xr <- ioRerun (\_ => primParamRegisterBuffer {ex} oracleInputName x.tensorPtr)
+      yr <- ioRerun (\_ => primParamRegisterBuffer {ex} oracleTargetName y.tensorPtr)
+      when (prim__nullAnyPtr xr /= 0 || prim__nullAnyPtr yr /= 0) $
+        putStrLn "IDRISML_ORACLE_DUMP: batch registration returned null"
+      Right () <- saveAll {ex} path
+        | Left err => do putStrLn ("IDRISML_ORACLE_DUMP: save failed: " ++ show err)
+                         exitFailure
+      putStrLn ("IDRISML_ORACLE_DUMP: wrote " ++ path)
+      exitSuccess
+    (Nothing, Just _) => do
+      (x, y) <- stream.next
+      report "input"  (foldl (*) 1 dimsX) dimsX x.tensorPtr
+      report "target" (foldl (*) 1 dimsY) dimsY y.tensorPtr
+      exitSuccess
   where
     report : String -> Nat -> Vect r Nat -> AnyPtr -> IO ()
     report tag n dims ptr =

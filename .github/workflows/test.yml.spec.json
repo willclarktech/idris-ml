@@ -347,6 +347,18 @@
         ]
       },
       {
+        "name": "Verify paired examples compute the same step",
+        "run": "make test-integration-lint-step-oracle",
+        "comment": [
+          "Idris dumps its init weights and first batch; the reference loads",
+          "both, takes one optimizer step and dumps; Idris takes one step and",
+          "dumps. The post-step parameters must agree to round-off. The only",
+          "gate that compares arithmetic rather than descriptions \u2014 a planted",
+          "sum-for-mean loss reduction leaves the init and data gates green and",
+          "moves a weight by 1.1e-01 here."
+        ]
+      },
+      {
         "name": "Verify convergence-campaign expect coverage",
         "run": "make test-integration-lint-convergence-expect-coverage",
         "comment": [
