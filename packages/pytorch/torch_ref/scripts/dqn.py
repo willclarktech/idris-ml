@@ -86,11 +86,25 @@ class RecordingRandom(random.Random):
         super().__init__(seed)
         self.uniforms: list[float] = []
         self.decisions: list[int] = []
+        self.normals: list[float] = []
+        self._suppress = False
 
     def random(self) -> float:
         u = super().random()
-        self.uniforms.append(u)
+        if not self._suppress:
+            self.uniforms.append(u)
         return u
+
+    def gauss(self, mu: float = 0.0, sigma: float = 1.0) -> float:
+        # gauss draws its own uniforms internally; keep those off the gate
+        # stream and log the standard-normal result instead (sac's noise).
+        self._suppress = True
+        try:
+            g = super().gauss(mu, sigma)
+        finally:
+            self._suppress = False
+        self.normals.append((g - mu) / sigma if sigma != 0.0 else 0.0)
+        return g
 
     def getrandbits(self, k: int) -> int:
         # Overriding random() alone flips CPython's Random onto its

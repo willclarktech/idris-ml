@@ -47,6 +47,10 @@ if TYPE_CHECKING:
         # The reference's oracle run writes <fixture>.replay (recorded
         # draws); the Idris run receives it via its --replay flag.
         replay: NotRequired[bool]
+        # Extra CLI args for the step-oracle run, applied to BOTH sides —
+        # for examples whose default config would leave the first epoch
+        # without an optimizer step (sac's warmup).
+        oracle_args: NotRequired[list[str]]
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -779,6 +783,21 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "sac",
+        # The step is RNG-driven, so the reference records its draws (action,
+        # target and reparameterization noise on the normal channel; minibatch
+        # indices as decisions; reset states as the uniforms that produced
+        # them) and Idris regenerates the identical step by replaying them.
+        # The default config leaves the first epoch inside warmup with an
+        # empty buffer, so the oracle runs both sides warmup-free with a
+        # batch one lockstep step can fill.
+        "step_oracle": True,
+        "replay": True,
+        "oracle_args": ["--warmup", "0", "--batch", "4"],
+        # Step-oracle bound, measured with `--tolerance 0`: worst 2.8e-10
+        # (actor_log_std, which sums every squash-correction term); all
+        # network weights land at or below 5.6e-17. Planted alpha x1.01
+        # probe lands 6.9e-07..1.1e-05 across actor and Q nets.
+        "tolerance": 1e-7,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

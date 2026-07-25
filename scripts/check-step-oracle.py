@@ -193,11 +193,17 @@ def main() -> int:
             ref_after = Path(tmp) / f"{name}-ref-after.safetensors"
             idris_after = Path(tmp) / f"{name}-idris-after.safetensors"
 
+            # Some examples need a non-default config for their first epoch to
+            # exercise the update at all (sac: no warmup, batch small enough
+            # to fill from one lockstep step). Applied to BOTH sides, so the
+            # compared run is still one experiment.
+            oracle_args = [str(a) for a in spec.get("oracle_args", [])]
+
             # One reference run writes both halves: the fixture it started
             # from (parameters plus every random input it drew, keyed for the
             # Idris registry) and its own post-step parameters.
             _rc, out = run(
-                ["uv", "run", "python", "-u", "-m", f"torch_ref.scripts.{module}"],
+                ["uv", "run", "python", "-u", "-m", f"torch_ref.scripts.{module}", *oracle_args],
                 REPO_ROOT / "packages" / "pytorch",
                 {"IDRISML_ORACLE_DUMP": str(oracle), "IDRISML_ORACLE_STEP": str(ref_after)},
             )
@@ -225,7 +231,8 @@ def main() -> int:
                 # (which can differ from the table name — ntm-recall builds
                 # example-ntm-associative-recall).
                 args_var = target.removeprefix("example-").upper().replace("-", "_") + "_ARGS"
-                make_cmd.append(f"{args_var}=--replay {replay_path}")
+                extra = (" " + " ".join(oracle_args)) if oracle_args else ""
+                make_cmd.append(f"{args_var}=--replay {replay_path}{extra}")
             _rc, out = run(
                 make_cmd,
                 REPO_ROOT,
