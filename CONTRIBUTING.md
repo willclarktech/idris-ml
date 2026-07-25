@@ -71,7 +71,6 @@ These exist to build and validate the library rather than to be used directly:
 | --- | --- |
 | [`backends`](packages/backends/) | C/C++ backends (tape, libtorch, MLX) + the shared training port |
 | [`pytorch`](packages/pytorch/) | PyTorch reference implementations, used as the correctness oracle |
-| [`idris-fmt`](packages/idris-fmt/) | Compiler-native Idris formatter, gated by a round-trip safety oracle |
 | [`idris-test`](packages/idris-test/) | Shared Idris test harness (assertions, suites, property testing) |
 | [`idris-test-c`](packages/idris-test-c/) | Cross-cutting C test infrastructure for the backend layer |
 | [`idris-ml-notebook`](packages/idris-ml-notebook/) | `Notebook.Prelude` re-export shim auto-loaded by the Jupyter kernel |

@@ -130,6 +130,7 @@ Toolchain requirements, the per-backend build matrix, and the test gates are in
 | [`idris-gym`](packages/idris-gym/) | Pure-Idris RL environments with a Gymnasium-parity API (CartPole, FrozenLake, Taxi, …) |
 | [`idris-ml-examples`](packages/idris-ml-examples/) | Runnable example programs (supervised, recurrent, transformers, RL) + microbenchmarks |
 | [`idris-args`](packages/idris-args/) | Typed CLI flag parsing (zero deps beyond base) |
+| [`idris-fmt`](packages/idris-fmt/) | Compiler-native Idris formatter — whitespace, import sorting, alignment; gated by a round-trip safety oracle so it can't change meaning |
 | [`jupyter`](packages/jupyter/) | Jupyter kernel (Python) wrapping the Idris 2 REPL with FFI support |
 
 The backends, the PyTorch oracle, the formatter, and the test harnesses are
