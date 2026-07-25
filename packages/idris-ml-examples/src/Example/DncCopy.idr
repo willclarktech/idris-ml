@@ -238,7 +238,7 @@ main = do
   opt <- rmsprop cfg.lr {alpha = cfg.alpha} {momentum = cfg.momentum}
                  ({ clip := ValueClip cfg.clipVal } defaultOpts)
   rng <- case cfg.replay of
-           "" => liveRng
+           ""  => liveRng
            pth => (.rng) <$> loadReplay pth
   let dataStream = generate (genBatch rng cfg.batch cfg.minLen cfg.maxLen)
 
