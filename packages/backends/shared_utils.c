@@ -26,6 +26,24 @@ double _wall_ms(void) {
 	return (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0;
 }
 
+/* --- SplitMix64 (Steele, Lea, Flood 2014) ---
+ *
+ * One definition for the three consumers below: the DataStream shuffler's
+ * state seeder, the process-global generator backing `Ml.Compat.Random`, and
+ * the portable param-init generator's state seeder. Each keeps its OWN state
+ * word — sharing a stream between them would couple a shuffle's permutation to
+ * how many parameters were initialised, which is not a dependency anyone
+ * wants. Only the arithmetic is shared.
+ *
+ * `Random.SplitMix` in idris-random is the readable reference this is held to;
+ * Test.RandomConformance seeds both and asserts identical streams. */
+static uint64_t splitmix64_next(uint64_t* x) {
+	uint64_t z = (*x += 0x9E3779B97F4A7C15ULL);
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+	return z ^ (z >> 31);
+}
+
 /* --- Seeded per-stream index array (DataStream) ---
  *
  * Carries its own xoshiro256** RNG state so each stream shuffles
@@ -41,13 +59,6 @@ typedef struct {
 	int n;
 	uint64_t s[4];
 } SeededIndexArray;
-
-static uint64_t splitmix64_next(uint64_t* x) {
-	uint64_t z = (*x += 0x9e3779b97f4a7c15ULL);
-	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-	z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-	return z ^ (z >> 31);
-}
 
 static uint64_t xoshiro_rotl(uint64_t x, int k) {
 	return (x << k) | (x >> (64 - k));
@@ -139,11 +150,7 @@ void idrisml_srand(uint64_t seed) {
 }
 
 uint64_t idrisml_rand64(void) {
-	idrisml_rng_state += 0x9E3779B97F4A7C15ULL;
-	uint64_t z = idrisml_rng_state;
-	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-	return z ^ (z >> 31);
+	return splitmix64_next(&idrisml_rng_state);
 }
 
 /* Non-negative draw in [0, 2^31), matching what `rand()` handed callers. */
@@ -427,13 +434,6 @@ static int pi_seeded = 0;
 static double pi_bm_cached_z1 = 0.0;
 static int pi_bm_cached_has = 0;
 
-static uint64_t pi_splitmix64(uint64_t* x) {
-	uint64_t z = (*x += 0x9E3779B97F4A7C15ULL);
-	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-	return z ^ (z >> 31);
-}
-
 static inline uint64_t pi_rotl(uint64_t x, int k) {
 	return (x << k) | (x >> (64 - k));
 }
@@ -452,10 +452,10 @@ static uint64_t pi_next(void) {
 
 void idrisml_portable_init_seed(unsigned long long seed) {
 	uint64_t sm = (uint64_t)seed;
-	pi_state[0] = pi_splitmix64(&sm);
-	pi_state[1] = pi_splitmix64(&sm);
-	pi_state[2] = pi_splitmix64(&sm);
-	pi_state[3] = pi_splitmix64(&sm);
+	pi_state[0] = splitmix64_next(&sm);
+	pi_state[1] = splitmix64_next(&sm);
+	pi_state[2] = splitmix64_next(&sm);
+	pi_state[3] = splitmix64_next(&sm);
 	pi_seeded = 1;
 	/* Drop any cached Box-Muller half so a re-seed is visible on the next
 	   sample rather than after one stale value. */

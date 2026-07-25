@@ -19,7 +19,6 @@ import Gym.ClassicControl.MountainCarCont
 import Gym.ClassicControl.Pendulum
 import Gym.Env
 import Gym.Rng
-
 import Test.Harness
 
 -- Captured from the tree at the commit before `reset` widened from `Seed` to
@@ -89,8 +88,8 @@ tests =
     -- episode sequence can be replayed from one list.
     let (s1, src) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double}
                           (Recorded [0.0, 1.0])
-        (s2, _)   = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} src
-        p1 = index 0 (observe {state=MCState} {action=Nat} {obs=Vect 2 Double} s1)
-        p2 = index 0 (observe {state=MCState} {action=Nat} {obs=Vect 2 Double} s2)
+        (s2, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} src
+        p1      = index 0 (observe {state=MCState} {action=Nat} {obs=Vect 2 Double} s1)
+        p2      = index 0 (observe {state=MCState} {action=Nat} {obs=Vect 2 Double} s2)
     in closeAll "successive resets advance the recording" [-0.6, -0.4] [p1, p2]
   ]
