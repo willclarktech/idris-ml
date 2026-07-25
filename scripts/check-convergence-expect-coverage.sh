@@ -18,12 +18,18 @@
 # make for the list rather than re-deriving it (a hand-maintained copy
 # would rot exactly like the thing it is checking).
 #
-# Usage: scripts/check-convergence-expect-coverage.sh [<expect-file>]
+# Usage: scripts/check-convergence-expect-coverage.sh [<expect-file> [<make-var>]]
+#
+# <make-var> names the make variable holding the campaign list, so the same
+# gate covers the reference-side campaign (CONVERGENCE_REF_MODULES against
+# test-refs-convergence.expect) — that list can drift from its thresholds the
+# same way.
 set -euo pipefail
 
 cd "$( dirname "${BASH_SOURCE[0]}" )/.."
 
 EXPECT="${1:-test-examples-convergence.expect}"
+LIST_VAR="${2:-CONVERGENCE_CAMPAIGN_EXAMPLES}"
 
 if [ ! -f "$EXPECT" ]; then
 	echo "FAIL: expect file not found: $EXPECT" >&2
@@ -32,10 +38,10 @@ fi
 
 # `print-%` is a prerequisite-free echo target (mk/config.mk), so this
 # neither builds nor touches anything.
-EXAMPLES=$( make -s --no-print-directory print-CONVERGENCE_CAMPAIGN_EXAMPLES )
+EXAMPLES=$( make -s --no-print-directory "print-$LIST_VAR" )
 
 if [ -z "$EXAMPLES" ]; then
-	echo "FAIL: CONVERGENCE_CAMPAIGN_EXAMPLES is empty — did the variable move?" >&2
+	echo "FAIL: $LIST_VAR is empty — did the variable move?" >&2
 	exit 1
 fi
 
@@ -56,9 +62,9 @@ if [ -n "$missing" ]; then
 	echo "check-result.sh treats a missing row as presence-only (exit 0), so these" >&2
 	echo "would record 'pass' in the campaign without asserting anything. Add a row" >&2
 	echo "(anchored to the paired PyTorch reference's achieved rate) or drop the" >&2
-	echo "example from CONVERGENCE_CAMPAIGN_EXAMPLES in mk/e2e.mk." >&2
+	echo "entry from $LIST_VAR." >&2
 	exit 1
 fi
 
 count=$( echo "$EXAMPLES" | wc -w | tr -d ' ' )
-echo "check-convergence-expect-coverage: OK ($count campaign examples, all have thresholds)"
+echo "check-convergence-expect-coverage: OK ($count entries in $LIST_VAR, all have thresholds)"

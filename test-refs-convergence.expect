@@ -1,0 +1,41 @@
+# test-convergence-ref threshold expectations (PyTorch reference side)
+#
+# Format: <module> <key> <op> <threshold>
+# Same syntax as test-examples.expect — see that file's header for details.
+# <module> is the torch_ref.scripts module name, so `supervised` here is the
+# peer of `example-supervised` in test-examples-convergence.expect.
+#
+# Purpose: run the references at the same seeds and the same bars as the Idris
+# convergence campaign, so the two pass rates answer the same question. Scope is
+# the models whose dense layers share Idris' init contract (see
+# reference-alignment.md "one dense init on both sides"); tabular RL has no
+# seeded reference entrypoint, and the memory/transformer models init from a
+# normal distribution on the Idris side, so neither belongs in this file.
+#
+# Thresholds are copied from test-examples-convergence.expect unchanged. Where a
+# row differs, the reason is stated inline.
+
+# ---- Supervised / recurrent ----
+supervised               loss         <   0.5
+rnn                      loss         <   0.5
+lstm                     loss         <   0.05
+gru                      loss         <   0.05
+
+# ---- Other non-RL ----
+mnist                    accuracy     >=  0.85
+# Metric asymmetry: the reference evaluates held-out accuracy (500 samples) and
+# reports no loss, while Example.SeqClassify reports final training loss and
+# evaluates nothing. 0.5 is the reference's own bar from
+# correctness/test_seq_classify.py (chance is 0.33). The two sides' pass rates
+# for this row therefore measure different things — read them separately.
+seq_classify             accuracy     >=  0.5
+
+# ---- RL: deep (CartPole + Acrobot + Pendulum + MountainCar) ----
+reinforce                avg_return   >=  150
+dqn                      avg_return   >=  100
+double_dqn               avg_return   >=  100
+mountain_car             avg_return   >=  -160
+mountain_car_cont        avg_return   >=  85
+a2c                      avg_return   >=  150
+ppo                      avg_return   >=  -150
+sac                      avg_return   >=  -500

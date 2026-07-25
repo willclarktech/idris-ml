@@ -87,6 +87,8 @@ test-integration-lint-paired-defaults:
 # 2026-06-19 until 2026-07-29.
 test-integration-lint-convergence-expect-coverage:
 	@bash scripts/check-convergence-expect-coverage.sh
+	@bash scripts/check-convergence-expect-coverage.sh \
+		test-refs-convergence.expect CONVERGENCE_REF_MODULES
 
 # Lint the Python surface — split per-package: each Python-bearing
 # package owns its own `lint-py-<pkg>` target. The top-level

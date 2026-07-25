@@ -9,7 +9,8 @@
         ref-lint ref-typecheck test-e2e-transformers-oracle-bert \
         test-e2e-rope-oracle test-e2e-transformers-oracle-gpt2 \
         test-e2e-transformers-oracle-llama ref-convergence \
-        ref-convergence-copy ref-convergence-recall test-e2e-cuda
+        ref-convergence-copy ref-convergence-recall test-e2e-cuda \
+        test-convergence-ref-campaign
 
 ref-setup:
 	cd packages/pytorch && uv sync --dev
@@ -141,6 +142,28 @@ ref-convergence-copy:
 
 ref-convergence-recall:
 	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
+
+# Reference-side multi-seed convergence CAMPAIGN — the peer of
+# test-convergence-campaign in mk/e2e.mk. Same seeds, same thresholds, same
+# resumable TSV shape, so the two pass-rate tables answer the same question
+# and sit side by side in reference-alignment.md.
+#
+# Scope is the models whose dense layers share Idris' init contract (see
+# reference-alignment.md "one dense init on both sides"). Deliberately absent:
+# tabular RL (q-learning, sarsa, monte-carlo, frozen-lake, taxi) has no seeded
+# reference entrypoint, and the memory (ntm/dnc) + transformer models init from
+# a normal distribution on the Idris side, which is a separate alignment axis.
+CONVERGENCE_REF_MODULES := supervised rnn lstm gru mnist seq_classify \
+	reinforce dqn double_dqn mountain_car mountain_car_cont a2c ppo sac
+CONVERGENCE_REF_EXPECT  := test-refs-convergence.expect
+CONVERGENCE_REF_OUT     ?= docs/develop/convergence-campaign-ref.tsv
+
+test-convergence-ref-campaign:
+	@MODULES='$(CONVERGENCE_REF_MODULES)' SEEDS='$(CONVERGENCE_SEEDS)' \
+		CONVERGENCE_TIMEOUT='$(CONVERGENCE_TIMEOUT)' \
+		CONVERGENCE_EXPECT='$(CONVERGENCE_REF_EXPECT)' \
+		CONVERGENCE_REF_OUT='$(CONVERGENCE_REF_OUT)' \
+		bash scripts/test-convergence-ref.sh
 
 # CUDA test (run on Colab or Linux with CUDA GPU)
 test-e2e-cuda:
