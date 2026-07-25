@@ -23,14 +23,39 @@ protocol, so the two rates finally answer the same question. Seeds 42/1/2/3/4,
 tape backend; thresholds from `test-examples-convergence.expect` and
 `test-refs-convergence.expect`.
 
-20 of 25 Idris examples are 5/5. The exceptions:
+Both campaigns are complete: 125 Idris cells
+(`convergence-campaign.tsv`, 25 examples) and 115 reference cells
+(`convergence-campaign-ref.tsv`, 23 modules; gpt and transformer have no seeded
+reference bar).
+
+20 of 25 Idris examples are 5/5, as are 19 of 23 reference modules. Every row
+where the two sides differ, or where either falls short of 5/5:
 
 | Example | Idris | Reference | Note |
 |---------|-------|-----------|------|
-| example-dqn | 4/5 (seed 2) | not yet run | unchanged by the alignment work |
-| example-a2c | 3/5 (seeds 2, 4) | not yet run | unchanged |
-| example-ntm-copy | 3/5 (seeds 3, 4) | 4/5 (seed 4) | up from 1/5 at `fd0407bb` |
+| example-a2c | 3/5 (seeds 2, 4) | 5/5 | the one clear Idris deficit |
 | example-ntm-associative-recall | 2/5 (seeds 1, 2, 4) | 3/5 (seeds 42, 4) | down from 5/5 at `fd0407bb` |
+| example-ntm-copy | 3/5 (seeds 3, 4) | 4/5 (seed 4) | up from 1/5 at `fd0407bb` |
+| example-dqn | 4/5 (seed 2) | 4/5 (seed 3) | same rate, different seed |
+| example-double-dqn | 5/5 | 4/5 (seed 3) | |
+| example-sac | 5/5 | 2/5 (seeds 1, 3, 4) | |
+
+Five seeds is a small sample, so a one-seed gap (dqn, ntm-copy, ntm-recall) is
+weak evidence in either direction; the two- and three-seed gaps (a2c, sac) are
+the ones carrying signal.
+
+`example-dqn` seed 2 had been an open question since the DQN batching change.
+Both sides now sit at 4/5 and fail on *different* seeds, which places the
+failure in the algorithm's seed sensitivity rather than in the Idris port.
+
+`example-a2c` is the row to investigate. It is the only example where the
+reference is solid and Idris is not, and A2C is where a paramId-scoping bug
+previously let seed 42 "converge" while the actor received no updates at all
+(see "A2C real bug surfaced by multi-seed alignment" below).
+
+SAC runs the comparison the other way: 5/5 in Idris against 2/5 in the
+reference. `torch_ref/correctness/test_sac.py` only ever asserted seed 42, so
+the reference's fragility here had never been measured.
 
 The NTM pair is seed-fragile on **both** implementations, and seed 4 fails on
 both sides of both tasks. Idris sits one seed below the reference on each.
