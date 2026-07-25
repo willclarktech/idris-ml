@@ -19,7 +19,11 @@ import time
 import numpy as np
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_load_oracle_tensors,
+)
 from torch_ref.models.a2c import (
     NUM_ENVS,
     Actor,
@@ -37,6 +41,36 @@ from torch_ref.training.runner import (
     format_result,
     mem_suffix,
     set_device,
+)
+
+# Idris registry name -> this script's parameter name, model-index prefixed
+# (0 = actor, 1 = critic). Mirrors the entry in scripts/paired_examples.py,
+# which check-step-oracle.py cross-checks.
+PAIRED_PARAMS = {
+    "actor.linear_0.bias": "0.fc1.bias",
+    "actor.linear_0.weight": "0.fc1.weight",
+    "actor.linear_1.bias": "0.fc2.bias",
+    "actor.linear_1.weight": "0.fc2.weight",
+    "actor.linear_2.bias": "0.head.bias",
+    "actor.linear_2.weight": "0.head.weight",
+    "critic.linear_0.bias": "1.fc1.bias",
+    "critic.linear_0.weight": "1.fc1.weight",
+    "critic.linear_1.bias": "1.fc2.bias",
+    "critic.linear_1.weight": "1.fc2.weight",
+    "critic.linear_2.bias": "1.head.bias",
+    "critic.linear_2.weight": "1.head.weight",
+}
+
+# What Example.A2c registers under IDRISML_ORACLE_DUMP. Laid out per env
+# ([NumEnvs, RolloutLen]) because that is the order the Idris side flattens in;
+# `compute_advantages` wants [T, N], hence the transpose below.
+ORACLE_ROLLOUT = (
+    "__oracle.obs",
+    "__oracle.actions",
+    "__oracle.rewards",
+    "__oracle.values",
+    "__oracle.dones",
+    "__oracle.bootstraps",
 )
 
 
@@ -82,6 +116,46 @@ def main() -> None:
         lr=args.lr,
     )
     print()
+
+    # Oracle run: take Idris' init weights and the rollout it just collected,
+    # recompute advantages, take exactly one update, dump. The environment and
+    # the action sampler are never touched — their two RNG streams differ by
+    # design — so what is under test is GAE, the advantage normalization, the
+    # policy/value/entropy loss, the clip and Adam.
+    rollout = maybe_load_oracle_tensors((actor, critic), PAIRED_PARAMS, ORACLE_ROLLOUT)
+    if rollout is not None:
+        n_envs = rollout["__oracle.bootstraps"].shape[0]
+
+        def per_env(name: str) -> torch.Tensor:
+            """[N*T, 1] in env-major order -> [T, N], which GAE wants."""
+            return rollout[name].reshape(n_envs, -1).t().contiguous()
+
+        adv, ret = compute_advantages(
+            per_env("__oracle.rewards"),
+            per_env("__oracle.values"),
+            per_env("__oracle.dones"),
+            rollout["__oracle.bootstraps"].reshape(-1),
+            args.gamma,
+            args.lam,
+        )
+
+        # Back to the Idris side's env-major flattening so every row of the
+        # batch still lines up with its observation.
+        def flat(t: torch.Tensor) -> torch.Tensor:
+            return t.t().contiguous().reshape(-1)
+
+        a2c_update(
+            actor,
+            critic,
+            optimizer,
+            rollout["__oracle.obs"],
+            rollout["__oracle.actions"].reshape(-1).long(),
+            flat(adv),
+            flat(ret),
+            args.entropy,
+            args.value_coef,
+        )
+        maybe_dump_after_step(actor, critic)
 
     # Stateful epoch context: NUM_ENVS parallel envs + per-env running
     # episodic returns. Matches Idris-side `A2CState.{envRef, retRef}`.

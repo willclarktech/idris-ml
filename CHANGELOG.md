@@ -15,7 +15,21 @@ side `reset_to_zero` had stopped mutating on 2026-06-08 but kept its name, and
 a2c's and dqn's rollouts still forced the observation to zero while the env sat
 at a random state. New gate `make test-integration-lint-env-reset-literals`
 reads the forbidden constructors out of idris-gym. Full detail in
-`reference-alignment.md`.
+`reference-alignment.md`. All eight Idris deep-RL examples re-measure at 5/5
+after the fix: a2c goes 3/5 -> 5/5 and dqn 4/5 -> 5/5, closing both open
+questions. Neither was an implementation bug.
+
+Step oracle for RL (2026-08-01). `Ml.Checkpoint.maybeDumpOracleTensors` dumps
+arbitrary named tensors alongside the parameters, so an example whose training
+input is not an `(input, target)` pair can still transfer what its update
+consumes. `Example.A2c` registers the rollout (observations, actions, rewards,
+values, done flags, bootstrap values) and `torch_ref/scripts/a2c.py` recomputes
+advantages and takes one update from Idris' weights: GAE, the advantage
+normalization, the policy/value/entropy loss, the gradient clip and Adam all
+come under test, while the environment and the sampler — whose RNG streams
+differ by design — do not. The two sides agree to under 1e-9. Multiplying the
+reference's entropy coefficient by 1.01 makes the gate report 1.083e-07 on the
+actor and nothing on the critic, which is that term's blast radius.
 
 RNN-family reference precision (2026-08-01). `torch_ref/models/rnn.py` built
 its cells, learned initial states and dataset tensors without

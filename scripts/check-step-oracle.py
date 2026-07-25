@@ -81,8 +81,8 @@ def compare_step(
         r_handle: Any = r_raw
         for idris_name, ref_name in params.items():
             a = i_handle.get_tensor(idris_name).double()
-            # The oracle dump prefixes by model index; strip it.
-            b = r_handle.get_tensor(ref_name.split(".", 1)[1]).double()
+            # Both dumps key by the reference's model-index-prefixed name.
+            b = r_handle.get_tensor(ref_name).double()
             if tuple(a.shape) != tuple(b.shape):
                 problems.append(f"{idris_name}: {tuple(a.shape)} vs {ref_name} {tuple(b.shape)}")
                 continue

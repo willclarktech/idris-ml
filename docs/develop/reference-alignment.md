@@ -73,6 +73,41 @@ orders above the 2.2e-19 `supervised` reaches. Pinning the dtype takes it to
 agreement. No other gate could see it — shapes and init moments are identical
 either way, and the convergence bars are far above the difference.
 
+## Deep-RL pass rates after the reset alignment (2026-08-01)
+
+Re-run of all eight deep-RL pairs on both sides after the reset fix above,
+same seeds (42/1/2/3/4), same thresholds, tape backend.
+
+| Example | Idris before | **Idris after** | Reference |
+|---|---|---|---|
+| a2c | 3/5 | **5/5** | 4/5 (seed 3) |
+| dqn | 4/5 (seed 2) | **5/5** | 5/5 |
+| double-dqn | 5/5 | 5/5 | 4/5 (seed 4) |
+| sac | 5/5 | 5/5 | 2/5 (seeds 1, 3, 4) |
+| reinforce | 5/5 | 5/5 | 5/5 |
+| ppo | 5/5 | 5/5 | 5/5 |
+| mountain-car | 5/5 | 5/5 | 5/5 |
+| mountain-car-cont | 5/5 | 5/5 | 5/5 |
+
+All eight Idris examples are 5/5. The a2c gap that prompted this work was the
+evaluation protocol on both sides, not the A2C implementation: Idris measured
+one fixed-start trajectory 30 times, and the reference fed its policy `obs = 0`
+for a step after each auto-reset. `example-dqn`'s seed-2 failure, open since
+the DQN batching change, was the same artifact.
+
+Independently confirmed by the step oracle: `check-step-oracle.py --only a2c`
+transfers the rollout and has the reference recompute GAE and take one update
+from Idris' weights. The post-step parameters agree to under 1e-9, so GAE, the
+advantage normalization, the policy/value/entropy loss, the gradient clip and
+Adam all match. Multiplying the reference's entropy coefficient by 1.01 makes
+the gate report a 1.083e-07 divergence on the actor and none on the critic,
+which is the term's blast radius — so the check is not passing vacuously.
+
+SAC's 5/5-against-2/5 now compares like with like, where before it compared
+Pendulum from the downward equilibrium against Pendulum from a random angle.
+The reference's SAC is fragile across seeds; `torch_ref/correctness/test_sac.py`
+only ever asserted seed 42.
+
 ## Multi-seed pass rates after the alignment work (2026-08-01)
 
 First campaign run where both sides share init, data, metrics and eval

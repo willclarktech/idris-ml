@@ -514,6 +514,45 @@ maybeDumpBatch stream = do
                    ++ show mean ++ "\t" ++ show sd ++ "\t" ++ show d1 ++ "\t"
                    ++ show lo ++ "\t" ++ show hi)
 
+||| The general oracle dump: if `IDRISML_ORACLE_DUMP` names a path, register
+||| each named tensor as a buffer alongside every parameter, write the lot and
+||| exit.
+|||
+||| For examples whose training input is not an `(input, target)` pair. An RL
+||| rollout is the case in hand: it is driven by the environment and the action
+||| sampler, whose RNG streams legitimately differ across the two languages, so
+||| unlike a dataset batch it cannot be regenerated on the reference side and
+||| has to travel. Register what the update consumes (observations, actions,
+||| rewards, values, done flags, bootstrap values) and the reference can
+||| recompute advantages and take the step from there.
+|||
+||| Names should carry the `__oracle.` prefix so they cannot collide with a
+||| layer's scope-derived parameter name. Build each handle with its own
+||| `ioRerun` *before* assembling the list: the bulk constructors are
+||| pure-typed FFIs with a side effect, and the compiler reorders those across
+||| sibling bindings (docs/develop/gotchas.md).
+export
+maybeDumpOracleTensors : {0 ex : Executor} -> UserExecutorTraining ex =>
+                         List (String, AnyPtr) -> IO ()
+maybeDumpOracleTensors named = do
+  Just path <- getEnv "IDRISML_ORACLE_DUMP"
+    | Nothing => pure ()
+  ok <- registerAll named
+  when (not ok) $
+    putStrLn "IDRISML_ORACLE_DUMP: buffer registration returned null"
+  Right () <- saveAll {ex} path
+    | Left err => do putStrLn ("IDRISML_ORACLE_DUMP: save failed: " ++ show err)
+                     exitFailure
+  putStrLn ("IDRISML_ORACLE_DUMP: wrote " ++ path)
+  exitSuccess
+  where
+    registerAll : List (String, AnyPtr) -> IO Bool
+    registerAll []               = pure True
+    registerAll ((k, p) :: rest) = do
+      r    <- ioRerun (\_ => primParamRegisterBuffer {ex} k p)
+      rest <- registerAll rest
+      pure (prim__nullAnyPtr r == 0 && rest)
+
 ||| The weights-only half of the oracle dump: if `IDRISML_ORACLE_DUMP` names a
 ||| path, write every registered parameter to it and exit.
 |||

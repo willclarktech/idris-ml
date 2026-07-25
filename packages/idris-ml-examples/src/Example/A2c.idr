@@ -356,6 +356,47 @@ computeBootstrapsBatchedL critic stepLists v = batchOver critic stepLists v.envs
       (MkBang bs # critic'') <- batchOver critic' rest ss
       pure1 (MkBang (b :: bs) # critic'')
 
+||| Dump the rollout the update is about to consume, then exit — the RL half of
+||| the step oracle (`scripts/check-step-oracle.py`). The rollout is driven by
+||| the environment and the action sampler, whose RNG streams differ across the
+||| two languages by design, so it has to travel rather than be regenerated.
+||| Everything downstream is then under test: GAE, advantage normalization, the
+||| policy/value/entropy loss, the gradient clip and Adam.
+|||
+||| Laid out per env ([NumEnvs, RolloutLen]) so the reference can transpose to
+||| the [T, N] its `compute_advantages` wants. Rows are 1-wide for the scalar
+||| series because `bulkToTensor2d` is the shared constructor.
+maybeDumpRollout : {n : Nat} -> Vect n (List RollStep) -> Vect n Double -> IO ()
+maybeDumpRollout stepLists bootstraps = do
+  Nothing <- getEnv "IDRISML_ORACLE_DUMP"
+    | Just _ => do
+        let flat = Data.Vect.fromList (concat (toList stepLists))
+        -- One `ioRerun` per handle, bound before the list is assembled: the
+        -- bulk constructors are pure-typed FFIs and reorder otherwise.
+        obsP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                                 (map (\s => obsTensor s.obs) flat))
+        actP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                                 (map (\s => scalarRow (cast (natToInteger s.action))) flat))
+        rewP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                                 (map (\s => scalarRow s.reward) flat))
+        valP  <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                                 (map (\s => scalarRow s.value) flat))
+        doneP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F}
+                                 (map (\s => scalarRow (if s.isDone then 1.0 else 0.0)) flat))
+        bootP <- ioRerun (\_ => bulkToTensor2d {ex=Ex} {dt=F} (map scalarRow bootstraps))
+        maybeDumpOracleTensors {ex=Ex}
+          [ ("__oracle.obs", obsP)
+          , ("__oracle.actions", actP)
+          , ("__oracle.rewards", rewP)
+          , ("__oracle.values", valP)
+          , ("__oracle.dones", doneP)
+          , ("__oracle.bootstraps", bootP)
+          ]
+  pure ()
+  where
+    scalarRow : Double -> Vector 1 Double
+    scalarRow v = VArray [SArray v]
+
 a2cEpochL : Optimizer Ex -> Config -> (1 _ : A2CState) -> L IO {use = 1} (LPair (!* Double) A2CState)
 a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef) = do
   startEnvs <- liftIO1 (readIORef envRef)
@@ -368,6 +409,8 @@ a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef) = do
   liftIO1 (writeIORef seedRef finalSeed)
   (MkBang bootstraps # critic'') <-
     withNoGradL {ex=Ex} (computeBootstrapsBatchedL critic' stepLists finalEnvs)
+  -- Inert unless IDRISML_ORACLE_DUMP is set; exits when it is.
+  liftIO1 (maybeDumpRollout stepLists bootstraps)
   (MkBang loss # (actor'' # critic''')) <-
     buildLossBatchedL actor' critic'' cfg.gamma cfg.lam cfg.entropyCoef cfg.valueCoef stepLists bootstraps
   _ <- liftIO1 (trainStep opt loss)

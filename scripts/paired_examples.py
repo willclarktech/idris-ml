@@ -444,6 +444,9 @@ EXAMPLES: list[ExampleSpec] = [
     },  # Job 4 Phase B; py doesn't have it
     {
         "name": "a2c",
+        # The rollout is RNG-driven and cannot be regenerated on the other
+        # side, so it travels as buffers and the reference recomputes GAE.
+        "step_oracle": True,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

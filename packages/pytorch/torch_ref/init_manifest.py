@@ -96,15 +96,19 @@ ORACLE_TARGET = "__oracle.target"
 
 
 def _load_oracle(
-    model: nn.Module, params: dict[str, str], want_batch: bool
-) -> tuple[Tensor, Tensor] | bool | None:
-    """Copy the dumped parameters into `model`, optionally reading the batch.
+    models: tuple[nn.Module, ...], params: dict[str, str], extras: tuple[str, ...]
+) -> dict[str, Tensor] | None:
+    """Copy the dumped parameters into `models`, and read back `extras`.
 
-    Returns None when no oracle path is set, otherwise the (input, target)
-    pair or True. Weights flow Idris -> reference only for the oracle run: the
-    point is that both sides start from *identical* numbers, and this is the
-    one direction that needs no rename machinery on the Idris side. Which side
-    authored them is irrelevant once they are equal.
+    Returns None when no oracle path is set, otherwise the named extra tensors
+    (empty when none were asked for). Weights flow Idris -> reference only for
+    the oracle run: the point is that both sides start from *identical*
+    numbers, and this is the one direction that needs no rename machinery on
+    the Idris side. Which side authored them is irrelevant once they are equal.
+
+    Reference names carry a leading model index, as `maybe_dump_init` writes
+    them, so an actor/critic pair with identically-named layers stays
+    distinguishable.
     """
     path = os.environ.get(ORACLE_LOAD_VAR)
     if not path:
@@ -112,7 +116,7 @@ def _load_oracle(
 
     from safetensors import safe_open
 
-    own = dict(model.named_parameters())
+    own = [dict(m.named_parameters()) for m in models]
     # safetensors ships no py.typed marker, so everything off `safe_open` is
     # Unknown to pyright; cast at the boundary rather than sprinkle ignores.
     with safe_open(path, framework="pt") as handle:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
@@ -121,8 +125,8 @@ def _load_oracle(
             return cast("Tensor", handle.get_tensor(key))  # pyright: ignore[reportUnknownMemberType]
 
         for idris_name, ref_name in params.items():
-            # The dump prefixes by model index; a single-model script is "0.".
-            target = own[ref_name.split(".", 1)[1]]
+            index, attr = ref_name.split(".", 1)
+            target = own[int(index)][attr]
             src = read(idris_name)
             if tuple(src.shape) != tuple(target.shape):
                 raise ValueError(
@@ -131,21 +135,18 @@ def _load_oracle(
                 )
             with torch.no_grad():
                 target.copy_(src.to(target.dtype))
-        if not want_batch:
-            return True
-        return read(ORACLE_INPUT), read(ORACLE_TARGET)
+        return {name: read(name) for name in extras}
 
 
 def maybe_load_oracle_weights(model: nn.Module, params: dict[str, str]) -> bool:
     """Load Idris' dumped init weights into `model`. Returns whether it ran.
 
-    The weights-only counterpart of `maybe_load_oracle`, for examples whose
-    training data is generated identically on both sides (the RNN family's
-    fixed pattern sequences): only the parameters have to travel, and the
-    reference builds its own batch. Pairs with Idris'
-    `Ml.Checkpoint.maybeDumpOracleWeights`.
+    The weights-only variant, for examples whose training data is generated
+    identically on both sides (the RNN family's fixed pattern sequences): only
+    the parameters have to travel, and the reference builds its own batch.
+    Pairs with Idris' `Ml.Checkpoint.maybeDumpOracleWeights`.
     """
-    return _load_oracle(model, params, want_batch=False) is not None
+    return _load_oracle((model,), params, ()) is not None
 
 
 def maybe_load_oracle(model: nn.Module, params: dict[str, str]) -> tuple[Tensor, Tensor] | None:
@@ -153,22 +154,40 @@ def maybe_load_oracle(model: nn.Module, params: dict[str, str]) -> tuple[Tensor,
 
     `params` maps Idris registry names to this side's parameter names, as in
     `scripts/paired_examples.py`. For examples whose data is drawn from an RNG,
-    where the batch has to travel too; `maybe_load_oracle_weights` is the
-    variant for identically-generated data.
+    where the batch has to travel too.
     """
-    result = _load_oracle(model, params, want_batch=True)
+    result = _load_oracle((model,), params, (ORACLE_INPUT, ORACLE_TARGET))
     if result is None:
         return None
-    return cast("tuple[Tensor, Tensor]", result)
+    return result[ORACLE_INPUT], result[ORACLE_TARGET]
 
 
-def maybe_dump_after_step(model: nn.Module) -> None:
-    """Write the post-step parameters and exit, if asked to."""
+def maybe_load_oracle_tensors(
+    models: tuple[nn.Module, ...], params: dict[str, str], names: tuple[str, ...]
+) -> dict[str, Tensor] | None:
+    """Load Idris' dumped init weights into several models, plus named tensors.
+
+    For examples whose training input is not an `(input, target)` pair — an RL
+    rollout, which the reference cannot regenerate because the environment and
+    the action sampler run on each side's own RNG. Pairs with Idris'
+    `Ml.Checkpoint.maybeDumpOracleTensors`.
+    """
+    return _load_oracle(models, params, names)
+
+
+def maybe_dump_after_step(*models: nn.Module) -> None:
+    """Write the post-step parameters and exit, if asked to.
+
+    Keys carry the model index, matching `maybe_dump_init`, so an actor/critic
+    pair with identically-named layers does not collide.
+    """
     path = os.environ.get(ORACLE_STEP_VAR)
     if not path:
         return
     tensors: dict[str, Tensor] = {
-        k: v.detach().cpu().contiguous().clone() for k, v in model.named_parameters()
+        f"{i}.{k}": v.detach().cpu().contiguous().clone()
+        for i, model in enumerate(models)
+        for k, v in model.named_parameters()
     }
     save_file(tensors, path)
     print(f"{ORACLE_STEP_VAR}: wrote {path}")
