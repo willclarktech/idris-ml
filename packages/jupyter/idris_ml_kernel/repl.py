@@ -138,6 +138,13 @@ class Idris2REPL:
                 # prelude fails to load without it.
                 "-p",
                 "linear",
+                # `idris-random` carries Random.Source, which `Ml.Rng`'s
+                # public types reference; `Ml.RL.ReplayBuffer` pulled Ml.Rng
+                # into the prelude's closure on 2026-08-03 (the replay
+                # campaign), so the prelude fails to load without it — same
+                # transitive-dep story as elab-util below.
+                "-p",
+                "idris-random",
                 "-p",
                 "idris-ml",
                 "-p",
