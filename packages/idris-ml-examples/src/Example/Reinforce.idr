@@ -1,6 +1,7 @@
 module Example.Reinforce
 
 import Control.Linear.LIO
+import Data.IORef
 import Data.Linear.Notation
 import Data.List
 import Data.Vect
@@ -14,6 +15,7 @@ import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Hpo.LrFinder
+import Ml.Rng
 import Ml.Sampler
 import Ml.Simple
 import Ml.Train
@@ -47,26 +49,25 @@ StepRec : Type
 StepRec = (AnyPtr, Double, Double)
 
 export
-rolloutEpL : (1 _ : Policy) -> CPState -> List Double -> Nat ->
+rolloutEpL : Rng -> (1 _ : Policy) -> CPState -> Nat ->
              List StepRec -> L IO {use = 1} (LPair (!* (List StepRec)) Policy)
-rolloutEpL pol _ _ Z acc              = pure1 (MkBang (reverse acc) # pol)
-rolloutEpL pol _ [] _ acc             = pure1 (MkBang (reverse acc) # pol)
-rolloutEpL pol st (r :: rs) (S k) acc = do
+rolloutEpL _   pol _ Z acc      = pure1 (MkBang (reverse acc) # pol)
+rolloutEpL rng pol st (S k) acc = do
   stateV <- liftIO1 (ioRerun (\_ =>
     the (Tensor [1, 4] Ex F WithGrad) (MkTensor (bulkToTensor2d {ex=Ex} {dt=F} [observe st]) Nothing)))
   (MkBang predV # pol') <- forwardSeq {b=1} pol stateV
   let logProbsT = primLogSoftmax2d {ex=Ex} predV.tensorPtr
-      lp0      = primItem2d {ex=Ex} logProbsT 0 0
-      lp1      = primItem2d {ex=Ex} logProbsT 0 1
-      action   = categoricalSample [exp lp0, exp lp1] r
-      rowPtr   = primSelect {ex=Ex} logProbsT 0 0
+      lp0 = primItem2d {ex=Ex} logProbsT 0 0
+      lp1 = primItem2d {ex=Ex} logProbsT 0 1
+  action <- liftIO1 (rng.choice [exp lp0, exp lp1])
+  let rowPtr   = primSelect {ex=Ex} logProbsT 0 0
       selLP    = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
       selLPVal = if action == 0 then lp0 else lp1
   case cpStep st action of
     (reward, st', outcome, _) =>
       let acc' = (selLP, selLPVal, reward) :: acc
       in if done outcome then pure1 (MkBang (reverse acc') # pol')
-         else rolloutEpL pol' st' rs k acc'
+         else rolloutEpL rng pol' st' k acc'
 
 ||| Run N parallel episodes with one batched policy forward per
 ||| timestep. Each env has its own RNG sequence and starting state.
@@ -80,53 +81,50 @@ rolloutEpL pol st (r :: rs) (S k) acc = do
 ||| all envs terminate.
 export
 rolloutEpBatchedL : {n : Nat} ->
+                    Rng ->
                     (1 _ : Policy) ->
                     VecEnv n CPState ->
-                    Vect n (List Double) ->
                     Nat ->
                     L IO {use = 1} (LPair (!* (Vect n (List StepRec))) Policy)
-rolloutEpBatchedL pol (MkVecEnv states0) rss0 maxSteps = do
-  (MkBang result # pol') <- go pol maxSteps states0 rss0 (replicate n False) (replicate n [])
+rolloutEpBatchedL rng pol (MkVecEnv states0) maxSteps = do
+  (MkBang result # pol') <- go pol maxSteps states0 (replicate n False) (replicate n [])
   pure1 (MkBang (map reverse result) # pol')
   where
     -- Per-env action selection + env step, given the batched log-prob
-    -- tensor and this env's integer index. Frozen (done) envs and
-    -- RNG-exhausted envs pass through unchanged.
+    -- tensor and this env's integer index. Frozen (done) envs pass
+    -- through without drawing.
     perEnv : Tensor [n, 2] Ex F WithGrad -> Int ->
-             CPState -> List Double -> Bool -> List StepRec ->
-             (CPState, List Double, Bool, List StepRec)
-    perEnv _         _ st rs  True  acc       = (st, rs, True, acc)
-    perEnv _         _ st []  _     acc       = (st, [], True, acc)
-    perEnv logProbsV i st (r :: rs) False acc =
+             CPState -> Bool -> List StepRec ->
+             IO (CPState, Bool, List StepRec)
+    perEnv _         _ st True  acc = pure (st, True, acc)
+    perEnv logProbsV i st False acc = do
       let logProbsT = logProbsV.tensorPtr
-          lp0      = primItem2d {ex=Ex} logProbsT i 0
-          lp1      = primItem2d {ex=Ex} logProbsT i 1
-          action   = categoricalSample [exp lp0, exp lp1] r
-          rowPtr   = primSelect {ex=Ex} logProbsT 0 i
+          lp0 = primItem2d {ex=Ex} logProbsT i 0
+          lp1 = primItem2d {ex=Ex} logProbsT i 1
+      action <- rng.choice [exp lp0, exp lp1]
+      let rowPtr   = primSelect {ex=Ex} logProbsT 0 i
           selLP    = primSelect {ex=Ex} rowPtr 0 (cast {to=Int} action)
           selLPVal = if action == 0 then lp0 else lp1
-      in case cpStep st action of
-           (reward, st', outcome, _) =>
-             (st', rs, done outcome, (selLP, selLPVal, reward) :: acc)
+      case cpStep st action of
+        (reward, st', outcome, _) =>
+          pure (st', done outcome, (selLP, selLPVal, reward) :: acc)
 
-    -- Walk the four parallel Vects together, threading the row index.
+    -- Walk the parallel Vects together, threading the row index.
     stepAllEnvs : Tensor [n, 2] Ex F WithGrad -> Int ->
-                  Vect k CPState -> Vect k (List Double) -> Vect k Bool ->
-                  Vect k (List StepRec) ->
-                  (Vect k CPState, Vect k (List Double), Vect k Bool, Vect k (List StepRec))
-    stepAllEnvs _         _ []         []         []         []             = ([], [], [], [])
-    stepAllEnvs logProbsV i (st :: sts) (rs :: rss) (d :: ds) (acc :: accs) =
-      let (st', rs', d', acc') = perEnv logProbsV i st rs d acc
-          (sts', rss', ds', accs') = stepAllEnvs logProbsV (i + 1) sts rss ds accs
-      in (st' :: sts', rs' :: rss', d' :: ds', acc' :: accs')
+                  Vect k CPState -> Vect k Bool -> Vect k (List StepRec) ->
+                  IO (Vect k CPState, Vect k Bool, Vect k (List StepRec))
+    stepAllEnvs _         _ []          []        []            = pure ([], [], [])
+    stepAllEnvs logProbsV i (st :: sts) (d :: ds) (acc :: accs) = do
+      (st', d', acc') <- perEnv logProbsV i st d acc
+      (sts', ds', accs') <- stepAllEnvs logProbsV (i + 1) sts ds accs
+      pure (st' :: sts', d' :: ds', acc' :: accs')
 
     -- Recursive loop, threading the linear policy. Accumulators REVERSED.
     go : (1 _ : Policy) -> Nat ->
-         Vect n CPState -> Vect n (List Double) -> Vect n Bool ->
-         Vect n (List StepRec) ->
+         Vect n CPState -> Vect n Bool -> Vect n (List StepRec) ->
          L IO {use = 1} (LPair (!* (Vect n (List StepRec))) Policy)
-    go pol Z _ _ _ accs             = pure1 (MkBang accs # pol)
-    go pol (S k) sts rss dones accs =
+    go pol Z _ _ accs           = pure1 (MkBang accs # pol)
+    go pol (S k) sts dones accs =
       if all id (toList dones) then pure1 (MkBang accs # pol)
       else do
         let obsRows : Vect n (Vector 4 Double)
@@ -136,8 +134,8 @@ rolloutEpBatchedL pol (MkVecEnv states0) rss0 maxSteps = do
         (MkBang predV # pol') <- forwardSeq {b=n} pol stateV
         let logProbsV : Tensor [n, 2] Ex F WithGrad
             logProbsV = MkTensor (primLogSoftmax2d {ex=Ex} predV.tensorPtr) Nothing
-        case stepAllEnvs logProbsV 0 sts rss dones accs of
-          (sts', rss', dones', accs') => go pol' k sts' rss' dones' accs'
+        (sts', dones', accs') <- liftIO1 (stepAllEnvs logProbsV 0 sts dones accs)
+        go pol' k sts' dones' accs'
 
 ----------------------------------------------------------------------
 -- REINFORCE Loss
@@ -178,36 +176,40 @@ averageLoss (x :: xs) =
 
 -- Thread the linear policy across the batch's episodes (one rolloutEpL each),
 -- then build the REINFORCE loss + baseline from the collected StepRecs.
-computeLossL : Double -> (1 _ : Policy) -> List (List Double) ->
+computeLossL : Rng -> (nextSource : IO Source) -> (putSource : Source -> IO ()) ->
+               Double -> (batchSz : Nat) -> (1 _ : Policy) ->
                L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad, Double)) Policy)
-computeLossL gamma pol randomBatch = do
-  (MkBang episodes # pol') <- foldEps pol randomBatch []
+computeLossL rng nextSource putSource gamma batchSz pol = do
+  (MkBang episodes # pol') <- foldEps pol batchSz []
   let epReturns  = map sumRewards episodes
       nEp        = cast {to=Double} (natToInteger (List.length epReturns))
       baseline   = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) episodes
   pure1 (MkBang (averageLoss stepLosses, baseline) # pol')
   where
-    foldEps : (1 _ : Policy) -> List (List Double) -> List (List StepRec) ->
+    foldEps : (1 _ : Policy) -> Nat -> List (List StepRec) ->
               L IO {use = 1} (LPair (!* (List (List StepRec))) Policy)
-    foldEps pol []          acc  = pure1 (MkBang (reverse acc) # pol)
-    foldEps pol (rs :: rest) acc = do
-      -- Fresh `reset` draw per episode, as the batched path above already does
-      -- and as the reference's `env.reset()` does.
-      resetSeedI <- liftIO1 randomInt32
-      let (st0, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double}
-                           (Seeded (cast resetSeedI))
-      (MkBang ep # pol') <- rolloutEpL pol st0 rs MaxSteps []
-      foldEps pol' rest (ep :: acc)
+    foldEps pol Z acc     = pure1 (MkBang (reverse acc) # pol)
+    foldEps pol (S k) acc = do
+      -- Fresh `reset` draw per episode, as the reference's `env.reset()`
+      -- does. `nextSource` is a fresh per-episode Seeded source normally
+      -- and the recording's env channel under --replay; `putSource` hands
+      -- the advanced source back so successive resets keep consuming it.
+      src <- liftIO1 nextSource
+      let (st0, src') = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} src
+      liftIO1 (putSource src')
+      (MkBang ep # pol') <- rolloutEpL rng pol st0 MaxSteps []
+      foldEps pol' k (ep :: acc)
 
-computeLossBatchedL : {n : Nat} -> Double -> (1 _ : Policy) -> Vect n (List Double) ->
+computeLossBatchedL : {n : Nat} -> Rng -> (nextSource : IO Source) -> (putSource : Source -> IO ()) ->
+                      Double -> (1 _ : Policy) ->
                       L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad, Double)) Policy)
-computeLossBatchedL gamma pol randomBatchV = do
-  resetSeedI <- liftIO1 randomInt32
-  let initEnvs : VecEnv n CPState
-      initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
-                              (Seeded (cast resetSeedI)))
-  (MkBang epsV # pol') <- rolloutEpBatchedL pol initEnvs randomBatchV MaxSteps
+computeLossBatchedL rng nextSource putSource gamma pol = do
+  src <- liftIO1 nextSource
+  let (initEnvs, src') = the (VecEnv n CPState, Source)
+                             (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double} src)
+  liftIO1 (putSource src')
+  (MkBang epsV # pol') <- rolloutEpBatchedL rng pol initEnvs MaxSteps
   let eps   = toList epsV
       epReturns  = map sumRewards eps
       nEp        = cast {to=Double} (natToInteger (List.length epReturns))
@@ -218,37 +220,6 @@ computeLossBatchedL gamma pol randomBatchV = do
 ----------------------------------------------------------------------
 -- Training
 ----------------------------------------------------------------------
-
-genBatch : Nat -> IO (List (List Double))
-genBatch batchSz = go batchSz
-  where
-    genN : Nat -> IO (List Double)
-    genN Z     = pure []
-    genN (S k) = do
-      r <- randomRIO (the Double 0.0, 1.0)
-      rs <- genN k
-      pure (r :: rs)
-
-    go : Nat -> IO (List (List Double))
-    go Z     = pure []
-    go (S k) = do
-      ep <- genN MaxSteps
-      rest <- go k
-      pure (ep :: rest)
-
-genBatchV : (n : Nat) -> IO (Vect n (List Double))
-genBatchV Z     = pure []
-genBatchV (S k) = do
-  ep <- go MaxSteps
-  rest <- genBatchV k
-  pure (ep :: rest)
-  where
-    go : Nat -> IO (List Double)
-    go Z      = pure []
-    go (S k') = do
-      r <- randomRIO (the Double 0.0, 1.0)
-      rs <- go k'
-      pure (r :: rs)
 
 ----------------------------------------------------------------------
 -- Evaluation (greedy argmax)
@@ -294,9 +265,10 @@ record Config where
   batchSz : Nat
   lrFind  : Bool
   batched : Bool  -- use batched policy forward per timestep
+  replay  : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 2000 42 0.99 10 False False
+defaultConfig = MkConfig 0.001 2000 42 0.99 10 False False ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -305,7 +277,12 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--gamma" (\v, c => { gamma := cast v } c)
         , Arg "--batch" (\v, c => { batchSz := castNat v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
-        , Arg "--batched" (\v, c => { batched := (v == "1" || v == "true") } c) ]
+        , Arg "--batched" (\v, c => { batched := (v == "1" || v == "true") } c)
+        -- Replay recorded draws (`Ml.Rng.loadReplay` format) instead of
+        -- sampling: actions come from the file's decision channel and
+        -- episode resets from its env channel, so the rollout reproduces a
+        -- recorded run exactly.
+        , Arg "--replay" (\v, c => { replay := v } c) ]
 
 -- Top-level `Init Policy` (the linear Seq MLP).
 mkPolicy : Init Policy
@@ -344,46 +321,46 @@ finishLrFind (MkBang _ # m') = do
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
 
-runLrFind : Config -> Optimizer Ex -> IO ()
-runLrFind cfg opt = Control.Linear.LIO.run $ do
+runLrFind : Rng -> IO Source -> (Source -> IO ()) -> Config -> Optimizer Ex -> IO ()
+runLrFind rng nextSource putSource cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL mkPolicy
   liftIO1 (putStrLn "")
   (LIO.(>>=))
-    (lrFind {ex = Ex} {model = Policy} {dp = List (List Double)} lrFindCfg
-       (\m, d => do
-          (MkBang (loss, _) # m') <- computeLossL cfg.gamma m d
+    (lrFind {ex = Ex} {model = Policy} {dp = ()} lrFindCfg
+       (\m, _ => do
+          (MkBang (loss, _) # m') <- computeLossL rng nextSource putSource cfg.gamma cfg.batchSz m
           dd <- liftIO1 (trainStep opt loss)
           pure1 (MkBang dd # m'))
-       (genBatch cfg.batchSz) opt model)
+       (pure ()) opt model)
     finishLrFind
 
-runTrainBatched : Config -> Optimizer Ex -> RLMetricsState -> (n : Nat) -> IO ()
-runTrainBatched cfg opt metrics n = Control.Linear.LIO.run $ do
+runTrainBatched : Rng -> IO Source -> (Source -> IO ()) -> Config -> Optimizer Ex -> RLMetricsState -> (n : Nat) -> IO ()
+runTrainBatched rng nextSource putSource cfg opt metrics n = Control.Linear.LIO.run $ do
   model <- runInitL mkPolicy
   liftIO1 (putStrLn "")
   (MkBang (epochsDone, _) # trained) <-
-    fit {batch = Vect n (List Double)}
-         (\m, d => do
-            (MkBang (loss, avgRet) # m') <- computeLossBatchedL cfg.gamma m d
+    fit {batch = ()}
+         (\m, _ => do
+            (MkBang (loss, avgRet) # m') <- computeLossBatchedL {n} rng nextSource putSource cfg.gamma m
             dd <- liftIO1 (do x <- trainStep opt loss; recordReturn metrics avgRet; pure x)
             pure1 (MkBang dd # m'))
-         opt (generate (genBatchV n))
+         opt (generate (pure ()))
          ({ metricsL := readRLMetrics "recent_100" metrics }
             (simpleConfig {model = Policy} cfg.epochs))
          model
   evalReportL cfg epochsDone trained
 
-runTrainSeq : Config -> Optimizer Ex -> RLMetricsState -> IO ()
-runTrainSeq cfg opt metrics = Control.Linear.LIO.run $ do
+runTrainSeq : Rng -> IO Source -> (Source -> IO ()) -> Config -> Optimizer Ex -> RLMetricsState -> IO ()
+runTrainSeq rng nextSource putSource cfg opt metrics = Control.Linear.LIO.run $ do
   model <- runInitL mkPolicy
   liftIO1 (putStrLn "")
   (MkBang (epochsDone, _) # trained) <-
-    fit {batch = List (List Double)}
-         (\m, d => do
-            (MkBang (loss, avgRet) # m') <- computeLossL cfg.gamma m d
+    fit {batch = ()}
+         (\m, _ => do
+            (MkBang (loss, avgRet) # m') <- computeLossL rng nextSource putSource cfg.gamma cfg.batchSz m
             dd <- liftIO1 (do x <- trainStep opt loss; recordReturn metrics avgRet; pure x)
             pure1 (MkBang dd # m'))
-         opt (generate (genBatch cfg.batchSz))
+         opt (generate (pure ()))
          ({ metricsL := readRLMetrics "recent_100" metrics }
             (simpleConfig {model = Policy} cfg.epochs))
          model
@@ -412,8 +389,23 @@ main = do
   -- `if`): lrFind, batched training, non-batched training. The policy is born
   -- linear (runInitL), threaded through the rollout + fit, eval'd, discarded.
   -- RL metrics are model-free → they ride metricsL.
+  -- Stochastic inputs: live draws normally, the recorded channels of
+  -- `--replay <file>` otherwise. Episode resets draw a fresh Seeded source
+  -- per episode when live (matching the reference's per-episode
+  -- env.reset()); under replay the recording's env channel is threaded
+  -- across resets via an IORef.
+  let mkLive : IO (Rng, IO Source, Source -> IO ())
+      mkLive = do rng <- liveRng
+                  pure (rng, (\i => Seeded (cast i)) <$> randomInt32, \_ => pure ())
+      mkReplay : String -> IO (Rng, IO Source, Source -> IO ())
+      mkReplay pth = do replay <- loadReplay pth
+                        srcRef <- newIORef replay.envSource
+                        pure (replay.rng, readIORef srcRef, writeIORef srcRef)
+  (rng, nextSource, putSource) <- case cfg.replay of
+                                    ""  => mkLive
+                                    pth => mkReplay pth
   if cfg.lrFind
-    then runLrFind cfg opt
+    then runLrFind rng nextSource putSource cfg opt
     else if cfg.batched
-      then runTrainBatched cfg opt metrics n
-      else runTrainSeq cfg opt metrics
+      then runTrainBatched rng nextSource putSource cfg opt metrics n
+      else runTrainSeq rng nextSource putSource cfg opt metrics
