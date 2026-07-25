@@ -715,7 +715,11 @@ jobs:
       matrix:
         os: ${{ fromJSON((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.include_macos)) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # 90, not 60: the five paired-alignment gates added ~13 min (the init
+    # manifest alone runs every paired example twice), which pushed the
+    # ubuntu leg past the old ceiling mid-step on 2026-08-01. macOS lands
+    # around 36 min; ubuntu carries the torch index-op round-trip on top.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
