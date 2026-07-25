@@ -91,7 +91,7 @@ replayRng uniforms normals choices = do
 public export
 record Replay where
   constructor MkReplay
-  rng : Rng
+  rng       : Rng
   envSource : Source
 
 ||| The live counterpart of `loadReplay`: a fresh `Rng` on the process-global
@@ -148,13 +148,13 @@ loadReplay path = do
     walk (l :: rest) =
       let (us, ns, cs, es) = walk rest
       in case words l of
-           []               => (us, ns, cs, es)
-           ("#" :: _)       => (us, ns, cs, es)
-           ["uniform", v]   => (parseD v :: us, ns, cs, es)
-           ["normal",  v]   => (us, parseD v :: ns, cs, es)
-           ["choice",  v]   => (us, ns, parseN v :: cs, es)
-           ["env",     v]   => (us, ns, cs, parseD v :: es)
-           (w :: _)         =>
+           []             => (us, ns, cs, es)
+           ("#" :: _)     => (us, ns, cs, es)
+           ["uniform", v] => (parseD v :: us, ns, cs, es)
+           ["normal",  v] => (us, parseD v :: ns, cs, es)
+           ["choice",  v] => (us, ns, parseN v :: cs, es)
+           ["env",     v] => (us, ns, cs, parseD v :: es)
+           (w :: _)       =>
              if isPrefixOf "#" w
                then (us, ns, cs, es)
                else bad ("unrecognized line in " ++ path ++ ": " ++ l)
