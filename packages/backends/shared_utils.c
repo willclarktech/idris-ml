@@ -121,7 +121,35 @@ int get_current_rss_mb(void) {
 	return get_rss_mb();
 }
 
-/* --- Dropout RNG (process-global rand() driver) --- */
+/* --- Process-global PRNG ---
+ *
+ * SplitMix64 (Steele, Lea, Flood 2014) rather than libc `rand()`, whose
+ * algorithm the C standard leaves to the implementation: glibc and the BSD
+ * libc macOS ships give different streams from the same seed, so a run's
+ * parameter init and dropout masks would not be reproducible across the two
+ * CI legs. This is the same generator `Gym.Rng` implements in pure Idris.
+ *
+ * Every Idris-side draw (`Ml.Compat.Random`) and the dropout mask seed come
+ * through here, so one `idrisml_srand` pins the whole run. */
+
+static uint64_t idrisml_rng_state = 0x9E3779B97F4A7C15ULL;
+
+void idrisml_srand(uint64_t seed) {
+	idrisml_rng_state = seed;
+}
+
+uint64_t idrisml_rand64(void) {
+	idrisml_rng_state += 0x9E3779B97F4A7C15ULL;
+	uint64_t z = idrisml_rng_state;
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+	return z ^ (z >> 31);
+}
+
+/* Non-negative draw in [0, 2^31), matching what `rand()` handed callers. */
+int idrisml_rand(void) {
+	return (int)(idrisml_rand64() >> 33);
+}
 
 /* Fresh mask seed per dropout forward — successive calls must differ, or the
  * layer deletes a fixed subset of activations instead of regularizing. `x` is
@@ -129,7 +157,7 @@ int get_current_rss_mb(void) {
  * not constrain the result. Pinned by test_dropout_seed.c. */
 int dropout_random_seed(int x) {
 	(void)x;
-	return rand();
+	return idrisml_rand();
 }
 
 /* --- C buffer helpers (host malloc/free + element read/write) ---

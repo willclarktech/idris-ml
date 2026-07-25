@@ -29,7 +29,14 @@ int get_current_rss_mb(void);
  * own struct (IdxDataset) and live outside the per-backend dispatch
  * surface (no rename header, no backend.h declaration). */
 
-/* Dropout RNG — drives the process-global rand(). */
+/* Process-global PRNG. SplitMix64, not libc `rand()`, whose stream is
+ * implementation-defined and so differs between the Linux and macOS CI legs
+ * from the same seed. Backs `Ml.Compat.Random` and the dropout mask seed. */
+void idrisml_srand(uint64_t seed);
+uint64_t idrisml_rand64(void);
+int idrisml_rand(void);
+
+/* Dropout mask seed — one draw from the generator above. */
 int dropout_random_seed(int x);
 
 /* Wall-clock provider — gettimeofday-based monotonic-ish millisecond

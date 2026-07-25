@@ -10,19 +10,24 @@ import Data.Fin
 import Data.List
 import Data.Vect
 
--- C standard library random functions
-%foreign "C:srand,libc"
-prim__srand : Int -> PrimIO ()
+-- Backed by the repo's own SplitMix64 (`shared_utils.c`), not libc
+-- `srand`/`rand`: the C standard leaves `rand`'s algorithm to the
+-- implementation, so glibc and the libc macOS ships produce different streams
+-- from the same seed and a run's parameter init would not reproduce across
+-- the two CI legs. The C side's dropout mask seed draws from the same
+-- generator, so one `srand` pins the whole run.
+%foreign "C:idrisml_srand,libidrisml"
+prim__srand : Bits64 -> PrimIO ()
 
-%foreign "C:rand,libc"
+%foreign "C:idrisml_rand,libidrisml"
 prim__rand : PrimIO Int
 
 ||| Seed the random number generator.
 export
 srand : HasIO io => Bits64 -> io ()
-srand s = liftIO $ primIO (prim__srand (cast s))
+srand s = liftIO $ primIO (prim__srand s)
 
-||| Generate a random Int.
+||| Generate a random non-negative Int.
 export
 randomInt32 : HasIO io => io Int
 randomInt32 = liftIO $ primIO prim__rand

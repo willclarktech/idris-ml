@@ -36,6 +36,26 @@ Symptom: you edit a library internal, `make install` succeeds, `make example-foo
 
 Mitigation: the Makefile has a `build/.library-cache-stamp` sentinel depending on every library `.idr` file. When any is newer than the stamp, the recipe wipes `build/ttc`. `install` depends on the stamp, so every `make example-<name>` / `make check-examples` / `make test-examples` path gets the fresh-cache guarantee transparently. If invoking `idris2` directly outside the Makefile, run `rm -rf build/ttc` after editing library internals.
 
+### Running an example binary directly picks up the dylib copy, not the fresh build
+
+Every `example-<name>` recipe copies `libidrisml.{so,dylib}` into
+`build/<key>/exec/<name>_app/`, which is where the binary's rpath resolves it.
+Invoking `build/<key>/exec/<name>` by hand runs against whatever copy was left
+there by the last `make example-<name>` — not against
+`build/<key>/libidrisml.dylib`, however recently `make install` or `make
+backend` rebuilt it.
+
+Symptom: you change C-side behavior, rebuild everything, run the binary
+directly, and the output is byte-identical to before. `ls -la` on the two
+dylib paths shows different timestamps. Nothing errors, because the Idris
+side's `%foreign` symbols resolve fine in the stale copy — only the *behavior*
+is old.
+
+This is a lying-result trap rather than a crash: a change that should move
+every random draw looked like it had no effect at all. Go through
+`make example-<name>`, which re-copies. When timing a change, compare only
+runs made the same way.
+
 ### Multi-binding `let` in a nested `do` reports its parse error at the outer block head
 
 Adding a second binding to a `let` inside a `do` nested under `liftIO1 $ do`,
