@@ -514,6 +514,26 @@ maybeDumpBatch stream = do
                    ++ show mean ++ "\t" ++ show sd ++ "\t" ++ show d1 ++ "\t"
                    ++ show lo ++ "\t" ++ show hi)
 
+||| The weights-only half of the oracle dump: if `IDRISML_ORACLE_DUMP` names a
+||| path, write every registered parameter to it and exit.
+|||
+||| For examples whose training data is generated identically on both sides
+||| (the RNN family's fixed pattern sequences), so the reference needs the
+||| weights but can build its own batch. `maybeDumpBatch` is the variant for
+||| examples whose data is drawn from an RNG, where the batch has to travel
+||| too. Call it after the model is built — the registry is empty before
+||| `runInit` populates it, and a dump taken there holds nothing.
+export
+maybeDumpOracleWeights : UserExecutorTraining ex => IO ()
+maybeDumpOracleWeights = do
+  Just path <- getEnv "IDRISML_ORACLE_DUMP"
+    | Nothing => pure ()
+  Right () <- saveAll {ex} path
+    | Left err => do putStrLn ("IDRISML_ORACLE_DUMP: save failed: " ++ show err)
+                     exitFailure
+  putStrLn ("IDRISML_ORACLE_DUMP: wrote " ++ path)
+  exitSuccess
+
 ||| If `IDRISML_ONE_STEP` names a path, write every registered parameter to it
 ||| and exit. `Ml.Fit.fit` calls this at the top of epoch 1, i.e. after exactly
 ||| one epoch of training has run.

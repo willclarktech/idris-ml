@@ -10,10 +10,25 @@ from typing import cast
 
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_load_oracle_weights,
+)
 from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
+
+# Idris registry name -> this script's parameter name. Mirrors the entry in
+# scripts/paired_examples.py, which check-step-oracle.py cross-checks.
+PAIRED_PARAMS = {
+    "linear_0.bias": "0.bias_out",
+    "linear_0.weight": "0.weight_out",
+    "rnn_0.bias_hh": "0.bias_hh",
+    "rnn_0.bias_ih": "0.bias_ih",
+    "rnn_0.weight_hh": "0.weight_hh",
+    "rnn_0.weight_ih": "0.weight_ih",
+}
 
 
 def show_seq(tensors: list[torch.Tensor]) -> str:
@@ -60,6 +75,15 @@ def main() -> None:
 
     def epoch_fn() -> float:
         return train_rnn_epoch(model, data, optimizer)
+
+    # Oracle run: take Idris' init weights, do exactly one epoch (one optimizer
+    # step here — `generate` streams carry no epoch length, so the Idris loop
+    # also steps once per epoch), dump the result. `generate_rnn_dataset`
+    # produces the same fixed sequences Idris' `patternSeqs` does, so only the
+    # weights travel.
+    if maybe_load_oracle_weights(model, PAIRED_PARAMS):
+        epoch_fn()
+        maybe_dump_after_step(model)
 
     if args.lr_find:
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)

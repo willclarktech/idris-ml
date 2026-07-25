@@ -76,6 +76,9 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "rnn",
+        # Deterministic pattern sequences on both sides, so the oracle only
+        # transfers weights (maybeDumpOracleWeights / maybe_load_oracle_weights).
+        "step_oracle": True,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
@@ -94,6 +97,9 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "lstm",
+        # Deterministic pattern sequences on both sides, so the oracle only
+        # transfers weights (maybeDumpOracleWeights / maybe_load_oracle_weights).
+        "step_oracle": True,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
@@ -113,6 +119,9 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "gru",
+        # Deterministic pattern sequences on both sides, so the oracle only
+        # transfers weights (maybeDumpOracleWeights / maybe_load_oracle_weights).
+        "step_oracle": True,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

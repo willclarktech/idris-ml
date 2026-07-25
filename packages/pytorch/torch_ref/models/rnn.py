@@ -17,7 +17,7 @@ from torch import Tensor
 
 from torch_ref.init import init_linear_, init_linear_weight_
 from torch_ref.training.losses import bce_with_logits
-from torch_ref.training.runner import get_device
+from torch_ref.training.runner import get_device, get_dtype
 
 
 class LinearRNNCell(nn.Module):
@@ -43,13 +43,13 @@ class LinearRNNCell(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
 
-        self.weight_ih = nn.Parameter(torch.empty(hidden_size, input_size))
-        self.weight_hh = nn.Parameter(torch.empty(hidden_size, hidden_size))
-        self.bias_ih = nn.Parameter(torch.zeros(hidden_size))
-        self.bias_hh = nn.Parameter(torch.zeros(hidden_size))
+        self.weight_ih = nn.Parameter(torch.empty(hidden_size, input_size, dtype=get_dtype()))
+        self.weight_hh = nn.Parameter(torch.empty(hidden_size, hidden_size, dtype=get_dtype()))
+        self.bias_ih = nn.Parameter(torch.zeros(hidden_size, dtype=get_dtype()))
+        self.bias_hh = nn.Parameter(torch.zeros(hidden_size, dtype=get_dtype()))
 
-        self.weight_out = nn.Parameter(torch.empty(output_size, hidden_size))
-        self.bias_out = nn.Parameter(torch.zeros(output_size))
+        self.weight_out = nn.Parameter(torch.empty(output_size, hidden_size, dtype=get_dtype()))
+        self.bias_out = nn.Parameter(torch.zeros(output_size, dtype=get_dtype()))
 
         nn.init.xavier_uniform_(self.weight_ih)
         nn.init.xavier_uniform_(self.weight_hh)
@@ -59,7 +59,7 @@ class LinearRNNCell(nn.Module):
         init_linear_weight_(self.weight_out)
 
     def reset_state(self) -> None:
-        self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device)
+        self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device, dtype=self.weight_ih.dtype)
 
     def forward(self, x: Tensor) -> Tensor:
         self._h = torch.tanh(
@@ -86,11 +86,11 @@ class LinearLSTMCell(nn.Module):
     def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
         super().__init__()
         self.hidden_size = hidden_size
-        self.lstm = nn.LSTMCell(input_size, hidden_size)
-        self.output_proj = nn.Linear(hidden_size, output_size)
+        self.lstm = nn.LSTMCell(input_size, hidden_size, dtype=get_dtype())
+        self.output_proj = nn.Linear(hidden_size, output_size, dtype=get_dtype())
         # Learned initial hidden + cell state (matches Idris LstmState).
-        self.h0 = nn.Parameter(torch.zeros(hidden_size))
-        self.c0 = nn.Parameter(torch.zeros(hidden_size))
+        self.h0 = nn.Parameter(torch.zeros(hidden_size, dtype=get_dtype()))
+        self.c0 = nn.Parameter(torch.zeros(hidden_size, dtype=get_dtype()))
 
         nn.init.xavier_uniform_(self.lstm.weight_ih)
         nn.init.xavier_uniform_(self.lstm.weight_hh)
@@ -134,18 +134,18 @@ class LinearGRUCell(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.weight_ih = nn.Parameter(torch.empty(3 * hidden_size, input_size))
-        self.weight_hh = nn.Parameter(torch.empty(3 * hidden_size, hidden_size))
-        self.bias_ih = nn.Parameter(torch.zeros(3 * hidden_size))
-        self.bias_hh = nn.Parameter(torch.zeros(3 * hidden_size))
-        self.output_proj = nn.Linear(hidden_size, output_size)
+        self.weight_ih = nn.Parameter(torch.empty(3 * hidden_size, input_size, dtype=get_dtype()))
+        self.weight_hh = nn.Parameter(torch.empty(3 * hidden_size, hidden_size, dtype=get_dtype()))
+        self.bias_ih = nn.Parameter(torch.zeros(3 * hidden_size, dtype=get_dtype()))
+        self.bias_hh = nn.Parameter(torch.zeros(3 * hidden_size, dtype=get_dtype()))
+        self.output_proj = nn.Linear(hidden_size, output_size, dtype=get_dtype())
 
         nn.init.xavier_uniform_(self.weight_ih)
         nn.init.xavier_uniform_(self.weight_hh)
         init_linear_(self.output_proj)
 
     def reset_state(self) -> None:
-        self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device)
+        self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device, dtype=self.weight_ih.dtype)
 
     def forward(self, x: Tensor) -> Tensor:
         ih = self.weight_ih @ x + self.bias_ih
@@ -173,8 +173,8 @@ def generate_rnn_dataset(n: int) -> list[tuple[list[Tensor], list[Tensor]]]:
     for i in range(n):
         length = i + 3
         inputs, outputs = generate_rnn_data(length)
-        xs = [torch.tensor([v], device=device) for v in inputs]
-        ys = [torch.tensor([v], device=device) for v in outputs]
+        xs = [torch.tensor([v], device=device, dtype=get_dtype()) for v in inputs]
+        ys = [torch.tensor([v], device=device, dtype=get_dtype()) for v in outputs]
         dataset.append((xs, ys))
     return dataset
 
@@ -193,10 +193,10 @@ def train_lstm_epoch(
     """Train one LSTM epoch, same structure as train_rnn_epoch."""
     optimizer.zero_grad()
     device = get_device()
-    total_loss = torch.tensor(0.0, device=device)
+    total_loss = torch.tensor(0.0, device=device, dtype=get_dtype())
     for xs, ys in data:
         model.reset_state()
-        seq_loss = torch.tensor(0.0, device=device)
+        seq_loss = torch.tensor(0.0, device=device, dtype=get_dtype())
         for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + bce_with_logits(pred, y)
@@ -216,10 +216,10 @@ def train_gru_epoch(
     """Train one GRU epoch, same structure as train_lstm_epoch."""
     optimizer.zero_grad()
     device = get_device()
-    total_loss = torch.tensor(0.0, device=device)
+    total_loss = torch.tensor(0.0, device=device, dtype=get_dtype())
     for xs, ys in data:
         model.reset_state()
-        seq_loss = torch.tensor(0.0, device=device)
+        seq_loss = torch.tensor(0.0, device=device, dtype=get_dtype())
         for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + bce_with_logits(pred, y)
@@ -243,10 +243,10 @@ def train_rnn_epoch(
     """
     optimizer.zero_grad()
     device = get_device()
-    total_loss = torch.tensor(0.0, device=device)
+    total_loss = torch.tensor(0.0, device=device, dtype=get_dtype())
     for xs, ys in data:
         model.reset_state()
-        seq_loss = torch.tensor(0.0, device=device)
+        seq_loss = torch.tensor(0.0, device=device, dtype=get_dtype())
         for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + bce_with_logits(pred, y)

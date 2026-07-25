@@ -36,15 +36,19 @@ Exit 0 = the step agrees, 1 = divergence, 2 = a run failed.
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paired_examples import EXAMPLES, REPO_ROOT  # noqa: E402
+
+if TYPE_CHECKING:
+    from paired_examples import ExampleSpec  # noqa: F401
 
 
 def run(cmd: list[str], cwd: Path, env_extra: dict[str, str]) -> tuple[int, str]:
@@ -92,6 +96,36 @@ def compare_step(
     return problems
 
 
+def check_params_mirror(spec: ExampleSpec) -> list[str]:
+    """The reference script keeps its own PAIRED_PARAMS copy (it runs from the
+    pytorch package, which cannot import this directory). Read it back and
+    compare, so a rename in the table cannot silently desync the oracle into
+    comparing nothing."""
+    module_path = REPO_ROOT / spec["python"]
+    tree = ast.parse(module_path.read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "PAIRED_PARAMS" for t in node.targets):
+            continue
+        script_params = cast("dict[str, str]", ast.literal_eval(node.value))
+        table_params = spec.get("params", {})
+        if script_params != table_params:
+            missing = sorted(set(table_params) - set(script_params))
+            extra = sorted(set(script_params) - set(table_params))
+            changed = sorted(
+                k
+                for k in set(table_params) & set(script_params)
+                if table_params[k] != script_params[k]
+            )
+            return [
+                f"{module_path.name} PAIRED_PARAMS differs from paired_examples.py: "
+                f"missing={missing} extra={extra} changed={changed}"
+            ]
+        return []
+    return [f"{module_path.name} defines no PAIRED_PARAMS, so the oracle cannot load weights"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", help="check a single example by table name")
@@ -102,6 +136,12 @@ def main() -> int:
     if not specs:
         print(f"no step-oracle example matched {args.only!r}", file=sys.stderr)
         return 2
+
+    mirror_problems = [p for s in specs for p in check_params_mirror(s)]
+    if mirror_problems:
+        for problem in mirror_problems:
+            print(f"FAIL: {problem}", file=sys.stderr)
+        return 1
 
     failed = False
     with tempfile.TemporaryDirectory() as tmp:

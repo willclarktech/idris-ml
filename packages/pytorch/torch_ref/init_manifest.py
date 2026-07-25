@@ -95,14 +95,16 @@ ORACLE_INPUT = "__oracle.input"
 ORACLE_TARGET = "__oracle.target"
 
 
-def maybe_load_oracle(model: nn.Module, params: dict[str, str]) -> tuple[Tensor, Tensor] | None:
-    """Load Idris' dumped init weights and batch. Returns (input, target).
+def _load_oracle(
+    model: nn.Module, params: dict[str, str], want_batch: bool
+) -> tuple[Tensor, Tensor] | bool | None:
+    """Copy the dumped parameters into `model`, optionally reading the batch.
 
-    `params` maps Idris registry names to this side's parameter names, as in
-    `scripts/paired_examples.py`. Weights flow Idris -> reference only for the
-    oracle run: the point is that both sides start from *identical* numbers,
-    and this is the one direction that needs no rename machinery on the Idris
-    side. Which side authored them is irrelevant once they are equal.
+    Returns None when no oracle path is set, otherwise the (input, target)
+    pair or True. Weights flow Idris -> reference only for the oracle run: the
+    point is that both sides start from *identical* numbers, and this is the
+    one direction that needs no rename machinery on the Idris side. Which side
+    authored them is irrelevant once they are equal.
     """
     path = os.environ.get(ORACLE_LOAD_VAR)
     if not path:
@@ -129,7 +131,35 @@ def maybe_load_oracle(model: nn.Module, params: dict[str, str]) -> tuple[Tensor,
                 )
             with torch.no_grad():
                 target.copy_(src.to(target.dtype))
+        if not want_batch:
+            return True
         return read(ORACLE_INPUT), read(ORACLE_TARGET)
+
+
+def maybe_load_oracle_weights(model: nn.Module, params: dict[str, str]) -> bool:
+    """Load Idris' dumped init weights into `model`. Returns whether it ran.
+
+    The weights-only counterpart of `maybe_load_oracle`, for examples whose
+    training data is generated identically on both sides (the RNN family's
+    fixed pattern sequences): only the parameters have to travel, and the
+    reference builds its own batch. Pairs with Idris'
+    `Ml.Checkpoint.maybeDumpOracleWeights`.
+    """
+    return _load_oracle(model, params, want_batch=False) is not None
+
+
+def maybe_load_oracle(model: nn.Module, params: dict[str, str]) -> tuple[Tensor, Tensor] | None:
+    """Load Idris' dumped init weights and batch. Returns (input, target).
+
+    `params` maps Idris registry names to this side's parameter names, as in
+    `scripts/paired_examples.py`. For examples whose data is drawn from an RNG,
+    where the batch has to travel too; `maybe_load_oracle_weights` is the
+    variant for identically-generated data.
+    """
+    result = _load_oracle(model, params, want_batch=True)
+    if result is None:
+        return None
+    return cast("tuple[Tensor, Tensor]", result)
 
 
 def maybe_dump_after_step(model: nn.Module) -> None:
