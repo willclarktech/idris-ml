@@ -58,6 +58,7 @@ import Test.Properties.Softmax as Props.Softmax
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
 import Test.RandomConformance
+import Test.Rng
 import Test.Sampler
 import Test.SaveModelMatching
 import Test.Schedule
@@ -119,6 +120,7 @@ main = runAll
   , ("TrainEngine",     Test.TrainEngine.tests)
   , ("Init",            Test.Init.tests)
   , ("Sampler",         Test.Sampler.tests)
+  , ("Rng",             Test.Rng.tests)
   , ("RL.Gae",          Test.RL.Gae.tests)
   , ("RL.ReplayBuffer", Test.RL.ReplayBuffer.tests)
   , ("ActivationDump",  Test.ActivationDump.tests)

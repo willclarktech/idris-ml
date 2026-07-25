@@ -18,6 +18,7 @@ modules = Test.Main
         , Test.ActivationDump
         , Test.Config
         , Test.RandomConformance
+        , Test.Rng
         , Test.Array
         , Test.Backend
         , Test.CheckpointSubset

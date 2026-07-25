@@ -20,6 +20,10 @@ module Ml.Rng
 
 import Data.IORef
 import Data.List
+import Data.String
+import System.File
+
+import Random.Source
 
 import Ml.Compat.Random
 import Ml.Sampler
@@ -79,3 +83,78 @@ replayRng uniforms normals choices = do
       case xs of
         []        => pure (exhausted "choice")
         (v :: vs) => do writeIORef ref vs; pure v
+
+||| A run's complete stochastic input: the `Rng` for the program's own draws
+||| and a `Source` for the environment's (env resets draw from the `Source`
+||| threaded through `Gym.Env.reset`, which is pure and cannot share the
+||| `Rng`'s IO channels).
+public export
+record Replay where
+  constructor MkReplay
+  rng : Rng
+  envSource : Source
+
+||| The live counterpart of `loadReplay`: a fresh `Rng` on the process-global
+||| generator and a `Seeded` env source drawn from it.
+export
+liveReplay : IO Replay
+liveReplay = do
+  envSeed <- randomInt32
+  rng     <- liveRng
+  pure (MkReplay rng (Seeded (cast envSeed)))
+
+||| Load recorded draws from a replay file — one draw per line, in
+||| consumption order per channel:
+|||
+|||     choice 1        -- a categorical decision (`Rng.choice`)
+|||     uniform 0.5     -- a U[0,1) draw (`Rng.uniform`)
+|||     normal -1.5     -- an N(0,1) draw (`Rng.normal`)
+|||     env 0.25        -- a uniform for the environment `Source`
+|||
+||| Blank lines and `#` comment lines are ignored. Channels interleave
+||| freely; only the order within a channel matters. The `Rng` channels fail
+||| loudly when exhausted (`replayRng`); the env `Source` is `Recorded`, so
+||| it draws 0.0 past the end of the recording — a replayed run is only
+||| meaningful over the span the recording covers.
+|||
+||| Any unreadable file or unparseable line is a hard error: a replay that
+||| silently dropped draws would compare two different runs and report them
+||| as one.
+covering
+export
+loadReplay : (path : String) -> IO Replay
+loadReplay path = do
+  Right text <- readFile path
+    | Left err => pure (bad ("cannot read " ++ path ++ ": " ++ show err))
+  let (us, ns, cs, es) = walk (lines text)
+  rng <- replayRng us ns cs
+  pure (MkReplay rng (Recorded es))
+  where
+    bad : String -> a
+    bad msg = assert_total $ idris_crash ("Ml.Rng.loadReplay: " ++ msg)
+
+    parseD : String -> Double
+    parseD s = case parseDouble s of
+                 Just d  => d
+                 Nothing => bad ("not a double in " ++ path ++ ": " ++ s)
+
+    parseN : String -> Nat
+    parseN s = case parsePositive s of
+                 Just n  => n
+                 Nothing => bad ("not a nat in " ++ path ++ ": " ++ s)
+
+    walk : List String -> (List Double, List Double, List Nat, List Double)
+    walk []          = ([], [], [], [])
+    walk (l :: rest) =
+      let (us, ns, cs, es) = walk rest
+      in case words l of
+           []               => (us, ns, cs, es)
+           ("#" :: _)       => (us, ns, cs, es)
+           ["uniform", v]   => (parseD v :: us, ns, cs, es)
+           ["normal",  v]   => (us, parseD v :: ns, cs, es)
+           ["choice",  v]   => (us, ns, parseN v :: cs, es)
+           ["env",     v]   => (us, ns, cs, parseD v :: es)
+           (w :: _)         =>
+             if isPrefixOf "#" w
+               then (us, ns, cs, es)
+               else bad ("unrecognized line in " ++ path ++ ": " ++ l)
