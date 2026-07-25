@@ -31,6 +31,26 @@ example-transfer                 loss         <   0.5
 # ntm-copy gates on `acc_full` (len 1-20), which is the trained range and is
 # exactly what the row measured as plain `acc` before 2026-07-31 — the key was
 # renamed to match the reference's short/full split, not the measurement.
+#
+# Both bars are PER SEED: they answer "did this seed converge", not "must every
+# seed pass". Measured 2026-08-01 over seeds 42/1/2/3/4, pooled across both
+# implementations:
+#
+#   ntm-recall   converged 0.94-0.996    failed 0.687-0.781
+#   ntm-copy     converged 0.993-1.0     failed 0.674-0.795
+#
+# The distribution is bimodal with nothing in between, and each bar sits in
+# that gap — a run either learns the task or lands near 0.7. Lowering them
+# would let a non-converged run register as a pass, so they stay where they
+# are. The multi-seed expectation is a PASS RATE, against the reference's own
+# measured rate per the alignment policy ("use PyTorch's pass rate as the
+# target"), recorded in reference-alignment.md:
+#
+#   ntm-copy     idris 3/5   reference 4/5
+#   ntm-recall   idris 2/5   reference 3/5
+#
+# Seed 4 fails on both sides of both tasks. `make test-convergence` uses seed
+# 42 only, which converges on both.
 example-ntm-copy                 acc_full     >=  0.9
 example-ntm-associative-recall   acc          >=  0.8
 example-dnc-copy                 acc          >=  0.8

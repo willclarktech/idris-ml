@@ -16,6 +16,40 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Multi-seed pass rates after the alignment work (2026-08-01)
+
+First campaign run where both sides share init, data, metrics and eval
+protocol, so the two rates finally answer the same question. Seeds 42/1/2/3/4,
+tape backend; thresholds from `test-examples-convergence.expect` and
+`test-refs-convergence.expect`.
+
+20 of 25 Idris examples are 5/5. The exceptions:
+
+| Example | Idris | Reference | Note |
+|---------|-------|-----------|------|
+| example-dqn | 4/5 (seed 2) | not yet run | unchanged by the alignment work |
+| example-a2c | 3/5 (seeds 2, 4) | not yet run | unchanged |
+| example-ntm-copy | 3/5 (seeds 3, 4) | 4/5 (seed 4) | up from 1/5 at `fd0407bb` |
+| example-ntm-associative-recall | 2/5 (seeds 1, 2, 4) | 3/5 (seeds 42, 4) | down from 5/5 at `fd0407bb` |
+
+The NTM pair is seed-fragile on **both** implementations, and seed 4 fails on
+both sides of both tasks. Idris sits one seed below the reference on each.
+
+The recall drop from 5/5 was worth chasing and did not resolve to a culprit.
+Reverting the controller-bias change alone rescues no failing seed; reverting
+the output-projection change alone rescues seed 2 but not seed 1; each variant
+converges on a *different* subset. The reference, whose NTM init this work did
+not touch, sits at 3/5 independently. So ~2-3 of 5 is what this configuration
+supports on either side, and the earlier 5/5 was a favourable draw that a
+single campaign run made look like a property.
+
+Both per-seed thresholds are kept. Pooled across the two implementations,
+converged runs score 0.94-0.996 (recall) and 0.993-1.0 (copy) while failed runs
+score 0.687-0.781 and 0.674-0.795 — bimodal with nothing between, and each bar
+sits in the gap. Lowering them would let a non-converged run register as a
+pass. The multi-seed expectation is the pass rate above, per the policy's "use
+PyTorch's pass rate as the target".
+
 ## Alignment Changes (2026-07-31) — conv, recurrent and attention init
 
 The three axes the dense alignment two days earlier deferred. Each was left
