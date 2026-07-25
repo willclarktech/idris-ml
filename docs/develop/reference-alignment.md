@@ -16,6 +16,64 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Alignment Changes (2026-07-31) — conv, recurrent and attention init
+
+The three axes the dense alignment two days earlier deferred. Each was left
+open on the reasoning that both sides still trained; the reason to close them
+anyway is that a reference which inits differently measures init noise instead
+of the implementation, which is the only job the reference has.
+
+| Layer | Idris before | Reference before | Both now |
+|-------|--------------|------------------|----------|
+| `Nn.conv1d` / `conv2d` | `N(0, √(2/fan_in))`, bias 0 | `nn.Conv` default `U(±1/√fan_in)`, bias `U(±1/√fan_in)` | `U(±1/√fan_in)`, bias 0 |
+| `Nn.Recurrent` / `Lstm` / `Gru` | `N(0, √(2/(fan_in+fan_out)))` | `xavier_uniform_` | `U(±√(6/(fan_in+fan_out)))` |
+| `Nn.Attention`, `transformerBlock`'s ff | `N(0, 1/√fan_in)` | `xavier_uniform_` | `U(±1/√fan_in)` |
+
+Conv was the one that mattered. Idris kernels started √6 ≈ 2.45× wider than the
+reference's, measured across all four conv layers in the two examples that have
+any (2.44 and 2.45 at fan_in 25 and 400; 2.95 and 2.35 at fan_in 3 and 12, where
+the sample is small). The reference side keeps `kaiming_uniform_(w, a=√5)`,
+which is what `_ConvNd.reset_parameters` already does, and zeroes the bias
+through the new `init_conv_` for the reasons given on `init_linear_`.
+
+Recurrent was subtler: `√(2/(fan_in+fan_out))` is *exactly* the std of
+Xavier-uniform, so every summary statistic agreed while the tails did not.
+Only the distribution changed; the target variance did not, and no reference
+edit was needed. Both sides stay on Xavier there rather than moving to the
+dense contract, which suits a weight applied once per timestep.
+
+Attention carried the same off-by-√3 the dense layers had before 2026-07-29 —
+a normal whose std equalled the uniform's *bound*. On the reference side
+`MultiHeadTransformer._init_weights` had been applying `xavier_uniform_` to
+every `nn.Linear` it owns, which put it out of step with the other eleven
+references as well as with its twin; it now calls `init_linear_(self)`. Every
+layer there is an `nn.Linear`, per-head projections included, so one call
+covers the block. `gpt.py` builds on the same model.
+
+Seed 42, after (before → after where it moved):
+
+| Example | Idris | Reference |
+|---------|-------|-----------|
+| seq-classify accuracy | 0.844 → **0.980** | 0.978 |
+| mnist accuracy | 0.986 → **0.989** | — |
+| rnn loss | 0.00115 | 0.00050 |
+| lstm loss | 0.00127 | 0.00129 |
+| gru loss | 0.00095 | 0.00095 |
+| transformer sort_acc | 6/6 | 6/6 |
+| gpt bpc | 4.439 → **4.327** | 4.233 |
+
+Every weight matrix in the library now draws from a uniform, which also puts
+conv, recurrent and attention init on the host-buffer fill rather than a fused
+per-backend RNG — so they are identical across tape / torch / mlx by
+construction, the property `Nn.linear` gained on 2026-07-29.
+`IDRISML_PORTABLE_INIT` is left covering only the normal-init sites that
+remain: NTM/DNC heads (`linearWith`) and embeddings.
+
+Gates: `Test.Nn.{Conv,Recurrent,Lstm,Gru,Transformer}` pin the Idris bounds,
+`torch_ref/correctness/test_init.py::TestInitConvHelper` the reference's. The
+recurrent tests read 1024-2048 elements because at equal variance the bound is
+the only discriminator between a normal and a uniform.
+
 ## Alignment Changes (2026-07-29) — one dense init on both sides
 
 Idris has one dense-layer constructor, `Ml.Nn.Linear.linear`, so every reference
@@ -47,14 +105,8 @@ Scope is the set of reference layers whose Idris counterpart is `Nn.linear`:
 which reuses its `QNetwork`), `mountain_car`, `mountain_car_cont`, `sac`, `ppo`,
 `a2c`, plus the output projections in `rnn.py`'s three cells.
 
-Deliberately **out of scope**, because their Idris counterparts init from a normal
-distribution and are a separate alignment axis:
-
-| Reference | Idris counterpart |
-|-----------|-------------------|
-| `multi_head_transformer`'s nine `nn.Linear` (Xavier) | `Nn.Attention` (normal) |
-| `rnn.py` recurrent weight matrices (Xavier) | `Nn.Recurrent` / `Lstm` / `Gru` (normal) |
-| `mnist_cnn` / `seq_classify` conv kernels | `Nn.Conv` (normal) |
+Three axes were left out of scope at the time, because their Idris counterparts
+init from a normal distribution. All three closed on 2026-07-31; see below.
 
 Gates: `torch_ref/correctness/test_init.py` pins the reference contract and the
 out-of-scope exclusions; `Test.Nn.Linear`'s `defaultWeightInRange` /
