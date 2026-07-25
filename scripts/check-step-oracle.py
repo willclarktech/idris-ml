@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# The safetensors/torch handles below are untyped third-party objects, and
+# scripts/pyrightconfig.json covers an otherwise stdlib-only tree with no stubs
+# for them. Silence only the unknown-type family here rather than drop the file
+# out of strict mode — every other rule still applies.
+# pyright: reportMissingImports=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
 """Gate: paired examples compute the same step from the same starting point.
 
 The other four gates compare *descriptions* — shapes, moments, flag defaults,
@@ -35,7 +41,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paired_examples import EXAMPLES, REPO_ROOT  # noqa: E402
@@ -107,13 +113,13 @@ def main() -> int:
             ref_after = Path(tmp) / f"{name}-ref-after.safetensors"
             idris_after = Path(tmp) / f"{name}-idris-after.safetensors"
 
-            rc, out = run(["make", target], REPO_ROOT, {"IDRISML_ORACLE_DUMP": str(oracle)})
+            _rc, out = run(["make", target], REPO_ROOT, {"IDRISML_ORACLE_DUMP": str(oracle)})
             if not oracle.exists():
                 print(f"{name:<20} [FAILED] idris did not dump the oracle\n{tail(out)}")
                 failed = True
                 continue
 
-            rc, out = run(
+            _rc, out = run(
                 ["uv", "run", "python", "-u", "-m", f"torch_ref.scripts.{module}"],
                 REPO_ROOT / "packages" / "pytorch",
                 {"IDRISML_ORACLE_LOAD": str(oracle), "IDRISML_ORACLE_STEP": str(ref_after)},
@@ -123,7 +129,7 @@ def main() -> int:
                 failed = True
                 continue
 
-            rc, out = run(["make", target], REPO_ROOT, {"IDRISML_ONE_STEP": str(idris_after)})
+            _rc, out = run(["make", target], REPO_ROOT, {"IDRISML_ONE_STEP": str(idris_after)})
             if not idris_after.exists():
                 print(f"{name:<20} [FAILED] idris did not dump after one step\n{tail(out)}")
                 failed = True
@@ -132,7 +138,7 @@ def main() -> int:
             problems = compare_step(
                 idris_after,
                 ref_after,
-                cast("dict[str, str]", spec.get("params", {})),
+                spec.get("params", {}),
                 args.tolerance,
             )
             if problems:

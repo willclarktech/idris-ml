@@ -25,6 +25,7 @@ import ast
 import json
 import re
 import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,6 +34,17 @@ from paired_examples import EXAMPLES, REPO_ROOT  # noqa: E402
 # Keys that identify a run rather than measure it. Present on both sides by
 # convention and uninteresting to compare.
 BOOKKEEPING = frozenset({"seed", "epochs", "steps"})
+
+
+@dataclass
+class Report:
+    """One pair's metric-key comparison."""
+
+    name: str
+    shared: list[str]
+    only_idris: list[str]
+    only_python: list[str]
+
 
 DYNAMIC = "<dynamic>"
 
@@ -90,7 +102,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="machine-readable report")
     args = parser.parse_args()
 
-    reports: list[dict[str, object]] = []
+    reports: list[Report] = []
     failed = False
     for spec in EXAMPLES:
         try:
@@ -110,29 +122,29 @@ def main() -> int:
         if only_idris or only_python:
             failed = True
         reports.append(
-            {
-                "name": spec["name"],
-                "shared": sorted(idris & python),
-                "only_idris": only_idris,
-                "only_python": only_python,
-            }
+            Report(
+                name=spec["name"],
+                shared=sorted(idris & python),
+                only_idris=only_idris,
+                only_python=only_python,
+            )
         )
 
     if args.json:
-        print(json.dumps(reports, indent=2))
+        print(json.dumps([asdict(r) for r in reports], indent=2))
         return 1 if failed else 0
 
     for report in reports:
-        flags = []
-        if report["only_idris"]:
-            flags.append(f"{len(report['only_idris'])} idris-only")
-        if report["only_python"]:
-            flags.append(f"{len(report['only_python'])} python-only")
+        flags: list[str] = []
+        if report.only_idris:
+            flags.append(f"{len(report.only_idris)} idris-only")
+        if report.only_python:
+            flags.append(f"{len(report.only_python)} python-only")
         status = f"[{' · '.join(flags)}]" if flags else "[OK]"
-        print(f"{report['name']:<20} {status}")
-        for key in report["only_idris"]:
+        print(f"{report.name:<20} {status}")
+        for key in report.only_idris:
             print(f"    idris-only  {key}")
-        for key in report["only_python"]:
+        for key in report.only_python:
             print(f"    python-only {key}")
 
     print("")

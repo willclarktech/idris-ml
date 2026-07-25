@@ -1,0 +1,30 @@
+example-supervised	42	pass	7s	epochs=1000	loss=0.13722991189103767	seed=42	correct=5/5
+example-supervised	1	pass	6s	epochs=1000	loss=0.13766490986662672	seed=1	correct=5/5
+example-supervised	2	pass	5s	epochs=1000	loss=0.13947749697734246	seed=2	correct=5/5
+example-supervised	3	pass	6s	epochs=1000	loss=0.13401925490575836	seed=3	correct=5/5
+example-supervised	4	pass	6s	epochs=1000	loss=0.1357201327914389	seed=4	correct=5/5
+example-rnn	42	pass	9s	epochs=1320	loss=0.0011502499194964856	seed=42
+example-rnn	1	pass	7s	epochs=1099	loss=7.14920064797275e-4	seed=1
+example-rnn	2	pass	8s	epochs=1350	loss=7.747210910335167e-4	seed=2
+example-rnn	3	pass	8s	epochs=1061	loss=8.970316888651043e-4	seed=3
+example-rnn	4	pass	8s	epochs=1237	loss=8.585825463462513e-4	seed=4
+example-lstm	42	pass	6s	epochs=1671	loss=0.0012716077129610545	seed=42
+example-lstm	1	pass	6s	epochs=1792	loss=0.0010123302527693758	seed=1
+example-lstm	2	pass	6s	epochs=1487	loss=0.0013216899999402964	seed=2
+example-lstm	3	pass	6s	epochs=1905	loss=9.5713373760303e-4	seed=3
+example-lstm	4	pass	5s	epochs=1591	loss=0.0014839969552194242	seed=4
+example-gru	42	pass	7s	epochs=1130	loss=9.542186016019624e-4	seed=42
+example-gru	1	pass	6s	epochs=1325	loss=8.872671947267441e-4	seed=1
+example-gru	2	pass	5s	epochs=1095	loss=8.143986142509772e-4	seed=2
+example-gru	3	pass	6s	epochs=1653	loss=8.322732624708843e-4	seed=3
+example-gru	4	pass	5s	epochs=1319	loss=8.754030134877726e-4	seed=4
+example-transformer	42	pass	1m0s	epochs=1000	sort_acc=6/6	seed=42
+example-transformer	1	pass	9s	epochs=1000	sort_acc=6/6	seed=1
+example-transformer	2	pass	8s	epochs=1000	sort_acc=6/6	seed=2
+example-transformer	3	pass	7s	epochs=1000	sort_acc=6/6	seed=3
+example-transformer	4	pass	8s	epochs=1000	sort_acc=6/6	seed=4
+example-seq-classify	42	pass	11s	accuracy=0.98	epochs=1000	loss=0.0489622006167981	seed=42
+example-seq-classify	1	pass	7s	accuracy=0.96	epochs=1000	loss=0.07717743073059968	seed=1
+example-seq-classify	2	pass	7s	accuracy=0.9	epochs=1000	loss=0.11891216760325951	seed=2
+example-seq-classify	3	pass	8s	accuracy=0.974	epochs=1000	loss=0.03779370980109438	seed=3
+example-seq-classify	4	pass	7s	accuracy=0.97	epochs=1000	loss=0.06691016333498026	seed=4

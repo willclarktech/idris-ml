@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# The safetensors/torch handles below are untyped third-party objects, and
+# scripts/pyrightconfig.json covers an otherwise stdlib-only tree with no stubs
+# for them. Silence only the unknown-type family here rather than drop the file
+# out of strict mode — every other rule still applies.
+# pyright: reportMissingImports=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
 """Gate: paired examples build the same parameter shapes with the same init.
 
 Why this exists: four separate init divergences reached main before anyone
@@ -47,6 +53,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paired_examples import EXAMPLES, REPO_ROOT  # noqa: E402
@@ -78,10 +85,14 @@ def load_manifest(path: Path) -> list[tuple[str, tuple[int, ...], float, float, 
     """(name, shape, mean, std, min, max) per tensor, in file order."""
     from safetensors import safe_open
 
-    out = []
-    with safe_open(str(path), framework="pt") as f:  # pyright: ignore[reportUnknownMemberType]
-        for key in f.keys():  # noqa: SIM118 — safe_open has no __iter__
-            t = f.get_tensor(key).double()
+    out: list[tuple[str, tuple[int, ...], float, float, float, float]] = []
+    # safetensors ships no py.typed marker, so everything reached through the
+    # handle is Unknown under pyright strict. Cast once at the boundary rather
+    # than annotate every access.
+    with safe_open(str(path), framework="pt") as raw:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        handle: Any = raw
+        for key in cast("list[str]", handle.keys()):  # noqa: SIM118 — no __iter__
+            t = cast("Any", handle.get_tensor(key)).double()
             out.append(
                 (
                     key,
