@@ -1,5 +1,6 @@
 # idris-ml
 
+[![tests](https://github.com/willclarktech/idris-ml/actions/workflows/test.yml/badge.svg)](https://github.com/willclarktech/idris-ml/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/willclarktech/idris-ml/branch/main/graph/badge.svg)](https://codecov.io/gh/willclarktech/idris-ml)
 
 A dependently-typed deep-learning framework in Idris 2: dynamic-graph ergonomics (define-by-run
@@ -18,14 +19,64 @@ fc2 = nn.Linear(128, 10)   # bug: this value didn't get updated
 some_inputs = torch.randn(64, 784)
 fc2(fc1(some_inputs))
 ```
-```
+```text
 RuntimeError: mat1 and mat2 shapes cannot be multiplied (64x256 and 128x10)
 ```
 
 The error arrives at runtime, possibly hours into a run, and only if that code path executes.
-In idris-ml the same program is rejected by the compiler, because shapes are part of the
-tensor's type. The same two language features (dependent types, plus linear types for model
-ownership) cover the rest:
+Here is the same model in idris-ml, with the same bug:
+
+```idris
+Batch : Nat
+Batch = 64
+
+Model : Type
+Model = Seq 784 10 Ex F WithGrad
+
+mkModel : Init Model
+mkModel = do
+  l1 <- linear {i = 784} {o = 256}
+  l2 <- linear {i = 128} {o = 10}   -- same bug: 128 should be 256
+  pure (l1 ~~> reluA ~~> l2 ~~> Nil)
+```
+```text
+Error: While processing right hand side of mkModel. Can't find an implementation for ChainFits 256 128.
+
+ShapeBug:21:16--21:36
+ 17 | mkModel : Init Model
+ 18 | mkModel = do
+ 19 |   l1 <- linear {i = 784} {o = 256}
+ 20 |   l2 <- linear {i = 128} {o = 10}
+ 21 |   pure (l1 ~~> reluA ~~> l2 ~~> Nil)
+                     ^^^^^^^^^^^^^^^^^^^^
+```
+
+The program is rejected by the compiler, because shapes are part of the tensor's type. Nothing
+had to run, and no data was needed. Fix the `128` to `256` and the rest is ordinary code — a
+model is a record of layers, training is a function call:
+
+```idris
+loss : (1 _ : Model) ->
+       (Tensor [Batch, 784] Ex F NoGrad, Tensor [Batch, 10] Ex F NoGrad) ->
+       L IO {use = 1} (LPair (!* (Tensor [] Ex F WithGrad)) Model)
+loss model (x, tgt) = do
+  (MkBang out # model') <- forwardSeq {b = Batch} model (retypeGrad x)
+  l <- tnllLossMeanL {b = Batch} {n = 10} out (retypeGrad tgt)
+  pure1 (MkBang l # model')
+
+train : DataStream (Tensor [Batch, 784] Ex F NoGrad, Tensor [Batch, 10] Ex F NoGrad) -> IO ()
+train batches = run $ do
+  opt   <- liftIO1 (adam 0.001 defaultOpts)
+  model <- runInitL mkModel
+  (MkBang (epochs, finalLoss) # trained) <-
+    fitSupervised opt loss batches (simpleConfig 20) model
+  discard trained
+  liftIO1 (putStrLn ("epochs=" ++ show epochs ++ " loss=" ++ show finalLoss))
+```
+
+The `1` and `!*` annotations are the second language feature at work: a model is a linear
+resource with a single owner, so reusing a stale handle after `eval` or `freeze` is a compile
+error rather than a silent no-op. Between them, dependent types and linear types cover the rest:
 
 | Bug class | PyTorch (dynamic) | TF 1.x (static) | hasktorch (Torch.Typed) | idris-ml |
 |---|:---:|:---:|:---:|:---:|
@@ -46,6 +97,30 @@ idris-ml is young: compile times are longer than you're used to, and performance
 PyTorch on many workloads (every example trains against a PyTorch reference implementation,
 which doubles as the benchmark).
 
+## Getting started
+
+Runs on macOS (Apple Silicon and Intel) and Linux. The default backend is a self-contained C
+tape requiring only a C compiler; the optional libtorch backend adds CUDA and Metal, and the
+optional MLX backend is Apple Silicon only.
+
+The quickest way to see the compile-time guarantees is the notebooks, which run against a real
+kernel rather than a transcript:
+
+```bash
+make backend                               # build the C tape backend
+make install                               # install core lib + gym
+make jupyter-install && make jupyter-lab   # interactive notebooks
+```
+
+The tutorial sequence begins at
+[`tutorials/01_tensors_and_types.ipynb`](packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb),
+and every notebook in [`packages/jupyter/notebooks/`](packages/jupyter/notebooks/) is executed
+in CI. For a Jupyter-independent path, [Getting Started](docs/users/getting-started.md) is the
+same walkthrough in text, and `make example-supervised` trains the simplest example end to end.
+
+Toolchain requirements, the per-backend build matrix, and the test gates are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Packages
 
 | Package | What it is |
@@ -53,82 +128,24 @@ which doubles as the benchmark).
 | [`idris-ml`](packages/idris-ml/) | **Core library** — autograd `Tensor`, `Nn` models, optimizers, `fit`, data, checkpoints, pluggable backends |
 | [`idris-transformers`](packages/idris-transformers/) | HF-aligned model library — load BERT / GPT-2 / Llama / BitNet via `fromPretrained`; LoRA + fine-tuning |
 | [`idris-gym`](packages/idris-gym/) | Pure-Idris RL environments with a Gymnasium-parity API (CartPole, FrozenLake, Taxi, …) |
-| [`jupyter`](packages/jupyter/) | Jupyter kernel (Python) wrapping the Idris 2 REPL with FFI support |
-| [`idris-ml-notebook`](packages/idris-ml-notebook/) | `Notebook.Prelude` re-export shim auto-loaded by the Jupyter kernel |
 | [`idris-ml-examples`](packages/idris-ml-examples/) | Runnable example programs (supervised, recurrent, transformers, RL) + microbenchmarks |
 | [`idris-args`](packages/idris-args/) | Typed CLI flag parsing (zero deps beyond base) |
-| [`idris-fmt`](packages/idris-fmt/) | Compiler-native Idris formatter, gated by a round-trip safety oracle |
-| [`backends`](packages/backends/) | C/C++ backends (tape, libtorch, MLX) + the shared training port |
-| [`idris-test`](packages/idris-test/) | Shared Idris test harness (assertions, suites, property testing) |
-| [`idris-test-c`](packages/idris-test-c/) | Cross-cutting C test infrastructure for the backend layer |
-| [`pytorch`](packages/pytorch/) | PyTorch reference implementations (used as a correctness oracle) |
+| [`jupyter`](packages/jupyter/) | Jupyter kernel (Python) wrapping the Idris 2 REPL with FFI support |
 
-## Getting started
-
-The recommended path is **[Nix](https://nixos.org/download) (with flakes) + [direnv](https://direnv.net)** —
-it's how CI runs, so local builds match CI byte-for-byte. But **Nix is a convenience, not a
-requirement**: any system with the toolchain below works.
-
-### With Nix + direnv (recommended)
-
-The repo ships an `.envrc` (`use flake`), so `cd` into the tree auto-loads the dev shell pinned in
-[`flake.nix`](flake.nix) (the single source of truth for the toolchain):
-
-```bash
-direnv allow                # one-time, in the repo root
-```
-
-Or enter the shell explicitly:
-
-```bash
-nix develop                                 # enter the dev shell, then run make targets
-nix develop .#default --command make test   # run a single target in the shell
-```
-
-### Without Nix — toolchain requirements
-
-Install these yourself (matching the versions in `flake.nix` avoids skew). Only the **Core** row is
-needed to build the default backend and run examples; the rest are per-feature:
-
-| For | Needs |
-| --- | --- |
-| **Core** — build the tape backend, run examples, `make test` | Idris 2 0.8.0 (via [pack](https://github.com/stefan-hoeck/idris2-pack)), Chez Scheme, a C compiler, `make` |
-| C unit tests (`make test-unit-c-*`) | [Criterion](https://github.com/Snaipe/Criterion) + dev headers, pkg-config |
-| C lint (`make lint-c`) | cppcheck, clang-tools (clang-format / clang-tidy) |
-| Python surfaces — PyTorch oracle, Jupyter | Python 3 + [uv](https://docs.astral.sh/uv/) |
-| Linux only | OpenBLAS (`cblas.h`); macOS uses the Accelerate framework |
-| Optional `torch` backend | libtorch |
-| Optional `mlx` backend (Apple Silicon) | MLX |
-
-The default tape backend has **no external dependencies** beyond the Core row — `make backend`
-builds it with just a C compiler.
-
-### Quick start
-
-```bash
-make backend                # build the C tape backend (no external dependencies)
-make install                # install core lib + gym (needed for examples/tests)
-make example-supervised     # run the simplest example
-make test                   # run the Idris test suite
-make jupyter-install && make jupyter-lab   # interactive notebooks
-```
-
-To try the compile-time guarantees live, start with the notebooks: the tutorial sequence begins
-at [`tutorials/01_tensors_and_types.ipynb`](packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb),
-and every notebook in [`packages/jupyter/notebooks/`](packages/jupyter/notebooks/) is executed
-in CI.
-
-The optional libtorch / MLX backends and the full per-backend build matrix are documented in
-[`packages/idris-ml/README.md`](packages/idris-ml/README.md#backends).
+The backends, the PyTorch oracle, the formatter, and the test harnesses are
+[listed in CONTRIBUTING.md](CONTRIBUTING.md#internal-packages).
 
 ## Documentation
 
 - [**Why idris-ml**](docs/users/why-idris-ml.md) — the five-guarantee case vs PyTorch / TF1 / hasktorch, with literal errors.
-- [docs/](docs/README.md) — full user documentation index (getting-started, PyTorch mapping, deep dives, benchmarks).
-- [CLAUDE.md](CLAUDE.md) — architecture, module dependency order, and the contributor guide.
+- [Getting Started](docs/users/getting-started.md) — first tensor to trained model, in text.
+- [PyTorch Mapping](docs/users/pytorch-mapping.md) — concept translation for PyTorch users.
+- [idris-transformers](docs/users/idris-transformers.md) — HuggingFace checkpoints, fine-tuning, LoRA.
+- [Benchmarks](docs/users/benchmarks.md) — performance vs PyTorch across the tape, MLX, and torch backends.
+- [docs/users/](docs/users/README.md) — the full user index, including the deep dives.
+- [CHANGELOG.md](CHANGELOG.md) — completed work, most recent first.
 
-## References
+## Contributing
 
-- [Neural Turing Machines](https://arxiv.org/abs/1410.5401) (Graves, Wayne, Danihelka 2014)
-- [Implementing Neural Turing Machines](https://arxiv.org/abs/1807.08518) (Collier & Beel 2018)
-- [Idris 2: Quantitative Type Theory in Practice](https://arxiv.org/abs/2104.00480) (Brady 2021)
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the build environment, the test gates, and the
+conventions. Architecture and design rationale live in [docs/develop/](docs/develop/README.md).
