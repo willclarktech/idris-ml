@@ -43,6 +43,7 @@ if TYPE_CHECKING:
         data_manifest: NotRequired[bool]
         params: NotRequired[dict[str, str]]
         step_oracle: NotRequired[bool]
+        tolerance: NotRequired[float]
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -58,6 +59,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES: list[ExampleSpec] = [
     {
         "name": "supervised",
+        # Step-oracle bound, measured with `--tolerance 0`:
+        # worst 2.2e-19 (linear_0.bias); the weight is bit-identical
+        "tolerance": 1e-15,
         # One optimizer step per epoch and a two-parameter model, so a wrong
         # post-step weight is unambiguous. See check-step-oracle.py.
         "step_oracle": True,
@@ -76,6 +80,9 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "rnn",
+        # Step-oracle bound, measured with `--tolerance 0`:
+        # worst 5.2e-18 (both recurrent biases)
+        "tolerance": 1e-14,
         # Deterministic pattern sequences on both sides, so the oracle only
         # transfers weights (maybeDumpOracleWeights / maybe_load_oracle_weights).
         "step_oracle": True,
@@ -97,6 +104,9 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "lstm",
+        # Step-oracle bound, measured with `--tolerance 0`:
+        # worst 8.7e-19 (both gate biases)
+        "tolerance": 1e-15,
         # Deterministic pattern sequences on both sides, so the oracle only
         # transfers weights (maybeDumpOracleWeights / maybe_load_oracle_weights).
         "step_oracle": True,
@@ -119,6 +129,9 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "gru",
+        # Step-oracle bound, measured with `--tolerance 0`:
+        # worst 1.7e-18 (bias_hh)
+        "tolerance": 1e-15,
         # Deterministic pattern sequences on both sides, so the oracle only
         # transfers weights (maybeDumpOracleWeights / maybe_load_oracle_weights).
         "step_oracle": True,
@@ -444,6 +457,11 @@ EXAMPLES: list[ExampleSpec] = [
     },  # Job 4 Phase B; py doesn't have it
     {
         "name": "a2c",
+        # Step-oracle bound, measured with `--tolerance 0`:
+        # worst 1.9e-11: global-norm clipping spreads one scalar's rounding
+        # across every parameter, and Adam's first step divides by
+        # sqrt(v)+1e-8
+        "tolerance": 1e-9,
         # The rollout is RNG-driven and cannot be regenerated on the other
         # side, so it travels as buffers and the reference recomputes GAE.
         "step_oracle": True,

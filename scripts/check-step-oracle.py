@@ -29,7 +29,22 @@ for the transfer, which is the direction that needs no rename machinery on the
 Idris side; once both sides hold the same numbers it does not matter who
 authored them.
 
-Usage: scripts/check-step-oracle.py [--only <name>] [--tolerance 1e-9]
+Bit-identity is not the bar and could not be: the two sides run different
+sequences of floating-point operations for the same expression (FMA
+contraction, reduction order, libm against torch's vectorised transcendentals),
+so agreement is to a few ULP rather than exactly. Most parameters do come out
+bit-identical; the ones that do not sit at 1e-19 to 1e-18 on the SGD models.
+a2c is eight orders looser because global-norm clipping turns one scalar
+derived from every gradient into a uniform relative error, and Adam's first
+step divides by `sqrt(v) + 1e-8`, which is ill-conditioned where a gradient is
+comparable to that epsilon.
+
+Each example therefore carries its own `tolerance` in `paired_examples.py`,
+measured with `--tolerance 0` (which prints the exact difference on every
+parameter) and left with ~1000x headroom for platform variation. A single
+loose bound would waste most of the sensitivity the clean models have.
+
+Usage: scripts/check-step-oracle.py [--only <name>] [--tolerance <float>]
 Exit 0 = the step agrees, 1 = divergence, 2 = a run failed.
 """
 
@@ -126,10 +141,20 @@ def check_params_mirror(spec: ExampleSpec) -> list[str]:
     return [f"{module_path.name} defines no PAIRED_PARAMS, so the oracle cannot load weights"]
 
 
+DEFAULT_TOLERANCE = 1e-9
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", help="check a single example by table name")
-    parser.add_argument("--tolerance", type=float, default=1e-9)
+    parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=None,
+        help=f"override every example's tolerance (default: per-example, else "
+        f"{DEFAULT_TOLERANCE:g}). Pass 0 to print the exact difference on every "
+        f"parameter, which is how the per-example values are measured.",
+    )
     args = parser.parse_args()
 
     specs = [s for s in EXAMPLES if args.only in (None, s["name"]) and s.get("step_oracle", False)]
@@ -175,19 +200,24 @@ def main() -> int:
                 failed = True
                 continue
 
+            tolerance = (
+                args.tolerance
+                if args.tolerance is not None
+                else spec.get("tolerance", DEFAULT_TOLERANCE)
+            )
             problems = compare_step(
                 idris_after,
                 ref_after,
                 spec.get("params", {}),
-                args.tolerance,
+                tolerance,
             )
             if problems:
                 failed = True
-                print(f"{name:<20} [{len(problems)} divergence(s)]")
+                print(f"{name:<20} [{len(problems)} divergence(s) at tol {tolerance:g}]")
                 for problem in problems:
                     print(f"    {problem}")
             else:
-                print(f"{name:<20} [OK]")
+                print(f"{name:<20} [OK at tol {tolerance:g}]")
 
     if failed:
         print("", file=sys.stderr)
