@@ -30,8 +30,9 @@ Params Residual where
   params (MkResidual sub)  = params sub
   reflect (MkResidual sub) =
     let (MkBang ps # sub') = reflect sub in MkBang ps # MkResidual sub'
-  castGrad (MkResidual sub) = MkResidual (castGrad sub)
-  discard (MkResidual sub)  = discard sub
+  castGrad (MkResidual sub)         = MkResidual (castGrad sub)
+  discard (MkResidual sub)          = discard sub
+  setTraining mode (MkResidual sub) = MkResidual (setTraining mode sub)
 
 ||| `forward x = x + sublayer(x)`, threading the sublayer linearly. `x` is an
 ||| unrestricted tensor, so it feeds both the sublayer and the add.

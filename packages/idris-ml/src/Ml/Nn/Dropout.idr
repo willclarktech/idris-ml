@@ -28,10 +28,11 @@ data Dropout : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : GradMod
 ||| through the rebuild.
 public export
 Params Dropout where
-  params (MkDropout p t)   = []
-  reflect (MkDropout p t)  = MkBang [] # MkDropout p t
-  castGrad (MkDropout p t) = MkDropout p t
-  discard (MkDropout _ _)  = pure ()
+  params (MkDropout p t)           = []
+  reflect (MkDropout p t)          = MkBang [] # MkDropout p t
+  castGrad (MkDropout p t)         = MkDropout p t
+  discard (MkDropout _ _)          = pure ()
+  setTraining mode (MkDropout p _) = MkDropout p mode
 
 ||| `Module` — sequences the `L IO` dropout op directly (identity in eval
 ||| mode).
@@ -48,8 +49,3 @@ Module Dropout where
 public export
 dropout : Double -> Dropout n n ex dt g
 dropout p = MkDropout p True
-
-||| Toggle training/eval mode.
-public export
-setTraining : Bool -> Dropout n n ex dt g -> Dropout n n ex dt g
-setTraining mode (MkDropout p _) = MkDropout p mode

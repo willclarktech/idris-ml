@@ -7,6 +7,7 @@ import Data.Vect
 import Ml.Executor
 import Ml.Nn.Dropout
 import Ml.Nn.Module
+import Ml.Nn.Seq
 import Ml.Tensor
 import Test.Harness
 
@@ -38,6 +39,34 @@ zeroProbKeepsAll = do
   check ("p=0 training dropout keeps all (got " ++ show (read4 out) ++ ")")
         (read4 out == [1.0, 2.0, 3.0, 4.0])
 
+-- `eval` must put Dropout into inference mode, the way PyTorch's `.eval()`
+-- recurses into submodules. Without it inference keeps the training-time mask
+-- and the 1/(1-p) survivor scaling, so a trained model scores well below what
+-- it learned.
+evalDisablesDropout : IO Bool
+evalDisablesDropout = do
+  x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} (FromVect [1.0, 2.0, 3.0, 4.0])
+  out <- Control.Linear.LIO.run (do
+           infer <- eval (the (Dropout 2 2 TestExecutor TestDType WithGrad) (dropout 0.5))
+           (MkBang o # m') <- forward {b=2} infer x
+           discard m'
+           pure o)
+  check ("eval puts dropout in inference mode (got " ++ show (read4 out) ++ ")")
+        (read4 out == [1.0, 2.0, 3.0, 4.0])
+
+-- The same through a chain: `eval` on a `Seq` has to reach the Dropout inside
+-- it, which is how every example holds one.
+evalDisablesDropoutInSeq : IO Bool
+evalDisablesDropoutInSeq = do
+  x   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} (FromVect [1.0, 2.0, 3.0, 4.0])
+  out <- Control.Linear.LIO.run (do
+           infer <- eval (the (Seq 2 2 TestExecutor TestDType WithGrad) (dropout 0.5 ~~> Nil))
+           (MkBang o # m') <- forwardSeq {b=2} infer x
+           discard m'
+           pure o)
+  check ("eval reaches dropout inside a Seq (got " ++ show (read4 out) ++ ")")
+        (read4 out == [1.0, 2.0, 3.0, 4.0])
+
 export
 tests : List (IO Bool)
-tests = [evalIsIdentity, zeroProbKeepsAll]
+tests = [evalIsIdentity, zeroProbKeepsAll, evalDisablesDropout, evalDisablesDropoutInSeq]

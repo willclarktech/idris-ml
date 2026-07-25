@@ -40,7 +40,8 @@ Params BatchNorm where
     MkBang [toParam gamma, toParam beta] # MkBatchNorm gamma beta mean var tr mom eps
   castGrad (MkBatchNorm gamma beta mean var tr mom eps) =
     MkBatchNorm (retypeGrad gamma) (retypeGrad beta) mean var tr mom eps
-  discard (MkBatchNorm _ _ _ _ _ _ _) = pure ()
+  discard (MkBatchNorm _ _ _ _ _ _ _)              = pure ()
+  setTraining mode (MkBatchNorm g b m v _ mom eps) = MkBatchNorm g b m v mode mom eps
 
 ||| 1-D batch-norm forward. Training mode uses batch stats + updates the
 ||| running buffers in place; eval mode uses the running buffers. Indexed by
@@ -55,11 +56,6 @@ batchNormForward (MkBatchNorm {channels} {spatialDim} gamma beta mean var traini
       tFlag = the Int (if training then 1 else 0)
   in MkTensor (primBatchNorm {ex} input.tensorPtr gamma.tensorPtr beta.tensorPtr
                              mean.tensorPtr var.tensorPtr cI sI tFlag momentum eps) Nothing)
-
-||| Toggle training/eval mode.
-export
-setTraining : Bool -> BatchNorm i o ex dt g -> BatchNorm i o ex dt g
-setTraining mode (MkBatchNorm g b m v _ mom eps) = MkBatchNorm g b m v mode mom eps
 
 ||| Raw handles of the running mean / variance buffers. Lets callers read
 ||| the buffer values back (via `primItem*`) without deconstructing the

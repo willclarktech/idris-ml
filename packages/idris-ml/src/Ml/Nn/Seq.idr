@@ -123,13 +123,24 @@ discardSeq (l :: rest) = do
   discard l
   discardSeq rest
 
+||| Propagate the training/inference mode into every element of the chain —
+||| the `Seq` half of PyTorch's `Module.train(mode)` recursion. Without it,
+||| `eval` on a chain leaves any `Dropout` / `BatchNorm` inside it in training
+||| mode, which is how every example holds one.
+export
+setTrainingSeq : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+                 Bool -> (1 _ : Seq i o ex dt g) -> Seq i o ex dt g
+setTrainingSeq _    Nil         = Nil
+setTrainingSeq mode (l :: rest) = setTraining mode l :: setTrainingSeq mode rest
+
 ||| `Seq` is a `Params` + `Module`: lets a `Seq` nest inside another.
 public export
 Params Seq where
-  params   = paramsSeq
-  reflect  = reflectSeq
-  castGrad = castGradSeq
-  discard  = discardSeq
+  params      = paramsSeq
+  reflect     = reflectSeq
+  castGrad    = castGradSeq
+  discard     = discardSeq
+  setTraining = setTrainingSeq
 
 public export
 Module Seq where

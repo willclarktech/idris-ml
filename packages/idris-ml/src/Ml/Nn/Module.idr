@@ -138,6 +138,19 @@ interface Params (l : Nat -> Nat -> (0 _ : Executor) -> (0 _ : DType) -> (0 _ : 
              (1 _ : l i o ex dt g) -> l i o ex dt g'
   discard : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
             (1 _ : l i o ex dt g) -> L IO ()
+  ||| `setTraining` — the training/inference mode switch, PyTorch's
+  ||| `Module.train(mode)` recursion. `Dropout` and `BatchNorm` are the only
+  ||| layers whose forward reads it; containers (`Seq`, `Residual`) propagate
+  ||| it into what they hold. The default is identity, which is what every
+  ||| mode-independent layer wants, so instances only override when their
+  ||| forward actually differs between the two modes.
+  |||
+  ||| `eval` and `trainable` call it. Without that, an inference model keeps
+  ||| masking and rescaling its own activations: a Dropout(0.5) chain scored
+  ||| 77.4% on the seq-classify eval against 94.4% with dropout neutralised.
+  setTraining : {0 ex : Executor} -> {0 dt : DType} -> {0 g : GradMode} -> {0 i, o : Nat} ->
+                Bool -> (1 _ : l i o ex dt g) -> l i o ex dt g
+  setTraining _ m = m
 
 ||| `Module`: the batched-first `forward` on top of `Params`. `forward`
 ||| consumes the model and returns the (unrestricted) output tensor wrapped in
@@ -181,7 +194,7 @@ eval : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
 eval m = do
   let (MkBang ps # m') = reflect m
   traverse_ (\p => liftIO1 (primIO (primSetRequiresGrad {ex} p.paramPtr 0))) ps
-  pure1 (castGrad m')
+  pure1 (castGrad (setTraining False m'))
 
 ||| `freeze`: consume the model, flip C `requires_grad` off for every param
 ||| (grads still flow THROUGH for downstream trainable layers — the fine-tune-
@@ -219,4 +232,4 @@ trainable : {0 ex : Executor} -> {0 dt : DType} -> {0 i, o : Nat} ->
 trainable m = do
   let (MkBang ps # m') = reflect m
   traverse_ (\p => liftIO1 (primIO (primSetRequiresGrad {ex} p.paramPtr 1))) ps
-  pure1 (castGrad m')
+  pure1 (castGrad (setTraining True m'))
