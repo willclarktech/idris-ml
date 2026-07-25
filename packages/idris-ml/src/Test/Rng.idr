@@ -20,6 +20,7 @@ fixtureText : String
 fixtureText = unlines
   [ "# recorded by a test"
   , "choice 1"
+  , "mask 0110"
   , "env 0.25"
   , "uniform 0.5"
   , ""
@@ -27,6 +28,7 @@ fixtureText = unlines
   , "choice 0"
   , "normal -1.5"
   , "uniform 0.125"
+  , "mask 11"
   , "normal -0.25"
   , "uniform 3.2e-05"
   ]
@@ -85,6 +87,24 @@ tests =
        _  <- replay.rng.uniform
        u3 <- replay.rng.uniform
        checkClose "exponent-form draw parses" u3 3.2e-5 1.0e-18
+
+  -- Each mask line is one dropout call's whole keep-mask (1 = kept), and
+  -- calls consume lines in file order. Exhaustion and a bits/numel length
+  -- mismatch are loud crashes (`recordedMasks`), so neither is testable
+  -- in-process — same as the other channels' exhaustion.
+  , do replay <- loadReplay fixture
+       GivenBits b1 <- replay.masks.nextMask 4
+         | _ => check "mask channel replays keep-bits in order" False
+       GivenBits b2 <- replay.masks.nextMask 2
+         | _ => check "mask channel replays keep-bits in order" False
+       check "mask channel replays keep-bits in order"
+             (b1 == [False, True, True, False] && b2 == [True, True])
+
+  , do FreshSeed a <- liveMasks.nextMask 10
+         | _ => check "live masks draw fresh seeds" False
+       FreshSeed b <- liveMasks.nextMask 10
+         | _ => check "live masks draw fresh seeds" False
+       check "live masks draw fresh seeds" (a /= b)
 
   , do rng <- liveRng
        ns <- sequence (List.replicate 20 (rng.natRange 3 7))
