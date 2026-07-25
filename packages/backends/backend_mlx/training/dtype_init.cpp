@@ -84,7 +84,8 @@ TensorHandle wrap_param(mx::array arr) {
 static TensorHandle portable_normal_param(const std::vector<int>& shape, double mean, double std,
                                           int stream_tag, int dtag) {
 	int n = 1;
-	for (int d : shape) n *= d;
+	for (int d : shape)
+		n *= d;
 	std::vector<double> buf((size_t)n);
 	idrisml_portable_fill_normal(buf.data(), n, mean, std);
 	switch (shape.size()) {

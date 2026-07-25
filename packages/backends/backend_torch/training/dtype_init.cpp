@@ -67,7 +67,8 @@ TensorHandle make_param_leaf_empty(c10::IntArrayRef dims, torch::ScalarType dt, 
 static TensorHandle portable_normal_param(std::vector<int64_t> shape, double mean, double std,
                                           int dtag) {
 	int64_t n = 1;
-	for (int64_t d : shape) n *= d;
+	for (int64_t d : shape)
+		n *= d;
 	std::vector<double> buf((size_t)n);
 	idrisml_portable_fill_normal(buf.data(), (int)n, mean, std);
 	switch (shape.size()) {
