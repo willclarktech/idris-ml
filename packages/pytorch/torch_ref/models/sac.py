@@ -359,11 +359,3 @@ def evaluate(actor: Actor, n_episodes: int = 20) -> float:
                 break
         total += ep_return
     return total / n_episodes
-
-
-if __name__ == "__main__":
-    print("=== SAC on Pendulum ===")
-    actor, history = train_sac()
-    avg = evaluate(actor)
-    print(f"\nEval (20 episodes, greedy): avg_return={avg:.1f}")
-    print(f"RESULT\tavg_return={avg:.1f}\tsteps={30000}\tseed=42")

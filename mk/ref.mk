@@ -25,20 +25,13 @@ ref-setup:
 # lora-finetune} validate-lora-adapter, plus ref-gpt2-lm-finetune and
 # ref-bert-mlm-finetune (colocated with their examples further up).
 REF_SCRIPT_NAMES := supervised bert-classify-finetune rnn lstm gru \
-	ntm-copy ntm-recall dnc-copy dnc-recall transformer gpt reinforce \
-	a2c ppo dqn double-dqn mountain-car mountain-car-cont
+	ntm-copy ntm-recall dnc-copy dnc-recall transformer gpt mnist \
+	seq-classify reinforce a2c ppo dqn double-dqn sac mountain-car \
+	mountain-car-cont q-learning sarsa frozen-lake taxi monte-carlo
 REF_SCRIPT_TARGETS := $(addprefix ref-,$(REF_SCRIPT_NAMES))
 .PHONY: $(REF_SCRIPT_TARGETS)
 $(REF_SCRIPT_TARGETS): ref-%:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.$(subst -,_,$*)
-
-# SAC, tabular RL, and Monte Carlo have no scripts/ wrapper — invoke
-# models/*.py:__main__ directly (paired-side entry point in both cases).
-REF_MODEL_NAMES := sac q-learning sarsa frozen-lake taxi monte-carlo
-REF_MODEL_TARGETS := $(addprefix ref-,$(REF_MODEL_NAMES))
-.PHONY: $(REF_MODEL_TARGETS)
-$(REF_MODEL_TARGETS): ref-%:
-	cd packages/pytorch && uv run python -m torch_ref.models.$(subst -,_,$*)
 
 ref-bert-classify-sst2-finetune: models/google/bert_uncased_L-2_H-128_A-2/config.json \
 		$(SST2_DATA_DIR)/train.tsv $(SST2_DATA_DIR)/validation.tsv
@@ -148,13 +141,15 @@ ref-convergence-recall:
 # resumable TSV shape, so the two pass-rate tables answer the same question
 # and sit side by side in reference-alignment.md.
 #
-# Scope is the models whose dense layers share Idris' init contract (see
-# reference-alignment.md "one dense init on both sides"). Deliberately absent:
-# tabular RL (q-learning, sarsa, monte-carlo, frozen-lake, taxi) has no seeded
-# reference entrypoint, and the memory (ntm/dnc) + transformer models init from
-# a normal distribution on the Idris side, which is a separate alignment axis.
+# Deliberately absent: the memory (ntm/dnc) and transformer models, whose Idris
+# counterparts init from a normal distribution — a separate alignment axis from
+# the dense-init contract this campaign was built to measure (see
+# reference-alignment.md "one dense init on both sides"). Tabular RL carries no
+# dense layer at all, but it is cheap and shares every hyperparameter default,
+# so it stays in as a free cross-check.
 CONVERGENCE_REF_MODULES := supervised rnn lstm gru mnist seq_classify \
-	reinforce dqn double_dqn mountain_car mountain_car_cont a2c ppo sac
+	reinforce dqn double_dqn mountain_car mountain_car_cont a2c ppo sac \
+	q_learning sarsa monte_carlo frozen_lake taxi
 CONVERGENCE_REF_EXPECT  := test-refs-convergence.expect
 CONVERGENCE_REF_OUT     ?= docs/develop/convergence-campaign-ref.tsv
 

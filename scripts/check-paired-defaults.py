@@ -161,6 +161,31 @@ EXAMPLES: list[ExampleSpec] = [
         "python": "packages/pytorch/torch_ref/scripts/mountain_car_cont.py",
         "idris_only": ["--clip", "--es-threshold", "--es-window", "--es-patience"],
     },
+    {
+        "name": "q-learning",
+        "idris": "packages/idris-ml-examples/src/Example/QLearning.idr",
+        "python": "packages/pytorch/torch_ref/scripts/q_learning.py",
+    },
+    {
+        "name": "sarsa",
+        "idris": "packages/idris-ml-examples/src/Example/Sarsa.idr",
+        "python": "packages/pytorch/torch_ref/scripts/sarsa.py",
+    },
+    {
+        "name": "frozen-lake",
+        "idris": "packages/idris-ml-examples/src/Example/FrozenLake.idr",
+        "python": "packages/pytorch/torch_ref/scripts/frozen_lake.py",
+    },
+    {
+        "name": "taxi",
+        "idris": "packages/idris-ml-examples/src/Example/Taxi.idr",
+        "python": "packages/pytorch/torch_ref/scripts/taxi.py",
+    },
+    {
+        "name": "monte-carlo",
+        "idris": "packages/idris-ml-examples/src/Example/MonteCarlo.idr",
+        "python": "packages/pytorch/torch_ref/scripts/monte_carlo.py",
+    },
 ]
 
 

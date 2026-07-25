@@ -140,17 +140,3 @@ def evaluate(
         "loss": losses / n_episodes,
         "avg_reward": total_reward / n_episodes,
     }
-
-
-if __name__ == "__main__":
-    print("=== First-visit MC on Blackjack ===")
-    q, history = train_mc()
-    stats = evaluate(q)
-    print(
-        f"\nEval (10000 episodes, greedy): win={stats['win']:.3f} draw={stats['draw']:.3f} "
-        f"loss={stats['loss']:.3f} avg_reward={stats['avg_reward']:+.3f}"
-    )
-    print(
-        f"RESULT\twin_rate={stats['win']:.3f}\tavg_reward={stats['avg_reward']:+.3f}\t"
-        f"epochs={len(history)}\tseed=42"
-    )

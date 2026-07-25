@@ -104,11 +104,3 @@ def evaluate(q: npt.NDArray[np.float64], n_episodes: int = 100) -> float:
                 break
         total += ep_return
     return total / n_episodes
-
-
-if __name__ == "__main__":
-    print("=== SARSA on CliffWalking ===")
-    q, history = train_sarsa()
-    avg = evaluate(q)
-    print(f"\nEval (100 episodes, greedy): avg_return={avg:.1f}")
-    print(f"RESULT\tavg_return={avg:.1f}\tepochs={len(history)}\tseed=42")
