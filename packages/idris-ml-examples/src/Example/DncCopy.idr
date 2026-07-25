@@ -235,7 +235,7 @@ main = do
   putStrLn $ "Architecture: R=" ++ show R ++ " N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
 
   opt <- rmsprop cfg.lr {alpha = cfg.alpha} {momentum = cfg.momentum}
-                 ({ clip := NormClip cfg.clipVal } defaultOpts)
+                 ({ clip := ValueClip cfg.clipVal } defaultOpts)
   let dataStream = generate (genBatch cfg.batch cfg.minLen cfg.maxLen)
 
   -- Linear surface end to end (see Example.NtmCopy).
