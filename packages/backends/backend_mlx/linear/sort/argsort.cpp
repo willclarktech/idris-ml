@@ -13,8 +13,8 @@ extern "C" TensorHandle tensor_argsort_mlx_streamed(TensorHandle ht, int dim, in
 	// ascending indices: mlx's sort is stable, and reversal would put
 	// tied runs in descending index order while the tape/torch backends
 	// tie-break ascending (the DNC allocation weighting depends on it).
-	auto indices = (descending != 0) ? mx::argsort(mx::negative(t->data), dim)
-	                                 : mx::argsort(t->data, dim);
+	auto indices =
+	    (descending != 0) ? mx::argsort(mx::negative(t->data), dim) : mx::argsort(t->data, dim);
 	auto result = mx::astype(indices, mx::float32);
 	mx::eval(result);
 	return (TensorHandle)(new Tensor(result, false));
