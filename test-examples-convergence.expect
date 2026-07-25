@@ -49,6 +49,12 @@ example-taxi                     avg_return   >=  5
 # Pendulum: SAC at full convergence aims for ~-500; documented partial level.
 example-reinforce                avg_return   >=  150
 example-dqn                      avg_return   >=  100
+# Double DQN: peer bar with dqn. The paired PyTorch reference's own test
+# requires >= 3/5 seeds at >= 150 greedy eval, so 100 is the conservative
+# side of the reference. Added 2026-07-29 — the row was missing since the
+# example landed (2026-06-19), and check-result.sh treats a missing row as
+# presence-only, so campaign cells recorded "pass" without checking anything.
+example-double-dqn               avg_return   >=  100
 example-mountain-car             avg_return   >=  -160
 example-mountain-car-cont        avg_return   >=  85
 example-a2c                      avg_return   >=  150
