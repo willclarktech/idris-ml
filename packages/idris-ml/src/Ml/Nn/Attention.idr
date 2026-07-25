@@ -118,31 +118,44 @@ attentionForward {headDim} (MkAttention qs ks vs ops) input = do
     in MkTensor o Nothing)
   pure1 (MkBang out # MkAttention qs ks vs ops)
 
--- Build `numHeads` registered weight tensors named `<kind>_<j>.weight`.
--- Grad-poly: weakens each head to NoGrad in place when `g = NoGrad`.
+-- Build `numHeads` registered weight tensors named `<kind>_<j>.weight`,
+-- each ~ U(±bound). Grad-poly: weakens each head to NoGrad in place when
+-- `g = NoGrad`.
 mkHeads : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {a, b : Nat} ->
           String -> (count : Nat) -> Double -> Init (Vect count (TMat a b ex dt g))
-mkHeads _ Z _          = pure []
-mkHeads kind (S c) std = do
+mkHeads _ Z _            = pure []
+mkHeads kind (S c) bound = do
   name <- freshChild kind
-  w <- liftIO $ tparam2dNormal {ex} {dt} {o=a} {i=b} (name ++ ".weight") 0.0 std
+  w <- liftIO $ param {ex} {dt} {dims=[a, b]} (name ++ ".weight") (Uniform (-bound) bound)
   w' <- case sgrad {g} of
           SWithGrad => pure w
           SNoGrad   => liftIO (weakenGrad w)
-  rest <- mkHeads kind c std
+  rest <- mkHeads kind c bound
   pure (w' :: rest)
 
 ||| Construct multi-head attention inside an `Init` derivation. Per-head
-||| Q/K/V/output projections ~ N(0, 1/√fan_in); registers
-||| `<scope>.{query,key,value,out_proj}_<j>.weight`.
+||| Q/K/V/output projections ~ `U(±1/√fan_in)` (fan_in = dModel for Q/K/V,
+||| headDim for the output projection); registers
+||| `<scope>.{query,key,value,out_proj}_<j>.weight`. No biases, matching the
+||| reference's `nn.Linear(..., bias=False)` heads.
+|||
+||| This is the shared dense contract from `Nn.linear`, which is what the
+||| reference's projections take once `MultiHeadTransformer` inits through
+||| `init_linear_` — they are ordinary `nn.Linear` modules there.
+|||
+||| Until 2026-07-31 these were normals whose *std* was that same
+||| `1/√fan_in`, so the draws ran √3 ≈ 1.73× wide (the std of `U(±b)` is
+||| `b/√3`) — the same off-by-√3 the dense layers carried before
+||| 2026-07-29. `Uniform` also routes through the host-buffer fill, so
+||| attention init is now identical across tape / torch / mlx.
 export
 attention : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {dModel, numHeads, headDim : Nat} ->
             Init (Attention dModel numHeads headDim ex dt g)
 attention = do
-  let projStd = 1.0 / sqrt (cast {to=Double} dModel)
-      outStd  = 1.0 / sqrt (cast {to=Double} headDim)
-  qs <- mkHeads {a=headDim} {b=dModel} "query"    numHeads projStd
-  ks <- mkHeads {a=headDim} {b=dModel} "key"      numHeads projStd
-  vs <- mkHeads {a=headDim} {b=dModel} "value"    numHeads projStd
-  ops <- mkHeads {a=dModel} {b=headDim} "out_proj" numHeads outStd
+  let projBound = 1.0 / sqrt (cast {to=Double} dModel)
+      outBound  = 1.0 / sqrt (cast {to=Double} headDim)
+  qs <- mkHeads {a=headDim} {b=dModel} "query"    numHeads projBound
+  ks <- mkHeads {a=headDim} {b=dModel} "key"      numHeads projBound
+  vs <- mkHeads {a=headDim} {b=dModel} "value"    numHeads projBound
+  ops <- mkHeads {a=dModel} {b=headDim} "out_proj" numHeads outBound
   pure (MkAttention qs ks vs ops)

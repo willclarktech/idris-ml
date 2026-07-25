@@ -7,10 +7,11 @@ disagreed with each other — nine models took `nn.Linear`'s defaults (uniform
 bias), supervised/rnn set Xavier weights explicitly — so "aligned with the
 reference" had no single meaning.
 
-Out of scope here, deliberately: `multi_head_transformer`'s nine `nn.Linear`
-layers (their Idris counterpart is `Nn.Attention`, which inits from a normal
-distribution, not `Nn.linear`) and the recurrent weight matrices in `rnn.py`
-(counterpart `Nn.Recurrent` / `Nn.Lstm` / `Nn.Gru`, also normal).
+`multi_head_transformer`'s per-head projections and feed-forward layers came
+into scope on 2026-07-31, when `Nn.Attention` and `Nn.transformerBlock` moved
+onto the same bound. The recurrent weight matrices in `rnn.py` stay out: both
+sides use Xavier-uniform there, pinned by `Test.Nn.{Recurrent,Lstm,Gru}` on
+the Idris side.
 """
 
 import math

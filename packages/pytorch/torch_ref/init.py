@@ -29,10 +29,13 @@ LLaMA/PaLM-style models drop the bias entirely.
 `init_conv_` applies the same contract to `nn.Conv1d` / `nn.Conv2d`, whose
 Idris counterparts (`Nn.conv1d` / `Nn.conv2d`) match it as of 2026-07-31.
 
-Still unaligned, and so still measuring init rather than implementation:
-recurrent weight matrices and attention projections, whose Idris
-counterparts (`Nn.Recurrent`/`Lstm`/`Gru`, `Nn.Attention`) init from a normal
-distribution while the references here use `xavier_uniform_`.
+Recurrent weight matrices are the one deliberate exception, and they are
+aligned on their own terms: `LinearRNNCell` / `LSTMCell` / `GRUCell` here and
+`Nn.Recurrent` / `Lstm` / `Gru` in Idris both use Xavier-uniform,
+`U(+-sqrt(6/(fan_in+fan_out)))`, which suits a weight applied once per
+timestep. Everything else dense — including `multi_head_transformer`'s
+per-head projections and feed-forward layers, which are all `nn.Linear` —
+goes through this helper.
 """
 
 import math

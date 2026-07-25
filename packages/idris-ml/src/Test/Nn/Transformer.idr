@@ -60,6 +60,27 @@ paramsCompose = do
   check ("Params (TransformerBlock) composes attn+norms+ff (got " ++ show (length (params blk)) ++ ")")
         (length (params blk) == 14)
 
+-- Init contract: the attention projections and the block's feed-forward
+-- weights take the shared dense bound `U(±1/√fan_in)`, matching
+-- `init_linear_` on the reference's `MultiHeadTransformer` (whose q/k/v/out
+-- and ff layers are all `nn.Linear`). Until 2026-07-31 the Idris side drew
+-- normals whose *std* equalled that bound, so it ran 1.73× wide.
+-- `attentionParams` orders the heads query, key, value, out_proj, so index 0
+-- is the first query head, `[headDim, dModel]`.
+attentionInitInRange : IO Bool
+attentionInitInRange = do
+  blk <- runInit $ scoped "ti"
+           (transformerBlock {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
+                             {dModel=32} {numHeads=2} {headDim=16})
+  let bound = 1.0 / sqrt 32.0
+      ws    = case params blk of
+                (p :: _) => [ primItem1d {ex=TestExecutor} p.paramPtr k
+                            | k <- map (cast {to=Int}) [the Nat 0 .. 511] ]
+                []       => []
+  check ("attention query weight ~ U(±1/√fan_in) (bound " ++ show bound
+         ++ ", max " ++ show (foldl (\a, w => max a (abs w)) 0.0 ws) ++ ")")
+        (all (\w => abs w <= bound) ws && any (\w => w /= 0.0) ws)
+
 export
 tests : List (IO Bool)
-tests = [blockForwardShape, blocksStackInSeq, paramsCompose]
+tests = [blockForwardShape, blocksStackInSeq, paramsCompose, attentionInitInRange]

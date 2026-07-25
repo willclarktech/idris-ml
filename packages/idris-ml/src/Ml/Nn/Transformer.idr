@@ -92,10 +92,16 @@ transformerBlock = do
   a   <- the (Init (Attention dModel numHeads headDim ex dt g)) (scopedChild "attn" attention)
   n1  <- the (Init (LayerNorm dModel dModel ex dt g)) (named "norm1" (layerNorm {n = dModel}))
   n2  <- the (Init (LayerNorm dModel dModel ex dt g)) (named "norm2" (layerNorm {n = dModel}))
+  -- Shared dense contract, U(±1/√fan_in) — the reference's ff1/ff2 are
+  -- `nn.Linear(..., bias=False)` and go through `init_linear_`.
   f1n <- freshChild "ff1"
-  ff1 <- liftIO $ tparam2dNormal {ex} {dt} {o = 4 * dModel} {i = dModel}     (f1n ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} dModel))
+  let f1B = 1.0 / sqrt (cast {to=Double} dModel)
+  ff1 <- liftIO $ param {ex} {dt} {dims=[4 * dModel, dModel]} (f1n ++ ".weight")
+                        (Uniform (-f1B) f1B)
   f2n <- freshChild "ff2"
-  ff2 <- liftIO $ tparam2dNormal {ex} {dt} {o = dModel}     {i = 4 * dModel} (f2n ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} (4 * dModel)))
+  let f2B = 1.0 / sqrt (cast {to=Double} (4 * dModel))
+  ff2 <- liftIO $ param {ex} {dt} {dims=[dModel, 4 * dModel]} (f2n ++ ".weight")
+                        (Uniform (-f2B) f2B)
   -- Sub-modules (attn/n1/n2) infer `g` from the record's field types; only
   -- the directly-created ff1/ff2 need weakening on the NoGrad branch.
   case sgrad {g} of

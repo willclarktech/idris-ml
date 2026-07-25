@@ -18,6 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.init import init_linear_
 from torch_ref.training.runner import get_device
 
 
@@ -132,10 +133,16 @@ class MultiHeadTransformer(nn.Module):
         return pe
 
     def _init_weights(self) -> None:
-        """Xavier uniform initialization for all linear layers."""
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
+        """The shared dense contract for every linear layer.
+
+        Was `xavier_uniform_` until 2026-07-31, which put this model's dense
+        init out of step with the other eleven references *and* with its Idris
+        twin. Everything here is an `nn.Linear` — the per-head q/k/v/out_proj
+        projections included — so one `init_linear_` call covers the block,
+        matching `Nn.attention` and `Nn.transformerBlock`'s `U(±1/√fan_in)`.
+        All of them are `bias=False`, so the zero-bias half is a no-op.
+        """
+        init_linear_(self)
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward pass.
