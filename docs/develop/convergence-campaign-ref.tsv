@@ -7,3 +7,4 @@ ntm_copy	42	pass	1m1s	epochs=4600	acc_short=0.9955929487179487	acc_full=0.999885
 ntm_copy	1	pass	1m27s	epochs=6600	acc_short=1.0	acc_full=1.0	seq_acc_short=1.0	seq_acc_full=1.0	seed=1
 ntm_copy	2	pass	1m11s	epochs=5400	acc_short=1.0	acc_full=1.0	seq_acc_short=1.0	seq_acc_full=1.0	seed=2
 ntm_copy	3	pass	1m8s	epochs=5200	acc_short=0.9753401360544217	acc_full=0.9921003717472119	seq_acc_short=0.96	seq_acc_full=0.89	seed=3
+ntm_copy	4	fail	2m11s	epochs=10000	acc_short=0.8426656151419558	acc_full=0.6831506196377503	seq_acc_short=0.28	seq_acc_full=0.15	seed=4
