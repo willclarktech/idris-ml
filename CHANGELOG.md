@@ -2,6 +2,25 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+The step oracle covers 18 of 20 paired examples (2026-08-03; row "Extend
+the step oracle to the remaining paired examples"). From the 5 it covered
+when the row was filed, the extension landed in three waves on a replay
+foundation (`idris-random`'s `Source` through `Env.reset`, `Ml.Rng`'s
+recorded channels, a user-facing `--replay` flag per example): the 6
+batch-shape examples (transformer, gpt, NTM/DNC copy + recall), then the 7
+RL examples (reinforce, ppo, dqn, double-dqn, mountain-car, sac,
+mountain-car-cont). Every wave found something real — epoch_zero param
+leak, cosineWithWarmup schedule divergence, float32 reference models,
+unstable argsort ties, DNC head fed cell state, unregistered read-init,
+NormClip-vs-ValueClip, PPO two-optimizer split, replay-buffer sampling
+without replacement, DQN-family missing TimeLimit clocks, SAC's
+single-scalar reference noise / double target fold / constant
+squash-correction / missing log_std clamp / non-canonical grad clip, a
+pinned-reset remnant in mountain-car-cont, and a stdlib parseDouble sign
+bug. Each example carries a floor measured at `--tolerance 0` and a
+planted probe recorded in `scripts/paired_examples.py`. The remaining 2
+(mnist, seq-classify) are dropout-gated — see the Low-priority row.
+
 Dropout mask was frozen on tape (2026-08-02). `dropout_random_seed` was
 `rand() % (x + 1)` and the only caller passes `x = 0`, so it returned zero on
 every call: every dropout forward reused one mask, and the layer deleted a
