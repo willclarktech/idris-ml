@@ -8,6 +8,7 @@ import Ml.Executor
 import Ml.Nn.Dropout
 import Ml.Nn.Module
 import Ml.Nn.Seq
+import Ml.Rng
 import Ml.Tensor
 import Test.Harness
 
@@ -67,6 +68,42 @@ evalDisablesDropoutInSeq = do
   check ("eval reaches dropout inside a Seq (got " ++ show (read4 out) ++ ")")
         (read4 out == [1.0, 2.0, 3.0, 4.0])
 
+-- A recorded mask applies exactly: kept elements carry 1/(1-p), dropped
+-- elements are zero. p=0.5 on [1,2,3,4] with keep-bits [1,0,0,1] is
+-- [2,0,0,8] — any masking or scaling error shows in the values.
+givenBitsForward : IO Bool
+givenBitsForward = do
+  x    <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} (FromVect [1.0, 2.0, 3.0, 4.0])
+  msrc <- recordedMasks [[True, False, False, True]]
+  out  <- Control.Linear.LIO.run (do
+            (MkBang o # m') <- forward {b=2} (the (Dropout 2 2 TestExecutor TestDType NoGrad) (dropoutWith msrc 0.5)) x
+            discard m'
+            pure o)
+  check ("recorded mask applies as 0 / 1/(1-p) (got " ++ show (read4 out) ++ ")")
+        (read4 out == [2.0, 0.0, 0.0, 8.0])
+
+-- Gradient flows through the recorded mask like through dropout: with
+-- loss = sum(rowsums(out)^2), dL/dparam = 2 * rowsum * maskScale on kept
+-- elements and exactly 0 on dropped ones.
+givenBitsBackward : IO Bool
+givenBitsBackward = do
+  countBefore <- getParamCount {ex=TestExecutor}
+  p    <- param {ex=TestExecutor} {dt=TestDType} {dims=[2, 2]} "test_dropout_mask_grad" (FromVect [1.0, 2.0, 3.0, 4.0])
+  ones <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} (Const 1.0)
+  zs   <- tensor {ex=TestExecutor} {dt=TestDType} {dims=[2]} Zeros
+  msrc <- recordedMasks [[True, False, False, True]]
+  out  <- Control.Linear.LIO.run (do
+            (MkBang o # m') <- forward {b=2} (the (Dropout 2 2 TestExecutor TestDType WithGrad) (dropoutWith msrc 0.5)) p
+            discard m'
+            pure o)
+  rows <- tmv out (retypeGrad ones)
+  loss <- tmseLoss rows (retypeGrad zs)
+  runBackward loss
+  gs <- traverse (getParamGradAt {ex=TestExecutor} countBefore) (the (List Int) [0, 1, 2, 3])
+  check ("gradient through the recorded mask (got " ++ show gs ++ ")")
+        (gs == the (List Double) [8.0, 0.0, 0.0, 32.0])
+
 export
 tests : List (IO Bool)
-tests = [evalIsIdentity, zeroProbKeepsAll, evalDisablesDropout, evalDisablesDropoutInSeq]
+tests = [ evalIsIdentity, zeroProbKeepsAll, evalDisablesDropout
+        , evalDisablesDropoutInSeq, givenBitsForward, givenBitsBackward ]
