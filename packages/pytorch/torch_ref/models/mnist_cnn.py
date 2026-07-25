@@ -25,6 +25,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset  # noqa: TC002
 
 from torch_ref.init import init_conv_, init_linear_
+from torch_ref.models.masked_dropout import MaskedDropout
 from torch_ref.training.runner import get_device
 
 # Batch type yielded by the MNIST loaders: (images [B,1,28,28], labels [B]).
@@ -42,7 +43,9 @@ class MnistCNN(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, bias=True)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=5, bias=True)
-        self.drop = nn.Dropout(0.5)
+        # Explicit-mask twin of nn.Dropout: the step oracle records its
+        # keep-bits for the Idris side's replay mask channel.
+        self.drop = MaskedDropout(0.5)
         self.fc = nn.Linear(512, 10)
         init_linear_(self)
         init_conv_(self)

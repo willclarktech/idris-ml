@@ -22,6 +22,7 @@ from torch import Tensor
 
 from torch_ref.init import init_conv_, init_linear_
 from torch_ref.init_manifest import maybe_dump_batch
+from torch_ref.models.masked_dropout import MaskedDropout
 from torch_ref.training.runner import get_device, get_dtype
 
 SEQ_LEN = 32
@@ -33,7 +34,9 @@ class SeqClassifyCNN(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv1d(1, 4, kernel_size=3)
         self.conv2 = nn.Conv1d(4, 8, kernel_size=3)
-        self.dropout = nn.Dropout(0.5)
+        # Explicit-mask twin of nn.Dropout: the step oracle records its
+        # keep-bits for the Idris side's replay mask channel.
+        self.dropout = MaskedDropout(0.5)
         self.fc = nn.Linear(48, NUM_CLASSES)
         init_linear_(self)
         init_conv_(self)
