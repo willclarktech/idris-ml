@@ -63,7 +63,7 @@ def _reset_to_pi(env: PendulumEnv) -> np.ndarray:
     return np.array([math.cos(th), math.sin(th), dth], dtype=np.float64)
 
 
-def _obs_tensor(obs: np.ndarray) -> Tensor:
+def obs_tensor(obs: np.ndarray) -> Tensor:
     return torch.tensor(obs, dtype=get_dtype(), device=get_device())
 
 
@@ -123,7 +123,15 @@ class Actor(nn.Module):
         if rng is None:
             eps = torch.randn_like(mean)
         else:
-            eps = torch.tensor(rng.gauss(0.0, 1.0), dtype=get_dtype(), device=get_device())
+            # One draw PER ELEMENT, in row order — the shape the Idris side
+            # draws (one eps per env / per batch sample). Until 2026-08-03
+            # this drew a single scalar broadcast across the batch, so all
+            # parallel envs shared one noise value per step.
+            eps = torch.tensor(
+                [rng.gauss(0.0, 1.0) for _ in range(mean.numel())],
+                dtype=get_dtype(),
+                device=get_device(),
+            ).reshape(mean.shape)
         u = mean + std * eps  # pre-tanh
         a_squashed = torch.tanh(u)
         action = a_squashed * MAX_ACTION
@@ -208,7 +216,7 @@ def sac_update(
 ) -> float:
     obs, actions, rewards, next_obs, dones = buffer.sample(batch_size, rng)
     with torch.no_grad():
-        next_action, next_logp = actor.sample(next_obs)
+        next_action, next_logp = actor.sample(next_obs, rng)
         # nn.Module.__call__ is untyped in torch's stubs, so torch.min's
         # overload resolution yields Unknown — pin the Tensor result.
         target_q = cast(
@@ -229,7 +237,7 @@ def sac_update(
     q2_opt.step()
 
     # Actor loss: E[α * log π(a|s) - min(Q1(s,a), Q2(s,a))]
-    sampled_action, logp = actor.sample(obs)
+    sampled_action, logp = actor.sample(obs, rng)
     q_min = cast("Tensor", torch.min(q1(obs, sampled_action), q2(obs, sampled_action)))
     actor_loss = (alpha * logp - q_min).mean()
     actor_opt.zero_grad()
@@ -294,9 +302,9 @@ def train_sac(
                 dtype=np.float64,
             )
         else:
-            obs_t = _obs_tensor(obs_np)
+            obs_t = obs_tensor(obs_np)
             with torch.no_grad():
-                a_t, _ = actor.sample(obs_t)
+                a_t, _ = actor.sample(obs_t, rng)
                 actions_np = a_t.cpu().numpy().astype(np.float64)
         # SyncVectorEnv.step's stub returns unsolved TypeVars (Unknown).
         next_obs_np, rewards_np, _terms, _truncs, _ = cast(
@@ -362,7 +370,7 @@ def evaluate(actor: Actor, n_episodes: int = 20) -> float:
         obs_np = _reset_to_pi(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = _obs_tensor(obs_np)
+            obs = obs_tensor(obs_np)
             with torch.no_grad():
                 mean, _ = actor(obs)
             action = float(torch.tanh(mean).item()) * MAX_ACTION
