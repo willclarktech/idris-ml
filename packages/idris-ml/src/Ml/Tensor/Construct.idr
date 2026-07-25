@@ -240,20 +240,27 @@ fillSpecBuf : (n : Int) -> InitSpec k -> IO AnyPtr
 fillSpecBuf n spec = do
   buf <- ioRerun (\_ => prim__allocDoubles n)
   case spec of
-    Zeros         => ioRerun (\_ => fillConst buf 0 0.0)
-    Const x       => ioRerun (\_ => fillConst buf 0 x)
-    Normal mu sd  => fillIO buf 0 (map (\z => mu + sd * z) normalSample)
-    Uniform lo hi => fillIO buf 0 (randomRIO (lo, hi))
+    Zeros         => ioRerun (\_ => fillConst buf 0 (cast n) 0.0)
+    Const x       => ioRerun (\_ => fillConst buf 0 (cast n) x)
+    Normal mu sd  => fillIO buf 0 (cast n) (map (\z => mu + sd * z) normalSample)
+    Uniform lo hi => fillIO buf 0 (cast n) (randomRIO (lo, hi))
     FromVect xs   => ioRerun (\_ => packVect buf 0 xs)
   where
-    fillConst : AnyPtr -> Int -> Double -> AnyPtr
-    fillConst b i v = if i >= n then b else fillConst (prim__setDouble b i v) (i + 1) v
-    fillIO : AnyPtr -> Int -> IO Double -> IO AnyPtr
-    fillIO b i sample =
-      if i >= n then pure b else do
-        v <- sample
-        b' <- ioRerun (\_ => prim__setDouble b i v)
-        fillIO b' (i + 1) sample
+    -- Both fills recurse on a Nat fuel counter rather than testing an Int
+    -- index against `n`, so they are structurally total: an Int loop with
+    -- `if i >= n` is not, and that made every `param` call site non-total,
+    -- which `%default total` modules (Ml.Nn.Linear) cannot call. Fuel is
+    -- the element count, so one `S k` match per element — no `Data.Nat`
+    -- comparison is involved (see gotchas.md on recursive Peano walks).
+    fillConst : AnyPtr -> Int -> (fuel : Nat) -> Double -> AnyPtr
+    fillConst b _ Z     _ = b
+    fillConst b i (S k) v = fillConst (prim__setDouble b i v) (i + 1) k v
+    fillIO : AnyPtr -> Int -> (fuel : Nat) -> IO Double -> IO AnyPtr
+    fillIO b _ Z     _      = pure b
+    fillIO b i (S k) sample = do
+      v <- sample
+      b' <- ioRerun (\_ => prim__setDouble b i v)
+      fillIO b' (i + 1) k sample
     packVect : AnyPtr -> Int -> Vect m Double -> AnyPtr
     packVect b _ []        = b
     packVect b i (x :: xs) = packVect (prim__setDouble b i x) (i + 1) xs

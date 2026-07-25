@@ -183,12 +183,15 @@ byte-for-byte:
   cross-backend transfer, plus per-op forward + backward and the
   lifted shared TUs.
 - `make example-supervised` at seed=42 yields
-  `loss=0.13666947626094297` (re-pinned 2026-07-27: the old pin
-  `0.13801130234059747` predated the documented `Nn`/GradMode-era
-  changes and no longer matched HEAD *before* the fused softmax-xent
-  work; the fused `tnllLossMean` was then verified bit-identical
-  against the decomposed chain at this value — see
-  `nn/loss/softmax_xent.c`'s FP-contraction notes).
+  `loss=0.1380880098682826` (re-pinned 2026-07-29 when `Nn.linear`
+  adopted PyTorch's `nn.Linear` init — `U(±1/√fan_in)` weight *and*
+  bias, replacing `N(0, 1/√fan_in)` with zero bias — which necessarily
+  changes every from-scratch run's starting weights. The prior pin
+  `0.13666947626094297` remains the correct value for the pre-init-change
+  tree and is what the fused softmax-xent work was verified
+  bit-identical against; see `nn/loss/softmax_xent.c`'s FP-contraction
+  notes. Init draws now come from the host-buffer `Uniform` path, so this
+  value is also expected to hold across tape/torch/mlx.)
 
 When changing a hot path, the regression bar is "test-unit-c +
 example-supervised seed=42 unchanged". Any deviation needs an
