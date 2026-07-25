@@ -127,7 +127,13 @@ def make_mountaincar_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorE
 
         return _f
 
-    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    # Same-step autoreset, matching idris-gym's `Gym.Vector.stepAutoReset`
+    # (gymnasium 1.x defaults to NEXT_STEP, which inserts a filler transition
+    # whose action is ignored and whose reward is 0).
+    vec = gym.vector.SyncVectorEnv(
+        [_make(i) for i in range(num_envs)],
+        autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
+    )
     vec.reset()
     return vec
 

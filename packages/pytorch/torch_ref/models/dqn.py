@@ -45,8 +45,11 @@ type CartPoleEnv = gym.Env[np.ndarray, int]
 
 
 def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
-    """N independent CartPole envs in a SyncVectorEnv, each reset to all-zero
-    to mirror idris-gym's `Gym.ClassicControl.CartPole.reset`."""
+    """N independent CartPole envs in a SyncVectorEnv, each reset through
+    Gymnasium's U(-0.05, 0.05)^4 start distribution. Same-step autoreset,
+    matching idris-gym's `Gym.Vector.stepAutoReset` (gymnasium 1.x defaults
+    to NEXT_STEP, which inserts a filler transition whose action is ignored
+    and whose reward is 0)."""
 
     def _make(idx: int):
         def _f() -> CartPoleEnv:
@@ -54,7 +57,10 @@ def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
 
         return _f
 
-    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec = gym.vector.SyncVectorEnv(
+        [_make(i) for i in range(num_envs)],
+        autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
+    )
     vec.reset()
     return vec
 

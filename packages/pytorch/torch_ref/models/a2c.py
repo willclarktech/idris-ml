@@ -77,7 +77,11 @@ class Critic(nn.Module):
 def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
     """N independent CartPole envs in a SyncVectorEnv, each reset through
     Gymnasium's U(-0.05, 0.05)^4 start distribution — the draw idris-gym's
-    `Gym.Vector.resetAll` makes."""
+    `Gym.Vector.resetAll` makes. Same-step autoreset: a terminated sub-env
+    is reset within the same `step` call and its returned obs is the fresh
+    start state, matching idris-gym's `Gym.Vector.stepAutoReset` (gymnasium
+    1.x defaults to NEXT_STEP, which inserts a filler transition whose
+    action is ignored and whose reward is 0)."""
 
     def _make(idx: int):
         def _f():
@@ -85,7 +89,10 @@ def make_cartpole_vec_env(seed: int, num_envs: int) -> gym.vector.SyncVectorEnv:
 
         return _f
 
-    vec = gym.vector.SyncVectorEnv([_make(i) for i in range(num_envs)])
+    vec = gym.vector.SyncVectorEnv(
+        [_make(i) for i in range(num_envs)],
+        autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
+    )
     vec.reset()
     return vec
 
