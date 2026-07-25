@@ -43,7 +43,7 @@ def main() -> None:
     print(f"Config: lr={args.lr} epochs={args.epochs} seed={args.seed}")
     print(
         "Architecture: Conv1d(1->4,k=3) -> ReLU -> Pool(2)"
-        " -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Linear(48->3)"
+        " -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(48->3)"
     )
 
     model = SeqClassifyCNN().to(args.device, dtype=get_dtype())
@@ -65,6 +65,7 @@ def main() -> None:
     stale = 0
     patience = 200
     epochs_done = 0
+    loss = float("nan")
     for epoch in range(1, args.epochs + 1):
         loss = train_epoch(model, optimizer)
         epochs_done = epoch
@@ -93,6 +94,7 @@ def main() -> None:
             [
                 ("accuracy", f"{accuracy:.4f}"),
                 ("epochs", str(epochs_done)),
+                ("loss", f"{loss:.6f}"),
                 ("seed", str(args.seed)),
             ]
         )

@@ -17,7 +17,9 @@ example-transformer              sort_acc     >=  0.8
 
 # ---- Other non-RL ----
 example-mnist                    accuracy     >=  0.85
-example-seq-classify             loss         <   0.5
+# Gated on held-out accuracy, not training loss: the reference's own bar is
+# `accuracy > 0.5` (chance is 0.33) and both sides now report both metrics.
+example-seq-classify             accuracy     >=  0.5
 # Default `make example-gpt` is now embedded/30 (~30s); RESULT emits `bpc`
 # (training-corpus). The full convergence target lives in `example-gpt-full`
 # (--corpus tinyshakespeare --epochs 1000), with val_bpc < 3.5 as the
@@ -38,7 +40,7 @@ example-monte-carlo              win_rate     >=  0.3
 # Slippery 4x4 FrozenLake: even an optimal policy slips into holes ~30% of
 # the time, so avg_return is success-rate-capped well below 1.0.
 example-frozen-lake              avg_return   >=  0.4
-# Taxi-v3: deterministic, fixed start. Optimal trajectory is 13 actions
+# Taxi-v4: deterministic, fixed start. Optimal trajectory is 13 actions
 # (12 steps × -1, +20 dropoff) → +8 reward. Threshold allows slight slack
 # for sub-optimal Q-tables; trained policy reliably hits 8.
 example-taxi                     avg_return   >=  5

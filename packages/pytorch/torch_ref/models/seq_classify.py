@@ -7,7 +7,7 @@ Idris 2 Peano Nat type-checker limitations.
 Input: [1, 32] (single channel, 32 timesteps)
 Conv1d(1->4, k=3) -> ReLU -> MaxPool1d(2) ->
 Conv1d(4->8, k=3) -> ReLU -> MaxPool1d(2) ->
-Linear(48->3) -> LogSoftmax
+Dropout(0.5) -> Linear(48->3) -> LogSoftmax
 """
 
 from __future__ import annotations

@@ -2,7 +2,8 @@
 -- |
 -- | Classify synthetic waveforms (sine, square, triangle) using Conv1D,
 -- | on the v1 Nn/fit surface. All flat dims <= 120 to stay under the
--- | Idris 2 Peano Nat ceiling.
+-- | Idris 2 Peano Nat ceiling. Waveforms carry additive N(0, 0.1) noise;
+-- | the run ends with an argmax accuracy eval over 500 fresh samples.
 -- |
 -- | Conv1D(1->4,k=3) -> ReLU -> MaxPool1D(2) ->
 -- | Conv1D(4->8,k=3) -> ReLU -> MaxPool1D(2) ->
@@ -18,6 +19,7 @@ import System
 
 import Ml.Compat.Random
 import Ml.Fit
+import Ml.Sampler
 import Ml.Simple
 import Ml.Train
 
@@ -50,6 +52,11 @@ NumClasses = 3
 
 BatchSize : Nat
 BatchSize = 32
+
+-- Held-out samples for the post-training accuracy eval (matches the
+-- reference's `evaluate(model, 500)`).
+EvalSize : Nat
+EvalSize = 500
 
 Conv1Out : Nat
 Conv1Out = ConvOutDim SeqLen K 0  -- 30
@@ -86,14 +93,22 @@ genSample freq phase label i =
      else if label == 1 then (if sin t > 0.0 then 1.0 else -1.0)
      else 2.0 * abs (t / pi - 2.0 * cast {to=Double} (the Integer (cast (t / (2.0 * pi) + 0.5)))) - 1.0
 
+-- Additive observation noise, matching the reference's `random.gauss(0, 0.1)`
+-- per timestep. Without it the three waveform classes are separable by a
+-- handful of samples and the task measures nothing.
+NoiseSd : Double
+NoiseSd = 0.1
+
 genWaveform : Int -> IO (Vect SeqLen Double)
 genWaveform label = do
   freqN <- randomInt 10 30
   phaseN <- randomInt 0 100
   let freq = cast {to=Double} freqN / 10.0
       phase = cast {to=Double} phaseN / 100.0 * 2.0 * pi
-  pure (Data.Vect.Fin.tabulate (\i =>
-    genSample freq phase label (cast {to=Int} (finToInteger i))))
+      clean = Data.Vect.Fin.tabulate (\i =>
+        genSample freq phase label (cast {to=Int} (finToInteger i)))
+  traverse (\v => do z <- normalSample
+                     pure (v + NoiseSd * z)) clean
 
 oneHot : Int -> Vect NumClasses Double
 oneHot label = Data.Vect.Fin.tabulate (\i =>
@@ -142,6 +157,32 @@ nllLossL model (x, tgt) = do
   pure1 (MkBang loss # model')
 
 ----------------------------------------------------------------------
+-- Evaluation: argmax accuracy over one EvalSize batch of fresh waveforms
+----------------------------------------------------------------------
+
+-- argmax over the NumClasses entries of row r of a [b, NumClasses] tensor.
+argmaxRow : AnyPtr -> Int -> Int
+argmaxRow t r = go 1 0 (primItem2d {ex=Ex} t r 0)
+  where
+    go : Int -> Int -> Double -> Int
+    go j best bestV =
+      if j >= cast {to=Int} NumClasses then best
+      else let v = primItem2d {ex=Ex} t r j
+           in if v > bestV then assert_total (go (j + 1) j v)
+                           else assert_total (go (j + 1) best bestV)
+
+-- Argmax accuracy over the already-forwarded [EvalSize, NumClasses] logits.
+-- Pure (primItem2d reads are pure FFI); the forward itself happens in the
+-- linear block via forwardSeq.
+accuracyFrom : Tensor [EvalSize, NumClasses] Ex F NoGrad ->
+               Tensor [EvalSize, NumClasses] Ex F NoGrad -> Double
+accuracyFrom pred tgt =
+  let correct = length $ filter id
+        [ argmaxRow pred.tensorPtr r == argmaxRow tgt.tensorPtr r
+        | r <- map (cast {to=Int}) [the Nat 0 .. EvalSize `minus` 1] ]
+  in cast {to=Double} correct / cast {to=Double} EvalSize
+
+----------------------------------------------------------------------
 -- Config & Main
 ----------------------------------------------------------------------
 
@@ -181,14 +222,28 @@ main = do
   let bs = batched {b = BatchSize} {i = InputDim} {o = NumClasses} (generate mkSample)
 
   -- Linear surface: model born linear (runInitL), threaded through
-  -- fitSupervised, final handle discarded (discard — Seq is a ParamsL).
+  -- fitSupervised, converted to an inference model (eval — this chain has a
+  -- Dropout), forwarded once on the eval batch, then discarded.
+  --
+  -- The eval batch is pulled *after* training: a collated batch is an
+  -- intermediate arena tensor, so each training step's optimizer_step →
+  -- arena_reset would dangle a batch pre-fetched before the loop.
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
       fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
-    discard trained
-    liftIO1 $ putStrLn ""
-    liftIO1 $ putStrLn $ formatResult [("loss", show finalLoss),
-                                       ("epochs", show epochsDone),
-                                       ("seed", show cfg.seed)]
+    liftIO1 (putStrLn "")
+    infer <- eval trained
+    evalBatch <- liftIO1
+      (batched {b = EvalSize} {i = InputDim} {o = NumClasses} (generate mkSample)).next
+    (MkBang predB # infer') <- forwardSeq {b = EvalSize} infer (fst evalBatch)
+    discard infer'
+    liftIO1 $ do
+      let acc = accuracyFrom predB (snd evalBatch)
+      putStrLn $ "Final accuracy (" ++ show EvalSize ++ " samples): " ++ show (acc * 100.0) ++ "%"
+      putStrLn ""
+      putStrLn $ formatResult [("accuracy", show acc),
+                               ("epochs", show epochsDone),
+                               ("loss", show finalLoss),
+                               ("seed", show cfg.seed)]
