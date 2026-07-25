@@ -16,6 +16,19 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Alignment Changes (2026-08-03) — mountain-car-cont mirrored the SAC alignments, plus a pinned-reset remnant
+
+mountain-car-cont is SAC-shaped and carried every divergence the sac oracle
+surfaced (single-scalar reference noise; double target fold; constant squash
+correction; missing log_std clamp; NormClip 1.0 vs no clip) — all fixed the
+same way, same day. One extra, reference-side: its collect loop still
+overwrote the vec env's randomized auto-reset obs with the pinned
+`(-0.5, 0)` center reset — the remnant this file missed in the 2026-08-01
+reset alignment (the SAME_STEP autoreset already returns the fresh
+randomized obs, so the manual pin both double-reset the sub-env and pinned
+its restart state). Post-alignment oracle floor: 6.3e-11 (actor_log_std);
+all network weights at or below 4.2e-14.
+
 ## Alignment Changes (2026-08-03) — SAC update aligned in four places
 
 The sac step oracle surfaced four disagreements; the reference moved once,
