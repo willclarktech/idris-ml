@@ -144,7 +144,7 @@ record Tensor (dims : Vect rank Nat) (0 ex : Executor) (0 dt : DType) (0 g : Gra
   constructor MkTensor
   tensorPtr : AnyPtr      -- wrapped handle: Chez vector #(tensor-handle-v2 tag raw)
   paramId   : Maybe String  -- parameter name (Nothing = intermediate)
--- Aliases TVec n ex dt g / TMat m n ex dt g dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
+-- Aliases TVec n ex dt g / TMat m n ex dt g — readability shorthands (the type-checker hang they dodged no longer reproduces; see gotchas.md 2026-07-28)
 ```
 
 `Array` is the structural type used for input-data marshalling and Math.idr's pure-Idris ops; it is NOT the autograd type. `Tensor` is the daily user-facing autograd handle.
@@ -259,7 +259,7 @@ Fine-tuning HF-loaded models has three primitives — prefix-filtered subset-loa
 ### Type-safety conventions
 
 The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it that way.
-- Nat arithmetic: prefer `Tensor.splitAt` for reshape/flatten; route multiplicative shape arithmetic through `TVec`/`TMat` aliases (raw `Tensor [4 * o] d` hangs the type-checker).
+- Nat arithmetic: prefer `Tensor.splitAt` for reshape/flatten. Multiplicative shape literals (raw `Tensor [4 * o]`) are fine on the pinned toolchain (removal experiment 2026-07-28, gotchas.md); the `TVec`/`TMat` aliases remain as readability shorthands.
 - `decEq`+`Refl` to unify a generic `{n : Nat}` with a specific value in a branch.
 - `rewrite sym prf in expr` to convert between provably-equal types.
 - Device phantom: `Tensor dims (0 ex : Executor)` is erased at runtime; `toExecutor` (or `toExecutorChecked` for the EAFP-gated variant) is the only intentional device bridge.
@@ -379,6 +379,6 @@ See [`docs/develop/gotchas.md`](docs/develop/gotchas.md) for the comprehensive l
 - **`logSoftmax` + `nllLoss`** — apply `tlogSoftmax1d` to raw logits and feed into `tnllLoss`; do NOT put a softmax layer in the network chain (creates 1/pp intermediates up to 1e6).
 - **Elementwise `(*.)`** — the Tensor multiply aliases (`tmul` / `(*.)`) are elementwise; matrix products go through `tmv` / `tlinear2d` (PyTorch's `@`). `Tensor` has no `Num` instance; `(<>)` is `Ml.Math`'s `Array` matmul.
 - **Chez output buffering** — `stdout` is fully buffered when piped. Prefix long-running background commands with `stdbuf -oL`.
-- **Large Nat type-level reduction** — Idris-2 Peano Nats hang the type-checker for dims > ~1000 and choke on multiplicative shape literals. Route through `TVec`/`TMat` aliases; place identity layers (dropout, batch norm) only at smaller dims.
+- **Large Nat type-level reduction** — historical hazard, now advisory: the dims > ~1000 hangs and multiplicative-literal hang no longer reproduce on the pinned nightly (2026-07-27 probes + 2026-07-28 in-tree removal experiment, gotchas.md). The case-arm large-literal pattern-compilation OOM DOES still reproduce — keep the `==` idiom there.
 - **`Data.Nat` stdlib functions are recursive at runtime too** — `Data.Nat.lte`/`divNat`/`modNatNZ` compile to recursive Peano walks even though `Nat` is `Integer` underneath (`div 256 2` = 128 `cond`/`sub1` cycles). Cast to `Int` and use `Int div`/`Int mod` in hot paths; the `Ord_Nat` comparators (`<`, `<=`) are fine. Details + the `posEncVal` incident in `docs/develop/gotchas.md`.
 - **Gaussian policy entropy must be Tensor-typed** — building entropy from `prim__item1d` scalars silently zeroes the gradient (this was the V1 A2C bug).
