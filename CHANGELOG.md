@@ -2,6 +2,34 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+The step oracle covers 20 of 20 paired examples (2026-08-04; row
+"ONNX-shape dropout: mask as first-class op data"). The last two, mnist
+and seq-classify, carried active Dropout(0.5) whose per-element draws sat
+below every replay seam. The planned three-backend C surface
+(`tensor_dropout_with_mask`) turned out unnecessary: inverted dropout
+decomposes into a no-grad mask tensor times the input — the mask holds
+exactly 0 and 1/(1-p), so `tmul` against a no-grad factor already has
+dropout's backward everywhere, and multiplying by exact 0/1 is
+bit-identical however the reference grouped its product. The replay file
+gained a `mask` channel (keep-bits, one line per dropout call — decisions,
+not draws, per the `Rng.choice` doctrine); `Nn.Dropout` draws from an
+injected `Ml.Rng.MaskSource` (`dropout p` live as before, `dropoutWith`
+for replay — the JAX/Flax shape, landed at construction because
+`Module.forward` is typeclass-fixed); the reference's `MaskedDropout`
+records its bits; the batch travels inside the fixture
+(`oracleBatchStream`) since neither side's data order reproduces the
+other's. The wave found three real reference defects, all invisible to
+the accuracy-gated campaign: seq-classify trained unclipped against
+Idris' NormClip 1.0; mnist ran float32 end to end (the 2026-08-01
+precision alignment missed it — the fixture load refused the F32 params);
+and both trained on `F.nll_loss`'s per-batch mean instead of the repo's
+per-batch-x-classes convention, a 10x/3x gradient-scale difference Adam's
+sign-like first step hid at 6.0e-05 until the tolerance-0 floor exposed
+it. Final floors: mnist 1.1e-16, seq-classify 2.8e-17 — machine epsilon
+through conv, maxpool, replayed dropout, clip and Adam. Follow-up filed:
+Idris→Idris replay (the live path still draws in-kernel, so an Idris run
+cannot yet record its own masks).
+
 The step oracle covers 18 of 20 paired examples (2026-08-03; row "Extend
 the step oracle to the remaining paired examples"). From the 5 it covered
 when the row was filed, the extension landed in three waves on a replay

@@ -353,6 +353,45 @@ with `--tolerance 0`: worst parameter difference 2.4e-11 (the same floor the
 shipped-rollout design had), against 3.6e-07 for a planted 1% entropy-coefficient
 error — four orders of separation, actor-only, critic untouched.
 
+## Dropout masks replay as data (2026-08-04)
+
+Dropout was the last stochastic surface below every replay seam: its
+per-element Bernoulli draws happen inside the C kernel (`tensor_dropout`,
+from a per-forward seed), so the mnist and seq-classify oracles could not
+reproduce a recorded step. The design follows ONNX's `Dropout` (and torch's
+`native_dropout`): the keep-mask is first-class data, not kernel state.
+
+Three decisions worth recording:
+
+1. **Decomposition instead of a new C op.** The planned
+   `tensor_dropout_with_mask` (+ backward, x3 backends, manifest, rename
+   headers) was never needed. Inverted dropout is `x * mask` where the mask
+   holds exactly `0` and `1/(1-p)`; a no-grad mask through the existing
+   `tmul` already has dropout's backward on every backend
+   (`Test/Nn/Dropout.idr` pins forward and gradient at exact equality), and
+   because the mask elements are exact 0/1 pre-scale, the product is
+   bit-identical however the reference grouped its own multiply. The replay
+   path is: bits → host-built `[b, o]` no-grad constant (`tensor`/`FromVect`)
+   → `tmul`. The live path keeps the fused kernel untouched.
+2. **Bits, not uniforms.** The replay file's `mask` channel records
+   keep-decisions (one `0`/`1` per element, one line per dropout call in
+   forward order) — the `Rng.choice` doctrine: which elements a uniform
+   stream keeps is sampler-specific, decisions replay across
+   implementations. One flat channel, no per-layer keying; consumption
+   order is the file's existing contract.
+3. **Injection at construction.** `Module.forward`'s signature is
+   typeclass-fixed, so the mask source rides the layer record:
+   `dropout p` defaults to `liveMasks`, `dropoutWith src p` takes
+   `replay.masks` (`Ml.Rng.MaskSource` — the JAX/Flax "randomness as an
+   argument" shape at the one seam the typeclass leaves open). A per-layer
+   pure mask queue popped via linear threading was considered and rejected:
+   distributing one global file stream to layers at load time would
+   reintroduce exactly the keying the flat channel avoids.
+
+Known limitation (filed as its own TODO row): the live path still draws
+in-kernel, so an Idris run cannot record its own masks — reference→Idris
+replay is exact, Idris→Idris replay of dropout models is not yet possible.
+
 ## Early stopping
 
 Training for a fixed number of epochs wastes compute when the model has already converged and risks overfitting. Early stopping monitors the training loss and halts when improvement stalls:
