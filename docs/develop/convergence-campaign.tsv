@@ -65,3 +65,38 @@ example-ppo	3	pass	52s	avg_return=-71.0	epochs=100	seed=3
 example-ppo	4	pass	52s	avg_return=-80.0	epochs=100	seed=4
 example-sac	42	pass	5m18s	avg_return=-372.1790561521747	epochs=27300	seed=42
 example-sac	1	pass	5m3s	avg_return=-374.176128694091	epochs=26800	seed=1
+example-rnn	42	pass	29s	epochs=1320	loss=0.0011502499194964856	seed=42
+example-rnn	1	pass	13s	epochs=1099	loss=7.14920064797275e-4	seed=1
+example-rnn	2	pass	14s	epochs=1350	loss=7.747210910335167e-4	seed=2
+example-rnn	3	pass	9s	epochs=1061	loss=8.970316888651043e-4	seed=3
+example-rnn	4	pass	9s	epochs=1237	loss=8.585825463462513e-4	seed=4
+example-lstm	42	pass	8s	epochs=1671	loss=0.0012716077129610545	seed=42
+example-lstm	1	pass	8s	epochs=1792	loss=0.0010123302527693758	seed=1
+example-lstm	2	pass	6s	epochs=1487	loss=0.0013216899999402964	seed=2
+example-lstm	3	pass	6s	epochs=1905	loss=9.5713373760303e-4	seed=3
+example-lstm	4	pass	7s	epochs=1591	loss=0.0014839969552194242	seed=4
+example-gru	42	pass	8s	epochs=1130	loss=9.542186016019624e-4	seed=42
+example-gru	1	pass	7s	epochs=1325	loss=8.872671947267441e-4	seed=1
+example-gru	2	pass	7s	epochs=1095	loss=8.143986142509772e-4	seed=2
+example-gru	3	pass	7s	epochs=1653	loss=8.322732624708843e-4	seed=3
+example-gru	4	pass	6s	epochs=1319	loss=8.754030134877726e-4	seed=4
+example-transformer	42	pass	8s	epochs=1000	sort_acc=6/6	seed=42
+example-transformer	1	pass	9s	epochs=1000	sort_acc=6/6	seed=1
+example-transformer	2	pass	8s	epochs=1000	sort_acc=6/6	seed=2
+example-transformer	3	pass	9s	epochs=1000	sort_acc=6/6	seed=3
+example-transformer	4	pass	10s	epochs=1000	sort_acc=6/6	seed=4
+example-seq-classify	42	pass	12s	accuracy=0.98	epochs=1000	loss=0.0489622006167981	seed=42
+example-seq-classify	1	pass	10s	accuracy=0.96	epochs=1000	loss=0.07717743073059968	seed=1
+example-seq-classify	2	pass	8s	accuracy=0.9	epochs=1000	loss=0.11891216760325951	seed=2
+example-seq-classify	3	pass	9s	accuracy=0.974	epochs=1000	loss=0.03779370980109438	seed=3
+example-seq-classify	4	pass	8s	accuracy=0.97	epochs=1000	loss=0.06691016333498026	seed=4
+example-gpt	42	pass	10s	bpc=4.326780872635822	epochs=30	seed=42
+example-gpt	1	pass	10s	bpc=4.436450508008745	epochs=30	seed=1
+example-gpt	2	pass	16s	bpc=4.40461162590585	epochs=30	seed=2
+example-gpt	3	pass	13s	bpc=4.399778258407307	epochs=30	seed=3
+example-gpt	4	pass	11s	bpc=4.36703166140552	epochs=30	seed=4
+example-mnist	42	pass	2m21s	accuracy=0.989	epochs=5	loss=0.006543532258819193	seed=42
+example-mnist	1	pass	1m54s	accuracy=0.996	epochs=5	loss=0.006440335840038628	seed=1
+example-mnist	2	pass	2m11s	accuracy=0.992	epochs=5	loss=0.0056395557546966785	seed=2
+example-mnist	3	pass	1m40s	accuracy=0.991	epochs=5	loss=0.006529255787048698	seed=3
+example-mnist	4	pass	1m57s	accuracy=0.994	epochs=5	loss=0.006366989120886302	seed=4
