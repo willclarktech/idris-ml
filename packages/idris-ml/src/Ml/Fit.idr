@@ -117,7 +117,13 @@ fit : {0 ex : Executor} -> UserExecutorTraining ex => UserExecutorTransfer ex =>
        L IO {use = 1} (LPair (!* (Nat, Double)) m)
 fit {nanHalts} step opt s cfg m0 =
   fitCustom {ex} {nanHalts} step s
-             ({ beforeEpoch := \ep => do tick opt ep; cfg.beforeEpoch ep } cfg) m0
+             ({ beforeEpoch := \ep => do
+                  -- Top of epoch 1 = exactly one epoch of training has run.
+                  -- Inert unless IDRISML_ONE_STEP is set; see
+                  -- `Checkpoint.maybeDumpAfterStep`.
+                  when (ep == 1) (maybeDumpAfterStep {ex})
+                  tick opt ep
+                  cfg.beforeEpoch ep } cfg) m0
 
 ||| Supervised convenience for the linear loop: give a linear loss function
 ||| (consume the model, run `forwardL`, return the scalar loss + the model),

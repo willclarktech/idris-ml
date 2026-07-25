@@ -481,3 +481,24 @@ maybeDumpBatch stream = do
       in putStrLn ("DATA_MANIFEST\t" ++ tag ++ "\t" ++ show (toList dims) ++ "\t"
                    ++ show mean ++ "\t" ++ show sd ++ "\t" ++ show d1 ++ "\t"
                    ++ show lo ++ "\t" ++ show hi)
+
+||| If `IDRISML_ONE_STEP` names a path, write every registered parameter to it
+||| and exit. `Ml.Fit.fit` calls this at the top of epoch 1, i.e. after exactly
+||| one epoch of training has run.
+|||
+||| The forward/backward oracle: start both sides from identical weights on an
+||| identical batch, take one step, and the updated parameters must agree to
+||| numerical tolerance. That is the only check that sees forward semantics,
+||| gradient semantics and the optimizer at once — the class of divergence that
+||| shape and moment comparisons cannot reach (dropout left on at inference,
+||| a double log-softmax, a sum where the reference means).
+export
+maybeDumpAfterStep : UserExecutorTraining ex => IO ()
+maybeDumpAfterStep = do
+  Just path <- getEnv "IDRISML_ONE_STEP"
+    | Nothing => pure ()
+  Right () <- saveAll {ex} path
+    | Left err => do putStrLn ("IDRISML_ONE_STEP: save failed: " ++ show err)
+                     exitFailure
+  putStrLn ("IDRISML_ONE_STEP: wrote " ++ path)
+  exitSuccess
