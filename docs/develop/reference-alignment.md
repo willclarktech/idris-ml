@@ -16,6 +16,25 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Alignment Changes (2026-08-03) — PPO update composition unified (reference adopted Idris' shape)
+
+The two sides composed the PPO update differently. Idris (`Example.Ppo.runBatchL`)
+runs one Adam over both nets and steps it once per minibatch off the combined
+loss `-min(s1, s2) + 0.5 * value_coef * (v - ret)^2 - entropy_coef * H`, behind
+a single global-norm clip at 0.5 across the joined gradients — the cleanrl
+composition. The reference (`torch_ref.models.ppo.ppo_update`) ran two Adams
+with separate losses: actor `policy - entropy_coef * H` clipped per-net at 0.5,
+critic unscaled `mse(v, ret)` clipped per-net at 0.5.
+
+The step oracle measured the disagreement at 1.0e-03 on the actor (joint vs
+per-net clip norm) and 3.9e-06 on the critic (the 4x loss-scale difference,
+mostly absorbed by Adam's per-parameter normalization — which is also why both
+compositions converge and no convergence gate ever saw this). The reference
+adopted the Idris shape (single optimizer, combined loss, one clip); the script
+gained `--value-coef` (default 0.5, now flag-paired). Post-alignment oracle
+floor: 6.0e-10 across one full update (160 minibatch Adam steps on a replayed
+256-step rollout).
+
 ## Alignment Changes (2026-08-01) — environment reset and evaluation protocol
 
 Every Idris deep-RL example constructed its environment's reset state by hand

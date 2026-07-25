@@ -51,6 +51,7 @@ def main() -> None:
     parser.add_argument("--lambda", dest="lam", type=float, default=0.95)
     parser.add_argument("--clip-eps", type=float, default=0.2)
     parser.add_argument("--entropy", type=float, default=0.01)
+    parser.add_argument("--value-coef", type=float, default=0.5)
     parser.add_argument(
         "--rollout",
         type=int,
@@ -89,8 +90,12 @@ def main() -> None:
     actor = Actor().to(args.device)
     critic = Critic().to(args.device)
     maybe_dump_init(actor, critic)
-    actor_opt = torch.optim.Adam(actor.parameters(), lr=args.lr)
-    critic_opt = torch.optim.Adam(critic.parameters(), lr=args.lr)
+    # Single Adam over both nets — the combined-loss composition
+    # `ppo_update` applies, matching Idris' one registry-wide optimizer.
+    optimizer = torch.optim.Adam(
+        list(actor.parameters()) + list(critic.parameters()),
+        lr=args.lr,
+    )
     print()
 
     vec_env, obs0 = make_acrobot_vec_env(args.seed, NUM_ENVS)
@@ -128,8 +133,7 @@ def main() -> None:
         ppo_update(
             actor,
             critic,
-            actor_opt,
-            critic_opt,
+            optimizer,
             flat_obs,
             flat_act,
             flat_lp,
@@ -137,6 +141,7 @@ def main() -> None:
             flat_ret,
             args.clip_eps,
             args.entropy,
+            args.value_coef,
             args.k_epochs,
             args.batch_size,
             rng,
@@ -149,13 +154,7 @@ def main() -> None:
         return -avg_ep  # Idris returns `negate avgEp`
 
     if args.lr_find:
-        # Single optimizer view for lr_find: pass actor_opt; critic_opt's LR
-        # is set in lockstep below via a small wrapper.
-        class _BothOpts:
-            def __init__(self, a: torch.optim.Optimizer, c: torch.optim.Optimizer) -> None:
-                self.param_groups = a.param_groups + c.param_groups
-
-        lr_find(LrFindConfig(num_iters=30), epoch_fn, _BothOpts(actor_opt, critic_opt))
+        lr_find(LrFindConfig(num_iters=30), epoch_fn, optimizer)
         print()
         print("Done — re-run without --lr-find at the recommended LR.")
         sys.exit(0)

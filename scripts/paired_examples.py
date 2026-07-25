@@ -577,7 +577,6 @@ EXAMPLES: list[ExampleSpec] = [
         },
         "idris": "packages/idris-ml-examples/src/Example/Ppo.idr",
         "python": "packages/pytorch/torch_ref/scripts/ppo.py",
-        "idris_only": ["--value-coef"],
         "python_only": ["--batch-size", "--max-ep-len", "--rollout"],
     },
     {

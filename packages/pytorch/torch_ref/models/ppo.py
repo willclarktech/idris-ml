@@ -307,8 +307,7 @@ def collect_rollout(
 def ppo_update(
     actor: Actor,
     critic: Critic,
-    actor_opt: torch.optim.Optimizer,
-    critic_opt: torch.optim.Optimizer,
+    optimizer: torch.optim.Optimizer,
     obs: Tensor,
     actions: Tensor,
     old_log_probs: Tensor,
@@ -316,11 +315,22 @@ def ppo_update(
     returns: Tensor,
     clip_eps: float,
     entropy_coef: float,
+    value_coef: float,
     k_epochs: int,
     batch_size: int,
     rng: random.Random,
 ) -> None:
+    """K minibatch epochs of the combined clipped-surrogate + value +
+    entropy loss: one Adam over both nets, one global-norm clip at 0.5
+    across their joined gradients, value term `0.5 * value_coef *
+    mse(v, ret)`. The cleanrl composition, and `Example.Ppo.runBatchL`'s
+    (a single registry-wide `trainStep` with `NormClip 0.5`). Until
+    2026-08-03 this ran two optimizers with per-net clips and an unscaled
+    critic mse; the step oracle measured that against the Idris side at
+    1.0e-03 on the actor (joint vs per-net clip) and 3.9e-06 on the critic
+    (4x loss scale, mostly absorbed by Adam)."""
     n = obs.shape[0]
+    params = list(actor.parameters()) + list(critic.parameters())
     indices = list(range(n))
     for _ in range(k_epochs):
         rng.shuffle(indices)
@@ -339,18 +349,14 @@ def ppo_update(
             s2 = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv_b
             policy_loss = -torch.min(s1, s2).mean()
             entropy = -(torch.exp(log_probs) * log_probs).sum(dim=-1).mean()
-            actor_loss = policy_loss - entropy_coef * entropy
-            actor_opt.zero_grad()
-            # torch stub: Tensor.backward's params are unannotated.
-            actor_loss.backward()  # pyright: ignore[reportUnknownMemberType]
-            torch.nn.utils.clip_grad_norm_(actor.parameters(), 0.5)
-            actor_opt.step()
             v_b = critic(o_b)
-            critic_loss = F.mse_loss(v_b, ret_b)
-            critic_opt.zero_grad()
-            critic_loss.backward()  # pyright: ignore[reportUnknownMemberType]
-            torch.nn.utils.clip_grad_norm_(critic.parameters(), 0.5)
-            critic_opt.step()
+            value_loss = 0.5 * value_coef * ((v_b - ret_b) ** 2).mean()
+            loss = policy_loss - entropy_coef * entropy + value_loss
+            optimizer.zero_grad()
+            # torch stub: Tensor.backward's params are unannotated.
+            loss.backward()  # pyright: ignore[reportUnknownMemberType]
+            torch.nn.utils.clip_grad_norm_(params, 0.5)
+            optimizer.step()
 
 
 def train_ppo(
@@ -361,6 +367,7 @@ def train_ppo(
     lam: float = 0.95,
     clip_eps: float = 0.2,
     entropy_coef: float = 0.01,
+    value_coef: float = 0.5,
     k_epochs: int = 10,
     batch_size: int = 64,
     max_ep_len: int = MAX_STEPS,
@@ -376,8 +383,7 @@ def train_ppo(
     rng = random.Random(seed)
     actor = Actor().to(get_device())
     critic = Critic().to(get_device())
-    actor_opt = torch.optim.Adam(actor.parameters(), lr=lr)
-    critic_opt = torch.optim.Adam(critic.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=lr)
     vec_env, obs_np = make_acrobot_vec_env(seed, NUM_ENVS)
     ep_lens = np.zeros(NUM_ENVS, dtype=np.int64)
     history: list[float] = []
@@ -407,8 +413,7 @@ def train_ppo(
         ppo_update(
             actor,
             critic,
-            actor_opt,
-            critic_opt,
+            optimizer,
             flat_obs,
             flat_act,
             flat_lp,
@@ -416,6 +421,7 @@ def train_ppo(
             flat_ret,
             clip_eps,
             entropy_coef,
+            value_coef,
             k_epochs,
             batch_size,
             rng,
