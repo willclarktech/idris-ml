@@ -20,6 +20,7 @@ import Ml.Rng
 import Ml.Sampler
 import Ml.Simple
 import Ml.Train
+import Random.Source
 
 import BuildConfig
 
@@ -106,9 +107,9 @@ sampleActionFromBatch rng logProbsB envs = go 0 envs
 
 -- Step every env with its action; auto-reset envs that terminate, drawing
 -- the new state from CartPole's own U(-0.05, 0.05)^4 start distribution
--- (`Gym.Vector.stepAutoReset` threads the Seed through those sub-resets).
-stepAllAutoReset : {n : Nat} -> Seed -> Vect n CPState -> Vect n Nat ->
-                   (Vect n CPState, Vect n Double, Vect n Bool, Seed)
+-- (`Gym.Vector.stepAutoReset` threads the Source through those sub-resets).
+stepAllAutoReset : {n : Nat} -> Source -> Vect n CPState -> Vect n Nat ->
+                   (Vect n CPState, Vect n Double, Vect n Bool, Source)
 stepAllAutoReset seed envs acts =
   case stepAutoReset {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
                      seed (MkVecEnv envs) acts of
@@ -125,8 +126,8 @@ mkRollSteps (o :: os) (a :: as) (r :: rs) (v :: vs) (d :: ds) =
 ||| Idris-side per-op overhead across NumEnvs samples. Done envs
 ||| auto-reset so the [NumEnvs, ObsDim] shape stays constant.
 rolloutBatchedL : {n : Nat} -> Rng -> (1 _ : Actor) -> (1 _ : Critic) -> VecEnv n CPState ->
-                  Seed -> Nat ->
-                  L IO {use = 1} (LPair (!* (Vect n (List RollStep), VecEnv n CPState, Seed))
+                  Source -> Nat ->
+                  L IO {use = 1} (LPair (!* (Vect n (List RollStep), VecEnv n CPState, Source))
                                         (LPair Actor Critic))
 rolloutBatchedL rng actor critic v0 seed0 rolloutLen = do
   (MkBang (envs', stepLists, seedEnd) # (actor' # critic')) <-
@@ -137,9 +138,9 @@ rolloutBatchedL rng actor critic v0 seed0 rolloutLen = do
     mapIdx _ []        = []
     mapIdx f (x :: xs) = f 0 x :: mapIdx (\i, v => f (S i) v) xs
 
-    go : Nat -> (1 _ : Actor) -> (1 _ : Critic) -> Vect n CPState -> Seed ->
+    go : Nat -> (1 _ : Actor) -> (1 _ : Critic) -> Vect n CPState -> Source ->
          Vect n (List RollStep) ->
-         L IO {use = 1} (LPair (!* (Vect n CPState, Vect n (List RollStep), Seed))
+         L IO {use = 1} (LPair (!* (Vect n CPState, Vect n (List RollStep), Source))
                                (LPair Actor Critic))
     go Z actor critic envs seed accs     = pure1 (MkBang (envs, accs, seed) # (actor # critic))
     go (S k) actor critic envs seed accs = do
@@ -314,7 +315,7 @@ record A2CState where
   1 critic : Critic
   envRef  : IORef (VecEnv NumEnvs CPState)
   retRef  : IORef (Vect NumEnvs Double)
-  seedRef : IORef Seed
+  seedRef : IORef Source
   rng     : Rng
 
 record Config where
@@ -504,7 +505,7 @@ evalEpL actor st (S k) acc = do
 -- `env.reset()` does. A fixed start would make every greedy episode the same
 -- trajectory, so the mean over N of them would carry one sample's worth of
 -- information.
-evalNL : (1 _ : Actor) -> Seed -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Actor)
+evalNL : (1 _ : Actor) -> Source -> Nat -> Double -> L IO {use = 1} (LPair (!* Double) Actor)
 evalNL actor _ Z acc        = pure1 (MkBang acc # actor)
 evalNL actor seed (S k) acc = do
   let (st0, seed') = reset {state=CPState} {action=Nat} {obs=Vect ObsDim Double} seed
@@ -522,7 +523,7 @@ buildStateL = do
   liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   resetSeedI <- liftIO1 randomInt32
   let (initEnvs, seed0) = resetAll {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
-                                   (cast resetSeedI)
+                                   (Seeded (cast resetSeedI))
   envRef  <- liftIO1 (newIORef initEnvs)
   retRef  <- liftIO1 (newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0)))
   seedRef <- liftIO1 (newIORef seed0)

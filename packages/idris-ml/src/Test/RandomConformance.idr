@@ -16,7 +16,6 @@ import Data.List
 
 import Random.SplitMix
 import Random.Xoshiro
-
 import Test.Harness
 
 %foreign "C:idrisml_srand,libidrisml"

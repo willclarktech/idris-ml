@@ -2,6 +2,8 @@ module Gym.ToyText.FrozenLake
 
 import Data.Vect
 
+import Random.Source
+
 import Gym.Env
 import Gym.Rng
 
@@ -43,17 +45,20 @@ record FLState where
   constructor MkFL
   flPos      : Nat
   flMap      : Vect 16 Tile
-  flSeed     : Seed
+  flSeed     : Source
   flSlippery : Bool
 
 ||| Reset from a caller-provided seed and slipperiness flag.
-||| The input Seed seeds the internal `flSeed` used by slip; the returned
-||| caller-side Seed is advanced one step so repeated resets diverge.
+||| The input Source seeds the internal `flSeed` used by slip; the returned
+||| caller-side Source is advanced one step so repeated resets diverge.
 export
-initFL : Bool -> Seed -> (FLState, Seed)
-initFL slip seed =
-  let (_, seed') = splitMix64 seed
-  in (MkFL 0 defaultMap seed slip, seed')
+initFL : Bool -> Source -> (FLState, Source)
+initFL slip src =
+  -- One draw discarded purely to advance the caller's source, exactly as the
+  -- bare-`Seed` version did with `splitMix64`: one draw from a seeded source is
+  -- source is the same single SplitMix step, so the stream is unchanged.
+  let (_, src') = Random.Source.next src
+  in (MkFL 0 defaultMap src slip, src')
 
 encodeRC : Nat -> Nat -> Nat
 encodeRC r c = r * NumCols + c
@@ -89,7 +94,7 @@ moveDet pos action =
   in (clampRow r', clampCol c')
 
 -- For a slippery step, resolve the actual direction taken.
-slipAction : Seed -> Nat -> (Nat, Seed)
+slipAction : Source -> Nat -> (Nat, Source)
 slipAction seed intended =
   let (choice, seed') = nextNat seed 3
       -- 0 -> intended; 1 -> left perpendicular; 2 -> right perpendicular

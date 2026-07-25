@@ -20,13 +20,13 @@ export
 tests : List (IO Bool)
 tests =
   [ check "reset in valid Gymnasium bounds" $
-      let (r, _) = reset {state=TState} {action=Nat} {obs=Nat} 42
+      let (r, _) = reset {state=TState} {action=Nat} {obs=Nat} (Seeded 42)
       in r.tRow < 5 && r.tCol < 5 && r.tPass < 4 && r.tDest < 4
          && r.tPass /= r.tDest
 
   , check "reset differs across seeds" $
-      let (a, _) = reset {state=TState} {action=Nat} {obs=Nat} 0
-          (b, _) = reset {state=TState} {action=Nat} {obs=Nat} 7
+      let (a, _) = reset {state=TState} {action=Nat} {obs=Nat} (Seeded 0)
+          (b, _) = reset {state=TState} {action=Nat} {obs=Nat} (Seeded 7)
       in a.tRow /= b.tRow || a.tCol /= b.tCol
          || a.tPass /= b.tPass || a.tDest /= b.tDest
 

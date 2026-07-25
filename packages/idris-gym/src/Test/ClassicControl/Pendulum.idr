@@ -22,12 +22,12 @@ export
 tests : List (IO Bool)
 tests =
   [ check "reset components in Gymnasium ranges" $
-      let (r, _) = reset {state=PState} {action=Double} {obs=Vect 3 Double} 42
+      let (r, _) = reset {state=PState} {action=Double} {obs=Vect 3 Double} (Seeded 42)
       in abs r.pTheta <= 3.141592653589793 && abs r.pThetaDot <= 1.0
 
   , check "reset differs across seeds" $
-      let (a, _) = reset {state=PState} {action=Double} {obs=Vect 3 Double} 0
-          (b, _) = reset {state=PState} {action=Double} {obs=Vect 3 Double} 1
+      let (a, _) = reset {state=PState} {action=Double} {obs=Vect 3 Double} (Seeded 0)
+          (b, _) = reset {state=PState} {action=Double} {obs=Vect 3 Double} (Seeded 1)
       in a.pTheta /= b.pTheta || a.pThetaDot /= b.pThetaDot
 
   , check "observe length 3" $

@@ -63,7 +63,7 @@ pObserve s = [ prim__doubleCos s.pTheta
 ||| theta_dot from (-1, 1), matching Gymnasium's Pendulum-v1 reset
 ||| distribution.
 export
-pReset : Seed -> (PState, Seed)
+pReset : Source -> (PState, Source)
 pReset s0 =
   let (th,  s1) = nextUniform s0 (negate Pi) Pi
       (dth, s2) = nextUniform s1 (-1.0) 1.0

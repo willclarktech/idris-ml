@@ -28,12 +28,12 @@ record BJState where
   bjPlayer : List Nat
   bjDealer : List Nat   -- first card is visible; whole hand resolved at end
   bjDone   : Bool
-  bjSeed   : Seed
+  bjSeed   : Source
 
 ||| Draw one card from a uniform 13-card suit (canonical Gymnasium
 ||| Blackjack-v1 distribution). Values: 1=Ace (1/13), 2..9 (1/13 each),
 ||| 10 (4/13 from 10, J, Q, K).
-drawCard : Seed -> (Nat, Seed)
+drawCard : Source -> (Nat, Source)
 drawCard s =
   let (n, s') = nextNat s 13
   in case n of
@@ -72,11 +72,11 @@ usableAce cards =
 isBust : Nat -> Bool
 isBust n = n > 21
 
-||| Deal initial hands (2 cards each). The input Seed both seeds the
-||| internal deck and produces an advanced caller-side Seed (the deck
+||| Deal initial hands (2 cards each). The input Source both seeds the
+||| internal deck and produces an advanced caller-side Source (the deck
 ||| post-deal), so successive resets diverge.
 export
-initBJ : Seed -> (BJState, Seed)
+initBJ : Source -> (BJState, Source)
 initBJ seed =
   let (p1, s1) = drawCard seed
       (p2, s2) = drawCard s1
@@ -85,7 +85,7 @@ initBJ seed =
   in (MkBJ [p1, p2] [d1, d2] False s4, s4)
 
 -- Dealer plays out: hits while sum < 17.
-dealerPlay : List Nat -> Seed -> (List Nat, Seed)
+dealerPlay : List Nat -> Source -> (List Nat, Source)
 dealerPlay dealer seed =
   if handSum dealer >= 17 then (dealer, seed)
   else let (c, seed') = drawCard seed

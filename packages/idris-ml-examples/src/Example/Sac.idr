@@ -22,6 +22,7 @@ import Ml.Sampler
 import Ml.Simple
 import Ml.Train
 import Ml.Train.Freeze
+import Random.Source
 
 import BuildConfig
 
@@ -406,8 +407,8 @@ runBatchUpdateL q1Opt q2Opt actorOpt nets logStdV cfg {n} batch = do
 -- still goes through `Env.reset`, so a restarted env draws from Pendulum's
 -- theta ~ U(-pi, pi), thetadot ~ U(-1, 1) start distribution rather than
 -- always beginning at the downward equilibrium.
-stepAllAutoResetP : Seed -> Vect n PState -> Vect n Double -> Vect n Nat ->
-                    (Vect n PState, Vect n Double, Vect n Bool, Vect n Nat, Seed)
+stepAllAutoResetP : Source -> Vect n PState -> Vect n Double -> Vect n Nat ->
+                    (Vect n PState, Vect n Double, Vect n Bool, Vect n Nat, Source)
 stepAllAutoResetP seed [] [] []                      = ([], [], [], [], seed)
 stepAllAutoResetP seed (s :: ss) (a :: as) (l :: ls) =
   case pStep s a of
@@ -415,7 +416,7 @@ stepAllAutoResetP seed (s :: ss) (a :: as) (l :: ls) =
       let isDone = (l + 1) >= EpisodeLen
           -- `the` pins the pair type: an `if` in a let-pattern binding leaves
           -- the scrutinee's type unsolved otherwise (docs/develop/gotchas.md).
-          (nextS, seedNext) = the (PState, Seed)
+          (nextS, seedNext) = the (PState, Source)
             (if isDone
                then reset {state=PState} {action=Double} {obs=Vect ObsDim Double} seed
                else (s', seed))
@@ -475,7 +476,7 @@ sacStepBatchedL q1Opt q2Opt actorOpt cfg
 
   -- Seeded by `srand cfg.seed` in main, so auto-resets stay reproducible.
   stepSeedI <- liftIO1 randomInt32
-  case stepAllAutoResetP (cast stepSeedI) envs0.envs actions epLens of
+  case stepAllAutoResetP (Seeded (cast stepSeedI)) envs0.envs actions epLens of
     (envs', rewards, isDones, newEpLens, _) => do
       liftIO1 $ do
         pushAll buffer envs0.envs actions rewards envs' isDones
@@ -543,7 +544,7 @@ evalNL actor Z acc     = pure1 (MkBang acc # actor)
 evalNL actor (S k) acc = do
   resetSeedI <- liftIO1 randomInt32
   let (st0, _) = reset {state=PState} {action=Double} {obs=Vect ObsDim Double}
-                       (cast resetSeedI)
+                       (Seeded (cast resetSeedI))
   (MkBang v # actor') <- withNoGradL {ex=Ex} (evalEpL actor st0 EpisodeLen 0.0)
   evalNL actor' k (acc + v)
 
@@ -577,7 +578,7 @@ buildStateL cfg = do
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs PState
       initEnvs = fst (resetAll {state=PState} {action=Double} {obs=Vect 3 Double}
-                              (cast resetSeedI))
+                              (Seeded (cast resetSeedI)))
   envRef    <- liftIO1 (newIORef initEnvs)
   epLenRef  <- liftIO1 (newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs 0)))
   retRef    <- liftIO1 (newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0)))

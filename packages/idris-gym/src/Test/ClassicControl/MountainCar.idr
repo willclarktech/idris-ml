@@ -22,12 +22,12 @@ export
 tests : List (IO Bool)
 tests =
   [ check "reset pos in Gymnasium U(-0.6, -0.4), vel=0" $
-      let (r, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} 42
+      let (r, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} (Seeded 42)
       in r.mcPos >= -0.6 && r.mcPos <= -0.4 && r.mcVel == 0.0
 
   , check "reset differs across seeds" $
-      let (a, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} 0
-          (b, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} 1
+      let (a, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} (Seeded 0)
+          (b, _) = reset {state=MCState} {action=Nat} {obs=Vect 2 Double} (Seeded 1)
       in a.mcPos /= b.mcPos
 
   , check "step reward -1" $

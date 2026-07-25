@@ -10,7 +10,7 @@ import Random.Source
 export
 uniform : Source -> (lo : Double) -> (hi : Double) -> (Double, Source)
 uniform s lo hi =
-  let (d, s') = nextDouble s
+  let (d, s') = Source.next s
   in (lo + d * (hi - lo), s')
 
 ||| The uniform that would have produced `x` on [lo, hi).
@@ -29,21 +29,21 @@ export
 boundedNat : Source -> (n : Nat) -> (Nat, Source)
 boundedNat s Z       = (Z, s)
 boundedNat s n@(S _) =
-  let (d, s') = nextDouble s
-      scaled  = cast {to = Integer} (floor (d * cast n))
-      capped  = if scaled >= cast n then cast n - 1 else scaled
+  let (d, s') = Source.next s
+      scaled = cast {to = Integer} (floor (d * cast n))
+      capped = if scaled >= cast n then cast n - 1 else scaled
   in (cast {to = Nat} capped, s')
 
 ||| Standard normal, N(0, 1), by Box-Muller. Consumes two uniforms.
 export
 normal : Source -> (Double, Source)
 normal s =
-  let (u1raw, s1) = nextDouble s
-      (u2, s2)    = nextDouble s1
+  let (u1raw, s1) = Source.next s
+      (u2, s2)    = Source.next s1
       -- log 0 is -inf; clamp the low end rather than let one unlucky draw
       -- poison the result.
-      u1          = if u1raw < 1.0e-10 then 1.0e-10 else u1raw
-      z           = prim__doubleSqrt (-2.0 * prim__doubleLog u1)
+      u1 = if u1raw < 1.0e-10 then 1.0e-10 else u1raw
+      z  = prim__doubleSqrt (-2.0 * prim__doubleLog u1)
                       * prim__doubleCos (2.0 * 3.141592653589793 * u2)
   in (z, s2)
 
@@ -62,7 +62,7 @@ normalWith s mu sigma =
 export
 categorical : Source -> List Double -> (Nat, Source)
 categorical s probs =
-  let (u, s') = nextDouble s
+  let (u, s') = Source.next s
   in (pick 0 0.0 probs u, s')
   where
     pick : Nat -> Double -> List Double -> Double -> Nat

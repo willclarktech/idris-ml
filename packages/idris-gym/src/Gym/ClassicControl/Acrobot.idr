@@ -137,7 +137,7 @@ aObserve s =
 ||| Initial state with each of the 4 components drawn uniformly from
 ||| (-0.1, 0.1), matching Gymnasium's Acrobot-v1 reset distribution.
 export
-aReset : Seed -> (AState, Seed)
+aReset : Source -> (AState, Source)
 aReset s0 =
   let (th1,  s1) = nextUniform s0 (-0.1) 0.1
       (th2,  s2) = nextUniform s1 (-0.1) 0.1

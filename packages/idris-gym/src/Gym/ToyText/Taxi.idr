@@ -58,7 +58,7 @@ defaultStart = MkT 2 2 0 3
 ||| 5x5 grid, passenger uniform over {R, G, Y, B}, destination uniform
 ||| over the 3 non-passenger locations.
 export
-tReset : Seed -> (TState, Seed)
+tReset : Source -> (TState, Source)
 tReset s0 =
   let (r,  s1) = nextNat s0 5         -- row in [0,5)
       (c,  s2) = nextNat s1 5         -- col in [0,5)

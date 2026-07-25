@@ -22,13 +22,13 @@ export
 tests : List (IO Bool)
 tests =
   [ check "reset components in Gymnasium U(-0.1, 0.1)" $
-      let (r, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} 42
+      let (r, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} (Seeded 42)
       in abs r.aTh1 <= 0.1 && abs r.aTh2 <= 0.1
          && abs r.aDth1 <= 0.1 && abs r.aDth2 <= 0.1
 
   , check "reset differs across seeds" $
-      let (a, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} 0
-          (b, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} 1
+      let (a, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} (Seeded 0)
+          (b, _) = reset {state=AState} {action=Nat} {obs=Vect 6 Double} (Seeded 1)
       in a.aTh1 /= b.aTh1 || a.aTh2 /= b.aTh2
          || a.aDth1 /= b.aDth1 || a.aDth2 /= b.aDth2
 

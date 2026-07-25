@@ -196,7 +196,7 @@ computeLossL gamma pol randomBatch = do
       -- and as the reference's `env.reset()` does.
       resetSeedI <- liftIO1 randomInt32
       let (st0, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double}
-                           (cast resetSeedI)
+                           (Seeded (cast resetSeedI))
       (MkBang ep # pol') <- rolloutEpL pol st0 rs MaxSteps []
       foldEps pol' rest (ep :: acc)
 
@@ -206,7 +206,7 @@ computeLossBatchedL gamma pol randomBatchV = do
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv n CPState
       initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
-                              (cast resetSeedI))
+                              (Seeded (cast resetSeedI)))
   (MkBang epsV # pol') <- rolloutEpBatchedL pol initEnvs randomBatchV MaxSteps
   let eps   = toList epsV
       epReturns  = map sumRewards eps
@@ -277,7 +277,7 @@ evalNL pol Z acc     = pure1 (MkBang acc # pol)
 evalNL pol (S k) acc = do
   resetSeedI <- liftIO1 randomInt32
   let (st0, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double}
-                       (cast resetSeedI)
+                       (Seeded (cast resetSeedI))
   (MkBang v # pol') <- evalEpL pol st0 MaxSteps 0.0
   evalNL pol' k (acc + v)
 

@@ -51,7 +51,7 @@ mccObserve s = [s.mccPos, s.mccVel]
 ||| velocity 0, matching Gymnasium's MountainCarContinuous-v0 reset
 ||| distribution.
 export
-mccReset : Seed -> (MCCState, Seed)
+mccReset : Source -> (MCCState, Source)
 mccReset s0 =
   let (pos, s1) = nextUniform s0 (-0.6) (-0.4)
   in (MkMCC pos 0.0, s1)

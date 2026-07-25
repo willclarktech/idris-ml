@@ -13,7 +13,7 @@ import Test.Harness
 
 cpVec : (n : Nat) -> VecEnv n CPState
 cpVec n =
-  fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double} {n} 42)
+  fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double} {n} (Seeded 42))
 
 export
 tests : List (IO Bool)
@@ -25,8 +25,8 @@ tests =
 
   , check "resetAll advances seed across the batch" $
       let (_, s') = resetAll {state=CPState} {action=Nat}
-                             {obs=Vect 4 Double} {n=4} 42
-      in s' /= 42
+                             {obs=Vect 4 Double} {n=4} (Seeded 42)
+      in s' /= Seeded 42
 
   , check "stepAll reward vector length" $
       let v = cpVec 3
@@ -36,7 +36,7 @@ tests =
   , check "stepAutoReset produces n outputs" $
       let v = cpVec 2
       in case stepAutoReset {state=CPState} {action=Nat}
-                            {obs=Vect 4 Double} 42 v [1, 1] of
+                            {obs=Vect 4 Double} (Seeded 42) v [1, 1] of
            (_, rewards, obs, outcomes, _) =>
              length rewards == 2 && length obs == 2 && length outcomes == 2
 
@@ -44,7 +44,7 @@ tests =
       let v : VecEnv 1 CPState
           v = MkVecEnv [MkCP 3.0 0.0 0.0 0.0]
       in case stepAutoReset {state=CPState} {action=Nat}
-                            {obs=Vect 4 Double} 42 v [1] of
+                            {obs=Vect 4 Double} (Seeded 42) v [1] of
            (v', _, _, outcomes, _) =>
              case v'.envs of
                (s' :: _) =>

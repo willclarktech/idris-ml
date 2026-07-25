@@ -48,7 +48,7 @@ mcObserve s = [s.mcPos, s.mcVel]
 ||| Initial state with position drawn uniformly from (-0.6, -0.4) and
 ||| velocity 0, matching Gymnasium's MountainCar-v0 reset distribution.
 export
-mcReset : Seed -> (MCState, Seed)
+mcReset : Source -> (MCState, Source)
 mcReset s0 =
   let (pos, s1) = nextUniform s0 (-0.6) (-0.4)
   in (MkMC pos 0.0, s1)

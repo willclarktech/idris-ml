@@ -178,7 +178,7 @@ record EpochInput where
 
 epochMC : Config -> MCModel -> EpochInput -> (MCModel, Double)
 epochMC cfg (q, n) (MkEI envSeed noise) =
-  let (st0, _) = initBJ envSeed
+  let (st0, _) = initBJ (Seeded envSeed)
       (traj, reward) = playHand cfg.epsilon q st0 MaxSteps noise []
       (q', n')       = applyVisits traj [] reward (q, n)
   in ((q', n'), negate reward)
@@ -228,7 +228,7 @@ evalN : QTable -> Nat -> Bits64 -> Double -> Double -> Double -> IO (Double, Dou
 evalN _ Z _ wins reward played           = pure (wins / played, reward / played)
 evalN q (S k) envSeed wins reward played = do
   s <- genSeed
-  let r = evalHand q (fst (initBJ s)) MaxSteps
+  let r = evalHand q (fst (initBJ (Seeded s))) MaxSteps
       wins' = if r > 0.0 then wins + 1.0 else wins
   evalN q k envSeed wins' (reward + r) (played + 1.0)
 

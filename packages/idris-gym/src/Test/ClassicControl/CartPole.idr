@@ -26,25 +26,25 @@ export
 tests : List (IO Bool)
 tests =
   [ check "reset components within Gymnasium U(-0.05, 0.05)" $
-      let (r, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} 42
+      let (r, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} (Seeded 42)
       in abs r.cpX <= 0.05 && abs r.cpXDot <= 0.05
          && abs r.cpTheta <= 0.05 && abs r.cpThetaDot <= 0.05
 
   , check "reset is deterministic for a given seed" $
-      let (a, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} 42
-          (b, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} 42
+      let (a, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} (Seeded 42)
+          (b, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} (Seeded 42)
       in a.cpX == b.cpX && a.cpXDot == b.cpXDot
          && a.cpTheta == b.cpTheta && a.cpThetaDot == b.cpThetaDot
 
   , check "reset differs across seeds" $
-      let (a, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} 0
-          (b, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} 1
+      let (a, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} (Seeded 0)
+          (b, _) = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} (Seeded 1)
       in a.cpX /= b.cpX || a.cpXDot /= b.cpXDot
          || a.cpTheta /= b.cpTheta || a.cpThetaDot /= b.cpThetaDot
 
   , check "reset advances the seed" $
-      let (_, s') = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} 42
-      in s' /= 42
+      let (_, s') = reset {state=CPState} {action=Nat} {obs=Vect 4 Double} (Seeded 42)
+      in s' /= Seeded 42
 
   , check "observe length 4" $
       length (cpObserve (cpZero)) == 4

@@ -144,7 +144,7 @@ record EpochInput where
 
 epochQLearning : Config -> QTable -> EpochInput -> (QTable, Double)
 epochQLearning cfg q (MkEI envSeed noise) =
-  let (st0, _) = initFL True envSeed
+  let (st0, _) = initFL True (Seeded envSeed)
       (q', ret) = runEpisode cfg.alpha cfg.gamma cfg.epsilon st0 q MaxSteps noise
   in (q', negate ret)
 
@@ -186,7 +186,7 @@ evalN : QTable -> Nat -> Double -> IO Double
 evalN _ Z acc     = pure acc
 evalN q (S k) acc = do
   s <- genSeed
-  let r = evalEpisode q (fst (initFL True s)) MaxSteps 0.0
+  let r = evalEpisode q (fst (initFL True (Seeded s))) MaxSteps 0.0
   evalN q k (acc + r)
 
 ----------------------------------------------------------------------

@@ -14,6 +14,9 @@ import Random.Source
 -- ambiguous at every use site in this module.
 import public Random.SplitMix
 
+-- `Source` is what environments thread, so it comes through too.
+import public Random.Source
+
 ||| One SplitMix64 step. Returns (random 64-bit value, next seed). The gym
 ||| spelling of `Random.SplitMix.next`.
 export
@@ -22,29 +25,26 @@ splitMix64 = SplitMix.next
 
 ||| Integer in [0, n). n == 0 returns 0 (caller's responsibility).
 |||
-||| Reduces the raw 64-bit draw rather than scaling a Double — a different
-||| algorithm from `Random.Dist.boundedNat`, and kept because the toy-text envs
-||| (Blackjack's deck, FrozenLake's slip) have always drawn this way.
+||| The seeded arm reduces the raw 64-bit draw, which is what the toy-text envs
+||| (Blackjack's deck, FrozenLake's slip) have always done — changing it would
+||| move their streams. A recording has no raw word to reduce, so that arm
+||| scales the recorded uniform instead. The two therefore differ by
+||| construction, and only the seeded one is a compatibility surface.
 export
-nextNat : Seed -> Nat -> (Nat, Seed)
-nextNat s Z       = (Z, s)
-nextNat s n@(S _) =
+nextNat : Source -> Nat -> (Nat, Source)
+nextNat s Z                = (Z, s)
+nextNat (Seeded s) n@(S _) =
   let (r, s')  = SplitMix.next s
-      rInt   = cast {to = Integer} r
-      result = rInt `mod` cast n
-  in (cast {to = Nat} result, s')
+      result   = cast {to = Integer} r `mod` cast n
+  in (cast {to = Nat} result, Seeded s')
+nextNat rec n@(S _) = Dist.boundedNat rec n
 
 ||| Standard normal sample N(0,1) via Box-Muller.
 export
-nextNormal : Seed -> (Double, Seed)
-nextNormal s =
-  let (u1, s1) = SplitMix.nextDouble s
-      (u2, s2) = SplitMix.nextDouble s1
-  in (fst (Dist.normal (Recorded [u1, u2])), s2)
+nextNormal : Source -> (Double, Source)
+nextNormal = Dist.normal
 
 ||| Uniform Double in [lo, hi).
 export
-nextUniform : Seed -> Double -> Double -> (Double, Seed)
-nextUniform s lo hi =
-  let (d, s') = SplitMix.nextDouble s
-  in (fst (Dist.uniform (Recorded [d]) lo hi), s')
+nextUniform : Source -> Double -> Double -> (Double, Source)
+nextUniform = Dist.uniform

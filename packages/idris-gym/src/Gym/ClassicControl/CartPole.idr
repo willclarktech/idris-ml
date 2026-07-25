@@ -64,7 +64,7 @@ cpObsHigh = [4.8, 1.0e38, ThetaThresh * 2.0, 1.0e38]
 ||| Initial state with each component drawn uniformly from
 ||| (-0.05, 0.05), matching Gymnasium's CartPole-v1 reset distribution.
 export
-cpReset : Seed -> (CPState, Seed)
+cpReset : Source -> (CPState, Source)
 cpReset s0 =
   let (x,  s1) = nextUniform s0 (-0.05) 0.05
       (xd, s2) = nextUniform s1 (-0.05) 0.05

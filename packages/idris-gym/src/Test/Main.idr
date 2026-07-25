@@ -7,6 +7,7 @@ import Test.ClassicControl.CartPole
 import Test.ClassicControl.MountainCar
 import Test.ClassicControl.MountainCarCont
 import Test.ClassicControl.Pendulum
+import Test.Reset
 import Test.Rng
 import Test.Space
 import Test.ToyText.Blackjack
@@ -19,6 +20,7 @@ import Test.Wrapper
 main : IO ()
 main = runAll
   [ ("Rng",                            Test.Rng.tests)
+  , ("Reset",                          Test.Reset.tests)
   , ("Space",                          Test.Space.tests)
   , ("Wrapper",                        Test.Wrapper.tests)
   , ("Vector",                         Test.Vector.tests)

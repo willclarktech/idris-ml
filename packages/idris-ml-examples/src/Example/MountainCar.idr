@@ -21,6 +21,7 @@ import Ml.RL.ReplayBuffer
 import Ml.Simple
 import Ml.Train
 import Ml.Train.Freeze
+import Random.Source
 
 import BuildConfig
 
@@ -243,9 +244,9 @@ trainIfReadyL opt buffer cfgBatch gamma online target = do
 
 -- Step every env with its action; auto-reset envs that terminate, drawing the
 -- new state from MountainCar's own U(-0.6, -0.4) start distribution
--- (`Gym.Vector.stepAutoReset` threads the Seed through those sub-resets).
-stepAllAutoResetMC : {n : Nat} -> Seed -> Vect n MCState -> Vect n Nat ->
-                     (Vect n MCState, Vect n Double, Vect n Bool, Seed)
+-- (`Gym.Vector.stepAutoReset` threads the Source through those sub-resets).
+stepAllAutoResetMC : {n : Nat} -> Source -> Vect n MCState -> Vect n Nat ->
+                     (Vect n MCState, Vect n Double, Vect n Bool, Source)
 stepAllAutoResetMC seed envs acts =
   case stepAutoReset {state=MCState} {action=Nat} {obs=Vect ObsDim Double}
                      seed (MkVecEnv envs) acts of
@@ -263,14 +264,14 @@ pushAllTransitionsMC buf shaping (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d ::
 runEpisodeBatchedL : Optimizer Ex -> (1 _ : DqnState) -> L IO {use = 1} (LPair (!* Double) DqnState)
 runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping onNames tgtNames) = do
   startEnvs <- liftIO1 (readIORef envsRef)
-  -- One Seed per epoch, threaded through the rollout's auto-resets and the
+  -- One Source per epoch, threaded through the rollout's auto-resets and the
   -- end-of-epoch full reset. Seeded by `srand cfg.seed` in main, so the run
   -- stays reproducible.
   epochSeedI <- liftIO1 randomInt32
-  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs (cast epochSeedI) MaxSteps 0.0
+  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs (Seeded (cast epochSeedI)) MaxSteps 0.0
   pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma shaping onNames tgtNames)
   where
-    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs MCState -> Seed -> Nat -> Double ->
+    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs MCState -> Source -> Nat -> Double ->
          L IO {use = 1} (LPair (!* Double) (LPair QNet QNet))
     go qNet target _ seed Z ret = do
       liftIO1 (writeIORef envsRef
@@ -363,7 +364,7 @@ evalNL q Z acc     = pure1 (MkBang acc # q)
 evalNL q (S k) acc = do
   resetSeedI <- liftIO1 randomInt32
   let (st0, _) = reset {state=MCState} {action=Nat} {obs=Vect ObsDim Double}
-                       (cast resetSeedI)
+                       (Seeded (cast resetSeedI))
   (MkBang ep # q') <- evalEpL q st0 MaxSteps 0.0
   evalNL q' k (acc + ep)
 
@@ -385,7 +386,7 @@ buildStateL cfg = do
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs MCState
       initEnvs = fst (resetAll {state=MCState} {action=Nat} {obs=Vect 2 Double}
-                              (cast resetSeedI))
+                              (Seeded (cast resetSeedI)))
   envsRef <- liftIO1 (newIORef initEnvs)
   stepRef <- liftIO1 (newIORef (the Nat 0))
   pure1 (MkDqnState qNet0 target0 buffer envsRef stepRef

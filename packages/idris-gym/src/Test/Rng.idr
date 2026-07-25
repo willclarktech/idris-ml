@@ -13,7 +13,7 @@ samples s (S k) =
 mean : List Double -> Double
 mean xs = sum xs / cast (cast {to=Integer} (length xs))
 
-natBounds : Seed -> Nat -> (Nat, Nat) -> (Nat, Nat)
+natBounds : Source -> Nat -> (Nat, Nat) -> (Nat, Nat)
 natBounds _ Z acc          = acc
 natBounds s (S k) (lo, hi) =
   let (n, s') = nextNat s 10
@@ -60,14 +60,14 @@ tests =
     in check "uniform mean ~0.5" (abs (m - 0.5) < 0.05)
 
   , -- nextNat in [0, 10) for all draws.
-    let (lo, hi) = natBounds 7 500 (999, 0)
+    let (lo, hi) = natBounds (Seeded 7) 500 (999, 0)
     in check "nextNat in [0, 10)" (hi < 10)
 
   , -- nextNat 0 returns 0.
-    let (n, _) = nextNat 42 0
+    let (n, _) = nextNat (Seeded 42) 0
     in check "nextNat 0 returns 0" (n == 0)
 
   , -- nextNormal produces a Double (no NaN).
-    let (z, _) = nextNormal 42
+    let (z, _) = nextNormal (Seeded 42)
     in check "nextNormal non-NaN" (z == z)
   ]

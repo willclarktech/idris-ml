@@ -17,13 +17,13 @@ record VecEnv (n : Nat) state where
   constructor MkVecEnv
   envs : Vect n state
 
-||| Reset all environments, threading the caller-side Seed through n
-||| sub-resets. Returns the populated VecEnv and the advanced Seed.
+||| Reset all environments, threading the caller-side Source through n
+||| sub-resets. Returns the populated VecEnv and the advanced Source.
 export
 resetAll : {n : Nat} ->
            {state, action, obs : Type} ->
            Env state action obs =>
-           Seed -> (VecEnv n state, Seed)
+           Source -> (VecEnv n state, Source)
 resetAll {n=Z}   seed = (MkVecEnv [], seed)
 resetAll {n=S k} seed =
   let (s,  seed')  = reset {state} {action} {obs} seed
@@ -46,21 +46,21 @@ stepAll (MkVecEnv ss) acts =
 
 ||| Step every env and auto-reset any that ended. The "observation"
 ||| returned for a reset env is the observation of the newly-reset state.
-||| Threads a Seed through the per-env auto-resets (advanced once per
+||| Threads a Source through the per-env auto-resets (advanced once per
 ||| terminated env).
 export
 stepAutoReset : {n : Nat} ->
                 {state, action, obs : Type} ->
                 Env state action obs =>
-                Seed -> VecEnv n state -> Vect n action ->
-                (VecEnv n state, Vect n Double, Vect n obs, Vect n Outcome, Seed)
+                Source -> VecEnv n state -> Vect n action ->
+                (VecEnv n state, Vect n Double, Vect n obs, Vect n Outcome, Source)
 stepAutoReset seed0 (MkVecEnv ss) acts =
   let tuples = zipWith (\s, a => step {state} {action} {obs} s a) ss acts
       (newStates, outs, rewards, outcomes, seed') = walk seed0 tuples
   in (MkVecEnv newStates, rewards, outs, outcomes, seed')
   where
-    walk : {k : Nat} -> Seed -> Vect k (Double, state, Outcome, Info) ->
-           (Vect k state, Vect k obs, Vect k Double, Vect k Outcome, Seed)
+    walk : {k : Nat} -> Source -> Vect k (Double, state, Outcome, Info) ->
+           (Vect k state, Vect k obs, Vect k Double, Vect k Outcome, Source)
     walk seed []                        = ([], [], [], [], seed)
     walk seed ((r, s', out, _) :: rest) =
       let (s'', seedNext) =

@@ -327,7 +327,7 @@ export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0$(if $(PACK_PKG_PATH),
 # Idris flags for example/test builds (use installed packages). `--build-dir`
 # routes ttc + exec output under `$(BUILD)` so each backend set has its own
 # warm cache for example/test compilation, mirroring the per-set install tree.
-IDRIS_FLAGS := --build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) -p contrib -p linear -p elab-util -p idris-ml -p idris-gym -p idris-transformers
+IDRIS_FLAGS := --build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) -p contrib -p linear -p elab-util -p idris-random -p idris-ml -p idris-gym -p idris-transformers
 
 # Variable introspection: `make -s print-BUILD` / `print-EXAMPLE_SRC` etc.
 # echoes the resolved value of any make variable. Used by perf-compile.sh to

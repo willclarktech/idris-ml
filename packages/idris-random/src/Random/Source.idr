@@ -27,17 +27,32 @@ data Source
   = Seeded SplitMix.Seed
   | Recorded (List Double)
 
+public export
+Eq Source where
+  (Seeded a)   == (Seeded b)   = a == b
+  (Recorded a) == (Recorded b) = a == b
+  _            == _            = False
+
+public export
+Show Source where
+  show (Seeded s)   = "Seeded " ++ show s
+  show (Recorded d) = "Recorded " ++ show (length d) ++ " draw(s)"
+
 ||| A uniform in [0, 1), and the advanced source.
+|||
+||| Named `next` rather than `nextDouble` because this module re-exports
+||| `Random.SplitMix`, which has a `nextDouble` of its own over a bare `Seed`;
+||| two of that name in scope would be ambiguous at every call site.
 |||
 ||| A `Recorded` source that has run out returns 0.0 rather than falling back
 ||| to sampling. Silently resuming generation is the worse failure: it would
 ||| turn a replay into a fresh run partway through and report the two as one.
 ||| Callers that must not tolerate it should check `exhausted` first.
 export
-nextDouble : Source -> (Double, Source)
-nextDouble (Seeded s) = let (d, s') = SplitMix.nextDouble s in (d, Seeded s')
-nextDouble (Recorded [])        = (0.0, Recorded [])
-nextDouble (Recorded (x :: xs)) = (x, Recorded xs)
+next : Source -> (Double, Source)
+next (Seeded s)           = let (d, s') = SplitMix.nextDouble s in (d, Seeded s')
+next (Recorded [])        = (0.0, Recorded [])
+next (Recorded (x :: xs)) = (x, Recorded xs)
 
 ||| Whether a `Recorded` source has no draws left. Always `False` for `Seeded`,
 ||| which never runs out.
@@ -52,6 +67,6 @@ export
 take : Source -> (n : Nat) -> (List Double, Source)
 take s Z     = ([], s)
 take s (S k) =
-  let (d, s')   = nextDouble s
+  let (d, s')   = Source.next s
       (ds, s'') = Source.take s' k
   in (d :: ds, s'')

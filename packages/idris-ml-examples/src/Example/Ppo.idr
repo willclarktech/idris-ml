@@ -21,6 +21,7 @@ import Ml.RL.Gae
 import Ml.Sampler
 import Ml.Simple
 import Ml.Train
+import Random.Source
 
 import BuildConfig
 
@@ -137,8 +138,8 @@ sampleActionFromBatch logProbsB envs = go 0 envs
 -- this loop also truncates on a per-env step count the env does not know
 -- about. The reset itself still goes through `Env.reset`, so a restarted env
 -- draws from Acrobot's U(-0.1, 0.1)^4 start distribution.
-stepAllAutoResetTrunc : Seed -> Vect n AState -> Vect n Nat -> Vect n Nat ->
-                        (Vect n AState, Vect n Double, Vect n Bool, Vect n Nat, Seed)
+stepAllAutoResetTrunc : Source -> Vect n AState -> Vect n Nat -> Vect n Nat ->
+                        (Vect n AState, Vect n Double, Vect n Bool, Vect n Nat, Source)
 stepAllAutoResetTrunc seed [] [] []                        = ([], [], [], [], seed)
 stepAllAutoResetTrunc seed (s :: ss) (a :: as) (sl :: sls) =
   case aStep s a of
@@ -150,7 +151,7 @@ stepAllAutoResetTrunc seed (s :: ss) (a :: as) (sl :: sls) =
           isDone   = natTerm || truncate
           -- `the` pins the pair type: an `if` in a let-pattern binding leaves
           -- the scrutinee's type unsolved otherwise (docs/develop/gotchas.md).
-          (nextS, seedNext) = the (AState, Seed)
+          (nextS, seedNext) = the (AState, Source)
             (if isDone
                then reset {state=AState} {action=Nat} {obs=Vect ObsDim Double} seed
                else (s', seed))
@@ -199,7 +200,7 @@ rolloutBatchedL actor critic v0 sl0 rolloutLen = do
           obsVects : Vect n (Vect ObsDim Double)
           obsVects = map observeVec envs
       stepSeedI <- liftIO1 randomInt32
-      case stepAllAutoResetTrunc (cast stepSeedI) envs acts sls of
+      case stepAllAutoResetTrunc (Seeded (cast stepSeedI)) envs acts sls of
         (envs', rewards, dones, sls', _) =>
           let newSteps = mkRollSteps obsVects acts lps valueRows rewards dones
               accs' = zipWith (\acc, s => s :: acc) accs newSteps
@@ -499,7 +500,7 @@ evalNL actor Z acc     = pure1 (MkBang acc # actor)
 evalNL actor (S k) acc = do
   resetSeedI <- liftIO1 randomInt32
   let (st0, _) = reset {state=AState} {action=Nat} {obs=Vect ObsDim Double}
-                       (cast resetSeedI)
+                       (Seeded (cast resetSeedI))
   (MkBang v # actor') <- evalEpL actor st0 EpisodeLen 0.0
   evalNL actor' k (acc + v)
 
@@ -515,7 +516,7 @@ buildStateL = do
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs AState
       initEnvs = fst (resetAll {state=AState} {action=Nat} {obs=Vect 6 Double}
-                              (cast resetSeedI))
+                              (Seeded (cast resetSeedI)))
   envRef   <- liftIO1 (newIORef initEnvs)
   stepsRef <- liftIO1 (newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs EpisodeLen)))
   pure1 (MkPPO actor critic envRef stepsRef)
