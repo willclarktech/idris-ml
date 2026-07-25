@@ -9,17 +9,24 @@ from __future__ import annotations
 
 import argparse
 import copy
+import os
 import random
 import sys
 import time
 from typing import Any, cast
 
+import gymnasium as gym
 import numpy as np
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
 from torch_ref.models.mountain_car_cont import (
     MAX_ACTION,
+    MAX_STEPS,
     NUM_ENVS,
     Actor,
     QNet,
@@ -30,7 +37,154 @@ from torch_ref.models.mountain_car_cont import (
     polyak_update,
     sac_update,
 )
-from torch_ref.training.runner import format_elapsed, format_result, mem_suffix, set_device
+from torch_ref.replay import write_replay
+from torch_ref.scripts.dqn import RecordingRandom
+from torch_ref.training.runner import (
+    format_elapsed,
+    format_result,
+    get_device,
+    mem_suffix,
+    set_device,
+)
+
+# Idris registry name -> this script's parameter name, model-index prefixed
+# (0 = actor, 1 = q1, 2 = q1_target, 3 = q2, 4 = q2_target). Mirrors the
+# entry in scripts/paired_examples.py, which check-step-oracle.py
+# cross-checks.
+PAIRED_PARAMS = {
+    "actor_.linear_0.bias": "0.fc1.bias",
+    "actor_.linear_0.weight": "0.fc1.weight",
+    "actor_.linear_1.bias": "0.fc2.bias",
+    "actor_.linear_1.weight": "0.fc2.weight",
+    "actor_.linear_2.bias": "0.mean_head.bias",
+    "actor_.linear_2.weight": "0.mean_head.weight",
+    "actor_log_std": "0.log_std",
+    "q1_.linear_0.bias": "1.fc1.bias",
+    "q1_.linear_0.weight": "1.fc1.weight",
+    "q1_.linear_1.bias": "1.fc2.bias",
+    "q1_.linear_1.weight": "1.fc2.weight",
+    "q1_.linear_2.bias": "1.head.bias",
+    "q1_.linear_2.weight": "1.head.weight",
+    "q1tgt_.linear_0.bias": "2.fc1.bias",
+    "q1tgt_.linear_0.weight": "2.fc1.weight",
+    "q1tgt_.linear_1.bias": "2.fc2.bias",
+    "q1tgt_.linear_1.weight": "2.fc2.weight",
+    "q1tgt_.linear_2.bias": "2.head.bias",
+    "q1tgt_.linear_2.weight": "2.head.weight",
+    "q2_.linear_0.bias": "3.fc1.bias",
+    "q2_.linear_0.weight": "3.fc1.weight",
+    "q2_.linear_1.bias": "3.fc2.bias",
+    "q2_.linear_1.weight": "3.fc2.weight",
+    "q2_.linear_2.bias": "3.head.bias",
+    "q2_.linear_2.weight": "3.head.weight",
+    "q2tgt_.linear_0.bias": "4.fc1.bias",
+    "q2tgt_.linear_0.weight": "4.fc1.weight",
+    "q2tgt_.linear_1.bias": "4.fc2.bias",
+    "q2tgt_.linear_1.weight": "4.fc2.weight",
+    "q2tgt_.linear_2.bias": "4.head.bias",
+    "q2tgt_.linear_2.weight": "4.head.weight",
+}
+
+
+def _internal_state(env: gym.Env[np.ndarray, np.ndarray]) -> np.ndarray:
+    """The sub-env's exact float64 state (position, velocity) — which for
+    MountainCarContinuous is also the observation."""
+    return np.asarray(cast("Any", env).unwrapped.state, dtype=np.float64)
+
+
+def _reset_uniforms(state: np.ndarray) -> list[float]:
+    """Invert MountainCarContinuous' start draw — position ~ U(-0.6, -0.4),
+    velocity fixed at 0 — so each reset is ONE uniform under
+    `Random.Dist.uniform` (`lo + u * (hi - lo)`)."""
+    return [(float(state[0]) + 0.6) / 0.2]
+
+
+def _oracle_step(args: argparse.Namespace) -> None:
+    """One full SAC step under the oracle, sac.py's protocol with
+    MountainCarContinuous' one-uniform resets and shaped-reward pushes:
+    publish the fixture, run one collect step + (config allowing) one
+    sac_update + polyaks, publish the post-step parameters. Envs are
+    stepped UNWRAPPED with float64 actions (the vec wrapper casts to
+    float32); the buffer done flag is TRUE termination only, exactly as
+    the training loops on both sides push it."""
+    rec = RecordingRandom(args.seed)
+    actor = Actor().to(get_device())
+    q1 = QNet().to(get_device())
+    q2 = QNet().to(get_device())
+    q1_target = copy.deepcopy(q1)
+    q2_target = copy.deepcopy(q2)
+    actor_opt = torch.optim.Adam(actor.parameters(), lr=args.lr)
+    q1_opt = torch.optim.Adam(q1.parameters(), lr=args.lr)
+    q2_opt = torch.optim.Adam(q2.parameters(), lr=args.lr)
+    buffer = ReplayBuffer(args.buffer)
+    models = (actor, q1, q1_target, q2, q2_target)
+    maybe_dump_oracle(models, PAIRED_PARAMS)
+
+    envs: list[gym.Env[np.ndarray, np.ndarray]] = []
+    env_uniforms: list[float] = []
+    for i in range(NUM_ENVS):
+        env = cast(
+            "gym.Env[np.ndarray, np.ndarray]",
+            gym.make("MountainCarContinuous-v0"),  # pyright: ignore[reportUnknownMemberType]
+        )
+        env.reset(seed=args.seed + i)
+        envs.append(env)
+        env_uniforms += _reset_uniforms(_internal_state(env))
+    states = [_internal_state(e) for e in envs]
+
+    if args.warmup > 0:
+        actions = [rec.uniform(-MAX_ACTION, MAX_ACTION) for _ in range(NUM_ENVS)]
+    else:
+        obs_t = obs_tensor(np.array(states))
+        with torch.no_grad():
+            a_t, _ = actor.sample(obs_t, rec)
+        # torch stub: Tensor.tolist() returns list[Unknown].
+        actions = [float(a) for a in cast("list[float]", a_t.tolist())]  # pyright: ignore[reportUnknownMemberType]
+
+    for i, env in enumerate(envs):
+        step_out = cast("Any", env).unwrapped.step(np.array([actions[i]], dtype=np.float64))
+        raw_reward = float(cast("float", step_out[1]))
+        terminated = bool(cast("bool", step_out[2]))
+        new_state = _internal_state(env)
+        # ep_len goes 0 -> 1 in this single step; MAX_STEPS is 999, so no
+        # env caps out and no reset draw is logged.
+        assert MAX_STEPS > 1
+        shaped_r = raw_reward + args.shaping * abs(float(new_state[1]))
+        buffer.push(
+            [float(x) for x in states[i]],
+            float(actions[i]),
+            shaped_r,
+            [float(x) for x in new_state],
+            terminated,
+        )
+
+    if len(buffer) >= max(args.batch, args.warmup):
+        sac_update(
+            actor,
+            q1,
+            q2,
+            q1_target,
+            q2_target,
+            actor_opt,
+            q1_opt,
+            q2_opt,
+            buffer,
+            args.batch,
+            args.gamma,
+            args.alpha,
+            rec,
+        )
+        polyak_update(q1_target, q1, args.tau)
+        polyak_update(q2_target, q2, args.tau)
+
+    write_replay(
+        os.environ["IDRISML_ORACLE_DUMP"] + ".replay",
+        env=env_uniforms,
+        choices=rec.decisions,
+        uniforms=rec.uniforms,
+        normals=rec.normals,
+    )
+    maybe_dump_after_step(models, PAIRED_PARAMS)
 
 
 def main() -> None:
@@ -67,6 +221,11 @@ def main() -> None:
 
     torch.manual_seed(args.seed)  # pyright: ignore[reportUnknownMemberType] - untyped `seed` param in torch stubs
     rng = random.Random(args.seed)
+
+    # Oracle run: one collect step + one update from a warmup-free config
+    # (check-step-oracle.py passes --warmup 0 --batch 4 to both sides).
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        _oracle_step(args)
 
     print("=== SAC on MountainCarContinuous ===")
     print(

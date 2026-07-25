@@ -667,6 +667,20 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "mountain-car-cont",
+        # The step is RNG-driven, so the reference records its draws (action,
+        # target and reparameterization noise on the normal channel; minibatch
+        # indices as decisions; reset states as the uniforms that produced
+        # them) and Idris regenerates the identical step by replaying them.
+        # Warmup-free oracle config, as sac.
+        "step_oracle": True,
+        "replay": True,
+        "oracle_args": ["--warmup", "0", "--batch", "4"],
+        # Step-oracle bound, measured with `--tolerance 0`: worst 6.3e-11
+        # (actor_log_std); all network weights at or below 4.2e-14. Planted
+        # alpha x1.1 probe lands 1.2e-07..3.0e-07 (a single sign-only Adam
+        # first step swallows gentler perturbations, unlike the multi-update
+        # epochs elsewhere).
+        "tolerance": 1e-7,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
@@ -705,7 +719,7 @@ EXAMPLES: list[ExampleSpec] = [
         },
         "idris": "packages/idris-ml-examples/src/Example/MountainCarCont.idr",
         "python": "packages/pytorch/torch_ref/scripts/mountain_car_cont.py",
-        "idris_only": ["--clip", "--es-threshold", "--es-window", "--es-patience"],
+        "idris_only": ["--es-threshold", "--es-window", "--es-patience"],
     },
     {
         "name": "q-learning",
