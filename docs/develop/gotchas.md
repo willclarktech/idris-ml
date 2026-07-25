@@ -36,6 +36,41 @@ Symptom: you edit a library internal, `make install` succeeds, `make example-foo
 
 Mitigation: the Makefile has a `build/.library-cache-stamp` sentinel depending on every library `.idr` file. When any is newer than the stamp, the recipe wipes `build/ttc`. `install` depends on the stamp, so every `make example-<name>` / `make check-examples` / `make test-examples` path gets the fresh-cache guarantee transparently. If invoking `idris2` directly outside the Makefile, run `rm -rf build/ttc` after editing library internals.
 
+### Multi-binding `let` in a nested `do` reports its parse error at the outer block head
+
+Adding a second binding to a `let` inside a `do` nested under `liftIO1 $ do`,
+itself inside `Control.Linear.LIO.run $ do`, fails to parse:
+
+```idris
+    liftIO1 $ do
+      let total = EvalChunk * EvalChunks
+          acc   = cast {to=Double} hits / cast {to=Double} total
+      putStrLn $ "Final accuracy (" ++ show total ++ " …"
+```
+
+```text
+Error: Not the end of a block entry, check indentation.
+
+Example.Mnist:229:3--229:25
+ 229 |   Control.Linear.LIO.run $ do
+         ^^^^^^^^^^^^^^^^^^^^^^
+```
+
+The reported location is the *outer* `run $ do` statement, ~15 lines above the
+offending `let` and in code that has not been touched — so the natural reading
+("I broke the run-block") sends you auditing the wrong thing. Collapsing to a
+single binding parses:
+
+```idris
+      let acc = cast {to=Double} hits / cast {to=Double} (EvalChunk * EvalChunks)
+```
+
+Bisecting is faster than staring at the layout: stub out one suspect at a time
+and rebuild. When a parse error points at a `do` statement you did not edit,
+suspect the last thing you *did* edit inside that block, not the indentation at
+the arrow. Observed 2026-07-31 while chunking the mnist eval; not established
+whether the linear `L IO` context is required to trigger it.
+
 ### Temporary test files
 
 Idris2 requires source files to be in `--source-dir`. Never put test files in `/tmp` — they won't compile. Instead, add temporary test files to `src/Example/` and remove them after debugging.
