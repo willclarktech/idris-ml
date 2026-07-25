@@ -33,6 +33,7 @@ import Ml.Array
 import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Executor
+import Ml.Optimizer
 import Ml.Tensor
 import Ml.Train
 import Ml.Train.Freeze
