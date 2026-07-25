@@ -168,6 +168,7 @@ main = do
   -- Linear surface end to end (see Example.Lstm / Example.Rnn).
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
+    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
       fit (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model

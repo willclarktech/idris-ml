@@ -13,6 +13,7 @@ import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
 import Ml.Array
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Hpo.LrFinder
@@ -375,6 +376,9 @@ buildStateL cfg = do
   let (MkBang onNames # qNet0)    = reflectNames qNet0
   let (MkBang tgtNames # target0) = reflectNames target0
   liftIO1 (do _ <- polyakUpdatePaired {ex=Ex} onNames tgtNames 1.0; pure ())
+  -- After the initial hard sync: the reference builds its target as a
+  -- deepcopy of the online net, so the dump has to see the synced state.
+  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   buffer  <- liftIO1 (mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap)
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs CPState

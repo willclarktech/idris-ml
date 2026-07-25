@@ -17,6 +17,7 @@ from typing import Any, cast
 import numpy as np
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.mountain_car_cont import (
     MAX_ACTION,
     NUM_ENVS,
@@ -82,6 +83,7 @@ def main() -> None:
     q2 = QNet().to(args.device)
     q1_target = copy.deepcopy(q1)
     q2_target = copy.deepcopy(q2)
+    maybe_dump_init(actor, q1, q2, q1_target, q2_target)
     actor_opt = torch.optim.Adam(actor.parameters(), lr=args.lr)
     q1_opt = torch.optim.Adam(q1.parameters(), lr=args.lr)
     q2_opt = torch.optim.Adam(q2.parameters(), lr=args.lr)

@@ -13,6 +13,7 @@ import Data.List
 import Data.Vect
 import System
 
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Simple
@@ -240,6 +241,7 @@ main = do
   -- Linear surface end to end (see Example.NtmCopy).
   Control.Linear.LIO.run $ do
     model <- runInitL (dnc {r = R} {n = N} {m = M} {h = H} {i = InputW} {o = OutputW})
+    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, _) # trained) <-
       fit (recurEpochL opt) opt dataStream

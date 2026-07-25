@@ -12,6 +12,7 @@ import time
 import torch
 import torch.nn.functional as F
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.mnist_cnn import MnistCNN, evaluate, get_mnist_loaders, train_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_result, set_device
@@ -64,6 +65,7 @@ def main() -> None:
 
     train_loader, test_loader = get_mnist_loaders(args.batch_size, train_count=args.train_count)
     model = MnistCNN().to(args.device)
+    maybe_dump_init(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     param_count = sum(p.numel() for p in model.parameters())

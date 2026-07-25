@@ -27,6 +27,7 @@ import sys
 
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.gpt import (
     CORPUS_INDICES,
     VOCAB_SIZE,
@@ -133,6 +134,7 @@ def main() -> None:
         num_heads=NUM_HEADS,
         num_blocks=NUM_BLOCKS,
     ).to(args.device)
+    maybe_dump_init(model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=args.lr,

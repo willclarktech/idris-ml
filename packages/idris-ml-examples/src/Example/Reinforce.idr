@@ -10,6 +10,7 @@ import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
 import Ml.Array
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Hpo.LrFinder
@@ -363,6 +364,7 @@ runTrainBatched cfg opt metrics n = Control.Linear.LIO.run $ do
 runTrainSeq : Config -> Optimizer Ex -> RLMetricsState -> IO ()
 runTrainSeq cfg opt metrics = Control.Linear.LIO.run $ do
   model <- runInitL mkPolicy
+  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   liftIO1 (putStrLn "")
   (MkBang (epochsDone, _) # trained) <-
     fit {batch = List (List Double)}

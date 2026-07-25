@@ -38,6 +38,8 @@ if TYPE_CHECKING:
         python_only: NotRequired[list[str]]
         metrics_only_idris: NotRequired[list[str]]
         metrics_only_python: NotRequired[list[str]]
+        init_manifest: NotRequired[bool]
+        target: NotRequired[str]
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -111,6 +113,8 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "ntm-recall",
+        # The make target does not follow the short name here.
+        "target": "example-ntm-associative-recall",
         "idris": "packages/idris-ml-examples/src/Example/NtmAssociativeRecall.idr",
         "python": "packages/pytorch/torch_ref/scripts/ntm_recall.py",
         "idris_only": ["--alpha", "--eps", "--momentum"],
@@ -165,26 +169,41 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "q-learning",
+        # Tabular: a Q-table, no registered parameters on either side, so there
+        # is no init to compare.
+        "init_manifest": False,
         "idris": "packages/idris-ml-examples/src/Example/QLearning.idr",
         "python": "packages/pytorch/torch_ref/scripts/q_learning.py",
     },
     {
         "name": "sarsa",
+        # Tabular: a Q-table, no registered parameters on either side, so there
+        # is no init to compare.
+        "init_manifest": False,
         "idris": "packages/idris-ml-examples/src/Example/Sarsa.idr",
         "python": "packages/pytorch/torch_ref/scripts/sarsa.py",
     },
     {
         "name": "frozen-lake",
+        # Tabular: a Q-table, no registered parameters on either side, so there
+        # is no init to compare.
+        "init_manifest": False,
         "idris": "packages/idris-ml-examples/src/Example/FrozenLake.idr",
         "python": "packages/pytorch/torch_ref/scripts/frozen_lake.py",
     },
     {
         "name": "taxi",
+        # Tabular: a Q-table, no registered parameters on either side, so there
+        # is no init to compare.
+        "init_manifest": False,
         "idris": "packages/idris-ml-examples/src/Example/Taxi.idr",
         "python": "packages/pytorch/torch_ref/scripts/taxi.py",
     },
     {
         "name": "monte-carlo",
+        # Tabular: a Q-table, no registered parameters on either side, so there
+        # is no init to compare.
+        "init_manifest": False,
         "idris": "packages/idris-ml-examples/src/Example/MonteCarlo.idr",
         "python": "packages/pytorch/torch_ref/scripts/monte_carlo.py",
     },

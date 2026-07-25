@@ -21,6 +21,7 @@ import time
 import numpy as np
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.double_dqn import double_dqn_episode_batched
 from torch_ref.models.dqn import (
     NUM_ENVS,
@@ -68,6 +69,7 @@ def main() -> None:
 
     q = QNetwork().to(args.device)
     target = copy.deepcopy(q)
+    maybe_dump_init(q, target)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
     vec_env = make_cartpole_vec_env(args.seed, NUM_ENVS)

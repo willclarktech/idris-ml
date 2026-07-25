@@ -12,6 +12,7 @@ import Gym.ClassicControl.Pendulum
 import Gym.Env
 import Gym.Vector
 import Ml.Array
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Floating
@@ -542,6 +543,9 @@ buildStateL cfg = do
   let (MkBang q1TgtNames # q1Tgt) = reflectNames q1Tgt
   let (MkBang q2TgtNames # q2Tgt) = reflectNames q2Tgt
   logStdV <- liftIO1 (the (IO (Tensor [] Ex F WithGrad)) (tparamScalar "actor_log_std" 0.0))
+  -- After actor_log_std: it is a registered param too, so the dump has to
+  -- see it alongside the five networks.
+  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   liftIO1 $ do
     _ <- polyakUpdatePaired {ex=Ex} q1Names q1TgtNames 1.0
     _ <- polyakUpdatePaired {ex=Ex} q2Names q2TgtNames 1.0

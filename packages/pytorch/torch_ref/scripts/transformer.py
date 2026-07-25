@@ -13,6 +13,7 @@ from typing import cast
 
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.multi_head_transformer import (
     MultiHeadTransformer,
     eval_reversal_accuracy,
@@ -88,6 +89,7 @@ def main() -> None:
         NUM_HEADS,
         num_blocks=args.blocks,
     ).to(args.device)
+    maybe_dump_init(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     print(
         f"Model: Transformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} blocks={args.blocks} v={VOCAB_SIZE}>"

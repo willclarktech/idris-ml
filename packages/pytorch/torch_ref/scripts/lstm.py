@@ -10,6 +10,7 @@ from typing import cast
 
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.rnn import LinearLSTMCell, generate_rnn_dataset, train_lstm_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
@@ -46,6 +47,7 @@ def main() -> None:
     print(f"Config: lr={args.lr} epochs={args.epochs} patience={args.patience} seed={args.seed}")
 
     model = LinearLSTMCell(1, 4, 1).to(args.device)
+    maybe_dump_init(model)
     data = generate_rnn_dataset(8)  # built under active device set above
     print("Architecture: LstmLayer ~> OutputLayer (LinearLayer)")
     print()

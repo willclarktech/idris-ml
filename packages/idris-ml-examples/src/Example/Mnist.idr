@@ -17,6 +17,7 @@ import Data.List
 import Data.Vect
 import System
 
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.DataStream
 import Ml.Fit
@@ -228,6 +229,7 @@ main = do
   -- pre-fetched before the loop (a use-after-free at eval).
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
+    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     (MkBang (epochsDone, finalLoss) # trained) <-
       fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
     liftIO1 (putStrLn "")

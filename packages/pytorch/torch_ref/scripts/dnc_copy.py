@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.copy_task import generate_copy_batch
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.metrics import bit_and_sequence_accuracy
 from torch_ref.models.dnc import DncConfig, DncModel
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
@@ -135,6 +136,7 @@ def main() -> None:
         controller_size=H,
     )
     model = DncModel(cfg).to(args.device)
+    maybe_dump_init(model)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr, alpha=0.95, momentum=0.9)
     print(f"Model: DNC<N={N} M={M} H={H} R={args.num_reads}>")
     print()

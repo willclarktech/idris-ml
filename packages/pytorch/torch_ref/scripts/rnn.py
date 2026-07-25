@@ -10,6 +10,7 @@ from typing import cast
 
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
@@ -50,6 +51,7 @@ def main() -> None:
     # nn.RNNCell shape: tanh activation, two biases, hidden=4 + linear
     # projection to 1.
     model = LinearRNNCell(1, hidden_size=4, output_size=1).to(args.device)
+    maybe_dump_init(model)
     data = generate_rnn_dataset(8)
     print("Architecture: RnnCell(1, 4) -> Linear(4, 1)")
     print()

@@ -19,6 +19,7 @@ import time
 import numpy as np
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.a2c import (
     NUM_ENVS,
     Actor,
@@ -75,6 +76,7 @@ def main() -> None:
 
     actor = Actor().to(args.device)
     critic = Critic().to(args.device)
+    maybe_dump_init(actor, critic)
     optimizer = torch.optim.Adam(
         list(actor.parameters()) + list(critic.parameters()),
         lr=args.lr,

@@ -6,6 +6,7 @@ import Data.List
 import Data.Vect
 import System
 
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.GradScaler
@@ -158,6 +159,7 @@ reportResult cfg epochsDone finalLoss correct =
 runDefault : Config -> Optimizer Ex -> IO ()
 runDefault cfg opt = Control.Linear.LIO.run $ do
   model <- runInitL (linear {i=2} {o=3})
+  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   bs <- liftIO1 buildStream
   liftIO1 (putStrLn "")
   (MkBang (epochsDone, finalLoss) # trained) <-
@@ -184,6 +186,7 @@ runMixedGeneric : {0 pDt : DType} -> Backend Ex pDt => IsDType pDt =>
                   String -> IO ()
 runMixedGeneric cfg opt mkModel modeLabel = Control.Linear.LIO.run $ do
   model <- runInitL mkModel
+  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   gs <- liftIO1 (defaultGradScaler {ex=Ex} {dt=F})
   bs <- liftIO1 buildStream
   liftIO1 (putStrLn modeLabel)

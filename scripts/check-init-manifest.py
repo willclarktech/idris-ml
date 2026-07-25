@@ -63,6 +63,18 @@ def std_band(elems: int, tolerance: float) -> float:
     return math.log1p(tolerance) + 3.0 / math.sqrt(2.0 * elems)
 
 
+def _multiset_diff(a: list[tuple[int, ...]], b: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
+    """Shapes in `a` that `b` does not also have, counting duplicates."""
+    remaining = list(b)
+    out = []
+    for shape in a:
+        if shape in remaining:
+            remaining.remove(shape)
+        else:
+            out.append(shape)
+    return out
+
+
 def load_manifest(path: Path) -> list[tuple[str, tuple[int, ...], float, float, float, float]]:
     """(name, shape, mean, std, min, max) per tensor, in file order."""
     from safetensors import safe_open
@@ -124,11 +136,26 @@ def compare(
 ) -> list[str]:
     problems: list[str] = []
 
-    ishapes = [row[1] for row in idris]
-    pshapes = [row[1] for row in python]
+    # Sorted, not positional: the two sides register in their own construction
+    # orders (Idris walks the init scope, torch walks `state_dict()`), and an
+    # rnn cell that lists weight_out before weight_ih on one side is not a
+    # divergence. What matters is that the same multiset of parameters exists.
+    ishapes = sorted(row[1] for row in idris)
+    pshapes = sorted(row[1] for row in python)
     if ishapes != pshapes:
-        problems.append(f"shape sequence differs\n    idris:  {ishapes}\n    python: {pshapes}")
+        only_i = _multiset_diff(ishapes, pshapes)
+        only_p = _multiset_diff(pshapes, ishapes)
+        detail = []
+        if only_i:
+            detail.append(f"only idris:  {only_i}")
+        if only_p:
+            detail.append(f"only python: {only_p}")
+        problems.append("parameter shapes differ\n    " + "\n    ".join(detail))
         return problems  # moment comparison is meaningless once shapes disagree
+
+    # Same multiset, so pair by sorted shape to compare moments.
+    idris = sorted(idris, key=lambda r: (r[1], r[0]))
+    python = sorted(python, key=lambda r: (r[1], r[0]))
 
     # no strict=: lengths are equal by the shape check above, and strict= is
     # unavailable on the macOS system python 3.9 the other gates run under.
@@ -180,7 +207,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    specs = [s for s in EXAMPLES if args.only in (None, s["name"])]
+    specs = [s for s in EXAMPLES if args.only in (None, s["name"]) and s.get("init_manifest", True)]
+    skipped = [s["name"] for s in EXAMPLES if not s.get("init_manifest", True)]
     if not specs:
         print(f"no example named {args.only!r} in the paired table", file=sys.stderr)
         return 2
@@ -193,7 +221,8 @@ def main() -> int:
             ipath = Path(tmp) / f"{name}-idris.safetensors"
             ppath = Path(tmp) / f"{name}-python.safetensors"
 
-            err = dump_idris(f"example-{name}", ipath) or dump_python(module, ppath)
+            target = spec.get("target", f"example-{name}")
+            err = dump_idris(target, ipath) or dump_python(module, ppath)
             if err:
                 print(f"{name:<20} [DUMP FAILED] {err}", file=sys.stderr)
                 failed = True
@@ -224,7 +253,9 @@ def main() -> int:
         )
         return 1
 
-    print(f"\nAll {len(specs)} paired examples build matching shapes and init.")
+    if skipped and not args.only:
+        print(f"\nskipped (no parameters to compare): {', '.join(skipped)}")
+    print(f"All {len(specs)} paired examples build matching shapes and init.")
     return 0
 
 

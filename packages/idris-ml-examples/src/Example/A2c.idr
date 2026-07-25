@@ -11,6 +11,7 @@ import Gym.ClassicControl.CartPole
 import Gym.Env
 import Gym.Vector
 import Ml.Array
+import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
 import Ml.Hpo.LrFinder
@@ -430,6 +431,7 @@ buildStateL : L IO {use = 1} A2CState
 buildStateL = do
   actor  <- runInitL mkActor
   critic <- runInitL mkCritic
+  liftIO1 (maybeDumpInit {ex = ExampleExecutor})
   resetSeedI <- liftIO1 randomInt32
   let initEnvs : VecEnv NumEnvs CPState
       initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}

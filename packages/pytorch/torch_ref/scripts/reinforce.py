@@ -12,6 +12,7 @@ import time
 
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.reinforce import (
     PolicyNetwork,
     evaluate,
@@ -58,6 +59,7 @@ def main() -> None:
     )
 
     policy = PolicyNetwork(hidden=128).to(args.device)
+    maybe_dump_init(policy)
     optimizer = torch.optim.Adam(policy.parameters(), lr=args.lr)
     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)  # setup
 

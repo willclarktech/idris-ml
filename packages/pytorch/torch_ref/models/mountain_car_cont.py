@@ -92,13 +92,16 @@ class Actor(nn.Module):
         self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
         self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
         self.mean_head = nn.Linear(hidden, 1, dtype=get_dtype())
-        self.log_std = nn.Parameter(torch.zeros(1, dtype=get_dtype()))
+        # 0-dim, matching the Idris side's `tparamScalar "actor_log_std"`.
+        # A shape-(1,) parameter broadcasts the same but reads as a different
+        # parameter to the init-manifest gate.
+        self.log_std = nn.Parameter(torch.zeros((), dtype=get_dtype()))
         init_linear_(self)
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         h = F.relu(self.fc2(F.relu(self.fc1(x))))
         mean = self.mean_head(h).squeeze(-1)
-        log_std = torch.clamp(self.log_std.squeeze(0) + torch.zeros_like(mean), min=-5.0, max=2.0)
+        log_std = torch.clamp(self.log_std + torch.zeros_like(mean), min=-5.0, max=2.0)
         return mean, log_std
 
     def sample(self, x: Tensor, rng: random.Random | None = None) -> tuple[Tensor, Tensor]:

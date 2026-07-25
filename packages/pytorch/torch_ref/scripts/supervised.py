@@ -9,6 +9,7 @@ from typing import cast
 
 import torch
 
+from torch_ref.init_manifest import maybe_dump_init
 from torch_ref.models.supervised import (
     SupervisedModel,
     _make_supervised_data,  # pyright: ignore[reportPrivateUsage]  # shared with the paired script
@@ -50,6 +51,7 @@ def main() -> None:
     print(f"Config: lr={args.lr} epochs={args.epochs} seed={args.seed}")
 
     model = SupervisedModel().to(args.device, dtype=get_dtype())
+    maybe_dump_init(model)
     data = _make_supervised_data()  # rebuilt under active device/dtype
     print("Model: Linear<2:3> -> softmax")
     print()

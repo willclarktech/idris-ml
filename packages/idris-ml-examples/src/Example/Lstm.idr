@@ -187,6 +187,7 @@ main = do
   -- that otherwise blow the elaborator's ambiguity-depth limit in this block.
   Control.Linear.LIO.run $ do
     model <- runInitL mkModel
+    liftIO1 (maybeDumpInit {ex = ExampleExecutor})
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
       fit (recurEpochL opt) opt (generate (pure patternSeqs)) trainCfg model
