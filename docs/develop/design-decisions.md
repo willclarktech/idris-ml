@@ -2400,7 +2400,8 @@ The plan's 30GB-RSS-blowup risk did not materialise — decomposition keeps each
 counters): `scoped`/`freshChild`/`named`/`runInit`. Composite layers (NTM/DNC/Transformer block)
 surfaced two refinements: `scopedChild` (number a *container* and nest its children — `<scope>.ntm_0.
 controller.weight_ih`) and `Linear.linearWith weightStd biasStd` (custom init for e.g. NTM's xavier-
-1.4 heads; `linear` = `linearWith (1/√fan_in) 0`). `groupOf` returns a submodel's exact registry names
+1.4 heads; `linear` is the uniform-init sibling, `U(±1/√fan_in)` weight and zero bias — see
+reference-alignment.md 2026-07-29). `groupOf` returns a submodel's exact registry names
 for optimizer scoping — replacing substring-prefix matching and its `"actor"` vs `"actor_critic"`
 gradient-leak bug class.
 
