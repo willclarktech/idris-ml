@@ -558,6 +558,19 @@ EXAMPLES: list[ExampleSpec] = [
     },  # rollout len exposed py-side; baked idris-side
     {
         "name": "ppo",
+        # The rollout and the K-epoch minibatch permutations are RNG-driven,
+        # so the reference records its draws (action decisions; reset states
+        # as the uniforms that produced them; each shuffle's permutation as
+        # rank/total tags) and Idris regenerates the identical epoch by
+        # replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 6.0e-10
+        # (critic.linear_1.weight) across one full update — 10 k-epochs x 16
+        # minibatches = 160 Adam steps, each behind a global-norm clip, with
+        # the 256-step Acrobot rollout regenerated from replayed draws. The
+        # planted entropy x1.01 probe lands 1.3e-05..2.4e-04, actor only.
+        "tolerance": 1e-7,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
