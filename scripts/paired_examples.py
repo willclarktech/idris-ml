@@ -501,6 +501,15 @@ EXAMPLES: list[ExampleSpec] = [
     },
     {
         "name": "reinforce",
+        # The rollout is RNG-driven, so the reference records its draws
+        # (action decisions; per-episode reset states as the uniforms that
+        # produced them) and Idris regenerates the identical episodes by
+        # replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 6.8e-12
+        # (linear_0.bias) — Adam + global-norm clip.
+        "tolerance": 1e-9,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.
