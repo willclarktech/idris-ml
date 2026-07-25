@@ -16,6 +16,25 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Alignment Changes (2026-08-03) — DQN-family episode boundaries got per-env TimeLimit clocks (Idris adopted the reference's shape)
+
+The reference's envs run under Gymnasium's `TimeLimit`, which counts steps
+per env from that env's own reset and flags the capped transition done
+(truncation folded into `term | trunc`). The Idris DQN-family rollouts (dqn,
+double-dqn, mountain-car) had no per-env clock: the epoch's shared step
+window just ended, the final transitions entered the buffer with done=False,
+and non-primary envs' episode boundaries fell at the shared window edge
+rather than their own step-200/500 marks. On CartPole this only bites once
+the policy is good enough to reach the cap; on MountainCar the cap is
+effectively the only episode boundary, so every episode disagreed.
+
+The Idris loops adopted the reference's shape: a per-env stepsLeft clock
+(PPO's `stepAllAutoResetTrunc` pattern), reset to the cap on each env reset,
+truncate-done at exhaustion. The done flag feeds the buffer, so this changes
+which TD targets are masked — training numbers move; covered by the pending
+multi-seed convergence campaign. The mountain-car step oracle pins the
+semantics in every run (its episode always ends by truncation).
+
 ## Alignment Changes (2026-08-03) — replay-buffer sampling unified to with-replacement
 
 The four reference `ReplayBuffer.sample` copies (dqn, mountain_car,

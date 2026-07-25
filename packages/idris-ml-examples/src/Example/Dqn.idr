@@ -18,6 +18,7 @@ import Ml.Compat.Random
 import Ml.Fit
 import Ml.Hpo.LrFinder
 import Ml.RL.ReplayBuffer
+import Ml.Rng
 import Ml.Simple
 import Ml.Train
 import Ml.Train.Freeze
@@ -87,19 +88,19 @@ greedyActionL online obs = do
   pure1 (MkBang (if q0 >= q1 then the Nat 0 else 1) # online')
 
 -- Batched epsilon-greedy: given a [N, NumActions] Q-tensor and the
--- current N envs, sample one action per env (one randomRIO per env).
-epsGreedyBatched : {n : Nat} -> Tensor [n, NumActions] Ex F g ->
+-- current N envs, sample one action per env. The explore gate is one
+-- `rng.uniform` per env and the explored action one `rng.choice`, so a
+-- recorded run replays both.
+epsGreedyBatched : {n : Nat} -> Rng -> Tensor [n, NumActions] Ex F g ->
                    Vect n CPState -> Double -> IO (Vect n Nat)
-epsGreedyBatched qB envs eps = go 0 envs
+epsGreedyBatched rng qB envs eps = go 0 envs
   where
     go : Int -> Vect k CPState -> IO (Vect k Nat)
     go _ []          = pure []
     go i (_ :: rest) = do
-      u <- randomRIO (the Double 0.0, 1.0)
+      u <- rng.uniform
       a <- if u < eps
-             then do
-               u2 <- randomRIO (the Double 0.0, 1.0)
-               pure (if u2 < 0.5 then 0 else 1)
+             then rng.choice [0.5, 0.5]
              else do
                let q0 = primItem2d {ex=Ex} qB.tensorPtr i 0
                    q1 = primItem2d {ex=Ex} qB.tensorPtr i 1
@@ -199,9 +200,12 @@ record DqnState where
   constructor MkDqnState
   1 qNet       : QNet
   1 target     : QNet
-  buffer       : ReplayBuffer ObsDim 1
-  envsRef      : IORef (VecEnv NumEnvs CPState)
-  stepRef      : IORef Nat
+  buffer  : ReplayBuffer ObsDim 1
+  envsRef : IORef (VecEnv NumEnvs CPState)
+  stepRef : IORef Nat
+  -- per-env episode clocks (Gymnasium TimeLimit twin): reset to MaxSteps on
+  -- each env reset, truncate-done at exhaustion.
+  slRef        : IORef (Vect NumEnvs Nat)
   cfgEpsStart  : Double
   cfgEpsEnd    : Double
   cfgEpsDecay  : Nat
@@ -212,6 +216,13 @@ record DqnState where
   -- paired positionally by polyakUpdatePaired — no string-prefix scoping.
   onNames  : List String
   tgtNames : List String
+  -- Stochastic inputs: the program's own draws (explore gates, explored
+  -- actions, minibatch indices) and the env `Source` provider pair (live: a
+  -- fresh `Seeded` per request; replayed: the recording's env channel
+  -- threaded across epochs via an IORef).
+  rng     : Rng
+  nextSrc : IO Source
+  putSrc  : Source -> IO ()
 
 ----------------------------------------------------------------------
 -- Episode rollout with DQN updates
@@ -223,14 +234,14 @@ actionToVec a = [cast (natToInteger a)]
 -- Train-if-ready, threading BOTH nets (online + target) through the batch loss
 -- + optimizer step (trainStep updates online's params by registry scope;
 -- the net values pass through). Returns both nets in a nested LPair.
-trainIfReadyL : Optimizer Ex -> ReplayBuffer ObsDim 1 -> Nat -> Double ->
+trainIfReadyL : Rng -> Optimizer Ex -> ReplayBuffer ObsDim 1 -> Nat -> Double ->
                 (1 _ : QNet) -> (1 _ : QNet) -> L IO {use = 1} (LPair QNet QNet)
-trainIfReadyL opt buffer cfgBatch gamma online target = do
+trainIfReadyL rng opt buffer cfgBatch gamma online target = do
   bufSz <- liftIO1 (bufferSize buffer)
   if bufSz < cfgBatch
     then pure1 (online # target)
     else do
-      mBatch <- liftIO1 (sampleN cfgBatch buffer)
+      mBatch <- liftIO1 (sampleN rng cfgBatch buffer)
       case mBatch of
         Just batchVec => do
           (MkBang loss # (online' # target')) <- batchLossBatchedL cfgBatch online target gamma batchVec
@@ -245,15 +256,33 @@ trainIfReadyL opt buffer cfgBatch gamma online target = do
 -- a training epoch.
 ----------------------------------------------------------------------
 
--- Step every env with its action; auto-reset envs that terminate, drawing the
--- new state from CartPole's own U(-0.05, 0.05)^4 start distribution
--- (`Gym.Vector.stepAutoReset` threads the Source through those sub-resets).
-stepAllAutoResetDqn : {n : Nat} -> Source -> Vect n CPState -> Vect n Nat ->
-                      (Vect n CPState, Vect n Double, Vect n Bool, Source)
-stepAllAutoResetDqn seed envs acts =
-  case stepAutoReset {state=CPState} {action=Nat} {obs=Vect ObsDim Double}
-                     seed (MkVecEnv envs) acts of
-    (v', rewards, _, outcomes, seed') => (v'.envs, rewards, map done outcomes, seed')
+-- Step every env with its action; auto-reset any that terminates OR exhausts
+-- its per-env episode clock, drawing the new state from CartPole's own
+-- U(-0.05, 0.05)^4 start distribution. The clock mirrors Gymnasium's
+-- TimeLimit — it counts from each env's own reset, and hitting it flags the
+-- transition done (truncation) exactly as the reference's `term | trunc`
+-- does. Until 2026-08-03 the loop had no per-env clock: episodes cut off at
+-- the shared epoch window with done=False finals, so the two sides pushed
+-- different transitions at every cap boundary.
+stepAllAutoResetTrunc : Source -> Vect n CPState -> Vect n Nat -> Vect n Nat ->
+                        (Vect n CPState, Vect n Double, Vect n Bool, Vect n Nat, Source)
+stepAllAutoResetTrunc seed [] [] []                        = ([], [], [], [], seed)
+stepAllAutoResetTrunc seed (s :: ss) (a :: as) (sl :: sls) =
+  case cpStep s a of
+    (r, s', outcome, _) =>
+      let term     = done outcome
+          truncate = sl == 1
+          isDone   = term || truncate
+          -- `the` pins the pair type: an `if` in a let-pattern binding leaves
+          -- the scrutinee's type unsolved otherwise (docs/develop/gotchas.md).
+          (nextS, seedNext) = the (CPState, Source)
+            (if isDone
+               then reset {state=CPState} {action=Nat} {obs=Vect ObsDim Double} seed
+               else (s', seed))
+          nextSl   = if isDone then MaxSteps else sl `minus` 1
+      in case stepAllAutoResetTrunc seedNext ss as sls of
+           (rest, rs, ds, sls', seedEnd) =>
+             (nextS :: rest, r :: rs, isDone :: ds, nextSl :: sls', seedEnd)
 
 pushAllTransitions : ReplayBuffer ObsDim 1 ->
                      Vect n CPState -> Vect n Nat -> Vect n Double ->
@@ -264,24 +293,29 @@ pushAllTransitions buf (s :: ss) (a :: as) (r :: rs) (s' :: ss') (d :: ds) = do
   pushAllTransitions buf ss as rs ss' ds
 
 runEpisodeBatchedL : Optimizer Ex -> (1 _ : DqnState) -> L IO {use = 1} (LPair (!* Double) DqnState)
-runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames) = do
+runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef slRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames rng nextSrc putSrc) = do
   startEnvs <- liftIO1 (readIORef envsRef)
+  startSls  <- liftIO1 (readIORef slRef)
   -- One Source per epoch, threaded through the rollout's auto-resets and the
-  -- end-of-epoch full reset. Seeded by `srand cfg.seed` in main, so the run
-  -- stays reproducible.
-  epochSeedI <- liftIO1 randomInt32
-  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs (Seeded (cast epochSeedI)) MaxSteps 0.0
-  pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames)
+  -- end-of-epoch full reset, then handed back through putSrc so a recording
+  -- continues across epochs. Live, nextSrc mints a fresh Seeded per epoch
+  -- (from the srand cfg.seed stream), so the run stays reproducible.
+  src0 <- liftIO1 nextSrc
+  (MkBang ret # (qNet' # target')) <- go qNet target startEnvs.envs startSls src0 MaxSteps 0.0
+  pure1 (MkBang ret # MkDqnState qNet' target' buffer envsRef stepRef slRef epsStart epsEnd epsDecay syncEvery batch gamma onNames tgtNames rng nextSrc putSrc)
   where
     -- Thread BOTH nets (nested LPair) through the lockstep rollout; the ω
     -- buffer / IORefs / config are captured from the outer match.
-    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs CPState -> Source -> Nat -> Double ->
+    go : (1 _ : QNet) -> (1 _ : QNet) -> Vect NumEnvs CPState -> Vect NumEnvs Nat -> Source -> Nat -> Double ->
          L IO {use = 1} (LPair (!* Double) (LPair QNet QNet))
-    go qNet target _ seed Z ret = do
-      liftIO1 (writeIORef envsRef
-                 (fst (resetAll {state=CPState} {action=Nat} {obs=Vect ObsDim Double} seed)))
+    go qNet target _ _ seed Z ret = do
+      let (venv, seedEnd) = the (VecEnv NumEnvs CPState, Source)
+                                (resetAll {state=CPState} {action=Nat} {obs=Vect ObsDim Double} seed)
+      liftIO1 (writeIORef envsRef venv)
+      liftIO1 (writeIORef slRef (replicate NumEnvs MaxSteps))
+      liftIO1 (putSrc seedEnd)
       pure1 (MkBang ret # (qNet # target))
-    go qNet target envs seed (S steps) ret = do
+    go qNet target envs sls seed (S steps) ret = do
       stepCount <- liftIO1 (readIORef stepRef)
       let eps = epsilonAt stepCount epsStart epsEnd epsDecay
       stateV <- liftIO1 (ioRerun (\_ =>
@@ -291,24 +325,26 @@ runEpisodeBatchedL opt (MkDqnState qNet target buffer envsRef stepRef epsStart e
       -- bracket (before the exit drain frees it), thread qNet out.
       (MkBang actions # qNet') <- withNoGradL {ex=Ex} $ do
         (MkBang qB # qNet') <- forwardSeq {b=NumEnvs} qNet stateV
-        acts <- liftIO1 (epsGreedyBatched qB envs eps)
+        acts <- liftIO1 (epsGreedyBatched rng qB envs eps)
         pure1 (MkBang acts # qNet')
-      case stepAllAutoResetDqn seed envs actions of
-        (envs', rewards, dones, seed') => do
+      case stepAllAutoResetTrunc seed envs actions sls of
+        (envs', rewards, dones, sls', seed') => do
           liftIO1 (pushAllTransitions buffer envs actions rewards envs' dones)
           liftIO1 (writeIORef stepRef (stepCount + 1))
           let ret0  = head rewards
               done0 = head dones
               ret'  = ret + ret0
-          (qNet'' # target') <- trainIfReadyL opt buffer batch gamma qNet' target
+          (qNet'' # target') <- trainIfReadyL rng opt buffer batch gamma qNet' target
           liftIO1 (when ((stepCount + 1) `mod` syncEvery == 0) $ do
                      _ <- polyakUpdatePaired {ex=Ex} onNames tgtNames 1.0
                      pure ())
           if done0
             then do
               liftIO1 (writeIORef envsRef (MkVecEnv envs'))
+              liftIO1 (writeIORef slRef sls')
+              liftIO1 (putSrc seed')
               pure1 (MkBang ret' # (qNet'' # target'))
-            else go qNet'' target' envs' seed' steps ret'
+            else go qNet'' target' envs' sls' seed' steps ret'
 
 ----------------------------------------------------------------------
 -- Config & epoch
@@ -327,9 +363,10 @@ record Config where
   epsDecay   : Nat
   seed       : Bits64
   lrFind     : Bool
+  replay     : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 5.0e-4 300 0.99 64 10000 100 1.0 0.05 10000 42 False
+defaultConfig = MkConfig 5.0e-4 300 0.99 64 10000 100 1.0 0.05 10000 42 False ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -343,6 +380,11 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--eps-decay" (\v, c => { epsDecay := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
+        -- Replay recorded draws (`Ml.Rng.loadReplay` format) instead of
+        -- sampling: explore gates come from the file's uniform channel,
+        -- explored actions and minibatch indices from its decision channel,
+        -- and env resets from its env channel.
+        , Arg "--replay" (\v, c => { replay := v } c)
         ]
 
 ----------------------------------------------------------------------
@@ -391,26 +433,42 @@ buildStateL cfg = do
   -- After the initial hard sync: the reference builds its target as a
   -- deepcopy of the online net, so the dump has to see the synced state.
   buffer  <- liftIO1 (mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap)
-  resetSeedI <- liftIO1 randomInt32
-  let initEnvs : VecEnv NumEnvs CPState
-      initEnvs = fst (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double}
-                              (Seeded (cast resetSeedI)))
+  -- Stochastic inputs: live draws normally (a fresh Seeded source per
+  -- request, matching the old per-call randomInt32), the recorded channels
+  -- of `--replay <file>` otherwise (the env channel threaded across
+  -- consumers via an IORef).
+  let mkLive : IO (Rng, IO Source, Source -> IO ())
+      mkLive = do rng <- liveRng
+                  pure (rng, (\i => Seeded (cast i)) <$> randomInt32, \_ => pure ())
+      mkReplay : String -> IO (Rng, IO Source, Source -> IO ())
+      mkReplay pth = do replay <- loadReplay pth
+                        srcRef <- newIORef replay.envSource
+                        pure (replay.rng, readIORef srcRef, writeIORef srcRef)
+  (rng, nextSrc, putSrc) <- liftIO1 (case cfg.replay of
+                                       ""  => mkLive
+                                       pth => mkReplay pth)
+  src <- liftIO1 nextSrc
+  let (initEnvs, src') = the (VecEnv NumEnvs CPState, Source)
+                             (resetAll {state=CPState} {action=Nat} {obs=Vect 4 Double} src)
+  liftIO1 (putSrc src')
   envsRef <- liftIO1 (newIORef initEnvs)
   stepRef <- liftIO1 (newIORef (the Nat 0))
-  pure1 (MkDqnState qNet0 target0 buffer envsRef stepRef
+  slRef   <- liftIO1 (newIORef (the (Vect NumEnvs Nat) (replicate NumEnvs MaxSteps)))
+  pure1 (MkDqnState qNet0 target0 buffer envsRef stepRef slRef
                     cfg.epsStart cfg.epsEnd cfg.epsDecay
-                    cfg.targetSync cfg.batchSize cfg.gamma onNames tgtNames)
+                    cfg.targetSync cfg.batchSize cfg.gamma onNames tgtNames
+                    rng nextSrc putSrc)
 
 -- Discard the (linear) state: both nets are linear → discard; ω fields drop.
 discardStateL : (1 _ : DqnState) -> L IO ()
-discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _) = do
+discardStateL (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = do
   discard qNet
   discard target
 
 -- Final greedy eval (consumes the trained linear state): eval the online net
 -- under withNoGradL, discard both nets, report.
 finalReportL : Config -> Nat -> (1 _ : DqnState) -> L IO ()
-finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _) = do
+finalReportL cfg epochsDone (MkDqnState qNet target _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = do
   let nEval = the Nat 50
   (MkBang totalReturn # qNet') <- withNoGradL {ex=Ex} (evalNL qNet nEval 0.0)
   discard qNet'

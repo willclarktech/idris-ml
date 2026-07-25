@@ -18,6 +18,7 @@ import Ml.Fit
 import Ml.Floating
 import Ml.Math
 import Ml.RL.ReplayBuffer
+import Ml.Rng
 import Ml.Sampler
 import Ml.Simple
 import Ml.Train
@@ -451,7 +452,13 @@ maybeUpdateL q1Opt q2Opt actorOpt cfg buffer logStdV
     True  => case stepCount >= cfg.warmupSteps of
       False => pure1 nets
       True  => do
-        mBatch <- liftIO1 (sampleN cfg.batchSize buffer)
+        -- Interim live rng for the sampler's Rng parameter (same process-global
+        -- generator, same uniform distribution; the index draw is now a bounded
+        -- Int32 rather than a floored Double, so the stream moves — covered by
+        -- the pending campaign). Replaced by threaded state when this example
+        -- gains its --replay flag.
+        rng <- liftIO1 liveRng
+        mBatch <- liftIO1 (sampleN rng cfg.batchSize buffer)
         case mBatch of
           Nothing    => pure1 nets
           Just batch => do

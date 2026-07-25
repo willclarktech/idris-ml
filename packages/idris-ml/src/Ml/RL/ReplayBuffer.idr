@@ -2,8 +2,8 @@
 |||
 ||| A fixed-capacity ring buffer backed by `Data.IOArray`. Push overwrites
 ||| the oldest entry once full. `sampleN` draws `n` transitions uniformly
-||| at random (with replacement) using `Compat.Random.randomRIO` — so this
-||| module honours the zero-`unsafePerformIO` invariant via explicit IO.
+||| at random (with replacement) through the caller's `Ml.Rng.Rng`, so a
+||| recorded run replays the drawn indices as decisions.
 |||
 ||| Actions are stored as `Vect actDim Double`: for discrete envs, wrap the
 ||| action index as a 1-element vector; for continuous envs, store the raw
@@ -14,7 +14,7 @@ import Data.IOArray
 import Data.IORef
 import Data.Vect
 
-import Ml.Compat.Random
+import Ml.Rng
 
 ||| One recorded transition.
 public export
@@ -67,29 +67,22 @@ push buf t = do
     then writeIORef buf.size (sz + 1)
     else pure ()
 
--- Draw one uniform random index in [0, n).
-randomIdx : Int -> IO Int
-randomIdx n = do
-  r <- randomRIO (the Double 0.0, 1.0)
-  let scaled : Int
-      scaled = cast (r * cast n)
-  -- clamp to [0, n-1] defensively against r==1.0
-  pure (if scaled >= n then n - 1 else scaled)
-
-||| Sample `n` transitions uniformly at random (with replacement).
-||| Returns `Nothing` if the buffer is empty.
+||| Sample `n` transitions uniformly at random (with replacement), each
+||| index drawn through `rng.natRange` — a recorded run replays them as
+||| decisions on the choice channel. Returns `Nothing` if the buffer is
+||| empty.
 export
-sampleN : (n : Nat) -> ReplayBuffer obsDim actDim ->
+sampleN : Rng -> (n : Nat) -> ReplayBuffer obsDim actDim ->
           IO (Maybe (Vect n (Transition obsDim actDim)))
-sampleN Z _       = pure (Just [])
-sampleN (S k) buf = do
+sampleN _   Z     _   = pure (Just [])
+sampleN rng (S k) buf = do
   sz <- readIORef buf.size
   if sz <= 0
     then pure Nothing
     else do
-      idx  <- randomIdx sz
-      mt   <- readArray buf.storage idx
-      rest <- sampleN k buf
+      idxN <- rng.natRange 0 (cast (sz - 1))
+      mt   <- readArray buf.storage (cast (natToInteger idxN))
+      rest <- sampleN rng k buf
       case (mt, rest) of
         (Just t, Just rs) => pure (Just (t :: rs))
         _                 => pure Nothing
