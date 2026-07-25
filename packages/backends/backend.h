@@ -818,7 +818,7 @@ TensorHandle tensor_cumprod(TensorHandle t, int dim);
 /* ---------- DataLoader ---------- */
 
 /* Seeded per-stream index array (DataStream). Opaque handle with its own
- * xoshiro256++ state — reproducible from seed, independent of rand(). */
+ * xoshiro256** state — reproducible from seed, independent of rand(). */
 void* create_seeded_index_array(int n, unsigned long long seed);
 void* seeded_index_array_shuffle(void* handle);
 int seeded_index_array_get(void* handle, int i);

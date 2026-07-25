@@ -11,11 +11,13 @@ depends = contrib
         , elab-util
         , hedgehog
         , idris-ml
+        , idris-random
         , idris-test
 
 modules = Test.Main
         , Test.ActivationDump
         , Test.Config
+        , Test.RandomConformance
         , Test.Array
         , Test.Backend
         , Test.CheckpointSubset

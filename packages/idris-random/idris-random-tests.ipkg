@@ -1,0 +1,21 @@
+package idris-random-tests
+
+-- Tests ipkg pointed at the same sourcedir as the library ipkg. The
+-- library's `modules = ...` list excludes Test.* so consumers only
+-- see library modules; this tests ipkg builds the Test.* tree.
+-- See docs/develop/testing.md ("colocated-tests dual-ipkg pattern").
+sourcedir = "src"
+
+depends = base
+        , idris-random
+        , idris-test
+
+modules = Test.Main
+        , Test.Dist
+        , Test.Source
+        , Test.SplitMix
+        , Test.Xoshiro
+
+main = Test.Main
+
+executable = idris-random-test

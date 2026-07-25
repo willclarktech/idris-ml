@@ -14,15 +14,20 @@
 # it ran concurrently — `rm -rf $(BUILD)/ttc-*` deleting build dirs
 # mid-elaboration (observed: install-gym/install-core dying with no
 # output inside example-checkpoint-demo under MAKEFLAGS=-j2).
-.PHONY: install-core install-gym install-transformers install-notebook \
-        install-examples install-test-harness install check-idris-ml \
-        check-gym check-transformers check-idris check
+.PHONY: install-random install-core install-gym install-transformers \
+        install-notebook install-examples install-test-harness install \
+        check-idris-ml check-gym check-transformers check-idris check
 
-install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(MLCONFIG_IDR) $(BUILD)/.library-cache-stamp
+# Install idris-random to local prefix. A leaf: `depends = base` only, and
+# both idris-ml and idris-gym build against it, so it goes first.
+install-random: $(BUILD)/.library-cache-stamp
+	@cd packages/idris-random && IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) --build-dir $(CURDIR)/$(BUILD)/ttc-idris-random --install idris-random.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-random-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-random-install.log; exit 1; }
+
+install-core: install-random backend $(HWCONFIG_IDR) $(HWDEVICES_IDR) $(MLCONFIG_IDR) $(BUILD)/.library-cache-stamp
 	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --install idris-ml.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-ml-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-ml-install.log; exit 1; }
 
 # Install gym to local prefix
-install-gym: $(BUILD)/.library-cache-stamp
+install-gym: install-random $(BUILD)/.library-cache-stamp
 	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) $(IDRIS2) --build-dir $(CURDIR)/$(BUILD)/ttc-idris-gym --install idris-gym.ipkg > $(CURDIR)/$(BUILD)/ttc-idris-gym-install.log 2>&1 || { tail -40 $(CURDIR)/$(BUILD)/ttc-idris-gym-install.log; exit 1; }
 
 # Install idris-transformers (HF-aligned model library) to local prefix.
@@ -68,7 +73,7 @@ install-test-harness:
 # Install all Idris packages locally. install-test-harness is NOT
 # in the chain — pack lazily installs idris-test the first time
 # any tests ipkg references it.
-install: install-core install-gym install-transformers install-notebook install-examples
+install: install-random install-core install-gym install-transformers install-notebook install-examples
 
 # Type-check the idris-ml core library only. Fastest single-package
 # gate. The `check` aggregator below is the daily-driver default.

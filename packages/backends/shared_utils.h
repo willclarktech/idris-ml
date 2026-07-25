@@ -14,7 +14,7 @@ extern "C" {
 #endif
 
 /* Seeded per-stream index array (DataStream). Opaque handle carrying its
- * own xoshiro256++ state; reproducible from `seed`, independent of the
+ * own xoshiro256** state; reproducible from `seed`, independent of the
  * process-global rand(). See shared_utils.c for the lifecycle. */
 void* create_seeded_index_array(int n, unsigned long long seed);
 void* seeded_index_array_shuffle(void* handle);

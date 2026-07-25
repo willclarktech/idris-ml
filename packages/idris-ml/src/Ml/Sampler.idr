@@ -1,4 +1,13 @@
+||| Effectful samplers over the process-global generator.
+|||
+||| The distribution shapes themselves live in `Random.Dist` and are pure;
+||| these draw the raw uniforms ambiently and hand them straight to it via a
+||| `Recorded` source. One implementation of Box-Muller and of the categorical
+||| walk, used both purely and effectfully.
 module Ml.Sampler
+
+import Random.Dist
+import Random.Source
 
 import Ml.Compat.Random
 
@@ -18,14 +27,17 @@ uniform var = do
   let limit = prim__doubleSqrt (3.0 * var)
   randomRIO (-limit, limit)
 
-||| Standard normal sample N(0,1) via Box-Muller transform.
+||| Standard normal sample N(0,1) via Box-Muller.
+|||
+||| The low end of the first draw is bounded here rather than left to
+||| `Dist.normal`'s own clamp, so the two uniforms consumed are exactly the
+||| ones this has always drawn.
 export
 normalSample : IO Double
 normalSample = do
   u1 <- randomRIO (the Double 1.0e-10, 1.0)
   u2 <- randomRIO (the Double 0.0, 1.0)
-  pure $ prim__doubleSqrt (-2.0 * prim__doubleLog u1)
-       * prim__doubleCos (2.0 * 3.141592653589793 * u2)
+  pure (fst (Dist.normal (Recorded [u1, u2])))
 
 ||| Normal sampler: N(0, sqrt(v)), which has variance v.
 export
@@ -42,11 +54,4 @@ normal var = map (* prim__doubleSqrt var) normalSample
 ||| Returns the index of the sampled category.
 export
 categoricalSample : List Double -> Double -> Nat
-categoricalSample probs r = go 0 0.0 probs
-  where
-    go : Nat -> Double -> List Double -> Nat
-    go idx _ []              = idx
-    go idx _ [_]             = idx
-    go idx cumul (p :: rest) =
-      let cumul' = cumul + p
-      in if r < cumul' then idx else go (S idx) cumul' rest
+categoricalSample probs r = fst (Dist.categorical (Recorded [r]) probs)

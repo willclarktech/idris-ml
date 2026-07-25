@@ -30,7 +30,7 @@ catches:
 |---|---|---|---|
 | `check` | minutes (Idris elaboration of 4 lib packages) | Type errors, missing imports, syntax — Idris library packages only | C-side errors (those come out at `make backend` link time); example-level type errors (those need `check-examples`) |
 | `check-all` | 20-60 min cold | `check` + every example executable builds | Runtime bugs |
-| `test` (`= test-unit`) | a few minutes | Idris-side correctness across packages (core, gym, args, transformers, examples, fmt) + C-level op correctness + safetensors round-trip | Anything that requires training a model |
+| `test` (`= test-unit`) | a few minutes | Idris-side correctness across packages (core, gym, args, random, transformers, examples, fmt) + C-level op correctness + safetensors round-trip | Anything that requires training a model |
 | `test-integration` | ~5 min | Negative-type gates (`test-integration-typegate-*`), lint drift (`test-integration-lint-*`), checkpoint resume, log-level profile gate, jupyter cell parser, Python-script probes — see the leaf list on the `test-integration` aggregator in `mk/tests.mk` | Full example training |
 | `test-e2e` | tens of minutes | Example smoke matrix × 5 backend lanes, HF-roundtrip gates (bert / gpt2 / bitnet / llama / llama-generate), transformers-oracle + RoPE-oracle gates, PyTorch-ref suite, jupyter kernel tests (notebook *execution* is the separate, heavier `test-e2e-notebooks`) | Multi-seed sensitivity (single seed=42 only); strict convergence quality |
 | `bench` (`= bench-fast`) | ≤5 min | Op-kernel + single-layer fwd+bwd regressions vs PyTorch | E2E training perf, HF inference perf |
@@ -44,6 +44,20 @@ catches:
 > module count + implicit-arg width; on a slower box or under
 > `nice -n 19`, multiply by 2-3×. `time make <target>` on your box is
 > the only honest answer.
+
+### Where a PRNG test belongs
+
+`idris-random` carries its own pure suite (`make test-unit-random`): both
+generators, `Source`'s two arms and the round-trip between them, and the
+distributions' bounds and moments. It has no dependency on the backends and
+must keep it that way.
+
+The differential tests — asserting the Idris SplitMix64 and xoshiro256++ agree
+bit for bit with the copies in `packages/backends/shared_utils.c` — need the
+dylib, so they live in the idris-ml suite instead. They are what keeps the
+remaining C/Idris duplication honest: the C implementations cannot be removed
+(the shuffler works on a C array in a tight loop, and dropout draws its mask
+seed C-side), so the Idris ones serve as their executable specification.
 
 ## Two thresholds, two files
 

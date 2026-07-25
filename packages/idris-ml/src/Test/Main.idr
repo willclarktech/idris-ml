@@ -57,6 +57,7 @@ import Test.Properties.RoPE as Props.RoPE
 import Test.Properties.Softmax as Props.Softmax
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
+import Test.RandomConformance
 import Test.Sampler
 import Test.SaveModelMatching
 import Test.Schedule
@@ -77,6 +78,7 @@ main = runAll
   [ ("Array",           Test.Array.tests)
   , ("Backend",         Test.Backend.tests)
   , ("Construct",       Test.Construct.tests)
+, ("RandomConformance", Test.RandomConformance.tests)
   , ("Data",            Test.Data.tests)
   , ("Fit",             Test.Fit.tests)
   , ("GradMode",        Test.GradMode.tests)

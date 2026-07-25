@@ -22,6 +22,7 @@
         check-examples test-unit test-unit-idris test test-integration \
         test-e2e test-coverage test-unit-idris-ml \
         test-unit-multi-backend test-unit-gym test-unit-args \
+        test-unit-random \
         test-unit-idris-transformers bench-gym test-unit-examples \
         test-unit-fmt
 
@@ -414,7 +415,7 @@ check-examples: install
 test-unit: test-unit-idris test-unit-c
 
 # All Idris-side unit suites (across packages).
-test-unit-idris: test-unit-idris-ml test-unit-gym test-unit-args test-unit-idris-transformers test-unit-examples test-unit-fmt
+test-unit-idris: test-unit-idris-ml test-unit-gym test-unit-args test-unit-random test-unit-idris-transformers test-unit-examples test-unit-fmt
 
 # Default `test` aggregator — alias for the unit-test layer (the
 # fast tier that's safe to run pre-commit). For broader gates use
@@ -553,6 +554,15 @@ test-unit-gym:
 test-unit-args:
 	cd packages/idris-args && pack --no-prompt build idris-args-tests.ipkg
 	$(STDBUF) ./packages/idris-args/build/exec/idris-args-test
+
+# Idris tests for idris-random package (pure Idris, zero deps beyond
+# base; no backend required). Same colocated dual-ipkg pattern. The
+# C-vs-Idris differential tests for the two generators live in the
+# idris-ml suite instead — they need the dylib, and idris-random must
+# not depend on the backends.
+test-unit-random:
+	cd packages/idris-random && pack --no-prompt build idris-random-tests.ipkg
+	$(STDBUF) ./packages/idris-random/build/exec/idris-random-test
 
 # Idris tests for idris-transformers package. Pure-Idris suite for
 # bertParamNames catalogue + an FFI suite that constructs a real

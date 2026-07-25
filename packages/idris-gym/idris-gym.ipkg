@@ -3,6 +3,7 @@ package idris-gym
 sourcedir = "src"
 
 depends = contrib
+        , idris-random
 
 modules = Gym.Space
         , Gym.Env

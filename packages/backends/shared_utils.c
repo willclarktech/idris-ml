@@ -28,7 +28,7 @@ double _wall_ms(void) {
 
 /* --- Seeded per-stream index array (DataStream) ---
  *
- * Carries its own xoshiro256++ RNG state so each stream shuffles
+ * Carries its own xoshiro256** RNG state so each stream shuffles
  * reproducibly from its seed, independent of the process-global rand().
  * The state is seeded once at creation
  * (splitmix64-expanded from the user seed) and ADVANCES on each

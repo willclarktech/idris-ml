@@ -76,6 +76,17 @@
         "os": "macos"
       },
       {
+        "name": "Run idris-random unit suite",
+        "run": "make test-unit-random",
+        "comment": [
+          "Pure-Idris suite for the PRNG package: both generators,",
+          "Source's seeded/recorded arms and their round-trip, and the",
+          "distributions. No backend needed. The C-vs-Idris differential",
+          "tests for the two generators run in the idris-ml suite, which",
+          "has the dylib."
+        ]
+      },
+      {
         "name": "Run idris-gym unit suite",
         "run": "make test-unit-gym",
         "comment": [

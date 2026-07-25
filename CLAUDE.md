@@ -39,6 +39,7 @@ packages/
   idris-transformers/ # HF-aligned model library on top of idris-ml (Transformers.Bert, Transformers.Gpt2, Transformers.Llama)
   idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym + idris-transformers), plus Generate.idr
   idris-args/         # Typed CLI flag parsing (general-purpose, zero deps beyond base)
+  idris-random/       # PRNGs (SplitMix64, xoshiro256++) + replayable `Source` (zero deps beyond base); idris-ml and idris-gym both build on it
   backends/           # C/C++ backends (tape, MLX, torch)
   jupyter/            # Jupyter kernel (Python)
   pytorch/            # PyTorch reference implementations (Python)

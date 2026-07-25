@@ -549,6 +549,15 @@ jobs:
         if: ${{ matrix.os == 'macos-latest' && !cancelled() }}
         run: make BACKEND=mlx test-unit-c
 
+      - name: Run idris-random unit suite
+        # Pure-Idris suite for the PRNG package: both generators,
+        # Source's seeded/recorded arms and their round-trip, and the
+        # distributions. No backend needed. The C-vs-Idris differential
+        # tests for the two generators run in the idris-ml suite, which
+        # has the dylib.
+        if: ${{ !cancelled() }}
+        run: make test-unit-random
+
       - name: Run idris-gym unit suite
         # Pure-Idris suite for the gym package (spaces, RNG, classic-control
         # + toy-text envs, wrappers) via the pack-built test harness. Wired

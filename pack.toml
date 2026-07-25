@@ -84,6 +84,16 @@ type = "local"
 path = "packages/idris-args"
 ipkg = "idris-args.ipkg"
 
+[custom.all.idris-random]
+type = "local"
+path = "packages/idris-random"
+ipkg = "idris-random.ipkg"
+
+[custom.all.idris-random-tests]
+type = "local"
+path = "packages/idris-random"
+ipkg = "idris-random-tests.ipkg"
+
 [custom.all.idris-args-tests]
 type = "local"
 path = "packages/idris-args"

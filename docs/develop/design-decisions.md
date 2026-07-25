@@ -285,6 +285,44 @@ The `(Double -> Optimizer)` factory pattern lets the schedule change lr each epo
 
 This replaced the previous manual two-phase approach (`lr1` for phase 1, `lr2 = 0.3*lr1` for phase 2) which required tuning two learning rates and the split point.
 
+## `idris-random` is its own package (2026-08-02)
+
+Pseudorandom generation was scattered and partly duplicated: SplitMix64 existed
+three times (pure Idris in `Gym.Rng`, a process-global copy in
+`shared_utils.c`, and a static copy ten lines from it seeding the xoshiro
+shuffler), Box-Muller twice (`Gym.Rng`, `Ml.Sampler`) identically down to the
+pi literal, and uniform scaling twice.
+
+There is no correct existing home for the shared code. idris-gym depends on
+nothing and must stay light; idris-ml depending on idris-gym is backwards; and
+idris-gym depending on a tensor library to obtain a PRNG is absurd. A leaf
+package is the only arrangement that does not corrupt the dependency graph,
+which is the argument for extraction — not the line count, which is small.
+
+Both generators ship, because they answer different questions. SplitMix64 is
+cheap with one word of state, for consumers that are not themselves
+statistically demanding. xoshiro256++ has four words, a long period and good
+equidistribution, for cases where a whole permutation depends on generator
+quality — which is why the `DataStream` shuffler picked it.
+
+`Source` (`Seeded` | `Recorded`) lives in the package rather than in idris-ml.
+Deterministic replay is a genuine PRNG feature, and both idris-gym and idris-ml
+need the *type*: duplicating a data type that has to agree across a package
+boundary is materially worse than duplicating an algorithm that need not.
+
+The C implementations stay. `seeded_index_array_shuffle` shuffles a C `int*` in
+a tight loop and cannot call Idris, and the dropout mask seed is drawn C-side.
+The Idris implementations are therefore not a replacement but an executable
+*specification*: differential tests in the idris-ml suite seed both and assert
+identical streams, so the remaining duplication is gated rather than merely
+tolerated — the same move `make test-integration-lint-rename-headers` makes for
+the generated headers.
+
+Module root `Random.*`. The `Ml.*` nesting rule exists because a library that
+must coexist with arbitrary downstream package sets needs a distinctive root;
+a package whose entire job is pseudorandom generation is entitled to the
+obvious one.
+
 ## Early stopping
 
 Training for a fixed number of epochs wastes compute when the model has already converged and risks overfitting. Early stopping monitors the training loss and halts when improvement stalls:

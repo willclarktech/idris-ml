@@ -1,0 +1,10 @@
+package idris-random
+
+sourcedir = "src"
+
+depends = base
+
+modules = Random.Dist
+        , Random.Source
+        , Random.SplitMix
+        , Random.Xoshiro

@@ -4,6 +4,7 @@ sourcedir = "src"
 
 depends = contrib
         , elab-util
+        , idris-random
         , linear
 
 modules = Ml.Compat.Random
