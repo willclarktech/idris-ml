@@ -10,6 +10,7 @@ import Example.Reinforce
 import Gym.ClassicControl.CartPole
 import Gym.Vector
 import Ml.Compat.Random
+import Ml.Rng
 import Ml.Simple
 import Test.Harness
 
@@ -32,22 +33,30 @@ mkModel = do
     l2 <- linear {i=128} {o=2}
     pure (l1 ~~> tanhA ~~> l2 ~~> Nil)
 
-||| A deterministic pseudo-RNG sequence to drive `categoricalSample`.
-||| Pre-computed so both rollouts see identical randomness. Idris is
-||| strict, so we can't use a naive infinite `cycle` — build the list
-||| of length n directly by indexing into a fixed table.
-fakeRandomness : Nat -> List Double
-fakeRandomness n = go n 0
+||| A deterministic action sequence, replayed through `Ml.Rng.replayRng`'s
+||| decision channel — `rng.choice` returns these outright, so both rollout
+||| paths take identical actions and their trajectories are comparable.
+||| `offset` desynchronizes two envs' sequences.
+fakeDecisions : Nat -> (offset : Nat) -> List Nat
+fakeDecisions n offset = go n offset
   where
-    table : Vect 8 Double
-    table = [0.13, 0.81, 0.27, 0.55, 0.09, 0.92, 0.41, 0.68]
+    table : Vect 8 Nat
+    table = [0, 1, 0, 1, 1, 0, 0, 1]
 
-    pick : Nat -> Double
+    pick : Nat -> Nat
     pick i = let m : Fin 8 = restrict 7 (cast i) in index m table
 
-    go : Nat -> Nat -> List Double
-    go Z      _ = []
-    go (S k)  i = pick i :: go k (S i)
+    go : Nat -> Nat -> List Nat
+    go Z     _ = []
+    go (S k) i = pick i :: go k (S i)
+
+||| The batched rollout draws step-major over the envs still active at that
+||| step (frozen envs skip their draw), so its decision stream is the two
+||| per-env streams woven together while both run, then the survivor alone.
+weave : List Nat -> List Nat -> List Nat
+weave []        ys        = ys
+weave xs        []        = xs
+weave (x :: xs) (y :: ys) = x :: y :: weave xs ys
 
 ||| Fixed CartPole start state for the parity comparison. Not a reset draw
 ||| (`cpReset` randomizes per Gymnasium): the two rollout paths have to begin
@@ -57,19 +66,19 @@ initState = MkCP 0 0 0 0
 
 ||| Stage 1 parity: batched with N=1 must produce identical
 ||| per-episode total reward to a single sequential rollout, given
-||| matched RNG and initial state.
+||| matched decisions and initial state.
 testParityN1 : IO Bool
 testParityN1 = do
   model <- mkModel
-  let rs : List Double = fakeRandomness testMaxSteps
-      states : VecEnv 1 CPState     = MkVecEnv [initState]
-      rss    : Vect 1 (List Double) = [rs]
+  rngSeq <- replayRng [] [] (fakeDecisions testMaxSteps 0)
+  rngBat <- replayRng [] [] (fakeDecisions testMaxSteps 0)
+  let states : VecEnv 1 CPState = MkVecEnv [initState]
 
   -- Thread the (linear) policy through both rollout paths; rollouts are
   -- read-only on params, so the two paths see identical weights → parity.
   (seqSteps, batchSteps) <- Control.Linear.LIO.run (do
-     (MkBang ss # p1) <- rolloutEpL model initState rs testMaxSteps []
-     (MkBang bs # p2) <- rolloutEpBatchedL p1 states rss testMaxSteps
+     (MkBang ss # p1) <- rolloutEpL rngSeq model initState testMaxSteps []
+     (MkBang bs # p2) <- rolloutEpBatchedL rngBat p1 states testMaxSteps
      discard p2
      pure (ss, bs))
   let seqReward = sumRewards seqSteps
@@ -77,21 +86,26 @@ testParityN1 = do
 
   checkClose "N=1 parity (total reward)" seqReward batchReward 1.0e-9
 
-||| Stage 2 parity: batched with N=2 over (env1, rs1) and (env2, rs2)
-||| produces per-env total rewards matching individual sequential
+||| Stage 2 parity: batched with N=2 over two desynchronized decision
+||| sequences produces per-env total rewards matching individual sequential
 ||| rollouts. Catches isolation bugs between envs in the batched code.
 testParityN2 : IO Bool
 testParityN2 = do
   model <- mkModel
-  let rs1 = fakeRandomness testMaxSteps
-      rs2                           = drop 3 (fakeRandomness (testMaxSteps + 3))
-      states : VecEnv 2 CPState     = MkVecEnv [initState, initState]
-      rss    : Vect 2 (List Double) = [rs1, rs2]
+  let ds1 = fakeDecisions testMaxSteps 0
+      ds2                       = fakeDecisions testMaxSteps 3
+      states : VecEnv 2 CPState = MkVecEnv [initState, initState]
+  rng1 <- replayRng [] [] ds1
+  rng2 <- replayRng [] [] ds2
 
   (seq1, seq2, batch) <- Control.Linear.LIO.run (do
-     (MkBang s1 # p1) <- rolloutEpL model initState rs1 testMaxSteps []
-     (MkBang s2 # p2) <- rolloutEpL p1 initState rs2 testMaxSteps []
-     (MkBang b # p3) <- rolloutEpBatchedL p2 states rss testMaxSteps
+     (MkBang s1 # p1) <- rolloutEpL rng1 model initState testMaxSteps []
+     (MkBang s2 # p2) <- rolloutEpL rng2 p1 initState testMaxSteps []
+     -- The sequential runs pin each env's episode length, which is what
+     -- the batched path's interleaved stream depends on.
+     rngBat <- liftIO1 (replayRng [] []
+                 (weave (take (length s1) ds1) (take (length s2) ds2)))
+     (MkBang b # p3) <- rolloutEpBatchedL rngBat p2 states testMaxSteps
      discard p3
      pure (s1, s2, b))
   let batch1 = index 0 batch
