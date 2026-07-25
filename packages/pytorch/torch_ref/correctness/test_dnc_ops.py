@@ -62,6 +62,17 @@ class TestAllocationWeighting:
         assert alloc.sum().item() < 1.0 + 1e-5
         assert alloc.max().item() > 0.9
 
+    def test_tied_usage_breaks_by_ascending_index(self) -> None:
+        # The C backends break argsort ties by ascending index; the
+        # reference's sort must match, or the t=0 all-tied usage vector
+        # sends the first write to a platform-dependent slot (torch's
+        # unstable-sort default diverged from the Idris side on glibc).
+        usage = torch.zeros(64)
+        alloc = allocation_weighting(usage)
+        assert alloc.argmax().item() == 0
+        # Ascending tie-break orders the whole weighting by index.
+        assert bool(torch.all(alloc[:-1] >= alloc[1:]).item())
+
     def test_full_memory(self) -> None:
         usage = torch.ones(4)
         alloc = allocation_weighting(usage)

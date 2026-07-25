@@ -89,8 +89,12 @@ def allocation_weighting(usage: Tensor) -> Tensor:
     """
     n = usage.shape[0]
 
-    # Sort usage ascending, clamp to prevent cumprod underflow
-    sorted_usage, sorted_indices = torch.sort(usage, dim=0)
+    # Sort usage ascending, clamp to prevent cumprod underflow.
+    # stable=True: the C backends break argsort ties by ascending index,
+    # and at t=0 the usage vector is all-tied — an unstable sort puts the
+    # near-one-hot allocation on a platform-dependent slot (glibc torch
+    # diverged from the Idris side; macOS happened to match).
+    sorted_usage, sorted_indices = torch.sort(usage, dim=0, stable=True)
     sorted_usage = sorted_usage.clamp(min=1e-6)
 
     # Cumulative product of sorted usage (shifted by 1: first element is 1.0)
