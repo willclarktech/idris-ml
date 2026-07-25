@@ -262,6 +262,14 @@ EXAMPLES: list[ExampleSpec] = [
     },  # py parameterises blocks; idris bakes it
     {
         "name": "gpt",
+        # The batch is RNG-driven (32 random window offsets into the shared
+        # embedded corpus), so the reference records the offsets and Idris
+        # rebuilds the identical batch by replaying them.
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 2.4e-11
+        # (block_1.ff2_0.weight) — AdamW + global-norm clip.
+        "tolerance": 1e-9,
         # Idris registry name -> reference parameter (prefixed by model index,
         # so an actor/critic pair stays distinguishable). Verified as a
         # shape-consistent bijection by check-init-manifest.py.

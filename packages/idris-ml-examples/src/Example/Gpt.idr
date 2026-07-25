@@ -29,6 +29,7 @@ import Ml.Fit
 import Ml.Floating
 import Ml.Nn
 import Ml.Optimizer
+import Ml.Rng
 import Ml.Sampler
 import Ml.Schedule
 import Ml.Tensor
@@ -36,7 +37,6 @@ import Ml.Train
 import Ml.Util
 
 import BuildConfig
-import Generate
 
 -- The transformer body is a linear `Seq`; hide the IO `Nn.Seq` constructors.
 
@@ -215,10 +215,10 @@ GptSample : Type
 GptSample = ( Tensor [SeqLen] ExampleExecutor ExampleDType WithGrad
             , Tensor [SeqLen, VocabSize] ExampleExecutor ExampleDType WithGrad )
 
-gptSample : (corpus : List Int) -> (corpusLen : Nat) -> IO GptSample
-gptSample corpus corpusLen = do
+gptSample : Rng -> (corpus : List Int) -> (corpusLen : Nat) -> IO GptSample
+gptSample rng corpus corpusLen = do
   let maxStart = minus corpusLen (SeqLen + 1)
-  startN <- randomInt 0 maxStart
+  startN <- rng.natRange 0 maxStart
   let start      = startN
       window     = listSlice corpus start (SeqLen + 1)
       inputToks  = Data.List.take SeqLen window
@@ -231,11 +231,11 @@ gptSample corpus corpusLen = do
       tgt2d      = primReshape2d {ex=ExampleExecutor} tgtFlat sI vI
   pure ( MkTensor inT Nothing, MkTensor tgt2d Nothing )
 
-gptBatch : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) -> IO (Vect n GptSample)
-gptBatch _ _ Z                  = pure []
-gptBatch corpus corpusLen (S k) = do
-  s    <- gptSample corpus corpusLen
-  rest <- gptBatch corpus corpusLen k
+gptBatch : Rng -> (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) -> IO (Vect n GptSample)
+gptBatch _ _ _ Z                    = pure []
+gptBatch rng corpus corpusLen (S k) = do
+  s    <- gptSample rng corpus corpusLen
+  rest <- gptBatch rng corpus corpusLen k
   pure (s :: rest)
 
 ----------------------------------------------------------------------
@@ -426,9 +426,10 @@ record Config where
   lrFind          : Bool
   checkpointDir   : String
   checkpointEvery : Nat
+  replay          : String
 
 defaultConfig : Config
-defaultConfig = MkConfig "embedded" 0.001 30 0 42 False "" 10
+defaultConfig = MkConfig "embedded" 0.001 30 0 42 False "" 10 ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
@@ -441,7 +442,11 @@ specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
         -- alias for `--checkpoint-dir` (resumes if DIR/last.* is present).
         , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
         , Arg "--resume" (\v, c => { checkpointDir := v } c)
-        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
+        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c)
+        -- Replay recorded draws (`Ml.Rng.loadReplay` format) instead of
+        -- sampling: the batch's window offsets come from the file's decision
+        -- channel, so the run reproduces a recorded data stream.
+        , Arg "--replay" (\v, c => { replay := v } c) ]
 
 ----------------------------------------------------------------------
 -- Final eval + generation (consumes the trained linear model)
@@ -543,9 +548,12 @@ main = do
       -- Linear surface end to end: model born linear (runInitL), threaded
       -- through fitSupervised (batchLossL consumes-and-returns it each step),
       -- final eval + generation via finalReportL (consumes the trained handle).
+      rng <- case cfg.replay of
+               "" => liveRng
+               p  => (.rng) <$> loadReplay p
       Control.Linear.LIO.run $ do
         model <- runInitL mkModelInit
         (MkBang (epochsDone, _) # trained) <-
           fitSupervised {ex=ExampleExecutor} opt batchLossL
-                         (generate (gptBatch trainIndices trainLen BatchSize)) trainCfg model
+                         (generate (gptBatch rng trainIndices trainLen BatchSize)) trainCfg model
         finalReportL cfg valIndices valLen trainIndices trainLen epochsDone trained

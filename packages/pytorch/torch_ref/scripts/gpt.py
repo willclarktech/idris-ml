@@ -22,12 +22,17 @@ Usage:
 
 import argparse
 import math
+import os
 import random
 import sys
 
 import torch
 
-from torch_ref.init_manifest import maybe_dump_init
+from torch_ref.init_manifest import (
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
 from torch_ref.models.gpt import (
     CORPUS_INDICES,
     VOCAB_SIZE,
@@ -39,6 +44,7 @@ from torch_ref.models.gpt import (
     train_val_split,
 )
 from torch_ref.models.multi_head_transformer import MultiHeadTransformer
+from torch_ref.replay import write_replay
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
 
@@ -49,6 +55,60 @@ D_MODEL = 64
 NUM_HEADS = 4
 NUM_BLOCKS = 2
 BATCH_SIZE = 32
+
+# Idris registry name -> this script's parameter name, model-index prefixed.
+# Mirrors the entry in scripts/paired_examples.py, which check-step-oracle.py
+# cross-checks. Same map as transformer.py — both drive MultiHeadTransformer.
+PAIRED_PARAMS = {
+    "block_0.attn_0.key_0.weight": "0.blocks.0.key_ws.0.weight",
+    "block_0.attn_0.key_1.weight": "0.blocks.0.key_ws.1.weight",
+    "block_0.attn_0.key_2.weight": "0.blocks.0.key_ws.2.weight",
+    "block_0.attn_0.key_3.weight": "0.blocks.0.key_ws.3.weight",
+    "block_0.attn_0.out_proj_0.weight": "0.blocks.0.out_proj_ws.0.weight",
+    "block_0.attn_0.out_proj_1.weight": "0.blocks.0.out_proj_ws.1.weight",
+    "block_0.attn_0.out_proj_2.weight": "0.blocks.0.out_proj_ws.2.weight",
+    "block_0.attn_0.out_proj_3.weight": "0.blocks.0.out_proj_ws.3.weight",
+    "block_0.attn_0.query_0.weight": "0.blocks.0.query_ws.0.weight",
+    "block_0.attn_0.query_1.weight": "0.blocks.0.query_ws.1.weight",
+    "block_0.attn_0.query_2.weight": "0.blocks.0.query_ws.2.weight",
+    "block_0.attn_0.query_3.weight": "0.blocks.0.query_ws.3.weight",
+    "block_0.attn_0.value_0.weight": "0.blocks.0.value_ws.0.weight",
+    "block_0.attn_0.value_1.weight": "0.blocks.0.value_ws.1.weight",
+    "block_0.attn_0.value_2.weight": "0.blocks.0.value_ws.2.weight",
+    "block_0.attn_0.value_3.weight": "0.blocks.0.value_ws.3.weight",
+    "block_0.ff1_0.weight": "0.blocks.0.ff1.weight",
+    "block_0.ff2_0.weight": "0.blocks.0.ff2.weight",
+    "block_0.norm1.bias": "0.blocks.0.norm1.bias",
+    "block_0.norm1.weight": "0.blocks.0.norm1.weight",
+    "block_0.norm2.bias": "0.blocks.0.norm2.bias",
+    "block_0.norm2.weight": "0.blocks.0.norm2.weight",
+    "block_1.attn_0.key_0.weight": "0.blocks.1.key_ws.0.weight",
+    "block_1.attn_0.key_1.weight": "0.blocks.1.key_ws.1.weight",
+    "block_1.attn_0.key_2.weight": "0.blocks.1.key_ws.2.weight",
+    "block_1.attn_0.key_3.weight": "0.blocks.1.key_ws.3.weight",
+    "block_1.attn_0.out_proj_0.weight": "0.blocks.1.out_proj_ws.0.weight",
+    "block_1.attn_0.out_proj_1.weight": "0.blocks.1.out_proj_ws.1.weight",
+    "block_1.attn_0.out_proj_2.weight": "0.blocks.1.out_proj_ws.2.weight",
+    "block_1.attn_0.out_proj_3.weight": "0.blocks.1.out_proj_ws.3.weight",
+    "block_1.attn_0.query_0.weight": "0.blocks.1.query_ws.0.weight",
+    "block_1.attn_0.query_1.weight": "0.blocks.1.query_ws.1.weight",
+    "block_1.attn_0.query_2.weight": "0.blocks.1.query_ws.2.weight",
+    "block_1.attn_0.query_3.weight": "0.blocks.1.query_ws.3.weight",
+    "block_1.attn_0.value_0.weight": "0.blocks.1.value_ws.0.weight",
+    "block_1.attn_0.value_1.weight": "0.blocks.1.value_ws.1.weight",
+    "block_1.attn_0.value_2.weight": "0.blocks.1.value_ws.2.weight",
+    "block_1.attn_0.value_3.weight": "0.blocks.1.value_ws.3.weight",
+    "block_1.ff1_0.weight": "0.blocks.1.ff1.weight",
+    "block_1.ff2_0.weight": "0.blocks.1.ff2.weight",
+    "block_1.norm1.bias": "0.blocks.1.norm1.bias",
+    "block_1.norm1.weight": "0.blocks.1.norm1.weight",
+    "block_1.norm2.bias": "0.blocks.1.norm2.bias",
+    "block_1.norm2.weight": "0.blocks.1.norm2.weight",
+    "embed.embedding_0.weight": "0.token_embed.weight",
+    "head_0.weight": "0.vocab_proj.weight",
+    "layer_norm_0.bias": "0.norm_final.bias",
+    "layer_norm_0.weight": "0.norm_final.weight",
+}
 
 # nanoGPT optimizer/schedule defaults (train_shakespeare_char.py).
 BETA1 = 0.9
@@ -144,6 +204,22 @@ def main() -> None:
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {n_params}")
     print()
+
+    # Oracle run: publish the parameters and the batch's window offsets
+    # (recorded in draw order), take exactly one update — at the schedule's
+    # epoch-0 LR, as epoch_fn would — and publish the result. Idris replays
+    # the offsets through --replay and rebuilds the same batch; window
+    # slicing, one-hot construction, forward, LM loss, clip, cosine warmup
+    # and AdamW are all under test.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        for g in optimizer.param_groups:
+            g["lr"] = cosine_lr(0, args.lr, args.epochs)
+        starts: list[int] = []
+        data = generate_gpt_data(train_indices, BATCH_SIZE, SEQ_LEN, vocab_size, starts_log=starts)
+        maybe_dump_oracle((model,), PAIRED_PARAMS)
+        write_replay(os.environ["IDRISML_ORACLE_DUMP"] + ".replay", choices=starts)
+        train_gpt_epoch(model, data, optimizer)
+        maybe_dump_after_step((model,), PAIRED_PARAMS)
 
     if args.lr_find:
         # One mini-batch update per iter, no LR schedule (lrFind controls LR).
