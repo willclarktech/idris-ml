@@ -690,6 +690,10 @@ jobs:
           save-pytorch-venv: ${{ matrix.os == 'macos-latest' && 'true' || 'false' }}
           pytorch-venv-cache-hit: ${{ steps.setup.outputs.pytorch-venv-cache-hit }}
           ttc-job: test-unit
+          # This is the one job whose make targets pack-build every local
+          # package (test-unit-idris-*), so only its save may vouch for
+          # packages/*/build (see the pack-built input doc).
+          pack-built: 'true'
 
       - name: Upload Criterion JUnit XML artifacts
         # Always uploads, even on test failure, so the GitHub Actions UI

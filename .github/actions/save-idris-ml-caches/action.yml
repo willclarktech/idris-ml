@@ -48,6 +48,17 @@ inputs:
   ttc-job:
     description: Job-distinct TTC key suffix (must match setup).
     default: "build"
+  pack-built:
+    description: >
+      The job ran the pack-driven per-package builds (test-unit), so
+      its packages/*/build dirs are consistent with HEAD. Stamps each
+      dir with the commit; setup-idris-ml's reconcile step purges any
+      dir whose stamp is missing or predates a change to its package.
+      Jobs that DON'T pack-build must leave this false — their pack
+      dirs are whatever the restore brought in, and stamping them
+      would launder a stale tree past the reconcile diff (that is how
+      a pre-MaskSource Ml.Rng.ttc broke run 30918131183).
+    default: "false"
 
 runs:
   using: composite
@@ -63,6 +74,16 @@ runs:
       run: |
         mkdir -p build
         echo "${{ github.sha }}" > build/.cache-commit
+
+    # Stamp the pack-driven per-package build dirs only when this job
+    # actually rebuilt them (see the pack-built input note above).
+    - name: Stamp pack build dirs
+      if: inputs.save-ttc == 'true' && inputs.pack-built == 'true'
+      shell: bash
+      run: |
+        for d in packages/*/build; do
+          [ -d "$d" ] && echo "${{ github.sha }}" > "$d/.pack-cache-commit"
+        done
 
     - name: Save TTC cache
       if: inputs.save-ttc == 'true'

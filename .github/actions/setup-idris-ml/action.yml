@@ -161,7 +161,7 @@ runs:
           changed="$(git diff --name-only "${packcommit}" HEAD -- packages/)"
         fi
         for name in idris-ml idris-ml-examples idris-gym idris-transformers \
-                    idris-test idris-args idris-fmt; do
+                    idris-test idris-args idris-fmt idris-random; do
           if [ "$purge_all" = 1 ] || printf '%s\n' "$changed" | grep -q "^packages/${name}/"; then
             echo "  purging stale local package from pack store: $name"
             rm -rf "$store"/install/*/"$name"
@@ -287,6 +287,31 @@ runs:
         echo "Restored tree was built at ${cached}; touching files changed since then:"
         git diff --name-only "${cached}" HEAD | sed 's/^/  /'
         git diff -z --name-only "${cached}" HEAD | xargs -0r touch -c
+        # SOUNDNESS — build/.cache-commit cannot vouch for the pack-driven
+        # per-package build dirs (packages/*/build): only the pack-building
+        # job (test-unit) rebuilds them, while every OTHER job re-saves them
+        # untouched under a fresh stamp. A same-sha cross-job restore then
+        # diffs to empty and keeps a stale tree (run 30918131183: a
+        # pre-MaskSource Ml.Rng.ttc survived into the test-unit build). Each
+        # pack build dir therefore carries its own stamp (.pack-cache-commit,
+        # written only by saves with `pack-built: true`); purge any dir that
+        # is unstamped or whose package changed since its stamp. The two
+        # force-full-rebuild branches above are already sound without this:
+        # touching every source to NOW outdates all cached ttcs, pack's
+        # included.
+        for d in packages/*/build; do
+          [ -d "$d" ] || continue
+          pkgdir="$(dirname "$d")"
+          stamp=""
+          [ -f "$d/.pack-cache-commit" ] && stamp="$(cat "$d/.pack-cache-commit")"
+          if [ -z "$stamp" ] || ! git cat-file -e "${stamp}^{commit}" 2>/dev/null; then
+            echo "  purging unstamped pack build dir: $d"
+            rm -rf "$d"
+          elif [ -n "$(git diff --name-only "${stamp}" HEAD -- "$pkgdir")" ]; then
+            echo "  purging stale pack build dir (source changed since ${stamp}): $d"
+            rm -rf "$d"
+          fi
+        done
 
     # Datasets the e2e example runs fetch (MNIST, SST-2, torch_ref downloads).
     # File-as-make-target, so a restored file is simply not re-fetched.
