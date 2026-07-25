@@ -347,6 +347,35 @@ deterministically, so data order continues approximately, not
 bit-exactly) and loading *foreign* HuggingFace checkpoints (needs key
 remapping + bf16/f16 read).
 
+## Training mode is a `Params` method, not a `GradMode` consequence (2026-07-30)
+
+`Dropout` and `BatchNorm` are the two layers whose forward differs between
+training and inference. Each carried a `training : Bool` field and a standalone
+`setTraining`, and nothing called either: `eval` flipped C `requires_grad` and
+retyped `GradMode`, so an inference model kept masking and rescaling its own
+activations. On `example-seq-classify` that cost 7 points of held-out accuracy
+at seed 42 (77.4% against 84.4%).
+
+The tempting fix is to key the behaviour off `GradMode`, since `eval` already
+produces a `NoGrad` model and "dropout active during inference" would become
+untypeable — the [make illegal states unrepresentable](../users/why-idris-ml.md)
+move. It does not work here: `g` is a `(0 _ : GradMode)` erased parameter, so
+`forward` cannot branch on it. Reaching it would take a runtime witness
+threaded through every `Module`, which buys type-level safety for two layers at
+a cost paid by all 22.
+
+So `setTraining : Bool -> (1 _ : l i o ex dt g) -> l i o ex dt g` is a `Params`
+method with an identity default body, mirroring PyTorch's `Module.train(mode)`
+recursion. Only `Dropout` and `BatchNorm` override it; `Seq` and `Residual`
+propagate it into what they hold. `eval` passes False and `trainable` True, so
+the flip travels with the grad-mode change rather than sitting beside it as a
+call the user has to remember. Adding a layer whose forward is
+mode-independent still costs nothing: the default is already right.
+
+The gap this leaves is a container that holds a sublayer without propagating —
+it type-checks and silently does nothing. `Test.Nn.Dropout` pins the `Seq` case
+against exactly that.
+
 ## Fine-tuning HF-loaded models: prefix-based subset-load + freeze (2026-06-07)
 
 The fine-tuning API surface — `loadModelPrefix path pfx`,
