@@ -21,6 +21,7 @@ import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.DataStream
 import Ml.Fit
+import Ml.Rng
 import Ml.Simple
 import Ml.Train
 
@@ -125,8 +126,8 @@ Model = Seq InputDim NumClasses Ex F WithGrad
 -- Top-level `Init` value (not inline under `runInitL`): a nested do-block under
 -- the linear `run $ do …` trips the elaborator's ambiguity-depth limit. Built
 -- as a linear `Seq`.
-mkModel : Init Model
-mkModel = do
+mkModel : MaskSource -> Init Model
+mkModel msrc = do
   c1 <- conv2d {inC = InC}   {outC = OutC1} {h = ImgH}     {w = ImgH}     {kH = KH} {kW = KH} {padH = 0} {padW = 0}
   c2 <- conv2d {inC = OutC1} {outC = OutC2} {h = Pool1Out} {w = Pool1Out} {kH = KH} {kW = KH} {padH = 0} {padW = 0}
   l  <- linear {i = AfterPool2} {o = NumClasses}
@@ -134,7 +135,7 @@ mkModel = do
            ~~> maxPool2d {c = OutC1} {inH = Conv1Out} {inW = Conv1Out} {poolH = 2} {poolW = 2} {strH = 2} {strW = 2}
            ~~> c2 ~~> reluA
            ~~> maxPool2d {c = OutC2} {inH = Conv2Out} {inW = Conv2Out} {poolH = 2} {poolW = 2} {strH = 2} {strW = 2}
-           ~~> dropout 0.5
+           ~~> dropoutWith msrc 0.5
            ~~> l ~~> Nil)
 
 -- Linear-resource loss: consume the model, forward via forwardSeq, return the
@@ -195,9 +196,10 @@ record Config where
   seed       : Bits64
   dataDir    : String
   trainCount : Nat   -- 0 = full dataset
+  replay     : String  -- "" = live; else a recorded-draws file (mask channel)
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5 3 42 "data/mnist" 0
+defaultConfig = MkConfig 0.001 5 3 42 "data/mnist" 0 ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -205,7 +207,8 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--data" (\v, c => { dataDir := v } c)
-        , Arg "--train-count" (\v, c => { trainCount := castNat v } c) ]
+        , Arg "--train-count" (\v, c => { trainCount := castNat v } c)
+        , Arg "--replay" (\v, c => { replay := v } c) ]
 
 -- Shrink a Dataset to the first `n` items (n <= size). Used by --train-count.
 -- Can't field-update `size` (the dependent `item : Fin size -> _`), so rebuild
@@ -226,6 +229,10 @@ main = do
 
   srand cfg.seed
   tsetInitSeed {ex = Ex} cfg.seed
+
+  -- Live: fresh dropout seeds per forward. --replay: the recorded run's
+  -- draws; the dropout layer consumes its mask channel.
+  replay <- if cfg.replay == "" then liveReplay else loadReplay cfg.replay
 
   putStrLn "=== MNIST: Convolutional Neural Network ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
@@ -262,9 +269,12 @@ main = do
   -- training step's `optimizer_step` → `arena_reset` would dangle a batch
   -- pre-fetched before the loop (a use-after-free at eval).
   Control.Linear.LIO.run $ do
-    model <- runInitL mkModel
+    model <- runInitL (mkModel replay.masks)
+    -- Replays the reference's weights and batch under IDRISML_ORACLE_LOAD;
+    -- returns `bs` untouched otherwise. See scripts/check-step-oracle.py.
+    bs2 <- liftIO1 (oracleBatchStream {ex = ExampleExecutor} bs)
     (MkBang (epochsDone, finalLoss) # trained) <-
-      fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
+      fitSupervised opt nllLossL bs2 (patienceConfig cfg.epochs cfg.patience) model
     liftIO1 (putStrLn "")
     infer <- eval trained
     (MkBang hits # infer') <-

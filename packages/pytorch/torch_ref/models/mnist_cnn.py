@@ -25,8 +25,9 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset  # noqa: TC002
 
 from torch_ref.init import init_conv_, init_linear_
+from torch_ref.training.losses import nll_loss
 from torch_ref.models.masked_dropout import MaskedDropout
-from torch_ref.training.runner import get_device
+from torch_ref.training.runner import get_device, get_dtype
 
 # Batch type yielded by the MNIST loaders: (images [B,1,28,28], labels [B]).
 MnistBatch = tuple[Tensor, Tensor]
@@ -110,11 +111,18 @@ def train_epoch(
     total_loss = 0.0
     count = 0
     device = get_device()
-    for data, target in loader:
-        data, target = data.to(device), target.to(device)
+    for data32, target32 in loader:
+        # torchvision yields float32; the reference trains float64 like the
+        # Idris side (the 2026-08-01 reference-precision alignment missed
+        # this example until its step oracle refused the F32 fixture).
+        data, target = data32.to(device, dtype=get_dtype()), target32.to(device)
         optimizer.zero_grad()
         output = model(data)
-        loss = F.nll_loss(output, target)
+        # The repo's reference loss convention (torch_ref.training.losses):
+        # -(target * logprob).mean() over b*n, matching Idris tnllLossMean.
+        # F.nll_loss means over b only — 10x the gradient scale; the step
+        # oracle caught this side training a different experiment.
+        loss = nll_loss(output, F.one_hot(target, 10).to(output.dtype))
         # torch's Tensor.backward stub leaves its params unannotated.
         loss.backward()  # pyright: ignore[reportUnknownMemberType]
         if clip_norm > 0:
@@ -133,8 +141,8 @@ def evaluate(model: MnistCNN, loader: DataLoader[MnistBatch]) -> tuple[float, fl
     count = 0
     device = get_device()
     with torch.no_grad():
-        for data, target in loader:
-            data, target = data.to(device), target.to(device)
+        for data32, target32 in loader:
+            data, target = data32.to(device, dtype=get_dtype()), target32.to(device)
             output = model(data)
             total_loss += F.nll_loss(output, target, reduction="sum").item()
             pred = output.argmax(dim=1)

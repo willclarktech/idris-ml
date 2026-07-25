@@ -172,6 +172,20 @@ EXAMPLES: list[ExampleSpec] = [
         },
         # Same idx files on both sides; the gate pins the loader/normalisation.
         "data_manifest": True,
+        # The two sides' shuffle orders are unrelated (xoshiro Fisher-Yates
+        # vs torch DataLoader), so the reference's normalized batch travels
+        # inside the fixture (__oracle.input/.target -> oracleBatchStream)
+        # and its dropout keep-bits ride the replay mask channel.
+        "step_oracle": True,
+        "replay": True,
+        # Both sides cap the train set to one batch; the batch content comes
+        # from the fixture anyway, this just keeps the loaders tiny.
+        "oracle_args": ["--train-count", "64"],
+        # Step-oracle bound, measured with `--tolerance 0`: worst 1.1e-16
+        # (conv2d_1.weight) — machine epsilon through conv + dropout + Adam.
+        # Planted probes: one flipped mask bit -> 2.0e-03 (conv weights),
+        # reference lr x1.01 -> 1.0e-05 uniformly.
+        "tolerance": 1e-12,
         "idris": "packages/idris-ml-examples/src/Example/Mnist.idr",
         "python": "packages/pytorch/torch_ref/scripts/mnist.py",
         "idris_only": ["--data"],  # idris loads from local path; py uses torchvision

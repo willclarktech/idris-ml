@@ -13,10 +13,31 @@ import time
 import torch
 import torch.nn.functional as F
 
-from torch_ref.init_manifest import maybe_dump_batch, maybe_dump_init
+from torch_ref.init_manifest import (
+    ORACLE_INPUT,
+    ORACLE_TARGET,
+    maybe_dump_after_step,
+    maybe_dump_batch,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
 from torch_ref.models.mnist_cnn import MnistCNN, evaluate, get_mnist_loaders, train_epoch
+from torch_ref.replay import write_replay
+from torch_ref.training.losses import nll_loss
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result, set_device
+from torch_ref.training.runner import format_result, get_dtype, set_device
+
+# Idris registry name -> this script's parameter name, model-index prefixed.
+# Mirrors the entry in scripts/paired_examples.py, which
+# check-step-oracle.py cross-checks.
+PAIRED_PARAMS = {
+    "conv2d_0.bias": "0.conv1.bias",
+    "conv2d_0.weight": "0.conv1.weight",
+    "conv2d_1.bias": "0.conv2.bias",
+    "conv2d_1.weight": "0.conv2.weight",
+    "linear_0.bias": "0.fc.bias",
+    "linear_0.weight": "0.fc.weight",
+}
 
 
 def main() -> None:
@@ -68,9 +89,42 @@ def main() -> None:
     if os.environ.get("IDRISML_DUMP_DATA"):
         _x, _y = next(iter(train_loader))
         maybe_dump_batch(_x, F.one_hot(_y, 10).to(_x.dtype))
-    model = MnistCNN().to(args.device)
+    model = MnistCNN().to(args.device, dtype=get_dtype())
     maybe_dump_init(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+    # Oracle run: publish this side's parameters and the exact normalized
+    # batch the step consumes (the two sides' shuffle orders are unrelated,
+    # so the batch travels inside the fixture — the supervised.py shape),
+    # then take exactly one optimizer step on that batch with the dropout
+    # keep-bits recorded to the replay mask channel, and publish the
+    # post-step parameters. The step is spelled out rather than delegated to
+    # train_epoch because each iter(train_loader) draws a fresh shuffle —
+    # the dumped batch and the stepped batch must be the same tensor.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        data, target = next(iter(train_loader))
+        data = data.to(args.device, dtype=get_dtype())
+        target = target.to(args.device)
+        maybe_dump_oracle(
+            (model,),
+            PAIRED_PARAMS,
+            {
+                ORACLE_INPUT: data.view(data.size(0), -1),
+                ORACLE_TARGET: F.one_hot(target, 10).to(torch.float64),
+            },
+        )
+        rec: list[str] = []
+        model.drop.recorder = rec
+        model.train()
+        optimizer.zero_grad()
+        loss = nll_loss(model(data), F.one_hot(target, 10).to(get_dtype()))
+        # torch's Tensor.backward / Adam.step stubs are unannotated.
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()  # pyright: ignore[reportUnknownMemberType]
+        model.drop.recorder = None
+        write_replay(os.environ["IDRISML_ORACLE_DUMP"] + ".replay", masks=rec)
+        maybe_dump_after_step((model,), PAIRED_PARAMS)
 
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {param_count}")
@@ -81,7 +135,8 @@ def main() -> None:
 
         def epoch_fn() -> float:
             inputs, targets = next(loader_iter)
-            inputs, targets = inputs.to(args.device), targets.to(args.device)
+            inputs = inputs.to(args.device, dtype=get_dtype())
+            targets = targets.to(args.device)
             optimizer.zero_grad()
             logits = model(inputs)
             loss = F.cross_entropy(logits, targets)

@@ -10,12 +10,13 @@ from torch_ref.models.mnist_cnn import (
     get_mnist_loaders,  # pyright: ignore[reportUnknownVariableType]
     train_epoch,  # pyright: ignore[reportUnknownVariableType]
 )
+from torch_ref.training.runner import get_dtype
 
 
 def test_loss_decreases() -> None:
     """Training loss should decrease over 3 epochs."""
     torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
-    model = MnistCNN()
+    model = MnistCNN().to(get_dtype())
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     train_loader, _ = get_mnist_loaders(batch_size=64)  # pyright: ignore[reportUnknownVariableType]
 
@@ -30,7 +31,7 @@ def test_loss_decreases() -> None:
 def test_accuracy_above_threshold() -> None:
     """After 3 epochs, test accuracy should exceed 95%."""
     torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
-    model = MnistCNN()
+    model = MnistCNN().to(get_dtype())
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     train_loader, test_loader = get_mnist_loaders(  # pyright: ignore[reportUnknownVariableType]
         batch_size=64
