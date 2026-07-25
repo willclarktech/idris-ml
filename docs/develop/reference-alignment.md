@@ -16,6 +16,34 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 > with `Nn.linear` are exempt as of 2026-07-29: their `Uniform`/`Zeros` init fills a
 > host buffer from libc `rand`, which is the same everywhere.
 
+## Multi-seed pass rates after the replay-foundation campaign (2026-08-04)
+
+Both campaigns re-run from cleared TSVs on the post-step-oracle tree — every
+training number had moved (SplitMix64 host draws, cosine schedule, NTM/DNC
+clip + read-init + DNC head input, reinforce/ppo draw order, DQN-family
+TimeLimit clocks, with-replacement buffer sampling, the four SAC alignments,
+the mcc pinned-reset drop). Seeds 42/1/2/3/4, tape backend; 125 Idris cells,
+115 reference cells (gpt and transformer have no seeded reference bar).
+This supersedes the 2026-08-01 tables below.
+
+**Idris 121/125, reference 111/115.** Every row where either side fell
+short of 5/5:
+
+| Example | Idris | Reference | Note |
+|---------|-------|-----------|------|
+| example-dqn | 5/5 | 4/5 (seed 3) | Idris ahead by one seed |
+| example-sac | 5/5 | 4/5 (seed 42) | Idris ahead by one seed |
+| example-mountain-car-cont | 4/5 (seed 2) | 5/5 | reference ahead by one seed |
+| example-ntm-copy | 4/5 (seed 1) | 4/5 (seed 1) | same rate, SAME seed |
+| example-ntm-recall | 3/5 (seeds 2, 4) | 2/5 (seeds 42, 2, 3) | Idris ahead by one seed |
+
+The 2026-08-01 comparison's one clear Idris deficit (a2c at 3/5 vs the
+reference's 5/5) is gone — both sides 5/5. ntm-copy failing on the
+identical seed on both sides is what a shared experiment looks like at
+these rates; the single-seed splits on dqn/sac/mountain-car-cont point in
+both directions and read as RL seed noise, not a systematic gap. No Idris
+rate sits below its reference rate except mountain-car-cont's one seed.
+
 ## Alignment Changes (2026-08-03) — mountain-car-cont mirrored the SAC alignments, plus a pinned-reset remnant
 
 mountain-car-cont is SAC-shaped and carried every divergence the sac oracle
