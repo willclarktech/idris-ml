@@ -16,6 +16,7 @@ import Ml.Compat.Random
 import Ml.Fit
 import Ml.Hpo.LrFinder
 import Ml.RL.Gae
+import Ml.Rng
 import Ml.Sampler
 import Ml.Simple
 import Ml.Train
@@ -90,17 +91,16 @@ record RollStep where
 ----------------------------------------------------------------------
 
 -- Sample one action per env from a [n, NumActions] batched log-prob tensor.
-sampleActionFromBatch : {n : Nat} -> Tensor [n, NumActions] Ex F g ->
+sampleActionFromBatch : {n : Nat} -> Rng -> Tensor [n, NumActions] Ex F g ->
                         Vect n CPState -> IO (Vect n Nat, Vect n Double)
-sampleActionFromBatch logProbsB envs = go 0 envs
+sampleActionFromBatch rng logProbsB envs = go 0 envs
   where
     go : Int -> Vect k CPState -> IO (Vect k Nat, Vect k Double)
     go _ []          = pure ([], [])
     go i (_ :: rest) = do
       let lp0 = primItem2d {ex=Ex} logProbsB.tensorPtr i 0
           lp1 = primItem2d {ex=Ex} logProbsB.tensorPtr i 1
-      u <- randomRIO (the Double 0.0, 1.0)
-      let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1] u
+      a <- rng.choice [Prelude.exp lp0, Prelude.exp lp1]
       (acts, lpVals) <- go (i + 1) rest
       pure (a :: acts, (if a == 0 then lp0 else lp1) :: lpVals)
 
@@ -124,11 +124,11 @@ mkRollSteps (o :: os) (a :: as) (r :: rs) (v :: vs) (d :: ds) =
 ||| one batched (actor, critic) forward per timestep amortises the
 ||| Idris-side per-op overhead across NumEnvs samples. Done envs
 ||| auto-reset so the [NumEnvs, ObsDim] shape stays constant.
-rolloutBatchedL : {n : Nat} -> (1 _ : Actor) -> (1 _ : Critic) -> VecEnv n CPState ->
+rolloutBatchedL : {n : Nat} -> Rng -> (1 _ : Actor) -> (1 _ : Critic) -> VecEnv n CPState ->
                   Seed -> Nat ->
                   L IO {use = 1} (LPair (!* (Vect n (List RollStep), VecEnv n CPState, Seed))
                                         (LPair Actor Critic))
-rolloutBatchedL actor critic v0 seed0 rolloutLen = do
+rolloutBatchedL rng actor critic v0 seed0 rolloutLen = do
   (MkBang (envs', stepLists, seedEnd) # (actor' # critic')) <-
     go rolloutLen actor critic v0.envs seed0 (replicate n [])
   pure1 (MkBang (map reverse stepLists, MkVecEnv envs', seedEnd) # (actor' # critic'))
@@ -150,7 +150,7 @@ rolloutBatchedL actor critic v0 seed0 rolloutLen = do
       let logProbsV = the (Tensor [n, NumActions] Ex F WithGrad)
                         (MkTensor (primLogSoftmax2d {ex=Ex} logitsV.tensorPtr) Nothing)
       (MkBang valuesV # critic') <- forwardSeq {b=n} critic stateV
-      acts <- liftIO1 (fst <$> sampleActionFromBatch logProbsV envs)
+      acts <- liftIO1 (fst <$> sampleActionFromBatch rng logProbsV envs)
       let valueRows : Vect n Double
           valueRows = mapIdx (\i, _ => primItem2d {ex=Ex} valuesV.tensorPtr (cast i) 0) envs
           obsVects : Vect n (Vect ObsDim Double)
@@ -315,6 +315,7 @@ record A2CState where
   envRef  : IORef (VecEnv NumEnvs CPState)
   retRef  : IORef (Vect NumEnvs Double)
   seedRef : IORef Seed
+  rng     : Rng
 
 record Config where
   constructor MkConfig
@@ -429,13 +430,13 @@ maybeLoadRollout stepLists bootstraps = do
     natFromDouble v = cast {to=Nat} (cast {to=Integer} (cast {to=Int} v))
 
 a2cEpochL : Optimizer Ex -> Config -> (1 _ : A2CState) -> L IO {use = 1} (LPair (!* Double) A2CState)
-a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef) = do
+a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef rng) = do
   startEnvs <- liftIO1 (readIORef envRef)
   startSeed <- liftIO1 (readIORef seedRef)
   -- Rollout-phase forward only extracts logits/values as Doubles (no grad);
   -- the grad path is rebuilt fresh in buildLossBatchedL's batched forward.
   (MkBang (stepLists, finalEnvs, finalSeed) # (actor' # critic')) <-
-    withNoGradL {ex=Ex} (rolloutBatchedL actor critic startEnvs startSeed RolloutLen)
+    withNoGradL {ex=Ex} (rolloutBatchedL rng actor critic startEnvs startSeed RolloutLen)
   liftIO1 (writeIORef envRef finalEnvs)
   liftIO1 (writeIORef seedRef finalSeed)
   (MkBang bootstraps # critic'') <-
@@ -458,7 +459,7 @@ a2cEpochL opt cfg (MkA2C actor critic envRef retRef seedRef) = do
         pure (if nEp > 0
               then sum epReturns / cast (natToInteger nEp)
               else sumRew / cast (natToInteger NumEnvs))
-  pure1 (MkBang (negate reported) # MkA2C actor'' critic''' envRef retRef seedRef)
+  pure1 (MkBang (negate reported) # MkA2C actor'' critic''' envRef retRef seedRef rng)
   where
     walkOne : Double -> List RollStep -> (Double, List Double)
     walkOne run []        = (run, [])
@@ -525,15 +526,16 @@ buildStateL = do
   envRef  <- liftIO1 (newIORef initEnvs)
   retRef  <- liftIO1 (newIORef (the (Vect NumEnvs Double) (replicate NumEnvs 0.0)))
   seedRef <- liftIO1 (newIORef seed0)
-  pure1 (MkA2C actor critic envRef retRef seedRef)
+  rng     <- liftIO1 liveRng
+  pure1 (MkA2C actor critic envRef retRef seedRef rng)
 
 discardStateL : (1 _ : A2CState) -> L IO ()
-discardStateL (MkA2C actor critic _ _ _) = do
+discardStateL (MkA2C actor critic _ _ _ _) = do
   discard actor
   discard critic
 
 finalReportL : Config -> Nat -> (1 _ : A2CState) -> L IO ()
-finalReportL cfg epochsDone (MkA2C actor critic _ _ seedRef) = do
+finalReportL cfg epochsDone (MkA2C actor critic _ _ seedRef _) = do
   let nEval = the Nat 50
   evalSeed <- liftIO1 (readIORef seedRef)
   (MkBang evalSum # actor') <- withNoGradL {ex=Ex} (evalNL actor evalSeed nEval 0.0)

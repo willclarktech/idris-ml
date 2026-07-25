@@ -91,6 +91,7 @@ modules = Ml.Compat.Random
         , Ml.Optimizer
         , Ml.RL.Gae
         , Ml.RL.ReplayBuffer
+        , Ml.Rng
         , Ml.Sampler
         , Ml.Schedule
         , Ml.Train
