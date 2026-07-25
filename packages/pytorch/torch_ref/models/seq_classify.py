@@ -21,6 +21,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.init import init_conv_, init_linear_
+from torch_ref.training.losses import nll_loss
 from torch_ref.init_manifest import maybe_dump_batch
 from torch_ref.models.masked_dropout import MaskedDropout
 from torch_ref.training.runner import get_device, get_dtype
@@ -97,7 +98,11 @@ def train_epoch(
     maybe_dump_batch(data, F.one_hot(target, NUM_CLASSES).to(data.dtype))
     optimizer.zero_grad()
     output = model(data)
-    loss = F.nll_loss(output, target)
+    # The repo's reference loss convention (torch_ref.training.losses):
+    # -(target * logprob).mean() over b*n, matching Idris tnllLossMean.
+    # F.nll_loss means over b only — 3x the gradient scale; the step
+    # oracle caught this side training a different experiment.
+    loss = nll_loss(output, F.one_hot(target, NUM_CLASSES).to(output.dtype))
     # torch's Tensor.backward stub leaves its params unannotated.
     loss.backward()  # pyright: ignore[reportUnknownMemberType]
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

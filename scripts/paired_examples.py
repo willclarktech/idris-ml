@@ -207,6 +207,19 @@ EXAMPLES: list[ExampleSpec] = [
         # Synthetic waveform generator on both sides — the case that motivated
         # the data gate.
         "data_manifest": True,
+        # The two generators are not bit-reproducible from one another
+        # (quantized vs continuous waveform params), so the reference's batch
+        # travels inside the fixture (__oracle.input/.target ->
+        # oracleBatchStream) and its dropout keep-bits ride the replay mask
+        # channel. Already one step per epoch (`generate` stream).
+        "step_oracle": True,
+        "replay": True,
+        # Step-oracle bound, measured with `--tolerance 0`: worst 2.8e-17
+        # (conv1d_1.weight); conv1d_0.weight is bit-identical. Planted
+        # probes: complemented mask line -> 2.0e-03 (a single flipped bit
+        # can land on a ReLU-zeroed activation and prove nothing),
+        # reference lr x1.01 -> 1.0e-05 uniformly.
+        "tolerance": 1e-13,
         "idris": "packages/idris-ml-examples/src/Example/SeqClassify.idr",
         "python": "packages/pytorch/torch_ref/scripts/seq_classify.py",
         "idris_only": ["--patience"],

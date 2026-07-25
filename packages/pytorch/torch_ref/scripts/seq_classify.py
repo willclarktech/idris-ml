@@ -5,16 +5,44 @@ Usage:
 """
 
 import argparse
+import os
 import random
 import sys
 import time
 
 import torch
+import torch.nn.functional as F
 
-from torch_ref.init_manifest import maybe_dump_init
-from torch_ref.models.seq_classify import SeqClassifyCNN, evaluate, train_epoch
+from torch_ref.init_manifest import (
+    ORACLE_INPUT,
+    ORACLE_TARGET,
+    maybe_dump_after_step,
+    maybe_dump_init,
+    maybe_dump_oracle,
+)
+from torch_ref.models.seq_classify import (
+    NUM_CLASSES,
+    SeqClassifyCNN,
+    evaluate,
+    generate_batch,
+    train_epoch,
+)
+from torch_ref.replay import write_replay
+from torch_ref.training.losses import nll_loss
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_result, get_dtype, set_device
+
+# Idris registry name -> this script's parameter name, model-index prefixed.
+# Mirrors the entry in scripts/paired_examples.py, which
+# check-step-oracle.py cross-checks.
+PAIRED_PARAMS = {
+    "conv1d_0.bias": "0.conv1.bias",
+    "conv1d_0.weight": "0.conv1.weight",
+    "conv1d_1.bias": "0.conv2.bias",
+    "conv1d_1.weight": "0.conv2.weight",
+    "linear_0.bias": "0.fc.bias",
+    "linear_0.weight": "0.fc.weight",
+}
 
 
 def main() -> None:
@@ -50,6 +78,36 @@ def main() -> None:
     model = SeqClassifyCNN().to(args.device, dtype=get_dtype())
     maybe_dump_init(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+    # Oracle run: publish this side's parameters and the exact batch the
+    # step consumes (the two sides' waveform generators are not
+    # bit-reproducible from one another — quantized vs continuous params —
+    # so the batch travels inside the fixture, the supervised.py shape),
+    # then take exactly one optimizer step on that batch — train_epoch's op
+    # sequence, dropout keep-bits recorded to the replay mask channel — and
+    # publish the post-step parameters.
+    if os.environ.get("IDRISML_ORACLE_DUMP"):
+        data, target = generate_batch(32)
+        maybe_dump_oracle(
+            (model,),
+            PAIRED_PARAMS,
+            {
+                ORACLE_INPUT: data.view(data.size(0), -1),
+                ORACLE_TARGET: F.one_hot(target, NUM_CLASSES).to(torch.float64),
+            },
+        )
+        rec: list[str] = []
+        model.dropout.recorder = rec
+        model.train()
+        optimizer.zero_grad()
+        loss = nll_loss(model(data), F.one_hot(target, NUM_CLASSES).to(get_dtype()))
+        # torch's Tensor.backward / Adam.step stubs are unannotated.
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()  # pyright: ignore[reportUnknownMemberType]
+        model.dropout.recorder = None
+        write_replay(os.environ["IDRISML_ORACLE_DUMP"] + ".replay", masks=rec)
+        maybe_dump_after_step((model,), PAIRED_PARAMS)
 
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {param_count}")

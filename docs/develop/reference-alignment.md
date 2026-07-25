@@ -44,6 +44,39 @@ these rates; the single-seed splits on dqn/sac/mountain-car-cont point in
 both directions and read as RL seed noise, not a systematic gap. No Idris
 rate sits below its reference rate except mountain-car-cont's one seed.
 
+## Alignment Changes (2026-08-04) — mnist + seq-classify on the step oracle: two reference-side fixes
+
+Wiring the last two paired examples into `check-step-oracle.py` (dropout
+masks replayed through the new `mask` channel, the batch shipped inside the
+fixture via `__oracle.input`/`__oracle.target` because neither side's data
+order is reproducible from the other's) surfaced two misalignments, both
+reference-side, both invisible to the accuracy-gated convergence campaign:
+
+1. **Loss reduction scale.** Both references trained with `F.nll_loss`
+   (mean over the batch), while the Idris side and every other paired
+   reference use the `-(target * logprob).mean()` convention over
+   `batch x classes` (`torch_ref.training.losses.nll_loss`, matching
+   `tnllLossMean`). That is a 10x (mnist) / 3x (seq-classify) gradient
+   scale difference — under Adam's sign-like first step it shows up only
+   on small-gradient elements, which is exactly where the tolerance-0
+   floor sat (6.0e-05) before the fix. Both references now use the shared
+   `nll_loss`; the floor dropped eleven orders of magnitude.
+2. **Precision.** The mnist reference ran float32 end to end (torchvision
+   default; the 2026-08-01 reference-precision alignment missed this
+   example). The fixture load refused the F32 parameters outright
+   (`DtypeMismatch`). Model and batches now cast to `get_dtype()` like
+   every other reference.
+
+Post-alignment floors, measured with `--tolerance 0`: mnist worst 1.1e-16
+(conv2d_1.weight), seq-classify worst 2.8e-17 (conv1d_1.weight,
+conv1d_0.weight bit-identical) — machine epsilon through conv, maxpool,
+replayed dropout, global-norm clip and Adam. Planted probes: a
+complemented dropout mask line moves conv weights by 2.0e-03 (a single
+flipped bit can land on a ReLU-zeroed activation and prove nothing — the
+seq-classify probe had to complement the whole line), and reference
+lr x1.01 lands at 1.0e-05 uniformly. Both entries' tolerances sit ~1000x
+above their floors (1e-12 / 1e-13).
+
 ## Alignment Changes (2026-08-04) — seq-classify reference gains the gradient clip
 
 Found by inspection while wiring the dropout-mask step oracle: the Idris side

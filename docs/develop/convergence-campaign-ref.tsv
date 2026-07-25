@@ -18,16 +18,6 @@ gru	1	pass	7s	epochs=1389	loss=0.0007572745088819845	seed=1
 gru	2	pass	5s	epochs=1158	loss=0.0008621391054013399	seed=2
 gru	3	pass	8s	epochs=1702	loss=0.0010045653965350802	seed=3
 gru	4	pass	6s	epochs=1189	loss=0.0010293917151910504	seed=4
-mnist	42	pass	1m0s	accuracy=0.9908	epochs=5	loss=0.053577	seed=42
-mnist	1	pass	3m35s	accuracy=0.9913	epochs=5	loss=0.057450	seed=1
-mnist	2	pass	1m42s	accuracy=0.9907	epochs=5	loss=0.057358	seed=2
-mnist	3	pass	2m2s	accuracy=0.9916	epochs=5	loss=0.054325	seed=3
-mnist	4	pass	56s	accuracy=0.9904	epochs=5	loss=0.057945	seed=4
-seq_classify	42	pass	2s	accuracy=0.9780	epochs=1000	loss=0.223996	seed=42
-seq_classify	1	pass	2s	accuracy=0.7740	epochs=859	loss=0.728302	seed=1
-seq_classify	2	pass	2s	accuracy=0.9540	epochs=1000	loss=0.192740	seed=2
-seq_classify	3	pass	2s	accuracy=0.9480	epochs=790	loss=0.318427	seed=3
-seq_classify	4	pass	2s	accuracy=0.9700	epochs=1000	loss=0.321571	seed=4
 reinforce	42	pass	7m11s	avg_return=200.0	epochs=2000	seed=42
 reinforce	1	pass	5m53s	avg_return=200.0	epochs=2000	seed=1
 reinforce	2	pass	6m20s	avg_return=200.0	epochs=2000	seed=2
@@ -113,3 +103,13 @@ dnc_recall	1	pass	9m34s	epochs=23400	acc=0.9361111111111111	seq_acc=0.8	acc_k2=1
 dnc_recall	2	pass	6m20s	epochs=20100	acc=0.9	seq_acc=0.45	acc_k2=1.0	acc_k4=0.8611111111111112	acc_k6=0.775	seq_acc_k2=1.0	seq_acc_k4=0.5	seq_acc_k6=0.1	seed=2
 dnc_recall	3	pass	9m27s	epochs=22800	acc=0.975	seq_acc=0.9	acc_k2=1.0	acc_k4=0.9916666666666667	acc_k6=0.9638888888888889	seq_acc_k2=1.0	seq_acc_k4=0.9	seq_acc_k6=0.85	seed=3
 dnc_recall	4	pass	10m28s	epochs=20700	acc=0.7888888888888889	seq_acc=0.3	acc_k2=1.0	acc_k4=0.9	acc_k6=0.6416666666666667	seq_acc_k2=1.0	seq_acc_k4=0.5	seq_acc_k6=0.0	seed=4
+mnist	42	pass	48s	accuracy=0.9901	epochs=5	loss=0.005498	seed=42
+mnist	1	pass	44s	accuracy=0.9904	epochs=5	loss=0.006153	seed=1
+mnist	2	pass	41s	accuracy=0.9917	epochs=5	loss=0.005583	seed=2
+mnist	3	pass	40s	accuracy=0.9926	epochs=5	loss=0.005768	seed=3
+mnist	4	pass	40s	accuracy=0.9893	epochs=5	loss=0.005976	seed=4
+seq_classify	42	pass	2s	accuracy=0.9760	epochs=1000	loss=0.082229	seed=42
+seq_classify	1	pass	2s	accuracy=0.7240	epochs=859	loss=0.243946	seed=1
+seq_classify	2	pass	3s	accuracy=0.9640	epochs=1000	loss=0.075325	seed=2
+seq_classify	3	pass	2s	accuracy=0.9740	epochs=1000	loss=0.110128	seed=3
+seq_classify	4	pass	2s	accuracy=0.9920	epochs=1000	loss=0.101008	seed=4

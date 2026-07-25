@@ -20,6 +20,7 @@ import System
 import Ml.Checkpoint
 import Ml.Compat.Random
 import Ml.Fit
+import Ml.Rng
 import Ml.Sampler
 import Ml.Simple
 import Ml.Train
@@ -135,8 +136,8 @@ Model = Seq InputDim NumClasses Ex F WithGrad
 -- Top-level Init value (not inline under runInitL — see the linear-types
 -- migration recipe: a nested do-block under `run $ do …` trips the
 -- ambiguity-depth limit). Built as a linear `Seq`.
-mkModel : Init Model
-mkModel = do
+mkModel : MaskSource -> Init Model
+mkModel msrc = do
   c1 <- conv1d {inC = InC} {outC = C1} {len = SeqLen}   {kL = K} {pad = 0}
   c2 <- conv1d {inC = C1}  {outC = C2} {len = Pool1Out} {kL = K} {pad = 0}
   l  <- linear {i = AfterPool2} {o = NumClasses}
@@ -144,7 +145,7 @@ mkModel = do
            ~~> maxPool1d {c = C1} {len = Conv1Out} {poolK = 2} {str = 2}
            ~~> c2 ~~> reluA
            ~~> maxPool1d {c = C2} {len = Conv2Out} {poolK = 2} {str = 2}
-           ~~> dropout 0.5
+           ~~> dropoutWith msrc 0.5
            ~~> l ~~> Nil)
 
 -- Linear-resource loss: consume the (linear) Seq model, forward it via
@@ -193,15 +194,17 @@ record Config where
   epochs   : Nat
   patience : Nat
   seed     : Bits64
+  replay   : String  -- "" = live; else a recorded-draws file (mask channel)
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 1000 200 42
+defaultConfig = MkConfig 0.001 1000 200 42 ""
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--replay" (\v, c => { replay := v } c) ]
 
 %default partial
 
@@ -213,6 +216,10 @@ main = do
 
   srand cfg.seed
   tsetInitSeed {ex = Ex} cfg.seed
+
+  -- Live: fresh dropout seeds per forward. --replay: the recorded run's
+  -- draws; the dropout layer consumes its mask channel.
+  replay <- if cfg.replay == "" then liveReplay else loadReplay cfg.replay
 
   putStrLn "=== SeqClassify: 1D Waveform Classification ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
@@ -231,10 +238,13 @@ main = do
   -- intermediate arena tensor, so each training step's optimizer_step →
   -- arena_reset would dangle a batch pre-fetched before the loop.
   Control.Linear.LIO.run $ do
-    model <- runInitL mkModel
+    model <- runInitL (mkModel replay.masks)
+    -- Replays the reference's weights and batch under IDRISML_ORACLE_LOAD;
+    -- returns `bs` untouched otherwise. See scripts/check-step-oracle.py.
+    bs2 <- liftIO1 (oracleBatchStream {ex = ExampleExecutor} bs)
     liftIO1 (putStrLn "")
     (MkBang (epochsDone, finalLoss) # trained) <-
-      fitSupervised opt nllLossL bs (patienceConfig cfg.epochs cfg.patience) model
+      fitSupervised opt nllLossL bs2 (patienceConfig cfg.epochs cfg.patience) model
     liftIO1 (putStrLn "")
     infer <- eval trained
     evalBatch <- liftIO1
