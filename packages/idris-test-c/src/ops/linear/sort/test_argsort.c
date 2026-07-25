@@ -87,3 +87,58 @@ Test(linear_sort_argsort, f32_descending) {
 	cr_assert_float_eq(out[1], 2.0, 1e-5, "f32 desc[1] should be index 2 (got %.1f)", out[1]);
 	cr_assert_float_eq(out[2], 1.0, 1e-5, "f32 desc[2] should be index 1 (got %.1f)", out[2]);
 }
+
+/* Tie-breaking is stable: equal values come out in ascending index order —
+   torch.sort's observed CPU behavior, and the order the DNC's allocation
+   weighting depends on (at t=0 the usage vector is all-tied zeros and the
+   near-one-hot allocation lands on whichever slot the sort puts first). */
+
+#define ARGSORT_TIE_N 64
+
+Test(linear_sort_argsort, all_tied_is_identity) {
+	double d[ARGSORT_TIE_N] = {0};
+	int s[] = {ARGSORT_TIE_N};
+	TensorHandle t = tensor_create(d, s, 1, 0);
+	TensorHandle r = tensor_argsort(t, 0, 0);
+	double out[ARGSORT_TIE_N];
+	tensor_to_doubles(r, out);
+	for (int i = 0; i < ARGSORT_TIE_N; i++)
+		cr_assert_float_eq(out[i], (double)i, 1e-9, "all-tied asc [%d] (got %.1f)", i, out[i]);
+}
+
+Test(linear_sort_argsort, group_ties_ascending) {
+	/* alternating [1,0,1,0,...]: ascending puts the zeros (odd indices, in
+	   index order) before the ones (even indices, in index order). */
+	double d[ARGSORT_TIE_N];
+	for (int i = 0; i < ARGSORT_TIE_N; i++)
+		d[i] = (i % 2 == 0) ? 1.0 : 0.0;
+	int s[] = {ARGSORT_TIE_N};
+	TensorHandle t = tensor_create(d, s, 1, 0);
+	TensorHandle r = tensor_argsort(t, 0, 0);
+	double out[ARGSORT_TIE_N];
+	tensor_to_doubles(r, out);
+	for (int i = 0; i < ARGSORT_TIE_N / 2; i++) {
+		cr_assert_float_eq(out[i], (double)(2 * i + 1), 1e-9, "zeros run [%d] (got %.1f)", i,
+		                   out[i]);
+		cr_assert_float_eq(out[ARGSORT_TIE_N / 2 + i], (double)(2 * i), 1e-9,
+		                   "ones run [%d] (got %.1f)", i, out[ARGSORT_TIE_N / 2 + i]);
+	}
+}
+
+Test(linear_sort_argsort, group_ties_descending) {
+	/* same input, descending: the ones (even indices, ascending) come first. */
+	double d[ARGSORT_TIE_N];
+	for (int i = 0; i < ARGSORT_TIE_N; i++)
+		d[i] = (i % 2 == 0) ? 1.0 : 0.0;
+	int s[] = {ARGSORT_TIE_N};
+	TensorHandle t = tensor_create(d, s, 1, 0);
+	TensorHandle r = tensor_argsort(t, 0, 1);
+	double out[ARGSORT_TIE_N];
+	tensor_to_doubles(r, out);
+	for (int i = 0; i < ARGSORT_TIE_N / 2; i++) {
+		cr_assert_float_eq(out[i], (double)(2 * i), 1e-9, "ones run desc [%d] (got %.1f)", i,
+		                   out[i]);
+		cr_assert_float_eq(out[ARGSORT_TIE_N / 2 + i], (double)(2 * i + 1), 1e-9,
+		                   "zeros run desc [%d] (got %.1f)", i, out[ARGSORT_TIE_N / 2 + i]);
+	}
+}

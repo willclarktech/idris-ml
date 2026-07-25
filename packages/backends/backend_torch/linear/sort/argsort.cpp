@@ -10,6 +10,8 @@
 
 extern "C" TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
 	auto& t = *to_tensor(ht);
-	auto result = torch::argsort(t, dim, (bool)descending).to(torch::kLong);
+	// stable=true: ties break by ascending index, matching the tape
+	// comparators (the DNC allocation weighting depends on the tie order).
+	auto result = torch::argsort(t, /*stable=*/true, dim, (bool)descending).to(torch::kLong);
 	return from_tensor(result);
 }

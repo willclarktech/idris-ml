@@ -3,6 +3,12 @@
  * Sorts indices by tensor values; result has
  * requires_grad=0. F32 and F64 each use a dedicated comparator with
  * a TU-local data pointer.
+ *
+ * Ties break by ascending index (a stable sort's order, and torch's
+ * observed CPU behavior). qsort alone is unstable, and the DNC's
+ * allocation weighting depends on the tie order: at t=0 the usage
+ * vector is all-tied zeros and the near-one-hot allocation lands on
+ * whichever slot the sort puts first.
  */
 
 #include <stdlib.h>
@@ -14,23 +20,27 @@ static const double* argsort_data_ptr;
 static int argsort_cmp_asc(const void* a, const void* b) {
 	int ia = *(const int*)a, ib = *(const int*)b;
 	double da = argsort_data_ptr[ia], db = argsort_data_ptr[ib];
-	return (da > db) - (da < db);
+	int c = (da > db) - (da < db);
+	return c ? c : (ia > ib) - (ia < ib);
 }
 static int argsort_cmp_desc(const void* a, const void* b) {
 	int ia = *(const int*)a, ib = *(const int*)b;
 	double da = argsort_data_ptr[ia], db = argsort_data_ptr[ib];
-	return (db > da) - (db < da);
+	int c = (db > da) - (db < da);
+	return c ? c : (ia > ib) - (ia < ib);
 }
 static const float* argsort_data_ptr_f32;
 static int argsort_cmp_asc_f32(const void* a, const void* b) {
 	int ia = *(const int*)a, ib = *(const int*)b;
 	float da = argsort_data_ptr_f32[ia], db = argsort_data_ptr_f32[ib];
-	return (da > db) - (da < db);
+	int c = (da > db) - (da < db);
+	return c ? c : (ia > ib) - (ia < ib);
 }
 static int argsort_cmp_desc_f32(const void* a, const void* b) {
 	int ia = *(const int*)a, ib = *(const int*)b;
 	float da = argsort_data_ptr_f32[ia], db = argsort_data_ptr_f32[ib];
-	return (db > da) - (db < da);
+	int c = (db > da) - (db < da);
+	return c ? c : (ia > ib) - (ia < ib);
 }
 
 TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
