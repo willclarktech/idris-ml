@@ -19,7 +19,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from torch_ref.init import init_linear_, init_linear_weight_
+from torch_ref.init import init_conv_, init_linear_, init_linear_weight_
 from torch_ref.models.a2c import Actor as A2cActor
 from torch_ref.models.a2c import Critic as A2cCritic
 from torch_ref.models.dqn import QNetwork as DqnQNetwork
@@ -101,7 +101,7 @@ class TestInitLinearHelper:
                 assert float(module.bias.abs().max()) == 0.0
 
     def test_leaves_non_linear_modules_alone(self) -> None:
-        """Conv / recurrent inits are a separate alignment axis."""
+        """Convs go through `init_conv_`; recurrent init is still a separate axis."""
         torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
         conv = nn.Conv2d(1, 4, 3)
         before = conv.weight.detach().clone()
@@ -114,6 +114,42 @@ class TestInitLinearHelper:
         weight = nn.Parameter(torch.empty(4, 16))
         init_linear_weight_(weight)
         assert_kaiming_uniform(weight, fan_in=16)
+
+
+class TestInitConvHelper:
+    """The conv half of the contract, paired with Idris `Nn.conv1d`/`conv2d`.
+
+    fan_in = in_channels * prod(kernel_size), so a Conv2d(1, 16, 5) has
+    fan_in 25 and a Conv1d(4, 8, 3) has fan_in 12 — the mnist_cnn and
+    seq_classify shapes.
+    """
+
+    def test_conv2d_weight_is_kaiming_uniform(self) -> None:
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
+        conv = nn.Conv2d(1, 16, 5)
+        init_conv_(conv)
+        assert_kaiming_uniform(conv.weight, fan_in=1 * 5 * 5)
+
+    def test_conv1d_weight_is_kaiming_uniform(self) -> None:
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
+        conv = nn.Conv1d(4, 8, 3)
+        init_conv_(conv)
+        assert_kaiming_uniform(conv.weight, fan_in=4 * 3)
+
+    def test_conv_bias_is_exactly_zero(self) -> None:
+        """The departure from `_ConvNd.reset_parameters`, whose bias is uniform."""
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
+        conv = nn.Conv1d(4, 8, 3)
+        init_conv_(conv)
+        assert conv.bias is not None
+        assert float(conv.bias.abs().max()) == 0.0
+
+    def test_leaves_linear_alone(self) -> None:
+        torch.manual_seed(42)  # pyright: ignore[reportUnknownMemberType]  # seed param untyped
+        layer = nn.Linear(8, 4)
+        before = layer.weight.detach().clone()
+        init_conv_(nn.Sequential(layer))
+        assert torch.equal(layer.weight, before)
 
 
 class TestAlignedModels:

@@ -74,6 +74,52 @@ smartCtor1dNames = do
   check "conv1d registers cnn1.conv1d_0.weight + .bias"
         (("cnn1.conv1d_0.weight" `elem` names) && ("cnn1.conv1d_0.bias" `elem` names))
 
+-- Init contract, the same one `Nn.linear` follows and the paired
+-- `torch_ref.init.init_conv_` applies: kernel ~ U(±1/√fan_in) with
+-- fan_in = inC*kH*kW, bias exactly zero. `primItem1d` is a flat reader on all
+-- three backends (see each backend's core/lifecycle/item1d), so it indexes the
+-- rank-4 kernel directly.
+-- Read the flat contents of the n-th registered param. `params` avoids
+-- pattern-matching the index-heavy Conv GADT for a read the interface
+-- already exposes.
+flatParam : List SomeParam -> Nat -> Nat -> List Double
+flatParam ps which count =
+  case drop which ps of
+    (p :: _) => [ primItem1d {ex=TestExecutor} p.paramPtr k
+                | k <- map (cast {to=Int}) [the Nat 0 .. count `minus` 1] ]
+    []       => []
+
+kernel2dInRange : IO Bool
+kernel2dInRange = do
+  cv <- runInit $ scoped "ci2"
+          (conv2d {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
+                  {inC=1} {outC=2} {h=4} {w=4} {kH=3} {kW=3} {padH=0} {padW=0})
+  let bound = 1.0 / sqrt 9.0
+      ws    = flatParam (params cv) 0 18   -- outC*inC*kH*kW = 2*1*3*3
+  -- The bound alone would admit an all-zero kernel, so require a nonzero draw.
+  check ("conv2d kernel ~ U(±1/√fan_in) (bound " ++ show bound ++ ", got " ++ show ws ++ ")")
+        (all (\w => abs w <= bound) ws && any (\w => w /= 0.0) ws)
+
+bias2dIsZero : IO Bool
+bias2dIsZero = do
+  cv <- runInit $ scoped "cb2"
+          (conv2d {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
+                  {inC=1} {outC=2} {h=4} {w=4} {kH=3} {kW=3} {padH=0} {padW=0})
+  let bs = flatParam (params cv) 1 2
+  check ("conv2d bias is exactly zero (got " ++ show bs ++ ")")
+        (bs == [0.0, 0.0])
+
+kernel1dInRange : IO Bool
+kernel1dInRange = do
+  cv <- runInit $ scoped "ci1"
+          (conv1d {ex=TestExecutor} {dt=TestDType} {g=WithGrad}
+                  {inC=2} {outC=2} {len=8} {kL=3} {pad=0})
+  let bound = 1.0 / sqrt 6.0
+      ws    = flatParam (params cv) 0 12   -- outC*inC*kL = 2*2*3
+  check ("conv1d kernel ~ U(±1/√fan_in) (bound " ++ show bound ++ ", got " ++ show ws ++ ")")
+        (all (\w => abs w <= bound) ws && any (\w => w /= 0.0) ws)
+
 export
 tests : List (IO Bool)
-tests = [forwardComputes, paramsExposed, smartCtorNames, forward1dComputes, smartCtor1dNames]
+tests = [ forwardComputes, paramsExposed, smartCtorNames, forward1dComputes, smartCtor1dNames
+        , kernel2dInRange, bias2dIsZero, kernel1dInRange ]

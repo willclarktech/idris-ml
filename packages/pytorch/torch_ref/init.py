@@ -26,11 +26,13 @@ vanish nor explode with depth, and the Kaiming/Xavier variance derivations
 assume a zero bias. HuggingFace's `_init_weights` overrides it to zero and
 LLaMA/PaLM-style models drop the bias entirely.
 
-Not everything dense is in scope. Convolution kernels, recurrent weight
-matrices and attention projections have their own Idris counterparts
-(`Nn.Conv`, `Nn.Recurrent`/`Lstm`/`Gru`, `Nn.Attention`), all of which init
-from a normal distribution; aligning those is a separate axis and this
-helper deliberately leaves them untouched.
+`init_conv_` applies the same contract to `nn.Conv1d` / `nn.Conv2d`, whose
+Idris counterparts (`Nn.conv1d` / `Nn.conv2d`) match it as of 2026-07-31.
+
+Still unaligned, and so still measuring init rather than implementation:
+recurrent weight matrices and attention projections, whose Idris
+counterparts (`Nn.Recurrent`/`Lstm`/`Gru`, `Nn.Attention`) init from a normal
+distribution while the references here use `xavier_uniform_`.
 """
 
 import math
@@ -65,5 +67,26 @@ def init_linear_(module: nn.Module) -> None:
             init_linear_weight_(submodule.weight)
             # torch's stub types `bias` as `Parameter`, but `nn.Linear(...,
             # bias=False)` really does leave it `None`, so the guard stays.
+            if submodule.bias is not None:  # pyright: ignore[reportUnnecessaryComparison]
+                nn.init.zeros_(submodule.bias)
+
+
+def init_conv_(module: nn.Module) -> None:
+    """Apply the shared init to every `nn.Conv1d` / `nn.Conv2d` under `module`.
+
+    Same contract as `init_linear_`: weight ~ U(-1/sqrt(fan_in),
+    +1/sqrt(fan_in)) with fan_in = in_channels * prod(kernel_size), bias = 0.
+    The weight half is already what `_ConvNd.reset_parameters` does; spelling
+    it out keeps the contract visible from the Idris side, which cannot read a
+    framework default. The bias half is the departure, for the reason given on
+    `init_linear_`.
+
+    Idris `Nn.conv1d` / `Nn.conv2d` were He-normal, `N(0, sqrt(2/fan_in))`,
+    until 2026-07-31 — sqrt(6) ~ 2.45x wider than this — so mnist_cnn and
+    seq_classify diverged from their Idris twins at step zero.
+    """
+    for submodule in module.modules():
+        if isinstance(submodule, (nn.Conv1d, nn.Conv2d)):
+            nn.init.kaiming_uniform_(submodule.weight, a=KAIMING_A)
             if submodule.bias is not None:  # pyright: ignore[reportUnnecessaryComparison]
                 nn.init.zeros_(submodule.bias)

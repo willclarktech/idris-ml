@@ -72,9 +72,22 @@ public export
       in MkTensor out2d Nothing)
     pure1 (MkBang y # MkConv2D ker bias)
 
-||| Construct a `Conv2D` inside an `Init` derivation. He-normal kernel
-||| (std = √(2/fan_in), fan_in = inC·kH·kW), zero bias. Registers
+||| Construct a `Conv2D` inside an `Init` derivation. Kaiming-uniform kernel
+||| `U(±1/√fan_in)` with fan_in = inC·kH·kW, zero bias. Registers
 ||| `<scope>.conv2d_<n>.weight` (kernel) / `.bias` (PyTorch Conv2d names).
+|||
+||| Same contract as `Nn.linear`, and `nn.Conv2d.reset_parameters` produces
+||| the same weight: `kaiming_uniform_(w, a=√5)` has gain `√(1/3)`, so
+||| `bound = √3·gain/√fan_in = 1/√fan_in`. The paired reference-side helper
+||| is `torch_ref.init.init_conv_`; the zero bias departs from `nn.Conv2d`'s
+||| uniform one for the reasons given on `Nn.linear`.
+|||
+||| Until 2026-07-31 this was He-*normal*, `N(0, √(2/fan_in))` — √6 ≈ 2.45×
+||| wider than the reference, so `example-mnist` and `example-seq-classify`
+||| diverged from their PyTorch twins at step zero and the comparison
+||| measured init rather than implementation. `Uniform` also routes through
+||| the host-buffer fill instead of a fused per-backend RNG, so conv init is
+||| now identical across tape / torch / mlx by construction.
 export partial
 conv2d : KnownGrad g => {0 ex : Executor} -> Backend ex dt =>
          {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
@@ -84,9 +97,10 @@ conv2d : KnownGrad g => {0 ex : Executor} -> Backend ex dt =>
                       ex dt g)
 conv2d = do
   name <- freshChild "conv2d"
-  let kerStd = sqrt (2.0 / cast {to=Double} (inC * kH * kW))
-  ker  <- liftIO $ tparam4dNormal {ex} {dt} {a=outC} {b=inC} {c=kH} {e=kW} (name ++ ".weight") 0.0 kerStd
-  bias <- liftIO $ tparam1dConst  {ex} {dt} {n=outC} (name ++ ".bias") 0.0
+  let bound = 1.0 / sqrt (cast {to=Double} (inC * kH * kW))
+  ker  <- liftIO $ param {ex} {dt} {dims=[outC, inC, kH, kW]} (name ++ ".weight")
+                         (Uniform (-bound) bound)
+  bias <- liftIO $ param {ex} {dt} {dims=[outC]} (name ++ ".bias") Zeros
   case sgrad {g} of
     SWithGrad => pure (MkConv2D ker bias)
     SNoGrad   => do ker'  <- liftIO (weakenGrad ker)
@@ -141,8 +155,9 @@ public export
       in MkTensor out2d Nothing)
     pure1 (MkBang y # MkConv1D ker bias)
 
-||| Construct a `Conv1D` inside an `Init` derivation. He-normal kernel
-||| (std = √(2/fan_in), fan_in = inC·kL), zero bias. Registers
+||| Construct a `Conv1D` inside an `Init` derivation. Kaiming-uniform kernel
+||| `U(±1/√fan_in)` with fan_in = inC·kL, zero bias — the `conv2d` contract
+||| above, matching `nn.Conv1d` + `torch_ref.init.init_conv_`. Registers
 ||| `<scope>.conv1d_<n>.weight` (kernel) / `.bias`.
 export partial
 conv1d : KnownGrad g => {0 ex : Executor} -> Backend ex dt =>
@@ -153,9 +168,10 @@ conv1d : KnownGrad g => {0 ex : Executor} -> Backend ex dt =>
                       ex dt g)
 conv1d = do
   name <- freshChild "conv1d"
-  let kerStd = sqrt (2.0 / cast {to=Double} (inC * kL))
-  ker  <- liftIO $ tparam3dNormal {ex} {dt} {a=outC} {b=inC} {c=kL} (name ++ ".weight") 0.0 kerStd
-  bias <- liftIO $ tparam1dConst  {ex} {dt} {n=outC} (name ++ ".bias") 0.0
+  let bound = 1.0 / sqrt (cast {to=Double} (inC * kL))
+  ker  <- liftIO $ param {ex} {dt} {dims=[outC, inC, kL]} (name ++ ".weight")
+                         (Uniform (-bound) bound)
+  bias <- liftIO $ param {ex} {dt} {dims=[outC]} (name ++ ".bias") Zeros
   case sgrad {g} of
     SWithGrad => pure (MkConv1D ker bias)
     SNoGrad   => do ker'  <- liftIO (weakenGrad ker)
