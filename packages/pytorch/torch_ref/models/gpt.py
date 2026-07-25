@@ -29,7 +29,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.models.multi_head_transformer import MultiHeadTransformer
-from torch_ref.training.runner import get_device, multinomial_safe
+from torch_ref.training.runner import get_device, get_dtype, multinomial_safe
 
 # ---------------------------------------------------------------------------
 # Corpus & vocabulary
@@ -178,21 +178,26 @@ def generate_gpt_data(
     batch_size: int,
     seq_len: int,
     vocab_size: int,
+    starts_log: list[int] | None = None,
 ) -> list[tuple[Tensor, Tensor]]:
     """Generate sliding-window training data from corpus.
 
     Each sample: random offset into corpus, extract seq_len+1 tokens.
     Input = tokens[0:seq_len] one-hot, Target = tokens[1:seq_len+1] indices.
+    `starts_log`, when given, collects the drawn offsets in draw order —
+    the step oracle records them so the Idris side can replay the batch.
     """
     max_start = len(corpus) - seq_len - 1
     data: list[tuple[Tensor, Tensor]] = []
     device = get_device()
     for _ in range(batch_size):
         start = random.randint(0, max_start)
+        if starts_log is not None:
+            starts_log.append(start)
         window = corpus[start : start + seq_len + 1]
         inp = torch.tensor(window[:seq_len], dtype=torch.long, device=device)
         tgt = torch.tensor(window[1 : seq_len + 1], dtype=torch.long, device=device)
-        inp_onehot = F.one_hot(inp, vocab_size).float()
+        inp_onehot = F.one_hot(inp, vocab_size).to(get_dtype())
         data.append((inp_onehot, tgt))
     return data
 
@@ -266,7 +271,7 @@ def generate_text(
         device = get_device()
         for _ in range(length):
             inp = torch.tensor(tokens, dtype=torch.long, device=device)
-            inp_onehot = F.one_hot(inp, vocab_size).float()
+            inp_onehot = F.one_hot(inp, vocab_size).to(get_dtype())
             logits = model(inp_onehot)  # [seq_len, vocab_size]
 
             # Take logits at last position
@@ -343,7 +348,7 @@ def evaluate_bpc(
             window = corpus[start : start + seq_len + 1]
             inp = torch.tensor(window[:seq_len], dtype=torch.long, device=device)
             tgt = torch.tensor(window[1 : seq_len + 1], dtype=torch.long, device=device)
-            inp_onehot = F.one_hot(inp, vocab_size).float()
+            inp_onehot = F.one_hot(inp, vocab_size).to(get_dtype())
             logits = model(inp_onehot)
             loss = F.cross_entropy(logits, tgt)
             total_loss += loss.item()
