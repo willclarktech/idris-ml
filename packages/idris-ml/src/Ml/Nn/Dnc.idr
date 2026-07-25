@@ -179,18 +179,22 @@ dncStepIO {i} {o} st input = assert_total $ do
     -- Step the LSTM controller via `lstmStepIO` (ω in/out; controller threaded
     -- ω internally, the cell handle is the single-owner linear resource).
     (updCtrl, hiddenV) <- lstmStepIO st.controller lstmInputV
-    let cellPtr = maybe (zeroState1d {ex} {dt} h) (.tensorPtr) updCtrl.cellT
+    -- Head FCs read the controller's HIDDEN state, as the reference does.
+    -- (NTM's heads read the cell state — on both sides; that convention
+    -- leaked into this port until 2026-08-03, caught by the dnc-copy step
+    -- oracle.)
+    let hiddenPtr = hiddenV.tensorPtr
         onesScalar     = dtCreateScalar {ex} {t=dt} 1.0 0 (deviceStreamTag {ex})
-        writeKeyT      = fcApply {ex} cellPtr st.writeKeyFc
-        writeBetaT     = primSoftplus {ex} (fcApply {ex} cellPtr st.writeBetaFc)
-        eraseVecT      = primSigmoid {ex} (fcApply {ex} cellPtr st.eraseFc)
-        addVecT        = fcApply {ex} cellPtr st.addFc
-        freeGatesT     = primSigmoid {ex} (fcApply {ex} cellPtr st.freeGatesFc)
-        allocGateT     = primSigmoid {ex} (fcApply {ex} cellPtr st.allocGateFc)
-        writeGateT     = primSigmoid {ex} (fcApply {ex} cellPtr st.writeGateFc)
-        readKeysFlatT  = fcApply {ex} cellPtr st.readKeysFc
-        readBetasRawT  = fcApply {ex} cellPtr st.readBetasFc
-        readModesFlatT = fcApply {ex} cellPtr st.readModesFc
+        writeKeyT      = fcApply {ex} hiddenPtr st.writeKeyFc
+        writeBetaT     = primSoftplus {ex} (fcApply {ex} hiddenPtr st.writeBetaFc)
+        eraseVecT      = primSigmoid {ex} (fcApply {ex} hiddenPtr st.eraseFc)
+        addVecT        = fcApply {ex} hiddenPtr st.addFc
+        freeGatesT     = primSigmoid {ex} (fcApply {ex} hiddenPtr st.freeGatesFc)
+        allocGateT     = primSigmoid {ex} (fcApply {ex} hiddenPtr st.allocGateFc)
+        writeGateT     = primSigmoid {ex} (fcApply {ex} hiddenPtr st.writeGateFc)
+        readKeysFlatT  = fcApply {ex} hiddenPtr st.readKeysFc
+        readBetasRawT  = fcApply {ex} hiddenPtr st.readBetasFc
+        readModesFlatT = fcApply {ex} hiddenPtr st.readModesFc
         -- Usage update
         writeUsageT = primSub {ex} (primAdd {ex} usagePtr wwPtr) (primMul {ex} usagePtr wwPtr)
         retentionT  = dncRetention {ex} onesScalar 0 freeGatesT rwTsPtrs onesScalar
