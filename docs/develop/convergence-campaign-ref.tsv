@@ -13,16 +13,6 @@ supervised	1	pass	2s	epochs=1000	loss=0.13699197594914048	seed=1	correct=5/5
 supervised	2	pass	1s	epochs=1000	loss=0.13392258899792772	seed=2	correct=5/5
 supervised	3	pass	1s	epochs=1000	loss=0.13712839242634084	seed=3	correct=5/5
 supervised	4	pass	1s	epochs=1000	loss=0.13619712566807782	seed=4	correct=5/5
-mnist	42	pass	53s	accuracy=0.9908	epochs=5	loss=0.053577	seed=42
-mnist	1	pass	56s	accuracy=0.9913	epochs=5	loss=0.057450	seed=1
-mnist	2	pass	54s	accuracy=0.9907	epochs=5	loss=0.057358	seed=2
-mnist	3	pass	51s	accuracy=0.9916	epochs=5	loss=0.054325	seed=3
-mnist	4	pass	50s	accuracy=0.9904	epochs=5	loss=0.057945	seed=4
-seq_classify	42	pass	2s	accuracy=0.9780	epochs=1000	loss=0.223996	seed=42
-seq_classify	1	pass	2s	accuracy=0.7740	epochs=859	loss=0.728302	seed=1
-seq_classify	2	pass	2s	accuracy=0.9540	epochs=1000	loss=0.192740	seed=2
-seq_classify	3	pass	2s	accuracy=0.9480	epochs=790	loss=0.318427	seed=3
-seq_classify	4	pass	2s	accuracy=0.9700	epochs=1000	loss=0.321571	seed=4
 q_learning	42	pass	0s	avg_return=-13.0	epochs=500	seed=42
 q_learning	1	pass	1s	avg_return=-13.0	epochs=500	seed=1
 q_learning	2	pass	1s	avg_return=-13.0	epochs=500	seed=2
@@ -113,3 +103,13 @@ gru	1	pass	7s	epochs=1389	loss=0.0007572745088819845	seed=1
 gru	2	pass	6s	epochs=1158	loss=0.0008621391054013399	seed=2
 gru	3	pass	8s	epochs=1702	loss=0.0010045653965350802	seed=3
 gru	4	pass	6s	epochs=1189	loss=0.0010293917151910504	seed=4
+seq_classify	42	pass	3s	accuracy=0.9780	epochs=1000	loss=0.223996	seed=42
+seq_classify	1	pass	2s	accuracy=0.7740	epochs=859	loss=0.728302	seed=1
+seq_classify	2	pass	2s	accuracy=0.9540	epochs=1000	loss=0.192740	seed=2
+seq_classify	3	pass	3s	accuracy=0.9480	epochs=790	loss=0.318427	seed=3
+seq_classify	4	pass	2s	accuracy=0.9700	epochs=1000	loss=0.321571	seed=4
+mnist	42	pass	55s	accuracy=0.9908	epochs=5	loss=0.053577	seed=42
+mnist	1	pass	56s	accuracy=0.9913	epochs=5	loss=0.057450	seed=1
+mnist	2	pass	56s	accuracy=0.9907	epochs=5	loss=0.057358	seed=2
+mnist	3	pass	56s	accuracy=0.9916	epochs=5	loss=0.054325	seed=3
+mnist	4	pass	55s	accuracy=0.9904	epochs=5	loss=0.057945	seed=4

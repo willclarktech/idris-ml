@@ -14,10 +14,20 @@ import Ml.Tensor
 
 %default total
 
--- Per-call seed (dummy arg defeats CSE). Re-declared here rather than
--- imported from Layer.Dropout to keep the Nn surface independent.
+-- Per-call mask seed. Re-declared here rather than imported from
+-- Layer.Dropout to keep the Nn surface independent.
+--
+-- `PrimIO Int`, not `Int -> Int`: the C side advances the process-global
+-- `rand()`, and every call site is the identical expression `dropoutSeed 0`,
+-- so a pure-typed FFI is free to be common-subexpression-eliminated down to
+-- one evaluation, pinning every forward in a run to a single mask
+-- (gotchas.md "Zero-arg FFI CSE trap"). The IO typing is what guarantees the
+-- call fires per forward; the dummy argument alone does not.
 %foreign "C:dropout_random_seed,libidrisml"
-dropoutSeed : Int -> Int
+prim__dropoutSeed : Int -> PrimIO Int
+
+dropoutSeed : HasIO io => io Int
+dropoutSeed = primIO (prim__dropoutSeed 0)
 
 ||| Inverted dropout (`i = o = n`); `training` toggles drop vs identity.
 public export
@@ -41,7 +51,9 @@ Module Dropout where
   forward (MkDropout p t) x = do
     y <- the (L IO (Tensor [b, i] ex dt g)) $
            if t
-             then ioRerunL (\_ => MkTensor (primDropout {ex} x.tensorPtr p 1 (dropoutSeed 0)) Nothing)
+             then do
+               s <- liftIO dropoutSeed
+               ioRerunL (\_ => MkTensor (primDropout {ex} x.tensorPtr p 1 s) Nothing)
              else pure x
     pure1 (MkBang y # MkDropout p t)
 

@@ -123,8 +123,13 @@ int get_current_rss_mb(void) {
 
 /* --- Dropout RNG (process-global rand() driver) --- */
 
+/* Fresh mask seed per dropout forward — successive calls must differ, or the
+ * layer deletes a fixed subset of activations instead of regularizing. `x` is
+ * a dummy the Idris side passes to keep the call from being folded; it must
+ * not constrain the result. Pinned by test_dropout_seed.c. */
 int dropout_random_seed(int x) {
-	return rand() % (x + 1);
+	(void)x;
+	return rand();
 }
 
 /* --- C buffer helpers (host malloc/free + element read/write) ---

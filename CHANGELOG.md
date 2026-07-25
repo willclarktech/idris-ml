@@ -2,6 +2,22 @@
 
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
+Dropout mask was frozen on tape (2026-08-02). `dropout_random_seed` was
+`rand() % (x + 1)` and the only caller passes `x = 0`, so it returned zero on
+every call: every dropout forward reused one mask, and the layer deleted a
+fixed subset of activations rather than regularizing. torch and mlx ignore the
+seed and draw from their own RNG, so only the tape backend — the default and
+the campaign backend — was affected. `Ml.Nn.Dropout`'s FFI moved to `PrimIO
+Int` in the same change, because passing a dummy argument does not defeat
+common-subexpression elimination when it is the same constant at every call
+site (gotchas.md "Zero-arg FFI CSE trap").
+
+`example-seq-classify` and `example-mnist` stay 5/5 after the fix, but their
+per-seed spread now tracks the reference much more closely: both sides drop to
+~0.78 on seed 1, where Idris had been reporting 0.96 against the reference's
+0.774. The frozen mask had been hiding a genuine difficulty the two
+implementations share.
+
 Environment reset through the `Env` interface (2026-08-01). Every Idris
 deep-RL example wrote its environment's reset state as a literal instead of
 calling `Env.reset` — CartPole at (0,0,0,0), MountainCar at (-0.5, 0), Acrobot

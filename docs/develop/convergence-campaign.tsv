@@ -23,11 +23,6 @@ example-transformer	1	pass	9s	epochs=1000	sort_acc=6/6	seed=1
 example-transformer	2	pass	8s	epochs=1000	sort_acc=6/6	seed=2
 example-transformer	3	pass	7s	epochs=1000	sort_acc=6/6	seed=3
 example-transformer	4	pass	8s	epochs=1000	sort_acc=6/6	seed=4
-example-seq-classify	42	pass	11s	accuracy=0.98	epochs=1000	loss=0.0489622006167981	seed=42
-example-seq-classify	1	pass	7s	accuracy=0.96	epochs=1000	loss=0.07717743073059968	seed=1
-example-seq-classify	2	pass	7s	accuracy=0.9	epochs=1000	loss=0.11891216760325951	seed=2
-example-seq-classify	3	pass	8s	accuracy=0.974	epochs=1000	loss=0.03779370980109438	seed=3
-example-seq-classify	4	pass	7s	accuracy=0.97	epochs=1000	loss=0.06691016333498026	seed=4
 example-gpt	42	pass	1m18s	bpc=4.501365122035399	epochs=30	seed=42
 example-gpt	1	pass	8s	bpc=4.49241970296669	epochs=30	seed=1
 example-gpt	2	pass	7s	bpc=4.561981343857787	epochs=30	seed=2
@@ -58,11 +53,6 @@ example-taxi	1	pass	11s	avg_return=8.0	epochs=20000	seed=1
 example-taxi	2	pass	11s	avg_return=8.0	epochs=20000	seed=2
 example-taxi	3	pass	12s	avg_return=8.0	epochs=20000	seed=3
 example-taxi	4	pass	12s	avg_return=8.0	epochs=20000	seed=4
-example-mnist	42	pass	2m32s	accuracy=0.9908	epochs=5	loss=0.00549018280855769	seed=42
-example-mnist	1	pass	2m13s	accuracy=0.9907	epochs=5	loss=0.0048494575508806655	seed=1
-example-mnist	2	pass	2m12s	accuracy=0.9903	epochs=5	loss=0.005138890361613143	seed=2
-example-mnist	3	pass	2m12s	accuracy=0.99	epochs=5	loss=0.005014740021059472	seed=3
-example-mnist	4	pass	2m11s	accuracy=0.9902	epochs=5	loss=0.00491205580254735	seed=4
 example-ntm-copy	42	pass	38s	epochs=9300	acc_short=1.0	acc_full=0.9994234317343174	seq_acc_short=1.0	seq_acc_full=0.99	seed=42
 example-ntm-copy	1	pass	30s	epochs=8100	acc_short=1.0	acc_full=1.0	seq_acc_short=1.0	seq_acc_full=1.0	seed=1
 example-ntm-copy	2	pass	28s	epochs=7500	acc_short=0.9991197183098591	acc_full=0.9933214603739983	seq_acc_short=0.98	seq_acc_full=0.94	seed=2
@@ -123,3 +113,13 @@ example-mountain-car	1	pass	13m24s	avg_return=-110.2	epochs=1000	seed=1
 example-mountain-car	2	pass	11m36s	avg_return=-103.5	epochs=1000	seed=2
 example-mountain-car	3	pass	11m25s	avg_return=-98.8	epochs=1000	seed=3
 example-mountain-car	4	pass	12m7s	avg_return=-106.26666666666667	epochs=1000	seed=4
+example-seq-classify	42	pass	12s	accuracy=0.98	epochs=1000	loss=0.05460773298888956	seed=42
+example-seq-classify	1	pass	11s	accuracy=0.784	epochs=657	loss=0.23042306213618238	seed=1
+example-seq-classify	2	pass	7s	accuracy=0.91	epochs=779	loss=0.16858730603012118	seed=2
+example-seq-classify	3	pass	8s	accuracy=0.97	epochs=1000	loss=0.055205771528683445	seed=3
+example-seq-classify	4	pass	8s	accuracy=0.954	epochs=963	loss=0.1306278921676126	seed=4
+example-mnist	42	pass	2m49s	accuracy=0.9906	epochs=5	loss=0.006431608030108311	seed=42
+example-mnist	1	pass	2m31s	accuracy=0.9911	epochs=5	loss=0.005799868898511697	seed=1
+example-mnist	2	pass	2m33s	accuracy=0.9909	epochs=5	loss=0.005727499469544678	seed=2
+example-mnist	3	pass	2m34s	accuracy=0.9906	epochs=5	loss=0.006672399007804109	seed=3
+example-mnist	4	pass	2m30s	accuracy=0.9914	epochs=5	loss=0.0054834852192726866	seed=4
