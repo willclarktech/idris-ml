@@ -71,7 +71,11 @@ class NTMLayer(nn.Module):
         for fc in [self.read_fc, self.write_fc]:
             nn.init.xavier_uniform_(fc.weight, gain=1.4)
             nn.init.normal_(fc.bias, std=0.01)
-        # Output FC: kaiming
+        # Output FC: He-uniform (kaiming_uniform_ default a=0) + normal bias.
+        # NOT the shared dense contract: narrowing this to U(+-1/sqrt(fan_in))
+        # measurably slowed recall convergence (tail-avg loss 0.66 against a
+        # 0.60 bar), and NTM init is the tuned, stability-sensitive part of the
+        # architecture. Idris `Nn.ntm` matches this bound.
         nn.init.kaiming_uniform_(self.output_fc.weight)
         nn.init.normal_(self.output_fc.bias, std=0.01)
 

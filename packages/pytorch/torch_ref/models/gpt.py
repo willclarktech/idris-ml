@@ -5,7 +5,7 @@ Uses the same MultiHeadTransformer architecture as the sorting example but train
 on next-character prediction over a Shakespeare corpus.
 
 Two corpus paths are supported:
-- Embedded: a 1342-char hardcoded excerpt with a 36-char lowercase-collapse vocab
+- Embedded: a 1342-char hardcoded excerpt on the shared 65-char vocab
   (legacy; used by the smoke gate where a fast wiring test is enough).
 - tinyshakespeare: 1.1 M chars, 65-char vocab (every distinct char in the file)
   loaded from `data/tinyshakespeare/input.txt`. The canonical char-LM benchmark
@@ -60,16 +60,25 @@ CORPUS = (
     "coil, must give us pause."
 )
 
-# 36-char vocab: a-z (0-25), space (26), newline (27), . , ' ; : ! ? - (28-35)
-VOCAB = "abcdefghijklmnopqrstuvwxyz \n.,';:!?-"
-VOCAB_SIZE = len(VOCAB)  # 36
+# The tinyshakespeare 65-char set, byte-identical to Idris `Example.Gpt`'s
+# `vocabChars` (same string, same order, so the two sides encode the corpus to
+# the same token ids).
+#
+# This used to be a 36-char set covering only what the embedded corpus
+# contains. Idris cannot follow: its `VocabSize` is a type-level `Nat`, so the
+# vocab is fixed at compile time and cannot be derived per corpus. The two
+# sides were therefore training different-sized models and reporting `bpc`
+# against different denominators — the numbers were never comparable.
+VOCAB = "\n !$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+VOCAB_SIZE = len(VOCAB)  # 65
 
 _CHAR_TO_IDX: dict[str, int] = {ch: i for i, ch in enumerate(VOCAB)}
+_SPACE_IDX = _CHAR_TO_IDX[" "]
 
 
 def char_to_idx(ch: str) -> int:
-    """Map character to token index. Unknown chars map to space (26)."""
-    return _CHAR_TO_IDX.get(ch, 26)
+    """Map character to token index. Unknown chars map to space."""
+    return _CHAR_TO_IDX.get(ch, _SPACE_IDX)
 
 
 def idx_to_char(idx: int) -> str:
@@ -231,7 +240,7 @@ def generate_text(
 
     Seeds with seed_text, generates `length` additional characters.
     Pass `vocab=` to use a dynamic Vocabulary; otherwise the embedded
-    36-char mapping is used (legacy path).
+    shared 65-char mapping is used.
     """
     seq_len = model.seq_len
     vocab_size = model.vocab_size
@@ -318,7 +327,7 @@ def evaluate_bpc(
 ) -> float:
     """Evaluate bits per character on random windows from corpus.
 
-    Defaults to the embedded 36-char vocab; pass `vocab_size=` for a
+    Defaults to the shared 65-char vocab; pass `vocab_size=` for a
     dynamic Vocabulary. n_samples > available windows clips at the
     corpus's max start index.
     """

@@ -75,6 +75,28 @@ linearWith weightStd biasStd = do
                     b' <- liftIO (weakenGrad b)
                     pure (MkLinear w' b')
 
+||| Construct a `Linear i o` with a caller-chosen *uniform* weight bound
+||| `U(-b, +b)` and a normal bias (`biasStd = 0` → zero bias). The uniform
+||| twin of `linearWith`, for layers whose reference counterpart uses a
+||| `kaiming_uniform_` / `xavier_uniform_` at a non-default gain — NTM's and
+||| DNC's output projections, where the wider He bound is load-bearing for
+||| convergence rather than a default nobody chose.
+export
+linearUniformWith : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
+                    (weightBound : Double) -> (biasStd : Double) -> Init (Linear i o ex dt g)
+linearUniformWith weightBound biasStd = do
+  name <- freshChild "linear"
+  w <- liftIO $ param {ex} {dt} {dims=[o, i]} (name ++ ".weight")
+                      (Uniform (-weightBound) weightBound)
+  b <- liftIO $ if biasStd == 0.0
+                  then param {ex} {dt} {dims=[o]} (name ++ ".bias") Zeros
+                  else tparam1dNormal {ex} {dt} {n=o} (name ++ ".bias") 0.0 biasStd
+  case sgrad {g} of
+    SWithGrad => pure (MkLinear w b)
+    SNoGrad   => do w' <- liftIO (weakenGrad w)
+                    b' <- liftIO (weakenGrad b)
+                    pure (MkLinear w' b')
+
 ||| Construct a `Linear i o` with Kaiming-uniform weight
 ||| `U(-1/√fan_in, +1/√fan_in)` and zero bias.
 |||

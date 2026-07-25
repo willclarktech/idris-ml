@@ -165,6 +165,19 @@ def compare(
         for d in shape:
             elems *= d
 
+        # A single value has no spread to measure, so `std` is 0 by definition
+        # and says nothing about the distribution it came from. All that can be
+        # checked is zero-vs-nonzero: a bias the reference draws at random
+        # against one Idris pins to zero IS a divergence, two different random
+        # draws are not.
+        if elems == 1:
+            if (imean == 0.0) != (pmean == 0.0):
+                problems.append(
+                    f"{iname} / {pname} {shape}: one side inits this to zero and the "
+                    f"other draws it (idris {imean:.6g}, python {pmean:.6g})"
+                )
+            continue
+
         # A constant init (zero bias, unit gain) has zero spread on both sides
         # and must match exactly — no sampling to excuse a difference.
         if istd < EXACT_TOLERANCE and pstd < EXACT_TOLERANCE:

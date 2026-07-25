@@ -436,6 +436,7 @@ test-integration: \
 		test-integration-lint-paired-defaults \
 		test-integration-lint-example-pairing \
 		test-integration-lint-paired-metrics \
+		test-integration-lint-init-manifest \
 		test-integration-lint-convergence-expect-coverage \
 		test-integration-lint-llama-inference \
 		test-integration-lint-bitnet-inference \

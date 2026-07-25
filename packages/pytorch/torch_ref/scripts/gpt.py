@@ -8,7 +8,7 @@ Two corpus paths:
   loaded from data/tinyshakespeare/input.txt. Train/val split 90/10. The
   RESULT line emits `val_bpc` (held-out). This is the canonical char-LM
   benchmark setup used by nanoGPT.
-- `--corpus embedded`: 1342-char hardcoded excerpt with 36-char vocab.
+- `--corpus embedded`: 1342-char hardcoded excerpt on the same 65-char vocab.
   Fast wiring test; emits `bpc` on the (training) corpus. Used by the
   smoke gate.
 

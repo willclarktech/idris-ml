@@ -209,13 +209,20 @@ ntm = scopedChild "ntm" $ do
   -- Sub-modules built at the requested `g` (annotated so `g` flows up front,
   -- as in transformerBlock); the directly-created memInit param + iro state
   -- tensor are built WithGrad then weakened on the NoGrad branch.
-  ctrl <- the (Init (Lstm (m + i) h ex dt g)) (named "controller" (lstm {i = m + i} {o = h}))
+  ctrl <- the (Init (Lstm (m + i) h ex dt g)) (named "controller" (lstmWithBias {i = m + i} {o = h}
+                                    (1.0 / sqrt (cast {to=Double} h))))
   rfc  <- the (Init (Linear h (ReadParamWidth m) ex dt g))
               (named "read_fc"  (linearWith {i = h} {o = ReadParamWidth m}  (xavStd h (ReadParamWidth m))  0.01))
   wfc  <- the (Init (Linear h (WriteParamWidth m) ex dt g))
               (named "write_fc" (linearWith {i = h} {o = WriteParamWidth m} (xavStd h (WriteParamWidth m)) 0.01))
   ofc  <- the (Init (Linear (h + m) o ex dt g))
-              (named "output_fc" (linearWith {i = h + m} {o = o} (1.0 / sqrt (cast {to=Double} (h + m))) 0.01))
+              -- He-uniform + normal(0, 0.01) bias, matching the reference's
+              -- `kaiming_uniform_(output_fc.weight)` (default a=0, ReLU gain
+              -- √2 → bound √6/√fan_in). NOT the shared dense contract:
+              -- narrowing it to U(±1/√fan_in) slowed recall convergence past
+              -- its bar, and NTM init is the tuned part of the architecture.
+              (named "output_fc" (linearUniformWith {i = h + m} {o = o}
+                                    (sqrt (6.0 / cast {to=Double} (h + m))) 0.01))
   mname <- freshChild "memory_init"
   memInit <- liftIO $ tparam1dNormal {ex} {dt} {n = m * n} mname 0.0 memStd
   iro <- liftIO $ do

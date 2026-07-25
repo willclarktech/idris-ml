@@ -308,7 +308,8 @@ dnc = scopedChild "dnc" $ do
   -- explicit weakening (read-out buffers + mask are raw `AnyPtr`, not g-typed;
   -- state fields are Nothing).
   ctrl <- the (Init (Lstm (DncControllerInput r m i) h ex dt g))
-              (named "controller" (lstm {i = DncControllerInput r m i} {o = h}))
+              (named "controller" (lstmWithBias {i = DncControllerInput r m i} {o = h}
+                                    (1.0 / sqrt (cast {to=Double} h))))
   wkFc <- the (Init (Linear h m ex dt g)) (named "write_key"  (linearWith {i=h} {o=m} (xavStd h m) biasStd))
   wbFc <- the (Init (Linear h 1 ex dt g)) (named "write_beta" (linearWith {i=h} {o=1} (xavStd h 1) biasStd))
   eFc  <- the (Init (Linear h m ex dt g)) (named "erase"      (linearWith {i=h} {o=m} (xavStd h m) biasStd))
@@ -320,8 +321,12 @@ dnc = scopedChild "dnc" $ do
   rbFc <- the (Init (Linear h r ex dt g))       (named "read_betas" (linearWith {i=h} {o=r}     (xavStd h r)     biasStd))
   rmFc <- the (Init (Linear h (r * 3) ex dt g)) (named "read_modes" (linearWith {i=h} {o=r * 3} (xavStd h (r*3)) biasStd))
   oFc  <- the (Init (Linear (DncOutputInput h r m) o ex dt g))
-              (named "output" (linearWith {i=DncOutputInput h r m} {o=o}
-                                  (1.0 / sqrt (cast {to=Double} (DncOutputInput h r m))) biasStd))
+              -- He-uniform + normal bias, matching the reference's
+              -- `kaiming_uniform_(output_fc.weight)`; see Ntm.idr for why this
+              -- is not the shared dense contract.
+              (named "output" (linearUniformWith {i=DncOutputInput h r m} {o=o}
+                                 (sqrt (6.0 / cast {to=Double} (DncOutputInput h r m)))
+                                 biasStd))
   mname <- freshChild "memory_init"
   memInit <- liftIO $ tparam1dNormal {ex} {dt} {n = m * n} mname 0.0 (sqrt (2.0 / cast {to=Double} (m + n)))
   iros <- liftIO $ mkKaimingReadOuts {ex} {dt} r m (1.0 / sqrt (cast {to=Double} m))

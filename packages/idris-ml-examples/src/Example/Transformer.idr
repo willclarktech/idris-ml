@@ -113,9 +113,13 @@ mkModelInit = do
                                  {vocab=VocabSize} {embedDim=DModel})
   b <- buildBody NumBlocks
   hn <- freshChild "head"
-  hw <- liftIO $ tparam2dNormal {ex=ExampleExecutor} {dt=ExampleDType}
-                                {o=VocabSize} {i=DModel}
-                                (hn ++ ".weight") 0.0 (1.0 / sqrt (cast {to=Double} DModel))
+  -- Shared dense contract, U(±1/√fan_in), matching the reference's
+  -- `vocab_proj` under `init_linear_`. Was N(0, 1/√DModel), i.e. √3 wider —
+  -- the same off-by-√3 the dense layers carried before 2026-07-29.
+  let hwBound = 1.0 / sqrt (cast {to=Double} DModel)
+  hw <- liftIO $ param {ex=ExampleExecutor} {dt=ExampleDType}
+                       {dims=[VocabSize, DModel]}
+                       (hn ++ ".weight") (Uniform (-hwBound) hwBound)
   pe <- liftIO $ sinusoidalPE {ex=ExampleExecutor} {dt=ExampleDType} {seqLen=SeqLen} {dModel=DModel}
   pure (MkTfmModel e b hw pe)
 

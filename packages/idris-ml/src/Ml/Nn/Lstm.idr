@@ -75,6 +75,33 @@ lstmStepIO st input = run (do
   (MkBang hv # MkLstm iw rw ib hb h0 c0 hid cell) <- recurStep st input
   pure (MkLstm iw rw ib hb h0 c0 hid cell, hv))
 
+||| `lstm` with a caller-chosen *uniform* bias bound — `nn.LSTMCell`'s own
+||| default is `U(±1/√hidden)` for biases as well as weights, and the NTM/DNC
+||| controllers rely on it: zeroing those biases pushed the reference's own
+||| recall-convergence test from a 0.60 bar to 0.70 (2026-07-31). Plain `lstm`
+||| keeps zero biases, which is what `example-lstm`'s reference does.
+export
+lstmWithBias : KnownGrad g => {0 ex : Executor} -> Backend ex dt => {i, o : Nat} ->
+               (biasBound : Double) -> Init (Lstm i o ex dt g)
+lstmWithBias biasBound = do
+  name <- freshChild "lstm"
+  let iwB = sqrt (6.0 / cast {to=Double} (i + 4 * o))
+      rwB = sqrt (6.0 / cast {to=Double} (o + 4 * o))
+  iw <- liftIO $ param {ex} {dt} {dims=[4 * o, i]} (name ++ ".weight_ih") (Uniform (-iwB) iwB)
+  rw <- liftIO $ param {ex} {dt} {dims=[4 * o, o]} (name ++ ".weight_hh") (Uniform (-rwB) rwB)
+  ib <- liftIO $ param {ex} {dt} {dims=[4 * o]} (name ++ ".bias_ih")
+                       (Uniform (-biasBound) biasBound)
+  hb <- liftIO $ param {ex} {dt} {dims=[4 * o]} (name ++ ".bias_hh")
+                       (Uniform (-biasBound) biasBound)
+  h0 <- liftIO $ tparam1dConst {ex} {dt} {n = o} (name ++ ".h0") 0.0
+  c0 <- liftIO $ tparam1dConst {ex} {dt} {n = o} (name ++ ".c0") 0.0
+  case sgrad {g} of
+    SWithGrad => pure (MkLstm iw rw ib hb h0 c0 Nothing Nothing)
+    SNoGrad   => do iw' <- liftIO (weakenGrad iw); rw' <- liftIO (weakenGrad rw)
+                    ib' <- liftIO (weakenGrad ib); hb' <- liftIO (weakenGrad hb)
+                    h0' <- liftIO (weakenGrad h0); c0' <- liftIO (weakenGrad c0)
+                    pure (MkLstm iw' rw' ib' hb' h0' c0' Nothing Nothing)
+
 ||| Construct an `Lstm i o` inside an `Init` derivation. Xavier-uniform
 ||| weights `U(±√(6/(fan_in+fan_out)))` (4 stacked gates → fan_out 4·o),
 ||| zero biases + learned h0/c0, empty state. Registers

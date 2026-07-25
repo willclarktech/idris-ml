@@ -323,6 +323,18 @@
         ]
       },
       {
+        "name": "Verify paired examples share shapes and init",
+        "run": "make test-integration-lint-init-manifest",
+        "comment": [
+          "Runs both sides under IDRISML_DUMP_INIT, which makes each dump its",
+          "freshly-constructed parameters to safetensors and exit before",
+          "training, then diffs shapes exactly and init moments within a band.",
+          "Four init divergences reached main before this existed (dense",
+          "2026-07-29; conv, recurrent and attention 2026-07-31), every one of",
+          "them found by a human reading two files side by side."
+        ]
+      },
+      {
         "name": "Verify convergence-campaign expect coverage",
         "run": "make test-integration-lint-convergence-expect-coverage",
         "comment": [

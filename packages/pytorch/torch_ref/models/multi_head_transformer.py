@@ -101,7 +101,11 @@ class MultiHeadTransformer(nn.Module):
         self.head_dim = d_model // num_heads
         self.ff_dim = ff_dim or 4 * d_model
 
-        self.token_embed = nn.Linear(vocab_size, d_model, bias=False)
+        # `nn.Embedding`, not a `nn.Linear` over one-hot: the two compute the
+        # same thing, but Linear stores its weight [d_model, vocab] while
+        # Embedding (and Idris `Nn.Embedding`) stores [vocab, d_model]. The
+        # transposed layout made the two sides' parameters incomparable.
+        self.token_embed = nn.Embedding(vocab_size, d_model)
         self.register_buffer("pos_enc", self._sinusoidal_pe(seq_len, d_model))
 
         mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1)
@@ -141,8 +145,12 @@ class MultiHeadTransformer(nn.Module):
         projections included — so one `init_linear_` call covers the block,
         matching `Nn.attention` and `Nn.transformerBlock`'s `U(±1/√fan_in)`.
         All of them are `bias=False`, so the zero-bias half is a no-op.
+
+        `init_linear_` walks `nn.Linear` only, so the token embedding takes its
+        own N(0, 0.02) — the HuggingFace convention Idris `Nn.embedding` uses.
         """
         init_linear_(self)
+        nn.init.normal_(self.token_embed.weight, mean=0.0, std=0.02)
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward pass.
@@ -158,7 +166,9 @@ class MultiHeadTransformer(nn.Module):
         if unbatched:
             x = x.unsqueeze(0)
 
-        h = self.token_embed(x) + self.pos_enc
+        # The external API stays one-hot; `argmax` recovers the indices
+        # `nn.Embedding` wants. Exact for one-hot input.
+        h = self.token_embed(x.argmax(dim=-1)) + self.pos_enc
 
         for block in self.blocks:
             h = block(h)
